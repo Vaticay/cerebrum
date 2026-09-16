@@ -250,6 +250,52 @@ await test("tampered bundle fails closed", async () => {
   assert.ok(threw, "tampered ciphertext must not decrypt");
 });
 
+
+await test("outbound session emits prekey messages until it receives a reply", async () => {
+  // vodozemac semantics (verified empirically): an outbound session keeps
+  // producing type-0 prekey messages until it has DECRYPTED a message from
+  // the peer. The messaging layer must therefore open repeated prekeys
+  // with the EXISTING session — createInboundSession fails for them (the
+  // one-time key is already consumed).
+  const { bob, sAB } = await makePair();
+  const m1 = sAB.encrypt("one");
+  const m2 = sAB.encrypt("two");
+  const m3 = sAB.encrypt("three");
+  assert.equal(m1.type, 0);
+  assert.equal(m2.type, 0, "still prekey before any reply");
+  assert.equal(m3.type, 0, "still prekey before any reply");
+  const inbound = bob.createInboundSession(m1.body);
+  assert.equal(inbound.plaintext, "one");
+  const sBA = inbound.session;
+  // Repeated prekeys from the SAME sender session open with the existing
+  // session — no new inbound session, no new one-time key.
+  assert.equal(sBA.decrypt(m2.type, m2.body), "two");
+  assert.equal(sBA.decrypt(m3.type, m3.body), "three");
+  // A prekey from a DIFFERENT sender session does NOT open here.
+  const { sAB: sAB2 } = await makePair();
+  const other = sAB2.encrypt("stranger");
+  assert.throws(() => sBA.decrypt(other.type, other.body), /./, "foreign prekey must not open");
+  // After the session receives a reply it transitions to normal messages.
+  const reply = sBA.encrypt("got them");
+  assert.equal(reply.type, 1, "inbound session sends normal messages");
+  assert.equal(sAB.decrypt(reply.type, reply.body), "got them");
+  const m4 = sAB.encrypt("four");
+  assert.equal(m4.type, 1, "outbound transitions after receiving");
+  assert.equal(sBA.decrypt(m4.type, m4.body), "four");
+});
+
+await test("failed decrypt does not corrupt the session", async () => {
+  const { bob, sAB } = await makePair();
+  const m1 = sAB.encrypt("real");
+  const inbound = bob.createInboundSession(m1.body);
+  const sBA = inbound.session;
+  const tampered = { type: 0, body: m1.body.slice(0, -4) + "AAAA" };
+  assert.throws(() => sBA.decrypt(tampered.type, tampered.body), /./, "tampered prekey throws");
+  // The session still works afterwards.
+  const m2 = sAB.encrypt("after");
+  assert.equal(sBA.decrypt(m2.type, m2.body), "after");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   for (const f of failures) console.error(`\n${f.name}\n  ${f.err.stack}`);

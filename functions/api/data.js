@@ -1860,6 +1860,115 @@ export async function onRequest(context) {
       return okRes({ revoked: true, deviceId }, 200, cors);
     }
 
+    // List my own devices (settings → device management). Revoked devices
+    // are included with revokedAt set so the UI can show them as removed
+    // rather than pretending they never existed.
+    if (action === "e2ee-list-devices") {
+      const rows = await env.DB.prepare(
+        "SELECT device_id, label, identity_key, signing_key, created_at, last_seen_at, revoked_at FROM e2ee_devices WHERE user_id = ? ORDER BY last_seen_at DESC"
+      ).bind(user.id).all();
+      return okRes({
+        devices: (rows.results || []).map((d) => ({
+          deviceId: d.device_id,
+          label: d.label || "Device",
+          // Public keys only — needed so the client can derive symmetric
+          // safety numbers (union of both users' active device keys).
+          identityKey: d.identity_key,
+          signingKey: d.signing_key,
+          createdAt: d.created_at,
+          lastSeenAt: d.last_seen_at,
+          revokedAt: d.revoked_at || null,
+        })),
+      }, 200, cors);
+    }
+
+    // Zero-knowledge backup bundle: store the opaque object the client
+    // built with recovery.js (AES-GCM under Argon2id(recovery phrase)).
+    // One row per (user, device) — a second device never silently
+    // overwrites the first's backup. The server validates SHAPE and SIZE
+    // only — it must never decrypt, parse the plaintext of, or otherwise
+    // interpret the bundle.
+    if (action === "e2ee-backup-put") {
+      const b = body && body.bundle;
+      const deviceId = typeof body.device_id === "string" ? body.device_id : "";
+      if (!isDeviceId(deviceId)) return errRes("Bad device_id.", 400, "bad_request", cors);
+      const okShape = b && typeof b === "object" &&
+        b.v === 1 && b.kdf === "argon2id" &&
+        typeof b.salt === "string" && typeof b.iv === "string" &&
+        typeof b.ciphertext === "string";
+      if (!okShape) return errRes("Bad backup bundle.", 400, "bad_request", cors);
+      const raw = JSON.stringify(b);
+      if (raw.length > 32768) return errRes("Backup bundle too large.", 413, "too_large", cors);
+      // Bound rows per user: a malicious client could otherwise mint
+      // unlimited device ids and fill the table. Updating an EXISTING
+      // device's row is always allowed; only NEW rows count against the cap.
+      const MAX_BACKUPS_PER_USER = 10;
+      const existing = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM e2ee_backups WHERE user_id = ? AND device_id != ?"
+      ).bind(user.id, deviceId).first();
+      if ((existing?.n || 0) >= MAX_BACKUPS_PER_USER) {
+        return errRes("Too many backed-up devices. Remove one in settings first.", 413, "too_many_backups", cors);
+      }
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO e2ee_backups (user_id, device_id, label, bundle, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, device_id) DO UPDATE SET label = excluded.label, bundle = excluded.bundle, updated_at = excluded.updated_at"
+      ).bind(user.id, deviceId, cleanDeviceLabel(body.label), raw, now).run();
+      return okRes({ stored: true, updatedAt: now }, 200, cors);
+    }
+
+    // Fetch my backup bundles (opaque — handed to the client, which
+    // decrypts the chosen one locally with the recovery phrase). The list
+    // carries labels + timestamps so the restore UI can say "iPhone —
+    // backed up Sep 16". Empty list is a 200, not a 404.
+    if (action === "e2ee-backup-get") {
+      const rows = await env.DB.prepare(
+        "SELECT device_id, label, bundle, updated_at FROM e2ee_backups WHERE user_id = ? ORDER BY updated_at DESC"
+      ).bind(user.id).all();
+      const backups = [];
+      for (const row of rows.results || []) {
+        let bundle = null;
+        try { bundle = JSON.parse(row.bundle); } catch { continue; }
+        backups.push({ deviceId: row.device_id, label: row.label || "Device", updatedAt: row.updated_at, bundle });
+      }
+      return okRes({ backups }, 200, cors);
+    }
+
+    // Public device directory: who the peer IS, without spending their
+    // one-time keys. Readiness checks, safety numbers, and the send path's
+    // session inventory all use this — e2ee-claim-keys is reserved for the
+    // moment a NEW outbound session actually needs a fresh one-time key.
+    // Revoked devices are included WITH their revokedAt so clients fail
+    // closed on them and safety numbers detect the change. Consumes
+    // nothing, so polling it is cheap and safe.
+    //
+    // Anti-enumeration: a missing user, an undiscoverable user, a blocked
+    // pair, and a user with no E2EE devices ALL return the identical
+    // `{ devices: [] }` shape. There is no 404-vs-200 delta to probe.
+    if (action === "e2ee-peer-devices") {
+      if (!(await checkRateLimit(env, `e2ee-dir:${user.id}`, 60, 60000))) {
+        return errRes("Too many requests. Please wait a moment.", 429, "rate_limited", { ...cors, "Retry-After": "60" });
+      }
+      const targetId = safeId(body.target_user_id);
+      const empty = () => okRes({ devices: [] }, 200, cors);
+      if (!targetId || targetId === user.id) return empty();
+      const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
+      if (!target || target.discoverable === 0) return empty();
+      if (await isBlockedPair(env, user.id, targetId)) return empty();
+      const deviceRows = await env.DB.prepare(
+        "SELECT device_id, label, identity_key, signing_key, last_seen_at, revoked_at FROM e2ee_devices WHERE user_id = ? ORDER BY last_seen_at DESC"
+      ).bind(targetId).all();
+      return okRes({
+        devices: (deviceRows.results || []).map((d) => ({
+          deviceId: d.device_id,
+          label: d.label || "Device",
+          identityKey: d.identity_key,
+          signingKey: d.signing_key,
+          lastSeenAt: d.last_seen_at,
+          revokedAt: d.revoked_at || null,
+        })),
+      }, 200, cors);
+    }
+
     // Claim the key bundle needed to start Olm sessions with another user:
     // every active device's identity + signed prekey, plus ONE unclaimed
     // one-time prekey per device (claimed atomically — the UPDATE's
@@ -1867,6 +1976,11 @@ export async function onRequest(context) {
     // where two concurrent claims grab the same key). When the pool is
     // empty the device's fallback key is returned instead (Olm fallback
     // semantics: reusable until rotated, unlike one-time keys).
+    //
+    // `device_ids` (optional): claim ONLY for these devices. The send path
+    // uses the non-consuming e2ee-peer-devices directory for its session
+    // inventory and claims here solely for devices that need a NEW
+    // session — so a send to N known devices consumes ZERO one-time keys.
     //
     // Anti-enumeration: a missing user, an undiscoverable user, a blocked
     // pair, and a user with no E2EE devices ALL return the identical
@@ -1881,12 +1995,24 @@ export async function onRequest(context) {
       const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
       if (!target || target.discoverable === 0) return empty();
       if (await isBlockedPair(env, user.id, targetId)) return empty();
+      let onlyIds = null;
+      if (body.device_ids !== undefined) {
+        if (!Array.isArray(body.device_ids) || body.device_ids.length === 0 || body.device_ids.length > 32) {
+          return errRes("Bad device_ids.", 400, "bad_request", cors);
+        }
+        onlyIds = new Set();
+        for (const id of body.device_ids) {
+          if (!isDeviceId(id)) return errRes("Bad device_ids.", 400, "bad_request", cors);
+          onlyIds.add(id);
+        }
+      }
       const deviceRows = await env.DB.prepare(
         "SELECT device_id, identity_key, signing_key, signed_prekey, prekey_sig, fallback_key, fallback_sig FROM e2ee_devices WHERE user_id = ? AND revoked_at IS NULL"
       ).bind(targetId).all();
       const now = Date.now();
       const devices = [];
       for (const d of deviceRows.results || []) {
+        if (onlyIds && !onlyIds.has(d.device_id)) continue;
         let oneTimeKey = null;
         // Two attempts: if we lose a concurrent-claim race on the first,
         // try once more before falling back to the fallback key.

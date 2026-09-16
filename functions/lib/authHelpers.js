@@ -691,6 +691,15 @@ export async function ensureSocialTables(env) {
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS e2ee_threads (thread_id TEXT PRIMARY KEY, protocol TEXT NOT NULL, encrypted_since INTEGER NOT NULL, upgraded_by TEXT NOT NULL)"
   );
+  // Zero-knowledge backup bundles: the server stores ONLY the opaque
+  // AES-GCM ciphertext produced by recovery.js (key derived from the
+  // user's 24-word phrase via Argon2id, which the server never sees).
+  // One row per (user, device): each device backs up its own identity, so
+  // a second device never silently overwrites the first's backup. The
+  // server MUST NOT parse, decrypt, or otherwise interpret `bundle`.
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS e2ee_backups (user_id TEXT NOT NULL, device_id TEXT NOT NULL, label TEXT, bundle TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, device_id))"
+  );
   // Additive columns on the live `messages` table. `msg_kind` defaults to
   // 'plaintext-legacy' so every pre-E2EE row is honestly labeled; the
   // server sets 'cipher' on the way in for encrypted threads and rejects

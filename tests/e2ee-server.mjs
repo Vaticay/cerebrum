@@ -160,12 +160,25 @@ await test("claim-keys is atomic and anti-enumerating", async () => {
   srcHas(dataJs, "upd.meta", "changes checked");
   srcHas(dataJs, "changes > 0", "lost race detected");
   srcHas(dataJs, "e2ee-claim:${user.id}", "dedicated rate-limit key");
+  srcHas(dataJs, "body.device_ids", "targeted claims accepted");
+  srcHas(dataJs, "onlyIds.has(d.device_id)", "unlisted devices skipped — no wasted one-time keys");
   // One identical empty shape for missing/self/undiscoverable/blocked/keyless.
   const claimBlock = dataJs.slice(dataJs.indexOf('action === "e2ee-claim-keys"'));
   const emptyCount = (claimBlock.match(/return empty\(\)/g) || []).length;
   assert.ok(emptyCount >= 3, `expected ≥3 anti-enumeration exits, found ${emptyCount}`);
   srcHas(dataJs, "target.discoverable === 0", "undiscoverable covered");
   srcHas(dataJs, "isBlockedPair(env, user.id, targetId)) return empty()", "blocked covered");
+});
+
+await test("peer-devices directory is non-consuming and exposes revocation", async () => {
+  srcHas(dataJs, "e2ee-peer-devices", "directory endpoint");
+  const at = dataJs.indexOf('action === "e2ee-peer-devices"');
+  const end = dataJs.indexOf('action === "e2ee-claim-keys"', at);
+  const blk = dataJs.slice(at, end);
+  assert.ok(!/one_time_prekeys/i.test(blk), "directory never touches the one-time-key pool");
+  assert.ok(blk.includes("revoked_at"), "revoked devices visible with revokedAt");
+  assert.ok(blk.includes("revokedAt"), "revokedAt in the response shape");
+  assert.ok(/return empty\(\)/.test(blk), "anti-enumeration preserved");
 });
 
 await test("publish-device validates key formats", async () => {
@@ -235,6 +248,51 @@ await test("ensureSocialTables self-heals the E2EE schema", async () => {
 
 await test("MAX_PREKEY_BATCH is sane", async () => {
   assert.ok(MAX_PREKEY_BATCH >= 50 && MAX_PREKEY_BATCH <= 500);
+});
+
+// ── Phase 1.4: backup + device list ─────────────────────────────────────
+
+await test("backup endpoints store the bundle opaquely, never interpreting it", async () => {
+  const schema = schemaSql;
+  const helpers = authHelpers;
+  srcHas(dataJs, "e2ee-backup-put");
+  srcHas(dataJs, "e2ee-backup-get", "fetch own bundles");
+  srcHas(dataJs, "e2ee_backups", "backups table");
+  srcHas(schema, "PRIMARY KEY (user_id, device_id)", "one backup per device — no silent overwrite");
+  srcHas(helpers, "PRIMARY KEY (user_id, device_id)", "self-heal matches schema");
+  srcHas(dataJs, "ON CONFLICT(user_id, device_id)", "upsert targets the per-device row");
+  // The server must never decrypt or parse the plaintext of the bundle —
+  // shape + size validation only. (Comments are stripped first so the
+  // "never decrypt" policy comment itself can't trip the check.)
+  const at = dataJs.indexOf('if (action === "e2ee-backup-put")');
+  const end = dataJs.indexOf('if (action === "e2ee-backup-get")', at);
+  const blk = dataJs.slice(at, end).replace(/\/\/[^\n]*/g, "");
+  assert.ok(blk.includes("ciphertext"), "bundle shape validated");
+  assert.ok(blk.includes("32768"), "size cap enforced");
+  assert.ok(blk.includes("isDeviceId(deviceId)"), "device_id validated");
+  assert.ok(!/decrypt/i.test(blk), "no decryption server-side, ever");
+});
+
+await test("backup rows are bounded per user; updating your own row is always allowed", async () => {
+  const at = dataJs.indexOf('if (action === "e2ee-backup-put")');
+  const end = dataJs.indexOf('if (action === "e2ee-backup-get")', at);
+  const blk = dataJs.slice(at, end).replace(/\/\/[^\n]*/g, "");
+  assert.ok(blk.includes("MAX_BACKUPS_PER_USER"), "per-user cap defined");
+  assert.ok(blk.includes("too_many_backups"), "cap enforced with a typed error");
+  // The count excludes the device's OWN row: re-uploading your backup
+  // (the normal case) never trips the cap.
+  assert.ok(blk.includes("device_id != ?"), "own row excluded from the count");
+});
+
+await test("list-devices exposes own devices with revocation state", async () => {
+  srcHas(dataJs, "e2ee-list-devices");
+  srcHas(dataJs, "revoked_at", "revocation state surfaced");
+  srcHas(dataJs, "signingKey: d.signing_key", "Ed25519 keys exposed for symmetric safety numbers");
+});
+
+await test("schema.sql + self-heal cover the backups table", async () => {
+  srcHas(schemaSql, "CREATE TABLE IF NOT EXISTS e2ee_backups");
+  srcHas(authHelpers, "e2ee_backups", "backups table self-heals");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

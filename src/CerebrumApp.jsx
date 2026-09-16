@@ -1,5 +1,5 @@
 import { contextAction } from "../functions/lib/conversation.js";
-import { ensureE2EEDevice, encryptMessage, decryptThreadMessages } from "./e2ee/messaging.js";
+import { ensureE2EEDevice, encryptMessage, decryptThreadMessages, restoreFromPhrase, listBackups, uploadBackupNow, getRecoveryPhrase, confirmRecoveryPhrase, getBackupInfo, listDevices, revokeDevice, upgradeThread, isPeerEncryptionReady, getSafetyNumber, markSafetyNumberVerified, clearSafetyNumberVerified, clearE2EEMemory } from "./e2ee/messaging.js";
 /* Inlined from investigationHistory.js — a one-function module was a
    deployment hazard (Cloudflare failed the build when the file was
    absent/misnamed). One history entry per conversation, refreshed after
@@ -935,6 +935,7 @@ function Icon({ name, size = 17, className, style }) {
     case "chart": return <svg {...common}><path d="M3 3v18h18" /><path d="M7 17v-5M12 17V8M17 17v-9" /></svg>;
     case "gauge": return <svg {...common}><path d="M4.5 19a9 9 0 1115 0" /><path d="M12 15l4.5-4.5" /><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none" /></svg>;
     case "shield": return <svg {...common}><path d="M12 2.5l8 3.2v5.8c0 5.2-3.4 8.9-8 10.3-4.6-1.4-8-5.1-8-10.3V5.7z" /></svg>;
+    case "lock": return <svg {...common}><rect x="5" y="10.5" width="14" height="9.5" rx="2" /><path d="M8 10.5V7.5a4 4 0 018 0v3" /></svg>;
     case "brain": return <svg {...common}><circle cx="12" cy="5.2" r="1.9" /><circle cx="5.7" cy="16" r="1.9" /><circle cx="18.3" cy="16" r="1.9" /><path d="M12 7.1v3.3M12 10.4L7.1 14.4M12 10.4l4.9 4" /></svg>;
     case "partial": return <svg {...common}><path d="M4 13c1.6-2.6 3.2-2.6 4.8 0s3.2 2.6 4.8 0 3.2-2.6 4.8 0" /></svg>;
     case "printer": return <svg {...common}><path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1.5" /><path d="M6 17v4h12v-4" /></svg>;
@@ -15218,6 +15219,16 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [blockBusy, setBlockBusy] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [hoverMsgId, setHoverMsgId] = useState(null);
+  // E2EE Phase 1.4 — per-thread encryption UI. `upgradeInfo` is null when
+  // the banner doesn't apply, { checking } while probing, or
+  // { ready } once we know whether the peer can upgrade. `safetyChanged`
+  // is the loud banner when a verified number stops matching.
+  // `safetyModal` is null | { loading } | the getSafetyNumber() result.
+  const [upgradeInfo, setUpgradeInfo] = useState(null);
+  const [upgrading, setUpgrading] = useState(false);
+  const [safetyChanged, setSafetyChanged] = useState(false);
+  const [safetyModal, setSafetyModal] = useState(null);
+  const [safetyBusy, setSafetyBusy] = useState("");
   // Commit 56 — attachments. `attachBusy` covers both the compression pass
   // and the upload, so the composer can't fire twice on a slow phone.
   const msgPaneRef = useRef(null);
@@ -15428,8 +15439,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 // the envelope is ciphertext and the plaintext belongs on
                 // this device, not in a notification tray.
                 const isCipher = next.encrypted && fresh.msgKind === "cipher";
+                // Generic notifications for encrypted threads: never the
+                // content, never even "encrypted" metadata beyond the bare
+                // fact of a message. Exactly "New message."
                 const body = isCipher
-                  ? (fresh.e2ee && fresh.e2ee.ok ? "New encrypted message" : "A new message couldn't be decrypted")
+                  ? "New message."
                   : (fresh.text || "Sent an attachment").slice(0, 140);
                 cbNotify(fresh.who || next.name || "New message", body, "cb-msg-" + activeId, "message");
               }
@@ -15459,6 +15473,103 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     const pollId = setInterval(() => refresh(false), 5000);
     return () => { cancelled = true; clearInterval(pollId); };
   }, [activeId]);
+
+  // E2EE Phase 1.4 — per-thread encryption UI state. Runs when the open
+  // thread's identity/encryption changes (not on every poll: the deps are
+  // primitives, so message traffic doesn't retrigger the probes).
+  const threadPeerId = activeThread?.otherId;
+  const threadIsEncrypted = !!activeThread?.encrypted;
+  const threadKind = activeThread?.kind;
+  useEffect(() => {
+    let cancelled = false;
+    setUpgradeInfo(null);
+    setSafetyChanged(false);
+    if (threadKind !== "dm" || !threadPeerId) return;
+    if (threadIsEncrypted) {
+      // Encrypted DM: does the live number still match what was verified?
+      getSafetyNumber(apiDataAction, threadPeerId)
+        .then((s) => { if (!cancelled) setSafetyChanged(!!s.changed); })
+        .catch(() => {});
+      return;
+    }
+    // Plaintext DM: is an upgrade on the table? Only when THIS device is
+    // set up — otherwise Settings is the entry point, not a banner here.
+    setUpgradeInfo({ checking: true });
+    (async () => {
+      try {
+        const mine = await getRecoveryPhrase().catch(() => null);
+        if (cancelled) return;
+        if (!mine) { setUpgradeInfo(null); return; }
+        const ready = await isPeerEncryptionReady(apiDataAction, threadPeerId).catch(() => false);
+        if (!cancelled) setUpgradeInfo({ checking: false, ready: !!ready });
+      } catch {
+        if (!cancelled) setUpgradeInfo(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeId, threadKind, threadPeerId, threadIsEncrypted]);
+
+  const doUpgradeThread = async () => {
+    if (upgrading || !activeId) return;
+    setUpgrading(true);
+    try {
+      await upgradeThread(apiDataAction, activeId);
+      toast("Encrypted messaging is on for this conversation.");
+      // Optimistic: the 5s poll would catch up, but the badge and banner
+      // should flip now.
+      setActiveThread((t) => (t ? { ...t, encrypted: true } : t));
+      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, encrypted: true } : t)));
+      setUpgradeInfo(null);
+    } catch (e) {
+      toast(e.message || "Couldn't turn on encrypted messaging.", { tone: "error" });
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
+  const openSafetyModal = async () => {
+    if (!threadPeerId) return;
+    setMenuOpen(false);
+    setSafetyModal({ loading: true });
+    try {
+      const s = await getSafetyNumber(apiDataAction, threadPeerId);
+      setSafetyModal({ loading: false, ...s });
+    } catch (e) {
+      setSafetyModal(null);
+      toast(e.message || "Couldn't load the security numbers.", { tone: "error" });
+    }
+  };
+
+  const doMarkSafetyVerified = async () => {
+    if (safetyBusy || !threadPeerId) return;
+    setSafetyBusy("verify");
+    try {
+      await markSafetyNumberVerified(apiDataAction, threadPeerId);
+      const s = await getSafetyNumber(apiDataAction, threadPeerId);
+      setSafetyModal({ loading: false, ...s });
+      setSafetyChanged(false);
+      toast("Marked as verified.");
+    } catch (e) {
+      toast(e.message || "Couldn't save that.", { tone: "error" });
+    } finally {
+      setSafetyBusy("");
+    }
+  };
+
+  const doForgetSafetyVerified = async () => {
+    if (safetyBusy || !threadPeerId) return;
+    setSafetyBusy("forget");
+    try {
+      await clearSafetyNumberVerified(threadPeerId);
+      const s = await getSafetyNumber(apiDataAction, threadPeerId);
+      setSafetyModal({ loading: false, ...s });
+      toast("Verification cleared.");
+    } catch (e) {
+      toast(e.message || "Couldn't clear that.", { tone: "error" });
+    } finally {
+      setSafetyBusy("");
+    }
+  };
 
   const sendMessage = async (attachment) => {
     const text = draft.trim();
@@ -15668,6 +15779,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         {t.unread && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />}
                         <span style={{ fontSize: FONT_SIZES.small, fontWeight: t.unread ? 800 : 600, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+                        {/* E2EE Phase 1.4 — list badge ONLY when the server
+                            says encrypted. Same promise as the header badge. */}
+                        {t.encrypted && <Icon name="lock" size={11} style={{ color: STATUS.good, flexShrink: 0 }} title="Encrypted" />}
                       </span>
                       <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                     </span>
@@ -15691,7 +15805,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   </button>
                 )}
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</div>
+                    {/* E2EE Phase 1.4 — the badge renders ONLY when the server
+                        says this thread is encrypted. No badge on plaintext
+                        threads, ever: a badge is a promise. */}
+                    {activeThread.encrypted && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 100, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>
+                        <Icon name="lock" size={11} /> Encrypted
+                      </span>
+                    )}
+                  </div>
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{subtitle}</div>}
                 </div>
               </div>
@@ -15745,6 +15869,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: STATUS.bad, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
+                        {/* E2EE Phase 1.4 — safety numbers. Only on encrypted
+                            DMs: there's nothing to verify on a plaintext
+                            thread. */}
+                        {activeThread.encrypted && (
+                          <button onClick={openSafetyModal} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                            <Icon name="shield" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Verify encryption
+                          </button>
+                        )}
                       </div>
                     </>)}
                   </div>
@@ -15755,6 +15887,40 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               <div style={{ padding: "10px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
                 <Icon name="block" size={14} style={{ color: STATUS.bad, flexShrink: 0 }} />
                 You've blocked {activeThread.name}. Neither of you can message or call here until you unblock.
+              </div>
+            )}
+            {/* E2EE Phase 1.4 — safety number changed on an encrypted DM.
+                Loud, and it doesn't go away until the user checks: a
+                changed number can mean a new device — or someone else. */}
+            {safetyChanged && activeThread.encrypted && !activeThread.blocked && (
+              <div style={{ padding: "10px 24px", background: withAlpha(STATUS.bad, 0.1), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <Icon name="warning" size={15} style={{ color: STATUS.bad, flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                  The security numbers changed — {activeThread.name}'s devices changed. Make sure this was them before continuing.
+                </span>
+                <button onClick={openSafetyModal} style={{ padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(STATUS.bad, 0.14), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+                  Check numbers
+                </button>
+              </div>
+            )}
+            {/* E2EE Phase 1.4 — per-thread upgrade prompt. Only when this
+                device is set up AND the peer is ready; otherwise the banner
+                would nag about something the user can't act on. */}
+            {upgradeInfo && !upgradeInfo.checking && !activeThread.encrypted && !activeThread.blocked && (
+              <div style={{ padding: "10px 24px", background: withAlpha(accent, 0.07), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <Icon name="lock" size={14} style={{ color: accent, flexShrink: 0 }} />
+                {upgradeInfo.ready ? (<>
+                  <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                    Turn on encrypted messaging for this conversation — only you and {activeThread.name} will be able to read new messages.
+                  </span>
+                  <button onClick={doUpgradeThread} disabled={upgrading} style={{ padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100, cursor: upgrading ? "default" : "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", opacity: upgrading ? 0.6 : 1 }}>
+                    {upgrading ? "Turning on…" : "Turn on"}
+                  </button>
+                </>) : (
+                  <span style={{ fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                    Waiting for {activeThread.name} to set up encrypted messaging.
+                  </span>
+                )}
               </div>
             )}
             {/* Commit 87 — messages sat at the TOP of the pane.
@@ -15799,8 +15965,20 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   return d.toLocaleDateString(undefined, { month: "long", day: "numeric", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
                 })();
                 const timeLabel = m.createdAt ? new Date(m.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+                // E2EE Phase 1.4 — legacy divider. The first encrypted
+                // message after plaintext history gets a marker: everything
+                // above it was readable by the server, everything below it
+                // wasn't. Skipped rows (other-device) don't count as
+                // history either way.
+                const showLegacyDivider = isCipher && activeThread.messages.slice(0, i).some((x) => !(x.e2ee && x.e2ee.skipped) && x.msgKind !== "cipher");
                 return (
                 <React.Fragment key={key}>
+                {showLegacyDivider && (
+                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 14px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.02em", border: `1px solid ${P.line}`, borderRadius: 100, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
+                    Messages before encryption — these were readable by the server
+                  </div>
+                )}
                 {showDay && (
                   <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>{dayLabel}</div>
                 )}
@@ -16041,6 +16219,78 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         messageId={reportModal.messageId}
         onClose={() => setReportModal(null)}
       />
+    )}
+    {/* E2EE Phase 1.4 — safety number comparison. The number is symmetric:
+        both sides derive the same digits from the same device records, so
+        comparing them out of band proves nobody added a device in the
+        middle. Plain language throughout: "security numbers", never the
+        crypto vocabulary. */}
+    {safetyModal && activeThread && (
+      <ModalChrome
+        label="Verify encryption" eyebrow="Encrypted messaging"
+        title={`Verify ${activeThread.name}`}
+        onClose={() => setSafetyModal(null)} accent={accent}
+        P={P} drawer={isMobile} width={560}
+      >
+        {(() => {
+          // ModalChrome's centered mode is dark instrument-glass; the
+          // mobile drawer follows the theme. Text colors follow suit.
+          const mInk = isMobile ? P.ink : "#f2f4f2";
+          const mDim = isMobile ? P.ink2 : "rgba(242,244,242,0.75)";
+          const mFaint = isMobile ? P.faint : "rgba(242,244,242,0.5)";
+          const mCard = isMobile ? (P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)") : "rgba(255,255,255,0.04)";
+          const mLine = isMobile ? P.line : "rgba(255,255,255,0.08)";
+          return safetyModal.loading ? (
+            <div style={{ padding: "32px 0", textAlign: "center", color: mFaint, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
+              Loading security numbers…
+            </div>
+          ) : (<>
+            {safetyModal.changed && (
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", borderRadius: 12, background: withAlpha(STATUS.bad, 0.12), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, marginBottom: 16 }}>
+                <Icon name="warning" size={17} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: mInk, fontFamily: "var(--cb-font)" }}>
+                  <strong>The security numbers changed.</strong> {activeThread.name}'s devices changed since you last verified. Make sure this was them — a new phone, a reinstalled app — before continuing. If you can't confirm it, don't send anything sensitive.
+                </div>
+              </div>
+            )}
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8,
+              padding: 16, borderRadius: 12, background: mCard,
+              border: `1px solid ${mLine}`, marginBottom: 14,
+            }}>
+              {(safetyModal.number || "").split(" ").map((g, i) => (
+                <div key={i} style={{
+                  textAlign: "center", padding: "8px 4px", borderRadius: 8,
+                  background: isMobile && !P.dark ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)",
+                  fontSize: FONT_SIZES.body, fontWeight: 700, letterSpacing: "0.08em",
+                  color: mInk, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  userSelect: "all",
+                }}>{g}</div>
+              ))}
+            </div>
+            <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.6, color: mDim, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
+              Compare these numbers with {activeThread.name} on a call or in person. If they match, your conversation is private — no one else can read it.
+            </div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: mFaint, fontFamily: "var(--cb-font)", marginBottom: 18 }}>
+              Covers {safetyModal.deviceCount} of {activeThread.name}'s device{safetyModal.deviceCount === 1 ? "" : "s"} plus yours. Each of your devices has its own numbers.
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              {safetyModal.verified ? (<>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "7px 14px", borderRadius: 100, fontFamily: "var(--cb-font)" }}>
+                  <Icon name="check" size={14} /> Verified
+                </span>
+                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                  {safetyBusy === "forget" ? "Clearing…" : "Forget verification"}
+                </button>
+              </>) : (
+                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ padding: "8px 18px", fontSize: FONT_SIZES.small, fontWeight: 700, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                  {safetyBusy === "verify" ? "Saving…" : safetyModal.changed ? "I checked — it's them" : "The numbers match"}
+                </button>
+              )}
+            </div>
+          </>);
+        })()}
+      </ModalChrome>
     )}
     </>
   );
@@ -18205,6 +18455,416 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
 // re-implemented here — a privacy panel that looked subtly unlike every
 // other settings block would read as bolted on, which is the opposite of the
 // message it needs to send.
+// ── E2EE Phase 1.4 — encrypted messaging settings ────────────────────────
+// Everything here speaks plain language: "encrypted messaging",
+// "recovery phrase", "devices". The crypto vocabulary (Olm, prekeys,
+// vodozemac, AES-GCM, Argon2id, pickles) never reaches the user.
+function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
+  const [loading, setLoading] = useState(true);
+  const [setUp, setSetUp] = useState(false);
+  const [deviceId, setDeviceId] = useState(null);
+  const [phrase, setPhrase] = useState(null);           // 24-word string while visible
+  const [phraseMode, setPhraseMode] = useState(null);   // "setup" | "revealed" | null
+  const [challenges, setChallenges] = useState([]);      // [{ index, typed }]
+  const [challengeOn, setChallengeOn] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [backupInfo, setBackupInfo] = useState(null);
+  const [devices, setDevices] = useState([]);
+  const [backups, setBackups] = useState([]);
+  const [showRestore, setShowRestore] = useState(false);
+  const [restorePhrase, setRestorePhrase] = useState("");
+  const [restoreDeviceId, setRestoreDeviceId] = useState("");
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [busy, setBusy] = useState("");
+
+  const pillBtn = {
+    padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600,
+    background: withAlpha(accent, 0.16), color: accent,
+    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100,
+    cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
+  };
+  const dangerBtn = {
+    ...pillBtn, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad,
+    border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
+  };
+  const statusPill = (text, color) => (
+    <span style={{
+      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
+      padding: "4px 10px", borderRadius: 100, color, background: withAlpha(color, 0.12),
+      whiteSpace: "nowrap",
+    }}>{text}</span>
+  );
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      // getRecoveryPhrase is a safe probe: it never creates a device, so
+      // merely opening Settings can't silently enroll the user.
+      const existing = await getRecoveryPhrase().catch(() => null);
+      if (!existing) { setSetUp(false); setDeviceId(null); return; }
+      setSetUp(true);
+      const [dev, info] = await Promise.all([
+        listDevices(apiDataAction).catch(() => null),
+        getBackupInfo().catch(() => null),
+      ]);
+      setDeviceId(dev ? dev.currentDeviceId : null);
+      setDevices(dev ? dev.devices : []);
+      setBackupInfo(info);
+      setConfirmed(!!(info && info.phraseConfirmed));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const pickChallenges = () => {
+    const idx = new Set();
+    while (idx.size < 3) idx.add(Math.floor(Math.random() * 24));
+    return [...idx].sort((a, b) => a - b).map((i) => ({ index: i, typed: "" }));
+  };
+
+  const doSetup = async () => {
+    if (busy) return;
+    setBusy("setup");
+    try {
+      sfx();
+      const res = await ensureE2EEDevice(apiDataAction);
+      setDeviceId(res.deviceId);
+      setSetUp(true);
+      setPhrase(res.recoveryPhrase || await getRecoveryPhrase().catch(() => null));
+      setPhraseMode("setup");
+      setChallenges(pickChallenges());
+      setChallengeOn(false);
+      const info = await getBackupInfo().catch(() => null);
+      setBackupInfo(info);
+      setConfirmed(!!(info && info.phraseConfirmed));
+      const dev = await listDevices(apiDataAction).catch(() => null);
+      setDevices(dev ? dev.devices : []);
+    } catch (e) {
+      toast(e.message || "Couldn't set up encrypted messaging.", { tone: "error" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const words = (phrase || "").trim().split(/\s+/).filter(Boolean);
+  const challengesOk = challenges.length === 3 && words.length === 24 &&
+    challenges.every((c) => c.typed.trim().toLowerCase() === (words[c.index] || "").toLowerCase());
+
+  const doConfirmPhrase = async () => {
+    if (!challengesOk || busy) return;
+    setBusy("confirm");
+    try {
+      sfx();
+      await confirmRecoveryPhrase();
+      setConfirmed(true);
+      setChallengeOn(false);
+      setPhraseMode(null);
+      setPhrase(null);
+      toast("Recovery phrase confirmed. Back it up so you never lose access to encrypted conversations.");
+      const info = await getBackupInfo().catch(() => null);
+      setBackupInfo(info);
+    } catch (e) {
+      toast(e.message || "Couldn't confirm the phrase.", { tone: "error" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const doReveal = async () => {
+    if (busy) return;
+    setBusy("reveal");
+    try {
+      sfx();
+      const p = await getRecoveryPhrase();
+      if (!p) throw new Error("No recovery phrase on this device.");
+      setPhrase(p);
+      setPhraseMode("revealed");
+    } catch (e) {
+      toast(e.message || "Couldn't show the recovery phrase.", { tone: "error" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const doBackupNow = async () => {
+    if (busy) return;
+    setBusy("backup");
+    try {
+      sfx();
+      await uploadBackupNow(apiDataAction);
+      const info = await getBackupInfo().catch(() => null);
+      setBackupInfo(info);
+      toast("Encrypted backup saved.");
+    } catch (e) {
+      toast(e.message || "Couldn't save the backup.", { tone: "error" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const doRevoke = async (id) => {
+    if (busy) return;
+    setBusy("revoke:" + id);
+    try {
+      sfx();
+      const res = await revokeDevice(apiDataAction, id);
+      setRevokeTarget(null);
+      if (res.wasCurrent) {
+        // This device is out. Local keys are wiped; the user starts over
+        // explicitly rather than failing closed forever on a dead id.
+        clearE2EEMemory();
+        setSetUp(false);
+        setDeviceId(null);
+        setDevices([]);
+        setPhrase(null);
+        setPhraseMode(null);
+        toast("This device was removed from encrypted messaging. Set it up again to rejoin.");
+      } else {
+        toast("Device removed.");
+        const dev = await listDevices(apiDataAction).catch(() => null);
+        setDevices(dev ? dev.devices : []);
+      }
+    } catch (e) {
+      toast(e.message || "Couldn't remove that device.", { tone: "error" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const openRestore = async () => {
+    sfx();
+    setShowRestore((v) => !v);
+    if (!showRestore) {
+      try {
+        const b = await listBackups(apiDataAction).catch(() => []);
+        setBackups(b || []);
+        if (b && b.length > 0 && !restoreDeviceId) setRestoreDeviceId(b[0].deviceId);
+      } catch {}
+    }
+  };
+
+  const doRestore = async () => {
+    const p = restorePhrase.trim();
+    if (!p || busy) return;
+    setBusy("restore");
+    try {
+      sfx();
+      await restoreFromPhrase(apiDataAction, p, restoreDeviceId || null);
+      setShowRestore(false);
+      setRestorePhrase("");
+      setPhrase(null);
+      setPhraseMode(null);
+      toast("Encrypted messaging restored on this device.");
+      await refresh();
+    } catch (e) {
+      toast(e.message || "Couldn't restore from that phrase.", { tone: "error" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const backupDesc = !backupInfo ? "No backup yet."
+    : backupInfo.at ? `Last backed up ${relativeTime(backupInfo.at)}.${backupInfo.pending ? " Changes since then aren't backed up yet." : ""}`
+    : "No backup yet.";
+
+  const phraseGrid = phrase && words.length === 24 && (
+    <div style={{ padding: "14px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+        {words.map((w, i) => (
+          <div key={i} style={{
+            display: "flex", alignItems: "baseline", gap: 8, padding: "8px 10px",
+            background: P.dark ? "rgba(255,255,255,0.05)" : "#fff",
+            border: `1px solid ${P.line}`, borderRadius: 8,
+            fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+          }}>
+            <span style={{ color: P.faint, fontSize: FONT_SIZES.micro, minWidth: 18 }}>{i + 1}</span>
+            <span style={{ color: P.ink, fontWeight: 600, userSelect: "all" }}>{w}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, marginBottom: phraseMode === "setup" && !challengeOn ? 12 : 0 }}>
+        <Icon name="warning" size={15} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
+        <span>Write these down on paper and keep them somewhere safe. Anyone with these words can read your encrypted messages. Cerebrum can't recover them for you.</span>
+      </div>
+      {phraseMode === "setup" && !challengeOn && (
+        <button onClick={() => { sfx(); setChallengeOn(true); }} style={pillBtn}>I've written them down</button>
+      )}
+      {phraseMode === "setup" && challengeOn && (
+        <div style={{ marginTop: 4 }}>
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)" }}>
+            Prove you wrote them down — type the requested words:
+          </div>
+          {challenges.map((c) => (
+            <div key={c.index} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, minWidth: 74, fontFamily: "var(--cb-font)" }}>Word {c.index + 1}</span>
+              <input
+                value={c.typed}
+                onChange={(e) => setChallenges((prev) => prev.map((x) => x.index === c.index ? { ...x, typed: e.target.value } : x))}
+                autoComplete="off" autoCapitalize="off" spellCheck={false}
+                style={{
+                  flex: 1, padding: "9px 12px", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)",
+                  color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff",
+                  border: `1px solid ${P.line}`, borderRadius: 8, outline: "none",
+                }}
+              />
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={doConfirmPhrase} disabled={!challengesOk || busy === "confirm"} style={{ ...pillBtn, opacity: !challengesOk ? 0.45 : 1, cursor: !challengesOk ? "default" : "pointer" }}>
+              {busy === "confirm" ? "Confirming…" : "Confirm"}
+            </button>
+            <button onClick={() => { sfx(); setChallenges(pickChallenges()); }} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>
+              Pick different words
+            </button>
+          </div>
+        </div>
+      )}
+      {phraseMode === "revealed" && (
+        <div style={{ marginTop: 4 }}>
+          <button onClick={() => { sfx(); setPhrase(null); setPhraseMode(null); }} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>Hide</button>
+        </div>
+      )}
+    </div>
+  );
+
+  return (<>
+    <Section
+      title="Encrypted messaging"
+      footer="Encrypted conversations can only be read on your devices — not by Cerebrum, not by anyone in between. Your recovery phrase is the only way back in if you lose a device, so write it down."
+    >
+      {loading ? (
+        <Row label="Checking this device…" last />
+      ) : !setUp ? (<>
+        <Row
+          label="Encrypted messaging"
+          desc="Set it up on this device to start private conversations. You'll get a recovery phrase — the only way to get back in if you lose this device."
+          control={<button onClick={doSetup} disabled={busy === "setup"} style={pillBtn}>{busy === "setup" ? "Setting up…" : "Set up"}</button>}
+        />
+        <Row
+          label="Restore from recovery phrase"
+          desc="Already set up encrypted messaging on another device? Bring this device in with your 24-word phrase."
+          control={<button onClick={openRestore} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>{showRestore ? "Close" : "Restore"}</button>}
+          last={!showRestore}
+        />
+        {showRestore && (
+          <div style={{ padding: "14px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
+            {backups.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
+                <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none" }}>
+                  {backups.map((b) => (
+                    <option key={b.deviceId} value={b.deviceId}>{b.label} — backed up {relativeTime(b.updatedAt)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24-word recovery phrase</div>
+            <textarea
+              value={restorePhrase}
+              onChange={(e) => setRestorePhrase(e.target.value)}
+              rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
+              placeholder="Enter the 24 words in order, separated by spaces"
+              style={{ width: "100%", padding: "10px 12px", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none", resize: "vertical", marginBottom: 10 }}
+            />
+            <button onClick={doRestore} disabled={!restorePhrase.trim() || busy === "restore"} style={{ ...pillBtn, opacity: !restorePhrase.trim() ? 0.45 : 1 }}>
+              {busy === "restore" ? "Restoring…" : "Restore encrypted messaging"}
+            </button>
+          </div>
+        )}
+      </>) : (<>
+        <Row
+          label="Encrypted messaging"
+          desc="This device can send and read encrypted messages."
+          control={statusPill("On", STATUS.good)}
+        />
+        {!confirmed && (
+          <Row
+            label="Recovery phrase"
+            desc="You haven't confirmed your recovery phrase yet. Without it, losing this device means losing your encrypted conversations."
+            control={phraseMode === "setup"
+              ? <button onClick={() => { sfx(); setPhrase(null); setPhraseMode(null); }} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>Hide</button>
+              : <button onClick={doSetup} disabled={busy === "setup"} style={pillBtn}>{busy === "setup" ? "Loading…" : "Show phrase"}</button>}
+          />
+        )}
+        {confirmed && (
+          <Row
+            label="Recovery phrase"
+            desc="Written down and confirmed. You can look at it again any time."
+            control={phraseMode === "revealed"
+              ? <button onClick={() => { sfx(); setPhrase(null); setPhraseMode(null); }} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>Hide</button>
+              : <button onClick={doReveal} disabled={busy === "reveal"} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>{busy === "reveal" ? "Loading…" : "Show"}</button>}
+          />
+        )}
+        {phraseGrid}
+        <Row
+          label="Back up now"
+          desc={backupDesc}
+          control={<button onClick={doBackupNow} disabled={busy === "backup"} style={pillBtn}>{busy === "backup" ? "Saving…" : "Back up"}</button>}
+        />
+        <Row
+          label="Restore from recovery phrase"
+          desc="Move encrypted messaging to a fresh device, or recover after losing one."
+          control={<button onClick={openRestore} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>{showRestore ? "Close" : "Restore"}</button>}
+          last={!showRestore}
+        />
+        {showRestore && (
+          <div style={{ padding: "14px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
+            {backups.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
+                <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none" }}>
+                  {backups.map((b) => (
+                    <option key={b.deviceId} value={b.deviceId}>{b.label} — backed up {relativeTime(b.updatedAt)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24-word recovery phrase</div>
+            <textarea
+              value={restorePhrase}
+              onChange={(e) => setRestorePhrase(e.target.value)}
+              rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
+              placeholder="Enter the 24 words in order, separated by spaces"
+              style={{ width: "100%", padding: "10px 12px", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none", resize: "vertical", marginBottom: 10 }}
+            />
+            <button onClick={doRestore} disabled={!restorePhrase.trim() || busy === "restore"} style={{ ...pillBtn, opacity: !restorePhrase.trim() ? 0.45 : 1 }}>
+              {busy === "restore" ? "Restoring…" : "Restore encrypted messaging"}
+            </button>
+          </div>
+        )}
+      </>)}
+    </Section>
+
+    {setUp && !loading && (
+      <Section
+        title="Devices"
+        footer="Every device you use gets its own keys. Removing a device stops it from reading new messages right away — it can't sneak back in later."
+      >
+        {devices.length === 0 && <Row label="Loading devices…" last />}
+        {devices.map((d, i) => (
+          <Row
+            key={d.deviceId}
+            label={<span>{d.label || "Device"}{d.current && <span style={{ marginLeft: 8 }}>{statusPill("This device", accent)}</span>}{d.revokedAt && <span style={{ marginLeft: 8 }}>{statusPill("Removed", STATUS.bad)}</span>}</span>}
+            desc={d.revokedAt ? `Removed ${relativeTime(d.revokedAt)}` : d.lastSeenAt ? `Last active ${relativeTime(d.lastSeenAt)}` : "No recent activity"}
+            control={d.revokedAt ? null : revokeTarget === d.deviceId ? (
+              <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)" }}>Remove{d.current ? " this device" : ""}?</span>
+                <button onClick={() => doRevoke(d.deviceId)} disabled={busy === "revoke:" + d.deviceId} style={dangerBtn}>{busy === "revoke:" + d.deviceId ? "Removing…" : "Yes, remove"}</button>
+                <button onClick={() => { sfx(); setRevokeTarget(null); }} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>Keep</button>
+              </span>
+            ) : (
+              <button onClick={() => { sfx(); setRevokeTarget(d.deviceId); }} style={{ ...dangerBtn, background: "transparent" }}>Remove</button>
+            )}
+            last={i === devices.length - 1}
+          />
+        ))}
+      </Section>
+    )}
+  </>);
+}
+
 function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker }) {
   const [state, setState] = useState(null);
   const [busy, setBusy] = useState("");
@@ -19954,6 +20614,10 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Search ambience", "sound", "tone background ambient sound"],
     ["Text to speech", "answers", "elevenlabs voice narration tts"],
     ["Saved conversations", "privacy", "history conversations clear delete"],
+    // E2EE Phase 1.4 — encrypted messaging settings.
+    ["Encrypted messaging", "privacy", "encryption e2ee secure devices recovery phrase"],
+    ["Recovery phrase", "privacy", "recovery phrase backup restore"],
+    ["Devices", "privacy", "devices remove revoke"],
     ["Saved articles", "privacy", "papers sources saved storage"],
     ["Watched topics list", "privacy", "watchlist unwatch topics manage"],
     ["Export workspace", "privacy", "backup download json export"],
@@ -20448,6 +21112,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 />
               </Section>
             )}
+
+            {/* E2EE Phase 1.4 — encrypted messaging: recovery phrase, devices,
+                backups. Lives on Privacy & data because "who can read my
+                messages" is a privacy question. */}
+            <EncryptionSettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} />
           </>)}
 
           {/* Wave 3 — the contents of this old block were split where they

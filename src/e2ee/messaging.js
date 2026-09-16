@@ -1,5 +1,5 @@
 /**
- * E2EE messaging layer — Phase 1.3.
+ * E2EE messaging layer — Phase 1.4.
  *
  * Sits between the inbox UI and the API. Responsibilities:
  *
@@ -11,14 +11,19 @@
  *    creating inbound sessions from prekey messages, skipping rows meant
  *    for this user's other devices, and NEVER surfacing raw ciphertext or
  *    crashing the thread on a bad row.
+ *  - Recovery: 24-word phrase generated at setup, sealed locally, and used
+ *    to encrypt a zero-knowledge backup bundle on the server. Restore is
+ *    an explicit user flow: phrase → bundle → same identity, new device.
+ *  - Trust: safety numbers (per-peer fingerprints) with local verification
+ *    state and change detection. A session is just math until the humans
+ *    verify each other.
  *
  * What this module deliberately does NOT do:
  *  - It never sends plaintext to an encrypted thread (the server would
  *    reject it anyway — defense in depth, not trust).
- *  - It never invents key authenticity: a session is just math until the
- *    safety-number UI (Phase 1.4) lets the humans verify each other.
- *  - It never auto-recovers an account: if the local keys are gone, this
- *    device becomes a NEW device. Recovery is a user-driven flow (1.4).
+ *  - It never invents key authenticity: see safety numbers above.
+ *  - It never auto-recovers an account: if the local keys are gone and no
+ *    phrase is offered, this device becomes a NEW device.
  *
  * All errors thrown are human-readable — the inbox toasts them directly.
  */
@@ -32,11 +37,22 @@ import {
 import {
   loadAccountPickle,
   saveAccountPickle,
-  loadSessionPickle,
-  saveSessionPickle,
+  loadSessionPickles,
+  saveSessionPickles,
+  loadRecoveryPhrase,
+  saveRecoveryPhrase,
   loadMeta,
   saveMeta,
+  wipeLocalKeys,
 } from "./store.js";
+import {
+  generateRecoveryPhrase,
+  isValidRecoveryPhrase,
+  normalizePhrase,
+  encryptBackupBundle,
+  decryptBackupBundle,
+  WRONG_PHRASE,
+} from "./recovery.js";
 import { parseCipherEnvelope } from "../../functions/lib/e2eeValidate.js";
 
 // ── Tunables ──────────────────────────────────────────────────────────
@@ -44,15 +60,15 @@ import { parseCipherEnvelope } from "../../functions/lib/e2eeValidate.js";
 const PREKEY_TARGET = 100; // pool size we try to maintain server-side
 const PREKEY_LOW_WATER = 25; // top up when the server reports fewer than this
 const TOPUP_CHECK_MS = 5 * 60 * 1000; // don't ask the server more than this often
-const CLAIM_CACHE_MS = 60 * 1000; // peer key bundles are fresh for a minute
+const CLAIM_CACHE_MS = 60 * 1000; // peer device directory is fresh for a minute
 
 // ── Module state (per browser profile) ────────────────────────────────
 
 let gAccount = null; // E2EEAccount, once loaded
 let gDeviceId = null; // our 22-char device id
 let gIdentityKey = null; // our Curve25519 identity (base64)
-const gSessions = new Map(); // "peerUserId:peerDeviceId" -> E2EESession
-const gClaimCache = new Map(); // peerUserId -> { at, devices }
+const gSessionLists = new Map(); // "peerUserId:peerDeviceId" -> E2EESession[] (newest first)
+const gDirCache = new Map(); // peerUserId -> { at, devices } (non-consuming directory)
 const gDecryptCache = new Map(); // messageId -> { ok, text } | { ok:false, error }
 
 function sessionKey(peerUserId, peerDeviceId) {
@@ -90,20 +106,26 @@ function defaultDeviceLabel() {
  */
 export async function ensureE2EEDevice(apiAction) {
   await initCrypto();
+  let isNewAccount = false;
+  let recoveryPhrase = null;
   if (!gAccount) {
     const pickle = await loadAccountPickle().catch(() => null);
     if (pickle) {
       gAccount = await E2EEAccount.fromPickle(pickle);
     } else {
       // First run on this browser profile: brand-new device, brand-new
-      // identity. This is NOT recovery — if the user had keys elsewhere,
-      // those stay where they are until the recovery flow (1.4) runs.
+      // identity. The 24-word recovery phrase is generated here — it is
+      // the ONLY way to move this identity to another device. Email login
+      // and password resets can never recover it.
       gAccount = await E2EEAccount.create();
       gAccount.generateOneTimeKeys(PREKEY_TARGET);
       gAccount.generateFallbackKey();
       gDeviceId = newDeviceId();
+      isNewAccount = true;
+      recoveryPhrase = generateRecoveryPhrase();
       await saveAccountPickle(gAccount.pickle());
       await saveMeta("e2ee:deviceId", gDeviceId);
+      await saveRecoveryPhrase(recoveryPhrase);
     }
     if (!gDeviceId) {
       gDeviceId = await loadMeta("e2ee:deviceId").catch(() => null);
@@ -159,13 +181,21 @@ export async function ensureE2EEDevice(apiAction) {
   }
 
   const oneTimePrekeys = Object.entries(unpublished).map(([id, pubkey]) => ({ id, pubkey }));
+  // Zero-knowledge backup: the account pickle encrypted with the recovery
+  // phrase (Argon2id), stored opaquely on the server — the server can never
+  // decrypt it. Best-effort: a failed upload sets backupPending and retries
+  // on the next ensure. Device setup never fails over the backup.
+  if (isNewAccount || (await loadMeta("e2ee:backupPending").catch(() => 0))) {
+    const ok = await uploadBackupBundle(apiAction).then(() => true, () => false);
+    await saveMeta("e2ee:backupPending", ok ? 0 : 1).catch(() => {});
+  }
   // The inbox poll calls this on every tick: skip the network publish when
   // there is nothing new to announce and we published recently. A failed
   // publish leaves keys unpublished, so it always retries — this throttle
   // can never swallow a first publish or a top-up.
   const lastPublish = (await loadMeta("e2ee:lastPublish").catch(() => 0)) || 0;
   if (oneTimePrekeys.length === 0 && Date.now() - lastPublish < 60000) {
-    return { deviceId: gDeviceId, identityKey: gIdentityKey };
+    return { deviceId: gDeviceId, identityKey: gIdentityKey, recoveryPhrase };
   }
   const pub = await apiAction("e2ee-publish-device", {
     device_id: gDeviceId,
@@ -196,7 +226,64 @@ export async function ensureE2EEDevice(apiAction) {
   gAccount.markKeysAsPublished();
   await saveAccountPickle(gAccount.pickle());
   await saveMeta("e2ee:lastPublish", Date.now()).catch(() => {});
-  return { deviceId: gDeviceId, identityKey: gIdentityKey };
+  return { deviceId: gDeviceId, identityKey: gIdentityKey, recoveryPhrase };
+}
+
+/**
+ * Encrypt the current account pickle with the recovery phrase and store the
+ * opaque bundle on the server. Throws on failure — callers decide whether
+ * to retry (ensure) or surface (manual "back up now").
+ */
+async function uploadBackupBundle(apiAction) {
+  const phrase = await loadRecoveryPhrase().catch(() => null);
+  if (!phrase || !gAccount) throw new Error("No recovery phrase or account to back up.");
+  const bundle = await encryptBackupBundle(gAccount.pickle(), phrase);
+  await apiAction("e2ee-backup-put", { bundle, device_id: gDeviceId, label: defaultDeviceLabel() });
+  await saveMeta("e2ee:backupAt", Date.now()).catch(() => {});
+}
+
+/**
+ * My backup bundles (metadata only — labels + timestamps, no ciphertext).
+ * The restore UI lists these so the user picks WHICH device to restore.
+ */
+export async function listBackups(apiAction) {
+  const res = await apiAction("e2ee-backup-get", {});
+  return ((res && res.backups) || []).map((b) => ({
+    deviceId: b.deviceId,
+    label: b.label || "Device",
+    updatedAt: b.updatedAt,
+  }));
+}
+
+/** Manual "back up now" for Settings. Fails loudly — the user asked for it. */
+export async function uploadBackupNow(apiAction) {
+  await ensureE2EEDevice(apiAction);
+  await uploadBackupBundle(apiAction);
+  await saveMeta("e2ee:backupPending", 0).catch(() => {});
+  return { backedUp: true };
+}
+
+/** The sealed recovery phrase, or null when this device never set one up. */
+export async function getRecoveryPhrase() {
+  await initCrypto();
+  return loadRecoveryPhrase().catch(() => null);
+}
+
+export async function isRecoveryPhraseConfirmed() {
+  return !!(await loadMeta("e2ee:phraseConfirmed").catch(() => 0));
+}
+
+/** The user wrote the phrase down — stop nagging them about it. */
+export async function confirmRecoveryPhrase() {
+  await saveMeta("e2ee:phraseConfirmed", 1).catch(() => {});
+}
+
+export async function getBackupInfo() {
+  return {
+    at: (await loadMeta("e2ee:backupAt").catch(() => 0)) || 0,
+    pending: !!(await loadMeta("e2ee:backupPending").catch(() => 0)),
+    phraseConfirmed: await isRecoveryPhraseConfirmed(),
+  };
 }
 
 // ── Sentbox: our own sent plaintext, per device ─────────────────────────
@@ -231,51 +318,84 @@ async function loadSentText(mid) {
 
 // ── Sessions ──────────────────────────────────────────────────────────
 
-async function loadSession(peerUserId, peerDeviceId) {
+/**
+ * Sessions per (peer user, peer device), newest first. A small LIST, not a
+ * single session, because Olm sessions can legitimately fork: if both sides
+ * send their first message before either receives (our inbox polls every
+ * few seconds, so this happens), each side ends up with an outbound session
+ * AND an inbound-created session for the same peer device. Decrypt tries
+ * each in turn; the one that opens the message is promoted to primary.
+ * The list is capped so a pathological peer can't grow it without bound.
+ */
+const MAX_SESSIONS_PER_PEER_DEVICE = 5;
+
+/** @type {Map<string, E2EESession[]>} */
+async function loadSessions(peerUserId, peerDeviceId) {
   const key = sessionKey(peerUserId, peerDeviceId);
-  if (gSessions.has(key)) return gSessions.get(key);
-  const pickle = await loadSessionPickle(key).catch(() => null);
-  if (!pickle) return null;
-  try {
-    const s = await E2EESession.fromPickle(pickle);
-    gSessions.set(key, s);
-    return s;
-  } catch {
-    return null; // corrupt pickle — caller builds a fresh session
+  if (gSessionLists.has(key)) return gSessionLists.get(key);
+  const pickles = await loadSessionPickles(key).catch(() => null);
+  const out = [];
+  if (pickles) {
+    for (const p of pickles.slice(0, MAX_SESSIONS_PER_PEER_DEVICE)) {
+      try {
+        out.push(await E2EESession.fromPickle(p));
+      } catch {
+        // Corrupt pickle — skip it; the caller builds a fresh session.
+      }
+    }
   }
+  gSessionLists.set(key, out);
+  return out;
 }
 
-async function storeSession(peerUserId, peerDeviceId, session) {
+async function storeSessions(peerUserId, peerDeviceId, sessions) {
   const key = sessionKey(peerUserId, peerDeviceId);
-  gSessions.set(key, session);
+  const capped = sessions.slice(0, MAX_SESSIONS_PER_PEER_DEVICE);
+  gSessionLists.set(key, capped);
   // Olm sessions are stateful (the ratchet advances on every message), so
-  // the pickle is re-saved after every use, not just at creation.
-  await saveSessionPickle(key, session.pickle()).catch(() => {});
+  // pickles are re-saved after every use, not just at creation.
+  const pickles = [];
+  for (const s of capped) {
+    try {
+      pickles.push(s.pickle());
+    } catch {
+      // Unpicklable session — drop it rather than failing the send.
+    }
+  }
+  await saveSessionPickles(key, pickles).catch(() => {});
 }
 
 /**
- * Peer key bundles, cached briefly. Returns the device array from
- * e2ee-claim-keys as-is.
+ * The peer's public device directory (e2ee-peer-devices): device ids,
+ * identity keys, labels, revocation state. Consumes NOTHING server-side,
+ * so readiness checks, safety numbers, and the send path's session
+ * inventory all go through here. Cached briefly; pass { fresh: true }
+ * when revocation state must be current (the send path does).
  */
-async function claimKeys(apiAction, peerUserId) {
-  const cached = gClaimCache.get(peerUserId);
-  if (cached && Date.now() - cached.at < CLAIM_CACHE_MS) return cached.devices;
-  const res = await apiAction("e2ee-claim-keys", { target_user_id: peerUserId });
+async function listPeerDevices(apiAction, peerUserId, { fresh = false } = {}) {
+  const cached = gDirCache.get(peerUserId);
+  if (cached && !fresh && Date.now() - cached.at < CLAIM_CACHE_MS) return cached.devices;
+  const res = await apiAction("e2ee-peer-devices", { target_user_id: peerUserId });
   const devices = res?.devices || [];
-  gClaimCache.set(peerUserId, { at: Date.now(), devices });
+  gDirCache.set(peerUserId, { at: Date.now(), devices });
   return devices;
 }
 
-async function getOutboundSession(apiAction, peerUserId, device) {
-  const existing = await loadSession(peerUserId, device.deviceId);
-  if (existing) return existing;
-  const otk = device.oneTimeKey?.pubkey || device.fallbackKey;
-  if (!otk) {
-    throw new Error("Couldn't start an encrypted session with one of their devices — no keys available.");
-  }
-  const session = gAccount.createOutboundSession(device.identityKey, otk);
-  await storeSession(peerUserId, device.deviceId, session);
-  return session;
+/**
+ * Claim one-time keys for the given devices ONLY (e2ee-claim-keys with
+ * device_ids). Always fresh — a cached one-time key may already be
+ * consumed (the peer deletes each one-time key after its single use),
+ * and building a session on a dead key produces a prekey message nobody
+ * can open: silent message loss. Callers pass ONLY the devices that need
+ * a NEW outbound session, so a send to N known devices consumes ZERO
+ * one-time keys.
+ */
+async function claimKeys(apiAction, peerUserId, deviceIds) {
+  const res = await apiAction("e2ee-claim-keys", {
+    target_user_id: peerUserId,
+    device_ids: deviceIds,
+  });
+  return res?.devices || [];
 }
 
 // ── Encrypt ───────────────────────────────────────────────────────────
@@ -293,9 +413,27 @@ export async function encryptMessage({ apiAction, peerUserId, plaintext }) {
   if (!peerUserId) throw new Error("Couldn't encrypt: the conversation has no one else in it.");
   if (!plaintext) throw new Error("Couldn't encrypt an empty message.");
   const { deviceId } = await ensureE2EEDevice(apiAction);
-  const devices = await claimKeys(apiAction, peerUserId);
-  if (devices.length === 0) {
+  // Fresh directory: revocation state must be current on the send path.
+  const dir = await listPeerDevices(apiAction, peerUserId, { fresh: true });
+  const active = dir.filter((d) => !d.revokedAt);
+  if (active.length === 0) {
     throw new Error("The other person hasn't set up encrypted messaging yet.");
+  }
+  // Inventory sessions first: devices we already talk to need NO new keys.
+  const needKeys = [];
+  const sessions = new Map();
+  for (const d of active) {
+    const list = await loadSessions(peerUserId, d.deviceId);
+    if (list.length > 0) sessions.set(d.deviceId, list);
+    else needKeys.push(d.deviceId);
+  }
+  // One targeted claim for exactly the devices lacking a session. Never
+  // mint a session from a cached one-time key — a consumed key means an
+  // undecryptable prekey message (silent loss).
+  let claimed = new Map();
+  if (needKeys.length > 0) {
+    const fresh = await claimKeys(apiAction, peerUserId, needKeys);
+    for (const c of fresh) claimed.set(c.deviceId, c);
   }
   const payload = JSON.stringify({ text: plaintext });
   // One mid per send: every envelope of this fan-out shares it, so the
@@ -303,15 +441,29 @@ export async function encryptMessage({ apiAction, peerUserId, plaintext }) {
   // restore the plaintext after a reload.
   const mid = crypto.randomUUID();
   const envelopes = [];
-  for (const device of devices) {
-    const session = await getOutboundSession(apiAction, peerUserId, device);
+  for (const device of active) {
+    let list = sessions.get(device.deviceId);
+    let session = list ? list[0] : null;
+    if (!session) {
+      const c = claimed.get(device.deviceId);
+      if (!c) {
+        throw new Error("Couldn't start an encrypted session with one of their devices. Try again.");
+      }
+      const otk = c.oneTimeKey?.pubkey || c.fallbackKey;
+      if (!otk) {
+        throw new Error("Couldn't start an encrypted session with one of their devices — no keys available.");
+      }
+      session = gAccount.createOutboundSession(c.identityKey, otk);
+      list = [session];
+    }
     let msg;
     try {
       msg = session.encrypt(payload);
     } catch {
       throw new Error("Couldn't encrypt that message. Try again.");
     }
-    await storeSession(peerUserId, device.deviceId, session);
+    // Re-save: the ratchet advanced, and the primary may have changed.
+    await storeSessions(peerUserId, device.deviceId, list);
     envelopes.push({
       text: packEnvelope({
         type: msg.type,
@@ -414,11 +566,31 @@ async function decryptOne(m, myDeviceId, peerUserId) {
   const senderUserId = m.senderId;
   const senderDeviceId = env.sd;
 
+  // Try every known session for this sender device, newest first. This
+  // handles normal messages AND repeated prekey (type 0) messages from the
+  // same sender session: a vodozemac outbound session keeps emitting
+  // prekey messages until it receives a reply, and all of them open with
+  // the one session — no new one-time key is consumed.
+  let sessions = await loadSessions(senderUserId, senderDeviceId);
+  for (let i = 0; i < sessions.length; i++) {
+    try {
+      const pt = sessions[i].decrypt(env.type, env.body);
+      // Promote the working session to primary for future encrypts.
+      if (i !== 0) {
+        sessions = [sessions[i], ...sessions.filter((_, j) => j !== i)];
+      }
+      await storeSessions(senderUserId, senderDeviceId, sessions);
+      return okWithText(m, pt);
+    } catch {
+      // Not this session — try the next, or fall through to inbound.
+    }
+  }
+
+  // No known session opened it. A prekey message can start a session —
+  // this is the new-device, reinstall, and simultaneous-first-message path.
+  // (Feeding a prekey from a DIFFERENT session into an existing session
+  // throws, verified empirically; hence the try-each loop above.)
   if (env.type === 0) {
-    // A prekey message ALWAYS establishes a fresh inbound session — even
-    // when an outbound session to this sender already exists. Feeding a
-    // foreign prekey into an existing session throws (verified
-    // empirically), and the Olm spec agrees: prekey means new session.
     // The bridge returns the sender's identity key from inside the
     // message; it must match the envelope's claimed key.
     try {
@@ -426,25 +598,14 @@ async function decryptOne(m, myDeviceId, peerUserId) {
       if (inbound.senderIdentityKey !== env.sk) {
         return fail("This message failed verification and wasn't opened.");
       }
-      const session = inbound.session;
-      await storeSession(senderUserId, senderDeviceId, session);
+      await storeSessions(senderUserId, senderDeviceId, [inbound.session, ...sessions]);
       return okWithText(m, inbound.plaintext);
     } catch {
       return fail("Couldn't decrypt this message.");
     }
   }
 
-  const session = await loadSession(senderUserId, senderDeviceId);
-  if (!session) {
-    return fail("Couldn't decrypt this message — the sender may have reset their keys.");
-  }
-  try {
-    const pt = session.decrypt(env.type, env.body);
-    await storeSession(senderUserId, senderDeviceId, session);
-    return okWithText(m, pt);
-  } catch {
-    return fail("Couldn't decrypt this message.");
-  }
+  return fail("Couldn't decrypt this message — the sender may have reset their keys.");
 }
 
 function okWithText(m, plaintext) {
@@ -459,11 +620,222 @@ function okWithText(m, plaintext) {
   return { ...m, e2ee: { ok: true, text } };
 }
 
+// ── Recovery: restore this identity on a new device ───────────────────
+
+/**
+ * Restore the Olm identity from the zero-knowledge server backup using the
+ * user's 24-word recovery phrase. This device becomes a NEW device id with
+ * the SAME identity keys — peers will see a new device from a familiar
+ * identity (their safety number for you does not change).
+ *
+ * Key hygiene: the imported pickle may contain one-time keys the ORIGINAL
+ * device already published under its own device id. Re-publishing them here
+ * would let two devices advertise the same one-time key, so they are marked
+ * published-without-publishing and a fresh pool is minted for this device.
+ */
+export async function restoreFromPhrase(apiAction, phrase, deviceId = null) {
+  await initCrypto();
+  if (!isValidRecoveryPhrase(phrase)) {
+    throw new Error("That recovery phrase doesn't look right — check each of the 24 words and try again.");
+  }
+  const res = await apiAction("e2ee-backup-get", {});
+  const all = (res && res.backups) || [];
+  // Explicit device when the UI offered a picker; otherwise the newest.
+  const pick = deviceId
+    ? all.find((b) => b.deviceId === deviceId)
+    : [...all].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  if (!pick || !pick.bundle) {
+    throw new Error("No encrypted backup found for this account. The phrase can only restore a device that was backed up.");
+  }
+  let pickle;
+  try {
+    pickle = await decryptBackupBundle(pick.bundle, normalizePhrase(phrase));
+  } catch (e) {
+    if (e && (e.code === "WRONG_PHRASE" || e.message === WRONG_PHRASE)) {
+      throw new Error("That phrase didn't unlock the backup. Check the words and try again.");
+    }
+    throw e;
+  }
+  const account = await E2EEAccount.fromPickle(pickle);
+  account.markKeysAsPublished(); // never re-advertise the backup's key pool
+  account.generateOneTimeKeys(PREKEY_TARGET);
+  account.generateFallbackKey();
+  gAccount = account;
+  gDeviceId = newDeviceId();
+  gIdentityKey = gAccount.identityKeys().curve25519;
+  await saveAccountPickle(gAccount.pickle());
+  await saveMeta("e2ee:deviceId", gDeviceId);
+  await saveRecoveryPhrase(normalizePhrase(phrase));
+  await saveMeta("e2ee:phraseConfirmed", 1).catch(() => {});
+  await saveMeta("e2ee:lastPublish", 0).catch(() => {});
+  // Publish this new device's keys, then refresh the backup to the current
+  // pickle (same identity, current key pool state).
+  await ensureE2EEDevice(apiAction);
+  await uploadBackupNow(apiAction).catch(() => {});
+  return { deviceId: gDeviceId, restored: true };
+}
+
+// ── Device management ─────────────────────────────────────────────────
+
+/** My devices from the server, newest activity first, with `current` marked. */
+export async function listDevices(apiAction) {
+  const { deviceId } = await ensureE2EEDevice(apiAction);
+  const res = await apiAction("e2ee-list-devices", {});
+  const devices = (res && res.devices) || [];
+  return {
+    currentDeviceId: deviceId,
+    devices: devices.map((d) => ({ ...d, current: d.deviceId === deviceId })),
+  };
+}
+
+/**
+ * Revoke one of my devices. If it's THIS device, local state is wiped too —
+ * an explicit user action, so the next ensureE2EEDevice starts clean instead
+ * of failing closed forever on the revoked id.
+ */
+export async function revokeDevice(apiAction, deviceId) {
+  const { deviceId: ownId } = await ensureE2EEDevice(apiAction);
+  await apiAction("e2ee-revoke-device", { device_id: deviceId });
+  if (deviceId === ownId) {
+    clearE2EEMemory();
+    await wipeLocalKeys().catch(() => {});
+  }
+  return { revoked: true, wasCurrent: deviceId === ownId };
+}
+
+// ── Per-thread upgrade ────────────────────────────────────────────────
+
+/**
+ * Flip a DM to encrypted. The server refuses unless both sides have active
+ * devices; its human-readable errors propagate (peer not ready / self not
+ * ready). Returns { upgraded: true } or { upgraded: true, already: true }.
+ */
+export async function upgradeThread(apiAction, threadId) {
+  await ensureE2EEDevice(apiAction);
+  return apiAction("e2ee-upgrade-thread", { thread_id: threadId });
+}
+
+/**
+ * Has the peer set up encrypted messaging (any active device)? Used to
+ * decide whether to offer the "Enable encryption" affordance. The device
+ * directory consumes no one-time keys, so checking readiness is free, and
+ * it returns [] identically for missing/undiscoverable/blocked/keyless —
+ * a false here never leaks which one it is.
+ */
+export async function isPeerEncryptionReady(apiAction, peerUserId) {
+  if (!peerUserId) return false;
+  const devices = await listPeerDevices(apiAction, peerUserId).catch(() => []);
+  return devices.some((d) => !d.revokedAt);
+}
+
+// ── Safety numbers ────────────────────────────────────────────────────
+// A session is just math until the humans verify each other. The safety
+// number fingerprints the UNION of both users' active device Ed25519 keys,
+// Safety numbers v3: a symmetric fingerprint of BOTH users' device
+// records — active AND revoked. Every known device contributes one record:
+//
+//   deviceId | signingKey | revokedAt-or-empty
+//
+// sorted canonically: Alice's set {her records + his records} is the same
+// set Bob computes {his records + her records}, so both sides derive the
+// SAME number. A new device, a revoked device, or a replaced key changes
+// the set — which is exactly the event verification is meant to catch.
+//
+// Crucially, REVOKED devices stay in the fingerprint (as revoked). Add-
+// then-revoke must NOT silently return to the previously verified number:
+// otherwise an attacker could briefly add a device, read messages, revoke
+// it, and cover their tracks with the number looking "verified" again.
+// (This requires the server to retain revoked device rows — it does;
+// revocation is a timestamp, never a delete.)
+//
+// Display: 60 digits in 12 groups of 5 (from 30 bytes of SHA-256, each byte
+// rendered as two decimal digits — ~199 bits of fingerprint).
+// Verification state is local-only: "e2ee:verified:<peerUserId>" = full hex
+// digest. A stored value that no longer matches the live digest surfaces as
+// `changed: true` — the UI must show that loudly, never silently.
+//
+// The number is per DEVICE PAIR in a multi-device world: Alice's phone and
+// her laptop derive different numbers (different key in the union), and
+// each must be verified separately. That is honest — they ARE different
+// key material.
+
+async function safetyDigest(apiAction, peerUserId) {
+  await ensureE2EEDevice(apiAction);
+  const [mineRes, peerDevices] = await Promise.all([
+    apiAction("e2ee-list-devices", {}).catch(() => ({ devices: [] })),
+    listPeerDevices(apiAction, peerUserId, { fresh: true }),
+  ]);
+  const peerAll = peerDevices || [];
+  const peerActive = peerAll.filter((d) => !d.revokedAt);
+  if (peerActive.length === 0) {
+    throw new Error("The other person hasn't set up encrypted messaging yet.");
+  }
+  const records = new Set();
+  const allMine = mineRes?.devices || [];
+  const selfRow = allMine.find((d) => d.deviceId === gDeviceId);
+  for (const d of allMine) {
+    if (d.deviceId && d.signingKey) {
+      records.add([d.deviceId, d.signingKey, d.revokedAt || ""].join("|"));
+    }
+  }
+  for (const d of peerAll) {
+    if (d.deviceId && d.signingKey) {
+      records.add([d.deviceId, d.signingKey, d.revokedAt || ""].join("|"));
+    }
+  }
+  // Our own current key, but ONLY if this device isn't in the directory
+  // yet (just created; the list is a beat behind). A revoked self
+  // contributes its revoked record above — never a fake "active" one.
+  if (!selfRow) {
+    records.add([gDeviceId, gAccount.identityKeys().ed25519, ""].join("|"));
+  }
+  const input = ["cerebrum-safety-v3", ...[...records].sort()].join("||");
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return { digest: new Uint8Array(hash), deviceCount: peerActive.length };
+}
+
+function formatSafetyNumber(digest) {
+  let digits = "";
+  for (let i = 0; i < 30; i++) digits += String(digest[i] % 100).padStart(2, "0");
+  return digits.replace(/(\d{5})(?=\d)/g, "$1 ").trim();
+}
+
+/**
+ * Returns { number, deviceCount, verified, changed }.
+ *  - verified: the user previously verified THIS exact number.
+ *  - changed: the user verified a DIFFERENT number before — treat as a
+ *    possible device change / attack until re-verified out of band.
+ */
+export async function getSafetyNumber(apiAction, peerUserId) {
+  const { digest, deviceCount } = await safetyDigest(apiAction, peerUserId);
+  const hex = Array.from(digest).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const stored = await loadMeta(`e2ee:verified:${peerUserId}`).catch(() => null);
+  return {
+    number: formatSafetyNumber(digest),
+    deviceCount,
+    verified: stored === hex,
+    changed: !!stored && stored !== hex,
+  };
+}
+
+/** The user compared numbers with the peer out of band and they matched. */
+export async function markSafetyNumberVerified(apiAction, peerUserId) {
+  const { digest } = await safetyDigest(apiAction, peerUserId);
+  const hex = Array.from(digest).map((b) => b.toString(16).padStart(2, "0")).join("");
+  await saveMeta(`e2ee:verified:${peerUserId}`, hex).catch(() => {});
+  return { verified: true };
+}
+
+/** Forget the verification (the UI offers this next to the number). */
+export async function clearSafetyNumberVerified(peerUserId) {
+  await saveMeta(`e2ee:verified:${peerUserId}`, null).catch(() => {});
+}
+
 /** Forget cached sessions/claims (used on sign-out). Memory only — the
  *  encrypted IndexedDB rows are wiped by the account layer. */
 export function clearE2EEMemory() {
-  gSessions.clear();
-  gClaimCache.clear();
+  gSessionLists.clear();
+  gDirCache.clear();
   gDecryptCache.clear();
   gAccount = null;
   gDeviceId = null;

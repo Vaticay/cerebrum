@@ -164,12 +164,42 @@ export async function loadAccountPickle() {
   return open(row);
 }
 
+/**
+ * Persist the 24-word recovery phrase (sealed with the device key, like the
+ * account pickle). The phrase is the only way to restore the identity on a
+ * new device — it must survive locally so Settings can re-show it, but it
+ * NEVER leaves the device except inside the user's own memory / writing.
+ */
+export async function saveRecoveryPhrase(phrase) {
+  if (typeof phrase !== "string" || phrase.split(" ").length !== 24) {
+    throw new Error("e2ee/store: refusing to store a non-phrase value");
+  }
+  const sealed = await seal(phrase);
+  await put("accounts", { id: "recovery-phrase", ...sealed, updatedAt: Date.now() });
+}
+
+/** Returns the decrypted recovery phrase, or null when never set up. */
+export async function loadRecoveryPhrase() {
+  const row = await get("accounts", "recovery-phrase");
+  if (!row) return null;
+  return open(row);
+}
+
 /** Persist one peer-device session pickle (encrypted). */
 export async function saveSessionPickle(peerDeviceId, pickleJson) {
-  if (!peerDeviceId || typeof pickleJson !== "string") {
+  return saveSessionPickles(peerDeviceId, [pickleJson]);
+}
+
+/**
+ * Persist the session list for a peer device (newest first), encrypted.
+ * A peer device can legitimately hold several sessions (simultaneous first
+ * messages) — the list is capped by the caller.
+ */
+export async function saveSessionPickles(peerDeviceId, pickleArray) {
+  if (!peerDeviceId || !Array.isArray(pickleArray)) {
     throw new Error("e2ee/store: bad session persist arguments");
   }
-  const sealed = await seal(pickleJson);
+  const sealed = await seal(JSON.stringify(pickleArray));
   await put("sessions", {
     peerDevice: peerDeviceId,
     ...sealed,
@@ -179,9 +209,25 @@ export async function saveSessionPickle(peerDeviceId, pickleJson) {
 
 /** Returns the decrypted session pickle for a peer device, or null. */
 export async function loadSessionPickle(peerDeviceId) {
+  const all = await loadSessionPickles(peerDeviceId);
+  return all && all.length > 0 ? all[0] : null;
+}
+
+/**
+ * Returns the decrypted session pickle list (newest first), or null.
+ * Reads the Phase 1.3 single-pickle shape too.
+ */
+export async function loadSessionPickles(peerDeviceId) {
   const row = await get("sessions", peerDeviceId);
   if (!row) return null;
-  return open(row);
+  const raw = await open(row);
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter((p) => typeof p === "string");
+  } catch {
+    // Not a JSON array — fall through to the legacy single-pickle shape.
+  }
+  return typeof raw === "string" && raw.startsWith("{") ? [raw] : null;
 }
 
 export async function deleteSessionPickle(peerDeviceId) {

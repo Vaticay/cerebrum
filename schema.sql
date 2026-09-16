@@ -260,6 +260,21 @@ CREATE TABLE IF NOT EXISTS e2ee_threads (
   upgraded_by     TEXT NOT NULL         -- user_id that flipped the switch
 );
 
+-- Zero-knowledge backup bundles: one row per (user, device). `bundle` is
+-- the opaque JSON object produced by recovery.js encryptBackupBundle:
+-- AES-GCM-256 ciphertext whose key is Argon2id(24-word recovery phrase).
+-- The server stores salt + ciphertext and can NEVER decrypt it — the phrase
+-- never leaves the user's devices. A second device never overwrites the
+-- first's backup. Never parse or interpret this column.
+CREATE TABLE IF NOT EXISTS e2ee_backups (
+  user_id    TEXT NOT NULL,
+  device_id  TEXT NOT NULL,
+  label      TEXT,
+  bundle     TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, device_id)
+);
+
 -- Additive columns on the live `messages` table (applied to existing
 -- databases by the attempt-and-swallow ALTERs in ensureSocialTables):
 --
