@@ -727,7 +727,7 @@ const PALETTES = {
   // kept deliberately cool rather than folded into the warm pair above, so
   // it stays a real alternative and not a fourth near-duplicate. Ink
   // softened off pure white to match the other three's restraint.
-  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#9a9ca2", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
+  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#aaabaf", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
   /* Light — designed as its own material, not as dark mode inverted.
      Archival paper rather than white: a warm, slightly cool-shadowed stock
      at #f1f0ec, the colour of a journal offprint. Ink is graphite (#22252a)
@@ -738,7 +738,7 @@ const PALETTES = {
      are wider and weaker than dark mode's: paper on a desk has a diffuse
      shadow, not a drop shadow. Grain stays, and slightly stronger, because
      it is what keeps large pale surfaces from looking like a blank div. */
-  Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#6c727b", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "0 1px 2px rgba(34,37,42,0.04), 0 10px 30px rgba(34,37,42,0.07)", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
+  Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#5f656d", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "0 1px 2px rgba(34,37,42,0.04), 0 10px 30px rgba(34,37,42,0.07)", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
   // Sage — "Modern Organic": near-black stone instead of neutral charcoal,
   // paired by default with the muted sage-green accent (ACCENTS.Sage)
   // instead of a neon hue. (Was the fresh-browser default until Sep 2026;
@@ -808,11 +808,14 @@ const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 
 function accentText(hex) {
   if (!hex || hex[0] !== "#" || hex.length < 7) return "#111";
-  const r = parseInt(hex.slice(1, 3), 16),
-        g = parseInt(hex.slice(3, 5), 16),
-        b = parseInt(hex.slice(5, 7), 16);
-  const L = (0.299 * r + 0.587 * g + 0.114 * b);
-  return L > 175 ? "#0f172a" : "#fff";
+  // Pick whichever ink - white or #0f172a - has the stronger WCAG contrast
+  // ratio against the accent. The old weighted-sum threshold handed white
+  // text to mid-tone accents (Sage #8ba888: white 2.61:1, dark ink 6.85:1),
+  // failing every primary button in every palette under Sage.
+  const L = relLuminance(hex);
+  const rWhite = 1.05 / (L + 0.05);
+  const rDark = (L + 0.05) / (relLuminance("#0f172a") + 0.05);
+  return rWhite >= rDark ? "#fff" : "#0f172a";
 }
 function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
 
@@ -835,6 +838,37 @@ function relLuminance(hex) {
   if (typeof hex !== "string" || !/^#[0-9a-fA-F]{6}$/.test(hex)) return 1;
   const c = (v) => { const n = parseInt(v, 16) / 255; return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); };
   return 0.2126 * c(hex.slice(1, 3)) + 0.7152 * c(hex.slice(3, 5)) + 0.0722 * c(hex.slice(5, 7));
+}
+
+// WCAG contrast ratio between two hex colors, from the same
+// relative-luminance math as relLuminance above.
+function contrastRatio(a, b) {
+  const x = relLuminance(a), y = relLuminance(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+// Accent used as *text* (badges, eyebrows, answer headings): the raw accent
+// can fail on paper - Sage #8ba888 on the Light bg is 2.29:1 - so mix it
+// toward ink just far enough to clear 4.5:1. Dark palettes and
+// already-passing accents come back untouched.
+function accentInk(P, accent) {
+  if (P.dark || contrastRatio(accent, P.bg) >= 4.5) return accent;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2;
+    if (contrastRatio(mixHex(accent, "#101216", mid), P.bg) >= 4.6) hi = mid;
+    else lo = mid;
+  }
+  return mixHex(accent, "#101216", hi);
+}
+
+// Status red as *text*: #e5484d fails on paper (3.43:1 in Light) and on Mid
+// (3.24:1), and no single hex passes on both dark and light surfaces - so
+// the light palettes get a deeper cut of the same hue and Mid a lighter
+// one. Decorative withAlpha(STATUS.bad, ...) washes and fills keep the base
+// hue and are left alone.
+function statusBad(P, pn) {
+  return P.dark ? (pn === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31";
 }
 
 // Rotates a hex color's hue by `deg` degrees, keeping its own saturation/
@@ -1053,7 +1087,7 @@ function InvestigationOpening({ accent, animationMode }) {
 
 function Mark({ size = 26, accent, glow }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 12px ${withAlpha(accent, 0.5)})` : "none" }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 8px ${withAlpha(accent, 0.35)})` : "none" }}>
       <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
       <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
     </svg>
@@ -1662,7 +1696,7 @@ function WatchTopicButton({ q, P, accent, user, onChanged }) {
         <Icon name={on ? "check" : "bell"} size={14} />
         {on ? "Watching this topic" : "Watch this topic"}
       </button>
-      <span style={{ fontSize: FONT_SIZES.micro, color: err ? STATUS.bad : P.faint, fontFamily: "var(--cb-font)" }}>
+      <span style={{ fontSize: FONT_SIZES.micro, color: err ? statusBad(P) : P.faint, fontFamily: "var(--cb-font)" }}>
         {err || (on ? "New papers will show on your home screen" : `Tracks new literature on "${topic}"`)}
       </span>
     </div>
@@ -2341,7 +2375,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
   const isDefault = value === "all";
   const [scrollRef, maskStyle] = useEdgeMask();
   return (
-    <div style={{ marginTop: 14, display: "flex", flexDirection: "column", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -2512,7 +2546,7 @@ function SignalComposer({
     setTimeout(() => inputRef.current?.focus(), 30);
   };
   return (
-    <div role="search" style={{ "--cb-acc": accent }} className={"cb-qline" + (showRecents ? " cb-qline--recents-open" : "")}>
+    <div role="search" style={{ "--cb-acc": accent }} className={"cb-qline" + (P.dark ? "" : " cb-qline--light") + (showRecents ? " cb-qline--recents-open" : "")}>
       <div className="cb-qline-row">
         <input
           ref={inputRef}
@@ -2774,7 +2808,7 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
       <div
         className="cb-modeplates"
         style={{
-          display: "flex", gap: 7, marginTop: 18, marginBottom: 4,
+          display: "flex", gap: 7, marginTop: 14, marginBottom: 4,
           /* Plates wrap to two rows on a phone instead of scrolling. A
              horizontal scroller hides modes behind a gesture nobody is
              told about — two visible rows beat one hidden one. */
@@ -2804,9 +2838,9 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
                 padding: isMobile ? "13px 16px" : "9px 14px", borderRadius: 10, cursor: "pointer",
                 fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500,
                 fontFamily: "var(--cb-font)", letterSpacing: "-0.005em",
-                background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
-                color: on ? P.ink : P.ink2,
-                border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
+                background: on ? withAlpha(accent, 0.30) : "transparent",
+                color: on ? P.ink : P.faint,
+                border: `1px solid ${on ? withAlpha(accent, 0.55) : P.line}`,
                 transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease",
                 transform: hovered && !on ? "translateY(-1px)" : "none",
               }}
@@ -2819,8 +2853,10 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
       {/* One live consequence line: follows hover/focus, settles on the
           active mode. The inner span is keyed so its entrance replays on
           every swap. */}
-      <div className="cb-modepreview" aria-live="polite">
-        <span className="cb-modepreview-key">you&rsquo;ll get</span>
+      <div className="cb-modepreview" aria-live="polite"
+        style={{ color: P.dark ? "rgba(242,244,242,0.72)" : "rgba(34,37,42,0.72)" }}>
+        <span className="cb-modepreview-key"
+          style={{ color: P.dark ? "rgba(242,244,242,0.55)" : "rgba(34,37,42,0.55)" }}>you&rsquo;ll get</span>
         <span className="cb-modepreview-text" key={preview.key}>
           {CONSEQUENCES[preview.key] || preview.blurb}
         </span>
@@ -2947,7 +2983,7 @@ function DailyScience({ P, accent, at, onAsk, deck = false }) {
           }}>What's going on here?</button>
           {item.url && (
             <a href={safeHref(item.url)} target="_blank" rel="noopener noreferrer" className="cb-deck-btn" style={{
-              padding: "7px 15px", borderRadius: 100, textDecoration: "none",
+              minHeight: 44, padding: "7px 15px", borderRadius: 100, textDecoration: "none",
               border: `1px solid ${P.line2}`, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600,
               display: "inline-flex", alignItems: "center",
             }}>Read the source</a>
@@ -3782,7 +3818,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       && boldHeaderText.length <= 60
       && !boldHeaderText.includes("\n")
       && !/[.!?;,]$/.test(boldHeaderText);
-    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accent, margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
+    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
 
     /* Commit 79 — a section heading that arrived on the same line-break as
        its body.
@@ -3858,7 +3894,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
         <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
             <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-font)", fontWeight: 500, counterIncrement: "cb-list" }}>
-              <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", opacity: 0.8 }}>{ii + 1}.</span>
+              <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{ii + 1}.</span>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
             </li>
           ))}
@@ -5872,7 +5908,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         <div style={{
           ...container, maxWidth: 1040,
           display: "flex", flexDirection: "column", alignItems: "center",
+          /* Scoped hold behind the title card: neutral black only, never a
+             palette tint (the Commit-45/46 fog lesson). The full-screen
+             vignette above is untouched. */
+          position: "relative",
         }}>
+          <div aria-hidden="true" style={{
+            position: "absolute", inset: "-12% -30%", zIndex: -1,
+            background: "radial-gradient(ellipse 60% 52% at 50% 46%, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 70%)",
+          }} />
           <div className={animate ? "cb-focus-in" : undefined}
             style={animate ? { animationDelay: "0.5s" } : undefined}>
             <span style={{
@@ -5880,6 +5924,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               textIndent: "0.42em", fontWeight: 600,
               textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
               fontVariantNumeric: "tabular-nums",
+              textShadow: "0 2px 18px rgba(0,0,0,0.55)",
             }}>
               A research instrument
             </span>
@@ -5925,9 +5970,11 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             {/* "How it works" stays a whisper — never a second button
                 competing with the single way in. */}
             <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
-              cursor: "pointer", border: "none", background: "none", padding: "14px 4px",
+              cursor: "pointer",
+              border: "1px solid rgba(242,244,242,0.18)", borderRadius: 999,
+              background: "transparent", padding: "12px 20px",
               fontSize: isMobile ? 14 : 14.5, fontWeight: 600,
-              color: "rgba(242,244,242,0.6)", fontFamily: "var(--cb-font)",
+              color: "rgba(242,244,242,0.78)", fontFamily: "var(--cb-font)",
             }}>How it works</button>
           </div>
           {/* Autoplay-policy recovery. Rendered only when the reel wants to
@@ -6647,8 +6694,8 @@ function ElevenLabsSetting({ P, accent, at, S, sfx }) {
   const clear = () => { setKey(""); try { localStorage.removeItem("cb_eleven_key"); } catch {} sfx(); };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <input type="password" aria-label="ElevenLabs API key" placeholder="ElevenLabs API key (optional)" value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: "10px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", outline: "none" }} />
-      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "10px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", cursor: "pointer", outline: "none", ...selectChrome(P) }}>
+      <input type="password" aria-label="ElevenLabs API key" placeholder="ElevenLabs API key (optional)" value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: "11px 14px", fontSize: 16, minHeight: 44, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", outline: "none" }} />
+      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "11px 14px", fontSize: 16, minHeight: 44, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", cursor: "pointer", outline: "none", ...selectChrome(P) }}>
         {voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
       </select>
       <div style={{ display: "flex", gap: 6 }}>
@@ -7103,7 +7150,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
       }}>{index}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", marginBottom: 5, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? STATUS.bad : STATUS.warn, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", marginBottom: 5, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? statusBad(P) : STATUS.warn, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" }}>
             <span>\u26a0</span><span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
           </div>
         )}
@@ -8828,7 +8875,7 @@ function ReadHead({ label, P, accent }) {
    the caller passes wired callbacks — a button that does nothing is
    worse than no button. */
 function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", P, accent, children }) {
-  const toneColor = tone === "bad" ? STATUS.bad : tone === "warn" ? STATUS.warn : P.faint;
+  const toneColor = tone === "bad" ? statusBad(P) : tone === "warn" ? STATUS.warn : P.faint;
   const btnBase = {
     padding: "8px 16px", borderRadius: 9999, cursor: "pointer",
     fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)",
@@ -9445,7 +9492,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <span style={{ fontSize: FONT_SIZES.micro, color: withAlpha(STATUS.good, 0.8), fontFamily: "var(--cb-font)" }}>Saved</span>
         )}
         {saveState === "error" && (
-          <button onClick={retrySave || (() => {})} style={{ fontSize: FONT_SIZES.micro, color: STATUS.bad, fontFamily: "var(--cb-font)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+          <button onClick={retrySave || (() => {})} style={{ fontSize: FONT_SIZES.micro, color: statusBad(P), fontFamily: "var(--cb-font)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
             Couldn't save · Retry
           </button>
         )}
@@ -10149,7 +10196,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                 deleteConfirmId === c.id ? (
                   <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
                     <button onClick={() => setDeleteConfirmId(null)} style={{ minHeight: 44, ...S.chipMini, padding: "3px 7px" }}>Cancel</button>
-                    <button onClick={() => { onDeleteCollection(c.id); setDeleteConfirmId(null); if (activeId === c.id) setActiveId("all"); }} style={{ minHeight: 44, ...S.chipMini, padding: "3px 7px", background: STATUS.bad, color: "#fff", borderColor: STATUS.bad }}>Confirm</button>
+                    <button onClick={() => { onDeleteCollection(c.id); setDeleteConfirmId(null); if (activeId === c.id) setActiveId("all"); }} style={{ minHeight: 44, ...S.chipMini, padding: "3px 7px", background: "#d13438", color: "#fff", borderColor: "#d13438" }}>Confirm</button>
                   </span>
                 ) : (
                   <button onClick={() => setDeleteConfirmId(c.id)} aria-label={`Delete ${c.name}`} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={12} /></button>
@@ -11244,7 +11291,7 @@ function TrendingHero({ P, accent, item, onExpand }) {
           announcing that no picture was found, which is the last thing a
           lead story should say. */}
       {!hasPhoto && (
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background, opacity: 0.55 }} />
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background, opacity: P.dark ? 0.55 : 0.85 }} />
       )}
       {hasPhoto && !item.image_url && <ImageCredit image={found} />}
       {/* Always-on scrim (not opacity-gated to imgStatus) so the headline
@@ -11270,7 +11317,7 @@ function TrendingHero({ P, accent, item, onExpand }) {
         <div style={{ fontSize: FONT_SIZES.body, color: "rgba(255,255,255,0.82)", lineHeight: 1.55, maxWidth: 640, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
         <div style={{ fontSize: FONT_SIZES.micro, color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-font)", marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
           {item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}
-          <span style={{ color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Read the full story <Icon name="arrowRight" size={12} /></span>
+          <span className="cb-trend-cta" style={{ color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Read the full story <Icon name="arrowRight" size={12} /></span>
         </div>
       </div>
     </button>
@@ -11349,7 +11396,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: 26 }}>
           {item.source && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
               {item.source}
             </span>
@@ -11969,31 +12016,32 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         </div>
 
         {/* ══════════════════════════════════════════════════════
-            Sections. A newspaper's section index, not a row of filter
-            chips: text links separated by middots, the active section
-            underlined in accent. Same filtering behavior, none of the
-            pill chrome.
+            Sections. A newspaper's section index as filter pills,
+            matching the search mode-plate recipe: the active section
+            sits in an accent wash, the rest in quiet ink tint. Same
+            filtering behavior — the middot separators are retired.
             ══════════════════════════════════════════════════════ */}
         {status === "ready" && categories.length > 1 && (
-          <nav aria-label="Filter by section" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: 8, marginBottom: 22 }}>
-            {categories.map((cat, i) => (
-              <span key={cat} style={{ display: "inline-flex", alignItems: "center" }}>
-                {i > 0 && <span aria-hidden="true" style={{ color: P.faint, margin: "0 10px", fontSize: FONT_SIZES.small }}>·</span>}
+          <nav aria-label="Filter by section" style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 22 }}>
+            {categories.map((cat) => {
+              const on = trendCat === cat;
+              return (
                 <button
+                  key={cat}
                   type="button"
                   onClick={() => setTrendCat(cat)}
-                  aria-current={trendCat === cat ? "true" : undefined}
-                  style={{ minHeight: 44,
-                    background: "none", border: "none", padding: "6px 2px", cursor: "pointer",
-                    fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
-                    fontWeight: trendCat === cat ? 700 : 500,
-                    color: trendCat === cat ? P.ink : P.ink2,
-                    borderBottom: trendCat === cat ? `2px solid ${accent}` : "2px solid transparent",
-                    marginBottom: -2,
+                  aria-pressed={on}
+                  style={{
+                    minHeight: 44, padding: "9px 14px", borderRadius: 10, cursor: "pointer",
+                    fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "-0.005em",
+                    fontWeight: on ? 700 : 500,
+                    background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
+                    color: on ? P.ink : P.ink2,
+                    border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
                   }}
                 >{cat}</button>
-              </span>
-            ))}
+              );
+            })}
           </nav>
         )}
 
@@ -12027,7 +12075,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
               background: withAlpha(STATUS.bad, 0.1),
               border: `1px solid ${withAlpha(STATUS.bad, 0.25)}`,
             }}>
-              <Icon name="warning" size={22} style={{ color: STATUS.bad }} />
+              <Icon name="warning" size={22} style={{ color: statusBad(P) }} />
             </div>
             <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, marginBottom: 8 }}>
               Trending feed didn&apos;t load
@@ -12061,16 +12109,14 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                 ══════════════════════════════════════════════════ */}
             <div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
               {rest.map((item, i) => (
-                <button key={item.url || i} onClick={() => setExpanded(item)}
+                <button key={item.url || i} onClick={() => setExpanded(item)} className="cb-row"
                   style={{
                     display: "flex", alignItems: "baseline", gap: 16, width: "100%", textAlign: "left",
-                    padding: "18px 4px", background: "transparent", border: "none",
+                    padding: "20px 6px", background: "transparent", border: "none",
                     borderBottom: `1px solid ${P.line}`, cursor: "pointer", fontFamily: "var(--cb-font)",
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 >
-                  <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", width: 28, flexShrink: 0, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>
+                  <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", width: 32, flexShrink: 0, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
                     {item.summary && (
@@ -13530,6 +13576,14 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   /* Debounced live render. */
   useEffect(() => {
     if (!mm) return;
+    /* A blank source is the guided empty state, not a render — clear any
+       stale output instead of throwing a syntax error at nothing. */
+    if (!code.trim()) {
+      setSvg("");
+      setDiagError(null);
+      setRendering(false);
+      return;
+    }
     setRendering(true);
     const t = setTimeout(() => {
       (async () => {
@@ -13777,6 +13831,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     : !mm ? { dot: P.faint, text: "Loading engine…" }
     : rendering ? { dot: accent, text: "Rendering…" }
     : diagError ? { dot: "#f87171", text: "Syntax error" }
+    : !code.trim() ? { dot: P.faint, text: "Empty canvas" }
     : { dot: "#4ade80", text: "Rendered" };
 
   const railTabBtn = (key, label) => (
@@ -13860,16 +13915,36 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
         .mm-cm { color: ${P.faint}; font-style: italic; }
         .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 600; }
-        .mm-zoombtn { width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); }
+        .mm-zoombtn { width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
         .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
         .mm-railitem { transition: background 0.15s ease; }
         .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
         .mm-rail-del { transition: opacity 0.15s ease; }
         .mm-railitem:hover .mm-rail-del { opacity: 1 !important; }
-        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 10px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; }
-        .mm-topbtn:hover { border-color: ${accent}; }
+        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 10px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
+        .mm-topbtn:hover { border-color: ${accent}; background: ${P.dark ? "rgba(255,255,255,0.09)" : "#f4f4f2"}; }
         .mm-topbtn-primary { background: ${accent}; border-color: transparent; color: ${at}; }
-        .mm-topbtn-primary:hover { border-color: transparent; filter: brightness(1.06); }
+        .mm-topbtn-primary:hover { background: ${accent}; border-color: transparent; filter: brightness(1.06); }
+        /* Source pane focus: the textarea suppresses its own outline (the
+           highlight layer sits under it), so the pane carries the
+           keyboard-visible edge. !important wins over the inline border
+           shorthand; same for the title input below. */
+        .mm-srcpane:focus-within { border-color: ${withAlpha(accent, 0.45)} !important; }
+        .mm-titleinput:focus { border-color: ${withAlpha(accent, 0.5)} !important; }
+        /* Canvas loading hairline: a marker travels the 120px line and
+           drains back — transform only, and still under reduced motion. */
+        .mm-loadbar { animation: mmLoad 1.6s ease-in-out infinite; }
+        @keyframes mmLoad {
+          0% { transform: scaleX(0); transform-origin: 0 50%; }
+          55% { transform: scaleX(1); transform-origin: 0 50%; }
+          56% { transform-origin: 100% 50%; }
+          100% { transform: scaleX(0); transform-origin: 100% 50%; }
+        }
+        @media (prefers-reduced-motion: reduce) { .mm-loadbar { animation: none; opacity: 0.4; } }
+        /* Saved-line settle: the span remounts on each save (key), so the
+           entrance replays — no timers, no behavior change. */
+        .mm-saved { animation: mmSavedIn 0.3s ease both; }
+        @keyframes mmSavedIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
       `}</style>
 
       {/* ── Top bar: instrument chrome ── */}
@@ -13889,6 +13964,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
+          className="mm-titleinput"
           style={{
             marginLeft: 4, flex: "1 1 160px", minWidth: 120, maxWidth: 320, background: "transparent",
             border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 12px", minHeight: 44,
@@ -13938,7 +14014,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           )}
 
           {/* Editor pane */}
-          <section aria-label="Diagram source" style={{
+          <section aria-label="Diagram source" className="mm-srcpane" style={{
             display: isMobile ? (mobilePane === "code" ? "flex" : "none") : "flex",
             flexDirection: "column", flex: isMobile ? 1 : "0 0 42%", minWidth: 0, minHeight: 0,
             borderRight: isMobile ? "none" : `1px solid ${P.line}`,
@@ -13984,10 +14060,43 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", maxWidth: 320 }}>{mmError}</div>
                 </div>
               )}
-              {!mmError && !svg && !diagError && (
+              {/* Guided empty canvas: a blank source is a starting point, not a
+                  render. Three real template buttons (wired to loadTemplate —
+                  never dead) plus the Import hint, instead of "Rendering…". */}
+              {!mmError && !code.trim() && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+                  <div style={{ textAlign: "center", maxWidth: 320 }}>
+                    <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+                      <StudioMark size={28} accent={accent} />
+                    </div>
+                    <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 14 }}>
+                      Describe a structure to see it
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
+                      {[["flowchart", "Flowchart"], ["sequence", "Sequence"], ["mindmap", "Mindmap"]].map(([tkey, tlabel]) => {
+                        const t = MERMAID_TEMPLATES.find((x) => x.key === tkey);
+                        return t ? (
+                          <button key={tkey} type="button" className="mm-topbtn" onClick={() => loadTemplate(t)}>
+                            {tlabel}
+                          </button>
+                        ) : null;
+                      })}
+                    </div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                      or paste .mmd with Import
+                    </div>
+                  </div>
+                </div>
+              )}
+              {!mmError && code.trim() && !svg && !diagError && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                    {mm ? "Rendering…" : "Loading diagram engine…"}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                      {mm ? "Rendering…" : "Loading diagram engine…"}
+                    </div>
+                    <div style={{ marginTop: 12, width: 120, height: 1, background: P.line, position: "relative", overflow: "hidden" }}>
+                      <div className="mm-loadbar" style={{ position: "absolute", inset: 0, background: accent }} />
+                    </div>
                   </div>
                 </div>
               )}
@@ -14029,9 +14138,9 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: status.dot }} aria-hidden="true" />
           {status.text}
         </span>
-        {savedTick > 0 && <span style={{ color: accent }}>✓ Saved to your diagrams</span>}
+        {savedTick > 0 && <span key={savedTick} className="mm-saved" style={{ color: accent }}>✓ Saved to your diagrams</span>}
         <span style={{ flex: 1 }} />
-        <span>Drag to pan · Scroll to zoom · ⌘S saves · Double click canvas to fit</span>
+        <span>Drag to pan · Scroll to zoom · ⌘S saves</span>
       </div>
 
       {/* ── Export dialog ── */}
@@ -14231,7 +14340,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
               <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@example.com" aria-label="Email" />
             </label>
             <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{intent === "signup" ? "No password to pick. We'll email you a 6-digit code and your account is made." : "No password to remember. We'll email you a 6-digit code that signs you in."}</div>
-            {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
+            {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
             <button type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-font)" }}>
               {busy ? "Sending…" : "Send sign-in code"}
             </button>
@@ -14261,7 +14370,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
                 />
               ))}
             </div>
-            {error && <div role="alert" style={{ marginTop: 16, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad, fontSize: FONT_SIZES.small, lineHeight: 1.5, textAlign: "center" }}>{error}</div>}
+            {error && <div role="alert" style={{ marginTop: 16, padding: "9px 12px", borderRadius: 8, background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), fontSize: FONT_SIZES.small, lineHeight: 1.5, textAlign: "center" }}>{error}</div>}
             {busy && <div style={{ marginTop: 16, textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>Verifying…</div>}
             <div style={{ marginTop: 20, textAlign: "center", fontSize: FONT_SIZES.small, color: P.faint }}>
               {cooldown > 0 ? (
@@ -15020,7 +15129,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
             <button onClick={(e) => { e.stopPropagation(); setMinimized(false); }} aria-label="Expand call" title="Expand" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name="maximize2" size={14} />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); endCall(); }} aria-label="End call" title="End call" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: STATUS.bad, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button onClick={(e) => { e.stopPropagation(); endCall(); }} aria-label="End call" title="End call" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: "#d13438", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name="phoneOff" size={14} />
             </button>
           </div>
@@ -15087,7 +15196,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           }}>
             <Icon name="flag" size={18} />
           </button>
-          <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: 100, border: "none", cursor: "pointer", background: STATUS.bad, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: 100, border: "none", cursor: "pointer", background: "#d13438", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="phoneOff" size={20} />
           </button>
         </div>
@@ -15888,7 +15997,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         <button onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ minHeight: 44, color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
                         </button>
-                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: STATUS.bad, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 10px", borderRadius: 8, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
                         {/* E2EE Phase 1.4 — safety numbers. Only on encrypted
@@ -15907,7 +16016,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
             {activeThread.blocked && (
               <div style={{ padding: "10px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
-                <Icon name="block" size={14} style={{ color: STATUS.bad, flexShrink: 0 }} />
+                <Icon name="block" size={14} style={{ color: statusBad(P), flexShrink: 0 }} />
                 You've blocked {activeThread.name}. Neither of you can message or call here until you unblock.
               </div>
             )}
@@ -15916,7 +16025,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 changed number can mean a new device — or someone else. */}
             {safetyChanged && activeThread.encrypted && !activeThread.blocked && (
               <div style={{ padding: "10px 24px", background: withAlpha(STATUS.bad, 0.1), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <Icon name="warning" size={15} style={{ color: STATUS.bad, flexShrink: 0 }} />
+                <Icon name="warning" size={15} style={{ color: statusBad(P), flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
                   The security numbers changed — {activeThread.name}'s devices changed. Make sure this was them before continuing.
                 </span>
@@ -16878,7 +16987,7 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
    Weight contract (DESIGN_RESEARCH §11): the label is the label role, so
    it ships at 600; descriptions are body copy at 450. Every interactive
    row keeps a 44px+ touch target. */
-function UIRow({ label, desc, control, onClick, P, accent, last, tone, style }) {
+function UIRow({ label, desc, control, onClick, P, accent, last, tone, style, paletteName }) {
   return (
     <div
       onClick={onClick}
@@ -16892,7 +17001,7 @@ function UIRow({ label, desc, control, onClick, P, accent, last, tone, style }) 
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? STATUS.bad : P.ink, overflowWrap: "anywhere" }}>{label}</div>
+        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? statusBad(P, paletteName) : P.ink, overflowWrap: "anywhere" }}>{label}</div>
         {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
@@ -17448,7 +17557,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
   );
 }
 
-function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode }) {
+function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode, onGoSearch }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
   // A signed-in account always has a real username by the time this page
@@ -18156,6 +18265,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
                 title="Nothing on the shelf yet"
                 body="Save a paper from any answer and it lands here, next to the investigation that found it."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoSearch}>Start an investigation</UIButton>}
                 isMobile={isMobile} />
             </div>
           ) : (
@@ -18194,7 +18304,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                         flexShrink: 0, background: "none", border: "none", cursor: "pointer",
                         fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
                         letterSpacing: "0.06em", textTransform: "uppercase",
-                        color: isPinned ? accent : P.faint,
+                        color: isPinned ? accentInk(P, accent) : P.faint,
                         opacity: pinSaving ? 0.5 : 1, padding: "4px 2px",
                       }}
                     >{isPinned ? "Pinned" : "Pin"}</button>
@@ -18213,6 +18323,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <WorkspaceEmpty P={P} accent={accent} icon="folder"
                 title="No collections yet"
                 body="Collections group saved papers by question rather than by date. Once you've saved a few papers, file them onto shelves from your library."
+                action={<UIButton P={P} accent={accent} at={at} onClick={() => setTab("library")}>Go to your library</UIButton>}
                 isMobile={isMobile} />
             </div>
           ) : (
@@ -18239,6 +18350,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <WorkspaceEmpty P={P} accent={accent} icon="search"
                 title="No investigations yet"
                 body="Every question you ask becomes an investigation: the thread, the papers it surfaced, and what you saved from it. Ask a question from the search tab and the trail starts here."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoSearch}>Ask something</UIButton>}
                 isMobile={isMobile} />
             </div>
           ) : (
@@ -18657,7 +18769,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
   };
   const dangerBtn = {
-    ...pillBtn, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad,
+    ...pillBtn, background: withAlpha(STATUS.bad, 0.1), color: statusBad(P),
     border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
   };
   const statusPill = (text, color) => (
@@ -19063,7 +19175,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
   };
   const dangerBtn = {
-    ...pillBtn, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad,
+    ...pillBtn, background: withAlpha(STATUS.bad, 0.1), color: statusBad(P),
     border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
   };
   const ghostBtn = { ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 };
@@ -20820,22 +20932,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       <>
         {!summary && !analyzing && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint, textAlign: "center", ...(form === "page" ? { padding: isMobile ? "32px 8px" : "64px 16px" } : { flex: 1 }) }}>
-            <span aria-hidden="true" style={{
-              width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-              background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, marginBottom: 4,
-            }}><Icon name="bookOpen" size={24} style={{ color: accent }} /></span>
-            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Read a paper with me</div>
-            <div style={{ fontSize: FONT_SIZES.small, maxWidth: 320, lineHeight: 1.6, color: P.ink2 }}>
-              Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it.
-            </div>
-            <button
-              onClick={() => openDocument(SAMPLE_DOCUMENT)}
-              style={{
-                minHeight: 44, marginTop: 10, padding: "8px 18px", borderRadius: 100, cursor: "pointer",
-                background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.3)}`,
-                color: accent, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
-              }}
-            >No paper handy? Try the sample</button>
+            <WorkspaceEmpty P={P} accent={accent} icon="bookOpen"
+              title="Read a paper with me"
+              body="Paste a paper on the left, or upload the PDF. You'll get what it found, how the study was done, and where it's weak. After that you can ask it questions, the way you'd ask a colleague who had just read it."
+              action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => openDocument(SAMPLE_DOCUMENT)}>No paper handy? Try the sample</UIButton>}
+              isMobile={isMobile} />
           </div>
         )}
         {analyzing && (
@@ -20906,11 +21007,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   return (
                     <>
                       {hasFindings && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Key Findings</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginBottom: 10 }}>Key Findings</div>
                         {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                       {hasLimitations && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
                         {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                     </>
@@ -21095,7 +21196,9 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
         <span style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>{label}</span>
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{format(local)}</span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={local} onChange={(e) => setLocal(parseFloat(e.target.value))} onMouseUp={commit} onTouchEnd={commit} onKeyUp={commit} style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
+      <div style={{ minHeight: 44, display: "flex", alignItems: "center" }}>
+        <input type="range" min={min} max={max} step={step} value={local} onChange={(e) => setLocal(parseFloat(e.target.value))} onMouseUp={commit} onTouchEnd={commit} onKeyUp={commit} style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
+      </div>
     </div>
   );
 }
@@ -21639,7 +21742,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     const lit = highlight && (highlight === label || (searchKey && highlight === searchKey));
     return (
       <UIRow
-        P={P} accent={accent} label={label} desc={desc} last={last}
+        P={P} accent={accent} label={label} desc={desc} last={last} paletteName={paletteName}
         onClick={onClick} tone={destructive ? "bad" : undefined}
         control={control || (onClick ? <span style={{ color: P.faint, fontSize: FONT_SIZES.subhead }}>›</span> : null)}
         style={lit ? {
@@ -21662,7 +21765,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
   const Picker = ({ value, options, onChange }) => (
     <select value={value} onChange={(e) => { sfx(); onChange(e.target.value); }}
-      style={{ padding: "6px 10px", fontSize: FONT_SIZES.body, color: accent, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 500, outline: "none", ...selectChrome(P) }}>
+      style={{ padding: "8px 30px 8px 12px", minHeight: 44, fontSize: 16, fontWeight: 600, background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.28)}`, borderRadius: 8, color: accentInk(P, accent), cursor: "pointer", fontFamily: "var(--cb-font)", outline: "none", ...selectChrome(P) }}>
       {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
     </select>
   );
@@ -21701,7 +21804,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 placeholder="Search settings"
                 aria-label="Search settings"
                 style={{
-                  width: "100%", padding: "9px 12px 9px 34px", borderRadius: 100,
+                  width: "100%", padding: "9px 12px 9px 34px", minHeight: 44, borderRadius: 100,
                   background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none",
                   fontSize: 16, fontFamily: "var(--cb-font)",
@@ -21843,7 +21946,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
                         padding: "4px 10px", borderRadius: 100,
-                        color: founderStatus.configured ? STATUS.good : STATUS.bad,
+                        color: founderStatus.configured ? (P.dark ? STATUS.good : "#047857") : statusBad(P, paletteName),
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
                       }}>{founderStatus.configured ? "Configured" : "Missing"}</span>
                     }
@@ -21856,7 +21959,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
                         padding: "4px 10px", borderRadius: 100,
-                        color: founderStatus.youAreFounder ? STATUS.good : P.faint,
+                        color: founderStatus.youAreFounder ? (P.dark ? STATUS.good : "#047857") : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
                       }}>{founderStatus.youAreFounder ? "You" : "No"}</span>
                     }
@@ -21918,7 +22021,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               {!(user && user.isPro) && (
                 <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 }}>
                   <ProBadge />
-                  <span>Members also get the Pro theme. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: "#34d399", fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
+                  <span>Members also get the Pro theme. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: P.dark ? "#34d399" : "#047857", fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
                 </div>
               )}
             </Section>
@@ -21934,9 +22037,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "14px 16px", alignItems: "center" }}>
                 {Object.keys(ACCENTS).map((an) => (
                   <button key={an} title={an} aria-label={an} onClick={() => { sfx(); setCustomAccent(""); setAccentName(an); }}
-                    style={{ width: 30, height: 30, borderRadius: 8, background: ACCENTS[an], border: (!customAccent && accentName === an) ? "2px solid #fff" : "2px solid transparent", cursor: "pointer", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${ACCENTS[an]}` : "none", transition: "border-color 150ms ease, box-shadow 150ms ease" }} />
+                    style={{ width: 44, height: 44, minHeight: 44, borderRadius: 8, background: ACCENTS[an], border: (!customAccent && accentName === an) ? `2px solid ${P.ink}` : "2px solid transparent", cursor: "pointer", boxShadow: (!customAccent && accentName === an) ? `0 0 0 2px ${ACCENTS[an]}` : "none", transition: "border-color 150ms ease, box-shadow 150ms ease" }} />
                 ))}
-                <label style={{ width: 30, height: 30, borderRadius: 8, border: `2px dashed ${P.faint}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }} title="Custom">
+                <label style={{ width: 44, height: 44, minHeight: 44, borderRadius: 8, border: `2px dashed ${P.faint}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }} title="Custom">
                   <input type="color" value={accent} onChange={(e) => setCustomAccent(e.target.value)} style={{ opacity: 0, width: 0, height: 0, position: "absolute" }} />
                   <span style={{ fontSize: FONT_SIZES.subhead, color: P.faint, lineHeight: 1 }}>+</span>
                 </label>
@@ -22013,7 +22116,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     <span style={{
                       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
                       padding: "4px 10px", borderRadius: 100,
-                      color: notifPerm === "granted" ? STATUS.good : P.faint,
+                      color: notifPerm === "granted" ? (P.dark ? STATUS.good : "#047857") : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
                     }}>{notifPerm === "granted" ? "On" : notifPerm === "denied" ? "Blocked" : "Unavailable"}</span>
                   )
@@ -22114,7 +22217,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <Row label="Pro cinematic reel" desc="Ten exclusive clips, curated for members." control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last />
               ) : (
                 <Row label="Pro cinematic reel" desc="Members only backdrop, included with Pro." control={
-                  <button onClick={onOpenPro} style={{ padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: "#34d399", border: `1px solid #d4a437`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>See plans</button>
+                  <button onClick={onOpenPro} style={{ padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.dark ? "#34d399" : "#047857", border: `1px solid #d4a437`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>See plans</button>
                 } last />
               )}
             </Section>
@@ -22134,7 +22237,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} last={(history || []).length === 0} />
               {(history || []).length > 0 && (
                 <Row label="Clear conversation history" destructive control={
-                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", minHeight: 44, fontSize: FONT_SIZES.small, color: STATUS.bad, background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
+                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", minHeight: 44, fontSize: FONT_SIZES.small, color: statusBad(P, paletteName), background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
                 } last />
               )}
             </Section>
@@ -22285,7 +22388,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
             <button onClick={() => setClearOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my data</button>
-            <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setClearOpen(false); sfx(); }} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</button>
+            <button onClick={() => { setSessions([]); setSaved([]); setHistory([]); setClearOpen(false); sfx(); }} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: "#d13438", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</button>
           </div>
         </Dialog>
       )}
@@ -22313,7 +22416,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
             <button onClick={() => setDeleteOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my account</button>
-            <button onClick={async () => { await submitDeleteAccount(); }} disabled={delBusy} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: STATUS.bad, color: "#fff", border: "none", borderRadius: 8, cursor: delBusy ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: delBusy ? 0.6 : 1 }}>{delBusy ? "Deleting…" : "Delete my account"}</button>
+            <button onClick={async () => { await submitDeleteAccount(); }} disabled={delBusy} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: "#d13438", color: "#fff", border: "none", borderRadius: 8, cursor: delBusy ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: delBusy ? 0.6 : 1 }}>{delBusy ? "Deleting…" : "Delete my account"}</button>
           </div>
         </Dialog>
       )}
@@ -22752,7 +22855,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       color: P.faint,
     },
     heroGlow: { display: "none" },
-    heroMark: { marginBottom: 32, position: "relative" },
+    heroMark: { marginBottom: 24, position: "relative" },
     heroTitle: {
       fontSize: isMobile ? 40 : 64, fontWeight: 650,
       letterSpacing: "-0.04em", lineHeight: 1.08,
@@ -22761,7 +22864,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     heroSub: {
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
-      maxWidth: 560, lineHeight: 1.65, marginBottom: 32,
+      maxWidth: 560, lineHeight: 1.65, marginBottom: 28,
       letterSpacing: "-0.01em", position: "relative", fontWeight: 500,
       // v30: "Darknode" round retired — mono in the subheadline was that
       // round's signature move, and this round's explicit target
@@ -23643,6 +23746,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
   return (
     <Dialog labelledBy="cb-consent-title" onClose={() => {}} dismissable={false}
       zIndex={9000} width={560}
+      scrimStyle={{ backdropFilter: "blur(18px) saturate(1.05)", WebkitBackdropFilter: "blur(18px) saturate(1.05)", background: "rgba(0,0,0,0.72)" }}
       panelStyle={{
         background: P.bg, color: P.ink,
         border: `1px solid ${P.line2}`, borderRadius: 16, outline: "none",
@@ -23652,7 +23756,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
       }}
     >
         <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18 }}>
-          <Mark size={26} accent={accent} glow={P.dark} />
+          <span className="cb-consent-mark"><Mark size={26} accent={accent} glow={P.dark} /></span>
           <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Cerebrum</span>
         </div>
 
@@ -23707,8 +23811,10 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
                 onClick={accept} disabled={!checked || busy}
                 className="cb-press"
                 style={{
-                  flex: 1, minWidth: 180, padding: "13px 20px", borderRadius: 100,
-                  border: "none", cursor: checked && !busy ? "pointer" : "not-allowed",
+                  flex: 1, minWidth: 180, padding: "14px 20px", borderRadius: 100,
+                  border: checked ? "1px solid rgba(255,255,255,0.14)" : "1px solid transparent",
+                  boxShadow: checked ? "inset 0 1px 0 rgba(255,255,255,0.22)" : "none",
+                  cursor: checked && !busy ? "pointer" : "not-allowed",
                   background: checked ? accent : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)"),
                   color: checked ? at : P.faint,
                   fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
@@ -23722,7 +23828,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
               }}>Decline</button>
             </div>
 
-            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14, textAlign: "center" }}>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, letterSpacing: "0.02em", fontFamily: "var(--cb-font)", marginTop: 14, textAlign: "center" }}>
               Version {LEGAL_VERSION} · You must be 13 or older (16 in the EEA and UK)
             </div>
           </>
@@ -26141,7 +26247,7 @@ function App() {
   ].filter(Boolean).join(" ");
 
   return (
-    <div style={{...S.page, "--cb-accent": accent}} className={a11yClasses}>
+    <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent)}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       {/* The handoff bridge: the door's clip as a graded still, dissolving
           over the workspace while the new reel buffers on the same clip.
@@ -26423,7 +26529,7 @@ function App() {
                   names the mode — a third line of text under the pills was
                   pure vertical weight, so mobile drops it. */}
               {isMobile ? null : (
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 9, marginBottom: 2, textAlign: "center", minHeight: 15, lineHeight: 1.4 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, marginBottom: 2, textAlign: "center", minHeight: 15, lineHeight: 1.4 }}>
                 {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
               </div>
               )}
@@ -26454,7 +26560,7 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <div className="cb-try-examples" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
+                <div className="cb-try-examples" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8, flexWrap: "wrap", maxWidth: 820, padding: "0 8px" }}>
                   <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>Try</span>
                   {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2).map((ex) => (
                     <button key={ex} onClick={() => { setInput(ex); setTimeout(() => inputRef.current?.focus(), 30); }} title={`Ask: ${ex}`}
@@ -26534,7 +26640,7 @@ function App() {
                   text-align:center block still needs the full column, or it
                   centres its lines inside a shrink-to-fit box. */}
               {/* One compact trust line instead of a paragraph plus a name row. */}
-              <div style={{ width: "100%", maxWidth: 640, fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 28 : 72) : (isMobile ? 22 : 44), marginBottom: 4, lineHeight: 1.5, padding: "0 16px" }}>
+              <div style={{ width: "100%", maxWidth: 640, fontSize: FONT_SIZES.caption, color: P.faint, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 28 : 72) : (isMobile ? 22 : 32), marginBottom: 4, lineHeight: 1.5, padding: "0 16px" }}>
                 Every question goes to 15 public research databases: Europe PMC, PubMed, OpenAlex, Crossref, Semantic Scholar, arXiv, and 9 more.
               </div>
             </Reveal>
@@ -26663,6 +26769,7 @@ function App() {
             history={history} saved={saved} setSaved={setSaved} collections={collections}
             vaultMode={vaultMode}
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
+            onGoSearch={() => setView("search")}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
             proStatus={proStatus} onOpenPro={() => setProModalOpen(true)}
           />
@@ -27481,6 +27588,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   transition: transform 160ms var(--cb-ease);
 }
 .cb-skip-link:focus-visible { transform: translateY(0); outline: 2px solid #fff; outline-offset: 2px; }
+/* iOS Safari zooms any control under 16px on focus: the floor stays global.
+   Per-control refinements above it are additive, never a replacement. */
 input, textarea, select { font-size: 16px; }
 a { color: inherit; text-decoration: none; }
 input::placeholder, textarea::placeholder { color: inherit; opacity: 0.62; }
@@ -27550,6 +27659,11 @@ summary::-webkit-details-marker { display: none; }
   to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbBackdrop { from { opacity: 0; } to { opacity: 1; } }
+/* Consent logo: a slow opacity-only breathe — calm, no motion for users
+   who asked for reduced motion. */
+.cb-consent-mark { display: inline-flex; animation: cbConsentBreathe 7s ease-in-out infinite; }
+@keyframes cbConsentBreathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cb-consent-mark { animation: none; } }
 
 /* ── Venn diagram — a static instrument. The lobes used to breathe via
    drift keyframes and a turbulence wobble filter; both were removed in
@@ -27767,6 +27881,8 @@ summary::-webkit-details-marker { display: none; }
   border: 1px solid rgba(242,244,242,0.30);
   border-radius: 999px;
   color: #f2f4f2;
+  /* Material, not luminous: a top inner edge, never an outer glow. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
   transition: border-color 240ms var(--cb-ease), background-color 240ms var(--cb-ease);
 }
 .cb-intro-go:hover { border-color: rgba(242,244,242,0.65); background: rgba(255,255,255,0.06); }
@@ -27802,16 +27918,18 @@ summary::-webkit-details-marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .cb-intro-grain { animation: none; }
 }
-/* The ghost link draws its underline on hover instead of wearing one. */
+/* How-it-works as a ghost button (the resting outline is set inline): the old
+   growing-underline bar would read as a defect inside a bordered pill, so it
+   is retired. The scoped hover below beats the shared .cb-intro-chip hover
+   (higher specificity + !important, matching that rule's own). */
 .cb-intro-how { position: relative; text-decoration: none !important; }
-.cb-intro-how::after {
-  content: ""; position: absolute; left: 4px; right: 4px; bottom: 11px; height: 1px;
-  background: rgba(242,244,242,0.6);
-  transform: scaleX(0); transform-origin: left center;
-  transition: transform 0.38s var(--cb-ease);
+.cb-intro-how::after { display: none; }
+.cb-intro-chip.cb-intro-how:hover {
+  border-color: rgba(255,255,255,0.38) !important;
+  background: rgba(255,255,255,0.05) !important;
+  transform: none;
 }
-.cb-intro-how:hover::after, .cb-intro-how:focus-visible::after { transform: scaleX(1); }
-.cb-intro-how:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 4px; }
+.cb-intro-how:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
 /* "A real answer" arrives on scroll, in the same language as the hero. */
 .cb-real-answer {
   opacity: 0; transform: translateY(24px);
@@ -27852,7 +27970,14 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-qline-row {
   display: flex; align-items: center; gap: 12px;
+  /* A slightly inset surface for the instrument: quiet paper, not a box
+     shouting for attention. The hairline rule below stays the voice. */
+  background: rgba(255,255,255,0.028);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 16px;
+  padding: 4px 8px 4px 18px;
 }
+.cb-qline--light .cb-qline-row { background: rgba(34,37,42,0.028); border-color: rgba(34,37,42,0.12); }
 .cb-qline-input {
   flex: 1; min-width: 0;
   background: transparent; border: none; outline: none;
@@ -27945,6 +28070,21 @@ summary::-webkit-details-marker { display: none; }
   animation: cbReadingIn 0.35s ease both;
 }
 .cb-qline-sep { color: rgba(242,244,242,0.28); }
+/* ── Light-palette variant ──
+   The query line's resting colors assume a dark surface; on the Light
+   palette they were invisible (~1.03:1). Every hardcoded-light selector
+   above gets a graphite twin. The recent-questions deck is deliberately
+   an opaque dark sheet and is untouched. */
+.cb-qline--light .cb-qline-input { color: #22252a; }
+.cb-qline--light .cb-qline-input::placeholder { color: rgba(34,37,42,0.66); }
+.cb-qline--light .cb-qline-rule { background: rgba(34,37,42,0.16); }
+.cb-qline--light .cb-qline-tool, .cb-qline--light .cb-qline-mic { color: rgba(34,37,42,0.5); }
+.cb-qline--light .cb-qline-tool:hover, .cb-qline--light .cb-qline-mic:hover { color: #22252a; background: rgba(0,0,0,0.05); }
+.cb-qline--light .cb-qline-ask { border-color: rgba(34,37,42,0.28); color: #22252a; }
+.cb-qline--light .cb-qline-reading { color: rgba(34,37,42,0.55); }
+.cb-qline--light .cb-qline-scope { color: rgba(34,37,42,0.66); }
+.cb-qline--light .cb-qline-rk { color: rgba(34,37,42,0.45); }
+.cb-qline--light .cb-qline-sep { color: rgba(34,37,42,0.35); }
 /* ── Recent-questions deck ──
    Drops from the query line on focus. Renders only when there is history
    to show — no history, no dropdown, no empty box. Items are 44px buttons
@@ -28224,7 +28364,12 @@ body.cb-motion-off .cb-dive-scan,
 body.cb-motion-off .cb-dive-snow,
 body.cb-motion-off .cb-trace-chip,
 body.cb-motion-off .cb-focus-in,
-body.cb-motion-off .cb-title-veil { animation: none !important; }
+body.cb-motion-off .cb-title-veil,
+body.cb-motion-off .cb-trend-hero,
+body.cb-motion-off .cb-trend-card,
+body.cb-motion-off .cb-modeplate,
+body.cb-motion-off .cb-row,
+body.cb-motion-off .cb-row::before { animation: none !important; transition: none !important; }
 
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
@@ -28627,7 +28772,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
      color guaranteed to be legible against every surface in every palette
      (it's chosen for exactly that), and the paired dark/light halo keeps
      it visible whichever side of the theme it lands on. */
-  outline: 2px solid var(--cb-accent, #34d399);
+  outline: 2px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
   outline-offset: 2px;
   border-radius: 6px;
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--cb-accent, #34d399) 22%, transparent);
@@ -29113,7 +29258,7 @@ button, a {
    platform default. :focus-visible only, so it never fires on a mouse
    click. */
 :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--cb-accent, #34d399) 70%, transparent);
+  outline: 2px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
   outline-offset: 2px;
   border-radius: 3px;
 }
@@ -29148,6 +29293,11 @@ button, a {
 }
 .cb-trend-card:hover img, .cb-trend-hero:hover img { transform: scale(1.045); }
 .cb-trend-card:active, .cb-trend-hero:active { transform: translateY(-1px) scale(0.995); }
+
+/* The hero already lifts on hover; the text CTA needs its own signal, so
+   it underlines on hover and on keyboard focus. */
+.cb-trend-cta { text-decoration: none; }
+.cb-trend-hero:hover .cb-trend-cta, .cb-trend-hero:focus-visible .cb-trend-cta { text-decoration: underline; text-underline-offset: 3px; }
 
 /* ── Interactive list rows ──
    For lists that aren't card grids — inbox threads, saved papers, history
@@ -29252,7 +29402,7 @@ button, a {
 .cb-answer-enter { overflow-wrap: anywhere; }
 .cb-answer-enter p, .cb-answer-enter li { line-height: 1.75; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 { text-wrap: balance; }
-.cb-intro-go:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
+.cb-intro-go:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 4px 16px rgba(0,0,0,0.18); }
 @media (pointer: coarse) {
   .cb-hbtn, .cb-intro-navlink { min-height: 44px; min-width: 44px; }
   .cb-qline-input { font-size: 16px; }
