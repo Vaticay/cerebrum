@@ -3332,7 +3332,7 @@ function investigationCover(title, accent, P) {
   const rot = (u >> 4) % 180;
   const n = 2 + ((u >> 10) % 3);
   return { t, motif, rot, n,
-    background: "linear-gradient(" + rot + "deg, hsl(" + t.h + " " + t.s + "% 30%), hsl(" + t.h + " " + Math.max(10, t.s - 8) + "% 17%))" };
+    background: "hsl(" + t.h + " " + t.s + "% 22%)" };
 }
 
 function InvestigationCover({ title, accent, P, size = 52 }) {
@@ -12798,9 +12798,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
     <Dialog label="Flowchart studio" onClose={onClose} zIndex={300} width={1240}
       onEscape={() => { if (exportOpen) setExportOpen(false); else onClose(); }}
       panelStyle={{
-        background: P.dark
-          ? `linear-gradient(180deg, ${withAlpha(accent, 0.05)} 0%, ${P.bg} 120px, ${P.bg} 100%)`
-          : `linear-gradient(180deg, ${withAlpha(accent, 0.06)} 0%, ${P.bg} 140px, ${P.bg} 100%)`,
+        background: P.bg,
         borderRadius: 16, height: isMobile ? "96dvh" : "88dvh",
         display: "flex", flexDirection: "column", overflow: "hidden",
         border: `1px solid ${withAlpha(accent, 0.18)}`, boxShadow: "0 40px 120px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 80px rgba(0,0,0,0.25)", outline: "none",
