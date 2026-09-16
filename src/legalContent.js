@@ -88,7 +88,7 @@ export const PAGES = {
         "Language-model providers reached through our server to generate summaries. Your question text reaches them; your identity does not.",
         "Scholarly data providers: Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE. Each receives the search terms needed to answer your query.",
         "A public STUN/TURN relay, used only to establish calls when a direct connection is impossible.",
-        "Optional and only if you enable them: ElevenLabs for premium narration and Zotero for reference export, using a key you supply and that stays in your browser.",
+        "Optional and only if you enable it: Zotero for reference export, using a key you supply and that stays in your browser.",
         "We do not sell, rent, or share personal information with advertisers or data brokers. We have no advertising relationships of any kind."
       ] },
       { h: "11. International transfers", p: "The service runs on a global edge network, so processing may occur outside your country, including in the United States. Where data leaves the EEA or UK we rely on appropriate safeguards, such as standard contractual clauses entered into by our providers." },

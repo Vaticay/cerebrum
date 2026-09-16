@@ -96,14 +96,6 @@ export const DATA_RECIPIENTS = [
     serverSide: false,
   },
   {
-    id: "elevenlabs",
-    name: "ElevenLabs",
-    detail: "Optional higher-quality read-aloud",
-    receivesQuery: false,
-    note: "Only if you add your own API key. The answer text is sent from your browser to ElevenLabs using your key. Off by default.",
-    serverSide: false,
-  },
-  {
     id: "zotero",
     name: "Zotero",
     detail: "Optional reference-manager export",

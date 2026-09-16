@@ -2642,6 +2642,11 @@ function SignalComposer({
   );
 }
 
+/* WaterCaustics is lazy: its chunk (the WebGL searching water) is only
+   fetched when a search actually begins — never on first paint of the
+   search screen, and the GL context only exists while searching. */
+const WaterCaustics = React.lazy(() => import("./WaterCaustics.jsx"));
+
 /* ── ReadingRoom: the descent instrument ──────────────────────────────────
    The query going down into the literature.
 
@@ -2710,6 +2715,12 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
 
   const live = !reduced && !done;
 
+  /* How far under the water we are. Driven by elapsed time (capped — the
+     client genuinely cannot know per-database progress, so this never
+     claims to be a progress bar) plus the one real mid-search milestone.
+     `done` surfaces it: the water resolves as the answer arrives. */
+  const submersion = done ? 1 : Math.min(0.92, elapsed / 30000 + (videosLocated ? 0.1 : 0));
+
   return (
     <div className="cb-room" style={{ "--cb-acc": accent, ...(reduced ? { animation: "none" } : null) }} aria-live="polite" aria-atomic="true">
       {/* The question, catalogued as a specimen label. */}
@@ -2720,6 +2731,13 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
           progress; the snow is ambient. Neither claims anything about
           per-database state — the client cannot know it mid-request. */}
       <div className="cb-dive-field" role="img" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
+        {/* The water: a real-time caustics shader at half resolution,
+            upscaled by CSS. Lazy — its chunk loads only when a search
+            begins. Reduced motion gets a single still frame; no WebGL
+            renders nothing and the snow + reading line carry the state. */}
+        <React.Suspense fallback={null}>
+          <WaterCaustics submersion={submersion} done={done} reduced={reduced} accent={accent} />
+        </React.Suspense>
         {!reduced && snow.map((f, i) => (
           <span key={i} className="cb-dive-snow" aria-hidden="true" style={{
             left: f.left + "%", width: f.size + "px", height: f.size + "px",
@@ -6540,8 +6558,6 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   const [progress, setProgress] = useState(0);
   const audioRef = useRef(null);
   const utterRef = useRef(null);
-  const [useElevenLabs, setUseElevenLabs] = useState(false);
-  useEffect(() => { try { setUseElevenLabs(!!localStorage.getItem("cb_eleven_key")); } catch {} }, []);
   const stop = () => { if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } try { window.speechSynthesis.cancel(); } catch {} utterRef.current = null; setStatus("idle"); setProgress(0); };
   const playBrowser = () => {
     if (!window.speechSynthesis) return;
@@ -6555,8 +6571,8 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     const voices = window.speechSynthesis.getVoices();
     // Bug: this ignored the user's saved Male/Female preference
     // (`cb_tts_voice`, set via TtsVoiceSetting and honored by
-    // playCerebrum()'s backend call) entirely — if the backend TTS call or
-    // ElevenLabs failed and this browser fallback engaged, the chosen voice
+    // playCerebrum()'s backend call) entirely — if the backend TTS call
+    // failed and this browser fallback engaged, the chosen voice
     // was silently dropped for a fixed, gender-blind name guess.
     let voicePref = "";
     try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {}
@@ -6595,20 +6611,6 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     if (pref) utter.voice = pref;
     utter.onstart = () => setStatus("playing"); utter.onend = () => { setStatus("idle"); setProgress(0); }; utter.onerror = () => { setStatus("idle"); setProgress(0); }; utter.onboundary = (e) => { if (e.charIndex && text.length) setProgress(e.charIndex / text.length); }; utterRef.current = utter; window.speechSynthesis.speak(utter);
   };
-  const playEleven = async () => {
-    // Bug: unlike the sibling playCerebrum() below (which wraps its
-    // localStorage read in try/catch), these two reads were unguarded.
-    // localStorage.getItem can throw (private browsing in older Safari,
-    // storage disabled by the user/policy, a sandboxed iframe without the
-    // allow-same-origin flag) — that would blow up the click handler before
-    // ever reaching playBrowser()'s fallback, silently doing nothing instead
-    // of degrading gracefully like every other storage read in this file.
-    let key = "", voiceId = "21m00Tcm4TlvDq8ikWAM";
-    try {
-      key = localStorage.getItem("cb_eleven_key") || "";
-      voiceId = localStorage.getItem("cb_eleven_voice") || voiceId;
-    } catch {}
-    if (!key) return playBrowser(); setStatus("loading"); try { const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" }, body: JSON.stringify({ text, model_id: "eleven_flash_v2_5", voice_settings: { stability: 0.5, similarity_boost: 0.75 } }) }); if (!res.ok) throw new Error("ElevenLabs error " + res.status); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playCerebrum(); } };
   const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {} const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
   // Commit 67 — "Auto read answers" was a DEAD SWITCH. The preference
   // existed, defaulted to ON, wrote its cookie, and was read by absolutely
@@ -6627,11 +6629,11 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     if (!autoPlay || !text || status !== "idle") return;
     if (autoFiredFor.current === text) return;
     autoFiredFor.current = text;
-    try { if (useElevenLabs) playEleven(); else playCerebrum(); } catch {}
+    try { playCerebrum(); } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPlay, text, useElevenLabs]);
+  }, [autoPlay, text]);
 
-  const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play()?.catch(() => {}); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } if (useElevenLabs) playEleven(); else playCerebrum(); };
+  const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play()?.catch(() => {}); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } playCerebrum(); };
   useEffect(() => () => stop(), []);
   const label = status === "loading" ? "Loading…" : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
   const active = status === "playing" || status === "paused";
@@ -6681,33 +6683,6 @@ function TtsVoiceSetting({ P, accent, at, S, sfx }) {
       {[["female", "Female"], ["male", "Male"]].map(([v, label]) => (
         <button key={v} onClick={() => set(v)} style={{ minHeight: 44, flex: 1, padding: "9px 6px", fontSize: FONT_SIZES.small, fontWeight: 600, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{label}</button>
       ))}
-    </div>
-  );
-}
-
-function ElevenLabsSetting({ P, accent, at, S, sfx }) {
-  const [key, setKey] = useState(() => { try { return localStorage.getItem("cb_eleven_key") || ""; } catch { return ""; } });
-  const [voice, setVoice] = useState(() => { try { return localStorage.getItem("cb_eleven_voice") || "21m00Tcm4TlvDq8ikWAM"; } catch { return "21m00Tcm4TlvDq8ikWAM"; } });
-  const [saved, setSaved] = useState(false);
-  const voices = [ { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (female, calm)" }, { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi (female, strong)" }, { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella (female, soft)" }, { id: "ErXwobaYiN019PkySvjV", name: "Antoni (male, well-rounded)" }, { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli (female, emotional)" }, { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh (male, deep)" }, { id: "VR6AewLTigWG4xSOukaG", name: "Arnold (male, crisp)" }, { id: "pNInz6obpgDQGcFmaJgB", name: "Adam (male, narration)" }, { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam (male, raspy)" } ];
-  const save = () => { try { if (key.trim()) localStorage.setItem("cb_eleven_key", key.trim()); else localStorage.removeItem("cb_eleven_key"); localStorage.setItem("cb_eleven_voice", voice); } catch {} sfx(); setSaved(true); setTimeout(() => setSaved(false), 1500); };
-  const clear = () => { setKey(""); try { localStorage.removeItem("cb_eleven_key"); } catch {} sfx(); };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <input type="password" aria-label="ElevenLabs API key" placeholder="ElevenLabs API key (optional)" value={key} onChange={(e) => setKey(e.target.value)} style={{ padding: "11px 14px", fontSize: 16, minHeight: 44, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", outline: "none" }} />
-      <select value={voice} onChange={(e) => setVoice(e.target.value)} style={{ padding: "11px 14px", fontSize: 16, minHeight: 44, background: P.surface, color: P.ink, border: `1px solid ${P.line}`, borderRadius: 8, fontFamily: "inherit", cursor: "pointer", outline: "none", ...selectChrome(P) }}>
-        {voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-      </select>
-      <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={save} style={{ minHeight: 44, flex: 1, padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{saved ? "✓ Saved" : "Save"}</button>
-        {key && <button onClick={clear} style={{ minHeight: 44, padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>}
-      </div>
-      {/* BYOK by design: the key lives in this browser's localStorage, in
-          cleartext, readable by any script running on this origin. Say so
-          plainly next to the field. */}
-      <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.5 }}>
-        Saved in this browser only — anyone with access to this browser can read it.
-      </div>
     </div>
   );
 }
@@ -21351,12 +21326,20 @@ function ConfigStatus({ P, accent }) {
     try {
       const r = await fetch("/api/config", { credentials: "include" });
       if (r.status === 403) return setState({ status: "forbidden", data: null });
-      if (!r.ok) return setState({ status: "error", data: null });
+      if (!r.ok) return setState({ status: "error", data: null, detail: "HTTP " + r.status });
       const ct = r.headers.get("content-type") || "";
       if (!ct.includes("json")) return setState({ status: "missing", data: null });
-      setState({ status: "ready", data: await r.json() });
-    } catch {
-      setState({ status: "error", data: null });
+      try {
+        setState({ status: "ready", data: await r.json() });
+      } catch {
+        setState({ status: "error", data: null, detail: "unreadable response" });
+      }
+    } catch (e) {
+      /* Fetch itself threw — network down, content blocker, or the browser
+         refused the request. Surface the reason so the panel diagnoses
+         itself instead of just saying "couldn't read". */
+      const msg = (e && (e.message || String(e))) || "network error";
+      setState({ status: "error", data: null, detail: "request failed: " + msg });
     }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -21376,7 +21359,7 @@ function ConfigStatus({ P, accent }) {
   }
   if (state.status !== "ready" || !state.data) {
     return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0" }}>
-      Couldn't read the configuration just now. <button onClick={load} style={{ background: "none", border: "none", color: accent, cursor: "pointer", font: "inherit", textDecoration: "underline", padding: 0 }}>Try again</button>
+      Couldn't read the configuration just now{state.detail ? ` (${state.detail})` : ""}. <button onClick={load} style={{ background: "none", border: "none", color: accent, cursor: "pointer", font: "inherit", textDecoration: "underline", padding: 0 }}>Try again</button>
     </div>;
   }
 
@@ -21657,7 +21640,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Auto read answers", "sound", "speech tts read aloud voice"],
     ["Sound effects", "sound", "mute clicks sfx sounds"],
     ["Search ambience", "sound", "tone background ambient sound"],
-    ["Text to speech", "answers", "elevenlabs voice narration tts"],
+    ["Text to speech", "answers", "voice narration tts"],
     ["Saved conversations", "privacy", "history conversations clear delete"],
     // E2EE Phase 1.4 — encrypted messaging settings.
     ["Encrypted messaging", "privacy", "encryption e2ee secure devices recovery phrase"],
@@ -21995,9 +21978,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             {/* Wave 3 — how an answer is spoken is part of what an answer
                 is, so the voice and key pickers live here. Auto-read (the
                 when) lives under Sound & motion. */}
-            <Section title="Read aloud" footer="The built-in voice is free and needs no setup. ElevenLabs is a paid service with more natural voices; if you have an account there, paste your key and answers will use it instead. The key stays in this browser.">
+            <Section title="Read aloud" footer="The built-in voice is free and needs no setup. Answers are read aloud on this device using your browser's voice.">
               <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
-              <ElevenLabsSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
             </Section>
 
           </>)}
@@ -23009,7 +22991,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        field without any translucency. */
     answerCard: {
       position: "relative",
-      background: P.surface,
+      /* Dusty: the grey panel sits over the cinematic backdrop — let it
+         show through a little. Only the panel goes translucent; the text
+         painted on it stays fully opaque and legible. */
+      background: withAlpha(P.surface, 0.78),
       border: `1px solid ${P.line}`,
       borderRadius: 6,
       padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
@@ -28251,6 +28236,13 @@ summary::-webkit-details-marker { display: none; }
   max-width: 640px;
   margin: 26px auto 0;
   overflow: hidden;
+}
+/* The searching water: a half-resolution WebGL canvas upscaled by CSS.
+   It paints first so marine snow and the reading line drift above it. */
+.cb-dive-water {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
 }
 .cb-dive-snow {
   position: absolute; bottom: -8px;
