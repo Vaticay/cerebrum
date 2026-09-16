@@ -1,5 +1,10 @@
 import { contextAction } from "../functions/lib/conversation.js";
 import { ensureE2EEDevice, encryptMessage, decryptThreadMessages, restoreFromPhrase, listBackups, uploadBackupNow, getRecoveryPhrase, confirmRecoveryPhrase, getBackupInfo, listDevices, revokeDevice, upgradeThread, isPeerEncryptionReady, getSafetyNumber, markSafetyNumberVerified, clearSafetyNumberVerified, clearE2EEMemory } from "./e2ee/messaging.js";
+/* Private Vault (zero-knowledge saved work, Phase 1). The crypto lives in
+   src/zkData.js; this file only wires it into sync, settings, and search.
+   Ciphertext and keys never touch the DOM or the console anywhere below. */
+import { makeItemId, isValidRecoveryPhrase, WRONG_PHRASE_ZK, ZkSession } from "./zkData.js";
+import { normalizePhrase } from "./e2ee/recovery.js";
 /* Inlined from investigationHistory.js — a one-function module was a
    deployment hazard (Cloudflare failed the build when the file was
    absent/misnamed). One history entry per conversation, refreshed after
@@ -17443,7 +17448,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
   );
 }
 
-function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro }) {
+function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
   // A signed-in account always has a real username by the time this page
@@ -17611,6 +17616,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const [ratingSaving, setRatingSaving] = useState(null);
   async function ratePaper(paperId, rating) {
     if (ratingSaving) return;
+    // Private Vault: a rating is library content. Unlocked -> it rides
+    // the debounced encrypted library push, never a separate plaintext
+    // write. Locked -> the edit is blocked outright (fail-closed).
+    if (vaultMode === "locked") { toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.", { tone: "error" }); return; }
     setRatingSaving(paperId);
     const prevSaved = saved;
     // Optimistic: update the rating in the local saved array.
@@ -17620,6 +17629,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     setSaved((prev) => (prev || []).map((sv) =>
       ((sv.savedId || sv.id) === paperId) ? { ...sv, rating } : sv
     ));
+    if (vaultMode === "unlocked") { setRatingSaving(null); return; }
     try {
       await apiDataAction("set-rating", { resource: "saved", id: paperId, rating });
     } catch (err) {
@@ -19026,6 +19036,546 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
       </Section>
     )}
   </>);
+}
+
+// ── Private Vault (zero-knowledge saved work, Phase 1) ─────────────────
+// Same plain-spoken vocabulary as EncryptionSettings above: "Private
+// Vault", "recovery phrase", "readable". The crypto vocabulary (DEK, KEK,
+// AES-GCM, Argon2id) never reaches the user, and nothing here may claim
+// the integration is independently audited — it isn't.
+function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSaved, history, setHistory, collections, setCollections, vaultCtl }) {
+  const [busy, setBusy] = useState("");
+  const [enableStep, setEnableStep] = useState(null);   // null | "warnings" | "phrase" | "migrating"
+  const [needE2ee, setNeedE2ee] = useState(false);
+  const [typedPhrase, setTypedPhrase] = useState("");
+  const [purgeNeeded, setPurgeNeeded] = useState(false);
+  const [unlockPhrase, setUnlockPhrase] = useState("");
+  const [showUnlock, setShowUnlock] = useState(false);
+  const [disableStep, setDisableStep] = useState(false);
+  const [disableConsent, setDisableConsent] = useState(false);
+
+  const mode = vaultCtl.mode;
+
+  const pillBtn = {
+    minHeight: 44, padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600,
+    background: withAlpha(accent, 0.16), color: accent,
+    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100,
+    cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
+  };
+  const dangerBtn = {
+    ...pillBtn, background: withAlpha(STATUS.bad, 0.1), color: STATUS.bad,
+    border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
+  };
+  const ghostBtn = { ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 };
+  const statusPill = (text, color) => (
+    <span style={{
+      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
+      padding: "4px 10px", borderRadius: 100, color, background: withAlpha(color, 0.12),
+      whiteSpace: "nowrap",
+    }}>{text}</span>
+  );
+  const noteBox = {
+    padding: "14px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+    borderTop: `1px solid ${P.line}`,
+  };
+  const warnLine = {
+    display: "flex", alignItems: "flex-start", gap: 8, fontSize: FONT_SIZES.small,
+    color: P.ink2, lineHeight: 1.5, marginBottom: 10, fontFamily: "var(--cb-font)",
+  };
+  const fieldLabel = {
+    fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)",
+  };
+  const textArea = {
+    width: "100%", padding: "10px 12px", fontSize: 16, fontFamily: "var(--cb-font)",
+    color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff",
+    border: `1px solid ${P.line}`, borderRadius: 8, outline: "none", resize: "vertical", marginBottom: 10,
+  };
+
+  // Enable is fail-closed on the recovery phrase: the vault is keyed by
+  // the same phrase as encrypted conversations, so without it on this
+  // device there is nothing to enable with.
+  const startEnable = async () => {
+    if (busy) return;
+    sfx();
+    if (!user || !user.id) { toast("Sign in first to use Private Vault."); return; }
+    const devicePhrase = await getRecoveryPhrase().catch(() => null);
+    if (!devicePhrase) { setNeedE2ee(true); return; }
+    setNeedE2ee(false);
+    setEnableStep("warnings");
+  };
+
+  const doEnable = async () => {
+    if (busy) return;
+    const devicePhrase = await getRecoveryPhrase().catch(() => null);
+    if (!devicePhrase) { setNeedE2ee(true); setEnableStep(null); return; }
+    const typed = typedPhrase.trim();
+    if (!isValidRecoveryPhrase(typed)) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
+    // The typed phrase must be THIS device's phrase: enabling under any
+    // other phrase would lock the vault to a key this device doesn't hold.
+    if (normalizePhrase(typed) !== normalizePhrase(devicePhrase)) { toast("That doesn't match the recovery phrase on this device.", { tone: "error" }); return; }
+    setBusy("enable");
+    setEnableStep("migrating");
+    vaultCtl.holdLegacy(true);
+    // Set the moment the vault row exists on the server. From then on a
+    // failure must land in "locked" (fail-closed) — never "off", which
+    // would let the plaintext sync path resume under an existing vault.
+    let vaultLive = false;
+    try {
+      sfx();
+      const phrase = normalizePhrase(typed);
+      const session = new ZkSession({ userId: user.id, post: vaultCtl.post, getPhrase: getRecoveryPhrase });
+      const vs = await session.getVaultState().catch(() => null);
+      const exists = !!(vs && (vs.exists || vs.dekId || vs.dek_id || vs.wrappedDek || vs.wrapped_dek));
+      if (exists) await session.unlock(phrase);
+      else await session.enable(phrase);
+      vaultLive = true;
+      // Everything currently in the library, encrypted. Migrated items
+      // carry the permanent honest label.
+      const savedRows = [], historyRows = [], colRows = [];
+      for (const s of saved || []) {
+        const id = s.zkId || makeItemId("paper");
+        savedRows.push({ id, kind: "paper", collectionId: s.collectionId || null, payload: { ...vaultCtl.paperPayload(s), zkMigrated: true }, rev: vaultCtl.nextRev(id) });
+      }
+      for (const h of history || []) {
+        const id = h.zkId || h.id || makeItemId("inv");
+        historyRows.push({ id, kind: "investigation", collectionId: null, payload: { ...vaultCtl.invPayload(h), zkMigrated: true }, rev: vaultCtl.nextRev(id) });
+      }
+      for (const c of collections || []) {
+        colRows.push({ id: c.id, kind: "collection-meta", collectionId: null, payload: { ...vaultCtl.colPayload(c), zkMigrated: true }, rev: vaultCtl.nextRev(c.id) });
+      }
+      // Id write-back BEFORE the upload: ids are stable, so a retry of a
+      // half-finished migration can never duplicate rows.
+      vaultCtl.setSession(session);
+      vaultCtl.setMode("unlocked");
+      vaultCtl.setMigPending(false);
+      vaultCtl.seedPushed(savedRows.map((r) => r.id), historyRows.map((r) => r.id));
+      vaultCtl.writeBackSaved(savedRows);
+      vaultCtl.writeBackHistory(historyRows);
+      vaultCtl.writeBackCollections(colRows);
+      const allRows = [...savedRows, ...historyRows, ...colRows];
+      if (allRows.length) await vaultCtl.pushBatched(session, allRows);
+      // The vault is live from here: the verified purge of old plaintext.
+      let deleted = null;
+      let purgeFailed = false;
+      try {
+        const res = await session.purgeLegacy();
+        deleted = (res && (res.deleted || res.counts)) || null;
+      } catch (e) {
+        // Ciphertext is up and the vault is on; only the cleanup failed.
+        // Say so loudly and offer the retry — never pretend it's gone.
+        purgeFailed = true;
+        setPurgeNeeded(true);
+        toast("Private Vault is on, but the old readable copies couldn't be removed. Use \"Remove old readable copies\" below to try again.", { tone: "error" });
+      }
+      setTypedPhrase("");
+      setEnableStep(null);
+      if (deleted) {
+        toast(`Private Vault is on. Removed the old readable copies: ${deleted.saved || 0} saved, ${deleted.history || 0} investigations, ${deleted.collections || 0} collections.`);
+      } else if (!purgeFailed) {
+        toast("Private Vault is on.");
+      }
+    } catch (e) {
+      // Anything before the vault row existed: abort cleanly, nothing was
+      // made private, so nothing is claimed. Once the vault row exists,
+      // fail closed into "locked" with the migration marked unfinished —
+      // Settings offers "Finish turning on Private Vault" to retry.
+      vaultCtl.setSession(null);
+      vaultCtl.setMode(vaultLive ? "locked" : "off");
+      vaultCtl.setMigPending(vaultLive);
+      toast(vaultCtl.errorMessage(e, "Couldn't turn on Private Vault."), { tone: "error" });
+      setEnableStep(vaultLive ? null : "phrase");
+    } finally {
+      vaultCtl.holdLegacy(false);
+      setBusy("");
+    }
+  };
+
+  // Retry for a half-finished enable: the vault row exists on the server
+  // but the encrypted upload didn't complete. Ids were written back
+  // before the first upload attempt, so re-running reuses the same ids
+  // and can never duplicate rows.
+  const doFinishMigration = async () => {
+    if (busy) return;
+    if (!user || !user.id) { toast("Sign in first."); return; }
+    const devicePhrase = await getRecoveryPhrase().catch(() => null);
+    if (!devicePhrase || !isValidRecoveryPhrase(devicePhrase)) {
+      toast("Couldn't find your recovery phrase on this device. Set up encrypted conversations first.", { tone: "error" });
+      return;
+    }
+    setBusy("finish");
+    vaultCtl.holdLegacy(true);
+    try {
+      const session = new ZkSession({ userId: user.id, post: vaultCtl.post, getPhrase: getRecoveryPhrase });
+      await session.unlock(normalizePhrase(devicePhrase));
+      const savedRows = [], historyRows = [], colRows = [];
+      for (const s of saved || []) {
+        const id = s.zkId || makeItemId("paper");
+        savedRows.push({ id, kind: "paper", collectionId: s.collectionId || null, payload: { ...vaultCtl.paperPayload(s), zkMigrated: true }, rev: vaultCtl.nextRev(id) });
+      }
+      for (const h of history || []) {
+        const id = h.zkId || h.id || makeItemId("inv");
+        historyRows.push({ id, kind: "investigation", collectionId: null, payload: { ...vaultCtl.invPayload(h), zkMigrated: true }, rev: vaultCtl.nextRev(id) });
+      }
+      for (const c of collections || []) {
+        colRows.push({ id: c.id, kind: "collection-meta", collectionId: null, payload: { ...vaultCtl.colPayload(c), zkMigrated: true }, rev: vaultCtl.nextRev(c.id) });
+      }
+      vaultCtl.setSession(session);
+      vaultCtl.setMode("unlocked");
+      vaultCtl.setMigPending(false);
+      vaultCtl.seedPushed(savedRows.map((r) => r.id), historyRows.map((r) => r.id));
+      vaultCtl.writeBackSaved(savedRows);
+      vaultCtl.writeBackHistory(historyRows);
+      vaultCtl.writeBackCollections(colRows);
+      const allRows = [...savedRows, ...historyRows, ...colRows];
+      if (allRows.length) await vaultCtl.pushBatched(session, allRows);
+      let deleted = null;
+      let purgeFailed = false;
+      try {
+        const res = await session.purgeLegacy();
+        deleted = (res && (res.deleted || res.counts)) || null;
+      } catch (e) {
+        purgeFailed = true;
+        setPurgeNeeded(true);
+        toast("Private Vault is on, but the old readable copies couldn't be removed. Use \"Remove old readable copies\" below to try again.", { tone: "error" });
+      }
+      if (deleted) {
+        toast(`Private Vault is on. Removed the old readable copies: ${deleted.saved || 0} saved, ${deleted.history || 0} investigations, ${deleted.collections || 0} collections.`);
+      } else if (!purgeFailed) {
+        toast("Private Vault is on.");
+      }
+    } catch (e) {
+      vaultCtl.setSession(null);
+      vaultCtl.setMode("locked");
+      toast(vaultCtl.errorMessage(e, "Couldn't finish turning on Private Vault."), { tone: "error" });
+    } finally {
+      vaultCtl.holdLegacy(false);
+      setBusy("");
+    }
+  };
+
+  const doRotate = async () => {
+    if (busy) return;
+    const session = vaultCtl.getSession();
+    if (!session) return;
+    const phrase = await getRecoveryPhrase().catch(() => null);
+    if (!phrase) {
+      vaultCtl.setMode("locked");
+      toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.");
+      return;
+    }
+    setBusy("rotate");
+    try {
+      sfx();
+      await session.rotate(phrase);
+      const pulled = await session.pullItems();
+      vaultCtl.applyItems(session, pulled.items, pulled.quarantined);
+      toast("Vault key rotated. Anything encrypted under the old key can no longer be written to.");
+    } catch (e) {
+      toast(vaultCtl.errorMessage(e, "Couldn't rotate the vault key."), { tone: "error" });
+    } finally { setBusy(""); }
+  };
+
+  const doPurgeRetry = async () => {
+    if (busy) return;
+    const session = vaultCtl.getSession();
+    if (!session) return;
+    setBusy("purge");
+    try {
+      sfx();
+      const res = await session.purgeLegacy();
+      const d = (res && (res.deleted || res.counts)) || {};
+      setPurgeNeeded(false);
+      toast(`Old readable copies removed: ${d.saved || 0} saved, ${d.history || 0} investigations, ${d.collections || 0} collections.`);
+    } catch (e) {
+      toast(vaultCtl.errorMessage(e, "Couldn't remove the old copies."), { tone: "error" });
+    } finally { setBusy(""); }
+  };
+
+  const doUnlock = async () => {
+    if (busy) return;
+    const typed = unlockPhrase.trim();
+    if (!isValidRecoveryPhrase(typed)) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
+    setBusy("unlock");
+    try {
+      sfx();
+      let session = vaultCtl.getSession();
+      if (!session) {
+        if (!user || !user.id) throw new Error("Sign in first to use Private Vault.");
+        session = new ZkSession({ userId: user.id, post: vaultCtl.post, getPhrase: getRecoveryPhrase });
+      }
+      await session.unlock(normalizePhrase(typed));
+      const pulled = await session.pullItems();
+      vaultCtl.setSession(session);
+      if ((pulled.items || []).length === 0 && vaultCtl.migPending) {
+        // Half-finished migration: the vault is empty but the library
+        // never moved into it. Keep the library visible and stay ready
+        // to finish — never swap it for an empty vault.
+        vaultCtl.setMode("locked");
+        toast("Private Vault wasn't finished turning on. Use \"Finish turning on Private Vault\" below to move your library into the vault.");
+      } else {
+        vaultCtl.applyItems(session, pulled.items, pulled.quarantined);
+        vaultCtl.setMode("unlocked");
+        setUnlockPhrase("");
+        setShowUnlock(false);
+        toast("Private Vault unlocked on this device.");
+      }
+    } catch (e) {
+      toast(vaultCtl.errorMessage(e, "Couldn't unlock Private Vault with that phrase."), { tone: "error" });
+    } finally { setBusy(""); }
+  };
+
+  // Writes the current browser library back as ordinary readable rows.
+  // Collections are recreated (they get new server ids), saved papers'
+  // collection links are remapped onto those new ids, then saved/history
+  // are replaced. Vault bookkeeping (zkId/zkRev) is stripped everywhere.
+  const writePlaintextLibrary = async () => {
+    const strip = (s) => { const { zkId, zkRev, ...rest } = s || {}; return rest; };
+    const idMap = new Map();
+    const freshCols = [];
+    for (const c of collections || []) {
+      try {
+        const r = await apiDataPost("collections", { action: "create", name: c.name });
+        freshCols.push({ id: r.id, name: r.name, created_at: Date.now() });
+        idMap.set(c.id, r.id);
+      } catch {}
+    }
+    const remap = (s) => {
+      const st = strip(s);
+      const cid = st.collectionId;
+      st.collectionId = cid && idMap.has(cid) ? idMap.get(cid) : null;
+      return st;
+    };
+    await apiDataPost("saved", { action: "replace-all", items: (saved || []).map(remap) });
+    await apiDataPost("history", { action: "replace-all", items: (history || []).map(strip) });
+    // Keep the UI consistent with what the server now holds.
+    setSaved((prev) => (prev || []).map(remap));
+    setHistory((prev) => (prev || []).map(strip));
+    setCollections(freshCols);
+  };
+
+  const doDisable = async () => {
+    if (busy) return;
+    const session = vaultCtl.getSession();
+    setBusy("disable");
+    vaultCtl.holdLegacy(true);
+    try {
+      sfx();
+      if (session) await session.dropAll();
+      vaultCtl.lockAll(); // wipes keys from memory, vault mode -> off
+      if (disableConsent) {
+        // Explicitly consented, never silent: write the current library
+        // back as ordinary readable rows so other devices see it again.
+        await writePlaintextLibrary();
+        vaultCtl.setLocalOnly(false);
+        toast("Private Vault is off. Your library was written back as readable data.");
+      } else {
+        // No consent: the library stays in this browser only. Readable
+        // syncing is paused until it's explicitly resumed in Settings —
+        // nothing is written back as plaintext on its own.
+        vaultCtl.setLocalOnly(true);
+        toast("Private Vault is off. Your library stays in this browser only — resume readable syncing in Settings if you want it on Cerebrum's servers.");
+      }
+      setDisableStep(false);
+      setDisableConsent(false);
+      setPurgeNeeded(false);
+    } catch (e) {
+      toast(vaultCtl.errorMessage(e, "Couldn't turn off Private Vault."), { tone: "error" });
+    } finally {
+      vaultCtl.holdLegacy(false);
+      setBusy("");
+    }
+  };
+
+  // Explicit consent to readable syncing after a no-consent disable.
+  // This is the intentionally-designed action that lifts the local-only
+  // block — nothing else does.
+  const doResumeReadable = async () => {
+    if (busy) return;
+    setBusy("resume");
+    try {
+      sfx();
+      await writePlaintextLibrary();
+      vaultCtl.setLocalOnly(false);
+      toast("Readable syncing resumed. Your library is on Cerebrum's servers as readable data again.");
+    } catch (e) {
+      toast("Couldn't resume readable syncing. Your library is still only in this browser.", { tone: "error" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <Section
+      title="Private Vault"
+      footer="Private Vault encrypts your saved papers, investigations, and collection names on this device before they sync, so Cerebrum's servers store them without being able to read them. This part of Cerebrum has not been independently audited."
+    >
+      {mode === "off" && (<>
+        <Row
+          label="Private Vault"
+          desc="Keep your saved papers, investigations, and collection names private: they're encrypted on your device with your recovery phrase, and Cerebrum's servers can't read them."
+          control={<button onClick={startEnable} disabled={busy === "enable"} style={pillBtn}>{busy === "enable" ? "Working…" : "Make my library private"}</button>}
+          last={!needE2ee && !enableStep && !vaultCtl.localOnly}
+        />
+        {vaultCtl.localOnly && (
+          <Row
+            label="Readable syncing paused"
+            desc="Your library is only in this browser. Nothing is written to Cerebrum's servers as readable data until you say so."
+            control={<button onClick={doResumeReadable} disabled={busy === "resume"} style={pillBtn}>{busy === "resume" ? "Resuming…" : "Resume readable syncing"}</button>}
+            last={!needE2ee && !enableStep}
+          />
+        )}
+        {needE2ee && (
+          <div style={noteBox}>
+            <div style={warnLine}>
+              <Icon name="warning" size={15} style={{ color: STATUS.warn, flexShrink: 0, marginTop: 1 }} />
+              <span>Private Vault uses the same recovery phrase as encrypted conversations, and this device doesn't have one yet. Set up encrypted conversations above first, then come back here.</span>
+            </div>
+            <button onClick={() => { sfx(); setNeedE2ee(false); }} style={ghostBtn}>OK</button>
+          </div>
+        )}
+        {enableStep === "warnings" && (
+          <div style={noteBox}>
+            <div style={{ ...fieldLabel, fontSize: FONT_SIZES.small, color: P.ink, marginBottom: 10 }}>Before you turn this on, three things you should know:</div>
+            <div style={warnLine}>
+              <Icon name="warning" size={15} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
+              <span>If you lose your recovery phrase and lose all your devices, your saved papers and investigations are gone forever. Cerebrum cannot get them back — there is no backdoor, and support can't override this.</span>
+            </div>
+            <div style={warnLine}>
+              <Icon name="warning" size={15} style={{ color: STATUS.warn, flexShrink: 0, marginTop: 1 }} />
+              <span>Anything you saved before today was readable from Cerebrum's servers. Those items stay labeled that way, honestly — encryption can't rewrite history.</span>
+            </div>
+            <div style={{ ...warnLine, marginBottom: 14 }}>
+              <Icon name="warning" size={15} style={{ color: STATUS.warn, flexShrink: 0, marginTop: 1 }} />
+              <span>Server backups may keep old readable copies until the backup retention window passes.</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => { sfx(); setEnableStep("phrase"); }} style={pillBtn}>I understand — continue</button>
+              <button onClick={() => { sfx(); setEnableStep(null); }} style={ghostBtn}>Not now</button>
+            </div>
+          </div>
+        )}
+        {enableStep === "phrase" && (
+          <div style={noteBox}>
+            <div style={fieldLabel}>Type your 24-word recovery phrase</div>
+            <div style={{ ...warnLine, marginBottom: 10 }}>
+              <span>This proves the phrase is really yours, and it's the phrase your vault will be locked with. It never leaves this device.</span>
+            </div>
+            <textarea
+              value={typedPhrase}
+              onChange={(e) => setTypedPhrase(e.target.value)}
+              rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
+              placeholder="Enter the 24 words in order, separated by spaces"
+              style={textArea}
+            />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={doEnable} disabled={!typedPhrase.trim() || busy === "enable"} style={{ ...pillBtn, opacity: !typedPhrase.trim() ? 0.45 : 1 }}>
+                {busy === "enable" ? "Working…" : "Make my library private"}
+              </button>
+              <button onClick={() => { sfx(); setEnableStep("warnings"); setTypedPhrase(""); }} style={ghostBtn}>Back</button>
+            </div>
+          </div>
+        )}
+        {enableStep === "migrating" && (
+          <div style={noteBox}>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+              Making your library private — encrypting everything on this device, uploading it, then removing the old readable copies. Keep this tab open.
+            </div>
+          </div>
+        )}
+      </>)}
+      {mode === "locked" && (<>
+        <Row
+          label="Private Vault"
+          desc="Private Vault is locked on this device."
+          control={statusPill("Locked", STATUS.warn)}
+        />
+        {vaultCtl.migPending && (
+          <Row
+            label="Finish turning on Private Vault"
+            desc="The vault was created but your library didn't finish moving into it. Finish now — your library stays exactly as it is until the encrypted upload succeeds."
+            control={<button onClick={doFinishMigration} disabled={busy === "finish"} style={pillBtn}>{busy === "finish" ? "Finishing…" : "Finish"}</button>}
+          />
+        )}
+        <Row
+          label="Unlock with recovery phrase"
+          desc="Type your 24-word recovery phrase to unlock the vault on this device and resume syncing."
+          control={<button onClick={() => { sfx(); setShowUnlock((v) => !v); }} style={ghostBtn}>{showUnlock ? "Close" : "Unlock"}</button>}
+          last={!showUnlock}
+        />
+        {showUnlock && (
+          <div style={noteBox}>
+            <div style={fieldLabel}>Your 24-word recovery phrase</div>
+            <textarea
+              value={unlockPhrase}
+              onChange={(e) => setUnlockPhrase(e.target.value)}
+              rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
+              placeholder="Enter the 24 words in order, separated by spaces"
+              style={textArea}
+            />
+            <button onClick={doUnlock} disabled={!unlockPhrase.trim() || busy === "unlock"} style={{ ...pillBtn, opacity: !unlockPhrase.trim() ? 0.45 : 1 }}>
+              {busy === "unlock" ? "Unlocking…" : "Unlock Private Vault"}
+            </button>
+          </div>
+        )}
+      </>)}
+      {mode === "unlocked" && (<>
+        <Row
+          label="Private Vault"
+          desc="Private Vault is on. Cerebrum's servers cannot read these items."
+          control={statusPill("On", STATUS.good)}
+        />
+        <Row
+          label="Rotate vault key"
+          desc="Generates a fresh key and re-encrypts everything. Do this if you think a device was compromised — the old key stops working immediately."
+          control={<button onClick={doRotate} disabled={busy === "rotate"} style={pillBtn}>{busy === "rotate" ? "Rotating…" : "Rotate"}</button>}
+          last={!purgeNeeded && !disableStep}
+        />
+        {purgeNeeded && (
+          <Row
+            label="Remove old readable copies"
+            desc="The old readable copies of your library are still on Cerebrum's servers. Remove them now."
+            control={<button onClick={doPurgeRetry} disabled={busy === "purge"} style={pillBtn}>{busy === "purge" ? "Removing…" : "Remove"}</button>}
+            last={!disableStep}
+          />
+        )}
+        <Row
+          label="Turn off Private Vault"
+          desc="Deletes the encrypted vault from Cerebrum's servers. Your library stays decrypted in this browser."
+          control={<button onClick={() => { sfx(); setDisableStep((v) => !v); }} style={{ ...dangerBtn, background: "transparent" }}>{disableStep ? "Keep it on" : "Turn off…"}</button>}
+          last={!disableStep}
+          destructive={disableStep}
+        />
+        {disableStep && (
+          <div style={noteBox}>
+            <div style={{ ...warnLine, marginBottom: 12 }}>
+              <Icon name="warning" size={15} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
+              <span>Turning it off deletes the encrypted vault from Cerebrum's servers. Your library stays decrypted in this browser, exactly as you see it now.</span>
+            </div>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", marginBottom: 12, minHeight: 44 }}>
+              <input
+                type="checkbox" checked={disableConsent} onChange={(e) => { sfx(); setDisableConsent(e.target.checked); }}
+                style={{ width: 20, height: 20, marginTop: 2, accentColor: accent, flexShrink: 0, cursor: "pointer" }}
+              />
+              <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                Also write my library back to my account as readable data, so my other devices see it again. Cerebrum's servers will be able to read it.
+              </span>
+            </label>
+            {!disableConsent && (
+              <div style={{ ...warnLine, marginBottom: 12 }}>
+                <span>Unchecked, your library stays only in this browser until you save or change something — then normal syncing resumes as readable data.</span>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={doDisable} disabled={busy === "disable"} style={dangerBtn}>
+                {busy === "disable" ? "Turning off…" : "Turn off Private Vault"}
+              </button>
+              <button onClick={() => { sfx(); setDisableStep(false); setDisableConsent(false); }} style={ghostBtn}>Keep it on</button>
+            </div>
+          </div>
+        )}
+      </>)}
+    </Section>
+  );
 }
 
 function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker }) {
@@ -20802,7 +21352,7 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, turns, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
   // Wave 3 — the three destructive confirmations used to be inline
@@ -21509,6 +22059,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 backups. Lives on Privacy & data because "who can read my
                 messages" is a privacy question. */}
             <EncryptionSettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} />
+            {/* Private Vault (zero-knowledge saved work): encrypted saved
+                papers, investigations, and collection names. Same tab —
+                "who can read my library" is the same privacy question. */}
+            <PrivateVaultSettings P={P} accent={accent} sfx={sfx} Section={Section} Row={Row}
+              user={user} saved={saved} setSaved={setSaved} history={history} setHistory={setHistory}
+              collections={collections} setCollections={setCollections} vaultCtl={vaultCtl} />
           </>)}
 
           {/* Wave 3 — the contents of this old block were split where they
@@ -23614,6 +24170,11 @@ function App() {
     } else {
       setSyncReady(true);
     }
+    // Private Vault: when the account has a vault row it becomes the
+    // source of truth (decrypted locally), replacing the plaintext
+    // tables above. Locked (no phrase on this device) means sync pauses
+    // — never a silent fall back to plaintext.
+    await initVaultForUser(authedUser, { saved: serverSaved.length, history: serverHist.length });
   }
 
   // Restores an existing session on load, and completes a magic-link
@@ -23696,6 +24257,9 @@ function App() {
   async function signOut() {
     investigationRequest.current += 1;
     setBusy(false); setTurns([]); setAllSources([]);
+    // The vault's keys live in memory: signing out locks them away. The
+    // next sign-in re-checks the vault from scratch in handleAuthed.
+    zkLockNow();
     try { await apiAuth("logout", {}); } catch {}
     setUser(null); setSyncReady(false); setCollections([]);
     setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
@@ -23710,6 +24274,7 @@ function App() {
   function onAccountDeleted() {
     investigationRequest.current += 1;
     setBusy(false); setTurns([]); setAllSources([]);
+    zkLockNow();
     setUser(null); setSyncReady(false); setCollections([]); setSaved([]); setHistory([]);
     setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
   }
@@ -23817,6 +24382,337 @@ function App() {
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
 
+  /* ── Private Vault (zero-knowledge saved work, Phase 1) ─────────────
+     One ZkSession per signed-in user, held in a ref (it is not render
+     state). vaultMode is the render-visible mirror: "off" (no vault on
+     the account — the legacy plaintext sync path runs unchanged),
+     "locked" (a vault exists but this device has no unlocked DEK —
+     sync is paused, fail-closed, and nothing is ever written back as
+     plaintext), or "unlocked" (items sync as encrypted rows).
+     zkRevRef maps zk row id -> rev so every push carries a monotonic
+     per-item revision without churning render state. vaultTransitionRef
+     holds the legacy push effects while an enable/disable ceremony is
+     in flight, so a debounced timer can't resurrect plaintext rows
+     mid-migration. */
+  const zkSessionRef = useRef(null);
+  const zkRevRef = useRef(new Map());
+  // Last zk ids successfully pushed per store — removals are detected by
+  // diffing, because the encrypted push is upsert-only (unlike the legacy
+  // replace-all, a missing item wouldn't otherwise delete its row).
+  const zkLastPushedIds = useRef({ saved: new Set(), history: new Set() });
+  // Content fingerprints per zk id — rev bumps and uploads happen only
+  // when the content actually changed, so the write-back of zkRev can't
+  // retrigger the push effect into an endless sync loop.
+  const zkFpRef = useRef(new Map());
+  const vaultTransitionRef = useRef(false);
+  // True when the vault row exists on the server but the initial
+  // encrypted migration never finished (enable() went through, the item
+  // upload didn't). Settings offers "Finish turning on Private Vault"
+  // instead of leaving the library half-migrated.
+  const [vaultMigPending, setVaultMigPending] = useState(false);
+  // Local-only block: set when the vault is disabled WITHOUT consent to
+  // write plaintext back. While set, the legacy plaintext push effects
+  // stay silent — the library lives in this browser only. Cleared by
+  // explicit consent (resume readable syncing), a fresh vault enable, or
+  // sign-out (a fresh session re-decides).
+  const [vaultLocalOnly, setVaultLocalOnlyState] = useState(false);
+  const vaultLocalOnlyRef = useRef(false);
+  const setVaultLocalOnly = (v) => { vaultLocalOnlyRef.current = v; setVaultLocalOnlyState(v); };
+  const [vaultMode, setVaultModeState] = useState("off");
+  const vaultModeRef = useRef("off");
+  const setVaultMode = (m) => { vaultModeRef.current = m; setVaultModeState(m); };
+  const zkLockNow = () => {
+    try { if (zkSessionRef.current && typeof zkSessionRef.current.lock === "function") zkSessionRef.current.lock(); } catch {}
+    zkSessionRef.current = null;
+    zkRevRef.current = new Map();
+    zkLastPushedIds.current = { saved: new Set(), history: new Set() };
+    zkFpRef.current = new Map();
+    setVaultMigPending(false);
+    setVaultLocalOnly(false);
+    setVaultMode("off");
+  };
+  // Payload builders: the ciphertext carries the work itself. ZK
+  // bookkeeping (zkId/zkRev) and server identity (savedId) are row
+  // fields, never payload content.
+  const zkPaperPayload = (s) => {
+    const { zkId, zkRev, savedId, ...rest } = s || {};
+    return rest;
+  };
+  const zkInvPayload = (h) => ({ title: h.title, ts: h.ts, turns: h.turns, allSources: h.allSources });
+  const zkColPayload = (c) => ({ name: c.name, createdAt: c.created_at || c.createdAt || Date.now() });
+  const zkNextRev = (id) => {
+    const n = (zkRevRef.current.get(id) || 0) + 1;
+    zkRevRef.current.set(id, n);
+    return n;
+  };
+  // Idempotent write-back of zkId/zkRev onto state: returns the previous
+  // array untouched when nothing changed, so the push effect can't loop.
+  const zkWriteBack = (prev, rows) => {
+    if (!Array.isArray(prev) || prev.length !== rows.length) return prev;
+    let changed = false;
+    const next = prev.map((it, i) => {
+      const r = rows[i];
+      if (!r || (it.zkId === r.id && it.zkRev === r.rev)) return it;
+      changed = true;
+      return { ...it, zkId: r.id, zkRev: r.rev };
+    });
+    return changed ? next : prev;
+  };
+  /* zkPost — the transport given to ZkSession, instead of raw apiDataAction.
+     Three things apiDataAction can't do, all required by the session's
+     contract:
+     (1) Preserve the server's error `code`/`status`. apiDataPost throws a
+         plain Error, which would swallow the 409/stale_dek the session
+         translates into its typed "re-enable" error.
+     (2) `zk-get-vault` shape: the server answers { ok, row: { dekId,
+         wrappedDek, updatedAt } }; the session reads res.vault.wrapped_dek.
+     (3) `zk-get-items` shape: the server answers camelCase rows
+         (collectionId/dekId/updatedAt); the session rebuilds its
+         authentication tag from row.dek_id and reads row.collection_id.
+     This maps key names only. No crypto, no key material, nothing
+     decrypted here. If the server and crypto module ever agree on one
+     shape, this adapter can be deleted and apiDataAction used directly. */
+  const zkPost = async (action, body) => {
+    let res;
+    try {
+      res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...(body || {}) }),
+      });
+    } catch {
+      throw new Error("Couldn't reach Cerebrum. Check your connection and try again.");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || "Something went wrong. Please try again.");
+      err.code = data.code || "error";
+      err.status = res.status;
+      throw err;
+    }
+    if (action === "zk-get-vault") {
+      const row = data && data.row;
+      return row
+        ? { vault: { dek_id: row.dekId, wrapped_dek: row.wrappedDek, updated_at: row.updatedAt } }
+        : { vault: null };
+    }
+    if (action === "zk-get-items") {
+      const items = (data && data.items) || [];
+      return {
+        items: items.map((r) => ({
+          ...r,
+          collection_id: r.collection_id ?? r.collectionId ?? null,
+          dek_id: r.dek_id ?? r.dekId,
+          updated_at: r.updated_at ?? r.updatedAt,
+          created_at: r.created_at ?? r.createdAt,
+        })),
+      };
+    }
+    return data;
+  };
+
+  const zkErrorMessage = (e, fallback) => {
+    if (!e) return fallback;
+    const code = e.code || e.name || "";
+    const msg = String(e.message || "");
+    // A rotation on another device killed this key generation: the only
+    // honest response is to stop syncing until the vault is re-enabled.
+    if (code === "stale_dek" || code === "STALE_DEK" || /stale_dek/i.test(msg)) return "Private Vault needs to be re-enabled.";
+    if (code === "WRONG_PHRASE" || code === WRONG_PHRASE_ZK || msg === WRONG_PHRASE_ZK || /wrong.+phrase|phrase.+wrong/i.test(msg)) return "That recovery phrase doesn't match this vault.";
+    return msg || fallback;
+  };
+  // The server rejects item batches above its cap with 413 (never silently
+  // truncates); chunk uploads so a big library migration or rotation can't
+  // be rejected as "batch too large".
+  const zkPushBatched = async (session, rows) => {
+    for (let i = 0; i < rows.length; i += 150) {
+      await session.pushItems(rows.slice(i, i + 150));
+    }
+  };
+  // Content fingerprint: sorted keys, so key order can never fake a
+  // change. Rev bumps and uploads happen only for new/changed rows —
+  // the zkRev write-back then compares equal and can't retrigger the
+  // push effect into an endless sync loop.
+  const zkFingerprint = (row) => {
+    const p = (row && row.payload) || {};
+    const norm = {};
+    for (const k of Object.keys(p).sort()) norm[k] = p[k];
+    return row.kind + "|" + (row.collectionId || "") + "|" + JSON.stringify(norm);
+  };
+  // Pushes pre-built rows for one store, uploading only new/changed
+  // content and deleting removed ids. Returns true when the vault path
+  // owns the decision; false when the caller should use the legacy path.
+  // A failed delete is surfaced (not swallowed) and retried on the next
+  // change, so a deleted item can't silently come back.
+  const zkPushRows = async (store, rows) => {
+    const mode = vaultModeRef.current;
+    if (mode !== "unlocked" || vaultTransitionRef.current) return mode !== "off";
+    const session = zkSessionRef.current;
+    if (!session || (typeof session.isUnlocked === "function" && !session.isUnlocked())) {
+      setVaultMode("locked");
+      return true;
+    }
+    const changed = [];
+    for (const r of rows) {
+      const fp = zkFingerprint(r);
+      if (zkFpRef.current.get(r.id) !== fp) {
+        r.rev = zkNextRev(r.id);
+        changed.push(r);
+        zkFpRef.current.set(r.id, fp);
+      }
+    }
+    const currentIds = new Set(rows.map((r) => r.id));
+    const last = zkLastPushedIds.current[store];
+    const failedDeletes = [];
+    try {
+      if (changed.length) await zkPushBatched(session, changed);
+      const removed = [...last].filter((id) => !currentIds.has(id));
+      for (const id of removed) {
+        try { await session.deleteItem(id); last.delete(id); zkFpRef.current.delete(id); }
+        catch { failedDeletes.push(id); }
+      }
+      for (const id of currentIds) last.add(id);
+    } catch (e) {
+      const msg = zkErrorMessage(e, "");
+      if (msg === "Private Vault needs to be re-enabled.") {
+        setVaultMode("locked");
+        toast(msg, { tone: "error" });
+      } else {
+        toast("Private Vault couldn't sync just now. Your browser copy is safe; it will retry on the next change.", { tone: "error" });
+      }
+      return true;
+    }
+    if (failedDeletes.length) {
+      toast(`Couldn't remove ${failedDeletes.length} deleted item${failedDeletes.length === 1 ? "" : "s"} from the vault just now — they'll be retried on the next change.`, { tone: "error" });
+    }
+    return true;
+  };
+  // Encrypted push for one store. Rows are built at their current rev;
+  // zkPushRows bumps rev only for content that actually changed, and the
+  // write-back below is idempotent, so the push effect can't loop.
+  const zkPushSaved = async (items) => {
+    const rows = (items || []).map((s) => {
+      const id = s.zkId || makeItemId("paper");
+      return { id, kind: "paper", collectionId: s.collectionId || null, payload: zkPaperPayload(s), rev: zkRevRef.current.get(id) || s.zkRev || 0 };
+    });
+    const owned = await zkPushRows("saved", rows);
+    if (owned && vaultModeRef.current === "unlocked") setSaved((prev) => zkWriteBack(prev, rows));
+    return owned;
+  };
+  const zkPushHistory = async (items) => {
+    const rows = (items || []).map((h) => {
+      const id = h.zkId || h.id || makeItemId("inv");
+      return { id, kind: "investigation", collectionId: null, payload: zkInvPayload(h), rev: zkRevRef.current.get(id) || h.zkRev || 0 };
+    });
+    const owned = await zkPushRows("history", rows);
+    if (owned && vaultModeRef.current === "unlocked") setHistory((prev) => zkWriteBack(prev, rows));
+    return owned;
+  };
+  // Decrypted rows -> render state. The vault is the source of truth once
+  // unlocked: plaintext tables are not read afterwards.
+  const applyVaultItems = (session, items, quarantined) => {
+    const revMap = new Map();
+    const papers = [], invs = [], cols = [];
+    for (const row of items || []) {
+      revMap.set(row.id, row.rev || 0);
+      if (row.kind === "paper") {
+        papers.push({ ...(row.payload || {}), collectionId: row.collectionId != null ? row.collectionId : (row.payload && row.payload.collectionId) || null, zkId: row.id, zkRev: row.rev || 0 });
+      } else if (row.kind === "investigation") {
+        invs.push({ ...(row.payload || {}), zkId: row.id, zkRev: row.rev || 0 });
+      } else if (row.kind === "collection-meta") {
+        cols.push({ id: row.id, name: (row.payload && row.payload.name) || "Collection", created_at: (row.payload && row.payload.createdAt) || row.updatedAt || Date.now(), zkId: row.id, zkRev: row.rev || 0 });
+      }
+    }
+    zkRevRef.current = revMap;
+    zkLastPushedIds.current = {
+      saved: new Set(papers.map((p) => p.zkId)),
+      history: new Set(invs.map((h) => h.zkId)),
+    };
+    // Seed content fingerprints from the pulled rows, normalized exactly
+    // like the push path, so the first push after unlock doesn't
+    // re-upload everything with bumped revs.
+    const fp = new Map();
+    for (const p of papers) fp.set(p.zkId, zkFingerprint({ kind: "paper", collectionId: p.collectionId || null, payload: zkPaperPayload(p) }));
+    for (const h of invs) fp.set(h.zkId, zkFingerprint({ kind: "investigation", collectionId: null, payload: zkInvPayload(h) }));
+    zkFpRef.current = fp;
+    setSaved(papers);
+    setHistory(invs);
+    setCollections(cols);
+    if (quarantined && quarantined.length) {
+      toast(`Skipped ${quarantined.length} item${quarantined.length === 1 ? "" : "s"} that couldn't be decrypted.`, { tone: "error" });
+    }
+  };
+  const zkVaultExists = (vs) => !!(vs && (vs.exists || vs.dekId || vs.dek_id || vs.wrappedDek || vs.wrapped_dek));
+  // Runs after the legacy pulls in handleAuthed. If the account has a
+  // vault row it takes over: unlocked when the recovery phrase is on
+  // this device, locked (sync paused, never plaintext) otherwise.
+  const initVaultForUser = async (authedUser, legacy = {}) => {
+    vaultTransitionRef.current = true;
+    zkSessionRef.current = null;
+    zkRevRef.current = new Map();
+    zkLastPushedIds.current = { saved: new Set(), history: new Set() };
+    zkFpRef.current = new Map();
+    setVaultMode("off");
+    setVaultMigPending(false);
+    // Locked means nothing decrypted is shown. The legacy plaintext that
+    // handleAuthed just pulled must not linger in the UI or in plaintext
+    // localStorage — sync pauses, fail-closed, never plaintext.
+    const clearForLocked = () => {
+      setSaved([]);
+      setHistory([]);
+      setCollections([]);
+      try { localStorage.removeItem("cb_saved"); } catch {}
+      try { localStorage.removeItem("cb_history"); } catch {}
+      setImportPrompt(null);
+    };
+    try {
+      const uid = authedUser && authedUser.id;
+      if (!uid) return;
+      let session = null;
+      try {
+        session = new ZkSession({ userId: uid, post: zkPost, getPhrase: getRecoveryPhrase });
+      } catch { return; }
+      const vs = await session.getVaultState().catch(() => null);
+      if (!zkVaultExists(vs)) return;
+      // A vault exists: any guest import prompt is moot — the vault, not
+      // the browser's guest data, is this account's library.
+      setImportPrompt(null);
+      const phrase = await getRecoveryPhrase().catch(() => null);
+      if (!phrase) {
+        zkSessionRef.current = session;
+        clearForLocked();
+        setVaultMode("locked");
+        toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.");
+        return;
+      }
+      try {
+        await session.unlock(phrase);
+        const pulled = await session.pullItems();
+        zkSessionRef.current = session;
+        if ((pulled.items || []).length === 0 && ((legacy.saved || 0) > 0 || (legacy.history || 0) > 0)) {
+          // Half-finished migration: the vault row exists but the
+          // encrypted upload never completed. Keep the legacy library
+          // visible (it's the user's data, shown exactly as it was) and
+          // offer "Finish turning on Private Vault" in Settings. Never
+          // silently replace a real library with an empty vault.
+          setVaultMode("locked");
+          setVaultMigPending(true);
+          toast("Private Vault wasn't finished turning on. Finish it in Settings to move your library into the vault.");
+        } else {
+          applyVaultItems(session, pulled.items, pulled.quarantined);
+          setVaultMode("unlocked");
+        }
+      } catch (e) {
+        zkSessionRef.current = session;
+        clearForLocked();
+        setVaultMode("locked");
+        toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.");
+      }
+    } finally {
+      vaultTransitionRef.current = false;
+    }
+  };
+
   /* New-version detection: compare the baked-in build SHA (__CB_BUILD__,
      vite.config.js) against the freshly-served public/version.json every
      10 minutes. The banner shows only while idle — a deploy landing
@@ -23853,12 +24749,92 @@ function App() {
      above the `saved` useState) put `saved` in its own temporal dead zone
      and the whole app threw on mount. */
   const [historyQuery, setHistoryQuery] = useState("");
+  /* Private Vault local search: when unlocked, both search boxes query
+     the decrypted on-device index (queryLocalIndex) — search terms never
+     leave the device and nothing is sent server-side. The index rebuilds
+     only when the underlying lists change, not per keystroke. Items that
+     somehow lack a vault id fall back to the plain local filter, which is
+     still fully on-device. */
+  const zkIndexReady = useMemo(() => {
+    if (vaultMode !== "unlocked") return false;
+    const session = zkSessionRef.current;
+    if (!session || typeof session.buildLocalIndex !== "function") return false;
+    try {
+      const rows = [
+        ...(saved || []).map((s) => ({ id: s.zkId || makeItemId("paper"), kind: "paper", collectionId: s.collectionId || null, payload: zkPaperPayload(s), rev: zkRevRef.current.get(s.zkId) || 0 })),
+        ...(history || []).map((h) => ({ id: h.zkId || h.id || makeItemId("inv"), kind: "investigation", collectionId: null, payload: zkInvPayload(h), rev: zkRevRef.current.get(h.zkId) || 0 })),
+      ];
+      // buildLocalIndex may take rows or read the session's own decrypted
+      // store; the arity check picks the right call shape.
+      if (session.buildLocalIndex.length > 0) session.buildLocalIndex(rows);
+      else session.buildLocalIndex();
+      return true;
+    } catch { return false; }
+  }, [saved, history, vaultMode]);
+  const zkQueryIds = (q) => {
+    if (!zkIndexReady) return null;
+    const session = zkSessionRef.current;
+    if (!session || typeof session.queryLocalIndex !== "function") return null;
+    try {
+      const res = session.queryLocalIndex(q) || [];
+      const ids = new Set();
+      for (const r of res) {
+        const id = typeof r === "string" ? r : (r && (r.id || r.zkId));
+        if (id) ids.add(id);
+      }
+      return ids;
+    } catch { return null; }
+  };
+  // One bundle handed to the Settings "Private Vault" section: everything
+  // the ceremony needs, without prop-drilling a dozen callbacks.
+  const vaultCtl = {
+    mode: vaultMode,
+    setMode: setVaultMode,
+    getSession: () => zkSessionRef.current,
+    setSession: (s) => { zkSessionRef.current = s; },
+    post: zkPost,
+    applyItems: applyVaultItems,
+    nextRev: zkNextRev,
+    lockAll: zkLockNow,
+    holdLegacy: (on) => { vaultTransitionRef.current = on; },
+    seedPushed: (savedIds, historyIds) => { zkLastPushedIds.current = { saved: new Set(savedIds), history: new Set(historyIds) }; },
+    migPending: vaultMigPending,
+    setMigPending: setVaultMigPending,
+    localOnly: vaultLocalOnly,
+    setLocalOnly: setVaultLocalOnly,
+    isLocalOnly: () => vaultLocalOnlyRef.current,
+    pushBatched: zkPushBatched,
+    errorMessage: zkErrorMessage,
+    paperPayload: zkPaperPayload,
+    invPayload: zkInvPayload,
+    colPayload: zkColPayload,
+    writeBackSaved: (rows) => setSaved((prev) => zkWriteBack(prev, rows)),
+    writeBackHistory: (rows) => setHistory((prev) => zkWriteBack(prev, rows)),
+    writeBackCollections: (rows) => setCollections((prev) => {
+      if (!Array.isArray(prev) || prev.length !== rows.length) return prev;
+      let changed = false;
+      const next = prev.map((c, i) => {
+        const r = rows[i];
+        if (!r || c.id !== r.id || c.zkRev === r.rev) return c;
+        changed = true;
+        return { ...c, zkRev: r.rev };
+      });
+      return changed ? next : prev;
+    }),
+  };
+
+
   const visibleHistory = useMemo(() => {
-    const q = historyQuery.trim().toLowerCase();
+    const q = historyQuery.trim();
     if (!q) return history;
-    return history.filter((h) => String(h.title || "").toLowerCase().includes(q)
-      || (h.turns || []).some((t) => String(t.q || "").toLowerCase().includes(q)));
-  }, [history, historyQuery]);
+    const ql = q.toLowerCase();
+    const legacyMatch = (h) => String(h.title || "").toLowerCase().includes(ql)
+      || (h.turns || []).some((t) => String(t.q || "").toLowerCase().includes(ql));
+    const ids = zkQueryIds(q);
+    if (!ids) return history.filter(legacyMatch);
+    return history.filter((h) => (h.zkId ? ids.has(h.zkId) : legacyMatch(h)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, historyQuery, zkIndexReady]);
   /* Investigations grouped by month for the diary view: [{ key, label,
      items }], newest month first. Items without a timestamp land in
      "Earlier". */
@@ -23883,16 +24859,25 @@ function App() {
     const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next;
   });
   const visibleSaved = useMemo(() => {
-    const q = libraryQuery.trim().toLowerCase();
-    const list = q
-      ? saved.filter((sv) => [sv.title, sv.authors, sv.journal].filter(Boolean).join(" ").toLowerCase().includes(q))
-      : saved.slice();
+    const q = libraryQuery.trim();
+    let list;
+    if (!q) {
+      list = saved.slice();
+    } else {
+      const ql = q.toLowerCase();
+      const legacyMatch = (sv) => [sv.title, sv.authors, sv.journal].filter(Boolean).join(" ").toLowerCase().includes(ql);
+      const ids = zkQueryIds(q);
+      list = ids
+        ? saved.filter((sv) => (sv.zkId ? ids.has(sv.zkId) : legacyMatch(sv)))
+        : saved.filter(legacyMatch);
+    }
     if (librarySort === "title") return list.sort((x, y) => String(x.title || "").localeCompare(String(y.title || "")));
     if (librarySort === "year") return list.sort((x, y) => (Number(y.year) || 0) - (Number(x.year) || 0));
     // "recent" = when YOU saved it. savedAt was added in Commit 67; anything
     // predating that falls back to createdAt so old libraries still order.
     return list.sort((x, y) => (y.savedAt || y.createdAt || 0) - (x.savedAt || x.createdAt || 0));
-  }, [saved, libraryQuery, librarySort]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved, libraryQuery, librarySort, zkIndexReady]);
 
   const [sessions, setSessions] = useState([]);
   const [mobilePanel, setMobilePanel] = useState(false);
@@ -24266,7 +25251,16 @@ function App() {
       })];
       setTurns(nextTurns);
       setAllSources(nextSources);
-      setHistory(previous => saveInvestigation(previous, nextTurns, nextSources));
+      // New investigations get their vault id up front when the vault is
+      // unlocked, so the encrypted push and the local search index see a
+      // stable identity immediately instead of waiting for the write-back.
+      setHistory((previous) => {
+        const next = saveInvestigation(previous, nextTurns, nextSources);
+        if (vaultModeRef.current === "unlocked" && next.length > 0 && !next[0].zkId) {
+          next[0] = { ...next[0], zkId: makeItemId("inv"), zkRev: 0 };
+        }
+        return next;
+      });
       if (turns.length === 0) setSessions((s) => [{ q: question, ts: Date.now() }, ...s].slice(0, 40));
       if (!mutedRef.current) Sfx.pop();
       videosPromise.then(({ videos }) => { /* The video index has answered for this turn — with footage or without. Marking the turn settled keeps the Videos tab on an honest "reading" state instead of flashing a false empty verdict when synthesis wins the race. */ setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videosSettled: true } : t)); if (requestVersion === investigationRequest.current && data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); /* ReadingRoom's one real milestone: /api/videos resolved with footage while this search is still the current request. */ setVideosLocated(true); } });
@@ -24591,7 +25585,15 @@ function App() {
   useEffect(() => { setCookie("cb_df", dyslexicFont ? "1" : "0"); }, [dyslexicFont]);
   useEffect(() => { setCookie("cb_ls", lineSpacing); }, [lineSpacing]);
   useEffect(() => { setCookie("cb_fh", focusHighlight ? "1" : "0"); }, [focusHighlight]);
-  useEffect(() => { try { localStorage.setItem("cb_saved", JSON.stringify(saved)); } catch {} }, [saved]);
+  // Private Vault: with the vault on (or locked), the browser must not keep
+  // a plaintext copy of the library — the encrypted sync is the store.
+  // Actively remove the key so a stale plaintext copy can't linger.
+  useEffect(() => {
+    try {
+      if (vaultMode === "off") localStorage.setItem("cb_saved", JSON.stringify(saved));
+      else localStorage.removeItem("cb_saved");
+    } catch {}
+  }, [saved, vaultMode]);
   // Pushes the current saved-articles list to the account, debounced so a
   // rapid string of Save clicks doesn't fire one request each. Whole-array
   // replace rather than per-item add/remove calls — see functions/api/data.js
@@ -24602,10 +25604,19 @@ function App() {
   useEffect(() => {
     if (!user || !syncReady) return;
     clearTimeout(savedSyncTimer.current);
-    savedSyncTimer.current = setTimeout(() => { apiDataPost("saved", { action: "replace-all", items: saved }).catch(() => {}); }, 900);
+    savedSyncTimer.current = setTimeout(async () => {
+      // Private Vault owns the decision: unlocked -> encrypted rows,
+      // locked or mid-ceremony -> skip entirely (fail-closed, never
+      // plaintext), off -> the legacy plaintext path below, unless the
+      // user disabled the vault without consenting to readable syncing
+      // (local-only: the library stays in this browser).
+      if (await zkPushSaved(saved)) return;
+      if (vaultLocalOnlyRef.current) return;
+      apiDataPost("saved", { action: "replace-all", items: saved }).catch(() => {});
+    }, 900);
     return () => clearTimeout(savedSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved, user, syncReady]);
+  }, [saved, user, syncReady, vaultMode]);
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen((v) => !v); setTimeout(() => cmdRef.current?.focus(), 40); }
@@ -24633,7 +25644,8 @@ function App() {
   const retrySave = useCallback(() => {
     setSaveState("saving");
     try {
-      localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      else { try { localStorage.removeItem("cb_history"); } catch {} }
       setSaveState("saved");
     } catch {
       setSaveState("error");
@@ -24642,7 +25654,8 @@ function App() {
   useEffect(() => {
     setSaveState("saving");
     try {
-      localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      else { try { localStorage.removeItem("cb_history"); } catch {} }
       setSaveState("saved");
     } catch {
       setSaveState("error");
@@ -24653,10 +25666,17 @@ function App() {
   useEffect(() => {
     if (!user || !syncReady) return;
     clearTimeout(historySyncTimer.current);
-    historySyncTimer.current = setTimeout(() => { apiDataPost("history", { action: "replace-all", items: history }).catch(() => toast("Investigations could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" })); }, 900);
+    historySyncTimer.current = setTimeout(async () => {
+      // Same vault routing as the saved push above: unlocked -> encrypted
+      // rows, locked/mid-ceremony -> skip (fail-closed), off -> legacy,
+      // unless readable syncing was explicitly paused (local-only).
+      if (await zkPushHistory(history)) return;
+      if (vaultLocalOnlyRef.current) return;
+      apiDataPost("history", { action: "replace-all", items: history }).catch(() => toast("Investigations could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" }));
+    }, 900);
     return () => clearTimeout(historySyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history, user, syncReady]);
+  }, [history, user, syncReady, vaultMode]);
 
   // Pushes name/username/affiliation edits to the account, debounced exactly
   // like saved/history above. Unlike those two, a failure here is surfaced
@@ -24690,20 +25710,69 @@ function App() {
   // Collections CRUD — thin wrappers around /api/data's "collections"
   // actions, plus the local `saved` array update so the Collections modal
   // reflects a move/create/rename/delete instantly rather than waiting on
-  // a round trip.
+  // a round trip. With Private Vault unlocked, collection names are
+  // encrypted rows (kind "collection-meta", id = collection id) instead
+  // of plaintext server rows; while locked, mutating collections is
+  // blocked outright — a local-only collection would silently vanish on
+  // reload, and a plaintext write would break the vault's promise.
+  const zkVaultLockedToast = () => toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.", { tone: "error" });
   async function createCollection(name) {
+    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused — resume it in Settings to change collections.", { tone: "error" }); return; }
+    const mode = vaultModeRef.current;
+    if (mode === "locked" || vaultTransitionRef.current) { zkVaultLockedToast(); return; }
+    if (mode === "unlocked") {
+      const session = zkSessionRef.current;
+      if (!session) { zkVaultLockedToast(); return; }
+      const cleanName = String(name || "").trim();
+      if (!cleanName) { toast("Give the collection a name.", { tone: "error" }); return; }
+      const id = makeItemId("col");
+      const rev = zkNextRev(id);
+      try {
+        await session.pushItems([{ id, kind: "collection-meta", collectionId: null, payload: { name: cleanName, createdAt: Date.now() }, rev }]);
+      } catch (e) { toast(zkErrorMessage(e, "Couldn't create that collection."), { tone: "error" }); return; }
+      setCollections((c) => [...c, { id, name: cleanName, created_at: Date.now(), zkId: id, zkRev: rev }]);
+      return;
+    }
     try { const r = await apiDataPost("collections", { action: "create", name }); setCollections((c) => [...c, { id: r.id, name: r.name, created_at: Date.now() }]); }
     catch (e) { toast(e.message || "Couldn't create that collection.", { tone: "error" }); }
   }
   async function renameCollection(id, name) {
+    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused — resume it in Settings to change collections.", { tone: "error" }); return; }
     // 2026-09-14: Reject empty names. An empty rename field was pushing ""
     // to the server, corrupting the collection name.
     const cleanName = String(name || "").trim();
     if (!cleanName) { toast("Give the collection a name.", { tone: "error" }); return; }
+    const mode = vaultModeRef.current;
+    if (mode === "locked" || vaultTransitionRef.current) { zkVaultLockedToast(); return; }
+    if (mode === "unlocked") {
+      const session = zkSessionRef.current;
+      if (!session) { zkVaultLockedToast(); return; }
+      setCollections((c) => c.map((x) => x.id === id ? { ...x, name: cleanName } : x));
+      const rev = zkNextRev(id);
+      try {
+        const existing = collections.find((x) => x.id === id);
+        await session.pushItems([{ id, kind: "collection-meta", collectionId: null, payload: { name: cleanName, createdAt: (existing && (existing.created_at || existing.createdAt)) || Date.now() }, rev }]);
+        setCollections((c) => c.map((x) => x.id === id ? { ...x, zkRev: rev } : x));
+      } catch (e) { toast(zkErrorMessage(e, "Couldn't rename that collection."), { tone: "error" }); }
+      return;
+    }
     setCollections((c) => c.map((x) => x.id === id ? { ...x, name: cleanName } : x));
     try { await apiDataPost("collections", { action: "rename", id, name: cleanName }); } catch (e) { toast(e.message || "Couldn't rename that collection.", { tone: "error" }); }
   }
   async function deleteCollection(id) {
+    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused — resume it in Settings to change collections.", { tone: "error" }); return; }
+    const mode = vaultModeRef.current;
+    if (mode === "locked" || vaultTransitionRef.current) { zkVaultLockedToast(); return; }
+    if (mode === "unlocked") {
+      const session = zkSessionRef.current;
+      if (!session) { zkVaultLockedToast(); return; }
+      setCollections((c) => c.filter((x) => x.id !== id));
+      setSaved((prev) => prev.map((s) => s.collectionId === id ? { ...s, collectionId: null } : s));
+      // The debounced saved push re-uploads the unfiled papers as
+      // encrypted rows; the collection-meta row itself is deleted now.
+      try { await session.deleteItem(id); } catch (e) { toast(zkErrorMessage(e, "Couldn't delete that collection."), { tone: "error" }); }
+      return;
+    }
     setCollections((c) => c.filter((x) => x.id !== id));
     setSaved((prev) => prev.map((s) => s.collectionId === id ? { ...s, collectionId: null } : s));
     try { await apiDataPost("collections", { action: "delete", id }); } catch (e) { toast(e.message || "Couldn't delete that collection.", { tone: "error" }); }
@@ -24786,7 +25855,7 @@ function App() {
   // Commit 66 — stamp savedAt on the way in, so a paper saved in this
   // session has a real timestamp immediately rather than waiting for the
   // next server round-trip to acquire one.
-  function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, { ...s, savedAt: s.savedAt || Date.now() }]; }); }
+  function toggleSave(s) { sfx(); setSaved((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, { ...s, savedAt: s.savedAt || Date.now(), ...(vaultModeRef.current === "unlocked" ? { zkId: makeItemId("paper"), zkRev: 0 } : {}) }]; }); }
   function isPinned(s) { const k = sourceKey(s); return pinnedSources.some((x) => sourceKey(x) === k); }
   function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
   const isSaved = (s) => saved.some((x) => sourceKey(x) === sourceKey(s));
@@ -25592,6 +26661,7 @@ function App() {
             P={P} accent={accent} at={at} isMobile={isMobile}
             user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta}
             history={history} saved={saved} setSaved={setSaved} collections={collections}
+            vaultMode={vaultMode}
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
             proStatus={proStatus} onOpenPro={() => setProModalOpen(true)}
@@ -25600,7 +26670,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, typewriter, setTypewriter, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -25740,6 +26810,14 @@ function App() {
                                 {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
                                 {collName ? ` · ${collName}` : ""}
                               </span>
+                              {/* Honest legacy label: this paper lived on the
+                                  server in readable form before Private Vault.
+                                  It says so permanently, in plain words. */}
+                              {sv.zkMigrated && (
+                                <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                                  Saved before Private Vault was turned on — it was visible to Cerebrum's servers.
+                                </span>
+                              )}
                               {isMobile && (
                                 <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
                                   <select value={sv.collectionId || ""} onChange={(e) => moveSourceToCollection(sv, e.target.value || null)} aria-label={`File "${sv.title}" in a collection`}
@@ -25929,6 +27007,12 @@ function App() {
                                     <span>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
                                   </>)}
                                 </div>
+                                {/* Honest legacy label, same as in the library. */}
+                                {h.zkMigrated && (
+                                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>
+                                    Saved before Private Vault was turned on — it was visible to Cerebrum's servers.
+                                  </div>
+                                )}
                                 {/* A preview of the actual material, not a
                                     generic subtitle: the first paper this
                                     investigation turned up, by name. It is the

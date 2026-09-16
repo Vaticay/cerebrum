@@ -275,6 +275,49 @@ CREATE TABLE IF NOT EXISTS e2ee_backups (
   PRIMARY KEY (user_id, device_id)
 );
 
+-- ============================================================
+-- Zero-knowledge saved work ("Private Vault", 2026-09-16).
+-- The server stores OPAQUE ciphertext only and can never read it:
+-- every row below is blind storage. It NEVER sees the recovery phrase,
+-- the KEK, or the DEK, and it must never decrypt, parse the plaintext
+-- of, or otherwise interpret `wrapped_dek` or `data`.
+-- ============================================================
+-- One opaque row per user. `wrapped_dek` is the JSON envelope produced by
+-- src/zkData.js wrapVaultBundle: AES-256-GCM(KEK_data, DEK) with AAD bound
+-- to dek_id, where KEK_data = Argon2id(phrase, salt, associatedData=
+-- "cerebrum-zkdata-v1") — domain-separated from the messaging backup KEK
+-- so the same phrase yields two independent keys. The server stores the
+-- envelope (which carries its own salt) and the current dek_id; writes
+-- carrying a stale dek_id are rejected (see functions/api/data.js).
+CREATE TABLE IF NOT EXISTS zk_data_vault (
+  user_id     TEXT PRIMARY KEY,
+  dek_id      TEXT NOT NULL,             -- current key generation; stale-dek writes are rejected
+  wrapped_dek TEXT NOT NULL,             -- opaque JSON envelope; never decrypted server-side
+  updated_at  INTEGER NOT NULL
+);
+
+-- One row per encrypted saved-work item. `data` is base64 AES-256-GCM
+-- ciphertext (plaintext padded to 512-byte buckets before encryption)
+-- with AAD binding (user_id, id, dek_id, kind). `collection_id` and the
+-- membership graph stay server-visible by design (sync mechanics), as do
+-- counts and timestamps — the content (titles, authors, abstracts,
+-- questions, answers, notes, ratings, collection names) never is.
+-- `rev` is the client's per-item version counter for last-writer-wins.
+CREATE TABLE IF NOT EXISTS zk_saved_items (
+  id            TEXT NOT NULL,           -- client-generated, stable across devices
+  user_id       TEXT NOT NULL,
+  collection_id TEXT,                    -- opaque UUID; NULL = unfiled
+  kind          TEXT NOT NULL,           -- 'paper' | 'investigation' | 'collection-meta' | 'annotation'
+  dek_id        TEXT NOT NULL,           -- must match zk_data_vault.dek_id, else the write is rejected
+  nonce         TEXT NOT NULL,           -- base64, 12 bytes
+  data          TEXT NOT NULL,           -- base64 AES-GCM ciphertext; never decrypted server-side
+  rev           INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_zk_saved_items_updated ON zk_saved_items(user_id, updated_at);
+
 -- Additive columns on the live `messages` table (applied to existing
 -- databases by the attempt-and-swallow ALTERs in ensureSocialTables):
 --

@@ -136,5 +136,29 @@ await test("malformed citation counts degrade to zero", async () => {
   assert.ok(items.every((i) => i.citedByCount === 0), "malformed counts were not degraded to 0");
 });
 
+await test("spaceflight nav-chrome summaries degrade to honest attribution", async () => {
+  // Real incident (2026-09-16): an APOD item's card description was the
+  // upstream scraper's nav text ("Today's APOD Archive Submissions Index
+  // Search Calendar"). Site furniture must never print as a summary.
+  const space = {
+    results: [
+      { title: "APOD: Something in the sky.", summary: "APOD Science APOD APOD: 2026 September 16 – Today's APOD Archive Submissions Index Search Calendar",
+        url: "https://x.example/a", image_url: "", news_site: "NASA", published_at: "2026-09-16" },
+      { title: "A real story.", summary: "Engineers tested the new thruster and it worked.",
+        url: "https://x.example/b", image_url: "", news_site: "SpaceNews", published_at: "2026-09-16" },
+    ],
+  };
+  const restore = stubFetch(cannedFetch((url) => (url.includes("spaceflightnewsapi") ? space : null)));
+  let items;
+  try { items = await fetchTrendingItems(); } finally { restore(); }
+  const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
+  assert.ok(!/archive|submissions|calendar/i.test(byTitle["APOD: Something in the sky."].summary),
+    "nav chrome leaked into the summary: " + byTitle["APOD: Something in the sky."].summary);
+  assert.match(byTitle["APOD: Something in the sky."].summary, /NASA story/,
+    "chrome summary did not degrade to outlet attribution");
+  assert.equal(byTitle["A real story."].summary, "Engineers tested the new thruster and it worked.",
+    "legitimate summary was altered");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

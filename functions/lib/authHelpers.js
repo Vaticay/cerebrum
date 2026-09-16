@@ -700,6 +700,19 @@ export async function ensureSocialTables(env) {
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS e2ee_backups (user_id TEXT NOT NULL, device_id TEXT NOT NULL, label TEXT, bundle TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, device_id))"
   );
+  // Zero-knowledge saved work ("Private Vault", 2026-09-16). Same
+  // self-heal contract: a live database picks these up on the first
+  // request after deploy. The server stores OPAQUE ciphertext only —
+  // wrapped_dek and data are never decrypted, parsed for content, or
+  // otherwise interpreted. dek_id is the fail-closed generation marker:
+  // writes carrying a stale dek_id are rejected in functions/api/data.js.
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS zk_data_vault (user_id TEXT PRIMARY KEY, dek_id TEXT NOT NULL, wrapped_dek TEXT NOT NULL, updated_at INTEGER NOT NULL)"
+  );
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS zk_saved_items (id TEXT NOT NULL, user_id TEXT NOT NULL, collection_id TEXT, kind TEXT NOT NULL, dek_id TEXT NOT NULL, nonce TEXT NOT NULL, data TEXT NOT NULL, rev INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, id))"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_zk_saved_items_updated ON zk_saved_items(user_id, updated_at)");
   // Additive columns on the live `messages` table. `msg_kind` defaults to
   // 'plaintext-legacy' so every pre-E2EE row is honestly labeled; the
   // server sets 'cipher' on the way in for encrypted threads and rejects

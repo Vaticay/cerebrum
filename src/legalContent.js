@@ -16,8 +16,8 @@
 
 /* Version stamp for the legal documents. Kept here, beside the text it
  * describes, so the version and the content change together. */
-export const LEGAL_VERSION = "2026-09-15";
-export const LEGAL_UPDATED = "15 September 2026";
+export const LEGAL_VERSION = "2026-09-16";
+export const LEGAL_UPDATED = "16 September 2026";
 
 export const PAGES = {
     about: { eyebrow: "About", title: "A research instrument, not a chatbot", lede: "A research instrument that searches real scholarly databases and gives you answers you can trace to the source.", blocks: [ { h: "What it does", p: "You ask a scientific question. Cerebrum queries a group of open scholarly databases in parallel, scores what comes back for genuine relevance, and writes a summary constrained by what those papers actually say. Every citation is a real DOI you can open and check." }, { h: "The databases", list: ["Europe PMC: 43M articles", "PubMed: 36M articles", "OpenAlex: 250M works", "Semantic Scholar: 220M papers", "Crossref: 150M works", "arXiv, bioRxiv: preprints", "DOAJ, PLOS, Zenodo: open access", "CORE, BASE, PMC full-text, OpenAIRE: additional aggregator/repository coverage"] }, { h: "The principle", p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest 'nothing found.' That constraint is enforced mechanically, not just requested politely." }, { h: "What it is not", list: ["Not a substitute for reading the papers. Every summary is AI-generated, so verify anything you'll rely on.", "Not a medical, legal, or financial advisor.", "Not tracked or monetized, no ads, no selling data, and an account (optional, only for syncing your saved articles and history) is never required to use it."] } ],
@@ -57,8 +57,15 @@ export const PAGES = {
         "Please do not put personal health information, identifying details about other people, or confidential material into a query. It leaves your device and reaches third-party providers."
       ] },
       { h: "5. What an account adds", p: "If you create an account we store your email address, a password hash if you set a password, and the content you explicitly choose to sync: saved sources, collections, conversation history, profile fields you fill in, watched topics, and, if you use the social features, your follows, direct messages, message attachments, and call signalling records, and your Pro subscription status. That is the whole list. Signing in changes nothing about how a search itself works." },
-      { h: "6. Direct messages and calls", p: "Direct messages and their attachments are stored on our servers so they can be delivered to the recipient and shown to both of you later. They are not end-to-end encrypted: treat them as you would email, not as a confidential channel. Calls are established peer-to-peer where the network allows and are relayed through a public TURN service when it does not; we store only the short-lived signalling records needed to connect a call, and we do not record call audio or video. Conduct reports you file are stored so they can be reviewed." },
-      { h: "7. Cookies and local storage", p: "We use no advertising or analytics cookies. Everything we set is functional: either your own preferences or your login session:", list: [
+      { h: "6. Private Vault", p: "Private Vault is an optional setting that encrypts your saved papers, investigations, and collection names on your own device before they sync, using a key derived from your 24-word recovery phrase. What this means in practice:", list: [
+        "What gets encrypted: the titles, authors, abstracts, and links of your saved papers, the questions and answers in your investigations, and your collection names. Our servers store these as ciphertext they cannot read.",
+        "What the server still sees: opaque item identifiers, how many items you have, when items were created or changed, which opaque items sit together in a collection, and the padded sizes of the encrypted blobs. It cannot see what any of it is.",
+        "The permanent label: anything you saved before turning Private Vault on was readable from our servers, and it stays labeled that way in the app. Encryption cannot rewrite history, and server backups may retain old readable copies until the backup retention window expires.",
+        "No backdoor: if you lose your recovery phrase and lose all your devices, your saved work is gone forever. We cannot recover it for you, and neither can support. That absence of a backdoor is the guarantee.",
+        "This integration has not been independently audited. The underlying encryption primitives are standard and professionally audited; our particular wiring of them has not been."
+      ] },
+      { h: "7. Direct messages and calls", p: "Direct messages and their attachments are stored on our servers so they can be delivered to the recipient and shown to both of you later. They are not end-to-end encrypted: treat them as you would email, not as a confidential channel. Calls are established peer-to-peer where the network allows and are relayed through a public TURN service when it does not; we store only the short-lived signalling records needed to connect a call, and we do not record call audio or video. Conduct reports you file are stored so they can be reviewed." },
+      { h: "8. Cookies and local storage", p: "We use no advertising or analytics cookies. Everything we set is functional: either your own preferences or your login session:", list: [
         "cb_sess. Your signed-in session token. Set only if you sign in.",
         "cb_pal, cb_accent, cb_ca, cb_density, cb_fs, cb_ls, cb_hc, cb_rt, cb_df, cb_fh: appearance and accessibility preferences.",
         "cb_len, cb_cite, cb_tw, cb_fc: response and citation preferences.",
@@ -69,13 +76,13 @@ export const PAGES = {
         "Local storage: cb_saved, cb_history, cb_collections, cb_streak, cb_profile, cb_watch_notified, cb_tour_done, and any optional third-party API key you choose to paste into Settings.",
         "Because none of these are tracking cookies, there is no consent banner to dismiss, but you can clear them at any time from your browser, or reset preferences from Settings."
       ] },
-      { h: "8. Legal bases for processing (EEA/UK)", list: [
+      { h: "9. Legal bases for processing (EEA/UK)", list: [
         "Performance of a contract: running searches, delivering messages, and keeping your account working.",
         "Legitimate interests: security, abuse prevention, rate limiting, and keeping the service available, balanced against your rights.",
         "Consent, optional extras such as desktop notifications and any third-party API key you supply. You can withdraw consent at any time in Settings.",
         "Legal obligation: where we must retain or disclose something by law."
       ] },
-      { h: "9. Who else processes your data", p: "We keep the list of third parties as short as the service allows. Each of them acts as a processor or independent controller for the narrow purpose described:", list: [
+      { h: "10. Who else processes your data", p: "We keep the list of third parties as short as the service allows. Each of them acts as a processor or independent controller for the narrow purpose described:", list: [
         "Cloudflare: hosting, edge delivery, database, and the AI inference that generates answers.",
         "Stripe: payment processing for Pro subscriptions. Card and payment details go directly to Stripe; we never see or store your card number. Stripe receives your email address and subscription information to operate billing.",
         "Language-model providers reached through our server to generate summaries. Your question text reaches them; your identity does not.",
@@ -84,8 +91,8 @@ export const PAGES = {
         "Optional and only if you enable them: ElevenLabs for premium narration and Zotero for reference export, using a key you supply and that stays in your browser.",
         "We do not sell, rent, or share personal information with advertisers or data brokers. We have no advertising relationships of any kind."
       ] },
-      { h: "10. International transfers", p: "The service runs on a global edge network, so processing may occur outside your country, including in the United States. Where data leaves the EEA or UK we rely on appropriate safeguards, such as standard contractual clauses entered into by our providers." },
-      { h: "11. How long we keep things", list: [
+      { h: "11. International transfers", p: "The service runs on a global edge network, so processing may occur outside your country, including in the United States. Where data leaves the EEA or UK we rely on appropriate safeguards, such as standard contractual clauses entered into by our providers." },
+      { h: "12. How long we keep things", list: [
         "Account data: until you delete your account, which removes it.",
         "Saved sources, collections, history, watched topics: until you delete them or your account.",
         "Direct messages, until you or the other participant deletes the conversation, or until the account is deleted.",
@@ -94,22 +101,22 @@ export const PAGES = {
         "Rate-limit and security logs: a short rolling window.",
         "Guest-mode data, for as long as you keep it in your own browser. We never receive it."
       ] },
-      { h: "12. Your rights", p: "Depending on where you live you may have the right to access, correct, delete, restrict, or object to the processing of your personal information, and to receive it in a portable format. Cerebrum is built so you can exercise most of these yourself and immediately: Settings gives you a full JSON export of your workspace, per-item deletion, and permanent account deletion. For anything you cannot do in the app, email dusty@askcerebrum.org and we will respond within the period your law requires.", list: [
+      { h: "13. Your rights", p: "Depending on where you live you may have the right to access, correct, delete, restrict, or object to the processing of your personal information, and to receive it in a portable format. Cerebrum is built so you can exercise most of these yourself and immediately: Settings gives you a full JSON export of your workspace, per-item deletion, and permanent account deletion. For anything you cannot do in the app, email dusty@askcerebrum.org and we will respond within the period your law requires.", list: [
         "EEA/UK (GDPR): access, rectification, erasure, restriction, objection, portability, withdrawal of consent, and complaint to a supervisory authority.",
         "California (CCPA/CPRA): know, delete, correct, and opt out of sale or sharing. We do not sell or share personal information, so there is nothing to opt out of, and we will not discriminate against you for exercising any right.",
         "We honour Global Privacy Control and Do Not Track signals by default, because we run no tracking to disable in the first place."
       ] },
-      { h: "13. Security", list: [
+      { h: "14. Security", list: [
         "Passwords are hashed with PBKDF2-SHA256 at 100,000 iterations with a per-user salt. We never store or transmit them in plaintext and cannot recover them.",
         "Session tokens are opaque, random, expiring, and stored as HttpOnly, Secure, SameSite cookies, so page scripts cannot read them.",
         "All traffic is served over HTTPS, and a strict Content Security Policy limits what the page may load or connect to.",
         "Every account-scoped database query is scoped to your user id, not only to a row id, so one account cannot read another's rows by guessing.",
         "No system is perfectly secure. If you find a vulnerability, please see the responsible-disclosure process on the Disclosures page."
       ] },
-      { h: "14. Children", p: "The Service is not directed at children under 13, and we do not knowingly collect personal information from them. If you believe a child under 13 has given us personal information, email dusty@askcerebrum.org and we will delete it. In the EEA and UK the minimum age is 16 without parental consent." },
-      { h: "15. Data breaches", p: "If a breach occurs that is likely to affect your rights, we will notify affected users and the relevant supervisory authority within the timeframes our law requires, and we will tell you what happened, what data was involved, and what to do about it." },
-      { h: "16. Changes to this policy", p: "We may update this policy. Material changes update the version identifier at the top of this page, and we will ask you to review and accept the new version before you continue using the Service. Prior versions are available on request." },
-      { h: "17. Contact", email: "dusty@askcerebrum.org", p: "Privacy questions, data requests, and complaints." }
+      { h: "15. Children", p: "The Service is not directed at children under 13, and we do not knowingly collect personal information from them. If you believe a child under 13 has given us personal information, email dusty@askcerebrum.org and we will delete it. In the EEA and UK the minimum age is 16 without parental consent." },
+      { h: "16. Data breaches", p: "If a breach occurs that is likely to affect your rights, we will notify affected users and the relevant supervisory authority within the timeframes our law requires, and we will tell you what happened, what data was involved, and what to do about it." },
+      { h: "17. Changes to this policy", p: "We may update this policy. Material changes update the version identifier at the top of this page, and we will ask you to review and accept the new version before you continue using the Service. Prior versions are available on request." },
+      { h: "18. Contact", email: "dusty@askcerebrum.org", p: "Privacy questions, data requests, and complaints." }
     ] },
     terms: { eyebrow: "Terms", title: "Terms of Service", lede: "These terms are a binding agreement between you and Cerebrum. Please read them: the sections on accuracy, professional advice, and liability affect your legal rights.", updated: `Version ${LEGAL_VERSION} · Last updated ${LEGAL_UPDATED}`, blocks: [
       { h: "1. Agreement to these terms", p: "By accessing or using Cerebrum (the \"Service\") at askcerebrum.org, you agree to be bound by these Terms of Service and by our Privacy Policy and Disclosures, which are incorporated here by reference. If you do not agree, do not use the Service. If you use the Service on behalf of an organization, you represent that you have authority to bind that organization, and \"you\" means that organization." },

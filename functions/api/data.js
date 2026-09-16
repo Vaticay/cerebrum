@@ -15,7 +15,7 @@
 import { getSessionUser, newId, ensureUserProfileColumns, ensureSocialTables, isBlockedPair } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { maybeSweep } from "../lib/retention.js";
-import { safeUrl, cleanString, safeId, safeInt, LIMITS } from "../lib/validate.js";
+import { safeUrl, cleanString, safeId, safeInt, LIMITS, ZK_KINDS, safeZkKind, safeZkBase64 } from "../lib/validate.js";
 import {
   E2EE_ENVELOPE_VERSION,
   MAX_PREKEY_BATCH,
@@ -1931,6 +1931,176 @@ export async function onRequest(context) {
         backups.push({ deviceId: row.device_id, label: row.label || "Device", updatedAt: row.updated_at, bundle });
       }
       return okRes({ backups }, 200, cors);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Zero-knowledge saved work ("Private Vault", Phase 1, 2026-09-16).
+    //
+    // BLIND-STORAGE CONTRACT: the server stores opaque ciphertext and
+    // never reads it. wrapped_dek and item `data` are validated for SHAPE
+    // and SIZE only — never decrypted, never parsed for content, never
+    // logged. The recovery phrase, the KEK, and the DEK never reach this
+    // endpoint in any form.
+    //
+    // FAIL-CLOSED dek_id GATE: zk_data_vault holds the user's current key
+    // generation. Every zk-put-items row must carry that exact dek_id;
+    // anything else (a rotation happened on another device, or a
+    // compromised device writing under a revoked generation) is rejected
+    // with 409/stale_dek and the whole batch is dropped — nothing is
+    // ever partially stored.
+    // ═══════════════════════════════════════════════════════════════
+
+    // Store the opaque wrapped-DEK envelope. One row per user; a new
+    // generation overwrites the old row outright (rotation), which is what
+    // makes stale-dek writes fail afterwards. The envelope carries its own
+    // KDF salt — the server stores it, never uses it.
+    if (action === "zk-put-vault") {
+      const dekId = safeId(body.dek_id, LIMITS.ZK_DEK_ID);
+      const raw = typeof body.wrapped_dek === "string" ? body.wrapped_dek : "";
+      if (!dekId) return errRes("Bad dek_id.", 400, "bad_request", cors);
+      if (raw.length === 0 || raw.length > LIMITS.ZK_VAULT_JSON) {
+        return errRes("Bad vault envelope.", 400, "bad_request", cors);
+      }
+      // Shape check only — v/kdf/salt/nonce/data must be present and
+      // well-formed. The envelope's *content* is opaque: this endpoint
+      // cannot unwrap it and must not try.
+      let envParsed = null;
+      try { envParsed = JSON.parse(raw); } catch { /* falls through to the 400 */ }
+      const okShape = envParsed && envParsed.v === 1 && envParsed.kdf === "argon2id" &&
+        safeZkBase64(envParsed.salt, 128) && safeZkBase64(envParsed.nonce, LIMITS.ZK_NONCE) &&
+        safeZkBase64(envParsed.data, LIMITS.ZK_VAULT_JSON);
+      if (!okShape) return errRes("Bad vault envelope.", 400, "bad_request", cors);
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO zk_data_vault (user_id, dek_id, wrapped_dek, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET dek_id = excluded.dek_id, wrapped_dek = excluded.wrapped_dek, updated_at = excluded.updated_at"
+      ).bind(user.id, dekId, raw, now).run();
+      return okRes({ stored: true, dekId, updatedAt: now }, 200, cors);
+    }
+
+    // Fetch my vault row (opaque — the client unwraps it locally with the
+    // recovery phrase). A missing vault is a 200 with row: null, not a 404.
+    if (action === "zk-get-vault") {
+      const row = await env.DB.prepare(
+        "SELECT dek_id, wrapped_dek, updated_at FROM zk_data_vault WHERE user_id = ?"
+      ).bind(user.id).first();
+      return okRes({ row: row ? { dekId: row.dek_id, wrappedDek: row.wrapped_dek, updatedAt: row.updated_at } : null }, 200, cors);
+    }
+
+    // Batch upsert of encrypted item rows. Fail-closed: with no vault row,
+    // or ANY row carrying a dek_id that isn't the vault's current one, the
+    // entire batch is rejected with 409 and nothing is written. Conflict
+    // rule is last-writer-wins on updated_at per item — an older write can
+    // never clobber a newer row.
+    if (action === "zk-put-items") {
+      // Oversized batches are rejected, never silently truncated: a
+      // truncated rotation would strand rows under a dead dek_id.
+      if (Array.isArray(body.items) && body.items.length > LIMITS.ZK_BATCH) {
+        return errRes("Batch too large.", 413, "too_large", cors);
+      }
+      const items = Array.isArray(body.items) ? body.items.slice(0, LIMITS.ZK_BATCH) : [];
+      if (items.length === 0) return errRes("No items.", 400, "bad_request", cors);
+      const vault = await env.DB.prepare(
+        "SELECT dek_id FROM zk_data_vault WHERE user_id = ?"
+      ).bind(user.id).first();
+      if (!vault) return errRes("No vault. Enable Private Vault first.", 409, "no_vault", cors);
+      const now = Date.now();
+      const stmts = [];
+      for (const it of items) {
+        const id = safeId(it && it.id);
+        const kind = safeZkKind(it && it.kind);
+        const dekId = safeId(it && (it.dek_id || it.dekId), LIMITS.ZK_DEK_ID);
+        const nonce = safeZkBase64(it && it.nonce, LIMITS.ZK_NONCE);
+        const data = safeZkBase64(it && it.data, LIMITS.ZK_DATA);
+        const updatedAt = safeInt(it && (it.updated_at ?? it.updatedAt), { min: 1, max: now + 86400000, fallback: 0 });
+        const rev = safeInt(it && it.rev, { min: 0, max: 2147483647, fallback: 0 });
+        let collectionId = null;
+        if (it && it.collection_id != null && it.collection_id !== "") {
+          collectionId = safeId(it.collection_id);
+          if (!collectionId) return errRes("Bad item envelope.", 400, "bad_request", cors);
+        }
+        if (!id || !kind || !dekId || !nonce || !data || !updatedAt) {
+          return errRes("Bad item envelope.", 400, "bad_request", cors);
+        }
+        // The generation gate: one stale row kills the whole batch.
+        if (dekId !== vault.dek_id) {
+          return errRes("This vault key is no longer current. Re-enable Private Vault to continue syncing.", 409, "stale_dek", cors);
+        }
+        stmts.push(env.DB.prepare(
+          `INSERT INTO zk_saved_items (id, user_id, collection_id, kind, dek_id, nonce, data, rev, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id, id) DO UPDATE SET
+             collection_id = excluded.collection_id,
+             kind = excluded.kind,
+             dek_id = excluded.dek_id,
+             nonce = excluded.nonce,
+             data = excluded.data,
+             rev = excluded.rev,
+             updated_at = excluded.updated_at
+           WHERE excluded.updated_at >= zk_saved_items.updated_at`
+        ).bind(id, user.id, collectionId, kind, dekId, nonce, data, rev, now, updatedAt));
+      }
+      // Chunked (see batchedWrites): a full-library first sync is hundreds
+      // of statements. The stale-dek gate above runs before any write, so a
+      // rejected batch never leaves a partial sync behind.
+      await batchedWrites(env.DB, stmts);
+      return okRes({ stored: stmts.length }, 200, cors);
+    }
+
+    // Fetch my encrypted rows (opaque — decrypted client-side). Paginated
+    // by updated_at for incremental sync; `since` is an epoch-ms cursor.
+    if (action === "zk-get-items") {
+      const since = safeInt(body.since, { min: 0, max: Date.now(), fallback: 0 });
+      const limit = safeInt(body.limit, { min: 1, max: LIMITS.ZK_BATCH, fallback: LIMITS.ZK_BATCH });
+      const rows = await env.DB.prepare(
+        "SELECT id, collection_id, kind, dek_id, nonce, data, rev, created_at, updated_at FROM zk_saved_items WHERE user_id = ? AND updated_at > ? ORDER BY updated_at ASC LIMIT ?"
+      ).bind(user.id, since, limit).all();
+      return okRes({
+        items: (rows.results || []).map((r) => ({
+          id: r.id, collectionId: r.collection_id, kind: r.kind, dekId: r.dek_id,
+          nonce: r.nonce, data: r.data, rev: r.rev,
+          createdAt: r.created_at, updatedAt: r.updated_at,
+        })),
+      }, 200, cors);
+    }
+
+    // Delete one encrypted row. Idempotent — a missing row is still ok:true.
+    if (action === "zk-delete-item") {
+      const id = safeId(body.id);
+      if (!id) return errRes("Missing id.", 400, "missing_id", cors);
+      await env.DB.prepare("DELETE FROM zk_saved_items WHERE user_id = ? AND id = ?").bind(user.id, id).run();
+      return okRes({ deleted: true }, 200, cors);
+    }
+
+    // Drop the whole vault: all ciphertext rows plus the wrapped-DEK row.
+    // Used by "Turn off Private Vault". The plaintext tables are untouched —
+    // writing plaintext back is a separate, explicitly-consented client
+    // action, never a side effect of disabling.
+    if (action === "zk-drop-vault") {
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM zk_saved_items WHERE user_id = ?").bind(user.id),
+        env.DB.prepare("DELETE FROM zk_data_vault WHERE user_id = ?").bind(user.id),
+      ]);
+      return okRes({ dropped: true }, 200, cors);
+    }
+
+    // Verified deletes of the legacy PLAINTEXT saved-work rows, used by the
+    // Private Vault migration AFTER the client has uploaded ciphertext for
+    // everything. Requires explicit confirm:true — there is no silent path.
+    // Returns per-table counts so the client can verify nothing was left.
+    if (action === "zk-purge-legacy") {
+      if (!body || body.confirm !== true) return errRes("Confirmation required.", 400, "bad_request", cors);
+      // Table names are fixed literals here, never user input — the only
+      // user-scoping is the bound user.id.
+      const delFrom = async (table) => {
+        const r = await env.DB.prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(user.id).run();
+        return (r.meta && r.meta.changes) || 0;
+      };
+      const deleted = {
+        saved: await delFrom("user_saved_sources"),
+        history: await delFrom("user_history"),
+        collections: await delFrom("user_collections"),
+      };
+      return okRes({ purged: true, deleted }, 200, cors);
     }
 
     // Public device directory: who the peer IS, without spending their

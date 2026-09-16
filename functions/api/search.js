@@ -4368,10 +4368,17 @@ const EXTRACT_FIND_HINTS = [
 function extractSentences(text) {
   // Guard decimals (p < 0.01) and common abbreviations so the splitter
   // doesn't cut sentences in the middle of a number or "et al."
+  // Genus abbreviations ("An. gambiae", "P. falciparum", "E. coli") are the
+  // important addition: a capitalized abbreviation followed by a lowercase
+  // word is taxonomy, not a sentence boundary. The lookahead keeps genuine
+  // ends intact ("vitamin D. The results…" still splits — "The" is uppercase).
+  // Real incident (2026-09-16): an abstract's "An. stephensi" split at "An.",
+  // shipping "…infection intensities in An." as a cited claim.
   const guarded = String(text || "")
     .replace(/\s+/g, " ")
     .replace(/(\d)\.(\d)/g, "$1<DOT>$2")
-    .replace(/\b(et al|e\.g|i\.e|vs)\./gi, "$1<ABBR>");
+    .replace(/\b(et al|e\.g|i\.e|vs|spp?|figs?|eq|refs?|no|st|dr|approx|cf|al)\./gi, "$1<ABBR>")
+    .replace(/\b([A-Z][a-z]*)\.(?=\s+[a-z])/g, "$1<ABBR>");
   const parts = guarded.match(/[^.!?]+[.!?]+["']?/g) || [];
   return parts.map((s) => s.replace(/<DOT>/g, ".").replace(/<ABBR>/g, "."));
 }
@@ -4567,9 +4574,13 @@ export function fingerprintClaim(text) {
 }
 
 export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
-  // ctx (optional): { query, sourcesQueried, relevanceGatedOut, ambiguity } —
+  // ctx (optional): { query, sourcesQueried, relevanceGatedOut, ambiguity, aiGateReason } —
   // feeds the computed "How solid is this?" section and the ambiguity note.
   // `query` powers the substrate-drift demotion (see below).
+  // `aiGateReason` ("signin-required" | "free-cap" | "lite-cap" | null) names
+  // WHY the extractive path ran instead of AI synthesis, so the closing line
+  // tells the truth: a signed-out reader was not hit by an "AI provider
+  // outage", they were gated. Null = the providers genuinely failed.
   // The five H2 sections mirror the AI path's REQUIRED OUTPUT STRUCTURE
   // ("The short answer" / "What the research shows" / "Where researchers
   // disagree" / "How solid is this?" / "What would change this") so a
@@ -4898,9 +4909,20 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         : "*No specific falsification test is derivable from the cited sources — treat the findings above as provisional pending replication.*") +
       "\n";
 
-    md += "\n*Drafted directly from the sources below — Cerebrum's AI providers were " +
-      "temporarily unavailable, so this summary was assembled without AI. " +
-      "Verify each claim against its cited source.*";
+    // The closing line must name the true reason the extractive path ran.
+    // A gated reader (signed out, or out of free AI answers) did not suffer
+    // an "AI provider outage" — saying so would be a false claim about our
+    // own infrastructure. Each reason gets its honest sentence.
+    const gateReason = ctx && ctx.aiGateReason;
+    const closingLine =
+      gateReason === "signin-required"
+        ? "*Assembled directly from the sources below without AI — sign in for AI-synthesized answers. Verify each claim against its cited source.*"
+        : gateReason === "free-cap" || gateReason === "lite-cap"
+          ? "*Assembled directly from the sources below without AI — you've used this month's free AI answers. Verify each claim against its cited source.*"
+          : "*Drafted directly from the sources below — Cerebrum's AI providers were " +
+            "temporarily unavailable, so this summary was assembled without AI. " +
+            "Verify each claim against its cited source.*";
+    md += "\n" + closingLine;
     return md;
   } catch {
     return null;
@@ -5077,6 +5099,14 @@ export function isWellFormedClaim(text) {
   if (ob !== cb) return false;
   const dq = (s.match(/"/g) || []).length;
   if (dq % 2 !== 0) return false;
+  // Backstop for splitter casualties the abbreviation guard missed: a
+  // "sentence" ending on a bare capitalized abbreviation ("…infection
+  // intensities in An.", "…said Dr.") is a fragment of a longer sentence,
+  // not a claim. Short by construction ({1,3} lowercase letters), so real
+  // words ("…in Africa.") and all-caps ends ("…the CDC.") never match.
+  // A genuine sentence ending ("…vitamin D.") is merely skipped as a
+  // candidate — the paper's other sentences still compete.
+  if (/\b[A-Z][a-z]{1,3}\.$/.test(s)) return false;
   return true;
 }
 
@@ -11406,6 +11436,11 @@ export async function onRequest(context) {
           sourcesQueried: publicSourcesQueried(),
           relevanceGatedOut,
           ambiguity,
+          // Honest fallback copy: when AI synthesis was gated (not failed),
+          // the extractive summary must say why — never blame an outage.
+          aiGateReason: aiSynthesisAllowed
+            ? null
+            : aiGate.kind === "anonymous" ? "signin-required" : aiGate.kind === "lite" ? "lite-cap" : "free-cap",
         });
         if (ext) { answer = ext; extractiveOK = true; }
       } catch {}

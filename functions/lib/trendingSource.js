@@ -113,6 +113,29 @@ function normalizeTitle(title) {
 // is how this became a space feed in the first place. Sources that fail or
 // time out are simply absent; the feed degrades to whatever answered rather
 // than failing whole.
+// Upstream aggregator scrapers sometimes fill `summary` with the article
+// page's NAV CHROME ("Today's APOD Archive Submissions Index Search
+// Calendar") instead of article text. That is site furniture, not a summary —
+// printing it verbatim puts garbage on a card. Detect it and fall back to
+// honest attribution rather than the furniture. Conservative by design: only
+// unambiguous chrome words count ("search"/"index" appear in real prose, so
+// they are excluded), and a summary that is just the site name on repeat
+// ("APOD APOD APOD: …") trips the second rule.
+// Real incident (2026-09-16): an APOD item shipped with nav text as its card
+// description.
+const NAV_CHROME_RE = /\b(archive|submissions|sitemap|calendar|subscribe|newsletter|menu|navigation|breadcrumb)\b/gi;
+function cleanSpaceSummary(a) {
+  const s = (a && a.summary || "").trim();
+  if (!s) return s;
+  const chromeHits = (s.match(NAV_CHROME_RE) || []).length;
+  const siteNameRepeat = /^([a-z]{2,}\s*){3,}/i.test(s) && new Set(s.toLowerCase().split(/\s+/).filter(Boolean)).size <= 3;
+  if (chromeHits >= 2 || siteNameRepeat) {
+    const site = (a && a.news_site || "Spaceflight News").trim() || "Spaceflight News";
+    return `${site} story — full text at the source link.`;
+  }
+  return s;
+}
+
 const SOURCES = [
   {
     category: "Biology & Medicine",
@@ -191,7 +214,7 @@ const SOURCES = [
     url: SOURCE_URL,
     parse: (d) => (Array.isArray(d && d.results) ? d.results : []).map((a) => ({
       title: (a.title || "").trim(),
-      summary: (a.summary || "").trim(),
+      summary: cleanSpaceSummary(a),
       url: typeof a.url === "string" ? a.url.trim() : "",
       image_url: typeof a.image_url === "string" ? a.image_url : "",
       source: (a.news_site || "Spaceflight News").trim(),
