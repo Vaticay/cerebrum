@@ -801,8 +801,8 @@ const PALETTES = {
   Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#5f656d", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "0 1px 2px rgba(34,37,42,0.04), 0 10px 30px rgba(34,37,42,0.07)", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
   // Sage — "Modern Organic": near-black stone instead of neutral charcoal,
   // paired by default with the muted sage-green accent (ACCENTS.Sage)
-  // instead of a neon hue. (Was the fresh-browser default until Sep 2026;
-  // the default is now Dark — "make the default dark mode.")
+  // instead of a neon hue. The fresh-browser default (restored Sep 2026
+  // per Dusty: "bring back the default green").
   // Commit 46: lifted back toward near-black alongside Dark, same
   // "razor-sharp contrast" request and same fog-bug root cause — see the
   // comment on Dark above. `ink`/`line` keep Sage's own warm-green
@@ -9369,9 +9369,16 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
     <div style={S.turn} className="cb-rise">
       {/* Pass 2 — the answer header: the question as a serif title, then one
           quiet mono metadata line (date · cited papers · databases · save
-          state). No decorative eyebrows. */}
-      <div style={{ marginBottom: 28 }}>
-        <h2 className="cb-serif" style={{ ...S.headline, fontFamily: "var(--cb-serif)", fontWeight: 600, marginBottom: 0 }}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
+          state). No decorative eyebrows. Sep 2026: the title sits over the
+          film, so it gets a localized legibility hold — a soft shadow
+          fading to nothing at the edges, never full-screen glass. */}
+      <div style={{
+        marginBottom: 28, padding: "30px 32px 34px", borderRadius: 12,
+        background: P.dark
+          ? "radial-gradient(ellipse 95% 105% at 50% 42%, rgba(3,5,7,0.82) 0%, rgba(3,5,7,0.42) 58%, rgba(3,5,7,0) 100%)"
+          : "radial-gradient(ellipse 95% 105% at 50% 42%, rgba(250,250,248,0.95) 0%, rgba(250,250,248,0.62) 58%, rgba(250,250,248,0) 100%)",
+      }}>
+        <h2 className="cb-serif" style={{ ...S.headline, fontFamily: "var(--cb-serif)", fontWeight: 600, marginBottom: 0, textShadow: P.dark ? "0 2px 26px rgba(0,0,0,0.65)" : "none" }}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
         <div className="cb-mono" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: P.faint, marginTop: 12 }}>
           <span>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
@@ -20086,6 +20093,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const compareAbort = useRef(null);
   const qaAbort = useRef(null);
   const docEyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  /* Sep 2026: the source (intake) pane sits over Document Mode's own film.
+     Bare content on the page scrim let video texture ghost through behind
+     dimmed text — so the intake pane gets the same opaque card treatment
+     as the reader pane, not another veil. */
+  const docPanelCard = {
+    background: P.surface,
+    borderRadius: 12, padding: isMobile ? 18 : 24, border: `1px solid ${P.line}`,
+  };
 
   // File ingestion: a .pdf goes through pdf.js (extractPdfText, above) and
   // an .html file through extractHtmlText — both entirely in the browser,
@@ -20796,7 +20811,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
 
   const renderDocReader = (form) => {
     const cardStyle = {
-      background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
+      /* Sep 2026: opaque, not 0.94 — the near-opaque veil let bright
+         footage ghost through behind text. */
+      background: P.surface,
       borderRadius: 12, padding: isMobile ? 18 : 24, border: `1px solid ${P.line}`,
       ...(form === "overlay" ? { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 } : null),
     };
@@ -21001,7 +21018,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               readingPanel surface, not another veil. */}
           <div aria-hidden="true" style={{
             position: "absolute", inset: 0, pointerEvents: "none",
-            background: P.bg, opacity: P.dark ? 0.82 : 0.92,
+            background: P.bg, opacity: P.dark ? 0.88 : 0.94,
           }} />
         </>
       )}
@@ -21056,7 +21073,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           gap: isMobile ? 32 : 40, alignItems: "start",
         }}>
           {/* SOURCE — the document, rendered by renderDocSource below. */}
-          <section aria-label="Document source" style={{ minWidth: 0 }}>
+          <section aria-label="Document source" style={{ minWidth: 0, ...docPanelCard }}>
             {renderDocSource("page")}
           </section>
 
@@ -21421,7 +21438,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // initializer in App() — the cookie-absent default. Getting one wrong
     // would make "reset" quietly set a NEW value rather than restore the
     // original, which is worse than having no reset at all.
-    setPaletteName("Dark");          // cb_pal
+    setPaletteName("Sage");          // cb_pal
     setAccentName("Sage");          // cb_accent
     setCustomAccent("");            // cb_ca
     setAnswerLength("medium");      // cb_len
@@ -22551,7 +22568,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        rest not having one is what makes a product feel like a demo with a
        nice front page. Light stays opaque: the reel is not legible under
        white glass at any blur. */
-    pageView: { flex: 1, width: "100%", background: P.dark ? "transparent" : P.bg, minHeight: "100%", position: "relative", zIndex: 1 },
+    /* Working views sit on a full opaque content-region backdrop — the film
+       is the search home's and the answer thread's signature, not a texture
+       bleeding past panel edges on Settings, Library, or Trending. Opaque
+       here kills every hard-cutoff bleed in one move; minHeight 100dvh (not
+       100%) guarantees the backdrop reaches the viewport bottom even when
+       the content is short. Document Mode overrides this back to
+       transparent at its mount: it runs its own film by design. */
+    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100dvh", position: "relative", zIndex: 1 },
     /* Reading panels: stable surfaces for profiles, bibliography, inbox,
        and long answers. The footage stays visible around them; the text
        sits on a surface that doesn't compete with it.
@@ -22661,8 +22685,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          everywhere else: this is a shadow, never full-screen glass, and
          it scrolls with the band rather than sitting over the footage. */
       background: P.dark
-        ? "radial-gradient(ellipse 64% 62% at 50% 46%, rgba(3,5,7,0.68) 0%, rgba(3,5,7,0.32) 55%, rgba(3,5,7,0) 100%)"
-        : "radial-gradient(ellipse 64% 62% at 50% 46%, rgba(250,250,248,0.9) 0%, rgba(250,250,248,0.55) 55%, rgba(250,250,248,0) 100%)",
+        ? "radial-gradient(ellipse 68% 66% at 50% 46%, rgba(3,5,7,0.80) 0%, rgba(3,5,7,0.42) 55%, rgba(3,5,7,0) 100%)"
+        : "radial-gradient(ellipse 68% 66% at 50% 46%, rgba(250,250,248,0.94) 0%, rgba(250,250,248,0.62) 55%, rgba(250,250,248,0) 100%)",
     },
     /* The first-time screen already has a mark, a 52px wordmark and a line
        of copy above the composer, so it does not need the band's height as
@@ -22853,7 +22877,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: FONT_SIZES.body, padding: "14px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.94)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)", borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
@@ -22888,9 +22912,9 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        chase, not another compositor-hint removal. */
     panel: {
       position: "sticky", top: 24,
-      background: P.dark ? "rgba(15, 17, 26, 0.9)" : "rgba(255, 255, 255, 0.94)",
-      backdropFilter: "blur(16px)",
-      WebkitBackdropFilter: "blur(16px)",
+      /* Opaque, never frosted: a 0.9 alpha let bright footage ghost
+         through behind source rows. Solid theme surface, no backdrop blur. */
+      background: P.surface,
       border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
       borderRadius: 8,
       padding: "20px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
@@ -25001,7 +25025,7 @@ function App() {
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
-  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Dark");
+  const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Sage");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Sage");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
   const [hoverCite, setHoverCite] = useState(0);
@@ -26139,16 +26163,18 @@ function App() {
           /* Brightest on the search screen, dimmer once you are reading an
              answer, dimmest on a working view — those are dense text on a
              wide column, and footage at full strength behind them cost real
-             legibility. */
+             legibility. Sep 2026 grade: darker and more dramatic throughout
+             (Planet Earth, not a hazy overlay) — the footage reads as cinema,
+             never as raw bright video bleeding past panel edges. */
           intensity={
             /* Four states, in order of how much attention the page is
                asking for. Reading wins over everything: an answer is the
                one screen where the footage is purely in the way. */
-            started ? 0.34
-              : (view && view !== "search") ? 0.42
-              : composerFocused ? 0.45
-              : (input && input.length > 0) ? 0.5
-              : 1
+            started ? 0.28
+              : (view && view !== "search") ? 0.34
+              : composerFocused ? 0.40
+              : (input && input.length > 0) ? 0.44
+              : 0.72
           }
         />
       ))}
@@ -26550,7 +26576,7 @@ function App() {
         </Reveal>
       )}
       {view === "document" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: "transparent", minHeight: "100%" }} deps={[view]}>
           <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro}
             /* The document page runs its own single FilmLayer; mirror the
                workspace reel's rule so reduced motion / Save-Data /
@@ -27876,12 +27902,14 @@ summary::-webkit-details-marker { display: none; }
 .cb-mast-name {
   font-family: var(--cb-font); font-size: 19px; font-weight: 600;
   letter-spacing: -0.01em; color: var(--cb-ink); margin-top: 10px;
+  text-shadow: 0 2px 18px rgba(0,0,0,0.55);
 }
 .cb-mast--compact .cb-mast-name { margin-top: 8px; font-size: 15px; }
 .cb-mast-line {
   margin: 8px 0 0; max-width: 480px; padding: 0 20px;
   font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   line-height: 1.6; color: var(--cb-ink2);
+  text-shadow: 0 1px 14px rgba(0,0,0,0.6);
 }
 
 /* ── The question field: one hairline box, no instrument ── */
@@ -28626,7 +28654,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(115% 100% at 50% 42%, transparent 52%, rgba(3,5,7,0.38) 82%, rgba(2,4,6,0.62) 100%);
+  background: radial-gradient(115% 100% at 50% 42%, transparent 50%, rgba(3,5,7,0.48) 80%, rgba(2,4,6,0.74) 100%);
 }
 
 /* ── Intro controls ──

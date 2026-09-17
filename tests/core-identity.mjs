@@ -47,9 +47,9 @@ await test("workspace CinematicFilm mount exists", () => {
   assert.strictEqual(mounts.length, 2, `expected intro + workspace mounts, found ${mounts.length}`);
 });
 await test("film intensity is state-aware (brightest on search, dimmest reading)", () => {
-  assert.match(appSrc, /started \? 0\.34/, "reading intensity missing");
-  assert.match(appSrc, /\(view && view !== "search"\) \? 0\.42/, "working-view intensity missing");
-  assert.match(appSrc, /composerFocused \? 0\.45/, "composer-focus intensity missing");
+  assert.match(appSrc, /started \? 0\.28/, "reading intensity missing");
+  assert.match(appSrc, /\(view && view !== "search"\) \? 0\.34/, "working-view intensity missing");
+  assert.match(appSrc, /composerFocused \? 0\.40/, "composer-focus intensity missing");
 });
 await test("workspace reel unmounts in Document Mode", () => {
   assert.match(appSrc, /\{view !== "document" && \(filmBlocked\(animationMode, false\)/, "document-mode reel guard missing");
