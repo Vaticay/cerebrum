@@ -44,6 +44,7 @@ function saveInvestigation(history, turns, allSources, now = Date.now()) {
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
+import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
    where DATABASES is derived from it. */
 import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
@@ -2714,7 +2715,12 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
       {/* The descent field. The scan is a sweep (light travelling), not
           progress; the particle field is ambient. Neither claims anything
           about per-database state — the client cannot know it mid-request. */}
-      <div className="cb-dive-field" role="img" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
+      {/* The flight atmosphere: while a query is in flight the 190-particle
+          field leaves its specimen box and becomes the room — a fixed,
+          full-viewport drift over the dimmed reel and under the reading
+          instruments. It mounts only for the flight and unmounts with the
+          room, so it never competes with an answer. */}
+      <div className="cb-dive-atmosphere" role="img" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
         {/* The particle field: a real-time canvas marine-snow instrument at
             full field resolution. Lazy — its chunk loads only when a search
             begins. Reduced motion gets a single still frame; no canvas 2D
@@ -2722,7 +2728,9 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
         <React.Suspense fallback={null}>
           <DiveParticles done={done} reduced={reduced} />
         </React.Suspense>
-        <div className="cb-dive-line" aria-hidden="true">
+      </div>
+      <div className="cb-dive-field" aria-hidden="true">
+        <div className="cb-dive-line">
           {live
             ? <div className="cb-dive-scan"><span className="cb-dive-dot" /></div>
             : <span className="cb-dive-marker" />}
@@ -4472,6 +4480,11 @@ const FILM_SCENES = {
    picture on screen. Checked against the file, not assumed. */
 const FILM_POSTER_CLIP = "/assets/cinematic/science-61.mp4";
 
+/* RESTORED 2026-09-17: Document Mode's film — the door's opening clip, so
+   stepping from the intro into a document keeps the same frame. The scrim
+   does the legibility work; the clip just has to be calm. */
+const DOC_FILM_SRC = "/assets/cinematic/science-66.mp4";
+
 /* Motion on a phone is opt-in, and the choice survives a reload — a
    preference someone has to set on every visit is not a preference. */
 const FILM_OPT_IN_KEY = "cb_film_motion";
@@ -4895,11 +4908,9 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
     orderProRef.current = proReel;
     idxRef.current = 0;
   }
-  /* `startAt` used to keep the same background frame across the intro →
-     workspace handoff: the workspace mounted its own reel instance opening
-     on the given clip. The workspace reel is retired (2026-09-17 pass 1),
-     so nothing passes `startAt` anymore; the prop stays as a benign part
-     of the component's API. */
+  /* `startAt` keeps the same background frame across the intro →
+     workspace handoff: the workspace mounts its own reel instance opening
+     on the given clip (see enterClip in App). */
   if (startAt) {
     const si = orderRef.current.indexOf(startAt);
     if (si >= 0) idxRef.current = si;
@@ -6051,6 +6062,100 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
 /* Pass 1 (2026-09-17): CerebrumFieldCanvas itself is deleted with them —
    the ambient field no longer renders on any product surface, so the
    renderer (src/cerebrumField.js) has no mount points left. */
+
+/* RESTORED 2026-09-17: Dusty's direction — the ambient field is the site's
+   core identity, not decoration to strip. It renders behind every product
+   surface whenever the film reel cannot (reduced motion, Save-Data,
+   animation off), so the shell keeps its depth under every condition. */
+
+/* ── CerebrumFieldCanvas ─────────────────────────────────────────────────
+   (restored verbatim from the pre-redesign tree) */
+
+function CerebrumFieldCanvas({
+  accent,
+  P,
+  mode = "ambient",
+  energy = 0,
+  core = 0,
+  corePos = [0, 0],
+  coreScale = 1,
+  animationMode = "cinematic",
+}) {
+  const canvasRef = useRef(null);
+  const fieldRef = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  /* The field inverts its polarity for light palettes rather than painting a
+     dark sheet behind a pale interface — see the uLight branch in the shader.
+     `deep` is still passed because the CSS fallback needs a ground colour. */
+  const isLight = !!(P && P.dark === false);
+  const deep = isLight ? (P.bg || "#f5f4f1") : ((P && P.bg) || "#0a1020");
+
+  // Create once. Deliberately NOT keyed on accent/mode — those are pushed
+  // through setState below, because tearing down a GPU context to change a
+  // colour is how you end up leaking contexts on a settings screen.
+  useEffect(() => {
+    if (animationMode === "off") return undefined;
+    let disposed = false;
+    let handle = null;
+
+    (async () => {
+      try {
+        const { createField } = await import("./cerebrumField.js");
+        if (disposed || !canvasRef.current) return;
+        handle = await createField(canvasRef.current, {
+          accent, deep, mode, core, corePos, coreScale, light: isLight,
+        });
+        if (disposed) { if (handle) handle.destroy(); return; }
+        if (!handle) { setFailed(true); return; }
+        fieldRef.current = handle;
+      } catch {
+        if (!disposed) setFailed(true);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      if (fieldRef.current) { fieldRef.current.destroy(); fieldRef.current = null; }
+      else if (handle) handle.destroy();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animationMode]);
+
+  // Push state changes without recreating anything.
+  useEffect(() => {
+    if (fieldRef.current) {
+      fieldRef.current.setState({ accent, deep, mode, energy, core, corePos, coreScale, light: isLight });
+    }
+  }, [accent, deep, mode, energy, core, corePos[0], corePos[1], coreScale, isLight]);
+
+  const fallbackStyle = {
+    position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+    background: staticFieldCss(accent, deep),
+  };
+
+  // Animation off, or WebGL unavailable: the same palette and roughly the
+  // same composition, painted in CSS. The page should look deliberate, not
+  // like something failed to load.
+  if (animationMode === "off" || failed) {
+    return <div aria-hidden="true" style={fallbackStyle} />;
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      style={{
+        position: "fixed", inset: 0, width: "100%", height: "100%",
+        zIndex: 0, pointerEvents: "none", display: "block",
+        // Painted underneath while the shader module loads, so there is never
+        // a black rectangle between first paint and first frame.
+        background: staticFieldCss(accent, deep),
+      }}
+    />
+  );
+}
+
 
 /* v7.0 cleanup: two banner comments used to sit here ("Custom blend-mode
    cursor" and "Mouse-tracking glow border") describing features that were
@@ -9040,13 +9145,11 @@ function EvidenceVideoModal({ P, accent, video, close }) {
   );
 }
 
-function TurnInner({ t, P, accent, at, S, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null }) {
-  /* Pass 3 (2026-09-17): the typewriter state is gone entirely — the
-     `typewriter` prop was a no-op after pass 2 retired animated typing,
-     the `cb_tw` cookie nothing read, and the `fresh` turn field nothing
-     consumed. Answers arrive as completed documents, so `shown` is the
-     full answer text and `done` is settled on mount. */
-  const shown = t.answer || "";
+function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null }) {
+  /* RESTORED 2026-09-17: animated typing. The answer reveals over ~900ms
+     on fresh turns (see useTypewriter); history turns render complete.
+     `done` follows the reveal — the toolbar lands when the typing does. */
+  const shown = useTypewriter(t.answer, typewriter && t.fresh);
   /* Failure model, derived from the turn's real data — never invented.
      synthesisMode "none" is the backend's explicit "no synthesis produced"
      flag (every model rate-limited/unavailable, no extractive fallback).
@@ -9060,9 +9163,10 @@ function TurnInner({ t, P, accent, at, S, last = false, autoRead = false, hoverC
   const allDbFailed = !!(dbOutcomes && dbOutcomes.length > 0 && dbOutcomes.every((x) => !x.ok));
   const connFailed = synthFailed && allDbFailed;
   // A failed synthesis isn't streamed: sections render immediately, and the
-  // gap finder stays off the fallback boilerplate. (Pass 2: nothing streams
-  // anymore — the answer is always the completed document.)
-  const done = true;
+  // gap finder stays off the fallback boilerplate.
+  // RESTORED 2026-09-17: `done` follows the typewriter reveal (a failed
+  // synthesis has nothing to reveal, so it is done at once).
+  const done = synthFailed ? true : shown === t.answer;
   // Evidence section: the table / network / arc live inline under the
   // answer now (modals demoted). The overflow menu and the jump rail reach
   // them; the band carries its own tabs.
@@ -9150,8 +9254,9 @@ function TurnInner({ t, P, accent, at, S, last = false, autoRead = false, hoverC
     if (autoRead && last && done && answerText.length > 40) setListenOpen(true);
   }, [autoRead, last, done, answerText]);
   // Only fires once the text has stopped changing (see the comment at the
-  // render site): `done` is settled on mount now that answers arrive as
-  // completed documents.
+  // render site): on fresh answers `done` settles when the typewriter
+  // reveal completes; with typing off or on history turns it settles
+  // on mount.
   /* Pass 2: answers appear as completed documents — no paragraph-by-
      paragraph stagger (the old Commit-55 reveal made the answer feel
      composed rather than pasted). The ref stays so citation-scroll targets
@@ -19937,7 +20042,7 @@ function docMetaPreview(text) {
   if (ym) year = ym[1];
   return { title, authors, journal: "", year, ident: detectDocIdentifier(text) };
 }
-function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged }) {
+function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
   // away whatever the person pasted.
@@ -20854,20 +20959,52 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
        overlay; `asPage` keeps the modal form available for the command
        palette, which opens it deliberately as an interruption.
 
-       Pass 1 (2026-09-17): the film-layer model is retired — the page is
-       now a quiet opaque surface like every other product surface. The
-       FilmLayer and its scrim are gone; the root carries P.bg directly.
-       No fixed heights, no internal scroll regions, no 48%-of-the-screen
-       split: on a phone the whole page is one vertical reflow. */
+       RESTORED 2026-09-17: Document Mode's own film is back — a single
+       FilmLayer behind the page (the workspace reel unmounts while this
+       view is open, so two background decoders never run on the same
+       screen), a single scrim veils the footage — the only layer whose
+       background opacity is tuned — and the content flows as one
+       continuous page above it. No fixed heights, no internal scroll
+       regions, no 48%-of-the-screen split: on a phone the whole page is
+       one vertical reflow. */
     <div
       {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
       style={asPage
         ? {
             position: "relative", display: "flex", flexDirection: "column",
             minHeight: "100vh", minHeight: "100svh",
-            background: P.bg, overflow: "clip",
+            /* Transparent so Document Mode's own film shows through — the
+               scrim above the footage does the legibility work. */
+            background: "transparent", overflow: "clip",
           }
         : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
+      {/* RESTORED 2026-09-17: Document Mode's own film. The workspace reel
+          unmounts while this view is open (see the App shell), so a single
+          FilmLayer here keeps one background decoder on screen. When the
+          film can't run the layer holds the clip's graded still. */}
+      {asPage && (
+        <>
+          <FilmLayer
+            src={DOC_FILM_SRC}
+            pinned={false}
+            preload="metadata"
+            fadeMs={2200}
+            /* filmOK mirrors the workspace reel's own rule (reduced
+               motion, Save-Data, animation off, low-memory devices): when
+               it is false the layer holds the clip's graded still and
+               decodes nothing. */
+            active={filmOK}
+          />
+          {/* The scrim: the ONLY layer in this stack whose background
+              opacity is tuned. It veils the footage so text stays crisp;
+              the reader card below is the established near-opaque
+              readingPanel surface, not another veil. */}
+          <div aria-hidden="true" style={{
+            position: "absolute", inset: 0, pointerEvents: "none",
+            background: P.bg, opacity: P.dark ? 0.82 : 0.92,
+          }} />
+        </>
+      )}
 
       {asPage ? (
         /* ── Compact toolbar: the page's real heading (Commit 99) and one
@@ -21222,7 +21359,7 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro, onProChanged }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
   // Wave 3 — the three destructive confirmations used to be inline
@@ -21396,6 +21533,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const SETTINGS_INDEX = [
     ["Answer length", "answers", "concise standard detailed response verbosity"],
     ["Check answers against their sources", "answers", "verify verification accuracy claims fact check"],
+    ["Animated typing", "answers", "typewriter reveal progressive"],
     // Commit 100 — the privacy controls are findable by the words people
     // actually search for when they go looking for them, which is rarely
     // the word on the switch.
@@ -21406,6 +21544,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Theme", "appearance", "dark light palette colour color"],
     ["Accent color", "appearance", "colour highlight brand"],
     ["Background animation", "sound", "motion particles effects reduce"],
+    ["Pro cinematic reel", "sound", "motion video footage background members"],
     ["Animation speed", "sound", "motion speed particles rate"],
     ["Reduce transparency", "sound", "glass blur frosted solid"],
     ["Data density", "appearance", "compact comfortable spacing padding layout"],
@@ -21750,8 +21889,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
               } />
               <Row label="Check answers against their sources" desc="Before showing an answer, go back through it and confirm each claim really appears in the papers it cites. Adds a few seconds." control={<Switch on={factCheck} onChange={(v) => { sfx(); setFactCheck(v); }} label="Fact check pass" />} />
-              {/* Pass 2: the "Animated typing" row was retired with the
-                  typewriter — answers render as completed documents. */}
+              {/* RESTORED 2026-09-17: animated typing — the answer reveals
+                  over about a second on fresh turns. */}
+              <Row label="Animated typing" desc="Answers type themselves in as they are ready" control={<Switch on={typewriter} onChange={(v) => { sfx(); setTypewriter(v); }} label="Animated typing" />} />
               <Row label="Citation format" control={
                 <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
               } last />
@@ -21957,7 +22097,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             <Section title="Motion" footer="Off quiets every animated surface: backgrounds, the search instrument, video crossfades, entrance effects. Your device's Reduce Motion setting is honored automatically either way.">
               <Row label="Motion" desc="Backgrounds, the search instrument, and entrance effects" control={
                 <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
-              } last={animationMode === "off"} />
+              } last={animationMode === "off" && !(user && user.isPro)} />
+              {/* RESTORED 2026-09-17: the Pro cinematic reel. Members-only —
+                  a separate set of footage for the workspace backdrop. */}
+              {(user && user.isPro) && (
+                <Row label="Pro cinematic reel" desc="A members-only set of footage behind the workspace" control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last={animationMode === "off"} />
+              )}
               {/* v6.9: was cookie-persisted and threaded all the way down into
                   LivingBackground already, but had no control anywhere to
                   actually change it from its default — this is the first real
@@ -22225,6 +22370,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        there is nothing left to show through — a transparent page was only
        ever the reel's window. Every product surface is a solid shell now. */
     page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
+
+    /* RESTORED 2026-09-17: the film grain overlay — the texture of the
+       ambient stack. A fixed noise layer at the palette's grain opacity;
+       it sits over the film and under the interface. */
+    grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
     /* Pass 1 (2026-09-17): the grain overlay and the ambient wash are
        deleted with the reel — the product shell is opaque now, and a
@@ -22505,6 +22655,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          optical middle of the window rather than the group's middle. */
       paddingTop: isMobile ? 48 : 56,
       paddingBottom: isMobile ? 8 : 16,
+      /* A localized legibility hold behind the console — a soft centered
+         shadow under the question field, the mode words, and the starter
+         questions, fading to nothing at the edges. The film stays visible
+         everywhere else: this is a shadow, never full-screen glass, and
+         it scrolls with the band rather than sitting over the footage. */
+      background: P.dark
+        ? "radial-gradient(ellipse 64% 62% at 50% 46%, rgba(3,5,7,0.68) 0%, rgba(3,5,7,0.32) 55%, rgba(3,5,7,0) 100%)"
+        : "radial-gradient(ellipse 64% 62% at 50% 46%, rgba(250,250,248,0.9) 0%, rgba(250,250,248,0.55) 55%, rgba(250,250,248,0) 100%)",
     },
     /* The first-time screen already has a mark, a 52px wordmark and a line
        of copy above the composer, so it does not need the band's height as
@@ -23729,6 +23887,21 @@ function App() {
   // Pro accounts, and the server is the authority on who is Pro.
   const [proReel, setProReel] = useState(() => { try { return localStorage.getItem("cb_pro_reel") === "1"; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem("cb_pro_reel", proReel ? "1" : "0"); } catch {} }, [proReel]);
+  /* RESTORED 2026-09-17: the ambient reel behind the product surfaces.
+     Dusty's direction — the film is the site's core identity. State the
+     workspace CinematicFilm mount needs, kept together: the reel ref, the
+     intro-handoff clip, the credits dialog, and the motion toggle. */
+  const filmRef = useRef(null);
+  const [enterClip, setEnterClip] = useState(null);
+  const enterClipTimer = useRef(null);
+  useEffect(() => () => clearTimeout(enterClipTimer.current), []);
+  const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
+  const [filmMotion, setFilmMotion] = useState(() => true);
+  /* RESTORED 2026-09-17: animated typing. The answer reveal plays a few
+     words at a time on fresh answers (see TurnInner); the cb_tw cookie
+     remembers the choice. */
+  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
+  useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
   const refreshPro = useCallback(async () => {
     try { setProStatus(await apiProGet()); } catch { setProStatus(null); }
   }, []);
@@ -25025,7 +25198,7 @@ function App() {
       if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`empty body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
+      const nt = { id: turnId, fresh: true, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -25794,6 +25967,14 @@ function App() {
             sfx();
             if (seed) setInput(seed);
             setEntered(true);
+            /* RESTORED 2026-09-17: keep the background frame across the
+               handoff — the workspace reel opens on the intro's clip and
+               the graded still bridges the buffering gap (see enterClip). */
+            if (clipSrc && FILM_SCENES[clipSrc]) {
+              setEnterClip(clipSrc);
+              clearTimeout(enterClipTimer.current);
+              enterClipTimer.current = setTimeout(() => setEnterClip(null), 1500);
+            }
             /* The worked example is a press on a specific question, so it
                runs it rather than leaving it sitting in the composer for
                a second press. Not while the consent gate is up: that gate
@@ -25924,11 +26105,63 @@ function App() {
   return (
     <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent)}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
-      {/* Pass 1 (2026-09-17): quiet opaque shells. The ambient backdrop
-          is gone — no film reel, no generated field, no grain, no
-          handoff still. The page root carries P.bg directly (see
-          makeStyles `page`), and every product surface is an opaque
-          solid. The intro keeps its own cinematic reel; it is untouched. */}
+      {/* RESTORED 2026-09-17: the ambient backdrop. Dusty's direction — the
+          reel is the site's core identity, not decoration to strip. One
+          backdrop at a time, never both: the film reel when it can run,
+          the generated field when it cannot (reduced motion, Save-Data,
+          animation off). `filmBlocked` is the single rule both branches
+          read. Intensity drops once an investigation is underway — a bright
+          cut behind a paragraph someone is reading is a distraction, not
+          atmosphere. Document Mode runs its own single FilmLayer, so the
+          workspace reel unmounts while a document is open and two
+          background decoders never run on the same screen. */}
+      {view !== "document" && (filmBlocked(animationMode, false) ? (
+        <CerebrumFieldCanvas
+          accent={accent}
+          P={P}
+          mode={started ? "reading" : "ambient"}
+          energy={busy ? 1 : 0}
+          core={started ? 0.34 : 0.85}
+          corePos={started ? [0.72, 0.58] : [0, 0.08]}
+          coreScale={started ? 0.42 : 0.9}
+          animationMode={animationMode}
+        />
+      ) : (
+        <CinematicFilm
+          ref={filmRef}
+          animationMode={animationMode}
+          paused={!filmMotion}
+          /* Pro members with the toggle on get the members-only reel. */
+          proReel={!!(user && user.isPro && proReel)}
+          /* Opens on the door's clip when the visitor just stepped through,
+             so the background frame is retained across the handoff. */
+          startAt={enterClip}
+          /* Brightest on the search screen, dimmer once you are reading an
+             answer, dimmest on a working view — those are dense text on a
+             wide column, and footage at full strength behind them cost real
+             legibility. */
+          intensity={
+            /* Four states, in order of how much attention the page is
+               asking for. Reading wins over everything: an answer is the
+               one screen where the footage is purely in the way. */
+            started ? 0.34
+              : (view && view !== "search") ? 0.42
+              : composerFocused ? 0.45
+              : (input && input.length > 0) ? 0.5
+              : 1
+          }
+        />
+      ))}
+      {/* The handoff bridge: the door's clip as a graded still, dissolving
+          over the workspace while the new reel buffers on the same clip.
+          pointer-events:none, gone after the fade. */}
+      {enterClip && (
+        <div className="cb-enter-frame" aria-hidden="true" style={{
+          backgroundImage: `url("${filmPoster(enterClip)}")`,
+        }} />
+      )}
+      <div style={S.grain} />
+      {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
 
       {updateReady && <VersionBanner P={P} accent={accent} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
       {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
@@ -26175,7 +26408,7 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} />))}
+                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} />))}
                 {busy && (<div style={S.turn}>
                   {/* The Reading Room: the question as a specimen label, the
                       fifteen databases as a labelled constellation the query
@@ -26241,10 +26474,12 @@ function App() {
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 10px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
             <div className="cb-appfoot-links" style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
-                /* Pass 1 (2026-09-17): the app-level ambient reel is gone,
-                   so its footer controls go with it — "Film credits" and
-                   the background play/pause live on the intro's own
-                   footer now, next to the footage they describe. */
+                /* RESTORED 2026-09-17: the reel plays behind the whole
+                   application, not just the intro, so its attribution has
+                   to be reachable from in here too — the CC BY clips are on
+                   screen either way. */
+                ["credits", "Film credits"],
+                ["motion", filmMotion ? "Pause background" : "Play background"],
                 ["/about", "About"],
                 ["/privacy", "Privacy"],
                 ["/terms", "Terms"],
@@ -26262,6 +26497,18 @@ function App() {
                   textDecoration: "underline", textDecorationStyle: "dotted",
                   textDecorationColor: withAlpha(P.faint, 0.55), textUnderlineOffset: "3px",
                 };
+                /* RESTORED 2026-09-17: the reel's own controls. Film credits
+                   opens the attribution dialog; the motion toggle pauses or
+                   plays the workspace reel (synchronous, in the tap's gesture
+                   window — the only play() iOS Low Power Mode honours). */
+                if (href === "credits") return <button key={label} type="button" onClick={() => setFilmCreditsOpen(true)} style={st}>{label}</button>;
+                if (href === "motion") return (
+                  <button key="motion" type="button" style={st} onClick={() => {
+                    const next = !filmMotion;
+                    setFilmMotion(next); setFilmForcedOn(next);
+                    if (next) { try { filmRef.current?.playNow(); } catch {} }
+                  }}>{label}</button>
+                );
                 return <a key={label} href={href} style={st}>{label}</a>;
               })}
               <span className="cb-appfoot-copy" style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}</span>
@@ -26286,7 +26533,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); } }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -26304,7 +26551,11 @@ function App() {
       )}
       {view === "document" && (
         <Reveal style={S.pageView} deps={[view]}>
-          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro} />
+          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro}
+            /* The document page runs its own single FilmLayer; mirror the
+               workspace reel's rule so reduced motion / Save-Data /
+               animation-off / low-memory hold the graded still instead. */
+            filmOK={!filmBlocked(animationMode, false)} />
         </Reveal>
       )}
       {/* ══════════════════════════════════════════════════════════
@@ -27891,6 +28142,10 @@ summary::-webkit-details-marker { display: none; }
   --cb-acc: #a3b899;
   padding: 34px 4px 8px;
   animation: cbSignalIn 0.7s var(--cb-ease) both;
+  /* The room's instruments paint above the flight atmosphere (a fixed
+     z-index:0 layer): without a position here the canvas would cover
+     the text it serves. */
+  position: relative; z-index: 1;
 }
 .cb-room-kicker {
   /* Pass 3 (2026-09-17): mono label, not a tracked-out eyebrow. */
@@ -27905,27 +28160,37 @@ summary::-webkit-details-marker { display: none; }
   color: #f2f4f2;
   max-width: 720px; margin: 0;
 }
-/* The descent field: a quiet column of water. Particles rise through it;
-   the reading line sits just below centre, where the eye lands. */
-.cb-dive-field {
-  position: relative;
-  height: 170px;
-  max-width: 640px;
-  margin: 26px auto 0;
+/* The flight atmosphere: the 190-particle field at full viewport while a
+   query is in flight. Fixed, pointer-transparent, above the dimmed reel
+   (z-index 0, later in the DOM) and below the room's instruments. When
+   the answer arrives the room unmounts and takes the sky with it. */
+.cb-dive-atmosphere {
+  position: fixed; inset: 0; z-index: 0;
+  pointer-events: none;
   overflow: hidden;
 }
-/* The particle canvas: full-field, painted first so the reading line
+/* The particle canvas: full-viewport, painted first so the reading line
    sweeps above it. */
 .cb-dive-particles {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   display: block;
 }
+/* The descent field: now just the reading line's own quiet column — the
+   particles have the whole viewport, so the line needs only enough room
+   to breathe. */
+.cb-dive-field {
+  position: relative;
+  height: 64px;
+  max-width: 640px;
+  margin: 26px auto 0;
+  overflow: hidden;
+}
 /* The reading line: one hairline. The scan is a dot with a short tail
    travelling the full width on transform only — no layout thrash. It
    fades at both ends so it reads as a sweep, never a fill. */
 .cb-dive-line {
-  position: absolute; left: 0; right: 0; top: 62%;
+  position: absolute; left: 0; right: 0; top: 50%;
   height: 1px; background: rgba(255,255,255,0.14);
 }
 .cb-dive-scan {
@@ -28312,6 +28577,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    ten-second loop feeling like footage rather than wallpaper. It is one
    compositor-thread transform, so it costs nothing to run.
    ════════════════════════════════════════════════════════════════ */
+/* RESTORED 2026-09-17: the intro-to-workspace handoff still. The door's
+   clip as a graded frame, dissolving over the workspace while the new
+   reel buffers on the same clip. */
+.cb-enter-frame {
+  position: fixed; inset: 0; z-index: 240; pointer-events: none;
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  animation: cbEnterFrameOut 0.85s ease 0.1s both;
+}
+@keyframes cbEnterFrameOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
 .cb-film {
   position: fixed;
   inset: 0;

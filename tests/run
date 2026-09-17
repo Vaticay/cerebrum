@@ -614,7 +614,7 @@ await test("auth email sends have hard timeouts", async () => {
 // Worker-owned suites (backend overhaul passes): each is a standalone
 // script with its own assertions; run them as child processes so a
 // failure here fails the whole suite.
-for (const suite of ["auth-security.mjs", "content-endpoints.mjs", "media-resilience.mjs", "shared-libs.mjs", "answer-insights.mjs", "css-keyframes.mjs", "fc-label.mjs", "answer-experience.mjs", "scope-audit.mjs", "export-excel.mjs", "favicon.mjs", "answer-engine.mjs", "intro-title-card.mjs", "answer-ship.mjs", "flashpoint-fix.mjs", "venn-premium.mjs", "openrouter-key-alias.mjs", "scale-hardening.mjs", "pro.mjs", "trending-digest.mjs", "docmode-reader.mjs", "e2ee-crypto.mjs", "e2ee-server.mjs", "e2ee-messaging.mjs", "e2ee-adversarial.mjs", "zk-data.mjs", "zk-server.mjs", "extractive-fallback.mjs"]) {
+for (const suite of ["auth-security.mjs", "content-endpoints.mjs", "media-resilience.mjs", "shared-libs.mjs", "answer-insights.mjs", "css-keyframes.mjs", "fc-label.mjs", "answer-experience.mjs", "scope-audit.mjs", "export-excel.mjs", "favicon.mjs", "answer-engine.mjs", "intro-title-card.mjs", "answer-ship.mjs", "core-identity.mjs", "flashpoint-fix.mjs", "venn-premium.mjs", "openrouter-key-alias.mjs", "scale-hardening.mjs", "pro.mjs", "trending-digest.mjs", "docmode-reader.mjs", "e2ee-crypto.mjs", "e2ee-server.mjs", "e2ee-messaging.mjs", "e2ee-adversarial.mjs", "zk-data.mjs", "zk-server.mjs", "extractive-fallback.mjs"]) {
   await test(`suite ${suite}`, async () => {
     const { execFile } = await import("node:child_process");
     await new Promise((resolve, reject) => {

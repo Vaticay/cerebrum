@@ -850,22 +850,20 @@ await test("Pro badge renders on profile and in the account menu", async () => {
   assert.match(src, /\{user\.isPro && <ProBadge/, "account menu badge wiring missing");
 });
 
-await test("Pro reel is exclusive clips wired to the intro film", async () => {
+await test("Pro reel is exclusive clips wired to the workspace film", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   assert.match(src, /FILM_CLIPS_PRO_LANDSCAPE/, "Pro landscape list missing");
   assert.match(src, /FILM_CLIPS_PRO_PORTRAIT/, "Pro portrait list missing");
   assert.match(src, /function filmReel\(pro\)/, "filmReel does not take the pro flag");
-  // Pass 1 redesign (2026-09-17): the workspace film is retired — the product
-  // shell mounts no ambient reel at all, so there is no workspace instance to
-  // gate. The Pro clip lists and the filmReel pro flag remain (the intro
-  // keeps its own reel).
-  // Pass 4 redesign (2026-09-17): the Pro cinematic reel Settings row was
-  // dormant — no CinematicFilm mount ever received proReel — so the row and
-  // its settings-search index entry were removed. The assets stay.
-  assert.ok(!/Pro cinematic reel/.test(src), "dormant reel setting must not appear in Settings");
-  assert.match(src, /\}, \[blocked, proReel\]\);/, "reel effect must re-run on proReel so a future switch is immediate");
+  // RESTORED 2026-09-17: the workspace film is back — the product shell
+  // mounts its own ambient reel (the intro keeps its own). The Pro reel
+  // Settings row is live again and must be wired into that workspace
+  // mount, not dormant.
+  assert.ok(/Pro cinematic reel/.test(src), "Pro reel setting must appear in Settings");
+  assert.match(src, /proReel=\{\!\!\(user && user\.isPro && proReel\)\}/, "workspace film not gated on the Pro reel toggle");
+  assert.match(src, /\}, \[blocked, proReel\]\);/, "reel effect must re-run on proReel so the switch is immediate");
   const filmMounts = src.match(/<CinematicFilm/g) || [];
-  assert.strictEqual(filmMounts.length, 1, `expected exactly one CinematicFilm mount (the intro), found ${filmMounts.length}`);
+  assert.strictEqual(filmMounts.length, 2, `expected two CinematicFilm mounts (intro + workspace), found ${filmMounts.length}`);
 });
 
 await test("settings account tab hosts the Pro section and founder grant panel", async () => {

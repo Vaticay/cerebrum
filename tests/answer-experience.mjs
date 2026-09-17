@@ -359,10 +359,15 @@ await test("claim spine: cited paragraphs record claims, rail inverts them", () 
   assert.match(appSrc, /onActivate=\{onActivateCite\}/, "rail row activation not wired");
 });
 
-await test("no animated typing: no stagger, no settings row", () => {
+await test("animated typing is the typewriter, not the old stagger", () => {
+  // The Commit-55 paragraph stagger stays retired.
   assert.match(appSrc, /const answerRevealRef = useRef\(null\)/, "answer stagger not retired");
+  // RESTORED 2026-09-17: animated typing is back as the typewriter reveal —
+  // fresh answers only, cookie-persisted, reduced-motion safe. It must be
+  // the useTypewriter wiring, not a revived stagger.
   const code = appSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-  assert.ok(!/label="Animated typing"/.test(code), "Animated typing settings row still rendered");
+  assert.ok(/label="Animated typing"/.test(code), "Animated typing settings row missing");
+  assert.match(code, /const shown = useTypewriter\(t\.answer, typewriter && t\.fresh\)/, "typewriter not gated on fresh turns");
 });
 
 await test("evidence band tabs use the underlined tab contract", () => {
