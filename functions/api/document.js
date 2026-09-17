@@ -179,7 +179,7 @@ export function classifyDocumentError(e) {
     return {
       status: 503,
       code: "upstream_timeout",
-      message: "The analysis took too long and timed out. Please try again — a shorter document usually goes through faster.",
+      message: "The analysis timed out before it finished. Please try again in a moment.",
     };
   }
   if (/429|rate.?limit|quota|too many requests|All providers failed/i.test(msg)) {
@@ -329,6 +329,142 @@ async function generate(env, messages, maxTokens, onToken = null) {
     }
     throw new Error("All providers failed: " + errList.join(" | "));
   }
+}
+
+// ---- map/reduce for long documents --------------------------------------
+// A single-pass summary of a long document fails reliably: up to 250K
+// chars of context plus a 4000-token answer is more than a free-tier
+// model serves inside an 8s-per-provider race and a short global ceiling,
+// so long documents used to time out every time and the error blamed the
+// document's length. Above MAP_REDUCE_THRESHOLD the document is instead
+// summarized section by section — small, fast calls that fit the
+// timeouts — and those section digests are synthesized into the same
+// four-section shape. The endpoint does the chunking work; the person
+// never has to cut their own document down.
+const MAP_REDUCE_THRESHOLD = 18000;
+const MAP_CHUNK_CHARS = 15000;
+const MAP_CONCURRENCY = 4;
+const MAP_MAX_TOKENS = 700;
+// Map phase gets its own ceiling inside the overall summary budget below.
+const MAP_TIMEOUT_MS = 55000;
+const SUMMARY_TIMEOUT_MS = 80000;
+const QA_TIMEOUT_MS = 40000;
+export { MAP_REDUCE_THRESHOLD, MAP_CHUNK_CHARS, MAP_CONCURRENCY, MAP_MAX_TOKENS, MAP_TIMEOUT_MS, SUMMARY_TIMEOUT_MS, QA_TIMEOUT_MS };
+
+// Split a document into chunks of at most maxChars, breaking on paragraph
+// boundaries (blank lines) so a chunk never starts or ends mid-thought. A
+// single paragraph longer than maxChars is hard-split — a pathological
+// wall of text still has to fit. Exported for unit tests — pure function,
+// no I/O.
+export function chunkDocument(text, maxChars) {
+  const paras = String(text || "")
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const chunks = [];
+  let cur = "";
+  const push = () => {
+    if (cur) {
+      chunks.push(cur);
+      cur = "";
+    }
+  };
+  for (const para of paras) {
+    if (para.length > maxChars) {
+      push();
+      for (let i = 0; i < para.length; i += maxChars) chunks.push(para.slice(i, i + maxChars));
+      continue;
+    }
+    const next = cur ? cur + "\n\n" + para : para;
+    if (next.length > maxChars) push();
+    cur = cur ? cur + "\n\n" + para : para;
+  }
+  push();
+  return chunks;
+}
+
+const CHUNK_SYSTEM_PROMPT =
+  "You are condensing one section of a longer document so a later step can summarize the whole. " +
+  "Extract only what this section actually says: the specific claims or findings it makes, the methods or reasoning it describes, " +
+  "concrete numbers (sample sizes, effect sizes, percentages, p-values, confidence intervals), and the named entities involved " +
+  "(compounds, genes, populations, variables, places, dates). Write a dense factual digest of roughly 250-400 words in plain " +
+  "paragraphs — no headers, no preamble, no verdict on the document as a whole. Never add outside knowledge, and never invent " +
+  "figures the text doesn't contain.";
+
+// Summarize every chunk with bounded parallelism. A chunk that fails
+// (provider timeout, rate limit) leaves an honest placeholder note
+// instead of killing the whole analysis — a summary missing one section
+// beats no summary at all, and the note says so plainly. onProgress
+// reports (done, total) after each chunk settles.
+async function summarizeChunks(env, chunks, onProgress) {
+  const results = new Array(chunks.length);
+  let done = 0;
+  const report = () => {
+    if (onProgress) {
+      try {
+        onProgress(done, chunks.length);
+      } catch {}
+    }
+  };
+  let next = 0;
+  const worker = async () => {
+    while (next < chunks.length) {
+      const i = next++;
+      try {
+        const r = await generate(
+          env,
+          [
+            { role: "system", content: CHUNK_SYSTEM_PROMPT },
+            { role: "user", content: "SECTION " + (i + 1) + " OF " + chunks.length + ":\n\n" + chunks[i] },
+          ],
+          MAP_MAX_TOKENS
+        );
+        results[i] = r.answer;
+      } catch (e) {
+        console.error("Cerebrum document map: chunk " + (i + 1) + "/" + chunks.length + " failed:", (e && e.message) || e);
+        results[i] = "[Section " + (i + 1) + " of " + chunks.length + " could not be read; its content is not reflected below.]";
+      }
+      done++;
+      report();
+    }
+  };
+  const workers = [];
+  for (let w = 0; w < Math.min(MAP_CONCURRENCY, chunks.length); w++) workers.push(worker());
+  await Promise.all(workers);
+  return results;
+}
+
+// Summary with automatic map/reduce. Short documents take the original
+// single-pass path unchanged; long ones are chunked first so the analysis
+// stops timing out on real papers. onToken streams the final answer's
+// tokens (unchanged contract); onProgress reports map-phase completion.
+async function runSummary(env, documentText, { onToken = null, onProgress = null } = {}) {
+  if (documentText.length <= MAP_REDUCE_THRESHOLD) {
+    return generate(
+      env,
+      [
+        { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+        { role: "user", content: "DOCUMENT:\n\n" + documentText },
+      ],
+      4000,
+      onToken
+    );
+  }
+  const chunks = chunkDocument(documentText, MAP_CHUNK_CHARS);
+  const sections = await withTimeout(summarizeChunks(env, chunks, onProgress), MAP_TIMEOUT_MS, "document map");
+  const condensed = sections.map((s, i) => "SECTION " + (i + 1) + " OF " + sections.length + ":\n" + s).join("\n\n");
+  const framing =
+    "The following are dense section-by-section digests of one longer document, in order. " +
+    "Treat them together as the document's full content for the summary below.";
+  return generate(
+    env,
+    [
+      { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+      { role: "user", content: framing + "\n\n" + condensed },
+    ],
+    4000,
+    onToken
+  );
 }
 
 // STRUCTURE hard-enforces these four exact section titles in the prompt
@@ -491,7 +627,9 @@ export async function onRequest(context) {
     if (wantStream) {
       // SSE streaming: tokens flow as they're generated. The frontend
       // renders them immediately — perceived speed is 10x even if total
-      // time is similar.
+      // time is similar. Long-document summaries additionally stream
+      // progress events while sections are digested, so the wait never
+      // looks hung.
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
@@ -501,15 +639,19 @@ export async function onRequest(context) {
           // Send quota info first so UI can show it immediately
           send({ type: "quota", quota: docQuota() });
           try {
-            const result = await withTimeout(
-              generate(env, messages, maxTokens, (token) => send({ type: "token", text: token })),
-              30000,
-              "document analysis"
-            );
-            // Send the final structured result
+            let result;
             if (isQA) {
+              result = await withTimeout(generate(env, messages, maxTokens), QA_TIMEOUT_MS, "document qa");
               send({ type: "done", mode: "qa", answer: result.answer + truncatedNote, model: result.model, quota: docQuota() });
             } else {
+              result = await withTimeout(
+                runSummary(env, documentText, {
+                  onToken: (token) => send({ type: "token", text: token }),
+                  onProgress: (done, total) => send({ type: "progress", done, total }),
+                }),
+                SUMMARY_TIMEOUT_MS,
+                "document analysis"
+              );
               const sectioned = splitSummarySections(result.answer);
               const raw = result.answer + truncatedNote;
               send({ type: "done", mode: "summary", raw, ...sectioned, truncated: !!truncatedNote, model: result.model, quota: docQuota() });
@@ -526,11 +668,11 @@ export async function onRequest(context) {
         headers: { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
       });
     }
-    const result = await withTimeout(generate(env, messages, maxTokens), 30000, "document analysis");
-
     if (isQA) {
+      const result = await withTimeout(generate(env, messages, maxTokens), QA_TIMEOUT_MS, "document qa");
       return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model, quota: docQuota() }, 200, cors);
     }
+    const result = await withTimeout(runSummary(env, documentText), SUMMARY_TIMEOUT_MS, "document analysis");
     const sectioned = splitSummarySections(result.answer);
     // The truncation note is appended to what the reader actually sees —
     // a summary that silently covers only part of a document is worse than

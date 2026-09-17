@@ -103,13 +103,13 @@ export function parseDocSseLine(line) {
  *    "auth_required" or "doc_quota_exhausted", so the UI can route the
  *    person to sign-in or Pro instead of showing a dead error),
  *  - the backend sends an "error" event mid-stream,
- *  - the request is aborted,
++ *  - the request is aborted,
  *  - the stream ends without a "done" event (err.code =
  *    "incomplete_stream") — the caller must discard any partial text,
  *    because a half-written answer must never stand as the final one.
  */
 export async function streamDocumentApi(body, opts = {}) {
-  const { onToken, onQuota, signal, timeoutMs = 60000 } = opts;
+  const { onToken, onQuota, onProgress, signal, timeoutMs = 60000 } = opts;
   // Abort wiring: the caller's signal (user pressed cancel) and an
   // internal timeout (hung connection — the old frontend used 60s) both
   // abort the fetch, with distinct codes so the UI can say "canceled"
@@ -179,6 +179,11 @@ export async function streamDocumentApi(body, opts = {}) {
           if (ev.text && onToken) onToken(ev.text);
         } else if (ev.type === "quota") {
           if (onQuota) onQuota();
+        } else if (ev.type === "progress") {
+          // Long-document map/reduce: the backend digests the document
+          // section by section before writing the summary. Forward the
+          // counts so the UI can show real progress instead of a spinner.
+          if (onProgress && Number.isFinite(ev.done) && Number.isFinite(ev.total)) onProgress(ev.done, ev.total);
         } else if (ev.type === "done") {
           donePayload = ev;
         } else if (ev.type === "error") {

@@ -217,6 +217,48 @@ await test("a backend error event throws with its message", async () => {
   }
 });
 
+await test("progress events are forwarded to onProgress and do not end the stream", async () => {
+  const restore = stubFetch(async () =>
+    sseResponse([
+      'data: {"type":"progress","done":1,"total":4}\n\n',
+      'data: {"type":"progress","done":4,"total":4}\n\n',
+      'data: {"type":"done","mode":"summary","raw":"full summary"}\n\n',
+    ])
+  );
+  try {
+    const seen = [];
+    const done = await streamDocumentApi(
+      { documentText: "doc", stream: true },
+      { onProgress: (d, t) => seen.push([d, t]) }
+    );
+    assert.deepEqual(seen, [[1, 4], [4, 4]]);
+    assert.equal(done.raw, "full summary");
+  } finally {
+    restore();
+  }
+});
+
+await test("malformed progress events never crash the stream", async () => {
+  const restore = stubFetch(async () =>
+    sseResponse([
+      'data: {"type":"progress","done":"many","total":4}\n\n',
+      'data: {"type":"progress"}\n\n',
+      'data: {"type":"done","mode":"summary","raw":"ok"}\n\n',
+    ])
+  );
+  try {
+    let calls = 0;
+    const done = await streamDocumentApi(
+      { documentText: "doc", stream: true },
+      { onProgress: () => { calls++; } }
+    );
+    assert.equal(calls, 0);
+    assert.equal(done.raw, "ok");
+  } finally {
+    restore();
+  }
+});
+
 await test("non-OK responses throw with the backend code", async () => {
   for (const code of ["auth_required", "doc_quota_exhausted"]) {
     const restore = stubFetch(async () =>

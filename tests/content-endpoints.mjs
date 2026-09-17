@@ -107,6 +107,59 @@ await test("document constants are sane", () => {
   assert.equal(document.MAX_BODY_BYTES, 2 * 1024 * 1024);
 });
 
+await test("chunkDocument returns one chunk for short text", () => {
+  const chunks = document.chunkDocument("Just a short paragraph.", 1000);
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0], "Just a short paragraph.");
+});
+
+await test("chunkDocument returns no chunks for empty input", () => {
+  assert.deepEqual(document.chunkDocument("", 1000), []);
+  assert.deepEqual(document.chunkDocument("   \n\n  ", 1000), []);
+});
+
+await test("chunkDocument splits on paragraph boundaries, never mid-paragraph", () => {
+  const p1 = "a".repeat(400);
+  const p2 = "b".repeat(400);
+  const p3 = "c".repeat(400);
+  const text = [p1, p2, p3].join("\n\n");
+  const chunks = document.chunkDocument(text, 850);
+  // 400+400+2 separators = 802 fits; adding the third would exceed 850
+  assert.equal(chunks.length, 2);
+  assert.ok(chunks.every((c) => c.length <= 850), "chunk exceeds limit");
+  assert.ok(chunks[0].includes(p1) && chunks[0].includes(p2), "paragraphs split mid-thought");
+  assert.ok(chunks[1].includes(p3), "third paragraph lost");
+  // Reassembly is lossless: join with blank lines, compare normalized
+  assert.equal(chunks.join("\n\n"), text);
+});
+
+await test("chunkDocument hard-splits a single giant paragraph", () => {
+  const wall = "x".repeat(2500);
+  const chunks = document.chunkDocument(wall, 1000);
+  assert.equal(chunks.length, 3);
+  assert.ok(chunks.every((c) => c.length <= 1000), "chunk exceeds limit");
+  assert.equal(chunks.join(""), wall);
+});
+
+await test("chunkDocument keeps every chunk within the limit on realistic text", () => {
+  const paras = Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 1}. ` + "lorem ipsum dolor sit amet ".repeat(30));
+  const chunks = document.chunkDocument(paras.join("\n\n"), document.MAP_CHUNK_CHARS);
+  assert.ok(chunks.length > 1, "expected multiple chunks");
+  assert.ok(chunks.every((c) => c.length <= document.MAP_CHUNK_CHARS), "chunk exceeds limit");
+  // Reassembly is lossless up to paragraph-edge whitespace, which the
+  // chunker intentionally trims.
+  const rejoined = chunks.join("\n\n").replace(/\s+/g, " ").trim();
+  const original = paras.join("\n\n").replace(/\s+/g, " ").trim();
+  assert.equal(rejoined, original);
+});
+
+await test("map/reduce constants are sane", () => {
+  assert.ok(document.MAP_REDUCE_THRESHOLD > 0, "threshold not set");
+  assert.ok(document.MAP_CHUNK_CHARS > 0, "chunk size not set");
+  assert.ok(document.MAP_CONCURRENCY >= 1 && document.MAP_CONCURRENCY <= 8, "concurrency out of range");
+  assert.ok(document.SUMMARY_TIMEOUT_MS > document.MAP_TIMEOUT_MS, "map budget exceeds summary budget");
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 group("document.js — error classification never leaks internals");
 

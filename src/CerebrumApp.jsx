@@ -20258,6 +20258,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [documentText, setDocumentText] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  // Long-document analyses report per-section progress (done/total) over
+  // the stream; null while the run is single-pass or not yet reporting.
+  const [analyzeProgress, setAnalyzeProgress] = useState(null);
   const [summary, setSummary] = useState(null); // { raw, model, mode: "summary", executiveSummary, methodology, keyFindings, limitations }
   const [error, setError] = useState("");
   const [qaQuery, setQaQuery] = useState("");
@@ -20477,8 +20480,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const text = documentText.trim();
     if (!text || analyzing) return;
     if (!docGate()) return;
-    if (text.length > 100000) { setError("That document is too long to analyze. Try one under about 100,000 characters."); return; }
+    // The backend digests long documents section by section now, so the
+    // cap is the paste cap itself — no more telling the person to go cut
+    // their own paper down.
+    if (text.length > DOCMODE_MAX_TEXT) { setError("That document is too long to analyze. Try one under about 200,000 characters."); return; }
     setAnalyzing(true);
+    setAnalyzeProgress(null);
     setError("");
     setSummary(null);
     setQaHistory([]);
@@ -20493,6 +20500,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         { documentText: text, stream: true },
         {
           signal: ctrl.signal,
+          // Long analyses budget up to ~80s server-side (section-by-section
+          // digestion); the client must not give up first.
+          timeoutMs: 95000,
+          onProgress: (done, total) => setAnalyzeProgress({ done, total }),
           onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
         }
       );
@@ -20511,6 +20522,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     } finally {
       if (analyzeAbort.current === ctrl) analyzeAbort.current = null;
       setAnalyzing(false);
+      setAnalyzeProgress(null);
     }
   };
   const cancelAnalyze = () => { if (analyzeAbort.current) analyzeAbort.current.abort(); };
@@ -20980,7 +20992,22 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         {analyzing && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14, ...(form === "page" ? { padding: isMobile ? "8px 0" : "16px 0" } : { flex: 1 }) }}>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>Reading the document…</div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
+            {analyzeProgress && analyzeProgress.total > 0 ? (
+              <>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
+                  Reading section {Math.min(analyzeProgress.done + 1, analyzeProgress.total)} of {analyzeProgress.total}…
+                </div>
+                <div style={{ height: 3, borderRadius: 2, background: P.line, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: 2, background: accent,
+                    width: `${Math.round((analyzeProgress.done / analyzeProgress.total) * 100)}%`,
+                    transition: "width 400ms ease",
+                  }} />
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
+            )}
             <Skeleton P={P} accent={accent} />
           </div>
         )}
