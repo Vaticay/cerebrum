@@ -2500,37 +2500,23 @@ function parseQueryEntities(text) {
   return found;
 }
 
-/* ── SearchNameplate: the instrument's engraved plate ─────────────────────────
-   The old hero was a marketing block — a 64px kinetic wordmark with the
-   slogan set beneath it as a subtitle. The plate sets the same brand
-   information the way an instrument maker sets it: the mark, the name in
-   tracked caps, the slogan as the specification line. The wording is
-   never altered.
-
-   It also answers the design review's note that the decorative mark felt
-   disconnected from the screen: the mode window beside the name reports
-   the active ask mode (it re-labels on every switch), and the mark's ring
-   brightens while the question field holds focus. */
+/* ── SearchNameplate: a quiet masthead ─────────────────────────────────────────
+   Was an engraved instrument plate — ringed mark, tracked-out caps, a mode
+   window, a spec line. Four bands of chrome before the question. Now it is
+   one small mark, the name in plain case, and the slogan as a single modest
+   line. The wording is never altered. */
 function SearchNameplate({ P, accent, askMode, focused, compact }) {
-  const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
   return (
     <div
-      className={"cb-plate" + (compact ? " cb-plate--compact" : "")}
+      className={"cb-mast" + (compact ? " cb-mast--compact" : "")}
       style={{ "--cb-acc": accent, "--cb-ink": P.ink, "--cb-ink2": P.ink2 }}
     >
-      <div className={"cb-plate-mark" + (focused ? " is-live" : "")} aria-hidden="true">
-        <Mark size={compact ? 26 : 34} accent={accent} glow={P.dark} />
+      <div className="cb-mast-mark" aria-hidden="true">
+        <Mark size={compact ? 22 : 28} accent={accent} glow={false} />
       </div>
-      <div className="cb-plate-name">Cerebrum</div>
+      <div className="cb-mast-name">Cerebrum</div>
       {!compact && (
-        <div className="cb-plate-mode" aria-live="polite" aria-label={"Ask mode: " + mode.label}>
-          <span className="cb-plate-mode-tick" aria-hidden="true" />
-          <span key={mode.key} className="cb-plate-mode-label">{mode.label}</span>
-          <span className="cb-plate-mode-tick" aria-hidden="true" />
-        </div>
-      )}
-      {!compact && (
-        <p className="cb-plate-spec">
+        <p className="cb-mast-line">
           Ask a real research question. Every claim traces to a paper you can open.
         </p>
       )}
@@ -2538,27 +2524,23 @@ function SearchNameplate({ P, accent, askMode, focused, compact }) {
   );
 }
 
-/* ── SignalComposer: the question console ─────────────────────────────────────
-   Was "the query line": a bare input over a hairline rule, with the mode
-   plates floating beneath it as five separate controls and the evidence
-   filter disclosed further down the page — a stack of chrome around the
-   question.
+/* ── SignalComposer: the question field ─────────────────────────────────────────
+   Was a console: a bordered instrument box holding a segmented mode strip,
+   a "you'll get" readout, an inset well with a focus glow, and a footer
+   with scope/entity readouts. Four bands of chrome around the question —
+   the bulky AI look.
 
-   Now it is one instrument. The mode selector is fused into the console's
-   header as a single segmented control (see AskModePicker), the question
-   field sits in an inset well with a real focus ring (the design review
-   asked for exactly this: inset surface, refined border, intentional
-   focus), and the footer is a persistent readout — scope, the live parse,
-   the evidence filter docked where it belongs. The ghost arrow is now a
-   proper ASK key. Nothing about the request flow changed: same input
-   value, Enter to ask, image attach, voice dictation, busy state,
-   recents, mode-aware placeholder.
+   Now it is one quiet field and one line of mode words beneath it. The
+   field is a hairline border with no inset shadow and no glow; focus only
+   deepens the border. The modes are plain words — the active one inked
+   and underlined — with each mode's blurb kept as a hover title. The
+   evidence filter keeps its own disclosure beneath. Nothing about the
+   request flow changed: same input value, Enter to ask, image attach,
+   voice dictation, busy state, recents, mode-aware placeholder.
 
    The placeholder is an overlay, not the input's placeholder attribute:
-   keyed by mode so it crossfades on every mode switch (the "better
-   placeholder animation"), pointer-transparent, and gone the moment
-   there is text. The input keeps its own aria-label, so nothing is lost
-   when the overlay isn't there. */
+   keyed by mode so it crossfades on every mode switch, pointer-transparent,
+   and gone the moment there is text. The input keeps its own aria-label. */
 function SignalComposer({
   input, setInput, inputRef, ask, busy,
   askMode, setAskMode, isMobile, accent, P,
@@ -2578,7 +2560,6 @@ function SignalComposer({
   const reduced = useReducedMotion();
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
   const placeholder = isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder;
-  const entities = useMemo(() => parseQueryEntities(input), [input]);
   /* ── Command deck: recent-questions dropdown ──
      Opens on focus when the input is empty and history exists; closes on
      ask, on Esc, and on blur after a grace period so a tap on an item
@@ -2611,31 +2592,23 @@ function SignalComposer({
   return (
     <div
       role="search"
-      className={"cb-console" + (showRecents ? " cb-console--recents-open" : "")}
+      className={"cb-ask" + (showRecents ? " cb-ask--recents-open" : "")}
       style={{
         "--cb-acc": accent,
-        "--cb-ring": withAlpha(accent, 0.30),
         "--cb-ink": P.ink,
         "--cb-ink2": P.ink2,
         "--cb-faint": P.faint,
         "--cb-line": P.line,
         "--cb-line2": P.line2,
         "--cb-ph": P.dark ? "rgba(242,244,242,0.52)" : "rgba(34,37,42,0.55)",
-        "--cb-well": P.dark ? "rgba(255,255,255,0.038)" : "rgba(22,26,30,0.038)",
-        "--cb-well-br": P.dark ? "rgba(255,255,255,0.13)" : "rgba(22,26,30,0.17)",
         "--cb-bg": P.bg,
       }}
     >
-      <AskModePicker
-        mode={askMode}
-        setMode={(k) => { clickSfx(); setAskMode(k); }}
-        P={P} accent={accent} isMobile={isMobile}
-      />
-      <div className="cb-console-well">
-        <div className="cb-console-field">
+      <div className="cb-ask-field">
+        <div className="cb-ask-inputwrap">
           <input
             ref={inputRef}
-            className="cb-console-input"
+            className="cb-ask-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
@@ -2665,74 +2638,61 @@ function SignalComposer({
             spellCheck="true"
           />
           {!hasText && (
-            <div aria-hidden="true" className="cb-console-ph" key={mode.key}>
+            <div aria-hidden="true" className="cb-ask-ph" key={mode.key}>
               {placeholder}
             </div>
           )}
         </div>
-        <div className="cb-console-tools">
+        <div className="cb-ask-tools">
           <button
             onClick={() => imageInputRef.current?.click()}
             title="Attach an image" aria-label="Attach an image"
-            className="cb-console-tool"
+            className="cb-ask-tool"
             style={attachedImage ? { color: accent } : undefined}
           ><Icon name="image" size={17} /></button>
           {/* The voice button brings its own 34px square styling; the ghost
               wrapper gives it the same 44px hit area as its neighbours. */}
-          <span className="cb-console-mic"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
+          <span className="cb-ask-mic"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
           <button
             onClick={doAsk}
             disabled={busy}
             aria-label={busy ? "Searching" : "Ask"}
-            className="cb-console-ask"
+            className="cb-ask-go"
           >{busy
-            ? <span className={"cb-console-ring" + (reduced ? " cb-console-ring--still" : "")} aria-hidden="true" />
+            ? <span className={"cb-ask-spin" + (reduced ? " cb-ask-spin--still" : "")} aria-hidden="true" />
             : "Ask"}</button>
         </div>
         {showRecents && (
-          <div className="cb-console-recent" role="listbox" aria-label="Recent questions">
-            <div className="cb-console-recent-k" aria-hidden="true">recent</div>
+          <div className="cb-ask-recent" role="listbox" aria-label="Recent questions">
+            <div className="cb-ask-recent-k" aria-hidden="true">recent</div>
             {recents.map((q, i) => (
               <button
                 key={q + "·" + i}
                 type="button"
                 role="option"
                 aria-selected={i === recentActive}
-                className={"cb-console-recent-item" + (i === recentActive ? " is-active" : "")}
+                className={"cb-ask-recent-item" + (i === recentActive ? " is-active" : "")}
                 onMouseDown={(e) => { e.preventDefault(); pickRecent(i); }}
                 onMouseEnter={() => setRecentActive(i)}
               >
-                <span className="cb-console-recent-q">{q}</span>
+                <span className="cb-ask-recent-q">{q}</span>
               </button>
             ))}
           </div>
         )}
       </div>
-      <div className="cb-console-foot">
-        {(hasText || entities.length > 0) && (
-          <div className="cb-console-scope" key={"scope:" + mode.key} aria-live="polite">
-            <span className="cb-console-rk">scope</span>
-            <span>mode: {mode.label}</span>
-            <span className="cb-console-sep" aria-hidden="true">·</span>
-            <span>{SCHOLARLY_SOURCES.length} databases</span>
-          </div>
-        )}
-        {entities.length > 0 && (
-          <div className="cb-console-reading" key={entities.map((e) => e.kind + e.value).join("|")}>
-            <span className="cb-console-rk">reading</span>
-            {entities.map((e, i) => (
-              <span key={i}><span className="cb-console-rk">{e.kind}</span>&ensp;{e.value}</span>
-            ))}
-          </div>
-        )}
-        <div className="cb-console-evidence">
-          <EvidenceFilter
-            value={evidenceFilter}
-            onChange={(v) => { clickSfx(); setEvidenceFilter(v); }}
-            P={P} accent={accent} isMobile={isMobile}
-          />
-        </div>
+      <div className="cb-ask-modes">
+        <AskModePicker
+          mode={askMode}
+          setMode={(k) => { clickSfx(); setAskMode(k); }}
+          P={P} accent={accent} isMobile={isMobile}
+        />
       </div>
+      <EvidenceFilter
+        value={evidenceFilter}
+        onChange={(v) => { clickSfx(); setEvidenceFilter(v); }}
+        P={P} accent={accent} isMobile={isMobile}
+      />
     </div>
   );
 }
@@ -2860,89 +2820,40 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
   );
 }
 
-/* ── AskModePicker: mode plates ──
-   Five verbs as plates. No numbering — the numbers suggested a sequence
-   that doesn't exist. One consequence line beneath says what each plate
-   does to your question; it follows hover and keyboard focus and settles
-   on the active mode. aria-pressed, keyboard focusability and the two-row
-   mobile wrap are preserved. */
-/* ── AskModePicker: the mode selector ─────────────────────────────────────────
-   Was five floating plates under the query line — five separate controls
-   competing with the input for attention. Now one segmented control fused
-   into the console's header: a single calibrated strip where the active
-   mode is the filled segment and the rest sit quiet. The consequence
-   readout ("you'll get …") stays — it is the honest version of a mode
-   description, restating what the answer will come back as.
-
-   Test contract: tests/ui-render.cjs extracts this function by AST and
-   runs it in a vm whose only globals are React, useEdgeMask, ASK_MODES,
-   Icon, FONT_SIZES, SP, TYPE, RADIUS, STATUS and withAlpha. Keep the
-   top-level FunctionDeclaration name, use React.useState (never the bare
-   hook), touch only those globals, and keep CONSEQUENCES falling back to
-   the mode's own blurb. */
+/* ── AskModePicker: mode words ──────────────────────────────────────────────────
+   Was a segmented control — five segments in a strip, the active one an
+   inverted-ink block, with a "you'll get" readout beneath. Now five plain
+   words in a row. The active mode is inked and underlined in the accent;
+   the rest sit faint. Each word keeps its blurb as a hover title.
+   aria-pressed is preserved. */
 function AskModePicker({ mode, setMode, P, accent, isMobile }) {
-  const [hoverKey, setHoverKey] = React.useState(null);
-  /* The consequence line under the strip. Each line is a plain restatement
-     of that mode's own blurb — what you get for the question you are about
-     to ask. Deterministic; no backend claims beyond what the mode already
-     promises. Falls back to the blurb so modes the map doesn't name (and
-     the test's two-mode ASK_MODES mock) still read sensibly. */
-  const CONSEQUENCES = {
-    explain: "An explanation of how it works, built from published research",
-    verify: "A verdict with confidence + dissenting papers",
-    compare: "The two weighed against each other, study against study",
-    map: "Who studies this, what they've found, and what's still unsettled",
-    readinglist: "The papers to read first, in the order to read them",
-  };
-  const active = ASK_MODES.find((m) => m.key === mode) || ASK_MODES[0];
-  const preview = ASK_MODES.find((m) => m.key === hoverKey) || active;
   return (
     <div
       role="group"
       aria-label="What do you want to do?"
-      className="cb-msegwrap"
+      className="cb-modes"
       style={{
         "--cb-acc": accent,
         "--cb-ink": P.ink,
         "--cb-ink2": P.ink2,
         "--cb-faint": P.faint,
-        "--cb-line": P.line,
-        "--cb-bg": P.bg,
-        "--cb-seg": P.dark ? "rgba(255,255,255,0.030)" : "rgba(22,26,30,0.045)",
       }}
     >
-      <div className="cb-mseg">
-        {ASK_MODES.map((m) => {
-          const on = mode === m.key;
-          const hovered = hoverKey === m.key;
-          return (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => setMode(m.key)}
-              onMouseEnter={() => setHoverKey(m.key)}
-              onMouseLeave={() => setHoverKey(null)}
-              onFocus={() => setHoverKey(m.key)}
-              onBlur={() => setHoverKey(null)}
-              title={m.blurb}
-              aria-pressed={on}
-              className={"cb-mseg-btn" + (on ? " is-on" : "") + (hovered && !on ? " is-hover" : "")}
-            >
-              <Icon name={m.icon} size={13} />
-              <span>{m.label}</span>
-            </button>
-          );
-        })}
-      </div>
-      {/* One live consequence line: follows hover/focus, settles on the
-          active mode. The inner span is keyed so its entrance replays on
-          every swap. */}
-      <div className="cb-mseg-readout" aria-live="polite">
-        <span className="cb-mseg-rk">you&rsquo;ll get</span>
-        <span className="cb-mseg-rt" key={preview.key}>
-          {CONSEQUENCES[preview.key] || preview.blurb}
-        </span>
-      </div>
+      {ASK_MODES.map((m) => {
+        const on = mode === m.key;
+        return (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => setMode(m.key)}
+            title={m.blurb}
+            aria-pressed={on}
+            className={"cb-mode" + (on ? " is-on" : "")}
+          >
+            {m.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -26549,10 +26460,8 @@ function App() {
                   signature, not a reward for having an empty account.
                   When the user has work in progress, it renders compact
                   so the composer stays the focal point. */}
-              {/* The brand as an engraved instrument plate, not a marketing
-                  hero — see SearchNameplate. The mark stays the signature;
-                  the mode window reports the active ask mode and the ring
-                  brightens while the question field holds focus. */}
+              {/* The brand as a quiet masthead, not a marketing
+                  hero — see SearchNameplate. The mark stays the signature. */}
               <SearchNameplate
                 P={P} accent={accent} askMode={askMode}
                 focused={composerFocused} compact={deckHasContent}
@@ -26579,8 +26488,8 @@ function App() {
                   textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
                 }}>{composerPrompt}</h2>
               )}
-              {/* The console: mode selector, question well and readout fused
-                  into one instrument — see SignalComposer. */}
+              {/* The question field: one hairline box and a line of mode
+                  words beneath it — see SignalComposer. */}
               <SignalComposer
                 input={input} setInput={setInput} inputRef={inputRef}
                 ask={ask} busy={busy}
@@ -27976,19 +27885,14 @@ summary::-webkit-details-marker { display: none; }
    (The old pill's scan/dots styles were removed with the query-line
    redesign; the query line carries its own reading/busy states.) */
 
-/* ── Search: the question console ───────────────────────────────────
-   The old surface was two separate chrome systems around the question: a
-   bare hairline query line, then five floating mode plates, then a blurb,
-   then a disclosed evidence filter — a stack of controls competing with
-   the question itself. This rebuild fuses them into one instrument:
-
-     plate    — the brand as an engraved instrument plate (name in tracked
-                caps, slogan as the specification line, mode window live)
-     strip    — the five modes as one segmented control, not five plates
-     well     — the question field: inset, refined border, intentional
-                focus ring (per the design review)
-     footer   — a persistent readout: scope, the live parse, the
-                evidence filter docked where it belongs
+/* ── Search: the question field ─────────────────────────────────────
+   The old surface was an instrument box around the question: an engraved
+   plate, a segmented mode strip with a readout, an inset well with a
+   focus glow, and a footer of scope/entity readouts — bulky and every
+   inch the AI template. This rebuild strips it to a quiet masthead
+   (mark, name, one line of copy), one hairline question field, and a
+   line of mode words beneath it. The evidence filter keeps its own
+   disclosure below.
 
    Motion stays transform/opacity only. All type stays on the single
    var(--cb-font) face. */
@@ -28009,140 +27913,52 @@ summary::-webkit-details-marker { display: none; }
 }
 @keyframes cbReadingIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
-/* ── The plate ── */
-.cb-plate {
+/* ── The masthead: one mark, the name, one line ── */
+.cb-mast {
   --cb-acc: #a3b899;
   display: flex; flex-direction: column; align-items: center;
   text-align: center;
-  margin: 0 auto 24px;
+  margin: 0 auto 22px;
   animation: cbConsoleIn 0.7s var(--cb-ease) both;
 }
-.cb-plate--compact { margin-bottom: 16px; }
-.cb-plate-mark {
-  position: relative; display: inline-flex;
-  padding: 9px; border-radius: 50%;
+.cb-mast--compact { margin-bottom: 14px; }
+.cb-mast-mark { display: inline-flex; }
+.cb-mast-name {
+  font-family: var(--cb-font); font-size: 19px; font-weight: 600;
+  letter-spacing: -0.01em; color: var(--cb-ink); margin-top: 10px;
 }
-.cb-plate-mark::after {
-  content: ""; position: absolute; inset: 0; border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--cb-acc) 30%, transparent);
-  transition: border-color 0.45s ease;
-}
-.cb-plate-mark.is-live::after {
-  border-color: color-mix(in srgb, var(--cb-acc) 80%, transparent);
-}
-.cb-plate-name {
-  font-family: var(--cb-font); font-size: 15px; font-weight: 600;
-  letter-spacing: 0.42em; text-indent: 0.42em; text-transform: uppercase;
-  color: var(--cb-ink); margin-top: 14px;
-  /* Slightly thicker than body so the small tracked caps stay legible. */
-}
-.cb-plate--compact .cb-plate-name { margin-top: 10px; font-size: 13px; }
-.cb-plate-mode {
-  display: flex; align-items: center; gap: 10px;
-  margin-top: 10px; min-height: 16px;
-  font-family: var(--cb-font); font-size: 10.5px; font-weight: 600;
-  letter-spacing: 0.28em; text-indent: 0.1em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--cb-acc) 82%, var(--cb-ink));
-}
-.cb-plate-mode-tick {
-  width: 18px; height: 1px; flex-shrink: 0;
-  background: color-mix(in srgb, var(--cb-acc) 45%, transparent);
-}
-.cb-plate-mode-label { animation: cbReadingIn 0.3s ease both; display: inline-block; }
-.cb-plate-spec {
-  margin: 12px 0 0; max-width: 540px; padding: 0 20px;
-  font-family: var(--cb-font); font-size: 13.5px; font-weight: 500;
-  line-height: 1.65; color: var(--cb-ink2);
+.cb-mast--compact .cb-mast-name { margin-top: 8px; font-size: 15px; }
+.cb-mast-line {
+  margin: 8px 0 0; max-width: 480px; padding: 0 20px;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
+  line-height: 1.6; color: var(--cb-ink2);
 }
 
-/* ── The console ── */
-.cb-console {
+/* ── The question field: one hairline box, no instrument ── */
+.cb-ask {
   --cb-acc: #a3b899;
-  position: relative;
   width: 100%; max-width: 760px; margin: 0 auto;
-  border: 1px solid var(--cb-line2);
-  border-radius: 20px;
-  /* A lifted instrument surface: a wash of the ink color, so it reads on
-     every palette without a hard-coded fill. */
-  background: color-mix(in srgb, var(--cb-ink) 4%, transparent);
   animation: cbConsoleIn 0.7s var(--cb-ease) 0.08s both;
-  transition: border-color 0.3s ease;
 }
-.cb-console:focus-within { border-color: color-mix(in srgb, var(--cb-acc) 65%, transparent); }
-
-/* ── The mode strip: one segmented control, not five plates ── */
-.cb-msegwrap { padding: 12px 12px 0; }
-.cb-mseg {
-  display: flex; gap: 2px; padding: 3px;
-  border: 1px solid var(--cb-line);
-  border-radius: 13px;
-  background: var(--cb-seg);
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-.cb-mseg::-webkit-scrollbar { display: none; }
-.cb-mseg-btn {
-  flex: 1 1 0; min-width: 0;
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  min-height: 44px; padding: 8px 10px;
-  border: 0; border-radius: 10px; background: transparent; cursor: pointer;
-  color: var(--cb-faint); font-family: var(--cb-font);
-  font-size: 12.5px; font-weight: 600; letter-spacing: 0.03em;
-  white-space: nowrap;
-  transition: color 0.25s ease, background 0.25s ease;
-}
-.cb-mseg-btn svg { flex-shrink: 0; }
-.cb-mseg-btn.is-hover:not(.is-on) {
-  color: var(--cb-ink2);
-  background: color-mix(in srgb, var(--cb-ink) 6%, transparent);
-}
-/* The active mode is the filled segment — inverted ink on the console
-   surface, so it holds on every palette and the inactive four go quiet. */
-.cb-mseg-btn.is-on {
-  background: var(--cb-ink);
-  color: var(--cb-bg);
-  font-weight: 700;
-}
-.cb-mseg-readout {
-  display: flex; align-items: baseline; gap: 8px;
-  padding: 9px 16px 0; margin: 0; min-height: 30px;
-  font-family: var(--cb-font); font-size: 12px; line-height: 1.45;
-}
-.cb-mseg-rk {
-  font-size: 9.5px; font-weight: 600; letter-spacing: 0.2em;
-  text-transform: uppercase; color: var(--cb-faint); flex-shrink: 0;
-}
-.cb-mseg-rt { color: var(--cb-ink2); animation: cbReadingIn 0.3s ease both; }
-
-/* ── The question well ── */
-.cb-console-well {
+.cb-ask-field {
   position: relative;
-  display: flex; align-items: stretch;
-  margin: 10px 12px 0;
-  border: 1px solid var(--cb-well-br);
-  border-radius: 14px;
-  background: var(--cb-well);
-  box-shadow: inset 0 2px 6px rgba(0,0,0,0.14);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  display: flex; align-items: center;
+  border: 1px solid var(--cb-line2); border-radius: 14px;
+  transition: border-color 0.25s ease;
 }
-.cb-console:focus-within .cb-console-well {
-  border-color: color-mix(in srgb, var(--cb-acc) 70%, transparent);
-  box-shadow: inset 0 2px 6px rgba(0,0,0,0.14), 0 0 0 3px var(--cb-ring);
+.cb-ask-field:focus-within {
+  border-color: color-mix(in srgb, var(--cb-acc) 65%, transparent);
 }
-.cb-console-field { position: relative; flex: 1 1 auto; min-width: 0; }
-.cb-console-input {
-  width: 100%; height: 100%; min-height: 66px;
-  border: 0; background: transparent; outline: none; border-radius: 0;
-  padding: 18px 8px 18px 18px;
+.cb-ask-inputwrap { position: relative; flex: 1 1 auto; min-width: 0; }
+.cb-ask-input {
+  width: 100%; min-height: 58px;
+  border: 0; background: transparent; outline: none;
+  padding: 15px 4px 15px 18px;
   font-family: var(--cb-font); font-size: 17px; font-weight: 500;
   line-height: 1.5; color: var(--cb-ink);
   caret-color: var(--cb-acc);
 }
-/* The placeholder is an overlay, not the input's placeholder attribute:
-   it crossfades on every mode switch (keyed by mode in the component),
-   sits exactly on the input's text metrics, and never intercepts taps. */
-.cb-console-ph {
+.cb-ask-ph {
   position: absolute; inset: 0;
   display: flex; align-items: center;
   padding: 0 18px;
@@ -28152,69 +27968,65 @@ summary::-webkit-details-marker { display: none; }
   pointer-events: none; user-select: none;
   animation: cbPhIn 0.45s ease both;
 }
-.cb-console-tools {
+.cb-ask-tools {
   display: flex; align-items: center; gap: 2px; flex-shrink: 0;
   padding: 6px 8px 6px 2px;
 }
-.cb-console-tool {
+.cb-ask-tool {
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: none; border: 0; border-radius: 12px; cursor: pointer;
+  background: none; border: 0; border-radius: 10px; cursor: pointer;
   color: var(--cb-faint);
-  transition: color 0.2s ease, background 0.2s ease;
+  transition: color 0.2s ease;
 }
-.cb-console-tool:hover { color: var(--cb-ink); background: color-mix(in srgb, var(--cb-ink) 7%, transparent); }
-/* The voice button brings its own 34px square; the wrapper centers it in
-   the same 44px row as its neighbours. */
-.cb-console-mic {
+.cb-ask-tool:hover { color: var(--cb-ink); }
+.cb-ask-mic {
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-/* The ASK key: inverted ink, the same language as the active segment. */
-.cb-console-ask {
-  min-width: 68px; height: 44px; padding: 0 18px; margin-left: 2px;
-  border: 0; border-radius: 12px; cursor: pointer;
-  background: var(--cb-ink); color: var(--cb-bg);
-  font-family: var(--cb-font); font-size: 14px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase;
+/* The Ask action: a word, not a key. */
+.cb-ask-go {
+  min-height: 44px; padding: 0 14px; margin-left: 2px;
+  border: 0; background: none; cursor: pointer;
+  color: var(--cb-acc);
+  font-family: var(--cb-font); font-size: 15px; font-weight: 650;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: transform 0.15s ease, opacity 0.2s ease;
+  transition: opacity 0.2s ease;
 }
-.cb-console-ask:hover:not(:disabled) { transform: translateY(-1px); }
-.cb-console-ask:active:not(:disabled) { transform: none; }
-.cb-console-ask:disabled { opacity: 0.75; cursor: default; }
-.cb-console-ring {
+.cb-ask-go:hover:not(:disabled) { opacity: 0.8; }
+.cb-ask-go:disabled { opacity: 0.6; cursor: default; }
+.cb-ask-spin {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--cb-acc) 35%, transparent);
   border-top-color: var(--cb-acc);
   animation: cbspin 0.9s linear infinite;
 }
-.cb-console-ring--still { animation: none; border-top-color: color-mix(in srgb, var(--cb-acc) 35%, transparent); }
+.cb-ask-spin--still { animation: none; }
 
-/* ── The footer readout ── */
-.cb-console-foot {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px;
-  padding: 10px 16px 13px; margin: 0;
+/* ── The mode words: plain text, not segments ── */
+.cb-modes {
+  display: flex; flex-wrap: wrap; gap: 2px 20px;
+  padding: 12px 6px 0;
 }
-.cb-console-scope, .cb-console-reading {
-  display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap;
-  font-family: var(--cb-font); font-size: 11.5px; line-height: 1.5;
+.cb-mode {
+  background: none; border: 0; cursor: pointer;
+  min-height: 44px; padding: 10px 2px;
+  font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;
   color: var(--cb-faint);
-  animation: cbReadingIn 0.3s ease both;
+  transition: color 0.2s ease;
 }
-.cb-console-reading { color: var(--cb-ink2); }
-.cb-console-rk {
-  font-size: 9px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase;
+.cb-mode:hover { color: var(--cb-ink2); }
+.cb-mode.is-on {
+  color: var(--cb-ink); font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: var(--cb-acc);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
 }
-.cb-console-sep { opacity: 0.5; }
-/* The evidence filter docks here: it keeps its own disclosure behavior,
-   the footer just parks it at the row's end and drops its old top margin. */
-.cb-console-evidence { margin-left: auto; display: flex; align-items: center; }
-.cb-console-evidence > div { margin-top: 0 !important; }
 
-/* ── Recent questions, docked to the well ── */
-.cb-console-recent {
+/* ── Recent questions, docked to the field ── */
+.cb-ask-recent {
   position: absolute; top: calc(100% + 8px); left: -1px; right: -1px; z-index: 60;
   border: 1px solid var(--cb-line2); border-radius: 14px;
   background: var(--cb-bg);
@@ -28222,29 +28034,29 @@ summary::-webkit-details-marker { display: none; }
   padding: 8px;
   animation: cbConsoleIn 0.22s ease both;
 }
-.cb-console-recent-k {
+.cb-ask-recent-k {
   padding: 6px 12px 4px;
   font-family: var(--cb-font); font-size: 9.5px; font-weight: 600;
   letter-spacing: 0.22em; text-transform: uppercase;
   color: var(--cb-faint);
 }
-.cb-console-recent-item {
+.cb-ask-recent-item {
   display: block; width: 100%; text-align: left;
   min-height: 44px; padding: 10px 12px;
   border: 0; border-radius: 10px; background: transparent; cursor: pointer;
   color: var(--cb-ink2); font-family: var(--cb-font);
   font-size: 14px; font-weight: 500; line-height: 1.4;
 }
-.cb-console-recent-item.is-active {
+.cb-ask-recent-item.is-active {
   background: color-mix(in srgb, var(--cb-ink) 7%, transparent);
   color: var(--cb-ink);
 }
-.cb-console-recent-q {
+.cb-ask-recent-q {
   display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* While the recents are open the starter questions stand down — one
    layer, no collision. */
-.cb-console--recents-open ~ .cb-starter { display: none !important; }
+.cb-ask--recents-open ~ .cb-starter { display: none !important; }
 
 /* ── Starter questions: a curated index, not a casino of pills ── */
 .cb-starter { animation: cbConsoleIn 0.5s var(--cb-ease) 0.12s both; }
@@ -28270,44 +28082,38 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-starter-item:hover .cb-starter-q { color: var(--cb-ink); }
 
-/* Shared keyboard focus: the well's ring covers the input; everything
+/* Shared keyboard focus: the field's border covers the input; everything
    else gets a plain 2px outline. */
-.cb-mseg-btn:focus-visible,
-.cb-console-tool:focus-visible,
-.cb-console-ask:focus-visible,
+.cb-mode:focus-visible,
+.cb-ask-tool:focus-visible,
+.cb-ask-go:focus-visible,
 .cb-starter-item:focus-visible,
-.cb-console-recent-item:focus-visible {
+.cb-ask-recent-item:focus-visible {
   outline: 2px solid var(--cb-acc);
   outline-offset: 2px;
 }
 
-/* ── Small screens: the instrument compresses, never clips ── */
+/* ── Small screens: the field compresses, never clips ── */
 @media (max-width: 480px) {
-  .cb-plate { margin-bottom: 18px; }
-  .cb-plate-spec { font-size: 13px; }
-  .cb-console-input, .cb-console-ph { font-size: 16px; }
-  .cb-console-input { min-height: 60px; padding: 14px 6px 14px 16px; }
-  .cb-console-ph { padding: 0 16px; }
-  /* Five segments stay one row and scroll rather than crush: every mode
-     stays reachable at 44px, none wraps or clips. */
-  .cb-mseg-btn { flex: 0 0 auto; font-size: 12px; padding: 8px 12px; }
-  .cb-mseg-btn svg { display: none; }
-  .cb-console-recent {
+  .cb-mast { margin-bottom: 16px; }
+  .cb-mast-line { font-size: 12.5px; }
+  .cb-ask-input, .cb-ask-ph { font-size: 16px; }
+  .cb-ask-input { min-height: 56px; padding: 13px 4px 13px 16px; }
+  .cb-ask-ph { padding: 0 16px; }
+  .cb-modes { gap: 2px 14px; padding-top: 10px; }
+  .cb-ask-recent {
     max-height: min(44vh, 320px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
-  .cb-console-foot { padding: 8px 14px 11px; gap: 6px 12px; }
-  .cb-console-ask { min-width: 60px; padding: 0 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cb-console, .cb-plate, .cb-console-ph, .cb-console-recent,
-  .cb-mseg-rt, .cb-console-scope, .cb-console-reading, .cb-starter,
-  .cb-plate-mode-label { animation: none; }
-  .cb-console-ring { animation: none; }
-  .cb-plate-mark::after, .cb-console-well, .cb-mseg-btn,
-  .cb-console-tool, .cb-console-ask, .cb-starter-q { transition: none; }
+  .cb-ask, .cb-mast, .cb-ask-ph, .cb-ask-recent,
+  .cb-starter { animation: none; }
+  .cb-ask-spin { animation: none; }
+  .cb-mode, .cb-ask-tool, .cb-ask-go,
+  .cb-starter-q { transition: none; }
 }
 
 
@@ -28635,9 +28441,7 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
   50% { transform: translateX(-46%) translateY(18px) scale(1.08); opacity: 1; }
 }
 
-/* (The plate draws its own ring via .cb-plate-mark::after, which brightens
-   while the question field holds focus — the old .cb-hero-ring span is
-   gone with the marketing hero.) */
+/* (The old marketing hero's ring span is gone with the hero.) */
 
 /* ── Stagger cascade ──
    The container supplies per-item delays only; each child brings its own
