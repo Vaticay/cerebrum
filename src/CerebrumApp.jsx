@@ -358,6 +358,32 @@ function toBibTeX(sources) {
     return `@article{cerebrum${s.year || ""}_${i + 1},\n${fields.join(",\n")}\n}`;
   }).join("\n\n");
 }
+function toCSV(sources) {
+  const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const header = ["n", "authors", "title", "journal", "year", "type", "doi", "url"];
+  const rows = (sources || []).map((s, i) => (
+    [i + 1, s.authors, s.title, s.journal, s.year, s.type, s.doi || s.DOI || "", s.url].map(esc).join(",")
+  ));
+  return [header.join(","), ...rows].join("\n");
+}
+/* Export log — the Library's "Exports" category. Every export this app
+   performs records a small honest receipt (format, filename, time) in
+   localStorage so the library can show what was exported and when.
+   Capped at 60 entries; nothing leaves the browser. */
+const EXPORT_LOG_KEY = "cb_export_log_v1";
+function loadExportLog() {
+  try {
+    const v = JSON.parse(localStorage.getItem(EXPORT_LOG_KEY) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+function logExport(kind, filename) {
+  try {
+    const log = loadExportLog();
+    log.unshift({ kind, filename: String(filename || ""), at: Date.now() });
+    localStorage.setItem(EXPORT_LOG_KEY, JSON.stringify(log.slice(0, 60)));
+  } catch { /* storage full or unavailable — the export itself still worked */ }
+}
 function download(fn, text) { const blob = new Blob([text], { type: "text/plain" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fn; a.click(); URL.revokeObjectURL(a.href); }
 
 /* The Cerebrum brain mark as a standalone SVG string, for raster export
@@ -494,6 +520,25 @@ function sourceKeys(s) {
 function safeHref(url) {
   const u = (url || "").trim();
   return /^https?:\/\//i.test(u) ? u : "#";
+}
+
+/* Pass 4 — plain-text export helper. Answers are stored as markdown; the
+   TXT export needs readable prose, not fences and hashes. This strips the
+   common constructs (fences, headings, emphasis, links, list markers) and
+   leaves everything else verbatim — it never invents or reorders content. */
+function stripMarkdown(md) {
+  return String(md || "")
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/```/g, ""))
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // Every video object search.js/videos.js hands back already carries a
@@ -2127,118 +2172,14 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
     </div>
   );
 }
-/* Commit 72 — real photography, with its credit attached.
-   ---------------------------------------------------------------------
-   Resolves a picture for a subject through /api/image, which tries the
-   operator's own licensed library, then open-access figures from the
-   actual papers, then NASA, Wikimedia Commons, Openverse, and finally
-   Unsplash/Pexels if a key is configured. See functions/api/image.js for
-   why that order.
+/* Pass 4 (2026-09-17): useResolvedImage was retired with the flat
+   editorial hero — no surface resolves ambient photography any more. */
 
-   Two rules this hook enforces on the client side:
+/* Pass 4 (2026-09-17): CardMedia was retired with the flat editorial
+   hero — no surface shows ambient photography or clips any more. */
 
-   1. An existing image always wins. If the item already came with a
-      picture from its own feed, no lookup happens at all — this is a
-      fallback for the surfaces that had nothing, not a replacement for
-      what already worked.
-
-   2. Nothing renders until the image has actually decoded. A broken URL
-      resolves to no picture rather than to a broken-image glyph, so the
-      generated cover stays as the floor and the card can never look
-      half-loaded. */
-function useResolvedImage(subject, existingUrl, category) {
-  const [resolved, setResolved] = useState(null);
-  useEffect(() => {
-    if (existingUrl || !subject) { setResolved(null); return; }
-    let cancelled = false;
-    const qs = new URLSearchParams({ q: String(subject).slice(0, 160) });
-    if (category) qs.set("category", category);
-    fetch(`/api/image?${qs.toString()}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (cancelled || !d || !d.image || !d.image.url) return;
-        // Commit 73 — video skips the probe.
-        //
-        // This pre-decoded every result through `new Image()` so a dead URL
-        // could never render as a broken glyph. That is right for a still
-        // and completely wrong for a clip: an <img> cannot decode an mp4,
-        // so every video result failed the probe and was silently dropped.
-        // It survived my first test only because the test stub served the
-        // .mp4 with an image/png content type, which is exactly the kind of
-        // thing a stub will let you get away with and production will not.
-        //
-        // Video is handed straight to <video>, which reports its own
-        // failure through onError and falls back to the generated cover.
-        if (d.image.type === "video") { setResolved(d.image); return; }
-        const probe = new Image();
-        probe.onload = () => { if (!cancelled) setResolved(d.image); };
-        probe.onerror = () => {};
-        probe.src = d.image.url;
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [subject, existingUrl, category]);
-  return resolved;
-}
-
-/* The credit line. Non-negotiable for the CC-licensed sources — Commons
-   and Openverse images are free to use precisely BECAUSE they are
-   attributed, and an image whose licence the API couldn't state is never
-   returned in the first place (see image.js). Small, over the scrim, and
-   linked to the original. */
-/* Commit 73 — one component for "the visual on a card", whether that
-   visual turned out to be a photograph or a clip.
-   ---------------------------------------------------------------------
-   Video is muted, looping, playsInline and autoPlay, which is the only
-   combination browsers will start without a click. It carries the poster
-   frame when the source gave us one, so the card is never blank while the
-   clip buffers, and it honours prefers-reduced-motion by showing the
-   poster and not playing at all — a card that moves is a nice touch, a
-   card that moves at someone who asked their OS for no motion is not. */
-function CardMedia({ media, alt = "", onReady, onFail }) {
-  const reduce = cbMotionOff();
-  if (!media || !media.url) return null;
-  const common = {
-    style: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
-    "aria-hidden": true,
-  };
-  if (media.type === "video") {
-    if (reduce && media.poster) {
-      return <img src={media.poster} alt={alt} loading="lazy" onLoad={onReady} onError={onFail} {...common} />;
-    }
-    return (
-      <video
-        src={media.url}
-        poster={media.poster || undefined}
-        autoPlay={!reduce} muted loop playsInline preload="metadata"
-        ref={(el) => { if (el) { try { el.muted = true; el.defaultMuted = true; } catch {} } }}
-        onLoadedData={onReady} onError={onFail}
-        {...common}
-      />
-    );
-  }
-  return <img src={media.url} alt={alt} loading="lazy" onLoad={onReady} onError={onFail} {...common} />;
-}
-
-function ImageCredit({ image, style }) {
-  if (!image || (!image.credit && !image.license)) return null;
-  const text = [image.credit, image.license].filter(Boolean).join(" · ");
-  const body = (
-    <span style={{
-      fontSize: 9.5, lineHeight: 1.3, color: "rgba(255,255,255,0.62)",
-      fontFamily: "var(--cb-font)", textDecoration: "none",
-      maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-      display: "block",
-    }}>{text}</span>
-  );
-  return (
-    <div style={{ position: "absolute", right: 10, bottom: 6, maxWidth: "72%", pointerEvents: "auto", ...style }}>
-      {image.creditUrl
-        ? <a href={safeHref(image.creditUrl)} target="_blank" rel="noopener noreferrer nofollow" title={text} style={{ textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>{body}</a>
-        : body}
-    </div>
-  );
-}
+/* Pass 4 (2026-09-17): ImageCredit was retired with the flat editorial
+   hero — no surface shows ambient photography any more. */
 
 /* Commit 83 — ASK MODES.
    ---------------------------------------------------------------------
@@ -3235,53 +3176,6 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
    mark that is always the same for that investigation and visibly different
    from its neighbour. It carries no claim about the science. It is a mark
    you learn to recognise, which is all a cover has to be. */
-function investigationCover(title, accent, P) {
-  const t = TONES[toneIndex(title)];
-  let h = 2166136261;
-  const s = String(title || "");
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  const u = Math.abs(h);
-  const motif = u % 3; // 0: stacked lobes, 1: orbit rings, 2: ray star
-  const rot = (u >> 4) % 180;
-  const n = 2 + ((u >> 10) % 3);
-  return { t, motif, rot, n,
-    background: "hsl(" + t.h + " " + t.s + "% 22%)" };
-}
-
-function InvestigationCover({ title, accent, P, size = 52 }) {
-  const c = investigationCover(title, accent, P);
-  const fg = P.dark ? "rgba(255,255,255,0.6)" : "rgba(20,24,20,0.5)";
-  return (
-    <span aria-hidden="true" style={{
-      width: size, height: size, flexShrink: 0, borderRadius: RADIUS.md,
-      background: c.background, position: "relative", overflow: "hidden",
-      border: "1px solid " + (P.dark ? "rgba(255,255,255,0.09)" : "rgba(34,37,42,0.10)"),
-      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-    }}>
-      <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 24 24" fill="none"
-        stroke={fg} strokeWidth="1.4" strokeLinecap="round"
-        style={{ transform: "rotate(" + (c.rot % 40 - 20) + "deg)" }}>
-        {c.motif === 0 && Array.from({ length: c.n + 1 }).map((_, i) => (
-          <circle key={i} cx="12" cy={6.5 + i * 4.6} r={3.6 - i * 0.55} />
-        ))}
-        {c.motif === 0 && <path d="M12 3v18" opacity="0.3" />}
-        {c.motif === 1 && Array.from({ length: c.n }).map((_, i) => (
-          <circle key={i} cx="12" cy="12" r={3.4 + i * 3.6} opacity={0.95 - i * 0.25} />
-        ))}
-        {c.motif === 1 && <circle cx="12" cy="12" r="1.6" fill={fg} stroke="none" />}
-        {c.motif === 2 && Array.from({ length: c.n + 3 }).map((_, i) => {
-          const a = (i / (c.n + 3)) * Math.PI * 2 + c.rot;
-          return <line key={i} x1={12 + Math.cos(a) * 4.2} y1={12 + Math.sin(a) * 4.2} x2={12 + Math.cos(a) * 9.2} y2={12 + Math.sin(a) * 9.2} />;
-        })}
-        {c.motif === 2 && <circle cx="12" cy="12" r="2.2" />}
-      </svg>
-    </span>
-  );
-}
 
 
 /* MOTION THAT MEANS SOMETHING — a saved paper travels to the Library.
@@ -6704,25 +6598,37 @@ function InfoPage({ page }) {
    would double it. onRetry / onAdjustQuery wire the honest zero-sources
    empty state (the band always renders this component now; it used to be
    gated off entirely at zero sources — a silent gap). */
-function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {} }) {
+function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {} }) {
   const [copied, setCopied] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
   const copyAll = () => {
     copyToClipboard(formatBibliography(sources, citationStyle), "Bibliography copied").then((ok) => {
       if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
     });
   };
-  const downloadFile = () => { const ext = citationStyle === "bibtex" ? "bib" : "txt"; download(`cerebrum-bibliography.${ext}`, formatBibliography(sources, citationStyle)); };
   const [excelBusy, setExcelBusy] = useState(false);
   const exportExcel = async () => {
     if (excelBusy || !sources || !sources.length) return;
     setExcelBusy(true);
     // 2026-09-14: Surface export failures. The empty catch left the button
     // flipping "Building…"→"Excel" with zero feedback when the export failed.
-    try { await exportTopPapersExcel(sources, { accent }); }
+    try { await exportTopPapersExcel(sources, { accent }); logExport("Excel", "cerebrum-papers.xlsx"); }
     catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
     setExcelBusy(false);
+    setExportOpen(false);
   };
+  const doExportFmt = (fmt) => {
+    if (!sources || !sources.length) return;
+    if (fmt === "bibtex") { download("cerebrum-bibliography.bib", toBibTeX(sources)); logExport("BibTeX", "cerebrum-bibliography.bib"); }
+    else if (fmt === "ris") { download("cerebrum-bibliography.ris", toRIS(sources)); logExport("RIS", "cerebrum-bibliography.ris"); }
+    else if (fmt === "csv") { download("cerebrum-bibliography.csv", toCSV(sources)); logExport("CSV", "cerebrum-bibliography.csv"); }
+    setExportOpen(false);
+  };
+  // Claim-first: which claims stand on which papers, read from the answer's
+  // own citations — the same rows the answer's EvidenceMap shows, so the
+  // two never disagree. Renders nothing when the answer cites nothing.
+  const matrixRows = useMemo(() => claimRowsFromAnswer(answer, sources), [answer, sources]);
   // Jump bar: first letters of the author field, for long lists.
   const jumpLetters = useMemo(() => {
     if (!sources || sources.length <= 12) return null;
@@ -6735,14 +6641,91 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
   }, [sources]);
   const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
+  const ctlBtn = {
+    minHeight: 44, display: "inline-flex", alignItems: "center", padding: "10px 14px",
+    borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent",
+    color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
+    cursor: "pointer", whiteSpace: "nowrap",
+  };
+  const exportFormats = [
+    { key: "bibtex", label: "BibTeX", desc: ".bib — reference managers" },
+    { key: "ris", label: "RIS", desc: ".ris — Zotero, Mendeley, EndNote" },
+    { key: "csv", label: "CSV", desc: ".csv — spreadsheets" },
+    { key: "excel", label: "Excel", desc: ".xlsx — top 20, branded workbook" },
+  ];
   const controls = (
-    <span className="cb-cite-controls" style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-      <SegControl small value={citationStyle} onChange={setCitationStyle} P={P} accent={accent} ariaLabel="Citation style"
-        options={styleOptions.map((o) => ({ id: o.key, label: o.label }))} />
-      <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "\u2713 Copied" : "Copy all"}</button>
-      <button onClick={downloadFile} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>Download</button>
-      <button onClick={exportExcel} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)} title="Export the top 20 papers to Excel">{excelBusy ? "Building…" : "Excel"}</button>
+    <span className="cb-cite-controls" style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} aria-label="Citation style"
+        style={{ ...ctlBtn, paddingRight: 30, appearance: "none", ...selectChrome(P) }}>
+        {styleOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+      <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "✓ Copied" : "Copy references"}</button>
+      <span style={{ position: "relative", display: "inline-flex" }}>
+        <button onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} style={ctlBtn}>
+          Export
+          <span aria-hidden="true" style={{ marginLeft: 6, fontSize: 10, color: P.faint }}>▾</span>
+        </button>
+        {exportOpen && (
+          <>
+            <span onClick={() => setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} aria-hidden="true" />
+            <span role="menu" style={{
+              position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, minWidth: 240,
+              background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
+              border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
+            }}>
+              {exportFormats.map((f) => (
+                <button key={f.key} role="menuitem" type="button"
+                  onClick={() => { if (f.key === "excel") exportExcel(); else doExportFmt(f.key); }}
+                  disabled={f.key === "excel" && excelBusy}
+                  style={{
+                    minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%",
+                    textAlign: "left", padding: "9px 11px", borderRadius: 8, border: "none",
+                    background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)",
+                    opacity: f.key === "excel" && excelBusy ? 0.5 : 1,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, width: 52, flexShrink: 0 }}>{f.key === "excel" && excelBusy ? "…" : f.label}</span>
+                  <span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>{f.desc}</span>
+                </button>
+              ))}
+            </span>
+          </>
+        )}
+      </span>
     </span>
+  );
+  /* The claim matrix: claim → citations as annotated links, before the
+     flat reference list. Each numeral jumps to its reference row and
+     lights the citation in the answer. */
+  const matrix = matrixRows.length > 0 && (
+    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, marginBottom: 16, overflow: "hidden" }}>
+      <div className="cb-kicker" style={{ padding: "10px 18px 0" }}>Claim matrix</div>
+      <div style={{ padding: "2px 18px 6px" }}>
+        {matrixRows.map((r, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "10px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+            <span className="cb-mono" style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 600, whiteSpace: "nowrap" }}>
+              Claim {i + 1}
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55 }}>
+              {r.text.length > 160 ? r.text.slice(0, 160).trimEnd() + "…" : r.text}
+            </span>
+            <span aria-hidden="true" style={{ flexShrink: 0, color: P.faint, fontSize: FONT_SIZES.small }}>→</span>
+            <span style={{ flexShrink: 0, display: "inline-flex", gap: 10 }}>
+              {r.cites.map((c) => (
+                <a key={c} href={`#ref-${c}`} onClick={() => onActivateCite(c)}
+                  title={`Reference ${c}: ${(sources[c - 1] && sources[c - 1].title) || ""}`}
+                  className="cb-mono"
+                  style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, textDecoration: "none" }}>
+                  {String(c).padStart(2, "0")}
+                </a>
+              ))}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
   const ledger = (
     /* The ledger sits on matte paper (same material as the answer above it):
@@ -6801,6 +6784,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
     return (
       <div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>{controls}</div>
+      {matrix}
       {ledger}
       {/* Honesty: the backend relevance gate withholds papers that score below
           the citation floor instead of citing them. Say how many were held
@@ -6816,6 +6800,7 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
   return (
     <AnswerSection eyebrow={`Bibliography · ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
       right={controls}>
+      {matrix}
       {ledger}
       {gatedOut > 0 && (
         <div style={{ marginTop: 10, padding: "8px 4px", borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }} className="cb-fade">
@@ -6888,11 +6873,26 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
           </div>
         )}
         {style === "bibtex" ? (
-          <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
+          <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", color: P.ink2, margin: "6px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
-          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: P.ink, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word", fontFamily: "var(--cb-font)" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
-            .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
-            .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
+          <>
+            {/* The title is the primary link — the way into the paper. The
+                formatted reference below it is the citable record in the
+                chosen style; the metadata line keeps study type as plain
+                text and the DOI as a proper link. No badges. */}
+            <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(); }}
+              title={source.title || "Open this paper"}
+              style={{
+                display: "block", width: "100%", background: "none", border: "none", padding: 0,
+                cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700,
+                color: accent, fontFamily: "var(--cb-font)", lineHeight: 1.45, letterSpacing: "-0.01em",
+              }}>
+              {source.title ? renderCleanTitle(source.title) : (domain || "Untitled paper")}
+            </button>
+            <div style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: P.ink2, marginTop: 5, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word", fontFamily: "var(--cb-font)" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
+              .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
+              .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
+          </>
         )}
         {(citeLabel || source.type || domain || doiHref) && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--cb-font)", flexWrap: "wrap", paddingLeft: "1.2em" }}>
@@ -8647,32 +8647,40 @@ function ToolbarOverflow({ P, accent, items }) {
    bibliography. Renders nothing when the answer cites nothing — a map
    with no territory would be decoration, not evidence.
    ══════════════════════════════════════════════════════════════════ */
+/* Claim → citation rows, derived purely from the answer text: every
+   sentence carrying citations becomes a row — the claim in plain words,
+   then the papers it stands on. Sorted so the most-cited (most
+   load-bearing) claims come first, capped at eight so it stays a map and
+   not a second bibliography. Shared by the answer's EvidenceMap and the
+   bibliography's claim matrix so the two never disagree about which
+   claims carry which papers. */
+function claimRowsFromAnswer(answer, sources) {
+  const text = String(answer || "");
+  const n = (sources || []).length;
+  if (!text || n === 0) return [];
+  const sentences = text
+    .replace(/^#{1,4}\s+.*$/gm, "")
+    .replace(/\n+/g, " ")
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 40);
+  const out = [];
+  for (const s of sentences) {
+    const cites = [...new Set(
+      [...s.matchAll(/\[([\d,\s]+)\]/g)]
+        .flatMap((m) => m[1].split(/[\s,]+/).map((x) => parseInt(x, 10)))
+        .filter((c) => Number.isFinite(c) && c >= 1 && c <= n)
+    )].sort((a, b) => a - b);
+    if (!cites.length) continue;
+    const clean = s.replace(/\[([\d,\s]+)\]/g, "").replace(/\s+/g, " ").trim();
+    if (clean.length < 40) continue;
+    out.push({ text: clean, cites });
+  }
+  out.sort((a, b) => b.cites.length - a.cites.length || b.text.length - a.text.length);
+  return out.slice(0, 8);
+}
 function EvidenceMap({ t, P, accent, onOpenPaper }) {
-  const rows = useMemo(() => {
-    const text = String(t.answer || "");
-    const n = (t.sources || []).length;
-    if (!text || n === 0) return [];
-    const sentences = text
-      .replace(/^#{1,4}\s+.*$/gm, "")
-      .replace(/\n+/g, " ")
-      .split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 40);
-    const out = [];
-    for (const s of sentences) {
-      const cites = [...new Set(
-        [...s.matchAll(/\[([\d,\s]+)\]/g)]
-          .flatMap((m) => m[1].split(/[\s,]+/).map((x) => parseInt(x, 10)))
-          .filter((c) => Number.isFinite(c) && c >= 1 && c <= n)
-      )].sort((a, b) => a - b);
-      if (!cites.length) continue;
-      const clean = s.replace(/\[([\d,\s]+)\]/g, "").replace(/\s+/g, " ").trim();
-      if (clean.length < 40) continue;
-      out.push({ text: clean, cites });
-    }
-    out.sort((a, b) => b.cites.length - a.cites.length || b.text.length - a.text.length);
-    return out.slice(0, 8);
-  }, [t.answer, t.sources]);
+  const rows = useMemo(() => claimRowsFromAnswer(t.answer, t.sources), [t.answer, t.sources]);
   if (!rows.length) return null;
   return (
     <AnswerSection eyebrow={`Evidence map · ${rows.length} key claim${rows.length === 1 ? "" : "s"}`} P={P} accent={accent}>
@@ -8753,7 +8761,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
             P={P} accent={accent} />
         )
       ) : (
-        <Bibliography bare sources={sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle}
+        <Bibliography bare sources={sources} answer={t.answer} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle}
           onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery}
           relOf={relOf} activeCite={activeCite} onActivateCite={onActivateCite} />
       )}
@@ -10894,78 +10902,59 @@ const SOURCE_FULL_NAMES = {
   "Magn Reson Lett": "Magnetic Resonance Letters",
 };
 
-function TrendingHero({ P, accent, item, onExpand }) {
-  // Commit 72 — the hero is the biggest thing on the Trending page; a
-  // generated initials cover there is the single most template-looking
-  // element in the app, so it resolves a real licensed picture instead.
-  const found = useResolvedImage(item.image_url ? "" : item.title, item.image_url, item.category);
-  const media = item.image_url ? { url: item.image_url, type: "image" } : found;
-  const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
-  // A real photograph, loaded and decoded — not "we might find one".
-  const hasPhoto = imgStatus === "ready";
-  useEffect(() => { if (media && media.url) setImgStatus("loading"); }, [media && media.url]);
+/* Trending provenance: press reporting is labelled as press, scholarly
+   records as papers or preprints, from the feed's own category field
+   (Europe PMC / bioRxiv / arXiv are scholarly; the Space category is
+   press reporting). Press items carry "not synthesized" because the
+   digest never runs them through the answer engine — only papers behind
+   answers get that. */
+function trendKind(item) {
+  const cat = String((item && item.category) || "").toLowerCase();
+  if (cat === "space") return "Press item";
+  if (cat === "preprints") return "Preprint";
+  return "Paper";
+}
+function trendProvenance(item, generatedAt) {
+  const kind = trendKind(item);
+  const parts = [kind];
+  if (item.source) parts.push(item.source);
+  if (kind === "Press item") {
+    if (generatedAt) parts.push(`indexed ${relativeTime(generatedAt)}`);
+    parts.push("not synthesized");
+  } else {
+    if (item.publishedAt) parts.push(relativeTime(new Date(item.publishedAt).getTime()));
+    if (item.citedByCount > 0) parts.push(`Cited by ${item.citedByCount}`);
+  }
+  return parts.join(" · ");
+}
+function TrendingHero({ P, accent, item, onExpand, generatedAt }) {
+  // Pass 4 (2026-09-17): the lead story is a flat editorial block, not a
+  // cinematic card — no photograph, no gradient scrim, no full-bleed
+  // treatment. A strong left margin, one thin accent rule, and a serif
+  // headline; the words do the work.
   return (
     <button
-      type="button" onClick={() => onExpand(item)}
+      type="button" onClick={() => onExpand(item)} className="cb-row"
       style={{
-        position: "relative", display: "block", width: "100%", borderRadius: 12, overflow: "hidden",
-        /* Commit 79 — only reserve a picture's worth of height when there
-           is a picture. A hard 16:9 with no photograph is ~600px of empty
-           gradient with a headline adrift in it, which is precisely what
-           made Trending read as chunky. With a photo it stays cinematic;
-           without one it is a type hero and the words set the height. */
-        /* Commit 87 — a bare 16/9 is 630px at desktop width, so the lead
-           story ate the entire fold and the headline sat alone at the
-           bottom of a colour field. Capped: still cinematic, still the
-           biggest thing on the page, but the grid underneath it is now
-           visible without scrolling, which is what makes Trending read as
-           a publication rather than a slideshow. */
-        ...(hasPhoto ? { aspectRatio: "16/9", maxHeight: 420 } : { minHeight: 190 }),
-        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-        textDecoration: "none", color: "inherit", border: `1px solid ${P.line}`, padding: 0,
-        font: "inherit", cursor: "pointer", textAlign: "left",
+        display: "block", width: "100%", textAlign: "left",
+        background: "transparent", border: "none", borderLeft: `2px solid ${accent}`,
+        margin: "0 0 0 12px", padding: "6px 0 6px 22px",
+        font: "inherit", cursor: "pointer",
       }}
-      className="cb-trend-hero"
     >
-      {media && media.url && imgStatus !== "error" && (
-        <div style={{ position: "absolute", inset: 0, opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.5s ease" }}>
-          <CardMedia media={media} onReady={() => setImgStatus("ready")} onFail={() => setImgStatus("error")} />
+      <div className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+        Lead story · {trendKind(item)}
+      </div>
+      <div className="cb-serif" style={{ fontSize: "clamp(24px, 3.2vw, 38px)", fontWeight: 600, color: P.ink, lineHeight: 1.14, letterSpacing: "-0.015em", maxWidth: 820 }}>
+        {item.title}
+      </div>
+      {item.summary && (
+        <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 680, marginTop: 12 }}>
+          {item.summary}
         </div>
       )}
-      {/* Commit 79 — a type hero gets a quiet gradient, not a monogram.
-          TrendCover paints a full-bleed colour field with two 40px letters
-          in the middle of it. At hero size that is a 600px placeholder
-          announcing that no picture was found, which is the last thing a
-          lead story should say. */}
-      {!hasPhoto && (
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: coverFor(item).background, opacity: P.dark ? 0.55 : 0.85 }} />
-      )}
-      {hasPhoto && !item.image_url && <ImageCredit image={found} />}
-      {/* Always-on scrim (not opacity-gated to imgStatus) so the headline
-          stays legible over the placeholder background too, not just once
-          a real photo loads. */}
-      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%)" }} />
-      <div style={{
-        // With a photograph the text is pinned over the bottom of the
-        // image; without one there is no image to pin to, so it simply
-        // sits in the box and the box is as tall as the words need.
-        ...(hasPhoto
-          ? { position: "absolute", left: 0, right: 0, bottom: 0 }
-          : { position: "relative" }),
-        padding: "28px 28px 26px", display: "flex", flexDirection: "column", gap: 10,
-      }}>
-        {item.source && (
-          <span title={SOURCE_FULL_NAMES[item.source]} style={{ display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: "#fff", fontFamily: "var(--cb-font)" }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
-            {item.source}
-          </span>
-        )}
-        <div style={{ fontSize: "clamp(22px, 3vw, 34px)", fontWeight: 700, color: "#fff", lineHeight: 1.15, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)", maxWidth: 780, textShadow: "0 2px 20px rgba(0,0,0,0.4)" }}>{item.title}</div>
-        <div style={{ fontSize: FONT_SIZES.body, color: "rgba(255,255,255,0.82)", lineHeight: 1.55, maxWidth: 640, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</div>
-        <div style={{ fontSize: FONT_SIZES.micro, color: "rgba(255,255,255,0.6)", fontFamily: "var(--cb-font)", marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
-          {item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : ""}
-          <span className="cb-trend-cta" style={{ color: "#fff", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>Read the full story <Icon name="arrowRight" size={12} /></span>
-        </div>
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 12 }}>
+        {trendProvenance(item, generatedAt)}
       </div>
     </button>
   );
@@ -11658,7 +11647,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   onClick={() => setTrendCat(cat)}
                   aria-pressed={on}
                   style={{
-                    minHeight: 44, padding: "9px 14px", borderRadius: 10, cursor: "pointer",
+                    minHeight: 44, padding: "9px 14px", borderRadius: 999, cursor: "pointer",
                     fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "-0.005em",
                     fontWeight: on ? 700 : 500,
                     background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
@@ -11713,7 +11702,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             <button
               onClick={() => setReloadTick((t) => t + 1)}
               style={{ minHeight: 44,
-                padding: "10px 22px", borderRadius: 100, cursor: "pointer",
+                padding: "10px 22px", borderRadius: 6, cursor: "pointer",
                 fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
                 background: accent, color: at, border: "none",
               }}
@@ -11725,7 +11714,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           <>
             {/* The lead story, full width. The digest below is the index;
                 this is the front-page feature. */}
-            {hero && <div style={{ marginBottom: 30 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} /></div>}
+            {hero && <div style={{ marginBottom: 30 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} generatedAt={generatedAt} /></div>}
             {/* ══════════════════════════════════════════════════
                 The digest. One ruled line per story: number, headline,
                 summary, and the source line. The whole day fits on a
@@ -11749,7 +11738,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                       <span style={{ display: "block", fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
                     )}
                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
-                      {[item.category, item.source, item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : null].filter(Boolean).join(" · ")}
+                      {trendProvenance(item, generatedAt)}
                     </span>
                   </span>
                 </button>
@@ -12850,6 +12839,14 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                         Open the paper <Icon name="arrowUpRight" size={11} />
                       </a>
                     )}
+                    {selSource && (
+                      <div style={{ marginTop: 8, padding: "8px 10px", borderLeft: `2px solid ${accent}`, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+                        <div style={{ fontWeight: 700, color: P.ink }}>{selSource.title || "Untitled"}</div>
+                        <div style={{ color: P.faint }}>
+                          {[selSource.authors, selSource.journal || selSource.source, selSource.year].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 <button type="button" onClick={deleteSelection}
@@ -13139,7 +13136,17 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
      proper export dialog instead of a dropdown. */
   const [railTab, setRailTab] = useState("diagrams");
   const [railOpen, setRailOpen] = useState(!isMobile);
-  const [exportOpen, setExportOpen] = useState(false);
+  /* Pass 4: toolbar state. paneLayout toggles the work area between
+     side-by-side and stacked (desktop); sourceOpen collapses the source
+     pane so the preview gets the full width. */
+  const [paneLayout, setPaneLayout] = useState("side");
+  const [sourceOpen, setSourceOpen] = useState(true);
+  /* Evidence inspector: deliberately absent from this studio. Mermaid
+     renders raw source text — nodes carry no provenance, and this
+     component receives no sources to link citation markers against.
+     Parsing 【1】-style markers out of node labels and pretending they
+     open papers would be fabricated evidence. FlowchartStudio owns
+     selNode/selSource and is the surface that can carry an inspector. */
   const svgHostRef = useRef(null);
   const previewRef = useRef(null);
   const fileRef = useRef(null);
@@ -13449,9 +13456,11 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     color: P.faint, fontFamily: "var(--cb-font)", padding: "10px 14px",
     borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
   };
-  const dotGrid = dark
-    ? "radial-gradient(rgba(255,255,255,0.055) 1px, transparent 1px)"
-    : "radial-gradient(rgba(0,0,0,0.07) 1px, transparent 1px)";
+  /* Ruled lines, not dots: the canvas reads as a working surface, and the
+     diagram stays the figure against it. */
+  const ruledBg = dark
+    ? "repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(255,255,255,0.05) 27px, rgba(255,255,255,0.05) 28px)"
+    : "repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(0,0,0,0.055) 27px, rgba(0,0,0,0.055) 28px)";
   const status = mmError
     ? { dot: "#f87171", text: "Engine failed to load" }
     : !mm ? { dot: P.faint, text: "Loading engine…" }
@@ -13459,6 +13468,22 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     : diagError ? { dot: "#f87171", text: "Syntax error" }
     : !code.trim() ? { dot: P.faint, text: "Empty canvas" }
     : { dot: "#4ade80", text: "Rendered" };
+  /* Save state, derived — never asserted. A diagram is "Up to date" when
+     the working code and title match its saved record (or the blank
+     default for a new diagram); anything else is "Unsaved changes".
+     Saving or opening a diagram re-syncs it, so no extra state is needed.
+     A render error outranks both: it is the thing that needs attention. */
+  const dirty = (() => {
+    if (!activeId) return code !== MM_DEFAULT_CODE || title !== "Untitled diagram";
+    const rec = diagrams.find((d) => d.id === activeId);
+    if (!rec) return true;
+    return rec.code !== code || rec.title !== (title.trim() || "Untitled diagram");
+  })();
+  const saveStatus = diagError
+    ? { dot: "#f87171", text: "Syntax error" }
+    : dirty
+      ? { dot: STATUS.warn, text: "Unsaved changes" }
+      : { dot: "#4ade80", text: "Up to date" };
 
   const railTabBtn = (key, label) => (
     <button key={key} onClick={() => setRailTab(key)}
@@ -13489,8 +13514,12 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       <div style={{ flex: 1, overflowY: "auto", padding: 10, minHeight: 0 }}>
         {railTab === "diagrams" && (
           <>
-            <button onClick={newDiagram} style={{ ...railItem, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 600, marginBottom: 8 }}>
+            <button onClick={newDiagram} style={{ ...railItem, borderRadius: 6, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 600, marginBottom: 8 }}>
               <span aria-hidden="true">＋</span> New diagram
+            </button>
+            <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file — loaded verbatim"
+              style={{ ...railItem, borderRadius: 6, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 600, marginBottom: 8 }}>
+              <span aria-hidden="true">⤒</span> Import .mmd
             </button>
             {diagrams.length === 0 && (
               <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
@@ -13541,13 +13570,13 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
         .mm-cm { color: ${P.faint}; font-style: italic; }
         .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 600; }
-        .mm-zoombtn { width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
+        .mm-zoombtn { width: 44px; height: 44px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
         .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
         .mm-railitem { transition: background 0.15s ease; }
         .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
         .mm-rail-del { transition: opacity 0.15s ease; }
         .mm-railitem:hover .mm-rail-del { opacity: 1 !important; }
-        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 10px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
+        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 6px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
         .mm-topbtn:hover { border-color: ${accent}; background: ${P.dark ? "rgba(255,255,255,0.09)" : "#f4f4f2"}; }
         .mm-topbtn-primary { background: ${accent}; border-color: transparent; color: ${at}; }
         .mm-topbtn-primary:hover { background: ${accent}; border-color: transparent; filter: brightness(1.06); }
@@ -13576,7 +13605,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       {/* ── Top bar: instrument chrome ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: isMobile ? "12px 14px" : "14px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap" }}>
         <button onClick={() => setRailOpen((v) => !v)} aria-label={railOpen ? "Hide side panel" : "Show side panel"} title={railOpen ? "Hide side panel" : "Show side panel"}
-          style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 10, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
+          style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 6, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2" />
             <line x1="9.5" y1="4" x2="9.5" y2="20" />
@@ -13593,18 +13622,32 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           className="mm-titleinput"
           style={{
             marginLeft: 4, flex: "1 1 160px", minWidth: 120, maxWidth: 320, background: "transparent",
-            border: `1px solid ${P.line}`, borderRadius: 10, padding: "8px 12px", minHeight: 44,
+            border: `1px solid ${P.line}`, borderRadius: 8, padding: "8px 12px", minHeight: 44,
             color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", outline: "none",
           }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexShrink: 0 }}>
-          <button className="mm-topbtn" onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file — loaded verbatim">
-            Import
+          {/* The toolbar is four actions: arrange the panes, take the
+              diagram out as SVG, save it, and toggle the source. Import
+              lives in the library rail; Copy lives on the source pane;
+              PNG and .mmd live in the status bar. */}
+          {!isMobile && (
+            <button className="mm-topbtn" onClick={() => setPaneLayout((v) => v === "side" ? "stack" : "side")}
+              title={paneLayout === "side" ? "Stack source above preview" : "Show source beside preview"}
+              aria-pressed={paneLayout === "stack"}>
+              Layout
+            </button>
+          )}
+          <button className="mm-topbtn" onClick={() => { exportSVG(); logExport("SVG", `${slug}.svg`); }} disabled={!svg}
+            title="Download as SVG vector" style={!svg ? { opacity: 0.5, cursor: "not-allowed" } : undefined}>
+            Export SVG
           </button>
-          <button className="mm-topbtn" onClick={copyCode} title="Copy diagram source">
-            {copied ? "Copied ✓" : "Copy"}
-          </button>
-          <button className="mm-topbtn" onClick={() => setExportOpen(true)} disabled={!svg} title="Export diagram" style={!svg ? { opacity: 0.5, cursor: "not-allowed" } : undefined}>
-            Export
+          <button className="mm-topbtn" onClick={() => {
+              if (isMobile) setMobilePane(mobilePane === "code" ? "preview" : "code");
+              else setSourceOpen((v) => !v);
+            }}
+            title={isMobile ? "Switch between source and preview" : (sourceOpen ? "Hide the source pane" : "Show the source pane")}
+            aria-pressed={isMobile ? mobilePane === "code" : sourceOpen}>
+            Edit source
           </button>
           <button className="mm-topbtn mm-topbtn-primary" onClick={saveDiagram} title="Save (⌘S / Ctrl+S)">
             Save
@@ -13620,14 +13663,14 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           </aside>
         )}
 
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", minWidth: 0, minHeight: 0 }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: isMobile || paneLayout === "stack" ? "column" : "row", minWidth: 0, minHeight: 0 }}>
           {/* Mobile pane switch */}
           {isMobile && (
             <div style={{ display: "flex", gap: 6, padding: "10px 14px 0", flexShrink: 0 }}>
               {[["code", "Code"], ["preview", "Preview"]].map(([key, label]) => (
                 <button key={key} onClick={() => setMobilePane(key)}
                   style={{
-                    minHeight: 44, flex: 1, padding: "9px 0", borderRadius: 10,
+                    minHeight: 44, flex: 1, padding: "9px 0", borderRadius: 6,
                     fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)", cursor: "pointer",
                     background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
                     color: mobilePane === key ? accent : P.faint,
@@ -13641,16 +13684,21 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
 
           {/* Editor pane */}
           <section aria-label="Diagram source" className="mm-srcpane" style={{
-            display: isMobile ? (mobilePane === "code" ? "flex" : "none") : "flex",
+            display: isMobile ? (mobilePane === "code" ? "flex" : "none") : (sourceOpen ? "flex" : "none"),
             flexDirection: "column", flex: isMobile ? 1 : "0 0 42%", minWidth: 0, minHeight: 0,
-            borderRight: isMobile ? "none" : `1px solid ${P.line}`,
+            borderRight: isMobile || paneLayout === "stack" || !sourceOpen ? "none" : `1px solid ${P.line}`,
+            borderBottom: !isMobile && paneLayout === "stack" && sourceOpen ? `1px solid ${P.line}` : "none",
             margin: isMobile ? "10px 14px 0" : 0,
-            border: isMobile ? `1px solid ${P.line}` : "none",
-            borderRadius: isMobile ? 14 : 0, overflow: "hidden",
+            border: isMobile ? `1px solid ${P.line}` : undefined,
+            borderRadius: isMobile ? 12 : 0, overflow: "hidden",
             background: P.surface,
           }}>
             <div style={paneLabel}>
               <span>Source</span>
+              <button onClick={copyCode} title="Copy diagram source"
+                style={{ minHeight: 44, padding: "6px 10px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
               <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: "0.02em", textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span>
             </div>
             <MMCodeEditor P={P} accent={accent} code={code} onChange={(v) => { setCode(v); }} />
@@ -13662,7 +13710,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             flex: 1, flexDirection: "column", minWidth: 0, minHeight: isMobile ? 420 : 0, position: "relative",
             margin: isMobile ? "10px 14px 0" : 0,
             border: isMobile ? `1px solid ${P.line}` : "none",
-            borderRadius: isMobile ? 14 : 0, overflow: "hidden",
+            borderRadius: isMobile ? 12 : 0, overflow: "hidden",
             background: P.surface,
           }}>
             <div style={paneLabel}>
@@ -13674,7 +13722,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               onPointerDown={onPreviewDown} onPointerMove={onPreviewMove} onPointerUp={onPreviewUp} onPointerCancel={onPreviewUp}
               style={{
                 flex: 1, minHeight: 0, overflow: "hidden", position: "relative", cursor: "grab",
-                touchAction: "none", backgroundImage: dotGrid, backgroundSize: "22px 22px",
+                touchAction: "none", backgroundImage: ruledBg,
               }}>
               <div ref={svgHostRef} style={{
                 position: "absolute", left: 0, top: 0,
@@ -13761,54 +13809,23 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)",
       }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: status.dot }} aria-hidden="true" />
-          {status.text}
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: saveStatus.dot }} aria-hidden="true" />
+          {saveStatus.text}
         </span>
         {savedTick > 0 && <span key={savedTick} className="mm-saved" style={{ color: accent }}>✓ Saved to your diagrams</span>}
         <span style={{ flex: 1 }} />
+        <button onClick={() => { exportPNG(); logExport("PNG", `${slug}.png`); }} disabled={!svg}
+          title="Export 3× PNG" style={{ minHeight: 44, padding: "6px 4px", background: "none", border: "none", cursor: svg ? "pointer" : "not-allowed", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", opacity: svg ? 1 : 0.5 }}>
+          PNG
+        </button>
+        <button onClick={() => { exportMMD(); logExport("MMD", `${slug}.mmd`); }}
+          title="Download the source (.mmd)" style={{ minHeight: 44, padding: "6px 4px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+          .mmd
+        </button>
         <span>Drag to pan · Scroll to zoom · ⌘S saves</span>
       </div>
 
       {/* ── Export dialog ── */}
-      {exportOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Export diagram"
-          style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div onClick={() => setExportOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} aria-hidden="true" />
-          <div style={{
-            position: "relative", width: "min(440px, 100%)", background: P.surface,
-            border: `1px solid ${P.line2}`, borderRadius: 12, padding: 20,
-            boxShadow: "0 24px 70px rgba(0,0,0,0.4)",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink }}>Export diagram</div>
-              <button onClick={() => setExportOpen(false)} aria-label="Close export dialog"
-                style={{ marginLeft: "auto", minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, fontSize: 16, cursor: "pointer" }}>✕</button>
-            </div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 14 }}>
-              {title.trim() || "Untitled diagram"} · {diagramKind}
-            </div>
-            {[
-              { key: "svg", name: "SVG", desc: "Vector. Scales forever, edits in Illustrator or Figma.", run: exportSVG },
-              { key: "png", name: "PNG", desc: "3× raster. Drops straight into slides and docs.", run: exportPNG },
-              { key: "mmd", name: ".mmd", desc: "Your source, verbatim. Reopens here any time.", run: exportMMD },
-            ].map((f) => (
-              <button key={f.key} onClick={() => { f.run(); setExportOpen(false); }} disabled={!svg}
-                style={{
-                  display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
-                  minHeight: 64, padding: "10px 14px", marginBottom: 8, borderRadius: 12,
-                  background: "transparent", border: `1px solid ${P.line2}`, cursor: svg ? "pointer" : "not-allowed",
-                  opacity: svg ? 1 : 0.5, fontFamily: "var(--cb-font)",
-                }}>
-                <span style={{
-                  minWidth: 52, textAlign: "center", fontSize: FONT_SIZES.caption, fontWeight: 700,
-                  color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 8, padding: "6px 0",
-                }}>{f.name}</span>
-                <span style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>{f.desc}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── Mobile rail drawer ── */}
       {isMobile && railOpen && (
@@ -19823,6 +19840,41 @@ const SAMPLE_DOCUMENT = [
   "blinding, which is unavoidable when the intervention is a park.",
 ].join("\n");
 
+/* Identifier-first intake: DOI / PMID / arXiv ID / URL. Local pattern
+   matching only — the document backend has no identifier resolver, so a
+   bare identifier is labelled honestly as an identifier and attached as
+   the document's citation once the text or file is supplied. */
+function detectDocIdentifier(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  let m = t.match(/\b(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)\b/i);
+  if (m) return { kind: "DOI", value: m[1].replace(/[.,;:!?)\]]+$/, "") };
+  m = t.match(/\barxiv:\s*(\d{4}\.\d{4,5}(v\d+)?)\b/i);
+  if (m) return { kind: "arXiv ID", value: m[1] };
+  m = t.match(/\bPMID[:\s]*(\d{1,8})\b/i) || (/^\d{1,8}$/.test(t) ? [t, t] : null);
+  if (m) return { kind: "PMID", value: m[1] };
+  m = t.match(/\bhttps?:\/\/[^\s<>"']+/i);
+  if (m) return { kind: "URL", value: m[0].replace(/[.,;:!?)\]]+$/, "") };
+  return null;
+}
+/* Extracted metadata preview, shown before analysis. Title from the
+   document's own first line; identifier from the patterns above; authors
+   and year from conservative heuristics — unknown fields render as "—"
+   rather than guessed. */
+function docMetaPreview(text) {
+  const lines = String(text || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  const title = (typeof docTitleOf === "function" ? docTitleOf(text) : lines[0]) || "";
+  let authors = "";
+  if (lines.length > 1) {
+    const cand = lines[1];
+    if (/et al\.?/i.test(cand) || (/,/.test(cand) && !/\b(19|20)\d{2}\b/.test(cand) && cand.length < 220)) authors = cand;
+  }
+  let year = "";
+  const ym = lines.slice(0, 6).join(" ").match(/\b((?:19|20)\d{2})\b/);
+  if (ym) year = ym[1];
+  return { title, authors, journal: "", year, ident: detectDocIdentifier(text) };
+}
 function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
@@ -19834,7 +19886,6 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     return () => window.removeEventListener("keydown", onKey);
   }, [close, asPage]);
   const isMobile = useIsMobile();
-  const [leftTab, setLeftTab] = useState("paste"); // "paste" | "upload"
   const [rightTab, setRightTab] = useState("summary");
   const [documentText, setDocumentText] = useState("");
   const [dragActive, setDragActive] = useState(false);
@@ -19933,7 +19984,6 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     // The bundled sample is an array of paragraphs; everything else is a string.
     const t = Array.isArray(text) ? text.join("\n\n") : String(text || "");
     setDocumentText(t);
-    setLeftTab("paste");
     setError("");
     setSourceView("source");
     if (saved) {
@@ -20309,9 +20359,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      the source pane and the reader pane. They now share renderDocSource
      and renderDocReader; `form` only switches the layout wrappers, so a
      fix lands in both places at once. */
+  /* Identifier-only input: the field holds a DOI / PMID / arXiv ID / URL
+     and no document text yet. It labels the document; it is not a
+     document — analysis stays gated until text or a file is supplied. */
+  const docTextTrimmed = documentText.trim();
+  const docIdentOnly = docTextTrimmed.length > 0 && docTextTrimmed.length < 300 && !/\n/.test(docTextTrimmed) && !!detectDocIdentifier(docTextTrimmed);
   const docStats = (() => {
-    const t = documentText.trim();
-    if (!t) return null;
+    const t = docTextTrimmed;
+    if (!t || docIdentOnly) return null;
     const words = t.split(/\s+/).length;
     return { words, mins: Math.max(1, Math.round(words / 220)) };
   })();
@@ -20325,15 +20380,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   }, [rightTab, docB]);
 
   const renderDocSource = (form) => {
-    const hasDoc = !!documentText.trim();
-    const dropzoneStyle = {
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
-      border: `1.5px dashed ${dragActive ? accent : P.line}`, borderRadius: 12, textAlign: "center", cursor: "pointer",
-      background: dragActive ? withAlpha(accent, 0.06) : "transparent", transition: "background-color 150ms ease",
-      ...(form === "page"
-        ? { padding: "28px 16px", minHeight: 220 }
-        : { flex: 1, padding: "18px 16px", minHeight: isMobile ? 140 : 240 }),
-    };
+    const hasDoc = !!docTextTrimmed && !docIdentOnly;
+    const docIdentMode = docTextTrimmed.length < 300 && !/\n/.test(docTextTrimmed);
+    const docMeta = docTextTrimmed ? docMetaPreview(documentText) : null;
     const textareaStyle = {
       width: "100%", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
       background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.6,
@@ -20364,8 +20413,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <SegControl value={sourceView} onChange={setSourceView} P={P} accent={accent} ariaLabel="Document view"
               options={[{ id: "source", label: "Source" }, { id: "read", label: "Read" }]} />
           ) : (
-            <SegControl value={leftTab} onChange={setLeftTab} P={P} accent={accent} ariaLabel="Document source"
-              options={[{ id: "paste", label: "Paste text" }, { id: "upload", label: "Upload a file" }]} />
+            /* Identifier-first intake header: one field below takes a DOI,
+               PMID, arXiv ID, URL, or the full pasted text — no tabs. */
+            <div className="cb-kicker">Source document</div>
           )}
         </div>
 
@@ -20430,36 +20480,70 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         ) : (
           /* SOURCE — paste or upload, as before. */
           <>
-            {leftTab === "upload" ? (
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={onDrop}
-                onClick={() => fileInputRef.current?.click()}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
-                role="button"
-                tabIndex={0}
-                aria-label="Drop a document file or press Enter to browse"
-                style={dropzoneStyle}
-              >
-                <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,.html,.htm,text/plain,text/markdown,application/pdf,text/html" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
-                {extractingPdf ? (<>
-                  <div style={{ width: 24, height: 24, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600, marginTop: 6 }}>Extracting text from PDF…</div>
-                </>) : (<>
-                  <Icon name="bookOpen" size={22} style={{ color: P.faint, opacity: 0.6 }} />
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 600 }}>Drop a file here, or click to browse</div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, maxWidth: 280 }}>PDF, plain text, Markdown, or HTML. PDF text and HTML are read right in your browser — nothing is uploaded just to read them. Scanned/image-only PDFs have no text to extract; paste the text directly for those.</div>
-                </>)}
-              </div>
-            ) : (
+            {/* Identifier-first intake: one field takes a DOI, PMID, arXiv ID,
+                URL, or the full pasted text. The file chooser and drag-drop
+                handle PDFs and text files. Presentation only — the read and
+                analysis pipeline below is untouched. */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={onDrop}
+              style={dragActive ? { outline: `2px dashed ${accent}`, outlineOffset: 4, borderRadius: 8 } : undefined}
+            >
+              <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,.html,.htm,text/plain,text/markdown,application/pdf,text/html" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
               <textarea
                 value={documentText}
                 onChange={(e) => setDocumentText(e.target.value)}
-                aria-label="Paste the full text of a paper, report, or document" placeholder="Paste the full text of a paper, report, or document here…"
-                style={textareaStyle}
+                aria-label="Document: DOI, PMID, arXiv ID, URL, or the full text of a paper, report, or document"
+                placeholder="DOI, PMID, arXiv ID, or URL — or paste the full text"
+                rows={docIdentMode ? 2 : 8}
+                style={{ ...textareaStyle, borderRadius: 8, ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
               />
+            </div>
+            {extractingPdf && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>
+                <div style={{ width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
+                Extracting text from PDF…
+              </div>
             )}
+            {/* Extracted metadata preview, before analysis. Unknown fields
+                render as "—" rather than guessed. */}
+            {docMeta && (
+              <div style={{ marginTop: 12, border: `1px solid ${P.line}`, borderRadius: 6, background: P.surface, overflow: "hidden" }}>
+                <div className="cb-kicker" style={{ padding: "10px 14px 0" }}>Document</div>
+                <div style={{ padding: "2px 14px 8px" }}>
+                  {[
+                    ["Title", docMeta.title || "—"],
+                    ["Authors", docMeta.authors || "—"],
+                    ["Journal", docMeta.journal || "—"],
+                    ["Year", docMeta.year || "—"],
+                    ["Identifier", docMeta.ident ? `${docMeta.ident.kind}: ${docMeta.ident.value}` : "—"],
+                  ].map(([k, v], i) => (
+                    <div key={k} style={{ display: "flex", gap: 12, padding: "7px 0", borderTop: i ? `1px solid ${P.line}` : "none", fontSize: FONT_SIZES.small }}>
+                      <span style={{ width: 82, flexShrink: 0, color: P.faint, fontWeight: 600, fontFamily: "var(--cb-font)" }}>{k}</span>
+                      <span className={k === "Identifier" ? "cb-mono" : undefined} style={{ flex: 1, minWidth: 0, color: P.ink, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                {docIdentOnly && (
+                  <div style={{ padding: "0 14px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+                    Cerebrum reads the document you paste or upload — add the text or file and this identifier is attached as its citation.
+                  </div>
+                )}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <button onClick={() => fileInputRef.current?.click()}
+                style={{ minHeight: 44, padding: "10px 18px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                Upload PDF or text file
+              </button>
+              {!hasDoc && !analyzing && (
+                <button onClick={() => openDocument(SAMPLE_DOCUMENT)} title="Load a short sample paper to try Document Mode"
+                  className="cb-textbtn" style={{ minHeight: 44, padding: "10px 4px" }}>
+                  Try a sample
+                </button>
+              )}
+            </div>
             <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, ...(form === "page" ? { flexWrap: "wrap" } : { flexShrink: 0 }) }}>
               <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {!docStats ? <span>Paste a paper, report, or any long document</span> : <>
@@ -20469,35 +20553,24 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </>}
               </div>
               <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, ...(form === "page" ? { flexWrap: "wrap" } : null) }}>
-                {!hasDoc && !analyzing && (
-                  <button
-                    onClick={() => openDocument(SAMPLE_DOCUMENT)}
-                    title="Load a short sample paper to try Document Mode"
-                    style={{
-                      minHeight: 44, padding: "10px 16px", borderRadius: 100, cursor: "pointer",
-                      background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small,
-                      border: `1px dashed ${P.line2}`, fontFamily: "var(--cb-font)",
-                    }}
-                  >Try a sample</button>
-                )}
                 <button
                   onClick={analyze}
                   disabled={!hasDoc || analyzing}
-                  title={!hasDoc ? "Paste or upload a document first" : "Analyze this document"}
+                  title={!hasDoc ? (docIdentOnly ? "Add the document text or upload the file first" : "Add a document first") : "Inspect this document"}
                   style={{
-                    minHeight: 44, padding: "10px 20px", borderRadius: 100, border: (!hasDoc || analyzing) ? `1px dashed ${P.line2}` : "none",
+                    minHeight: 44, padding: "10px 20px", borderRadius: 6, border: (!hasDoc || analyzing) ? `1px dashed ${P.line2}` : "none",
                     cursor: (!hasDoc || analyzing) ? "default" : "pointer",
                     background: (!hasDoc || analyzing) ? "transparent" : accent,
                     color: (!hasDoc || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
                     opacity: (!hasDoc || analyzing) ? 0.75 : 1, fontFamily: "var(--cb-font)",
                   }}
-                >{analyzing ? "Reading it…" : "Read this document"}</button>
+                >{analyzing ? "Reading it…" : "Inspect document"}</button>
                 {analyzing && (
                   <button
                     onClick={cancelAnalyze}
                     title="Stop the analysis"
                     style={{
-                      minHeight: 44, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`,
+                      minHeight: 44, padding: "10px 16px", borderRadius: 6, border: `1px solid ${P.line}`,
                       cursor: "pointer", background: "transparent", color: P.ink2,
                       fontWeight: 600, fontSize: FONT_SIZES.small, flexShrink: 0, fontFamily: "var(--cb-font)",
                     }}
@@ -20520,7 +20593,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ marginTop: 16, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
               {!showDocB && !docB.trim() ? (
                 <button onClick={() => setShowDocB(true)}
-                  style={{ minHeight: 44, background: "none", border: `1px dashed ${P.line2}`, borderRadius: 100, padding: "10px 18px", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                  style={{ minHeight: 44, background: "none", border: `1px dashed ${P.line2}`, borderRadius: 6, padding: "10px 18px", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                   Compare with a second document
                 </button>
               ) : (
@@ -20536,7 +20609,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                     <input ref={docBFileRef} type="file" accept=".txt,.md,.pdf,.html,.htm,text/plain,text/markdown,application/pdf,text/html" style={{ display: "none" }} onChange={(e) => readFileB(e.target.files && e.target.files[0])} />
                     <button onClick={() => docBFileRef.current?.click()}
-                      style={{ minHeight: 44, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                      style={{ minHeight: 44, padding: "10px 16px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                       Upload file
                     </button>
                     <button onClick={() => { setDocB(""); setShowDocB(false); setCompareResult(null); setCompareError(""); }}
@@ -21087,7 +21160,7 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro, onProChanged }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
   // Wave 3 — the three destructive confirmations used to be inline
@@ -21272,7 +21345,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Accent color", "appearance", "colour highlight brand"],
     ["Background animation", "sound", "motion particles effects reduce"],
     ["Animation speed", "sound", "motion speed particles rate"],
-    ["Pro cinematic reel", "sound", "members backgrounds aurora nebula video"],
     ["Reduce transparency", "sound", "glass blur frosted solid"],
     ["Data density", "appearance", "compact comfortable spacing padding layout"],
     ["Desktop notifications", "privacy", "permission browser alerts push"],
@@ -21334,28 +21406,19 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setTimeout(() => setHighlight(""), 2400);
   };
 
-  /* ── Building blocks — restyled to match Cerebrum's own glass/editorial
-     language (the version this replaced was a literal iOS Settings clone:
-     system-gray panels, iOS green switches, thin-weight system-font labels —
-     nothing here matched the rest of the app, which is dark glass, accent-
-     driven controls, and a deliberately weightier type scale). ── */
-  // Wave 3 — sections are solid and near-opaque now. The old frosted
-  // blur(12px) panels turned every tab into a stack of glass plates and
-  // made text legibility depend on whatever the background reel was
-  // doing behind it. A settings page is an instrument, not a view.
-  const bg = P.surface;
+  /* ── Building blocks. Pass 4 — Settings is a sober preference table,
+     not a stack of panels: each section is a compact caption followed by
+     rows separated by hairline dividers, on the page background. Nothing
+     here is glass, and nothing pretends to be a card. ── */
   const divider = P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
-  const sectionBg = "transparent";
-  const glassBorderS = P.dark ? `1px solid ${withAlpha(P.ink2, 0.1)}` : `1px solid ${P.line2}`;
 
   const Section = ({ title, footer, children }) => (
-    <div style={{ marginBottom: 30 }}>
-      {/* Section headers are real headers now: display face, ink colour,
-          generous spacing. The old caption-size faint labels made every
-          tab read as one undifferentiated list of rows. */}
-      {title && <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, marginBottom: 10, paddingLeft: 2, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>{title}</div>}
-      <div style={{ background: bg, border: glassBorderS, borderRadius: 12, overflow: "hidden" }}>{children}</div>
-      {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, paddingLeft: 2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
+    <div style={{ marginBottom: 28 }}>
+      {/* Section headers are small caps captions — they name the table
+          that follows rather than competing with it. */}
+      {title && <div style={{ fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.09em", fontFamily: "var(--cb-font)" }}>{title}</div>}
+      <div>{children}</div>
+      {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
   );
 
@@ -21375,11 +21438,16 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
         P={P} accent={accent} label={label} desc={desc} last={last} paletteName={paletteName}
         onClick={onClick} tone={destructive ? "bad" : undefined}
         control={control || (onClick ? <span style={{ color: P.faint, fontSize: FONT_SIZES.subhead }}>›</span> : null)}
-        style={lit ? {
-          background: withAlpha(accent, 0.16),
-          boxShadow: `inset 0 0 0 1px ${withAlpha(accent, 0.6)}, inset 3px 0 0 ${accent}`,
-          transition: "background-color 0.35s ease, box-shadow 0.35s ease",
-        } : { transition: "background-color 0.35s ease, box-shadow 0.35s ease" }}
+        style={{
+          /* Pass 4 — compact preference-table rows: tighter padding and
+             no side gutters, so the rows read as one ledger. */
+          padding: "9px 2px", minHeight: 44,
+          ...(lit ? {
+            background: withAlpha(accent, 0.16),
+            boxShadow: `inset 0 0 0 1px ${withAlpha(accent, 0.6)}, inset 3px 0 0 ${accent}`,
+            transition: "background-color 0.35s ease, box-shadow 0.35s ease",
+          } : { transition: "background-color 0.35s ease, box-shadow 0.35s ease" }),
+        }}
       />
     );
   };
@@ -21409,7 +21477,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {/* 62px of top padding on mobile clears the fixed menu button — see
           pageViewInner's comment; Settings sets its own padding and so
           needed the same correction independently. */}
-      <div style={{ width: "100%", maxWidth: isMobile ? 760 : 1020, margin: "0 auto", padding: isMobile ? "62px 18px 48px" : "34px 32px 68px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-font)" }}>
+      {/* Pass 4 — Settings is a single sober preference table, capped at
+          760px on every viewport. A wider column turned the short tabs
+          into a small block of controls beside a void; 760 keeps the table
+          dense and readable. */}
+      <div style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: isMobile ? "62px 18px 48px" : "34px 24px 68px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-font)" }}>
 
         {/* Header. Settings became a full page (not a dialog) in Commit 62,
             but kept the dialog's horizontally-scrolling tab strip — a
@@ -21485,7 +21557,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             margin rather than as a page that failed to load. The real
             long-term fix is fewer, denser tabs — seven sections for about
             twenty-five settings is why any one of them looks empty. */}
-        <div style={{ display: "flex", gap: 36, alignItems: "flex-start", maxWidth: 1120, margin: "0 auto", width: "100%" }}>
+        <div style={{ display: "flex", gap: 32, alignItems: "flex-start", width: "100%" }}>
           {/* Desktop rail. Sticky, so the navigation stays reachable on the
               long tabs (Appearance and Accessibility both scroll well past
               a viewport) instead of scrolling away and forcing a trip back
@@ -21837,19 +21909,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 </div>
               )}
               <Row label="Reduce transparency" desc="Makes panels solid instead of frosted glass" control={<Switch on={reducedTransparency} onChange={(v) => { sfx(); setReducedTransparency(v); }} label="Reduce transparency" />} last />
-            </Section>
-
-            {/* The Pro palette stays with the Theme picker on Appearance —
-                the cinematic reel is a backdrop behavior, so it lives here
-                with the rest of the backdrop controls. */}
-            <Section title="Pro backgrounds" footer="The members-only cinematic reel: aurora, nebula, eclipse, DNA. Replaces the standard backdrop while it's on.">
-              {user && user.isPro ? (
-                <Row label="Pro cinematic reel" desc="Ten exclusive clips, curated for members." control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last />
-              ) : (
-                <Row label="Pro cinematic reel" desc="Members only backdrop, included with Pro." control={
-                  <button onClick={onOpenPro} style={{ padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.dark ? "#34d399" : "#047857", border: `1px solid #d4a437`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>See plans</button>
-                } last />
-              )}
             </Section>
 
             <Section title="Auto read" footer="Voice selection and playback speed are on the Answers tab.">
@@ -23960,7 +24019,9 @@ function App() {
       lines.push("Sources:");
       h.allSources.forEach((s, i) => lines.push(`${i + 1}. ${s.title || s.url || ""}`));
     }
-    download(`investigation-${(h.title || "untitled").slice(0, 40).replace(/[^\w\-]+/g, "-")}.txt`, lines.join("\n"));
+    const filename = `investigation-${(h.title || "untitled").slice(0, 40).replace(/[^\w\-]+/g, "-")}.txt`;
+    download(filename, lines.join("\n"));
+    logExport("TXT", filename);
   }, []);
   // Attached image (a figure, a screenshot of a chart, a photo of a
   // specimen) sent alongside the next question — see describeImage() on
@@ -24474,20 +24535,32 @@ function App() {
     return history.filter((h) => (h.zkId ? ids.has(h.zkId) : legacyMatch(h)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, historyQuery, zkIndexReady]);
-  /* Investigations grouped by month for the diary view: [{ key, label,
-     items }], newest month first. Items without a timestamp land in
-     "Earlier". */
-  const groupedHistory = useMemo(() => {
-    const groups = new Map();
-    for (const h of visibleHistory) {
-      const d = h.ts ? new Date(h.ts) : null;
-      const key = d && !isNaN(d) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : "earlier";
-      const label = key === "earlier" ? "Earlier" : d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-      if (!groups.has(key)) groups.set(key, { key, label, items: [] });
-      groups.get(key).items.push(h);
+  /* Investigations ledger (Pass 4): stable accession IDs and conservative
+     status. Accession = creation date + a short hash of the item's stable
+     id. The id never changes, so the accession never renumbers — deleting
+     another item (even from the same day) cannot shift it. Status is
+     derived, never asserted: Draft = no turns yet; Answered = the latest
+     turn carries a substantive answer; Needs review = the latest turn has
+     no answer (interrupted, or never completed). */
+  const accessionById = useMemo(() => {
+    const map = new Map();
+    for (const h of history || []) {
+      const d = h.ts ? new Date(h.ts) : new Date();
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      let x = 0;
+      const s = String(h.id || "");
+      for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) >>> 0;
+      map.set(h.id, `INV-${ds}-${x.toString(16).padStart(8, "0").slice(0, 4).toUpperCase()}`);
     }
-    return [...groups.values()].sort((a, b) => b.key.localeCompare(a.key));
-  }, [visibleHistory]);
+    return map;
+  }, [history]);
+  const investigationStatus = (h) => {
+    const turns = h.turns || [];
+    if (!turns.length) return "Draft";
+    const last = turns[turns.length - 1];
+    if (last.answer && String(last.answer).trim().length > 40) return "Answered";
+    return "Needs review";
+  };
   const [libraryQuery, setLibraryQuery] = useState("");
   const [librarySort, setLibrarySort] = useState("recent");
   /* Library bulk selection: a Set of sourceKeys. Powers the bulk bar
@@ -24497,6 +24570,42 @@ function App() {
   const toggleSavedKey = (key) => setSelectedSavedKeys((prev) => {
     const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next;
   });
+  /* Library categories (Pass 4): saved answers are answered turns, kept
+     with their investigations — the library surfaces them as a record,
+     not as a second save model. Exports are this browser's export
+     receipts. `savedUsage` maps each saved paper to the investigations
+     that turned it up, for the ledger's "Used in" column. */
+  const answeredTurns = useMemo(() => {
+    const out = [];
+    for (const h of (history || [])) {
+      for (const t of (h.turns || [])) {
+        if (t.answer && String(t.answer).trim().length > 40) out.push({ inv: h, turn: t });
+      }
+    }
+    return out;
+  }, [history]);
+  const savedUsage = useMemo(() => {
+    const map = new Map();
+    for (const h of (history || [])) {
+      for (const s of (h.allSources || [])) {
+        const k = sourceKey(s);
+        if (!k) continue;
+        if (!map.has(k)) map.set(k, []);
+        if (!map.get(k).some((x) => x.id === h.id)) map.get(k).push(h);
+      }
+    }
+    return map;
+  }, [history]);
+  const [, setExportTick] = useState(0);
+  const bumpExports = () => setExportTick((t) => t + 1);
+  /* Read fresh on every render: the log is ≤60 small receipts, and exports
+     can land from any surface (bibliography, investigations, studio). */
+  const exportLog = loadExportLog();
+  const libDownload = (kind, filename, text) => { download(filename, text); logExport(kind, filename); bumpExports(); };
+  const scrollToLibSection = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const visibleSaved = useMemo(() => {
     const q = libraryQuery.trim();
     let list;
@@ -25434,6 +25543,10 @@ function App() {
     setTurns(entry.turns || []);
     setAllSources(entry.allSources || []);
     setPinnedSources([]); setCorrections([]); setError("");
+    /* Pass 4: the investigations ledger shows "last opened". It is recorded
+       here — the single point every open flows through — and items that
+       predate it honestly show "—". */
+    setHistory((prev) => prev.map((x) => x.id === entry.id ? { ...x, lastOpened: Date.now() } : x));
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, left: 0, behavior: "instant" }), 60);
   }
   // Single dispatch point for every Sidebar item. Four destinations (search,
@@ -26137,7 +26250,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); } }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -26168,6 +26281,11 @@ function App() {
           you need when a library is large, which is exactly the case the
           modal handled worst.
           ══════════════════════════════════════════════════════════ */}
+      {/* ── Library category index. Always visible, even when every
+          category is empty — the library is a record, and the record's
+          shape shows before any of it is filled in. Counts are honest:
+          saved answers are answered turns kept with their investigations;
+          exports are this browser's export receipts. ── */}
       {view === "library" && (
         <Reveal style={S.pageView} deps={[view]}>
           <WorkspacePage
@@ -26176,11 +26294,11 @@ function App() {
             description="Every paper you've saved, across every investigation. Exports carry the full record, not just the link."
             actions={saved.length > 0 ? (
               <>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); download("cerebrum-saved.ris", toRIS(saved)); }}>Download RIS</UIButton>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); download("cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("RIS", "cerebrum-saved.ris", toRIS(saved)); }}>Download RIS</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("BibTeX", "cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" disabled={excelBusy}
                   title="Export your top 20 saved papers to a branded Excel workbook"
-                  onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum — Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); } catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); } setExcelBusy(false); }}>
+                  onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum — Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); logExport("Excel", "cerebrum-saved-papers.xlsx"); bumpExports(); } catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); } setExcelBusy(false); }}>
                   {excelBusy ? "Building…" : "Excel"}
                 </UIButton>
                 {confirmClearSaved ? (
@@ -26194,6 +26312,27 @@ function App() {
               </>
             ) : null}
           >
+            <div style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: 12, background: P.surface, marginBottom: 30, overflow: "hidden" }} aria-label="Library categories">
+              {[
+                { key: "papers", label: "Saved papers", count: saved.length, go: () => scrollToLibSection("lib-papers") },
+                { key: "answers", label: "Saved answers", count: answeredTurns.length, go: () => scrollToLibSection("lib-answers") },
+                { key: "investigations", label: "Investigations", count: history.length, go: () => { sfx(); setView("investigations"); } },
+                { key: "maps", label: "Evidence maps", count: flowcharts.length, go: () => scrollToLibSection("lib-maps") },
+                { key: "exports", label: "Exports", count: exportLog.length, go: () => scrollToLibSection("lib-exports") },
+              ].map((c, i) => (
+                <button key={c.key} onClick={c.go}
+                  style={{
+                    flex: "1 1 130px", minWidth: 0, background: "none", border: "none",
+                    borderLeft: i ? `1px solid ${P.line}` : "none",
+                    padding: "14px 16px", textAlign: "left", cursor: "pointer", fontFamily: "var(--cb-font)",
+                    minHeight: 44,
+                  }}>
+                  <div className="cb-mono" style={{ fontSize: 20, fontWeight: 700, color: P.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{c.count}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{c.label}</div>
+                </button>
+              ))}
+            </div>
+            <div id="lib-papers" style={{ scrollMarginTop: 80 }}>
             {saved.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
                 title="Nothing saved yet"
@@ -26223,8 +26362,8 @@ function App() {
                     {selectedSavedKeys.size > 0 && (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12, padding: "10px 14px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
                         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{selectedSavedKeys.size} selected</span>
-                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); download("cerebrum-selected.ris", toRIS(sel)); }}>Download RIS</UIButton>
-                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); download("cerebrum-selected.bib", toBibTeX(sel)); }}>Export BibTeX</UIButton>
+                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("RIS", "cerebrum-selected.ris", toRIS(sel)); }}>Download RIS</UIButton>
+                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("BibTeX", "cerebrum-selected.bib", toBibTeX(sel)); }}>Export BibTeX</UIButton>
                         {collections.length > 0 && (
                           <select value="" onChange={(e) => { if (!e.target.value) return; const cid = e.target.value; setSaved((prev) => prev.map((s) => selectedSavedKeys.has(sourceKey(s)) ? { ...s, collectionId: cid } : s)); setSelectedSavedKeys(new Set()); sfx(); }} aria-label="Move selected to collection"
                             style={{ minHeight: 44, fontSize: FONT_SIZES.caption, padding: "5px 8px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
@@ -26236,17 +26375,21 @@ function App() {
                         <button onClick={() => setSelectedSavedKeys(new Set())} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Clear</button>
                       </div>
                     )}
-                    {/* The ledger: one row per paper, dense and scannable. */}
-                    <div role="list" aria-label="Saved papers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
+                    {/* The ledger: one row per paper, dense and scannable.
+                        Columns: Title / Type / Source or Journal / Saved date
+                        / Used in / Actions. */}
+                    <div role="list" aria-label="Saved papers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
                       {!isMobile && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04) }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 780 }}>
                           <input type="checkbox" aria-label={selectedSavedKeys.size === visibleSaved.length ? "Deselect all papers" : "Select all papers"}
                             checked={visibleSaved.length > 0 && selectedSavedKeys.size === visibleSaved.length}
                             onChange={() => { setSelectedSavedKeys(selectedSavedKeys.size === visibleSaved.length ? new Set() : new Set(visibleSaved.map((s) => sourceKey(s)))); }}
                             style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0 }} />
-                          <span style={{ width: 52, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>YEAR</span>
-                          <span style={{ flex: 1, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>PAPER</span>
-                          <span style={{ width: 170, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>COLLECTION</span>
+                          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>TITLE</span>
+                          <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>TYPE</span>
+                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>SOURCE / JOURNAL</span>
+                          <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>SAVED</span>
+                          <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>USED IN</span>
                           <span style={{ width: 76, flexShrink: 0 }} />
                         </div>
                       )}
@@ -26254,14 +26397,15 @@ function App() {
                         const key = sourceKey(sv) || `idx-${i}`;
                         const checked = selectedSavedKeys.has(key);
                         const collName = sv.collectionId ? (collections.find((c) => c.id === sv.collectionId)?.name || null) : null;
+                        const usedIn = savedUsage.get(key) || [];
+                        const savedDate = sv.savedAt || sv.createdAt;
+                        const typeLabel = sv.type || "—";
+                        const journalLabel = sv.journal || sv.source || "—";
                         return (
                           <div key={key} role="listitem"
-                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent" }}>
+                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780 }}>
                             <input type="checkbox" aria-label={`Select ${sv.title || "paper"}`} checked={checked} onChange={() => toggleSavedKey(key)}
                               style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0, marginTop: isMobile ? 2 : 0 }} />
-                            {!isMobile && (
-                              <span style={{ width: 52, flexShrink: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: sv.year ? P.ink : P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>{sv.year || "—"}</span>
-                            )}
                             <span style={{ flex: 1, minWidth: 0 }}>
                               <a href={safeHref(sv.url)} target="_blank" rel="noreferrer"
                                 style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, textDecoration: "none", lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>
@@ -26269,9 +26413,12 @@ function App() {
                               </a>
                               <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
                                 {[sv.authors, formatJournalName(sv.journal)].filter(Boolean).join(" · ")}
-                                {isMobile && sv.year ? ` · ${sv.year}` : ""}
+                                {sv.year ? ` · ${sv.year}` : ""}
                                 {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
                                 {collName ? ` · ${collName}` : ""}
+                                {isMobile ? ` · ${typeLabel}` : ""}
+                                {isMobile && savedDate ? ` · ${new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                                {isMobile && usedIn.length > 0 ? ` · ${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : ""}
                               </span>
                               {/* Honest legacy label: this paper lived on the
                                   server in readable form before Private Vault.
@@ -26283,22 +26430,21 @@ function App() {
                               )}
                               {isMobile && (
                                 <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
-                                  <select value={sv.collectionId || ""} onChange={(e) => moveSourceToCollection(sv, e.target.value || null)} aria-label={`File "${sv.title}" in a collection`}
-                                    style={{ minHeight: 44, fontSize: FONT_SIZES.caption, padding: "5px 8px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
-                                    <option value="">No collection</option>
-                                    {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                  </select>
                                   <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== key))}>Remove</UIButton>
                                 </span>
                               )}
                             </span>
                             {!isMobile && (
                               <>
-                                <select value={sv.collectionId || ""} onChange={(e) => moveSourceToCollection(sv, e.target.value || null)} aria-label={`File "${sv.title}" in a collection`}
-                                  style={{ width: 170, flexShrink: 0, fontSize: FONT_SIZES.caption, padding: "7px 8px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
-                                  <option value="">No collection</option>
-                                  {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                </select>
+                                <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sv.type || undefined}>{typeLabel}</span>
+                                <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={journalLabel}>{journalLabel}</span>
+                                <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
+                                  {savedDate ? new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                </span>
+                                <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)" }}
+                                  title={usedIn.length ? usedIn.map((h) => h.title).join("\n") : undefined}>
+                                  {usedIn.length ? `${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : "—"}
+                                </span>
                                 <span style={{ width: 76, flexShrink: 0, display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
                                   {sv.authors && (
                                     <button onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }} title="More by these authors" aria-label={`More papers by ${sv.authors}`}
@@ -26321,10 +26467,71 @@ function App() {
                 )}
               </>
             )}
+            </div>
           </WorkspacePage>
+          {/* Saved answers: answered turns from investigations, surfaced as a
+              record. They open back into the investigation they belong to. */}
+          <div id="lib-answers" style={{ scrollMarginTop: 80 }}>
+            <WorkspacePage
+              P={P} accent={accent} isMobile={isMobile} wide
+              title="Saved answers" count={answeredTurns.length}
+              description="Answers you've received, kept with the investigations they belong to. Select one to reopen its thread."
+              actions={answeredTurns.length > 0 ? (
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download"
+                  onClick={() => { sfx(); libDownload("TXT", "cerebrum-answers.txt", answeredTurns.map(({ inv, turn }, i) => `${i + 1}. ${turn.q}\nInvestigation: ${inv.title}\nAnswered: ${inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}\n${stripMarkdown(String(turn.answer || ""))}\n`).join("\n—\n\n")); }}>
+                  Export answers
+                </UIButton>
+              ) : null}
+            >
+              {answeredTurns.length === 0 ? (
+                <WorkspaceEmpty P={P} accent={accent} icon="chat" size="sm"
+                  title="No answers yet"
+                  body="Answers live with their investigations — ask a question and the thread appears here as part of your record."
+                  actionLabel="Ask something" onAction={() => { sfx(); setView("search"); }} />
+              ) : (
+                <div role="list" aria-label="Saved answers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
+                  {!isMobile && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 640 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>QUESTION</span>
+                      <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>INVESTIGATION</span>
+                      <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>ANSWERED</span>
+                      <span style={{ width: 76, flexShrink: 0 }} />
+                    </div>
+                  )}
+                  {answeredTurns.map(({ inv, turn }, i) => (
+                    <div key={`${inv.id}-${turn.id || i}`} role="listitem"
+                      style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 640 }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <button onClick={() => openHistoryItem(inv)} className="cb-textbtn"
+                          style={{ display: "block", width: "100%", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>
+                          {turn.q}
+                        </button>
+                        <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                          {turn.sources && turn.sources.length ? `${turn.sources.length} cited paper${turn.sources.length === 1 ? "" : "s"}` : "No citations attached"}
+                          {isMobile ? ` · ${inv.title} · ${inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}` : ""}
+                        </span>
+                      </span>
+                      {!isMobile && (
+                        <>
+                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={inv.title}>{inv.title}</span>
+                          <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
+                            {inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                          </span>
+                          <span style={{ width: 76, flexShrink: 0, display: "inline-flex", justifyContent: "flex-end" }}>
+                            <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => openHistoryItem(inv)}>Open</UIButton>
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </WorkspacePage>
+          </div>
           {/* Flowchart Studio — saved charts live in the library next to saved
               papers, because a diagram of what the evidence says is a research
               artifact in the same sense a saved paper is. */}
+          <div id="lib-maps" style={{ scrollMarginTop: 80 }}>
           <WorkspacePage
             P={P} accent={accent} isMobile={isMobile} wide
             title="Evidence maps" count={flowcharts.length}
@@ -26366,6 +26573,47 @@ function App() {
               </div>
             )}
           </WorkspacePage>
+          </div>
+          {/* Exports: this browser's export receipts. Every export Cerebrum
+              has produced in this session (or earlier) leaves a receipt —
+              format, filename, time. The receipts are local, like everything
+              else here. */}
+          <div id="lib-exports" style={{ scrollMarginTop: 80 }}>
+            <WorkspacePage
+              P={P} accent={accent} isMobile={isMobile} wide
+              title="Exports" count={exportLog.length}
+              description="Every export Cerebrum has produced in this browser — the format, the file, and when it left."
+            >
+              {exportLog.length === 0 ? (
+                <WorkspaceEmpty P={P} accent={accent} icon="download" size="sm"
+                  title="Nothing exported yet"
+                  body="Export a bibliography, your saved papers, an investigation, or a diagram — the receipt lands here."
+                  actionLabel="Browse saved papers" onAction={() => scrollToLibSection("lib-papers")} />
+              ) : (
+                <div role="list" aria-label="Export history" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
+                  {!isMobile && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 560 }}>
+                      <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>FORMAT</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>FILE</span>
+                      <span style={{ width: 160, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>EXPORTED</span>
+                    </div>
+                  )}
+                  {exportLog.map((r, i) => (
+                    <div key={`${r.ts}-${i}`} role="listitem"
+                      style={{ display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "12px 16px" : "10px 16px", borderTop: i ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 560 }}>
+                      <span style={{ width: 110, flexShrink: 0 }}>
+                        <span className="cb-pill" style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4 }}>{r.kind}</span>
+                      </span>
+                      <span className="cb-mono" style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.filename}>{r.filename}</span>
+                      <span style={{ width: 160, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
+                        {new Date(r.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · {new Date(r.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </WorkspacePage>
+          </div>
         </Reveal>
       )}
       {/* Commit 88 — investigations are a page. Same reasoning as the
@@ -26400,20 +26648,33 @@ function App() {
                   <WorkspaceEmpty P={P} accent={accent} icon="search" title="No matches"
                     body={`No investigation matches "${historyQuery}".`} />
                 ) : (
-                  /* Commit 88 — the PAGE is wide so that every destination in
-                     the rail starts at the same left edge; the READING measure
-                     is set here. A row of body text 1100px across is not a
-                     list, it is a scan line. */
-                  <div style={{ display: "flex", flexDirection: "column", gap: 26, maxWidth: 840 }}>
-                    {groupedHistory.map((g) => (
-                      <section key={g.key} aria-label={g.label}>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10, paddingLeft: 2 }}>
-                          {g.label} <span style={{ fontWeight: 400, letterSpacing: 0 }}>· {g.items.length}</span>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          {g.items.map((h) => (
-                          <UICard key={h.id} P={P} specimen>
-                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  /* The research log: one flat ledger, newest first.
+                     Columns: accession, title (falling back to the original
+                     question), date, question/paper/map counts, status,
+                     last opened, actions. Rename/Delete/Export live behind
+                     the overflow on every breakpoint — desktop included. */
+                  <div role="list" aria-label="Investigations" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
+                    {!isMobile && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 880 }}>
+                        <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>ID</span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>TITLE</span>
+                        <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>DATE</span>
+                        <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>COUNTS</span>
+                        <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>STATUS</span>
+                        <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>LAST OPENED</span>
+                        <span style={{ width: 44, flexShrink: 0 }} />
+                      </div>
+                    )}
+                    {visibleHistory.map((h, hi) => {
+                      const status = investigationStatus(h);
+                      const qCount = (h.turns || []).length;
+                      const pCount = (h.allSources || []).length;
+                      const accession = accessionById.get(h.id) || "—";
+                      const invTitle = h.title || ((h.turns || [])[0] && (h.turns || [])[0].q) || "Untitled";
+                      const statusTone = status === "Answered" ? accent : status === "Needs review" ? STATUS.warn : P.faint;
+                      return (
+                      <div key={h.id} role="listitem"
+                        style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: hi ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 880 }}>
                               {/* While renaming, the row is not a button at all:
                                   an input nested inside a <button> is invalid
                                   HTML and a keyboard trap. The input replaces
@@ -26421,7 +26682,6 @@ function App() {
                                   beside it as siblings. */}
                               {historyRenameId === h.id ? (
                                 <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 14, alignItems: "flex-start" }}>
-                                  <InvestigationCover title={h.title} accent={accent} P={P} size={isMobile ? 44 : 52} />
                                   <span style={{ minWidth: 0, flex: 1 }}>
                                     <input
                                       value={historyRenameValue}
@@ -26445,80 +26705,62 @@ function App() {
                                   </span>
                                 </div>
                               ) : (
-                              <button onClick={() => { openHistoryItem(h); setView("search"); }} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: 0, font: "inherit", display: "flex", gap: 14, alignItems: "flex-start", width: "100%", borderRadius: 8, transition: "background 0.15s ease" }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                                onMouseDown={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.1); }}
-                                onMouseUp={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.05); }}
-                                onFocus={(e) => { e.currentTarget.style.outline = `2px solid ${withAlpha(accent, 0.5)}`; e.currentTarget.style.outlineOffset = 2; }}
-                                onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
-                              >
-                                {!isMobile && <InvestigationCover title={h.title} accent={accent} P={P} size={52} />}
-                                <span style={{ minWidth: 0, flex: 1 }}>
-                                {/* Mobile: title spans full width, up to 3 lines. Desktop: denser row. */}
-                                <div style={{
-                                  fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em",
-                                  display: "-webkit-box", WebkitLineClamp: isMobile ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-                                }}>{tidyQuestionTitle(h.title)}</div>
-                                {/* Second line: "12 Sep · 1 question · 11 papers" */}
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT_SIZES.caption, color: P.faint, marginTop: isMobile ? 6 : 5, fontFamily: "var(--cb-font)" }}>
-                                  {h.ts && <span>{new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</span>}
-                                  <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                                  <span>{(h.turns || []).length} question{(h.turns || []).length === 1 ? "" : "s"}</span>
-                                  {(h.allSources || []).length > 0 && (<>
-                                    <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-                                    <span>{h.allSources.length} paper{h.allSources.length === 1 ? "" : "s"}</span>
-                                  </>)}
-                                </div>
-                                {/* Honest legacy label, same as in the library. */}
-                                {h.zkMigrated && (
-                                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>
-                                    Saved before Private Vault was turned on — it was visible to Cerebrum's servers.
-                                  </div>
+                              <>
+                                {!isMobile && (
+                                  <span className="cb-mono" style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={accession}>{accession}</span>
                                 )}
-                                {/* A preview of the actual material, not a
-                                    generic subtitle: the first paper this
-                                    investigation turned up, by name. It is the
-                                    fastest way to recognise which one this is
-                                    when four titles start the same way. */}
-                                {(h.allSources || []).length > 0 && h.allSources[0] && h.allSources[0].title && (
-                                  <div style={{
-                                    fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 7,
-                                    fontFamily: "var(--cb-font)", lineHeight: 1.45,
-                                    display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden",
-                                  }}>
-                                    {h.allSources[0].title}
-                                    {h.allSources.length > 1 ? " · and " + (h.allSources.length - 1) + " more" : ""}
-                                  </div>
+                                <span style={{ flex: 1, minWidth: 0 }}>
+                                  <button onClick={() => { openHistoryItem(h); setView("search"); }} className="cb-textbtn"
+                                    style={{ display: "block", width: "100%", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)", padding: 0 }}>
+                                    <span style={{ display: "-webkit-box", WebkitLineClamp: isMobile ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{tidyQuestionTitle(invTitle)}</span>
+                                  </button>
+                                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                                    {isMobile ? `${accession} · ` : ""}
+                                    {qCount} question{qCount === 1 ? "" : "s"} · {pCount} paper{pCount === 1 ? "" : "s"}
+                                    {isMobile ? ` · ${status}` : ""}
+                                  </span>
+                                  {/* Honest legacy label, same as in the library:
+                                      byte-for-byte the original disclosure. */}
+                                  {h.zkMigrated && (
+                                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>
+                                      Saved before Private Vault was turned on — it was visible to Cerebrum's servers.
+                                    </span>
+                                  )}
+                                  {(h.allSources || []).length > 0 && h.allSources[0] && h.allSources[0].title && (
+                                    <span style={{
+                                      display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden",
+                                      fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5, fontFamily: "var(--cb-font)", lineHeight: 1.45,
+                                    }}>
+                                      {h.allSources[0].title}
+                                      {h.allSources.length > 1 ? " · and " + (h.allSources.length - 1) + " more" : ""}
+                                    </span>
+                                  )}
+                                </span>
+                                {!isMobile && (
+                                  <>
+                                    <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
+                                      {h.ts ? new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                    </span>
+                                    <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
+                                      {qCount} Q · {pCount} papers · — maps
+                                    </span>
+                                    <span style={{ width: 110, flexShrink: 0 }}>
+                                      <span style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: statusTone, border: `1px solid ${withAlpha(statusTone, 0.45)}`, borderRadius: 999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4, whiteSpace: "nowrap" }}>{status}</span>
+                                    </span>
+                                    <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
+                                      {h.lastOpened ? new Date(h.lastOpened).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                    </span>
+                                  </>
                                 )}
-                                </span>
-                              </button>
-                              )}
-                              {historyRenameId === h.id ? (
-                                <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => {
-                                    const v = historyRenameValue.trim();
-                                    if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
-                                    setHistoryRenameId(null);
-                                  }}>Save</UIButton>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setHistoryRenameId(null)}>Cancel</UIButton>
-                                </span>
-                              ) : historyConfirmId === h.id ? (
-                                <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setHistoryConfirmId(null)}>Cancel</UIButton>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }}>Confirm</UIButton>
-                                </span>
-                              ) : (
-                                <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                                  {/* Overflow menu: rename, export, delete. Mobile gets the
-                                      compact ⋯; desktop keeps the explicit actions. */}
-                                  {isMobile ? (
+                                {historyConfirmId === h.id ? null : (
+                                  <span style={{ width: 44, flexShrink: 0, display: "inline-flex", justifyContent: "flex-end" }}>
+                                    {/* Overflow menu on every breakpoint: rename, export, delete. */}
                                     <div style={{ position: "relative" }}>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); setHistoryMenuId(historyMenuId === h.id ? null : h.id); }}
-                                        aria-label={`Options for ${h.title}`}
+                                        aria-label={`Options for ${invTitle}`}
                                         style={{
-                                          width: 32, height: 32, borderRadius: 8, border: `1px solid ${P.line}`,
+                                          minWidth: 44, minHeight: 44, borderRadius: 8, border: `1px solid ${P.line}`,
                                           background: "transparent", color: P.faint, cursor: "pointer",
                                           display: "flex", alignItems: "center", justifyContent: "center",
                                           fontSize: 18, lineHeight: 1,
@@ -26552,20 +26794,33 @@ function App() {
                                         </div>
                                       )}
                                     </div>
-                                  ) : (
-                                    <>
-                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Rename ${h.title}`} onClick={() => { setHistoryRenameId(h.id); setHistoryRenameValue(h.title || ""); setHistoryConfirmId(null); }}>Rename</UIButton>
-                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" ariaLabel={`Delete ${h.title}`} onClick={() => setHistoryConfirmId(h.id)}>Delete</UIButton>
-                                    </>
-                                  )}
-                                </span>
+                                  </span>
+                                )}
+                              </>
                               )}
-                            </div>
-                          </UICard>
-                              ))}
-                        </div>
-                      </section>
-                    ))}
+                              {historyRenameId === h.id ? (
+                                <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => {
+                                    const v = historyRenameValue.trim();
+                                    if (v) setHistory((prev) => prev.map((x) => x.id === h.id ? { ...x, title: v } : x));
+                                    setHistoryRenameId(null);
+                                  }}>Save</UIButton>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setHistoryRenameId(null)}>Cancel</UIButton>
+                                </span>
+                              ) : historyConfirmId === h.id ? (
+                                <>
+                                  <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink, fontFamily: "var(--cb-font)" }}>
+                                    Delete <strong>{tidyQuestionTitle(invTitle)}</strong>? This can't be undone.
+                                  </span>
+                                  <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                                    <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setHistoryConfirmId(null)}>Cancel</UIButton>
+                                    <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); setHistoryConfirmId(null); }}>Confirm</UIButton>
+                                  </span>
+                                </>
+                              ) : null}
+                      </div>
+                      );
+                    })}
                   </div>
                 )}
               </>

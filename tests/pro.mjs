@@ -850,17 +850,20 @@ await test("Pro badge renders on profile and in the account menu", async () => {
   assert.match(src, /\{user\.isPro && <ProBadge/, "account menu badge wiring missing");
 });
 
-await test("Pro reel is exclusive clips plus a gated toggle", async () => {
+await test("Pro reel is exclusive clips wired to the intro film", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   assert.match(src, /FILM_CLIPS_PRO_LANDSCAPE/, "Pro landscape list missing");
   assert.match(src, /FILM_CLIPS_PRO_PORTRAIT/, "Pro portrait list missing");
   assert.match(src, /function filmReel\(pro\)/, "filmReel does not take the pro flag");
   // Pass 1 redesign (2026-09-17): the workspace film is retired — the product
   // shell mounts no ambient reel at all, so there is no workspace instance to
-  // gate. The Pro clip lists, the filmReel pro flag, and the appearance
-  // settings toggle all remain (the intro keeps its own reel).
-  assert.match(src, /Pro cinematic reel/, "reel toggle missing from appearance settings");
-  assert.match(src, /\}, \[blocked, proReel\]\);/, "reel effect must re-run on proReel so the switch is immediate");
+  // gate. The Pro clip lists and the filmReel pro flag remain (the intro
+  // keeps its own reel).
+  // Pass 4 redesign (2026-09-17): the Pro cinematic reel Settings row was
+  // dormant — no CinematicFilm mount ever received proReel — so the row and
+  // its settings-search index entry were removed. The assets stay.
+  assert.ok(!/Pro cinematic reel/.test(src), "dormant reel setting must not appear in Settings");
+  assert.match(src, /\}, \[blocked, proReel\]\);/, "reel effect must re-run on proReel so a future switch is immediate");
   const filmMounts = src.match(/<CinematicFilm/g) || [];
   assert.strictEqual(filmMounts.length, 1, `expected exactly one CinematicFilm mount (the intro), found ${filmMounts.length}`);
 });

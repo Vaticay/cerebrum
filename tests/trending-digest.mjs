@@ -67,9 +67,11 @@ await test("no fabricated engagement numbers anywhere in the trending view", () 
 });
 
 await test("the 'Cited by' label is guarded by a real positive count", () => {
+  // Pass 4 (2026-09-17): digest rows render through trendProvenance, which
+  // guards the label with `if (item.citedByCount > 0)` before pushing it.
   assert.match(
     appSrc,
-    /item\.citedByCount > 0 \? `Cited by \$\{item\.citedByCount\}`/,
+    /if \(item\.citedByCount > 0\) parts\.push\(`Cited by \$\{item\.citedByCount\}`\)/,
     "digest 'Cited by' label is not guarded by a positive count"
   );
 });
