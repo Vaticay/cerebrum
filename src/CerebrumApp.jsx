@@ -9135,6 +9135,12 @@ function TurnInner({ t, P, accent, at, S, last = false, autoRead = false, hoverC
   const [showReport, setShowReport] = useState(false);
   // The labeled More menu: every demoted toolbar action stays one tap
   // away, each still labeled. Dividers at a boundary collapse out.
+  /* Paper/print state lives ABOVE the overflowItems IIFE: the Paper menu
+     item's label reads `generatingPaper` eagerly when the IIFE evaluates,
+     so these bindings must already be initialized or the answer thread
+     dies with a temporal-dead-zone error on every completed answer. */
+  const [generatingPaper, setGeneratingPaper] = useState(false);
+  const [paperReady, setPaperReady] = useState(false);
   const overflowItems = (() => {
     const items = [
       ...(done && interactive && answerText.length > 40 ? [{
@@ -9179,8 +9185,6 @@ function TurnInner({ t, P, accent, at, S, last = false, autoRead = false, hoverC
       return prev && next && !prev.divider && !next.divider;
     });
   })();
-  const [generatingPaper, setGeneratingPaper] = useState(false);
-  const [paperReady, setPaperReady] = useState(false);
   const paper = useMemo(() => buildAcademicPaperBlocks(t.answer), [t.answer]);
 
   // A running conversation mounts one <Turn> per exchange (see turns.map in

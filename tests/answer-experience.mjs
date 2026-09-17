@@ -374,6 +374,87 @@ await test("evidence band tabs use the underlined tab contract", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+group("TurnInner — no temporal-dead-zone reads in eagerly evaluated initializers");
+
+// 2026-09-17 regression: the overflowItems IIFE read `generatingPaper` in a
+// menu-item label while evaluating, but the useState for `generatingPaper`
+// sat BELOW the IIFE — every completed answer thread crashed with
+// "Cannot access '…' before initialization". This test walks TurnInner and
+// fails if any eagerly evaluated code (the component body, an IIFE, or a
+// useMemo/useState initializer) reads a let/const declared later in the
+// component body.
+await test("eager initializers never read bindings declared later", () => {
+  const turnFn = ast.program.body.find(
+    (n) => n.type === "FunctionDeclaration" && n.id.name === "TurnInner"
+  );
+  assert.ok(turnFn, "TurnInner not found in source");
+  const patNames = (p, out = []) => {
+    if (!p) return out;
+    if (p.type === "Identifier") out.push(p.name);
+    else if (p.type === "ObjectPattern") p.properties.forEach((x) => patNames(x.type === "ObjectProperty" ? x.value : x.argument, out));
+    else if (p.type === "ArrayPattern") p.elements.forEach((e) => patNames(e, out));
+    else if (p.type === "RestElement") patNames(p.argument, out);
+    else if (p.type === "AssignmentPattern") patNames(p.left, out);
+    return out;
+  };
+  const bindings = new Map();
+  for (const st of turnFn.body.body) {
+    if (st.type === "VariableDeclaration")
+      for (const d of st.declarations)
+        for (const name of patNames(d.id))
+          if (!bindings.has(name)) bindings.set(name, d.start);
+  }
+  const problems = [];
+  const EAGER_HOOKS = new Set(["useMemo", "useState"]);
+  function walk(node, eager, parent) {
+    if (!node || typeof node.type !== "string") return;
+    if (node.type === "Identifier") {
+      const isProp = parent && parent.type === "MemberExpression" && parent.property === node && !parent.computed;
+      const isKey = parent && ((parent.type === "ObjectProperty" && parent.key === node && !parent.computed) || (parent.type === "ObjectMethod" && parent.key === node));
+      const isDecl = parent && parent.type === "VariableDeclarator" && parent.id === node;
+      const isParam = parent && /Function/.test(parent.type) && parent.params.includes(node);
+      if (!isProp && !isKey && !isDecl && !isParam && eager) {
+        const declAt = bindings.get(node.name);
+        if (declAt !== undefined && node.start < declAt)
+          problems.push(`'${node.name}' read at ${node.loc.start.line} before declaration`);
+      }
+      return;
+    }
+    // Nested function boundary: deferred unless immediately invoked or an
+    // eager-hook initializer.
+    if (/^(FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(node.type)) {
+      const invoked = parent && parent.type === "CallExpression" && parent.callee === node;
+      const hookInit = parent && parent.type === "CallExpression" &&
+        parent.callee.type === "Identifier" && EAGER_HOOKS.has(parent.callee.name) &&
+        parent.arguments[0] === node;
+      const childEager = eager && (invoked || hookInit);
+      for (const k of Object.keys(node)) {
+        if (k === "loc" || k === "start" || k === "end" || k === "params") continue;
+        const v = node[k];
+        if (Array.isArray(v)) v.forEach((c) => c && c.type && walk(c, childEager, node));
+        else if (v && v.type) walk(v, childEager, node);
+      }
+      return;
+    }
+    for (const k of Object.keys(node)) {
+      if (k === "loc" || k === "start" || k === "end") continue;
+      const v = node[k];
+      if (Array.isArray(v)) v.forEach((c) => c && c.type && walk(c, eager, node));
+      else if (v && v.type) walk(v, eager, node);
+    }
+  }
+  walk(turnFn.body, true, null);
+  assert.equal(problems.length, 0, "TDZ reads in TurnInner: " + problems.slice(0, 5).join("; "));
+});
+
+await test("paper/print state is declared above the overflowItems IIFE", () => {
+  const genAt = appSrc.indexOf("const [generatingPaper, setGeneratingPaper]");
+  const iifeAt = appSrc.indexOf("const overflowItems = (() =>");
+  assert.ok(genAt !== -1 && iifeAt !== -1, "expected declarations not found");
+  assert.ok(genAt < iifeAt, "generatingPaper state must be declared before the overflowItems IIFE evaluates it");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
