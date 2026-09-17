@@ -53,6 +53,7 @@ import {
   funnelExclusions,
   groupSourcesIntoEras,
   disagreementCitedIndices,
+  extractCitedIndices,
   annotateEras,
   describeEra,
   describeConvergence,
@@ -3153,26 +3154,20 @@ function splitGluedHeading(line) {
   return { head: "", body: t };
 }
 
+/* Pass 2 (2026-09-17): answer section labels are plain editorial text —
+   a quiet mono kicker, not a masthead. The answer is a document; its
+   sections are labeled the way a journal labels sections. Uncertainty
+   lives in the prose under them, not in badges. */
 function h2Block(text, key, P, accent) {
   return (
-    <div key={key} style={{ margin: "46px 0 18px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <span aria-hidden="true" style={{ width: 3, height: 22, borderRadius: 8, background: accent, flexShrink: 0 }} />
-        <h3 style={{
-          fontSize: 24, fontWeight: 700, color: P.ink, margin: 0,
-          letterSpacing: "-0.02em", fontFamily: "var(--cb-font)", lineHeight: 1.2,
-        }}>{text}</h3>
-        <span aria-hidden="true" style={{
-          flex: 1, height: 1, minWidth: 12,
-          background: P.line,
-        }} />
-      </div>
+    <div key={key} className="cb-kicker" style={{ margin: "44px 0 14px" }}>
+      {text}
     </div>
   );
 }
 
 function h3Block(text, key, P) {
-  return <h4 key={key} style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, margin: "32px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>{text}</h4>;
+  return <div key={key} className="cb-kicker" style={{ margin: "30px 0 10px" }}>{text}</div>;
 }
 
 /* Bring a source into view without moving the reader.
@@ -3216,6 +3211,18 @@ function revealSource(n, accent) {
     document.querySelectorAll(".cb-source-linked").forEach((x) => x.classList.remove("cb-source-linked"));
     el.classList.add("cb-source-linked");
     el.style.setProperty("--cb-link-accent", accent || "currentColor");
+  } catch {}
+}
+
+/* The reverse trip: from a source row back to the sentence that cites it.
+   Used by the evidence index — activating a row lights the citation in the
+   answer and brings it into view. Unlike revealSource (which deliberately
+   avoids moving the page), scrolling here IS the request: the reader asked
+   to see the claim. */
+function revealClaim(n) {
+  try {
+    const el = document.querySelector('[data-cite="' + n + '"]');
+    if (el) el.scrollIntoView({ block: "center", behavior: cbMotionOff() ? "auto" : "smooth" });
   } catch {}
 }
 
@@ -3319,13 +3326,13 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <button onClick={() => onOpen(n)} style={{ minHeight: 44,
           background: accent, border: "none", color: "#0a0c10", cursor: "pointer",
-          borderRadius: RADIUS.pill, padding: "6px 14px", fontSize: 11.5, fontWeight: 700, fontFamily: "var(--cb-font)",
+          borderRadius: 6, padding: "6px 14px", fontSize: 11.5, fontWeight: 700, fontFamily: "var(--cb-font)",
           display: "inline-flex", alignItems: "center", gap: 6,
         }}>Deep read <Icon name="arrowRight" size={11} /></button>
         {src.url && (
           <a href={safeHref(src.url)} target="_blank" rel="noopener noreferrer" style={{
             textDecoration: "none", border: "1px solid " + P.line2, color: P.ink2,
-            borderRadius: RADIUS.pill, padding: "5px 12px", fontSize: 11.5,
+            borderRadius: 6, padding: "5px 12px", fontSize: 11.5,
             display: "inline-flex", alignItems: "center", gap: 5,
           }}>Open paper <Icon name="external" size={11} /></a>
         )}
@@ -3678,7 +3685,13 @@ function renderFlashpointClaim(text, P) {
     .trim();
   return renderInlineMdLite(stripped, P);
 }
-function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite) {
+/* claimSink (Pass 2, optional): when provided, every citation-bearing
+   paragraph the renderer emits is recorded here as { claim, cites } in
+   reading order. The evidence rail inverts it ("Supports claims 1, 2"),
+   and because the recording happens inside the render itself — including
+   the recursive passes for glued headings — the rail's numbering can
+   never drift from the claim spines on the page. */
+function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null) {
   let clean = stripDanglingAsterisks(normalizeSectionHeaders(text || ""))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
@@ -3750,17 +3763,17 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     // whole product's credibility.
     if (h2) {
       const { head, body } = splitGluedHeading(h2[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</div>
+        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</div>
         : h2Block(head, pi, P, accent);
     }
     const h3 = para.match(/^###\s+(.+)$/);
     if (h3) {
       const { head, body } = splitGluedHeading(h3[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</div>
+        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</div>
         : h3Block(head, pi, P);
     }
 
@@ -3784,9 +3797,9 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       const title = split.head;
       const below = [split.body, (markedHead[3] || "").trim()].filter(Boolean).join("\n\n");
       const head = markedHead[1].length <= 2 ? h2Block(title, pi + "-h", P, accent) : h3Block(title, pi + "-h", P);
-      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</React.Fragment> : null;
+      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</React.Fragment> : null;
       return below
-        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}</div>
+        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</div>
         : <React.Fragment key={pi}>{head}</React.Fragment>;
     }
     // Bold-line headers (e.g., "**Mechanism**")
@@ -3847,7 +3860,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
         return (
           <div key={pi}>
             <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, margin: "34px 0 10px", letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
-            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
+            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}
           </div>
         );
       }
@@ -3907,8 +3920,20 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     const paraClean = stripStrayHashes(para);
     const isLede = !ledeUsed;
     ledeUsed = true;
-    return (
-    <p key={pi} style={{
+    /* Pass 2 — the claim spine: a paragraph that carries citations gets the
+       slim left rail naming its supporting references, so the reader can
+       see at a glance which papers each paragraph stands on. Recorded into
+       claimSink (when provided) so the evidence rail numbers claims the
+       same way. Lists keep their own structure; only prose paragraphs get
+       the spine. */
+    const paraCites = extractCitedIndices(paraClean, (sources || []).length);
+    let claimNo = 0;
+    if (paraCites.length && claimSink) {
+      claimNo = claimSink.length + 1;
+      claimSink.push({ claim: claimNo, cites: paraCites });
+    }
+    const pNode = (
+    <p style={{
       /* The reading surface — the body role, ruthlessly (§7.1): 15px,
          1.6 leading, weight 500 (the "thicker text" law, inside the
          450–500 body contract). The lede (first paragraph) sets in the
@@ -3917,7 +3942,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
          second size. */
       fontSize: isLede ? FONT_SIZES.title : FONT_SIZES.body,
       lineHeight: isLede ? 1.55 : 1.6,
-      margin: "0 0 22px", color: P.ink,
+      margin: 0, color: P.ink,
       letterSpacing: "0", fontFamily: "var(--cb-font)", fontWeight: 500,
       fontOpticalSizing: "auto",
       /* Long unbreakable tokens (DOIs, URLs, chemical names) otherwise
@@ -3932,6 +3957,15 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
         </React.Fragment>
       ))}
     </p>
+    );
+    if (!paraCites.length) return <div key={pi} style={{ margin: "0 0 22px" }}>{pNode}</div>;
+    return (
+      <div key={pi} className="cb-claim" data-claim={claimNo || undefined} style={{ margin: "0 0 22px" }}>
+        <div className="cb-claim-refs" aria-label={`Supported by references ${paraCites.join(", ")}`}>
+          {paraCites.map((n) => `[${n}]`).join(" ")}
+        </div>
+        {pNode}
+      </div>
     );
   });
 }
@@ -3951,63 +3985,30 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
     const c = seg.match(/^\[(\d+)\]$/);
     if (c) {
       const n = parseInt(c[1], 10); const src = (sources || [])[n - 1];
-      // v30: was a tiny superscript "[1]" badge in mono — raised above the
-      // baseline, breaking the sentence's reading line, and visually part of
-      // the "hacker terminal" look this round explicitly retires. Rewritten
-      // as an inline, baseline-sitting pill — "(1)" in the body sans-serif,
-      // sitting in the text flow like Perplexity's citation chips rather
-      // than interrupting it.
+      /* Pass 2: the bracketed citation mark — the product's visual
+         signature. A small rectangular reference in the accent colour
+         (.cb-cite carries the shape; currentColor carries the colour),
+         sitting on the baseline like a scholarly [1], not a chat badge.
+         Activating it does three things: it marks the citation, it shows
+         the paper preview, and it lights the matching row in the evidence
+         index — the claim and the source stay visibly linked. Focus shows
+         the preview too, so keyboard readers get the same interaction. */
       const isActive = activeCite === n;
-      /* Activating a citation is the core evidence interaction, so it does
-         three things rather than one.
-
-         It used to scrollIntoView() the source, which scrolls EVERY
-         scrollable ancestor — including the page — so following a citation
-         threw away the reader's position in the answer. revealSource scrolls
-         only the sources panel.
-
-         The claim and the source light up together, briefly, so the
-         correspondence is visible rather than inferred. And the citation
-         stays marked until a different one is chosen, so after reading the
-         source you can find your way back to the sentence it belonged to. */
       return <a key={si} href={`#ref-${n}`} title={src?.title || ""}
         data-cite={n}
+        className="cb-cite"
+        data-active={isActive ? "true" : undefined}
         aria-label={src?.title ? `Source ${n}: ${src.title}` : `Source ${n}`}
         aria-current={isActive ? "true" : undefined}
         onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
+        onFocus={() => setHoverCite(n)} onBlur={() => setHoverCite(0)}
         onClick={(e) => { e.preventDefault(); if (setActiveCite) setActiveCite(n); revealSource(n, accent); }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (setActiveCite) setActiveCite(n); revealSource(n, accent); }
           if (e.key === "Escape" && setActiveCite) setActiveCite(0);
         }}
-        style={{
-          display: "inline-flex", alignItems: "center",
-          /* Caption role with tabular numerals — the mono-for-data
-             treatment in the one unified typeface. */
-          fontSize: FONT_SIZES.caption, fontVariantNumeric: "tabular-nums",
-          color: P.ink, verticalAlign: "baseline",
-          textDecoration: "none", fontWeight: 600,
-          fontFamily: "var(--cb-font)",
-          /* Commit 87 — "minutes 2 ." The renderer strips the space BEFORE
-             a citation and pulls following punctuation up against it, but
-             the badge then added 2px of margin plus 8px of internal
-             padding on its right, so roughly 10px of air still separated
-             the marker from the full stop. Every sentence ending in a
-             citation read as a typo. Margin now only on the left, tighter
-             padding, and nudged up a hair so it sits like the superscript
-             it is standing in for rather than a button dropped into the
-             middle of a sentence. */
-          margin: "0 0 0 2px", padding: "1px 6px",
-          transform: "translateY(-1px)",
-          borderRadius: RADIUS.sm,
-          background: isActive
-            ? withAlpha(accent, 0.22)
-            : hoverCite === n ? (P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.07)") : (P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)"),
-          border: "1px solid " + (isActive ? withAlpha(accent, 0.65) : P.line),
-          boxShadow: isActive ? `0 0 0 3px ${withAlpha(accent, 0.14)}` : "none",
-          transition: `background ${MOTION.feedback}s ${MOTION.ease}, border-color ${MOTION.feedback}s ${MOTION.ease}, box-shadow ${MOTION.feedback}s ${MOTION.ease}`,
-          cursor: "pointer",
-        }}>{n}</a>;
+        style={{ color: accent, textDecoration: "none" }}
+      >[{n}]</a>;
     }
     return <span key={si}>{seg}</span>;
   });
@@ -6825,7 +6826,7 @@ function InfoPage({ page }) {
    would double it. onRetry / onAdjustQuery wire the honest zero-sources
    empty state (the band always renders this component now; it used to be
    gated off entirely at zero sources — a silent gap). */
-function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0 }) {
+function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {} }) {
   const [copied, setCopied] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
   const copyAll = () => {
@@ -6868,22 +6869,33 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
   const ledger = (
     /* The ledger sits on matte paper (same material as the answer above it):
        one flat surface, hairline rules between entries, no per-row frost.
-       A bibliography should read like a printed references page, not a
-       stack of glass widgets. */
-    <div style={{ minHeight: 44, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, padding: "6px 18px" }}>
+       Rows are the evidence-ledger contract (.cb-ledger-row): number /
+       content / action, hanging-indent typography inside the content
+       column — like a printed references page, not a stack of cards. */
+    <div style={{ minHeight: 44, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 18px 6px" }}>
       {jumpLetters && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 10, paddingTop: 8 }} aria-label="Jump to author">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 6, paddingTop: 8 }} aria-label="Jump to author">
           {jumpLetters.map((L) => (
-            <a key={L} href={`#ref-alpha-${L}`} style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, textDecoration: "none", padding: "3px 7px", borderRadius: 6 }}
+            <a key={L} href={`#ref-alpha-${L}`} style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, textDecoration: "none", padding: "3px 7px", borderRadius: 6 }}
               onMouseEnter={(e) => { e.currentTarget.style.color = accent; e.currentTarget.style.background = withAlpha(accent, 0.08); }}
               onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; e.currentTarget.style.background = "transparent"; }}>{L}</a>
           ))}
         </div>
       )}
-      {/* Hanging-indent typography — the numeral sits in the gutter,
-          wrapped lines align under the text, like a printed bibliography. */}
+      {/* Hanging-indent typography lives inside each row's content column —
+         the numeral sits in the contract's number gutter, wrapped lines
+         align under the text. */}
       <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column" }}>
-        {sources.map((s, i) => <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={i === sources.length - 1} onOpen={() => onOpenPaper(i + 1)} alphaAnchor={jumpLetters ? String(s.authors || s.title || "").trim().charAt(0).toUpperCase() : null} />)}
+        {(() => {
+          const seen = new Set();
+          return sources.map((s, i) => {
+            const L = String(s.authors || s.title || "").trim().charAt(0).toUpperCase();
+            const anchor = jumpLetters && L && /[A-Z]/.test(L) && !seen.has(L) ? (seen.add(L), L) : null;
+            return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={i === sources.length - 1}
+              onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor}
+              rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite} />;
+          });
+        })()}
       </ol>
     </div>
   );
@@ -6936,8 +6948,18 @@ function Bibliography({ sources, P, accent, citationStyle, setCitationStyle, onO
   );
 }
 
-function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }) {
-  const [hover, setHover] = useState(false);
+/* Pass 2: the bibliography entry is an evidence ledger row — hairline
+   separated, no card, the contract's grid (number / content / action).
+   Matte ledger rows: the paper container above owns the surface, so rows
+   are transparent with hairline separators — no per-row frost, no
+   backdrop blur. Hover is a flat wash via data-active, not glass.
+   Same numbering as the answer's citations (index + 1 over the same
+   source order), data-rel from the shared venn classification, and the
+   number activates the citation in the answer (synced highlighting both
+   ways). The id stays ref-${index} on EVERY row now — the old code
+   replaced it with the A–Z anchor on long lists, which silently broke
+   citation-to-source jumps for every entry past the 12-source mark. */
+function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {} }) {
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
@@ -6958,29 +6980,24 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
   const doiHref = /^10\.\d{4,9}\//.test(doi) ? "https://doi.org/" + doi : null;
   return (
-    <li id={alphaAnchor ? `ref-alpha-${alphaAnchor}` : `ref-${index}`}
-      className="cb-fade cb-bibentry"
-      style={{
-        display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 4px",
-        borderBottom: last ? "none" : `1px solid ${P.line}`,
-        /* Matte ledger rows: the paper container above owns the surface, so
-           rows are transparent with hairline separators — no per-row frost,
-           no backdrop blur. Hover is a flat wash, not glass. */
-        background: hover ? (P.dark ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.025)") : "transparent",
-        transition: "background 0.15s ease", cursor: "pointer", scrollMarginTop: 90,
-      }}
-      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+    <li id={`ref-${index}`}
+      className="cb-ledger-row cb-fade cb-bibentry"
+      data-rel={rel}
+      data-active={active ? "true" : undefined}
+      style={{ scrollMarginTop: 90, cursor: "pointer" }}
       onClick={onOpen} role="button" tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
-      <span style={{
-        flexShrink: 0, width: 30, textAlign: "right", paddingTop: 1,
-        color: accent, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)",
-        fontVariantNumeric: "tabular-nums",
-      }}>{index}</span>
+      <button type="button" className="cb-ledger-num"
+        onClick={(e) => { e.stopPropagation(); onActivate(index); }}
+        title={`Show source ${index} in the answer`} aria-label={`Source ${index}: show in the answer`}
+        style={{ background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
+        {alphaAnchor && <span id={`ref-alpha-${alphaAnchor}`} aria-hidden="true" />}
+        {index}
+      </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 7px", marginBottom: 5, background: withAlpha(source.retracted ? STATUS.bad : STATUS.warn, source.retracted ? 0.12 : 0.14), border: `1px solid ${source.retracted ? STATUS.bad : STATUS.warn}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 700, color: source.retracted ? statusBad(P) : STATUS.warn, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" }}>
-            <span>\u26a0</span><span>{source.retracted ? "RETRACTED" : "EXPRESSION OF CONCERN"}</span>
+          <div style={{ fontSize: 11, fontWeight: 700, color: source.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+            {source.retracted ? "Retracted" : "Expression of concern"}
           </div>
         )}
         {/* NEXT-GEN: the backend flags bibliography entries the answer never
@@ -6988,14 +7005,14 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
             numbered list imply they back a claim. */}
         {source.uncited && (
           <div title={source.uncitedReason || "Not cited by the answer"} className="cb-further-pill"
-            style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", marginBottom: 5, marginLeft: (source.retracted || source.concern) ? 6 : 0, background: "transparent", border: `1px dashed ${P.faint}`, borderRadius: 8, fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: "var(--cb-font)", cursor: "help" }}>
+            style={{ fontSize: 11, fontWeight: 600, color: P.faint, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
             Further reading — not cited above
           </div>
         )}
         {style === "bibtex" ? (
-          <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
+          <pre style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-mono)", color: P.ink2, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatted}</pre>
         ) : (
-          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: P.ink, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
+          <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: P.ink, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word", fontFamily: "var(--cb-font)" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
             .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
             .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
         )}
@@ -7007,8 +7024,8 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
             {citeLabel && (domain || doiHref) && <span style={{ opacity: 0.4 }}>·</span>}
             {doiHref && (
               <a href={doiHref} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                title="Open this paper via DOI"
-                style={{ color: accent, textDecoration: "none", overflowWrap: "anywhere", wordBreak: "break-word", fontVariantNumeric: "tabular-nums" }}>
+                title="Open this paper via DOI" className="cb-mono"
+                style={{ color: accent, textDecoration: "none", overflowWrap: "anywhere", wordBreak: "break-word" }}>
                 doi:{doi}
               </a>
             )}
@@ -7019,24 +7036,19 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor }
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{domain}</span><span style={{ flexShrink: 0 }}>↗</span>
               </a>
             )}
-            <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`} className="cb-bibentry-copy"
-              style={{ minHeight: 44,
-                marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
-                fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", fontWeight: 600,
-                color: copiedOne ? STATUS.good : P.faint, padding: "2px 4px",
-                opacity: hover || copiedOne ? 1 : 0, transition: "opacity 150ms ease, color 150ms ease",
-              }}
-              onMouseEnter={(e) => { if (!copiedOne) e.currentTarget.style.color = accent; }}
-              onMouseLeave={(e) => { if (!copiedOne) e.currentTarget.style.color = P.faint; }}>
-              {copiedOne ? "\u2713 Copied" : "Copy"}
-            </button>
           </div>
         )}
         {source.tldr && (
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em" }}>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
             {source.tldr}
           </div>
         )}
+      </div>
+      <div>
+        <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`} className="cb-bibentry-copy cb-textbtn"
+          style={{ minHeight: 44, padding: "6px 0", whiteSpace: "nowrap", color: copiedOne ? STATUS.good : undefined }}>
+          {copiedOne ? "\u2713 Copied" : "Copy"}
+        </button>
       </div>
     </li>
   );
@@ -8903,11 +8915,18 @@ function ToolbarOverflow({ P, accent, items }) {
   if (!visible.length) return null;
   return (
     <div ref={wrapRef} style={{ position: "relative" }}>
-      <ToolChip
-        label="More" icon="chevronDown" title="More answer actions"
-        accent={accent} P={P} active={open} expanded={open}
+      {/* Pass 2: the overflow trigger is a quiet text action like the rest
+          of the toolbar — no pill. */}
+      <button type="button" className="cb-textbtn" aria-expanded={open} aria-haspopup="menu"
+        aria-label="More answer actions"
         onClick={() => setOpen((v) => !v)}
-      />
+        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+      >
+        More
+        <span style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }}>
+          <Icon name="chevronDown" size={12} />
+        </span>
+      </button>
       {open && (
         <div role="menu" aria-label="More answer actions" className="cb-fade"
           style={{
@@ -8991,18 +9010,14 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, paddingTop: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {r.cites.map((c) => (
+                /* Pass 2: citation identity — the same bracketed mark as in
+                   the answer body, so a reference reads as one thing
+                   everywhere. Opens the paper. */
                 <button key={c} type="button" onClick={() => onOpenPaper(c)} title={`Open paper ${c}: ${(t.sources[c - 1] && t.sources[c - 1].title) || ""}`}
                   aria-label={`Open paper ${c}`}
-                  style={{
-                    minWidth: 30, height: 30, padding: "0 8px", borderRadius: 9999,
-                    border: `1px solid ${P.line2}`, background: "transparent",
-                    color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 700,
-                    fontFamily: "var(--cb-font)", cursor: "pointer",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}
-                >{c}</button>
+                  className="cb-cite"
+                  style={{ color: accent }}
+                >[{c}]</button>
               ))}
             </div>
           </div>
@@ -9015,22 +9030,38 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
   );
 }
 
-function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationStyle, onOpenPaper, onOpenVideo, onRetry, onAdjustQuery, busyNow, done }) {
+function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationStyle, onOpenPaper, onOpenVideo, onRetry, onAdjustQuery, busyNow, done, activeCite = 0, onActivateCite = () => {} }) {
   const sources = t.sources || [];
   const videos = t.videos || [];
   /* Explicit false = the /api/videos fetch for this turn is still in flight.
      Undefined (older cached turns) counts as settled — never a stuck loader. */
   const videosPending = t.videosSettled === false;
+  /* Pass 2: the bibliography shares the rail's relationship encoding —
+     one deterministic classification for where each paper stands, used by
+     both surfaces so supports/qualifies/conflicts never disagree. */
+  const venn = useMemo(() => {
+    try {
+      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck });
+    } catch { return { agree: [], disagree: [], middle: [], unclear: [] }; }
+  }, [t.answer, t.sources, t.factCheck]);
+  const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
   return (
     <AnswerSection
       eyebrow={`Evidence · ${sources.length} source${sources.length === 1 ? "" : "s"} · ${videos.length} video${videos.length === 1 ? "" : "s"}`}
       P={P} accent={accent}
       right={(
-        <SegControl value={tab} onChange={setTab} P={P} accent={accent} ariaLabel="Evidence views"
-          options={[
-            { id: "biblio", label: `Bibliography · ${sources.length}` },
-            { id: "videos", label: `Videos · ${videos.length}` },
-          ]} />
+        /* Pass 2: underlined editorial tabs, not the segmented pill
+           control. Same two views, same counts. */
+        <div className="cb-tabrow" role="tablist" aria-label="Evidence views">
+          <button type="button" role="tab" className="cb-tab" data-active={tab === "biblio" ? "true" : undefined}
+            aria-selected={tab === "biblio"} onClick={() => setTab("biblio")}>
+            Bibliography · {sources.length}
+          </button>
+          <button type="button" role="tab" className="cb-tab" data-active={tab === "videos" ? "true" : undefined}
+            aria-selected={tab === "videos"} onClick={() => setTab("videos")}>
+            Videos · {videos.length}
+          </button>
+        </div>
       )}>
       {tab === "videos" ? (
         videos.length > 0 ? (
@@ -9049,9 +9080,175 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
         )
       ) : (
         <Bibliography bare sources={sources} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle}
-          onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery} />
+          onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery}
+          relOf={relOf} activeCite={activeCite} onActivateCite={onActivateCite} />
       )}
     </AnswerSection>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PASS 2 — ANSWER DIAGNOSTICS + EVIDENCE RAIL
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Answer diagnostics: the honest replacement for the bare "Degraded" chip.
+   A disclosure, not a badge — it says which databases answered, how long
+   the answer took, how many papers were retrieved vs cited, and which
+   pipeline stages failed, in plain language, all from the turn's real
+   data. Never renders an invented number: every row is conditional on the
+   backend having supplied it. */
+function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
+  const dbOutcomes = Array.isArray(t.sourcesQueried) ? t.sourcesQueried : null;
+  const stages = Array.isArray(t.stageHealth) ? t.stageHealth : [];
+  const failedStages = stages.filter((s) => s && !s.ok);
+  const okCount = dbOutcomes ? dbOutcomes.filter((x) => x.ok).length : 0;
+  const missing = dbOutcomes ? dbOutcomes.filter((x) => !x.ok).map((x) => x.source).filter(Boolean) : [];
+  const cited = (t.sources || []).length;
+  const withheld = t.relevanceGatedOut || 0;
+  const retrieved = cited + withheld;
+
+  const rows = [];
+  if (dbOutcomes && dbOutcomes.length > 0) {
+    rows.push({
+      k: "Databases",
+      v: t.coverageNote ||
+        `${okCount} of ${dbOutcomes.length} answered` +
+        (missing.length ? ` — no answer from ${missing.join(", ")}` : ""),
+    });
+  }
+  if (typeof t.answerSeconds === "number" && t.answerSeconds > 0) {
+    const s = t.answerSeconds;
+    rows.push({ k: "Timing", v: `Answered in ${s < 10 ? s.toFixed(1) : Math.round(s)} second${s === 1 ? "" : "s"}` });
+  }
+  rows.push({
+    k: "Sources",
+    v: withheld > 0
+      ? `Retrieved ${retrieved} relevant paper${retrieved === 1 ? "" : "s"} · cited ${cited} · ${withheld} withheld as tangential`
+      : `Cited ${cited} paper${cited === 1 ? "" : "s"}`,
+  });
+  if (t.synthesisMode === "extractive") {
+    rows.push({ k: "Synthesis", v: "Assembled deterministically from the retrieved papers — no AI synthesis ran for this answer." });
+  }
+  for (const s of failedStages) {
+    const ms = typeof s.ms === "number" && s.ms > 0 ? ` after ${Math.round(s.ms)} ms` : "";
+    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage did not complete${ms} — the answer was built without it.` });
+  }
+  if (t.degraded && failedStages.length === 0) {
+    rows.push({ k: "Pipeline", v: "Built under degraded conditions — part of the pipeline did not complete." });
+  }
+  if (!rows.length) return null;
+
+  const issueCount = missing.length + failedStages.length + (t.degraded ? 1 : 0);
+  return (
+    <details className="cb-diag" style={{ marginTop: 6, borderTop: `1px solid ${P.line}` }}>
+      <summary>
+        <span className="cb-kicker">
+          Answer diagnostics{issueCount > 0 ? ` · ${issueCount} thing${issueCount === 1 ? "" : "s"} to know` : ""}
+        </span>
+      </summary>
+      <div style={{ padding: "2px 0 6px", display: "grid", gap: 10 }}>
+        {rows.map((r, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
+            <span className="cb-kicker">{r.k}</span>
+            <span style={{ fontSize: 13, color: P.ink2, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>{r.v}</span>
+          </div>
+        ))}
+        {interactive && onShowAutopsy && (
+          <div>
+            <button type="button" className="cb-textbtn" onClick={() => onShowAutopsy(t)} style={{ padding: "6px 0", minHeight: 0 }}>
+              How this was built
+            </button>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+/* The evidence index: the answer's sources as ledger rows in a sticky
+   right rail (desktop). Same numbering as the answer's citations and the
+   bibliography — one source, one number, everywhere. Rows carry data-rel
+   from the shared venn classification (supports/qualifies/conflicts) and
+   light up (data-active) when their citation is activated in the answer;
+   activating a row's number lights the citation and scrolls to the claim.
+   No confidence badges: study design and direction in plain text. */
+function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, onOpenPaper }) {
+  const sources = t.sources || [];
+  const [collapsed, setCollapsed] = useState(false);
+  /* The parent only mounts the rail when sources exist; an empty array
+     simply renders no rows rather than a null-returning guard. */
+  const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
+  const claimsOf = (n) => (claimSink || []).filter((c) => c.cites.includes(n)).map((c) => c.claim);
+  const doiOf = (s) => String(s.doi || s.DOI || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
+  return (
+    <aside className="cb-ev-rail" aria-label="Evidence index">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+        <span className="cb-kicker">Evidence index · {sources.length}</span>
+        <button type="button" className="cb-textbtn" style={{ padding: "6px 0", minHeight: 0 }}
+          aria-expanded={!collapsed} onClick={() => setCollapsed((v) => !v)}>
+          {collapsed ? "Show" : "Hide"}
+        </button>
+      </div>
+      {!collapsed && sources.map((s, i) => {
+        const n = i + 1;
+        const rel = relOf(n);
+        const claims = claimsOf(n);
+        const doi = doiOf(s);
+        const doiHref = /^10\.\d{4,9}\//.test(doi) ? "https://doi.org/" + doi : null;
+        const meta = [s.authors, s.year].filter(Boolean).join(" · ");
+        const claimsLine = s.uncited
+          ? "Not cited by the answer"
+          : claims.length
+            ? `${rel === "conflicts" ? "Contested in" : "Supports"} claim${claims.length === 1 ? "" : "s"} ${claims.join(", ")}`
+            : "Cited by the answer";
+        const why = s.uncited
+          ? (s.uncitedReason || "Listed for further reading.")
+          : (s.studyType ? s.studyType + " · " : "") +
+            (rel === "conflicts"
+              ? "its findings push against the answer's claims — see where the literature disagrees."
+              : rel === "qualifies"
+                ? "it both supports and complicates the answer — read it against the surrounding claims."
+                : "its findings run with the answer's claims.");
+        return (
+          <div key={n} className="cb-ledger-row" data-rel={rel} data-active={activeCite === n ? "true" : undefined}>
+            <button type="button" className="cb-ledger-num" onClick={() => onActivate(n)}
+              title={`Show source ${n} in the answer`} aria-label={`Source ${n}: show in the answer`}
+              style={{ background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
+              {n}
+            </button>
+            <div style={{ minWidth: 0 }}>
+              {(s.retracted || s.concern) && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: s.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+                  {s.retracted ? "Retracted" : "Expression of concern"}
+                </div>
+              )}
+              <div style={{ fontSize: 14, fontWeight: 600, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{s.title}</div>
+              {meta && <div style={{ fontSize: 12, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>{meta}</div>}
+              <div className="cb-kicker" style={{ marginTop: 7 }}>{claimsLine}</div>
+              <div style={{ fontSize: 12, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
+                <span style={{ color: P.faint }}>Why this paper is here: </span>{why}
+              </div>
+              {doiHref && (
+                <div style={{ marginTop: 6 }}>
+                  <a href={doiHref} target="_blank" rel="noreferrer" className="cb-mono"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ fontSize: 11, color: accent, textDecoration: "none", overflowWrap: "anywhere" }}>
+                    doi:{doi}
+                  </a>
+                </div>
+              )}
+            </div>
+            <div>
+              <button type="button" className="cb-textbtn" style={{ padding: "6px 0", minHeight: 0, whiteSpace: "nowrap" }}
+                onClick={() => onOpenPaper(n)}>
+                Open paper
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </aside>
   );
 }
 
@@ -9122,7 +9319,12 @@ function EvidenceVideoModal({ P, accent, video, close }) {
 }
 
 function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null }) {
-  const shown = useTypewriter(t.answer, typewriter && t.fresh);
+  /* Pass 2 (2026-09-17): answers arrive as completed documents — the
+     animated typing is retired from the answer surface, so `shown` is the
+     full answer text and `done` is settled on mount. (The `typewriter` prop
+     is still accepted so callers don't change; it no longer does anything
+     here. The Settings toggle was removed with it.) */
+  const shown = t.answer || "";
   /* Failure model, derived from the turn's real data — never invented.
      synthesisMode "none" is the backend's explicit "no synthesis produced"
      flag (every model rate-limited/unavailable, no extractive fallback).
@@ -9136,8 +9338,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const allDbFailed = !!(dbOutcomes && dbOutcomes.length > 0 && dbOutcomes.every((x) => !x.ok));
   const connFailed = synthFailed && allDbFailed;
   // A failed synthesis isn't streamed: sections render immediately, and the
-  // gap finder stays off the fallback boilerplate.
-  const done = synthFailed ? true : shown === t.answer;
+  // gap finder stays off the fallback boilerplate. (Pass 2: nothing streams
+  // anymore — the answer is always the completed document.)
+  const done = true;
   // Evidence section: the table / network / arc live inline under the
   // answer now (modals demoted). The overflow menu and the jump rail reach
   // them; the band carries its own tabs.
@@ -9148,6 +9351,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const reducedMotion = useReducedMotion();
   const answerTopRef = useRef(null);
   const bandSectionRef = useRef(null);
+  const evMapRef = useRef(null);
+  const railHeadRef = useRef(null);
   const fcSectionRef = useRef(null);
   const vennSectionRef = useRef(null);
   const compareSectionRef = useRef(null);
@@ -9162,13 +9367,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   );
   // Venn readiness, computed the same way VennDiagram decides to render —
   // the jump rail's status must match the section, not approximate it.
-  const vennReady = useMemo(() => {
-    if (!done) return false;
+  // Pass 2: the classification itself is hoisted (`venn`) because the
+  // evidence ledger reuses it for data-rel (supports/qualifies/conflicts)
+  // — one deterministic source of truth for where each paper stands.
+  const venn = useMemo(() => {
     try {
-      const m = classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck });
-      return (m.agree.length + m.disagree.length + m.middle.length) >= 2;
-    } catch { return false; }
-  }, [done, t.answer, t.sources, t.factCheck]);
+      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck });
+    } catch { return { agree: [], disagree: [], middle: [], unclear: [] }; }
+  }, [t.answer, t.sources, t.factCheck]);
+  const vennReady = done && (venn.agree.length + venn.disagree.length + venn.middle.length) >= 2;
   // Retry is a real re-search through the ask pipeline — the same call the
   // suggestion chips make. Adjust runs a new query the reader typed.
   const retrySearch = () => { if (onRelated) onRelated(t.q); };
@@ -9223,7 +9430,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   // Only fires once the text has stopped changing (see the comment at the
   // render site): `done` flips true when the typewriter has caught up, or
   // immediately when the typewriter is off.
-  const answerRevealRef = useGsapReveal([done ? t.answer : null], { y: 12, stagger: 0.045, duration: 0.7 });
+  /* Pass 2: answers appear as completed documents — no paragraph-by-
+     paragraph stagger (the old Commit-55 reveal made the answer feel
+     composed rather than pasted). The ref stays so citation-scroll targets
+     keep working. */
+  const answerRevealRef = useRef(null);
   /* Which citation the reader is currently following. Persists until they
      choose another or press Escape, so after reading a source they can find
      the sentence it belonged to. Local to the turn: two answers on screen
@@ -9247,6 +9458,21 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       ...(done && interactive && answerText.length > 40 ? [{
         id: "listen", label: listenOpen ? "Hide listen" : "Listen", icon: "mic",
         hint: listenOpen ? "Open" : undefined, onClick: () => setListenOpen((v) => !v),
+      }, {
+        /* Pass 2: the Flowchart and Paper chips left the primary toolbar —
+           both live here now, nothing lost. Paper composes the formal
+           academic reformat (buildAcademicPaperBlocks) first, then prints —
+           a real reformat of what's on screen, not a second AI call. */
+        id: "flowchart", label: "Flowchart", icon: "flowchart", hint: "diagram",
+        onClick: () => onShowFlowchart(t),
+      }, {
+        id: "paper", label: generatingPaper ? "Composing paper…" : "Paper / print", icon: "printer",
+        onClick: () => {
+          if (generatingPaper) return;
+          if (paperReady) { window.print(); return; }
+          setGeneratingPaper(true);
+          setTimeout(() => { setGeneratingPaper(false); setPaperReady(true); }, 650);
+        },
       }] : []),
       { divider: true },
       ...(done && interactive && sources.length >= 2 ? [
@@ -9300,37 +9526,51 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
     window.print();
     return () => { clearTimeout(fallback); window.removeEventListener("afterprint", cleanup); };
   }, [paperReady]);
+  /* Pass 2 — the claim spine. Cited paragraphs record their claim and
+     citation indices into claimSink while the article body renders; the
+     evidence rail (same render pass, below) inverts the spine for its
+     "Supports claims 1, 2" lines. A fresh array every render, built from
+     the settled answer text, so it's deterministic, never stale. */
+  const claimSink = [];
+  const minRead = t.answer ? Math.ceil(t.answer.split(/\s+/).length / 238) : 0;
+  const onActivateCite = (n) => { setActiveCite(n); revealClaim(n); };
   return (
     <div style={S.turn} className="cb-rise">
-      {/* Query label — quiet, in the body face */}
-      <div style={S.qLabel}>
-        <span style={S.qDot} />
-        <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em" }}>Inquiry</span>
+      {/* Pass 2 — the answer header: the question as a serif title, then one
+          quiet mono metadata line (date · cited papers · databases · save
+          state). No decorative eyebrows. */}
+      <div style={{ marginBottom: 28 }}>
+        <h2 className="cb-serif" style={{ ...S.headline, fontFamily: "var(--cb-serif)", fontWeight: 600, marginBottom: 0 }}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
+        <div className="cb-mono" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: P.faint, marginTop: 12 }}>
+          <span>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+          <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+          <span>{sources.length} cited paper{sources.length === 1 ? "" : "s"}</span>
+          {dbOutcomes && dbOutcomes.length > 0 && (
+            <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>{dbOutcomes.filter((x) => x.ok).length}/{dbOutcomes.length} databases</span></>
+          )}
+          {/* Save-state: Saving… / Saved / Couldn't save · Retry — in the
+              metadata line so a storage failure is visible now, not
+              tomorrow. Only rendered when the host passes saveState (the
+              live thread); read-only contexts like history detail omit it. */}
+          {saveState && (
+            <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+            {saveState === "saving" && <span>Saving…</span>}
+            {saveState === "saved" && <span>Saved</span>}
+            {saveState === "error" && (
+              <button onClick={retrySave || (() => {})} className="cb-mono" style={{ fontSize: 12, color: statusBad(P), background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline", minHeight: 44 }}>
+                Couldn't save · Retry
+              </button>
+            )}</>
+          )}
+        </div>
       </div>
-      <h2 style={S.headline}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
-      {/* Save-state: Saving… / Saved / Couldn't save · Retry — beside the
-          title so a storage failure is visible now, not tomorrow. Only
-          rendered when the host passes saveState (the live thread); read-only
-          contexts like history detail omit it. */}
-      {saveState && (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, marginBottom: 2 }}>
-        {saveState === "saving" && (
-          <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Saving…</span>
-        )}
-        {saveState === "saved" && (
-          <span style={{ fontSize: FONT_SIZES.micro, color: withAlpha(STATUS.good, 0.8), fontFamily: "var(--cb-font)" }}>Saved</span>
-        )}
-        {saveState === "error" && (
-          <button onClick={retrySave || (() => {})} style={{ fontSize: FONT_SIZES.micro, color: statusBad(P), fontFamily: "var(--cb-font)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
-            Couldn't save · Retry
-          </button>
-        )}
-      </div>
-      )}
-      {/* Answer paper — matte document surface (see S.answerCard). The glass
-          panel and specimen ticks are retired: the answer is a document,
-          not a dashboard widget. */}
-      <div style={S.answerCard} className="cb-answer-enter">
+      {/* Pass 2 — the answer surface: one grid, an article column plus a
+          sticky evidence rail. The article owns the document material
+          (fully opaque paper); the rail owns the evidence index. On narrow
+          screens the grid collapses to a single column and the evidence
+          index follows the article in reading order. */}
+      <div className="cb-answer-grid">
+        <article style={S.answerCard} className="cb-answer-enter cb-article">
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -9349,120 +9589,33 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 10, marginBottom: 18, paddingBottom: 14, borderBottom: `1px solid ${P.line}` }}>
             {t.sources && t.sources.length > 0 ? (
               <div>
-                {/* The answer's byline — one quiet line of text, not a row of
-                    pills. "12 sources · 3 min read · answered in 4.2s" reads
-                    like a magazine folio; the old accent pill read like a
-                    SaaS dashboard. */}
-                <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", color: P.faint, textTransform: "uppercase", marginBottom: 7 }}>Synthesized answer</div>
-                <div className="sources-badge" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                  <span style={{ color: P.ink2, fontWeight: 600 }}>{t.sources.length} source{t.sources.length === 1 ? "" : "s"}</span>
-                  {t.answer && <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>{Math.ceil(t.answer.split(/\s+/).length / 238)} min read</span></>}
-                  {typeof t.answerSeconds === "number" && t.answerSeconds > 0 && (
-                    <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>
-                      This was answered in {t.answerSeconds < 10 ? t.answerSeconds.toFixed(1) : Math.round(t.answerSeconds)} second{t.answerSeconds === 1 ? "" : "s"}
-                    </span></>
-                  )}
-                {/* Retrieval coverage, from the server's record of which
-                    databases actually settled — not a fixed list, and not a
-                    guess. Rendered only when the backend supplied it, so an
-                    older cached response simply omits it rather than
-                    inventing a number. Hovering names the ones that did not
-                    answer, which is the part a researcher would want. */}
-                {Array.isArray(t.sourcesQueried) && t.sourcesQueried.length > 0 && (() => {
-                  const ok = t.sourcesQueried.filter((x) => x.ok);
-                  const missing = t.sourcesQueried.filter((x) => !x.ok).map((x) => x.source);
-                  // NEXT-GEN: when databases failed, the backend ships an
-                  // explicit coverage note ("2 of 15 didn't respond; answer
-                  // built from 13") — show it verbatim instead of the bare
-                  // fraction, which understates incomplete coverage.
-                  const label = t.coverageNote || `${ok.length}/${t.sourcesQueried.length} databases`;
-                  return (
-                    <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span
-                      title={t.coverageNote || (missing.length ? `Did not answer: ${missing.join(", ")}` : "Every database answered")}
-                      style={{ fontSize: FONT_SIZES.caption, color: missing.length ? STATUS.warn : P.faint, fontFamily: "var(--cb-font)", cursor: missing.length ? "help" : "default" }}
-                    >
-                      {label}
-                    </span></>
-                  );
-                })()}
-                {/* NEXT-GEN: when any pipeline stage failed (or the answer is
-                    the no-results terminal state), say so in one chip rather
-                    than letting the answer look fully healthy. */}
-                {t.degraded && (
-                  <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span
-                    title={(t.stageHealth || []).filter((s) => !s.ok).map((s) => `${s.name}: failed`).join("; ") || "Built under degraded conditions"}
-                    style={{ fontSize: FONT_SIZES.caption, color: STATUS.warn, fontFamily: "var(--cb-font)", cursor: "help" }}
-                  >
-                    Degraded
-                  </span></>
-                )}
-                {/* Query autopsy: the pipeline's own record of this answer.
-                    A quiet mono link, not a button — it opens a drawer, it
-                    doesn't act on anything. */}
-                {interactive && (
-                  <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onShowAutopsy(t); }}
-                    title="How this answer was built"
-                    style={{
-                      background: "none", border: "none", padding: 0, cursor: "pointer",
-                      fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)",
-                      textDecoration: "underline", textUnderlineOffset: 3, textDecorationColor: withAlpha(P.faint, 0.5),
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = accent; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
-                  >
-                    How this was built
-                  </button></>
-                )}
-                </div>
+                {/* Pass 2: the article's label is operational — "Answer",
+                    reading time, cited-paper count. The database coverage
+                    and pipeline honesty now live in the Answer diagnostics
+                    disclosure below the toolbar; they are no longer a badge
+                    row. */}
+                <span className="cb-kicker" style={{ fontSize: 11 }}>Answer{minRead > 0 ? ` · ${minRead} min read` : ""} · {t.sources.length} cited paper{t.sources.length === 1 ? "" : "s"}</span>
               </div>
             ) : <span />}
-            {/* v28: icon-first, one row that never wraps internally —
-                replaces the old flex-wrap row of icon+label buttons
-                (Copy answer / Share / Print / Source network / Timeline /
-                Illustrate) that reflowed onto two or three ragged lines once
-                all six were present. Every button keeps its meaning via
-                `title` + `aria-label` instead of visible text — that's the
-                actual trade-off of going icon-only, called out here rather
-                than left for someone to discover by accident. Requested set
-                is Copy/Share/PDF/Listen/Illustrate; Source network and
-                Timeline were real existing features (not in the requested
-                bracket) kept appended at the end rather than silently
-                dropped. v34: no longer docked via `position: absolute` — see
-                the wrapping row's own comment just above — so it now sits as
-                a normal flex item that wraps below the badge instead of
-                sitting on top of it.
-                Redesign: one quiet strip of labeled hairline chips — every
-                action says its name instead of hiding behind a tooltip.
-                Clusters breathe with 18px gaps; the divider bars are gone. */}
-            {/* The toolbar shows five labeled actions: Copy, Share, Paper,
-                Diagram, and a labeled More menu. Everything else — Listen,
-                Table, Network, Arc, Open questions, Useful?/Report — lives
-                one tap away in the menu; Table/Network/Arc also remain in
-                the comparison section itself, and Open questions is only in
-                the menu when gaps actually surfaced. */}
+            {/* Pass 2: the toolbar is a quiet strip of text actions — Copy
+                answer, Share, Evidence index — plus the More menu. No
+                pills, no icon-only buttons. Print / Paper / Diagram / Listen
+                / Table / Network live under More. */}
             {done && t.answer && (
               <>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()} role="toolbar" aria-label="Answer actions">
-                <ToolChip
+              <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()} role="toolbar" aria-label="Answer actions">
+                <button type="button" className="cb-textbtn"
                   title={copiedAnswer ? "Copied!" : "Copy answer"}
-                  label={copiedAnswer ? "Copied" : "Copy"}
-                  icon={copiedAnswer ? "check" : "copy"}
-                  active={copiedAnswer}
-                  accent={accent} P={P}
                   onClick={() => {
                     copyToClipboard(t.answer, "Answer copied").then((ok) => {
                       if (ok) { setCopiedAnswer(true); setTimeout(() => setCopiedAnswer(false), 1500); }
                     });
                   }}
-                />
-                <ToolChip
+                >
+                  {copiedAnswer ? "Copied" : "Copy answer"}
+                </button>
+                <button type="button" className="cb-textbtn"
                   title={linkCopied ? "Link copied!" : "Share"}
-                  label={linkCopied ? "Link copied" : "Share"}
-                  icon={linkCopied ? "check" : "link"}
-                  active={linkCopied}
-                  accent={accent} P={P}
                   onClick={async () => {
                     const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
                     // Prefer the native share sheet (real "sharing" — Messages,
@@ -9478,38 +9631,19 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                       if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
                     });
                   }}
-                />
-                {/* v5: there was already a full @media print stylesheet in this
-                    file — quietly supporting the design goal stated in this
-                    file's own header comment ("results read like a premium
-                    research brief — you'd print this") — with no button
-                    anywhere that surfaced it. A user would've had to already
-                    know to hit Ctrl/Cmd+P.
-                    v36: rather than print the live app chrome as-is, this now
-                    reflows the same answer into a formal paper layout first
-                    (see buildAcademicPaperBlocks) — a real reformat of what's
-                    already on screen, not a second AI call. */}
-                <ToolChip
-                  title={generatingPaper ? "Generating paper…" : "Generate paper / Print"}
-                  label={generatingPaper ? "Composing…" : "Paper"}
-                  icon={generatingPaper ? "refresh" : "printer"}
-                  active={generatingPaper}
-                  accent={accent} P={P}
+                >
+                  {linkCopied ? "Link copied" : "Share"}
+                </button>
+                {/* Evidence index: scrolls the sticky rail (or, on mobile,
+                    the evidence section below the article) into view. */}
+                <button type="button" className="cb-textbtn" title="Jump to the evidence index"
                   onClick={() => {
-                    if (generatingPaper || paperReady) return;
-                    setGeneratingPaper(true);
-                    setTimeout(() => { setGeneratingPaper(false); setPaperReady(true); }, 650);
+                    const el = railHeadRef && railHeadRef.current;
+                    if (el) el.scrollIntoView({ block: "start", behavior: cbMotionOff() ? "auto" : "smooth" });
                   }}
-                />
-                {interactive && t.answer && t.answer.length > 40 && (
-                  <ToolChip
-                    title="Flowchart: turn this answer into a diagram"
-                    label="Diagram"
-                    icon="flowchart"
-                    accent={accent} P={P}
-                    onClick={() => onShowFlowchart(t)}
-                  />
-                )}
+                >
+                  Evidence index
+                </button>
                 <ToolbarOverflow P={P} accent={accent} items={overflowItems} />
               </div>
               {listenOpen && done && t.answer && t.answer.length > 40 && (
@@ -9524,16 +9658,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             )}
           </div>
         )}
-        {/* Commit 55 — the answer arrives section by section, on the same
-            GSAP gesture as the Intro and every page view. The whole card
-            already faded in as one block (cbEnter), which is fine for a
-            card and wrong for a document: an answer is read top-down, and
-            staggering its paragraphs is what makes it feel like it's being
-            composed rather than pasted. Keyed on the answer text so it
-            replays for each new answer but NOT on every re-render, and
-            skipped entirely while the typewriter is still streaming (the
-            text is changing every few milliseconds; animating each keystroke
-            would be strobing, not motion). */}
+        {/* Pass 2: the honest byline. Databases searched (full or partial,
+            failed names included), timing, retrieved-vs-cited counts, and
+            pipeline failures in plain language — from the turn's real data
+            only, never invented. Replaces the bare "Degraded" chip. */}
+        <AnswerDiagnostics t={t} P={P} interactive={interactive} onShowAutopsy={onShowAutopsy} />
         {/* The rail's "Answer" jump lands here. */}
         <div ref={answerTopRef} style={{ scrollMarginTop: 130 }} />
         <div ref={answerRevealRef} className="cb-answer-body">
@@ -9572,11 +9701,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
-                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
+                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}
               </div>
             </>
           ) : (
-            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)
+            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)
           )}
         </div>
         {done && (
@@ -9603,7 +9732,6 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 Sign in for AI-synthesized answers
               </button>
             )}
-            <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           </div>
         )}
         {interactive && (hoverCite || activeCite) ? (
@@ -9616,6 +9744,19 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           />
         ) : null}
         {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
+        </article>
+        {/* Pass 2 — the evidence index: the answer's sources as ledger rows
+            in a sticky right rail. One source, one number, everywhere — the
+            rail, the bibliography below, and the answer's citations all
+            share the same numbering. On mobile this section follows the
+            article in reading order. */}
+        {done && t.answer && sources.length > 0 && (
+          <div ref={railHeadRef} style={{ scrollMarginTop: 130, minWidth: 0 }}>
+            <EvidenceRail t={t} P={P} accent={accent} venn={venn} claimSink={claimSink}
+              activeCite={activeCite} onActivate={onActivateCite}
+              onOpenPaper={(n) => onOpenPaper(t, n)} />
+          </div>
+        )}
       </div>
       {/* StressTest and EvidenceStructure now live inside the "How this was
           built" drawer (QueryAutopsy) — they're autopsy material, not
@@ -9628,7 +9769,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           band — the bridge from reading to verifying. Only when the answer
           is settled; a streaming map would strobe. */}
       {done && t.answer && (
-        <EvidenceMap t={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
+        <div ref={evMapRef} style={{ scrollMarginTop: 130 }}>
+          <EvidenceMap t={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
+        </div>
       )}
       {/* Jump rail — sticky under the answer card, mono labels with live
           ready/empty/failed status from the turn's real data. Buttons, so
@@ -9642,7 +9785,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <EvidenceBand t={t} P={P} accent={accent} tab={evTab} setTab={setEvTab}
             citationStyle={citationStyle} setCitationStyle={setCitationStyle}
             onOpenPaper={(n) => onOpenPaper(t, n)} onOpenVideo={setOpenVideo}
-            onRetry={retrySearch} onAdjustQuery={adjustQuery} busyNow={busyNow} done={done} />
+            onRetry={retrySearch} onAdjustQuery={adjustQuery} busyNow={busyNow} done={done}
+            activeCite={activeCite} onActivateCite={onActivateCite} />
         </div>
       )}
       {/* Fact-check — always a section, never a silent gap. No result is an
@@ -21447,7 +21591,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Let people find me in search", "privacy", "privacy discoverable hidden invisible directory find people search"],
     ["Show my institution on my profile", "privacy", "privacy affiliation university college hide institution"],
     ["Who can start a conversation with you", "privacy", "privacy dm direct message strangers block messages"],
-    ["Animated typing", "answers", "typewriter reveal progressive"],
     ["Citation format", "answers", "apa mla chicago vancouver bibtex reference style"],
     ["Theme", "appearance", "dark light palette colour color"],
     ["Accent color", "appearance", "colour highlight brand"],
@@ -21797,7 +21940,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
               } />
               <Row label="Check answers against their sources" desc="Before showing an answer, go back through it and confirm each claim really appears in the papers it cites. Adds a few seconds." control={<Switch on={factCheck} onChange={(v) => { sfx(); setFactCheck(v); }} label="Fact check pass" />} />
-              <Row label="Animated typing" desc="Reveal the answer a few words at a time instead of all at once" control={<Switch on={typewriter} onChange={setTypewriter} label="Typing animation" />} />
+              {/* Pass 2: the "Animated typing" row was retired with the
+                  typewriter — answers render as completed documents. */}
               <Row label="Citation format" control={
                 <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
               } last />
@@ -22712,13 +22856,9 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        of clearance, mirroring pageViewInner's treatment. */
     thread: { minWidth: 0, flex: 1, paddingTop: isMobile ? 36 : 0 },
     turn: { marginBottom: isMobile ? 40 : 56 },
-    qLabel: {
-      fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.14em",
-      color: accent,
-      marginBottom: isMobile ? 16 : 20, display: "flex", alignItems: "center", gap: 8,
-      fontFamily: "var(--cb-font)",
-    },
-    qDot: { width: 4, height: 4, borderRadius: "50%", background: accent, boxShadow: `0 0 6px ${withAlpha(accent, 0.5)}` },
+    /* Pass 2: the "Inquiry" label + dot (qLabel/qDot) were retired — the
+       question now opens as a serif document title with a mono metadata
+       line, no decorative eyebrow. */
     headline: {
       /* The question is the document title, not the hero — the answer body
          below it is the hero of the page. Steps down from hero/display to
@@ -22740,13 +22880,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        field without any translucency. */
     answerCard: {
       position: "relative",
-      /* Dusty: the grey panel sits over the cinematic backdrop — let it
-         show through a little. Only the panel goes translucent; the text
-         painted on it stays fully opaque and legible. */
-      background: withAlpha(P.surface, 0.78),
+      /* Pass 2: the answer is a document on fully opaque paper. The old
+         0.78 translucency let the cinematic backdrop bleed through and
+         lowered text contrast; the article now sits on solid surface with
+         tighter padding, its measure set by the grid, not by padding. */
+      background: P.surface,
       border: `1px solid ${P.line}`,
       borderRadius: 6,
-      padding: isCompact ? (isMobile ? "20px 16px" : "32px 40px") : (isMobile ? "32px 24px" : "56px 64px"),
+      padding: isCompact ? (isMobile ? "18px 16px" : "24px 32px") : (isMobile ? "22px 18px" : "32px 40px"),
       lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
     },
@@ -29219,6 +29360,31 @@ button.cb-cite { min-height: 0; min-width: 0; }
 
 /* 44px touch-target floor for controls inside rebuilt surfaces. */
 .cb-tap { min-height: 44px; min-width: 44px; }
+
+/* ── Pass 2 — the answer surface: article + evidence ledger ──
+   Desktop: one row — a 680–760px article column beside a sticky
+   320–380px evidence rail. The article's measure is capped (68ch on the
+   body keeps sustained prose in the 45–75ch band); the rail sticks under
+   the header so the index is always beside the claims it documents.
+   Mobile: a single column — the evidence index follows the article in
+   reading order, and ledger rows collapse to number-over-content. */
+.cb-answer-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px;
+  align-items: start; max-width: 1180px;
+}
+.cb-article { max-width: 760px; min-width: 0; }
+.cb-ev-rail {
+  position: sticky; top: 96px; max-height: calc(100vh - 120px); overflow-y: auto;
+  min-width: 0; padding-right: 2px;
+  scrollbar-width: thin;
+}
+@media (max-width: 1023px) {
+  .cb-answer-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; max-width: 760px; }
+  .cb-article { max-width: none; }
+  .cb-ev-rail { position: static; max-height: none; overflow: visible; }
+  .cb-ledger-row { grid-template-columns: minmax(0,1fr); gap: 6px; }
+  .cb-ledger-num { padding-top: 0; }
+}
 
 /* Reduced motion: no animated typing caret. (The ambient-layer half of
    this rule retired with the ambient stack in the 2026-09-17 pass 1.) */

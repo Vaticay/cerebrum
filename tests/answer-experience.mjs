@@ -96,8 +96,8 @@ group("Evidence band — bibliography and videos as tabs, always rendered");
 
 await test("EvidenceBand exists with Bibliography / Videos tabs", () => {
   assert.match(appSrc, /function EvidenceBand/, "EvidenceBand missing");
-  assert.match(appSrc, /id: "biblio", label: `Bibliography/, "bibliography tab missing");
-  assert.match(appSrc, /id: "videos", label: `Videos/, "videos tab missing");
+  assert.match(appSrc, /Bibliography · \{sources\.length\}/, "bibliography tab missing");
+  assert.match(appSrc, /Videos · \{videos\.length\}/, "videos tab missing");
 });
 
 await test("band renders both sections bare (no nested section chrome)", () => {
@@ -109,6 +109,15 @@ await test("bibliography keeps its ledger contract", () => {
   assert.match(appSrc, /hanging-indent/i, "hanging-indent ledger note gone");
   assert.match(appSrc, /onOpen=\{\(\) => onOpenPaper\(i \+ 1\)\}/, "row-to-PaperDrawer wiring gone");
   assert.match(appSrc, /Jump to author/, "A–Z jump bar gone");
+  // Pass 2: rows are evidence-ledger rows with stable numbering — every row
+  // keeps its ref-${index} id (the old A–Z anchor used to REPLACE it past
+  // 12 sources, breaking citation jumps), carries data-rel from the shared
+  // venn classification, and syncs with the answer's citations.
+  assert.match(appSrc, /className="cb-ledger-row cb-fade cb-bibentry"/, "BibEntry not on the ledger-row contract");
+  assert.match(appSrc, /id=\{`ref-\$\{index\}`\}/, "stable ref id gone from BibEntry");
+  assert.match(appSrc, /data-rel=\{rel\}/, "BibEntry missing data-rel");
+  assert.match(appSrc, /data-active=\{active \? "true" : undefined\}/, "BibEntry missing citation sync");
+  assert.match(appSrc, /relOf=\{relOf\}/, "band not passing the shared relationship encoding");
 });
 
 await test("zero sources get an honest empty state with retry, not a silent gap", () => {
@@ -156,23 +165,27 @@ await test("rail jumps are buttons (touch works, no hover dependency)", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Toolbar — five labeled actions, everything else under More");
+group("Toolbar — text actions, everything else under More");
 
-await test("toolbar shows exactly Copy, Share, Paper, Diagram, More", () => {
+await test("toolbar is Copy answer, Share, Evidence index, More — no chips", () => {
   assert.match(appSrc, /<ToolbarOverflow P=\{P\} accent=\{accent\} items=\{overflowItems\} \/>/, "More menu missing from toolbar");
-  // The toolbar's five labeled actions: Copy, Share, Paper, Diagram, More.
-  assert.match(appSrc, /title=\{copiedAnswer \? "Copied!" : "Copy answer"\}/, "Copy chip missing from toolbar");
-  assert.match(appSrc, /title=\{linkCopied \? "Link copied!" : "Share"\}/, "Share chip missing from toolbar");
-  assert.match(appSrc, /label=\{generatingPaper \? "Composing…" : "Paper"\}/, "Paper chip missing from toolbar");
-  assert.match(appSrc, /label="Diagram"/, "Diagram chip missing from toolbar");
-  assert.match(appSrc, /label="More"/, "More menu chip missing from toolbar");
+  // Pass 2: three text actions + the More menu. No ToolChips on the bar.
+  assert.match(appSrc, /title=\{copiedAnswer \? "Copied!" : "Copy answer"\}/, "Copy answer action missing from toolbar");
+  assert.match(appSrc, /title=\{linkCopied \? "Link copied!" : "Share"\}/, "Share action missing from toolbar");
+  assert.match(appSrc, /Evidence index/, "Evidence index action missing from toolbar");
+  const barStart = appSrc.indexOf('aria-label="Answer actions"');
+  const barBlock = appSrc.slice(barStart, appSrc.indexOf("</div>", barStart));
+  assert.ok(/cb-textbtn/.test(barBlock), "toolbar not on the text-action contract");
+  assert.ok(!/<ToolChip/.test(barBlock), "ToolChip still on the primary toolbar");
+  assert.ok(!/generatingPaper \? "Composing…"/.test(barBlock), "Paper chip still on the primary toolbar");
+  assert.ok(!/label="Diagram"/.test(barBlock), "Diagram chip still on the primary toolbar");
   // The old crowded groups are gone from the bar.
   assert.ok(!/aria-label="Explore visually"/.test(appSrc), "Explore-visually group still on the bar");
   assert.ok(!/aria-label="Rate this answer"/.test(appSrc), "Rate-this-answer group still on the bar");
 });
 
 await test("demoted actions live in the overflow menu, still labeled", () => {
-  for (const id of ['id: "listen"', 'id: "table"', 'id: "network"', 'id: "arc"', 'id: "openquestions"', 'id: "yes"', 'id: "no"', 'id: "report"']) {
+  for (const id of ['id: "listen"', 'id: "table"', 'id: "network"', 'id: "arc"', 'id: "openquestions"', 'id: "yes"', 'id: "no"', 'id: "report"', 'id: "paper"', 'id: "flowchart"']) {
     assert.ok(appSrc.includes(id), `overflow menu missing ${id}`);
   }
 });
@@ -298,6 +311,66 @@ await test("videos tab shows the read head (not the empty verdict) while pending
 await test("absent flag counts as settled — cached turns never stick on a loader", () => {
   // Strict === false: undefined (older cached turns) is not pending.
   assert.ok(!/videosSettled == false[^=]/.test(appSrc) || /videosSettled === false/.test(appSrc), "loose pending check found");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Pass 2 — article + evidence ledger");
+
+await test("answer surface is an article plus a sticky evidence rail", () => {
+  assert.match(appSrc, /function EvidenceRail/, "EvidenceRail missing");
+  assert.match(appSrc, /\.cb-answer-grid/, "answer grid CSS missing");
+  assert.match(appSrc, /<article style=\{S\.answerCard\} className="cb-answer-enter cb-article"/, "article not on the answer-enter contract");
+  assert.match(appSrc, /\.cb-ev-rail/, "evidence rail CSS missing");
+  const railCssStart = appSrc.indexOf(".cb-ev-rail {");
+  const railCss = appSrc.slice(railCssStart, railCssStart + 200);
+  assert.ok(/position: sticky/.test(railCss), "rail is not sticky");
+  assert.match(appSrc, /function AnswerDiagnostics/, "AnswerDiagnostics missing");
+  assert.match(appSrc, /className="cb-diag"/, "diagnostics disclosure not on the contract");
+  assert.match(appSrc, /Answer diagnostics/, "diagnostics disclosure title missing");
+});
+
+await test("question is a serif title with a quiet mono metadata line", () => {
+  assert.match(appSrc, /className="cb-serif"/, "serif title missing");
+  assert.match(appSrc, /className="cb-mono"/, "mono metadata missing");
+  // The decorative "Inquiry" label + dot are retired (comments may mention it).
+  const code = appSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.ok(!/>Inquiry</.test(code), "Inquiry label still rendered");
+});
+
+await test("answer card is fully opaque paper", () => {
+  const start = appSrc.indexOf("answerCard: {");
+  const block = appSrc.slice(start, appSrc.indexOf("},", start));
+  assert.ok(!/withAlpha\(P\.surface/.test(block), "answer card still translucent");
+  assert.ok(/background: P\.surface/.test(block), "answer card not on solid surface");
+});
+
+await test("no bare Degraded chip — pipeline honesty lives in diagnostics", () => {
+  const code = appSrc.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(!/>\s*Degraded\s*</.test(code), "bare Degraded chip still rendered");
+  assert.match(appSrc, /Answer diagnostics/, "diagnostics replacement missing");
+});
+
+await test("claim spine: cited paragraphs record claims, rail inverts them", () => {
+  assert.match(appSrc, /className="cb-claim"/, "claim wrapper missing");
+  assert.match(appSrc, /className="cb-claim-refs"/, "claim reference gutter missing");
+  assert.match(appSrc, /claimSink\.push\(\{ claim: claimNo, cites: paraCites \}\)/, "claim spine not recorded");
+  assert.match(appSrc, /Supports claim/, "rail claim-support line missing");
+  assert.match(appSrc, /data-rel="supports"|data-rel="qualifies"|data-rel="conflicts"/, "ledger data-rel contract missing");
+  assert.match(appSrc, /onActivate=\{onActivateCite\}/, "rail row activation not wired");
+});
+
+await test("no animated typing: no stagger, no settings row", () => {
+  assert.match(appSrc, /const answerRevealRef = useRef\(null\)/, "answer stagger not retired");
+  const code = appSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.ok(!/label="Animated typing"/.test(code), "Animated typing settings row still rendered");
+});
+
+await test("evidence band tabs use the underlined tab contract", () => {
+  const start = appSrc.indexOf("function EvidenceBand");
+  const block = appSrc.slice(start, appSrc.indexOf("function stripFallbackChrome", start));
+  assert.ok(/className="cb-tabrow"/.test(block), "band not on the tabrow contract");
+  assert.ok(/className="cb-tab"/.test(block), "band not on the tab contract");
+  assert.ok(!/<SegControl/.test(block), "band still uses the segmented control");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
