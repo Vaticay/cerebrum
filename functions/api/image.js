@@ -359,6 +359,41 @@ async function fromCommonsVideo(query) {
   ));
 }
 
+// ── Commit: verify the winning URL before returning it ──────────────────
+// The client pre-decodes every still through `new Image()` so a dead URL
+// can never render as a broken glyph. But that probe fails SILENTLY: a URL
+// the provider metadata *says* is an image but that actually serves a
+// redirect to an HTML page (Europe PMC figure links do exactly this when
+// the figure file is missing from the article) was handed back as a "hit",
+// cached for 14 days, dropped by the client's probe, and the hero fell
+// back to a bare gradient panel — the biggest thing on the Trending page
+// was an empty dark box. So the endpoint now verifies the URL itself, and
+// walks the priority-ordered candidates until one actually resolves to the
+// media type it claims to be. Some origins reject HEAD, so a 405/501 gets
+// one ranged-GET second chance rather than an instant rejection. Timeouts
+// go through the shared fetchWithTimeout — never a hand-rolled
+// AbortController.
+export async function verifyMediaUrl(url, kind) {
+  const want = kind === "video" ? "video/" : "image/";
+  const ua = { "User-Agent": "Cerebrum/1.0 (https://askcerebrum.org)" };
+  const check = (res) => {
+    if (!res || !res.ok) return false;
+    const ct = String((res.headers && res.headers.get("content-type")) || "").toLowerCase();
+    return ct.startsWith(want);
+  };
+  try {
+    const res = await fetchWithTimeout(url, { method: "HEAD", redirect: "follow", headers: ua }, 6000);
+    if (check(res)) return true;
+    if (res && (res.status === 405 || res.status === 501)) {
+      const res2 = await fetchWithTimeout(url, {
+        method: "GET", redirect: "follow", headers: { ...ua, Range: "bytes=0-0" },
+      }, 6000);
+      return check(res2);
+    }
+    return false;
+  } catch { return false; }
+}
+
 async function ensureCache(env) {
   try {
     await env.DB.exec("CREATE TABLE IF NOT EXISTS image_cache (q TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at INTEGER NOT NULL)");
@@ -387,7 +422,7 @@ export async function onRequest(context) {
     return jsonError(429, "rate_limited", "Too many requests.", { ...cors, "Retry-After": "30" });
   }
 
-  const key = (category + "|" + imageTerms(query, 4)).toLowerCase();
+  const key = (category + "|" + imageTerms(query, 4) + "|v2").toLowerCase();
   if (env.DB) {
     await ensureCache(env);
     try {
@@ -449,9 +484,16 @@ export async function onRequest(context) {
       return null;
     }
   }));
+  // The winner must actually BE what it claims to be — see verifyMediaUrl
+  // above. Walk the priority-ordered candidates and return the first one
+  // whose URL resolves to its declared media type; unverified candidates
+  // are simply skipped, so a dead provider URL never blocks a working one
+  // further down the list.
   let image = null;
   for (let i2 = 0; i2 < settled.length; i2++) {
-    if (settled[i2]) { image = settled[i2]; break; }
+    const cand = settled[i2];
+    if (!cand) continue;
+    if (await verifyMediaUrl(cand.url, cand.type === "video" ? "video" : "image")) { image = cand; break; }
   }
 
   // ?debug=1 reports what every source actually did. This endpoint depends

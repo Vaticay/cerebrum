@@ -12161,7 +12161,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                       <span style={{ display: "block", fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
                     )}
                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
-                      {[item.category, item.source, item.publishedAt ? relativeTime(item.publishedAt) : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : null].filter(Boolean).join(" · ")}
+                      {[item.category, item.source, item.publishedAt ? relativeTime(new Date(item.publishedAt).getTime()) : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : null].filter(Boolean).join(" · ")}
                     </span>
                   </span>
                 </button>

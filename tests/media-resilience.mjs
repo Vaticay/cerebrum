@@ -292,5 +292,96 @@ await test("media endpoints keep origin allowlist + rate limiting", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+group("verifyMediaUrl — the endpoint never returns a URL it has not seen resolve");
+
+const { verifyMediaUrl } = await import(join(root, "functions/api/image.js"));
+
+function stubFetch(handler) {
+  const saved = globalThis.fetch;
+  globalThis.fetch = handler;
+  return () => { globalThis.fetch = saved; };
+}
+
+function headStub({ head, get }) {
+  return async (url, opts) => {
+    const method = (opts && opts.method) || "GET";
+    const outcome = method === "HEAD" ? head : get;
+    if (outcome === "throw") throw new Error("boom");
+    return new Response(outcome.body || "", {
+      status: outcome.status,
+      headers: { "Content-Type": outcome.contentType || "text/html" },
+    });
+  };
+}
+
+await test("HEAD 200 image/jpeg verifies a still", async () => {
+  const restore = stubFetch(headStub({ head: { status: 200, contentType: "image/jpeg" } }));
+  try {
+    assert.equal(await verifyMediaUrl("https://x.example/a.jpg", "image"), true);
+  } finally { restore(); }
+});
+
+await test("a URL that redirects to HTML is rejected", async () => {
+  // Real incident (2026-09-16): a Europe PMC figure URL 301-redirected to
+  // an HTML page. fetch follows redirects, so the stub models the final
+  // landing — text/html must fail verification.
+  const restore = stubFetch(headStub({ head: { status: 200, contentType: "text/html; charset=UTF-8" } }));
+  try {
+    assert.equal(await verifyMediaUrl("https://europepmc.org/articles/PMC1/bin/gr1.jpg", "image"), false);
+  } finally { restore(); }
+});
+
+await test("404 and non-image content types are rejected", async () => {
+  let restore = stubFetch(headStub({ head: { status: 404, contentType: "text/html" } }));
+  try {
+    assert.equal(await verifyMediaUrl("https://x.example/missing.jpg", "image"), false);
+  } finally { restore(); }
+  restore = stubFetch(headStub({ head: { status: 200, contentType: "video/mp4" } }));
+  try {
+    assert.equal(await verifyMediaUrl("https://x.example/a.mp4", "image"), false);
+  } finally { restore(); }
+});
+
+await test("HEAD 405 gets one ranged-GET second chance, not an instant rejection", async () => {
+  const restore = stubFetch(headStub({
+    head: { status: 405, contentType: "text/html" },
+    get: { status: 206, contentType: "image/png" },
+  }));
+  try {
+    assert.equal(await verifyMediaUrl("https://x.example/a.png", "image"), true);
+  } finally { restore(); }
+});
+
+await test("HEAD 405 followed by a dead GET is still rejected", async () => {
+  const restore = stubFetch(headStub({
+    head: { status: 405, contentType: "text/html" },
+    get: { status: 404, contentType: "text/html" },
+  }));
+  try {
+    assert.equal(await verifyMediaUrl("https://x.example/a.png", "image"), false);
+  } finally { restore(); }
+});
+
+await test("video kind requires a video content type", async () => {
+  const restore = stubFetch(headStub({ head: { status: 200, contentType: "video/mp4" } }));
+  try {
+    assert.equal(await verifyMediaUrl("https://x.example/a.mp4", "video"), true);
+    assert.equal(await verifyMediaUrl("https://x.example/a.mp4", "image"), false);
+  } finally { restore(); }
+});
+
+await test("network failure verifies as false, never throws", async () => {
+  const restore = stubFetch(headStub({ head: "throw" }));
+  try {
+    assert.equal(await verifyMediaUrl("https://x.example/a.jpg", "image"), false);
+  } finally { restore(); }
+});
+
+await test("image.js walks candidates and caches a verified payload", () => {
+  assert.ok(imageSrc.includes("verifyMediaUrl"), "image.js does not verify the winning URL");
+  assert.ok(imageSrc.includes("|v2"), "image cache key was not bumped — stale dead URLs survive");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

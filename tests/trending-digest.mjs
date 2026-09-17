@@ -160,5 +160,45 @@ await test("spaceflight nav-chrome summaries degrade to honest attribution", asy
     "legitimate summary was altered");
 });
 
+await test("entity-mangled upstream titles render as plain text, never raw entities", async () => {
+  // Real incident (2026-09-16): an Europe PMC title shipped with embedded,
+  // already-escaped markup — "Disseminated &lt;i&gt;Klebsiella
+  // pneumoniae&lt;/i&gt; Infection ..." — and rendered on the card as
+  // literal "&lt;i&gt;" text after JSX escaped the ampersands a second
+  // time. Titles and summaries must be decoded once and stripped of tags.
+  const { cleanTrendingText } = await import(join(root, "functions/lib/trendingSource.js"));
+  assert.equal(
+    cleanTrendingText("Disseminated &lt;i&gt;Klebsiella pneumoniae&lt;/i&gt; Infection Mimicking Lesions: A Case Report"),
+    "Disseminated Klebsiella pneumoniae Infection Mimicking Lesions: A Case Report",
+    "escaped markup was not decoded and stripped"
+  );
+  assert.equal(cleanTrendingText("Fish &amp; chips: a &quot;study&quot;"), 'Fish & chips: a "study"',
+    "named entities were not decoded");
+  assert.equal(cleanTrendingText("T&#8211;cell &#x3B1; response"), "T–cell α response",
+    "numeric entities were not decoded");
+  assert.equal(cleanTrendingText("&bogus; stays"), "&bogus; stays",
+    "unknown entities must pass through untouched");
+  assert.equal(cleanTrendingText("  spaced   <b>bold</b>  text  "), "spaced bold text",
+    "tags were not removed as plain text / whitespace not collapsed");
+});
+
+await test("fetchTrendingItems strips entities from upstream Europe PMC titles", async () => {
+  const epmc = {
+    resultList: { result: [
+      { title: "Disseminated &lt;i&gt;Klebsiella pneumoniae&lt;/i&gt; Infection Mimicking Lesions.", abstractText: "A &amp; B.",
+        doi: "10.9/z", journalTitle: "J Test", firstPublicationDate: "2026-09-01" },
+    ] },
+  };
+  const restore = stubFetch(cannedFetch((url) => (url.includes("europepmc") ? epmc : null)));
+  let items;
+  try { items = await fetchTrendingItems(); } finally { restore(); }
+  assert.equal(items.length, 1);
+  assert.ok(!/[&<>]/.test(items[0].title) || !items[0].title.includes("&lt;"),
+    "raw entities survived into the served title: " + items[0].title);
+  assert.equal(items[0].title, "Disseminated Klebsiella pneumoniae Infection Mimicking Lesions",
+    "title was not cleaned end to end");
+  assert.equal(items[0].summary, "A & B.", "summary entities were not decoded");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

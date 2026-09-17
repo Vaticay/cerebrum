@@ -136,6 +136,28 @@ function cleanSpaceSummary(a) {
   return s;
 }
 
+// Upstream titles carry their own markup. Europe PMC's JSON ships titles
+// with embedded, already-escaped tags ("Disseminated &lt;i&gt;Klebsiella
+// pneumoniae&lt;/i&gt; Infection ..."), and rendering that string through
+// JSX escapes the ampersands a SECOND time, so the raw entities land on
+// the card as visible text. Decode once, strip tags, collapse whitespace —
+// provenance is kept, markup is not. Applied to every source at merge
+// time so no parser has to remember to do it. Never emits markup: tags
+// are removed as plain text, never trusted.
+const NAMED_ENTITIES = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'", nbsp: " " };
+export function cleanTrendingText(s) {
+  let t = String(s || "");
+  t = t.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]+);/g, (m, body) => {
+    if (body[0] === "#") {
+      const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+    }
+    return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : m;
+  });
+  t = t.replace(/<[^>]*>/g, " ");
+  return t.replace(/\s+/g, " ").trim();
+}
+
 const SOURCES = [
   {
     category: "Biology & Medicine",
@@ -255,7 +277,9 @@ export async function fetchTrendingItems() {
     if (!group) continue;
     const clean = [];
     for (const a of group.items || []) {
-      const title = (a.title || "").trim();
+      // Decode entities/strip tags BEFORE the empty check: a title that is
+      // nothing but markup is not a title.
+      const title = cleanTrendingText(a.title);
       const url = (a.url || "").trim();
       // A summary is genuinely optional for a paper (many records have no
       // abstract); a title and a link are not — without those there's
@@ -268,7 +292,7 @@ export async function fetchTrendingItems() {
       seenTitles.add(titleKey);
       clean.push({
         title,
-        summary: (a.summary || "").trim().slice(0, 900),
+        summary: cleanTrendingText(a.summary).slice(0, 900),
         url,
         image_url: a.image_url || "",
         source: a.source || group.category,
