@@ -29502,6 +29502,119 @@ button, a {
   .cb-usage-cards { display: flex; flex-direction: column; gap: 12px; }
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   2026-09-17 · EVIDENCE-FIRST REDESIGN LAYER (4-AI consensus, approved)
+
+   Direction change, recorded honestly: the old standing rule was one
+   unified typeface for everything. The 4-AI review (and Dusty's "do it
+   all") overrode it in a narrow, named way — Inter Tight stays the UI
+   voice; a serif joins for article/landing headings and a mono for
+   metadata, DOIs, source numbers and database statuses. The two new
+   families have fixed roles, not free rein.
+
+   Contract for the surface rebuilds below. These classes assume the
+   component root sets the palette vars the app already uses inline:
+   --cb-ink, --cb-ink2, --cb-faint, --cb-line, --cb-acc (see
+   SignalComposer for the pattern). Colours always come from the
+   palette; these classes carry only shape, type and layout.
+
+   Radius scale (enforced in component code, documented here):
+     6px  controls, buttons, small chips
+     8px  inputs, selects, textareas
+     12px cards, panels — the maximum anywhere
+     999px ONLY for compact status pills and filter chips — never for
+            buttons, tabs, nav items, cards, inputs or settings rows.
+   ════════════════════════════════════════════════════════════════════ */
+:root {
+  --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
+  --cb-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+}
+.cb-serif { font-family: var(--cb-serif); }
+.cb-mono { font-family: var(--cb-mono); font-variant-numeric: tabular-nums; }
+
+/* Bracketed citation mark — the product's visual signature. Colour comes
+   from currentColor (set inline from --cb-acc); this class carries the
+   scholarly shape: a small rectangular reference, not a chat badge. */
+.cb-cite {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 22px; padding: 0 5px; margin: 0 1px;
+  border: 1px solid currentColor; border-radius: 4px;
+  font-family: var(--cb-mono); font-size: 11px; font-weight: 600; line-height: 1;
+  vertical-align: 2px; cursor: pointer; background: transparent; opacity: 0.8;
+}
+.cb-cite:hover, .cb-cite[data-active="true"] { opacity: 1; background: rgba(127,127,127,0.14); }
+/* Inline prose marks are exempt from the 44px floor — the tap target is
+   the paper preview, not the glyph. */
+button.cb-cite { min-height: 0; min-width: 0; }
+
+/* Claim spine: each answer paragraph carries its supporting references
+   in a slim left rail. The rail is the signature interaction — hover or
+   focus a mark and the matching source row lights up. */
+.cb-claim { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; }
+.cb-claim-refs {
+  font-family: var(--cb-mono); font-size: 11px; line-height: 2; text-align: right;
+  border-right: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding-right: 10px;
+  color: var(--cb-faint, #888);
+}
+@media (max-width: 720px) {
+  .cb-claim { grid-template-columns: 1fr; }
+  .cb-claim-refs {
+    text-align: left; border-right: none;
+    border-bottom: 1px solid var(--cb-line, rgba(128,128,128,0.22));
+    padding: 0 0 6px; margin-bottom: 2px;
+  }
+}
+
+/* Evidence ledger rows: hairline-separated, no cards, no nesting. */
+.cb-ledger-row {
+  display: grid; grid-template-columns: 46px minmax(0,1fr) auto; gap: 12px;
+  padding: 14px 2px; border-top: 1px solid var(--cb-line, rgba(128,128,128,0.16));
+  align-items: start;
+}
+.cb-ledger-num { font-family: var(--cb-mono); font-size: 12px; font-weight: 600; padding-top: 2px; }
+.cb-ledger-row[data-rel="supports"] .cb-ledger-num { color: var(--cb-acc, #9fbd9f); }
+.cb-ledger-row[data-rel="conflicts"] .cb-ledger-num { color: #d99b86; }
+.cb-ledger-row[data-rel="qualifies"] .cb-ledger-num { color: #d7c27b; }
+.cb-ledger-row[data-active="true"] { background: rgba(127,127,127,0.07); }
+
+/* Underlined editorial tab row — replaces pill tab bars everywhere. */
+.cb-tabrow { display: flex; gap: 2px; border-bottom: 1px solid var(--cb-line, rgba(128,128,128,0.16)); overflow-x: auto; scrollbar-width: none; }
+.cb-tabrow::-webkit-scrollbar { display: none; }
+.cb-tab {
+  background: none; border: 0; border-radius: 0; padding: 10px 12px; min-height: 44px;
+  cursor: pointer; color: var(--cb-faint, #888); font-weight: 600; font-size: 14px;
+  font-family: var(--cb-font); box-shadow: inset 0 -2px 0 transparent; white-space: nowrap;
+}
+.cb-tab:hover { color: var(--cb-ink2, #ccc); }
+.cb-tab[data-active="true"] { color: var(--cb-ink, #fff); box-shadow: inset 0 -2px 0 var(--cb-acc, #9fbd9f); }
+
+/* Text actions — replace pill toolbars. */
+.cb-textbtn {
+  background: none; border: 0; padding: 10px 4px; min-height: 44px; cursor: pointer;
+  color: var(--cb-ink2, #ccc); font-size: 14px; font-weight: 600; font-family: var(--cb-font);
+  text-decoration: underline; text-underline-offset: 4px;
+  text-decoration-color: rgba(127,127,127,0.45);
+}
+.cb-textbtn:hover { color: var(--cb-ink, #fff); text-decoration-color: currentColor; }
+
+/* Quiet instrument kicker — replaces letterspaced all-caps eyebrows. */
+.cb-kicker {
+  font-family: var(--cb-mono); font-size: 11px; font-weight: 500; letter-spacing: 0;
+  color: var(--cb-faint, #888); text-transform: none;
+}
+
+/* Diagnostics disclosure (answer health, formerly the bare "Degraded"). */
+.cb-diag summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+
+/* 44px touch-target floor for controls inside rebuilt surfaces. */
+.cb-tap { min-height: 44px; min-width: 44px; }
+
+/* Reduced motion: ambient layers go still; no animated typing caret. */
+@media (prefers-reduced-motion: reduce) {
+  .cb-ambient, .cb-ambient video, .cb-ambient canvas { animation: none !important; transition: none !important; }
+  .cb-typing-caret { animation: none !important; }
+}
+
 `;
 
 /* Animation-library loading. The Google Fonts stylesheet used to be
