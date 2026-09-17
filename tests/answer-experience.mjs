@@ -134,7 +134,13 @@ await test("JumpRail is sticky with unified-type labels and real statuses", () =
   assert.match(appSrc, /function JumpRail/, "JumpRail missing");
   assert.match(appSrc, /position: "sticky"/, "rail is not sticky");
   assert.match(appSrc, /var\(--cb-font\)/, "rail labels are not on the unified typeface");
-  assert.ok(!/var\(--cb-mono\)/.test(appSrc), "mono token still referenced");
+  // 2026-09-17: the approved 4-AI redesign introduced a mono type layer
+  // (metadata/DOIs/source numbers) in the injected CSS, so a global
+  // no-cb-mono assertion is no longer valid. Scope it to the JumpRail block:
+  // rail labels must stay on the unified typeface.
+  const railStart = appSrc.indexOf("function JumpRail");
+  const railBlock = appSrc.slice(railStart, appSrc.indexOf("function ToolbarOverflow", railStart));
+  assert.ok(!/var\(--cb-mono\)/.test(railBlock), "JumpRail uses the mono token");
 });
 
 await test("rail statuses are derived from real turn data", () => {
