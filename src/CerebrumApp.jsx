@@ -9009,7 +9009,17 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   const doiOf = (s) => String(s.doi || s.DOI || "")
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
   return (
-    <aside className="cb-ev-rail" aria-label="Evidence index">
+    <aside className="cb-ev-rail" aria-label="Evidence index"
+      style={{
+        /* The rail owns the evidence index as a document-material column,
+           same as the answer card: fully opaque theme surface, hairline
+           border, no backdrop blur. Bright footage must never ghost
+           through behind the ledger rows. */
+        background: P.surface,
+        border: `1px solid ${P.line}`,
+        borderRadius: 6,
+        padding: "16px 14px 16px 16px",
+      }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
         <span className="cb-kicker">Evidence index · {sources.length}</span>
         <button type="button" className="cb-textbtn" style={{ padding: "6px 0", minHeight: 0 }}
@@ -22534,7 +22544,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // zIndex:1. Giving appMain the identical treatment covers every view it
     // wraps (the search hero included) with the same one fix, rather than
     // relying on each view to separately remember to opt in.
-    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 260, position: "relative", zIndex: 1 },
+    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 216, position: "relative", zIndex: 1 },
 
     /* ── Full-page views (Profile / Settings / Trending) ──
        Replace what used to be centered modal dialogs — no backdrop, no
@@ -26211,7 +26221,7 @@ function App() {
         proStatus={proStatus} onOpenPro={() => setProModalOpen(true)} onSignOut={signOut}
         onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }}
       />
-      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 260), outline: "none"}}>
+      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
           used to hold (search command bar, Inbox, Profile/Sign-in, the
           brand/back-to-landing mark) already lives in the Sidebar too (see
