@@ -7871,7 +7871,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
   };
 
   return (
-    <AnswerSection eyebrow="Where the papers stand" P={P} accent={accent}>
+    <AnswerSection quiet eyebrow="Where the papers stand" P={P} accent={accent}>
       <div style={{ maxWidth: 720 }}>
         <svg viewBox="0 0 680 372" style={{ width: "100%", height: "auto", display: "block" }}
           role="img"
@@ -8391,20 +8391,23 @@ function ReadHead({ label, P, accent }) {
    worse than no button. */
 function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", P, accent, children }) {
   const toneColor = tone === "bad" ? statusBad(P) : tone === "warn" ? STATUS.warn : P.faint;
+  /* Pass 5: squared editorial buttons — the radius system reserves true
+     pills for compact filters/statuses, and these are neither. */
   const btnBase = {
-    padding: "8px 16px", borderRadius: 9999, cursor: "pointer",
-    fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)",
-    letterSpacing: "0.04em", transition: "border-color 0.15s ease, background 0.15s ease",
+    minHeight: 44, display: "inline-flex", alignItems: "center",
+    padding: "10px 16px", borderRadius: 6, cursor: "pointer",
+    fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
+    transition: "border-color 0.15s ease, background 0.15s ease",
   };
   return (
     <div style={{
-      border: `1px solid ${P.line}`, borderRadius: 12, padding: "20px 22px",
-      /* Frosted shell: state cards (fact-check, disagreements, compare
-         empty states) sit over the film — fog keeps them readable. */
-      background: P.dark ? "rgba(13, 15, 19, 0.5)" : "rgba(255, 255, 255, 0.55)",
-      backdropFilter: "blur(16px) saturate(135%)", WebkitBackdropFilter: "blur(16px) saturate(135%)",
+      border: `1px solid ${P.line}`, borderRadius: 6, padding: "20px 22px",
+      /* Pass 5: opaque flat card. The frosted fog only existed to sit over
+         the film behind product surfaces — the film is gone, so the glass
+         goes too. */
+      background: P.surface,
     }} className="cb-fade">
-      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: toneColor, marginBottom: 8 }}>
+      <div className="cb-kicker" style={{ color: toneColor, marginBottom: 8 }}>
         {kicker}
       </div>
       <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 650, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em", marginBottom: body ? 8 : 0, lineHeight: 1.35 }}>
@@ -8683,7 +8686,7 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
   const rows = useMemo(() => claimRowsFromAnswer(t.answer, t.sources), [t.answer, t.sources]);
   if (!rows.length) return null;
   return (
-    <AnswerSection eyebrow={`Evidence map · ${rows.length} key claim${rows.length === 1 ? "" : "s"}`} P={P} accent={accent}>
+    <AnswerSection quiet eyebrow={`Evidence map · ${rows.length} key claim${rows.length === 1 ? "" : "s"}`} P={P} accent={accent}>
       <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, padding: "6px 18px" }}>
         {rows.map((r, i) => (
           <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 4px", borderBottom: i === rows.length - 1 ? "none" : `1px solid ${P.line}` }}>
@@ -10642,7 +10645,7 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
      so this section is "Compare": the same tools, never a silent gap. */
   if (!sources.length) {
     return (
-      <AnswerSection eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}>
+      <AnswerSection quiet eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}>
         <AnswerStateCard kicker="NOTHING TO COMPARE" title="No studies to compare."
           body="The comparison tools need cited studies to work with. This answer cites none."
           P={P} accent={accent} />
@@ -10650,7 +10653,7 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
     );
   }
   return (
-    <AnswerSection eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}
+    <AnswerSection quiet eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}
       right={tabs.map(([id, label]) => (
         <button key={id} type="button" onClick={() => setEvOpen(evOpen === id ? null : id)} aria-pressed={evOpen === id}
           style={{ minHeight: 44, background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: evOpen === id ? accent : P.faint }}>
@@ -16256,10 +16259,20 @@ function Eyebrow({ children, P, accent, right, style }) {
   );
 }
 
-function AnswerSection({ eyebrow, title, right, children, P, accent, style }) {
+function AnswerSection({ eyebrow, title, right, children, P, accent, style, quiet = false }) {
   return (
     <section style={{ marginTop: 30, ...style }} className="cb-fade">
-      <Eyebrow P={P} accent={accent} right={right}>{eyebrow}</Eyebrow>
+      {quiet ? (
+        /* Pass 5: the evidence-area sections (map, venn, compare) use the
+           quiet instrument kicker instead of the letterspaced caps eyebrow. */
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <span className="cb-kicker" style={{ whiteSpace: "nowrap" }}>{eyebrow}</span>
+          <span aria-hidden="true" style={{ flex: 1, height: 1, background: P.line, minWidth: 24 }} />
+          {right && <span className="cb-eyebrow-right" style={{ flexShrink: 0 }}>{right}</span>}
+        </div>
+      ) : (
+        <Eyebrow P={P} accent={accent} right={right}>{eyebrow}</Eyebrow>
+      )}
       {title && (
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: "-6px 0 12px", letterSpacing: "-0.01em", fontFamily: "var(--cb-font)", lineHeight: 1.35 }}>{title}</div>
       )}
@@ -22700,15 +22713,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcItem: {
       padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: 8,
       transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}`,
-      /* Frosted reading surface: the Sources panel sits over the background
-         film, so every source card carries its own fog — a deep translucent
-         scrim plus a real backdrop blur — keeping titles readable without
-         going muddy. On phones the filter is dropped in favor of an opaque
-         fill: per-card backdrop blur over a sticky scroll region is the
-         fastest way to burn a mobile compositor. */
-      background: isMobile ? (P.dark ? P.raised : P.surface) : (P.dark ? "rgba(13, 15, 19, 0.55)" : "rgba(255, 255, 255, 0.62)"),
-      backdropFilter: isMobile ? "none" : "blur(20px) saturate(140%)",
-      WebkitBackdropFilter: isMobile ? "none" : "blur(20px) saturate(140%)",
+      /* Pass 5: opaque flat card. The frosted scrim only existed to sit over
+         the background film — the film is gone from product surfaces, so
+         every source card is a flat matte row now (mobile already was). */
+      background: P.dark ? P.raised : P.surface,
     },
     // v31: srcTitle was already inheriting the page's body font (`font`,
     // set on `page:` at the root) — never mono to begin with, so nothing to
@@ -24660,6 +24668,11 @@ function App() {
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const [srcSort, setSrcSort] = useState("relevance");
   const [srcFilter, setSrcFilter] = useState("");
+  /* Pass 5: consolidated sources-panel export menu (BibTeX / RIS / CSV /
+     Excel + Send to Zotero as a menu item), replacing the scattered
+     per-format buttons. Declared up here with the other panel state. */
+  const [srcExportOpen, setSrcExportOpen] = useState(false);
+  const [srcExcelBusy, setSrcExcelBusy] = useState(false);
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(true);
@@ -25815,12 +25828,14 @@ function App() {
       cursor: "pointer",
     }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")} onClick={() => setDrawerSource(s)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrawerSource(s); } }}>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
-        {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: typeColor(s.type), background: withAlpha(typeColor(s.type), 0.1), padding: "2px 6px", borderRadius: 8, fontFamily: "var(--cb-font)" }}>{s.type}</span>}
+        {/* Pass 5: badges become mono text metadata — the tint stays as a
+            text color (it carries the tier signal), the pill shell goes. */}
+        {s.type && <span className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: typeColor(s.type) }}>{s.type}</span>}
         {/* v5: the "strong/partial/weak" word already existed (relLabel)
             but only ever reached a `title` tooltip — invisible to touch,
             keyboard, and screen-reader users, who only ever saw a bare
             color-coded percentage. Now it's always on screen. */}
-        {typeof s.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance), background: withAlpha(relColor(s.relevance), 0.1), padding: "2px 6px", borderRadius: 8, fontFamily: "var(--cb-font)" }}>{s.relevance}% · {relLabel(s.relevance)}</span>}
+        {typeof s.relevance === "number" && <span className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance) }}>Ref {s.relevance}% · {relLabel(s.relevance)}</span>}
         {s.year && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{s.year}</span>}
       </div>
       {/* v34 had simplified this to stripping <sub>/<sup>/<i>/<b> outright —
@@ -25833,13 +25848,34 @@ function App() {
           still reads like one. */}
       <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? renderCleanTitle(s.title) : s.url)}</a>
       <div style={S.srcMeta}>{[s.authors, formatJournalName(s.journal)].filter(Boolean).join(" · ")}{(() => { const c = formatCitationCount(s.citations, s.year, "citation"); return c ? ` · ${c}` : ""; })()}</div>
-      <div style={S.srcRow}>
-        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isSaved(s) ? at : P.ink2, background: isSaved(s) ? accent : "transparent", borderColor: isSaved(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={11} />{isSaved(s) ? "Saved" : "Save"}</button>
-        <button style={{ ...S.chipMini, display: "inline-flex", alignItems: "center", gap: 4, color: isPinned(s) ? at : P.ink2, background: isPinned(s) ? accent : "transparent", borderColor: isPinned(s) ? accent : P.line2 }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={11} />{isPinned(s) ? "Pinned" : "Pin"}</button>
-        {s.authors && <button style={{ ...S.chipMini, color: accent, borderColor: P.line2 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+      <div style={{ ...S.srcRow, gap: 2 }}>
+        {/* Pass 5: pill toolbars become text actions — same handlers, no
+            pill shells. cb-textbtn already carries the 44px touch target. */}
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", textDecoration: "none", color: isSaved(s) ? accent : undefined }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={12} />{isSaved(s) ? "Saved" : "Save"}</button>
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", textDecoration: "none", color: isPinned(s) ? accent : undefined }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={12} />{isPinned(s) ? "Pinned" : "Pin"}</button>
+        {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px" }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
       </div>
     </div>
   );
+
+  /* Pass 5: consolidated sources-panel export — one menu (BibTeX / RIS /
+     CSV / Excel) plus Send to Zotero as a menu item, replacing the
+     scattered per-format buttons. */
+  const srcDoExport = async (fmt) => {
+    setSrcExportOpen(false);
+    if (!exportList || !exportList.length) return;
+    sfx();
+    if (fmt === "bibtex") { download("cerebrum.bib", toBibTeX(exportList)); logExport("BibTeX", "cerebrum.bib"); }
+    else if (fmt === "ris") { download("cerebrum.ris", toRIS(exportList)); logExport("RIS", "cerebrum.ris"); }
+    else if (fmt === "csv") { download("cerebrum.csv", toCSV(exportList)); logExport("CSV", "cerebrum.csv"); }
+    else if (fmt === "excel") {
+      if (srcExcelBusy) return;
+      setSrcExcelBusy(true);
+      try { await exportTopPapersExcel(exportList, { accent }); logExport("Excel", "cerebrum-papers.xlsx"); }
+      catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
+      setSrcExcelBusy(false);
+    }
+  };
 
   const SourcesInner = (
     <>
@@ -25847,15 +25883,46 @@ function App() {
       {pinnedSources.length > 0 && (<div style={{ minHeight: 44, padding: "7px 10px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="pinFilled" size={11} />{pinnedSources.length} pinned</span><button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {corrections.length > 0 && (<div style={{ minHeight: 44, padding: "7px 10px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: STATUS.warn, display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: STATUS.warn, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {allSources.length > 0 && (<>
-        <div style={S.srcActions}>
-          <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.ris", toRIS(exportList)); }}>Download RIS</button>
-          <button style={S.sBtn} onClick={() => { sfx(); download("cerebrum.bib", toBibTeX(exportList)); }}>Export BibTeX</button>
-          <button style={S.sBtnP} onClick={() => { sfx(); setZoteroOpen(!zoteroOpen); }}>Send to Zotero</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12 }}>
+          <span style={{ position: "relative", display: "inline-flex" }}>
+            <button type="button" onClick={() => { sfx(); setSrcExportOpen((v) => !v); }} aria-haspopup="menu" aria-expanded={srcExportOpen} className="cb-textbtn" style={{ textDecoration: "none", padding: "6px 4px" }}>
+              Export <span aria-hidden="true" style={{ marginLeft: 4, fontSize: 10, color: P.faint }}>▾</span>
+            </button>
+            {srcExportOpen && (
+              <>
+                <span onClick={() => setSrcExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} aria-hidden="true" />
+                <span role="menu" aria-label="Export sources" style={{
+                  position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 41, minWidth: 252,
+                  background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
+                  border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
+                  boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
+                }}>
+                  {[["bibtex", "BibTeX", ".bib — reference managers"], ["ris", "RIS", ".ris — Zotero, Mendeley, EndNote"], ["csv", "CSV", ".csv — spreadsheets"], ["excel", "Excel", ".xlsx — branded workbook"], ["zotero", "Send to Zotero", "push to your Zotero library"]].map((f) => (
+                    <button key={f[0]} role="menuitem" type="button" disabled={f[0] === "excel" && srcExcelBusy}
+                      onClick={() => { if (f[0] === "zotero") { setSrcExportOpen(false); setZoteroOpen(true); return; } srcDoExport(f[0]); }}
+                      style={{
+                        minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%",
+                        textAlign: "left", padding: "9px 11px", borderRadius: 8, border: "none",
+                        background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)",
+                        opacity: f[0] === "excel" && srcExcelBusy ? 0.5 : 1,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, width: 64, flexShrink: 0 }}>{f[0] === "excel" && srcExcelBusy ? "…" : f[1]}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>{f[2]}</span>
+                    </button>
+                  ))}
+                </span>
+              </>
+            )}
+          </span>
         </div>
         <input style={S.srcFilterInput} placeholder="Filter sources…" aria-label="Filter sources" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
-        <div style={S.sortTabs}>
+        {/* Pass 5: the segmented pill sort bar becomes underlined text
+            filters — the same pattern as the evidence-band tabs. */}
+        <div className="cb-tabrow" role="tablist" aria-label="Sort sources" style={{ marginBottom: 14 }}>
           {[["relevance", "Relevance"], ["date", "Date"], ["database", "Type"]].map(([k, label]) => (
-            <button key={k} style={{ ...S.sortTab, ...(srcSort === k ? S.sortTabActive : {}) }} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
+            <button key={k} type="button" role="tab" aria-selected={srcSort === k} className="cb-tab" data-active={srcSort === k ? "true" : undefined} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
           ))}
         </div>
       </>)}

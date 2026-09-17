@@ -245,9 +245,13 @@ await test("no NOT CHECKED label remains in the app", () => {
   assert.ok(!appSrc.includes("NOT CHECKED"), "NOT CHECKED still present in CerebrumApp.jsx");
 });
 
-await test("fog treatment is present on source/evidence/answer cards", () => {
-  assert.ok(appSrc.includes("Frosted reading surface"), "srcItem fog comment missing");
-  assert.ok(appSrc.includes("Frosted shell"), "AnswerStateCard fog comment missing");
+await test("state cards use matte paper, not frosted glass", () => {
+  // Pass 5: the film behind product surfaces is gone, so the frosted fog
+  // on AnswerStateCard goes with it — opaque flat card, squared buttons,
+  // quiet kicker. The fog must not come back here.
+  assert.ok(!appSrc.includes("Frosted shell"), "Frosted shell comment must not return to AnswerStateCard");
+  assert.ok(!appSrc.includes("saturate(135%)"), "state-card backdrop blur must not return");
+  assert.ok(appSrc.includes("opaque flat card"), "AnswerStateCard matte comment missing");
 });
 
 await test("bibliography uses matte paper, not frosted rows", () => {
