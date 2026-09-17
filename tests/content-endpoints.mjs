@@ -158,6 +158,9 @@ await test("map/reduce constants are sane", () => {
   assert.ok(document.MAP_CHUNK_CHARS > 0, "chunk size not set");
   assert.ok(document.MAP_CONCURRENCY >= 1 && document.MAP_CONCURRENCY <= 8, "concurrency out of range");
   assert.ok(document.SUMMARY_TIMEOUT_MS > document.MAP_TIMEOUT_MS, "map budget exceeds summary budget");
+  // 5-9 substantive paragraphs run ~800-1600 tokens; the cap keeps real
+  // headroom without buying worst-case latency on slow models.
+  assert.ok(document.SUMMARY_MAX_TOKENS >= 2000 && document.SUMMARY_MAX_TOKENS <= 3000, "summary token budget out of range");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

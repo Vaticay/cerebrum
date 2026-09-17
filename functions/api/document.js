@@ -345,11 +345,17 @@ const MAP_REDUCE_THRESHOLD = 18000;
 const MAP_CHUNK_CHARS = 15000;
 const MAP_CONCURRENCY = 4;
 const MAP_MAX_TOKENS = 700;
+// The final synthesis asks for 5-9 substantive paragraphs — roughly
+// 800-1600 tokens in practice. 2800 leaves real headroom without paying
+// for worst-case generation time on a slow free model: every extra
+// thousand tokens of headroom is ~30s of latency the timeout budget
+// has to cover.
+const SUMMARY_MAX_TOKENS = 2800;
 // Map phase gets its own ceiling inside the overall summary budget below.
 const MAP_TIMEOUT_MS = 55000;
-const SUMMARY_TIMEOUT_MS = 80000;
+const SUMMARY_TIMEOUT_MS = 100000;
 const QA_TIMEOUT_MS = 40000;
-export { MAP_REDUCE_THRESHOLD, MAP_CHUNK_CHARS, MAP_CONCURRENCY, MAP_MAX_TOKENS, MAP_TIMEOUT_MS, SUMMARY_TIMEOUT_MS, QA_TIMEOUT_MS };
+export { MAP_REDUCE_THRESHOLD, MAP_CHUNK_CHARS, MAP_CONCURRENCY, MAP_MAX_TOKENS, SUMMARY_MAX_TOKENS, MAP_TIMEOUT_MS, SUMMARY_TIMEOUT_MS, QA_TIMEOUT_MS };
 
 // Split a document into chunks of at most maxChars, breaking on paragraph
 // boundaries (blank lines) so a chunk never starts or ends mid-thought. A
@@ -446,7 +452,7 @@ async function runSummary(env, documentText, { onToken = null, onProgress = null
         { role: "system", content: SUMMARY_SYSTEM_PROMPT },
         { role: "user", content: "DOCUMENT:\n\n" + documentText },
       ],
-      4000,
+      SUMMARY_MAX_TOKENS,
       onToken
     );
   }
@@ -462,7 +468,7 @@ async function runSummary(env, documentText, { onToken = null, onProgress = null
       { role: "system", content: SUMMARY_SYSTEM_PROMPT },
       { role: "user", content: framing + "\n\n" + condensed },
     ],
-    4000,
+    SUMMARY_MAX_TOKENS,
     onToken
   );
 }
@@ -615,14 +621,9 @@ export async function onRequest(context) {
           { role: "user", content: "DOCUMENT:\n\n" + documentText },
         ];
 
-    // v44: 2200 was tight even for the old, shorter summary shape — the
-    // same anti-truncation lesson as search.js's "long" mode (see that
-    // maxTokens comment): a real 5-9 paragraph structured summary needs
-    // more headroom than a target that only just covers the minimum, or it
-    // gets cut off approaching its own closing section.
-    const maxTokens = isQA ? 1400 : 4000;
-    // 2026-09-16: 30s global ceiling (was 60s). 8s per-provider timeouts
-    // mean the race fails fast; 30s is plenty.
+    // Summary token budget lives in SUMMARY_MAX_TOKENS (used inside
+    // runSummary); Q&A answers are short by design.
+    const maxTokens = 1400;
     const wantStream = body.stream === true;
     if (wantStream) {
       // SSE streaming: tokens flow as they're generated. The frontend

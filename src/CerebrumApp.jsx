@@ -20500,9 +20500,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         { documentText: text, stream: true },
         {
           signal: ctrl.signal,
-          // Long analyses budget up to ~80s server-side (section-by-section
-          // digestion); the client must not give up first.
-          timeoutMs: 95000,
+          // Long analyses budget up to ~100s server-side (section-by-section
+          // digestion plus the final synthesis); the client must not give
+          // up first.
+          timeoutMs: 120000,
           onProgress: (done, total) => setAnalyzeProgress({ done, total }),
           onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
         }
