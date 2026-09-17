@@ -11892,7 +11892,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
                     {item.summary && (
-                      <span style={{ display: "block", fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
                     )}
                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
                       {trendProvenance(item, generatedAt)}
@@ -20972,7 +20972,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       style={asPage
         ? {
             position: "relative", display: "flex", flexDirection: "column",
-            minHeight: "100vh", minHeight: "100svh",
+            minHeight: "100svh",
             /* Transparent so Document Mode's own film shows through — the
                scrim above the footage does the legibility work. */
             background: "transparent", overflow: "clip",
