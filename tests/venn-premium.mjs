@@ -70,10 +70,13 @@ await test("lobes are static hairline circles", () => {
   assert.ok(!/className="venn-drift/.test(src), "drift wrapper still present");
 });
 
-await test("region labels are quiet tracked uppercase, not bold", () => {
-  assert.ok(/fontWeight:\s*500,\s*letterSpacing:\s*"0\.22em"/.test(src),
-    "region labels lost the quiet 500-weight tracked styling");
-  assert.ok(!/SUPPORTS",\s*accent/.test(src), "region labels still colored like toys");
+await test("region labels are quiet lowercase kickers, not tracked caps", () => {
+  // Pass 6: the stance labels dropped the letterspaced-caps treatment for
+  // the quiet lowercase instrument kicker — same data, no chrome.
+  const labelBlock = src.slice(src.indexOf("const regionLabel"), src.indexOf("const regionLabel") + 400);
+  assert.ok(/text\.toLowerCase\(\)/.test(labelBlock), "region labels are not lowercase kickers");
+  assert.ok(!/letterSpacing/.test(labelBlock), "region labels still use tracked caps styling");
+  assert.ok(/fill=\{P\.faint\}/.test(labelBlock), "region labels lost the quiet faint fill");
 });
 
 await test("dot sizing is subtle (4.5–8px range)", () => {

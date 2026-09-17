@@ -416,6 +416,15 @@ async function saveToZotero(sources, apiKey, userId) {
   if (!res.ok) throw new Error(`Zotero ${res.status}`);
   return res.json();
 }
+/* Pass 6: Zotero failures reach the user as plain sentences, never a raw
+   fetch/HTTP error string. Shared by the evidence view's inline form and
+   the conversation-level send. */
+function zoteroErrorMessage(e) {
+  const raw = String(e && e.message || "");
+  if (/401|403|forbidden|unauthorized/i.test(raw)) return "That API key or user ID looks wrong: double-check them in your Zotero account settings.";
+  if (/network|fetch|failed to fetch/i.test(raw)) return "Couldn't reach Zotero. Check your connection and try again.";
+  return "Couldn't save to Zotero right now. Try again in a moment.";
+}
 // Paper metadata (title, authors, journal) comes from external scholarly APIs
 // — several of which (Zenodo, DOAJ, CORE, BASE, OpenAIRE) index self-deposited
 // records with no HTML sanitization on the backend. Any of those fields can
@@ -6618,6 +6627,19 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     setExcelBusy(false);
     setExportOpen(false);
   };
+  /* Pass 6: the consolidated Export menu carries "Send to Zotero" as a
+     menu item. The key/ID form opens inline under the controls — scoped
+     to this answer's sources, the same send as the old scattered button. */
+  const [zoteroOpen, setZoteroOpen] = useState(false);
+  const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
+  const sendToZotero = async () => {
+    setZMsg("");
+    if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; }
+    try {
+      await saveToZotero(sources, zKey.trim(), zUser.trim());
+      setZMsg(`Saved ${sources.length} items.`);
+    } catch (e) { setZMsg(zoteroErrorMessage(e)); }
+  };
   const doExportFmt = (fmt) => {
     if (!sources || !sources.length) return;
     if (fmt === "bibtex") { download("cerebrum-bibliography.bib", toBibTeX(sources)); logExport("BibTeX", "cerebrum-bibliography.bib"); }
@@ -6639,7 +6661,8 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     }
     return seen.length > 1 ? seen.sort() : null;
   }, [sources]);
-  const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint };
+  /* Pass 6: a plain quiet text action — never a letterspaced caps button. */
+  const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-mono)", fontSize: 11, fontWeight: 500, color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
   const ctlBtn = {
     minHeight: 44, display: "inline-flex", alignItems: "center", padding: "10px 14px",
@@ -6652,8 +6675,10 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     { key: "ris", label: "RIS", desc: ".ris — Zotero, Mendeley, EndNote" },
     { key: "csv", label: "CSV", desc: ".csv — spreadsheets" },
     { key: "excel", label: "Excel", desc: ".xlsx — top 20, branded workbook" },
+    { key: "zotero", label: "Send to Zotero", desc: "push to your Zotero library" },
   ];
   const controls = (
+    <>
     <span className="cb-cite-controls" style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} aria-label="Citation style"
         style={{ ...ctlBtn, paddingRight: 30, appearance: "none", ...selectChrome(P) }}>
@@ -6676,7 +6701,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
             }}>
               {exportFormats.map((f) => (
                 <button key={f.key} role="menuitem" type="button"
-                  onClick={() => { if (f.key === "excel") exportExcel(); else doExportFmt(f.key); }}
+                  onClick={() => { if (f.key === "excel") exportExcel(); else if (f.key === "zotero") { setExportOpen(false); setZoteroOpen(true); } else doExportFmt(f.key); }}
                   disabled={f.key === "excel" && excelBusy}
                   style={{
                     minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%",
@@ -6695,6 +6720,18 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
         )}
       </span>
     </span>
+    {zoteroOpen && (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, width: "100%" }}>
+        <input aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
+          style={{ minHeight: 44, padding: "8px 12px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 160px" }} />
+        <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
+          style={{ minHeight: 44, padding: "8px 12px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 120px" }} />
+        <button type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</button>
+        <button type="button" className="cb-textbtn" style={{ padding: "6px 4px" }} onClick={() => { setZoteroOpen(false); setZMsg(""); }}>Cancel</button>
+        {zMsg && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)" }}>{zMsg}</span>}
+      </div>
+    )}
+    </>
   );
   /* The claim matrix: claim → citations as annotated links, before the
      flat reference list. Each numeral jumps to its reference row and
@@ -6783,7 +6820,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
   if (bare) {
     return (
       <div>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>{controls}</div>
+        <div style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>{controls}</div>
       {matrix}
       {ledger}
       {/* Honesty: the backend relevance gate withholds papers that score below
@@ -7858,17 +7895,14 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
     );
   };
 
+  /* Pass 6: the stance labels are quiet lowercase instrument kickers —
+     the diagram's data speaks, not its chrome. */
   const regionLabel = (x, text, count) => (
-    <text x={x} y={336} textAnchor="middle" fill={P.ink2}
-      style={{ fontFamily: "var(--cb-font)", fontSize: 10, fontWeight: 500, letterSpacing: "0.22em" }}>
-      {text} · {count}
+    <text x={x} y={336} textAnchor="middle" fill={P.faint}
+      style={{ fontFamily: "var(--cb-mono)", fontSize: 11, fontWeight: 500 }}>
+      {text.toLowerCase()} · {count}
     </text>
   );
-
-  const micro = {
-    fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro,
-    letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700,
-  };
 
   return (
     <AnswerSection quiet eyebrow="Where the papers stand" P={P} accent={accent}>
@@ -7901,7 +7935,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
         </div>
         {model.unclear.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-            <span style={{ ...micro, color: P.faint, fontSize: 10 }}>No clear signal</span>
+            <span className="cb-kicker">No clear signal</span>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }} role="list" aria-label="Papers with no clear stance signal">
               {model.unclear.map((n) => {
                 const s = src(n);
@@ -8732,6 +8766,9 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
   const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
   return (
     <AnswerSection
+      /* Pass 6: the evidence header is a quiet instrument kicker, not the
+         letterspaced caps eyebrow. */
+      quiet
       eyebrow={`Evidence · ${sources.length} source${sources.length === 1 ? "" : "s"} · ${videos.length} video${videos.length === 1 ? "" : "s"}`}
       P={P} accent={accent}
       right={(
@@ -10652,14 +10689,22 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
       </AnswerSection>
     );
   }
+  /* Pass 6: the compare views are quiet underlined text tabs — the same
+     cb-tabrow pattern as the evidence band and the sources sort — not
+     letterspaced caps buttons with slash separators. */
   return (
     <AnswerSection quiet eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}
-      right={tabs.map(([id, label]) => (
-        <button key={id} type="button" onClick={() => setEvOpen(evOpen === id ? null : id)} aria-pressed={evOpen === id}
-          style={{ minHeight: 44, background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: evOpen === id ? accent : P.faint }}>
-          {label}
-        </button>
-      )).reduce((acc, el, i) => i === 0 ? [el] : [...acc, <span key={"s" + i} aria-hidden="true" style={{ color: P.line, margin: "0 2px" }}>/</span>, el], [])}>
+      right={(
+        <div className="cb-tabrow" role="tablist" aria-label="Compare views">
+          {tabs.map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={evOpen === id} className="cb-tab"
+              data-active={evOpen === id ? "true" : undefined}
+              onClick={() => setEvOpen(evOpen === id ? null : id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}>
       {!evOpen && (
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.7 }}>
           {sources.length} cited {sources.length === 1 ? "study" : "studies"} underpin this answer. Compare them as a table, a cocitation network, or the arc of the literature over time.
@@ -24665,15 +24710,8 @@ function App() {
   const [dataDensity, setDataDensity] = useState(() => getCookie("cb_density") || "comfortable");
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
-  const [zoteroOpen, setZoteroOpen] = useState(false);
   const [srcSort, setSrcSort] = useState("relevance");
   const [srcFilter, setSrcFilter] = useState("");
-  /* Pass 5: consolidated sources-panel export menu (BibTeX / RIS / CSV /
-     Excel + Send to Zotero as a menu item), replacing the scattered
-     per-format buttons. Declared up here with the other panel state. */
-  const [srcExportOpen, setSrcExportOpen] = useState(false);
-  const [srcExcelBusy, setSrcExcelBusy] = useState(false);
-  const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(true);
   const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
@@ -25629,26 +25667,6 @@ function App() {
   function isPinned(s) { const k = sourceKey(s); return pinnedSources.some((x) => sourceKey(x) === k); }
   function togglePin(s) { sfx(); setPinnedSources((prev) => { const k = sourceKey(s); return prev.some((x) => sourceKey(x) === k) ? prev.filter((x) => sourceKey(x) !== k) : [...prev, s]; }); }
   const isSaved = (s) => saved.some((x) => sourceKey(x) === sourceKey(s));
-  async function doZotero() {
-    setZMsg("");
-    const list = saved.length ? saved : allSources;
-    if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; }
-    try {
-      await saveToZotero(list, zKey.trim(), zUser.trim());
-      setZMsg(`Saved ${list.length} items.`);
-    } catch (e) {
-      // v5: this used to surface e.message straight from the fetch call —
-      // the one place in the app where a raw JS/HTTP error string reached
-      // the user verbatim, instead of the plain-language copy used
-      // everywhere else. Map the couple of ways this actually fails to real
-      // sentences, and fall back to something a person can still act on.
-      const raw = String(e && e.message || "");
-      const human = /401|403|forbidden|unauthorized/i.test(raw) ? "That API key or user ID looks wrong: double-check them in your Zotero account settings."
-        : /network|fetch|failed to fetch/i.test(raw) ? "Couldn't reach Zotero. Check your connection and try again."
-        : "Couldn't save to Zotero right now. Try again in a moment.";
-      setZMsg(human);
-    }
-  }
 
   const commands = [
     { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
@@ -25797,7 +25815,6 @@ function App() {
   }
 
   const started = turns.length > 0 || busy;
-  const exportList = saved.length ? saved : allSources;
   const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
   // Used to color-code Preprint/Reference/Dataset badges differently from
@@ -25858,24 +25875,8 @@ function App() {
     </div>
   );
 
-  /* Pass 5: consolidated sources-panel export — one menu (BibTeX / RIS /
-     CSV / Excel) plus Send to Zotero as a menu item, replacing the
-     scattered per-format buttons. */
-  const srcDoExport = async (fmt) => {
-    setSrcExportOpen(false);
-    if (!exportList || !exportList.length) return;
-    sfx();
-    if (fmt === "bibtex") { download("cerebrum.bib", toBibTeX(exportList)); logExport("BibTeX", "cerebrum.bib"); }
-    else if (fmt === "ris") { download("cerebrum.ris", toRIS(exportList)); logExport("RIS", "cerebrum.ris"); }
-    else if (fmt === "csv") { download("cerebrum.csv", toCSV(exportList)); logExport("CSV", "cerebrum.csv"); }
-    else if (fmt === "excel") {
-      if (srcExcelBusy) return;
-      setSrcExcelBusy(true);
-      try { await exportTopPapersExcel(exportList, { accent }); logExport("Excel", "cerebrum-papers.xlsx"); }
-      catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
-      setSrcExcelBusy(false);
-    }
-  };
+  /* Pass 6: the evidence view (Bibliography tab) owns the one consolidated
+     Export menu now — the duplicate sources-panel menu is gone. */
 
   const SourcesInner = (
     <>
@@ -25883,40 +25884,6 @@ function App() {
       {pinnedSources.length > 0 && (<div style={{ minHeight: 44, padding: "7px 10px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="pinFilled" size={11} />{pinnedSources.length} pinned</span><button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {corrections.length > 0 && (<div style={{ minHeight: 44, padding: "7px 10px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: STATUS.warn, display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: STATUS.warn, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {allSources.length > 0 && (<>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12 }}>
-          <span style={{ position: "relative", display: "inline-flex" }}>
-            <button type="button" onClick={() => { sfx(); setSrcExportOpen((v) => !v); }} aria-haspopup="menu" aria-expanded={srcExportOpen} className="cb-textbtn" style={{ textDecoration: "none", padding: "6px 4px" }}>
-              Export <span aria-hidden="true" style={{ marginLeft: 4, fontSize: 10, color: P.faint }}>▾</span>
-            </button>
-            {srcExportOpen && (
-              <>
-                <span onClick={() => setSrcExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} aria-hidden="true" />
-                <span role="menu" aria-label="Export sources" style={{
-                  position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 41, minWidth: 252,
-                  background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
-                  border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
-                  boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
-                }}>
-                  {[["bibtex", "BibTeX", ".bib — reference managers"], ["ris", "RIS", ".ris — Zotero, Mendeley, EndNote"], ["csv", "CSV", ".csv — spreadsheets"], ["excel", "Excel", ".xlsx — branded workbook"], ["zotero", "Send to Zotero", "push to your Zotero library"]].map((f) => (
-                    <button key={f[0]} role="menuitem" type="button" disabled={f[0] === "excel" && srcExcelBusy}
-                      onClick={() => { if (f[0] === "zotero") { setSrcExportOpen(false); setZoteroOpen(true); return; } srcDoExport(f[0]); }}
-                      style={{
-                        minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%",
-                        textAlign: "left", padding: "9px 11px", borderRadius: 8, border: "none",
-                        background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)",
-                        opacity: f[0] === "excel" && srcExcelBusy ? 0.5 : 1,
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, width: 64, flexShrink: 0 }}>{f[0] === "excel" && srcExcelBusy ? "…" : f[1]}</span>
-                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>{f[2]}</span>
-                    </button>
-                  ))}
-                </span>
-              </>
-            )}
-          </span>
-        </div>
         <input style={S.srcFilterInput} placeholder="Filter sources…" aria-label="Filter sources" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
         {/* Pass 5: the segmented pill sort bar becomes underlined text
             filters — the same pattern as the evidence-band tabs. */}
@@ -25926,8 +25893,6 @@ function App() {
           ))}
         </div>
       </>)}
-      {saved.length > 0 && <div style={S.savedNote}>{saved.length} saved · exports use saved</div>}
-      {zoteroOpen && (<div style={S.zBox}><input style={S.zIn} aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)} /><input style={S.zIn} aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)} /><button style={S.sBtnP} onClick={doZotero}>Save {exportList.length}</button>{zMsg && <div style={S.zMsg}>{zMsg}</div>}</div>)}
       <div style={S.srcList} className="cb-stagger">
         {allSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources land here as you go.</div> :
           sortedSources.length === 0 ? <div style={S.empty} className="cb-fade">No sources match "{srcFilter}".</div> :
