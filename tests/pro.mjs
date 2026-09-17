@@ -855,9 +855,14 @@ await test("Pro reel is exclusive clips plus a gated toggle", async () => {
   assert.match(src, /FILM_CLIPS_PRO_LANDSCAPE/, "Pro landscape list missing");
   assert.match(src, /FILM_CLIPS_PRO_PORTRAIT/, "Pro portrait list missing");
   assert.match(src, /function filmReel\(pro\)/, "filmReel does not take the pro flag");
-  assert.match(src, /proReel=\{\!\!\(user && user\.isPro && proReel\)\}/, "workspace film does not gate the Pro reel");
+  // Pass 1 redesign (2026-09-17): the workspace film is retired — the product
+  // shell mounts no ambient reel at all, so there is no workspace instance to
+  // gate. The Pro clip lists, the filmReel pro flag, and the appearance
+  // settings toggle all remain (the intro keeps its own reel).
   assert.match(src, /Pro cinematic reel/, "reel toggle missing from appearance settings");
   assert.match(src, /\}, \[blocked, proReel\]\);/, "reel effect must re-run on proReel so the switch is immediate");
+  const filmMounts = src.match(/<CinematicFilm/g) || [];
+  assert.strictEqual(filmMounts.length, 1, `expected exactly one CinematicFilm mount (the intro), found ${filmMounts.length}`);
 });
 
 await test("settings account tab hosts the Pro section and founder grant panel", async () => {

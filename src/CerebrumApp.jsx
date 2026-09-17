@@ -44,7 +44,6 @@ function saveInvestigation(history, turns, allSources, now = Date.now()) {
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
-import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
    where DATABASES is derived from it. */
 import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
@@ -4232,8 +4231,10 @@ function Skeleton({ P, accent }) {
   );
   return (
     <div style={{
-      background: P.dark ? withAlpha(P.surface, 0.85) : "rgba(255,255,255,0.7)",
-      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      /* Pass 1 (2026-09-17): opaque. A loading placeholder has no business
+         being glass — it sits in normal content flow, and the blur only
+         existed to frost the ambient reel behind it. */
+      background: P.surface,
       border: `1px solid ${P.line}`,
       borderRadius: 8, padding: "32px 34px",
       display: "flex", flexDirection: "column", gap: 14,
@@ -4690,11 +4691,6 @@ const FILM_SCENES = {
    picture on screen. Checked against the file, not assumed. */
 const FILM_POSTER_CLIP = "/assets/cinematic/science-61.mp4";
 
-/* Wave 1 — Document Mode's film: the door's opening clip, so stepping
-   from the intro into a document keeps the same frame. The scrim does
-   the legibility work; the clip just has to be calm. */
-const DOC_FILM_SRC = "/assets/cinematic/science-66.mp4";
-
 /* Motion on a phone is opt-in, and the choice survives a reload — a
    preference someone has to set on every visit is not a preference. */
 const FILM_OPT_IN_KEY = "cb_film_motion";
@@ -5118,11 +5114,11 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
     orderProRef.current = proReel;
     idxRef.current = 0;
   }
-  /* `startAt` keeps the same background frame across a handoff: a fresh
-     reel (the workspace mounts its own instance) opens on the given clip
-     instead of its own shuffled head, so stepping through the door never
-     visibly restarts the video. The poster's graded still covers the
-     buffering gap (see .cb-enter-frame). */
+  /* `startAt` used to keep the same background frame across the intro →
+     workspace handoff: the workspace mounted its own reel instance opening
+     on the given clip. The workspace reel is retired (2026-09-17 pass 1),
+     so nothing passes `startAt` anymore; the prop stays as a benign part
+     of the component's API. */
   if (startAt) {
     const si = orderRef.current.indexOf(startAt);
     if (si >= 0) idxRef.current = si;
@@ -6264,114 +6260,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
    literals at the call site — so the accent a person picked in Settings had no
    effect on the largest coloured surface in the product.
 
-   Both are replaced by one renderer (src/cerebrumField.js) mounted through
-   CerebrumFieldCanvas below. Deleting them rather than leaving them unused is
-   the point: two dormant WebGL implementations sitting in the file is how the
+   Both were replaced by one renderer (src/cerebrumField.js), itself removed
+   in the 2026-09-17 pass 1 redesign when the ambient field left every
+   product surface. Deleting them rather than leaving them unused is
+   the point: dormant WebGL implementations sitting in the file is how the
    next person ends up mounting one by accident. */
 
-/* ════════════════════════════════════════════════════════════════════════
-   THE FIELD — Cerebrum's signature visual, as one React component.
-
-   This replaces two independent renderers. `Orb` drew the intro screen and
-   `SoftAurora` drew the application; each created its own WebGL context, ran
-   its own requestAnimationFrame loop that never stopped when the tab was
-   hidden, and SoftAurora's colours were hardcoded to a blue/green pair in the
-   markup — so the accent a person chose in Settings had no effect on the
-   largest coloured surface in the product.
-
-   There is now one context, one loop, one material. The background and the
-   core are computed together in a single shader (src/cerebrumField.js), which
-   is what makes them look like the same substance rather than two effects
-   sharing a screen.
-
-   This component owns lifecycle and nothing else. It renders a canvas, hands
-   the renderer the current state, and gets out of the way: no animation state
-   lives in React, so the sixty-times-a-second loop never triggers a render.
-   ════════════════════════════════════════════════════════════════════════ */
-function CerebrumFieldCanvas({
-  accent,
-  P,
-  mode = "ambient",
-  energy = 0,
-  core = 0,
-  corePos = [0, 0],
-  coreScale = 1,
-  animationMode = "cinematic",
-}) {
-  const canvasRef = useRef(null);
-  const fieldRef = useRef(null);
-  const [failed, setFailed] = useState(false);
-
-  /* The field inverts its polarity for light palettes rather than painting a
-     dark sheet behind a pale interface — see the uLight branch in the shader.
-     `deep` is still passed because the CSS fallback needs a ground colour. */
-  const isLight = !!(P && P.dark === false);
-  const deep = isLight ? (P.bg || "#f5f4f1") : ((P && P.bg) || "#0a1020");
-
-  // Create once. Deliberately NOT keyed on accent/mode — those are pushed
-  // through setState below, because tearing down a GPU context to change a
-  // colour is how you end up leaking contexts on a settings screen.
-  useEffect(() => {
-    if (animationMode === "off") return undefined;
-    let disposed = false;
-    let handle = null;
-
-    (async () => {
-      try {
-        const { createField } = await import("./cerebrumField.js");
-        if (disposed || !canvasRef.current) return;
-        handle = await createField(canvasRef.current, {
-          accent, deep, mode, core, corePos, coreScale, light: isLight,
-        });
-        if (disposed) { if (handle) handle.destroy(); return; }
-        if (!handle) { setFailed(true); return; }
-        fieldRef.current = handle;
-      } catch {
-        if (!disposed) setFailed(true);
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      if (fieldRef.current) { fieldRef.current.destroy(); fieldRef.current = null; }
-      else if (handle) handle.destroy();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animationMode]);
-
-  // Push state changes without recreating anything.
-  useEffect(() => {
-    if (fieldRef.current) {
-      fieldRef.current.setState({ accent, deep, mode, energy, core, corePos, coreScale, light: isLight });
-    }
-  }, [accent, deep, mode, energy, core, corePos[0], corePos[1], coreScale, isLight]);
-
-  const fallbackStyle = {
-    position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-    background: staticFieldCss(accent, deep),
-  };
-
-  // Animation off, or WebGL unavailable: the same palette and roughly the
-  // same composition, painted in CSS. The page should look deliberate, not
-  // like something failed to load.
-  if (animationMode === "off" || failed) {
-    return <div aria-hidden="true" style={fallbackStyle} />;
-  }
-
-  return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden="true"
-      style={{
-        position: "fixed", inset: 0, width: "100%", height: "100%",
-        zIndex: 0, pointerEvents: "none", display: "block",
-        // Painted underneath while the shader module loads, so there is never
-        // a black rectangle between first paint and first frame.
-        background: staticFieldCss(accent, deep),
-      }}
-    />
-  );
-}
+/* Pass 1 (2026-09-17): CerebrumFieldCanvas itself is deleted with them —
+   the ambient field no longer renders on any product surface, so the
+   renderer (src/cerebrumField.js) has no mount points left. */
 
 /* v7.0 cleanup: two banner comments used to sit here ("Custom blend-mode
    cursor" and "Mouse-tracking glow border") describing features that were
@@ -6821,33 +6718,16 @@ function InfoPage({ page }) {
         .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16,1,0.3,1) both; }
         @keyframes cbInfoFade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
       `}</style>
-      <div aria-hidden="true" className="cb-ambient" style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden",
-        // Was three different named ACCENTS colors (Emerald/Violet/Teal) —
-        // none of those keys exist anymore (see the comment on `accent`
-        // above), so this repeats the one real accent color at three
-        // descending opacities instead of reintroducing a multi-color
-        // palette the rest of the app has already moved away from.
-        background: [
-          `radial-gradient(ellipse 900px 700px at 10% -10%, ${withAlpha(accent, P.dark ? 0.2 : 0.17)}, transparent 60%)`,
-          `radial-gradient(ellipse 820px 820px at 110% 12%, ${withAlpha(accent, P.dark ? 0.14 : 0.11)}, transparent 55%)`,
-          `radial-gradient(ellipse 760px 920px at 46% 118%, ${withAlpha(accent, P.dark ? 0.1 : 0.08)}, transparent 60%)`,
-        ].join(", "),
-      }} />
-      {animationMode !== "off" && (
-        <div style={{ position: "fixed", inset: 0, opacity: 0.4, pointerEvents: "none", zIndex: 0 }}>
-          <CerebrumFieldCanvas accent={accent} P={P} mode="reading" core={0} animationMode={animationMode} />
-        </div>
-      )}
       <header style={{ position: "sticky", top: 0, zIndex: 10 }}>
-        {/* Blur lives on its own layer behind the content instead of on the
-            sticky element itself — see the `headerGlass` comment in the main
-            app styles for why that split is what actually keeps mouse-wheel
-            scrolling alive over this bar. The `translateZ(0)` +
-            `willChange: "transform"` compositor hint this used to also carry
-            was removed (v25) to match the same edit in makeStyles' `header`
-            — see that comment for the full reasoning. */}
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: withAlpha(P.bg, 0.85), backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: `1px solid ${P.line}` }} />
+        {/* Opaque shell (2026-09-17 redesign pass 1): the ambient field
+            canvas is gone and the header is a solid surface — the blur
+            layer below used to sit over moving footage, and there is
+            nothing left to frost. The split-layer structure stays (blur
+            never sits on the sticky element itself — see the `headerGlass`
+            comment in the main app styles for the compositor-trap
+            reasoning), but the layer is now just an opaque background
+            with the hairline border. */}
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: P.bg, borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.02em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
@@ -7939,7 +7819,7 @@ function GuidedTour({ P, accent, forceShow = false, onClose = () => {} }) {
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
         border: P.dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
-        borderRadius: 16,
+        borderRadius: 12,
         boxShadow: P.dark
           ? "0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset"
           : "0 24px 80px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.03) inset",
@@ -9201,7 +9081,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 16, display: "flex", flexDirection: "column",
+        borderRadius: 12, display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
       }}
     >
@@ -11210,7 +11090,7 @@ function TrendingHero({ P, accent, item, onExpand }) {
     <button
       type="button" onClick={() => onExpand(item)}
       style={{
-        position: "relative", display: "block", width: "100%", borderRadius: 16, overflow: "hidden",
+        position: "relative", display: "block", width: "100%", borderRadius: 12, overflow: "hidden",
         /* Commit 79 — only reserve a picture's worth of height when there
            is a picture. A hard 16:9 with no photograph is ~600px of empty
            gradient with a headline adrift in it, which is precisely what
@@ -11329,7 +11209,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 16, maxHeight: "88dvh", display: "flex", flexDirection: "column",
+        borderRadius: 12, maxHeight: "88dvh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
       }}
     >
@@ -11436,7 +11316,7 @@ function VideoPlayerModal({ P, accent, at, video, close }) {
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 16, display: "flex", flexDirection: "column",
+        borderRadius: 12, display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
       }}
     >
@@ -11504,24 +11384,6 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
        is absolutely positioned inside this box, so the box has to be as
        tall as the view. */
     <div style={{ flex: 1, minHeight: "100%", position: "relative" }}>
-      {/* A soft floor under the reading column on the dark palettes.
-          These pages are dense text over moving footage, and a bright frame
-          drifting under a paragraph took the contrast below anything
-          readable — worst on a phone, where the column is the full width of
-          the screen. It is a gradient, not a panel: the film still shows at
-          the edges and behind the header, so the page keeps its depth. */}
-      <div aria-hidden="true" style={{
-        /* Fixed to the workspace, not absolute inside the content.
-           Absolute made the scrim exactly as tall as whatever happened to
-           be on the page, so a short list left a hard horizontal seam
-           across the middle of the window where the floor stopped. */
-        position: "fixed", top: 0, bottom: 0, right: 0,
-        left: isMobile ? 0 : 260,
-        pointerEvents: "none", zIndex: 0,
-        background: P.dark
-          ? "linear-gradient(180deg, rgba(11,13,16,0.55) 0%, rgba(11,13,16,0.78) 22%, rgba(11,13,16,0.82) 100%)"
-          : "none",
-      }} />
       <div style={{
         position: "relative",
         /* 820 is the measure the composer and the Home Deck use. These
@@ -11533,9 +11395,12 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
         // is 38px square, so a page title starting at 24px from the top ran
         // straight underneath it. TrendingView already carried this offset;
         // every new page needs it too.
-        padding: isMobile ? "66px 18px 72px" : "76px 32px 96px",
+        // Pass 1 (2026-09-17): vertical padding cut ~25% — the film scrim
+        // this page used to veil is gone, and the page is now a quiet
+        // opaque surface; it no longer needs the extra air.
+        padding: isMobile ? "52px 18px 56px" : "58px 32px 70px",
       }}>
-        <div style={{ marginBottom: 34 }}>
+        <div style={{ marginBottom: 26 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <h1 style={{
               margin: 0, fontSize: isMobile ? 28 : 34, fontWeight: 600,
@@ -11571,20 +11436,14 @@ function WorkspaceEmpty({ P, accent, icon, title, body, action, isMobile = false
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center",
-      /* A real surface, not a dashed dropzone. The dashed border and a
-         1.8%-white fill read as "content failed to load" — and over the
-         film it read as nothing at all, since footage showed straight
-         through it. Same glass recipe as every other panel, with a soft
-         accent bloom behind the icon so the eye lands on the one action. */
+      /* A real surface, not a dashed dropzone. Opaque shell (2026-09-17
+         redesign pass 1): the ambient film is gone, so the glass recipe
+         this used to share with every other panel is now a solid surface
+         with one hairline border and no shadow — never a pure-black void. */
       padding: isMobile ? "48px 22px" : "64px 28px", borderRadius: RADIUS.lg,
       position: "relative", overflow: "hidden",
       border: P.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${P.line2}`,
-      background: P.dark ? "rgba(15, 17, 21, 0.72)" : "rgba(255,255,255,0.86)",
-      backdropFilter: "blur(8px)",
-      WebkitBackdropFilter: "blur(8px)",
-      boxShadow: P.dark
-        ? "inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 40px rgba(0,0,0,0.26)"
-        : "inset 0 1px 0 rgba(255,255,255,0.9), 0 14px 34px rgba(0,0,0,0.08)",
+      background: P.surface,
     }}>
       <span aria-hidden="true" style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -11721,7 +11580,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
         </div>
         {showUpgrade && (
           <button onClick={onOpenPro} style={{
-            marginTop: 10, minHeight: 44, padding: "10px 20px", borderRadius: 999,
+            marginTop: 10, minHeight: 44, padding: "10px 20px", borderRadius: 6,
             border: state === "empty" ? "none" : `1px solid ${withAlpha("#d4a437", 0.55)}`,
             background: state === "empty" ? "#e5484d" : "transparent",
             color: state === "empty" ? "#fff" : P.ink,
@@ -11945,7 +11804,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
-      <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "72px 18px 60px" : "44px 32px 90px" }}>
+      <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "72px 18px 48px" : "34px 32px 68px" }}>
         {/* ══════════════════════════════════════════════════════
             The masthead. Trending is a daily edition, not a dashboard:
             nameplate, dateline, and the one honest disclaimer, ruled off
@@ -12762,7 +12621,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
   const studioBtn = (label, onClick, opts = {}) => (
     <button type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || label}
       style={{
-        padding: "12px 20px", borderRadius: 9999, cursor: opts.disabled ? "default" : "pointer",
+        padding: "12px 20px", borderRadius: 6, cursor: opts.disabled ? "default" : "pointer",
         fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-font)",
         background: opts.primary ? accent : withAlpha(accent, 0.07),
         color: opts.primary ? at : opts.disabled ? P.faint : P.ink2,
@@ -12799,7 +12658,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
       onEscape={() => { if (exportOpen) setExportOpen(false); else onClose(); }}
       panelStyle={{
         background: P.bg,
-        borderRadius: 16, height: isMobile ? "96dvh" : "88dvh",
+        borderRadius: 12, height: isMobile ? "96dvh" : "88dvh",
         display: "flex", flexDirection: "column", overflow: "hidden",
         border: `1px solid ${withAlpha(accent, 0.18)}`, boxShadow: "0 40px 120px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 80px rgba(0,0,0,0.25)", outline: "none",
       }}
@@ -12840,7 +12699,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
           {!isMobile && (
             <div role="toolbar" aria-label="Canvas tools" style={{
               display: "flex", alignItems: "center", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.045)",
-              border: `1px solid ${P.line}`, borderRadius: 9999, padding: 3, gap: 2,
+              border: `1px solid ${P.line}`, borderRadius: 6, padding: 3, gap: 2,
             }}>
               {[["select", "Select", "cursor"], ["connect", "Connect", "link"]].map(([key, label, icon]) => {
                 const on = tool === key;
@@ -12848,7 +12707,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                   <button key={key} type="button" aria-pressed={on} title={key === "connect" ? "Connect: click a source node, then a target" : "Select and drag nodes"}
                     onClick={() => { setTool(key); setPendingFrom(null); }}
                     style={{ minHeight: 44,
-                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 9999,
+                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 6,
                       border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-font)",
                       background: on ? accent : "transparent", color: on ? at : P.ink2,
                       boxShadow: on ? `0 2px 10px ${withAlpha(accent, 0.4)}` : "none",
@@ -12932,7 +12791,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
           }}>
             {!isMobile && <div style={{ fontFamily: "var(--cb-font)", fontSize: 9, letterSpacing: "0.2em", color: P.faint, textTransform: "uppercase", padding: "2px 6px 10px" }}>Nodes</div>}
             {isMobile && (
-              <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, borderRadius: 9999, padding: 2, gap: 2, flexShrink: 0, marginRight: 4 }}>
+              <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, borderRadius: 6, padding: 2, gap: 2, flexShrink: 0, marginRight: 4 }}>
                 {[["select", "cursor"], ["connect", "link"]].map(([key, icon]) => (
                   <button key={key} type="button" aria-pressed={tool === key} title={key === "connect" ? "Connect nodes" : "Select nodes"}
                     onClick={() => { setTool(key); setPendingFrom(null); }}
@@ -13076,7 +12935,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                     Add nodes from the rail, or lift this answer's reasoning into a starting chart.
                   </div>
                   {answerText && (
-                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 9999, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 6, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                       <Icon name="edit" size={14} /> Draft from answer
                     </button>
                   )}
@@ -13084,7 +12943,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
               </div>
             )}
             {/* zoom controls */}
-            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: 3, display: "flex", alignItems: "center", gap: 2, background: withAlpha(P.bg, 0.88), backdropFilter: "blur(8px)", border: `1px solid ${P.line}`, borderRadius: 12, padding: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
+            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: 3, display: "flex", alignItems: "center", gap: 2, background: P.bg, border: `1px solid ${P.line}`, borderRadius: 6, padding: 4 }}>
               {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"]].map(([label, f, t2]) => (
                 <button key={label} type="button" title={t2} aria-label={t2}
                   onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }))}
@@ -14099,7 +13958,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           <div onClick={() => setExportOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} aria-hidden="true" />
           <div style={{
             position: "relative", width: "min(440px, 100%)", background: P.surface,
-            border: `1px solid ${P.line2}`, borderRadius: 16, padding: 20,
+            border: `1px solid ${P.line2}`, borderRadius: 12, padding: 20,
             boxShadow: "0 24px 70px rgba(0,0,0,0.4)",
           }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
@@ -14421,7 +14280,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
         ...(isMobile
           ? { top: 12, left: 12, right: 12 }
           : { bottom: 24, right: 24, width: 340 }),
-        padding: 20, borderRadius: 16,
+        padding: 20, borderRadius: 12,
         background: P.dark ? "rgba(18,19,24,0.96)" : "rgba(255,255,255,0.98)",
         border: `1px solid ${P.line2}`,
         boxShadow: "0 18px 60px rgba(0,0,0,0.4)",
@@ -14986,7 +14845,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         // when a search has started), so the two never overlap.
         bottom: isMobile ? 156 : 24, right: 20,
         width: bubbleSize.width, height: bubbleSize.height,
-        borderRadius: 16, overflow: "hidden", background: "#0b0b0d",
+        borderRadius: 12, overflow: "hidden", background: "#0b0b0d",
         border: "1px solid rgba(255,255,255,0.16)", boxShadow: "0 14px 40px rgba(0,0,0,0.5)",
       }
     : { position: "fixed", inset: 0, zIndex: 300, background: "#0b0b0d" };
@@ -15107,7 +14966,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       {status === "ready" && (
         <div onClick={(e) => { e.stopPropagation(); toggleView(); }} title="Switch view" style={{
           position: "absolute", top: isMobile ? 60 : 76, right: isMobile ? 14 : 28, width: isMobile ? 96 : 140, height: isMobile ? 128 : 104,
-          borderRadius: 16, overflow: "hidden", background: "#18181c", cursor: "pointer",
+          borderRadius: 12, overflow: "hidden", background: "#18181c", cursor: "pointer",
           border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
         }}>
           <video ref={videoBRef} autoPlay playsInline muted={!selfOnMain} style={{
@@ -16489,26 +16348,13 @@ function UICard({ children, P, pad = true, className = "", style, onClick, speci
       className={"cb-card cb-material-panel " + (specimen ? "cb-specimen " : "") + className}
       style={{
         borderRadius: RADIUS.lg,
-        /* A real glass panel, not a 2.8%-white tint.
-           The page behind these cards is transparent now — the film plays
-           through it — and a fill that faint meant footage was legible
-           straight through the card's own text. The fill carries the
-           contrast, the blur keeps whatever is moving behind it from
-           competing with a headline, and the inset top hairline is the
-           lit edge that makes a surface read as raised rather than
-           printed on.
-           12px of blur rather than the composer's 30: there are several of
-           these on screen at once and backdrop blur is charged per frame
-           against the area behind it, so the fill does most of the work
-           and the blur only has to soften what is left. */
-        background: P.dark ? "rgba(15, 17, 21, 0.72)" : "rgba(255, 255, 255, 0.86)",
-        
-        backdropFilter: "blur(8px)",
-        WebkitBackdropFilter: "blur(8px)",
+        /* Opaque shell (2026-09-17 redesign pass 1): the ambient film is
+           gone, so there is nothing behind these cards to frost. A solid
+           surface, one hairline border, no shadow — the glass recipe's
+           "real panel" comment below described a world with footage
+           playing through the page, which no longer exists. */
+        background: P.surface,
         border: P.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${P.line2}`,
-        boxShadow: P.dark
-          ? "inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 2px rgba(0,0,0,0.30), 0 16px 40px rgba(0,0,0,0.26)"
-          : "inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(0,0,0,0.05), 0 14px 34px rgba(0,0,0,0.08)",
         padding: pad ? SP.lg : 0,
         overflow: "hidden", minWidth: 0,
         cursor: onClick ? "pointer" : undefined,
@@ -16616,7 +16462,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
            the chrome's look. */
         style={{
           border: "none", background: "transparent",
-          color: subInk, cursor: "pointer", borderRadius: 999,
+          color: subInk, cursor: "pointer", borderRadius: 6,
           width: 44, height: 44, display: "inline-flex", alignItems: "center",
           justifyContent: "center", flexShrink: 0, padding: 0,
         }}
@@ -16625,7 +16471,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
           style={{
             border: `1px solid ${P ? P.line : "rgba(255,255,255,0.12)"}`,
             background: P ? "transparent" : "rgba(255,255,255,0.05)",
-            borderRadius: 999, width: 30, height: 30, display: "inline-flex",
+            borderRadius: 6, width: 30, height: 30, display: "inline-flex",
             alignItems: "center", justifyContent: "center", fontSize: 16,
             lineHeight: 1, fontFamily: "var(--cb-font)",
             transition: "background 0.15s ease",
@@ -16837,7 +16683,7 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
       } : {
         ...(tall ? { height: "min(760px, 86dvh)" } : {}),
         background: panelBg,
-        border: "1px solid rgba(255,255,255,0.10)", borderRadius: 20,
+        border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
         boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
         padding: "20px 22px 22px", color: panelInk, fontFamily: "var(--cb-font)",
       }}
@@ -16962,10 +16808,12 @@ function UIRow({ label, desc, control, onClick, P, accent, last, tone, style, pa
    Text input and textarea, one look. Every form in the app had its own. */
 function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3, ariaLabel, maxLength, style, onKeyDown }) {
   const base = {
-    width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: RADIUS.sm,
+    width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: 8,
     background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
     border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-    fontSize: FONT_SIZES.small, ...TYPE.body, minWidth: 0, ...style,
+    /* 16px floor: iOS Safari zooms the viewport on focus for anything
+       smaller, so every text input holds 16px on all viewports. */
+    fontSize: 16, ...TYPE.body, minWidth: 0, ...style,
   };
   const common = { value, onChange, placeholder, "aria-label": ariaLabel || placeholder, maxLength, onKeyDown, style: base };
   return multiline
@@ -16995,7 +16843,10 @@ function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3,
    moving film backdrop the panels read as cut rectangles, and the extra
    couple of pixels is what makes a surface look moulded rather than
    trimmed. `pill` is unchanged — a pill is a pill. */
-const RADIUS = { sm: 10, md: 14, lg: 18, pill: 100 };
+/* Radius contract (2026-09-17 evidence-first redesign): 6px controls/buttons,
+   8px inputs, 12px cards/panels max, 999px ONLY for compact status pills
+   and filter chips. */
+const RADIUS = { sm: 6, md: 6, lg: 12, pill: 100 };
 
 const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "award", tint: "#c9a227" },
@@ -17776,7 +17627,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
       {/* Mobile: the hamburger is fixed at top:14 and 38px tall, owning the
           first ~52px. Mirror the thread's 68px clearance (36px here + 32px
           from the workspace) so the name never slides under the button. */}
-      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 72px" : "18px 28px 96px" }}>
+      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 56px" : "18px 28px 72px" }}>
 
         {/* Collapsed identity bar: pins once the sky scrolls away. The
             outer wrapper is sticky with zero height when hidden (no layout
@@ -17790,8 +17641,9 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           margin: isMobile ? "0" : "0",
           padding: isMobile ? "10px 18px" : "10px 28px",
           display: "flex", alignItems: "center", gap: 10,
-          background: P.dark ? "rgba(13,15,20,0.94)" : "rgba(250,249,246,0.94)",
-          backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          /* Pass 1 (2026-09-17): opaque. This is a sticky chrome bar, not
+             an overlay — the blur only frosted the ambient reel behind it. */
+          background: P.bg,
           borderBottom: `1px solid ${P.line}`,
           transform: heroGone ? "translateY(0)" : "translateY(-110%)",
           opacity: heroGone ? 1 : 0,
@@ -20153,7 +20005,7 @@ const SAMPLE_DOCUMENT = [
   "blinding, which is unavoidable when the intervention is a park.",
 ].join("\n");
 
-function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
+function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
   // away whatever the person pasted.
@@ -20887,7 +20739,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const renderDocReader = (form) => {
     const cardStyle = {
       background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
-      borderRadius: 16, padding: isMobile ? 18 : 24, border: `1px solid ${P.line}`,
+      borderRadius: 12, padding: isMobile ? 18 : 24, border: `1px solid ${P.line}`,
       ...(form === "overlay" ? { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 } : null),
     };
     return (
@@ -21046,46 +20898,20 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
        overlay; `asPage` keeps the modal form available for the command
        palette, which opens it deliberately as an interruption.
 
-       Wave 1 — the page form is rebuilt on the film-layer model: the
-       root is transparent and full-height, ONE FilmLayer fills it (the
-       workspace reel unmounts while this view is open, so two background
-       decoders never run on the same screen), a single scrim veils the
-       footage — the only layer whose background opacity is tuned — and
-       the content flows as one continuous page above it. No fixed
-       heights, no internal scroll regions, no 48%-of-the-screen split:
-       on a phone the whole page is one vertical reflow. */
+       Pass 1 (2026-09-17): the film-layer model is retired — the page is
+       now a quiet opaque surface like every other product surface. The
+       FilmLayer and its scrim are gone; the root carries P.bg directly.
+       No fixed heights, no internal scroll regions, no 48%-of-the-screen
+       split: on a phone the whole page is one vertical reflow. */
     <div
       {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
       style={asPage
         ? {
             position: "relative", display: "flex", flexDirection: "column",
             minHeight: "100vh", minHeight: "100svh",
-            background: "transparent", overflow: "clip",
+            background: P.bg, overflow: "clip",
           }
         : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
-      {asPage && (
-        <>
-          <FilmLayer
-            src={DOC_FILM_SRC}
-            pinned={false}
-            preload="metadata"
-            fadeMs={2200}
-            /* filmOK mirrors the workspace reel's own rule (reduced
-               motion, Save-Data, animation off, low-memory devices): when
-               it is false the layer holds the clip's graded still and
-               decodes nothing. */
-            active={filmOK}
-          />
-          {/* The scrim: the ONLY layer in this stack whose background
-              opacity is tuned. It veils the footage so text stays crisp;
-              the reader card below is the established near-opaque
-              readingPanel surface, not another veil. */}
-          <div aria-hidden="true" style={{
-            position: "absolute", inset: 0, pointerEvents: "none",
-            background: P.bg, opacity: P.dark ? 0.82 : 0.92,
-          }} />
-        </>
-      )}
 
       {asPage ? (
         /* ── Compact toolbar: the page's real heading (Commit 99) and one
@@ -21764,7 +21590,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {/* 62px of top padding on mobile clears the fixed menu button — see
           pageViewInner's comment; Settings sets its own padding and so
           needed the same correction independently. */}
-      <div style={{ width: "100%", maxWidth: isMobile ? 760 : 1020, margin: "0 auto", padding: isMobile ? "62px 18px 60px" : "44px 32px 90px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-font)" }}>
+      <div style={{ width: "100%", maxWidth: isMobile ? 760 : 1020, margin: "0 auto", padding: isMobile ? "62px 18px 48px" : "34px 32px 68px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-font)" }}>
 
         {/* Header. Settings became a full page (not a dialog) in Commit 62,
             but kept the dialog's horizontally-scrolling tab strip — a
@@ -22453,92 +22279,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // (Strike 5): the whole point of Sage/Dark/Mid/Light now is that the
     // page itself is warm stone, cool slate, or paper-white depending on
     // what's selected — P.bg is that selection, so this reads it directly.
-    /* Transparent on the dark palettes so the reel behind the shell is
-       actually visible between panels — an opaque page background is the
-       one thing that turns a cinematic backdrop back into a screenshot.
-       The light palette stays opaque: white glass over moving footage is
-       not legible at any blur radius, and pretending otherwise would ship
-       an unreadable theme. The reel's own graded ground (.cb-film) is what
-       shows through, so there is never bare white behind the type. */
-    page: { minHeight: "100dvh", background: P.dark ? "transparent" : P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
-    // v32: SoftAurora (see its own comment block) is a deliberately loud,
-    // saturated, constantly-moving field — nothing like the 0.04-opacity
-    // dot-grid it replaced. Sitting reading text directly on top of it would
-    // fail contrast the moment a bright band of the aurora drifts under a
-    // sentence. This layer is the fix: a wide, soft, horizontal "reading
-    grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
+    /* Pass 1 (2026-09-17): the page root is always opaque. The ambient
+       reel/field/grain stack it used to be transparent for is gone, so
+       there is nothing left to show through — a transparent page was only
+       ever the reel's window. Every product surface is a solid shell now. */
+    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
 
-    /* ── Ambient wash: the always-on depth layer ──
-       A pure-CSS radial-gradient wash, built from colors already in
-       memory — no network dependency, cannot fail. LivingBackground (the
-       animated ConstellationField canvas, see its own component comment)
-       layers on top of this when animation is enabled; this wash is the
-       baseline atmosphere either way, including for anyone with animation
-       switched off in Settings. */
-    // v6.8: light theme's wash used to sit at roughly half the alpha of
-    // dark's (0.12/0.09/0.08 vs 0.24/0.20/0.18) on the reasoning that a
-    // light surface needs a lighter touch — but against an already
-    // near-white body, that read as "no background at all" rather than "a
-    // subtle one." Brought closer to parity with dark so the wash is
-    // something a visitor actually notices as a deliberate background,
-    // not something only visible on close inspection.
-    // v30: retiring the "Darknode terminal" concept entirely per direction —
-    // this was a vignette left over from that round (already pared down
-    // from three colored blobs to one dark edge fade last round). The new
-    // target was "Next-Gen Editorial Intelligence": a flawless, solid,
-    // premium surface, not a vignette or a haze of any kind — reasoning
-    // that P.bg's own solid color would carry the surface and a fully
-    // transparent ambient layer would leave "zero gradient math left to
-    // fight the page's WebGL layer for the same pixels."
-    // Commit 43: that reasoning didn't hold. `page`'s solid `background:
-    // P.bg` paints at the very back of the page element's own box, but
-    // LivingBackground (SoftAurora) is a later sibling in the DOM with the
-    // same z-index, so it paints ON TOP of that solid color, full-bleed,
-    // completely undimmed, everywhere the app's actual content — cards,
-    // panels, text — doesn't happen to sit directly over it. In practice
-    // that's every gap, margin, and stretch of negative space in the
-    // layout, which is exactly what reads as a hazy, foggy wash across the
-    // dark palettes rather than the flat, considered surface this was
-    // meant to produce. Restoring a real scrim here — the same role the
-    // Intro screen's own `.cb-ambient` layer already plays for Orb, just
-    // lighter — knocks the aurora back down to a quiet, controlled accent
-    // in open space instead of a fog filling the whole viewport.
-    //
-    // Commit 44: the Commit 43 pass above still shipped this scrim BEHIND
-    // LivingBackground in paint order (this div sits earlier in the JSX,
-    // and both are `position:fixed` at the same z-index, so ties resolve by
-    // document order — later wins). A layer painted behind a WebGL canvas
-    // can only ever show through where that canvas is transparent — i.e.
-    // wherever the aurora shader is already dim — so it did nothing at all
-    // to the bright, saturated core of the aurora band, which is exactly
-    // the part that actually reads as "foggy." That's the real reason the
-    // haze was still there after that fix shipped: the scrim was rendering,
-    // it just never had a chance to dim the one thing it needed to. Moving
-    // it to zIndex: 1 — one level above LivingBackground's own zIndex: 0,
-    // and still nowhere near Sidebar's zIndex: 30 or the real content above
-    // it — puts it on top instead, where it actually composites over every
-    // pixel of the aurora, bright bands included. Opacity nudged up
-    // alongside the reorder for real margin now that it's doing its job.
-    //
-    // Commit 45: STILL read as foggy after the z-index fix, and the actual
-    // cause was this comment's own prior claim — "built from P.bg itself...
-    // not a new color" was true back when the dark palettes' `bg` was
-    // near-black. It no longer is: the user separately asked for dark mode
-    // to be "not so dark," and PALETTES.Dark/Mid/Sage were deliberately
-    // lifted off pure black to a warm/cool charcoal (`#201f1d`/`#25262b`/
-    // `#242420` — see PALETTES itself). Tinting a dimming scrim with that
-    // *lighter* charcoal, at 72% opacity, over a bright saturated WebGL
-    // shader doesn't dim it the way a near-black overlay does — it blends
-    // into exactly the warm-gray haze being reported. The scrim's job is to
-    // darken the animated layer, not to color-match the theme's own (now
-    // deliberately lighter) surface tone, so those two now need to be
-    // decoupled: dark themes' scrim is a fixed near-black regardless of how
-    // light `P.bg` gets, while light theme's scrim (never reported as
-    // foggy, and already close to white) still derives from its own P.bg.
-    ambient: {
-      position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", overflow: "hidden",
-      background: P.dark ? "rgba(0,0,0,0.72)" : withAlpha(P.bg, 0.45),
-    },
+    /* Pass 1 (2026-09-17): the grain overlay and the ambient wash are
+       deleted with the reel — the product shell is opaque now, and a
+       fixed noise layer over a solid page is just cost without a job. */
 
     /* ── Header: dark glass bar, minimal ──
        `position: sticky` combined with `backdrop-filter` on the same element
@@ -22574,9 +22323,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     headerGlass: {
       position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none",
       borderBottom: glassBorder,
-      background: P.dark ? withAlpha(P.bg, 0.75) : withAlpha(P.bg, 0.85),
-      backdropFilter: "blur(14px) saturate(1.3)",
-      WebkitBackdropFilter: "blur(14px) saturate(1.3)",
+      /* Pass 1 (2026-09-17): solid. The blur existed to frost the ambient
+         reel behind the bar, and the reel is gone — a backdrop filter with
+         no backdrop is just a compositing cost. Opaque P.bg, 1px hairline,
+         no shadow. The split-layer structure stays: `position: sticky`
+         plus `backdrop-filter` on one element is a known Chromium
+         compositor trap (see the long comment above), so the background
+         still lives on its own layer behind the content. */
+      background: P.bg,
     },
     headInner: { maxWidth: 1120, margin: "0 auto", padding: `0 ${pad}px`, height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" },
     // v36: headActions picked up a 7th button ("Find People") without any
@@ -22620,20 +22374,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarWidth: 260,
     sidebar: {
       position: "fixed", top: 0, left: 0, bottom: 0, width: 260, zIndex: 30,
-      /* Smoked glass, not a solid rail. The reel moves behind it, which is
-         where most of the shell's depth comes from — but the blur and the
-         0.72 floor are doing real work, not decoration: a nav label has to
-         stay readable when a bright frame drifts under it. */
-      /* blur(8px), and no saturate(). Backdrop blur is charged per frame
-         against the area behind it, and this rail is 260px by the full
-         viewport height sitting over playing video — the most expensive
-         single surface in the app. 14px to 8px is most of the remaining
-         cost for almost none of the look at this opacity, and dropping
-         saturate() removes a whole second filter pass over the same region. */
-      background: P.dark ? "rgba(15, 17, 21, 0.82)" : P.surface,
-      backdropFilter: P.dark ? "blur(8px)" : "none",
-      WebkitBackdropFilter: P.dark ? "blur(8px)" : "none",
-      borderRight: `1px solid ${P.dark ? "rgba(255,255,255,0.09)" : P.line}`,
+      /* Pass 1 (2026-09-17): solid. The smoked-glass treatment existed to
+         sit over the ambient reel; the reel is gone, so the rail is an
+         opaque surface with a 1px hairline — no blur, no translucency. */
+      background: P.bg,
+      borderRight: `1px solid ${P.line}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
       transition: "transform 240ms cubic-bezier(0.4, 0, 0.2, 1)",
@@ -22665,19 +22410,21 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // without them this is a plain static box, which CSS paints in the
     // in-flow layer — strictly below ANY positioned element in the same
     // stacking context, even one at zIndex: 0/1, regardless of DOM order.
-    // `.cb-ambient` (S.ambient, a few hundred lines up) is exactly such an
-    // element: position:fixed, zIndex:1, a 72%-black scrim meant only to
-    // dim the WebGL aurora behind it (LivingBackground, zIndex:0). With
-    // appMain unpositioned, that scrim was painting over EVERYTHING inside
-    // it too — the whole "search" hero (title, subhead, search bar, evidence
-    // chips, trust row, footer) rendered through a 72%-black wash, which is
-    // why "Cerebrum" sampled as flat rgb(71,71,71) instead of the white
-    // P.ink the inline style plainly set: 255*(1-0.72) = 71, exactly. The
-    // Sidebar was never affected because it already carries its own
+    // `.cb-ambient` (S.ambient, now retired — see the pass-1 note on `page`)
+    // was exactly such an element: position:fixed, zIndex:1, a 72%-black
+    // scrim meant only to dim the WebGL aurora behind it (LivingBackground,
+    // zIndex:0). With appMain unpositioned, that scrim was painting over
+    // EVERYTHING inside it too — the whole "search" hero (title, subhead,
+    // search bar, evidence chips, trust row, footer) rendered through a
+    // 72%-black wash, which is why "Cerebrum" sampled as flat rgb(71,71,71)
+    // instead of the white P.ink the inline style plainly set. The scrim
+    // is gone now, but the zIndex stays: it still keeps appMain above the
+    // fixed sidebar layer and any other positioned shell chrome.
+    // The Sidebar was never affected because it already carries its own
     // zIndex:30. Other full-page views (Settings/Trending/etc.) already
     // dodge this independently — they're wrapped in S.pageView, which sets
     // this same {position:relative, zIndex:1} and, being later in the DOM
-    // than .cb-ambient, wins document-order tiebreaking at the tied
+    // than the retired .cb-ambient layer, wins document-order tiebreaking at the tied
     // zIndex:1. Giving appMain the identical treatment covers every view it
     // wraps (the search hero included) with the same one fix, rather than
     // relying on each view to separately remember to opt in.
@@ -22722,7 +22469,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        Dark: rgba(15,17,21,0.94). Light: rgba(250,251,249,0.97). */
     readingPanel: {
       background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
-      borderRadius: 16, padding: isMobile ? 18 : 28,
+      borderRadius: 12, padding: isMobile ? 18 : 28,
       border: `1px solid ${P.line}`,
     },
     // Commit 67 (mobile fix) — the floating menu button is fixed at
@@ -23736,7 +23483,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
       scrimStyle={{ backdropFilter: "blur(18px) saturate(1.05)", WebkitBackdropFilter: "blur(18px) saturate(1.05)", background: "rgba(0,0,0,0.72)" }}
       panelStyle={{
         background: P.bg, color: P.ink,
-        border: `1px solid ${P.line2}`, borderRadius: 16, outline: "none",
+        border: `1px solid ${P.line2}`, borderRadius: 12, outline: "none",
         boxShadow: "0 30px 90px rgba(0,0,0,0.55)",
         padding: isMobile ? "26px 20px 22px" : "32px 34px 26px",
         fontFamily: "var(--cb-font)", maxHeight: "94dvh", overflowY: "auto",
@@ -23998,15 +23745,6 @@ function App() {
   useEffect(() => {
     setIrisOpen(false);
   }, [entered]);
-  /* The handoff bridge: the clip that was on screen when the visitor
-     stepped through the door. The workspace's film opens on it (startAt)
-     and its graded still dissolves over the workspace while the new reel
-     buffers — the same background frame is retained, no restart, no
-     blank. Cleared once the fade is done. */
-  const [enterClip, setEnterClip] = useState(null);
-  const enterClipTimer = useRef(null);
-  useEffect(() => () => clearTimeout(enterClipTimer.current), []);
-  const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   /* Attention, as a piece of state. The backdrop is at its most present
      when someone is looking around, and steps back the moment they start
@@ -24016,13 +23754,6 @@ function App() {
      (This state was briefly removed with the dial; the follow-up composer
      and SourceCard still read it, so removing it crashed them.) */
   const [hover, setHover] = useState("");
-  /* On by default everywhere — desktop and phone alike — and whatever the
-     person last chose after that. The control says what it will do, not
-     what it currently is. */
-  const [filmMotion, setFilmMotion] = useState(() => true);
-  /* Gesture-context playback for the footer Play control — see the
-     forwardRef note on CinematicFilm. */
-  const filmRef = useRef(null);
   // V5 "what's new" announcement — shows once per browser, the first time
   // someone lands on the main app after this ships. Keyed off its own
   // localStorage flag rather than the entry cookie above, since a returning
@@ -26099,14 +25830,6 @@ function App() {
             sfx();
             if (seed) setInput(seed);
             setEntered(true);
-            /* Keep the background frame across the handoff: the workspace
-               reel opens on this clip and the graded still bridges the
-               buffering gap (see enterClip). */
-            if (clipSrc && FILM_SCENES[clipSrc]) {
-              setEnterClip(clipSrc);
-              clearTimeout(enterClipTimer.current);
-              enterClipTimer.current = setTimeout(() => setEnterClip(null), 1500);
-            }
             /* The worked example is a press on a specific question, so it
                runs it rather than leaving it sitting in the composer for
                a second press. Not while the consent gate is up: that gate
@@ -26236,92 +25959,14 @@ function App() {
   return (
     <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent)}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
-      {/* The handoff bridge: the door's clip as a graded still, dissolving
-          over the workspace while the new reel buffers on the same clip.
-          pointer-events:none, gone after the fade. */}
-      {enterClip && (
-        <div className="cb-enter-frame" aria-hidden="true" style={{
-          backgroundImage: `url("${filmPoster(enterClip)}")`,
-        }} />
-      )}
+      {/* Pass 1 (2026-09-17): quiet opaque shells. The ambient backdrop
+          is gone — no film reel, no generated field, no grain, no
+          handoff still. The page root carries P.bg directly (see
+          makeStyles `page`), and every product surface is an opaque
+          solid. The intro keeps its own cinematic reel; it is untouched. */}
 
       {updateReady && <VersionBanner P={P} accent={accent} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
-      <div style={S.ambient} className="cb-ambient" aria-hidden="true" />
-      {/* ── The field, at application level ──────────────────────────────
-          Three things drive it, and all three are real application state:
-
-          mode    "ambient" on the entry screen, "reading" once there is an
-                  answer on the page. Reading mode widens the contour spacing
-                  and dims the ridge light so the surface stays present without
-                  competing with text.
-          energy  Rises only while a request is genuinely in flight (`busy`).
-                  It is not a progress indicator and does not know how far
-                  along anything is — it is on or off, damped.
-          core    Prominent before the first question, then small and settled
-                  near the top of the workspace once an investigation begins.
-
-          It is NOT paused on other views. Pausing it made the atmosphere blink
-          out whenever someone opened Settings, which is the opposite of a
-          coherent environment; the renderer already stops on its own when the
-          tab is hidden or the canvas is off-screen, which is the case that
-          actually costs anything. */}
-      {/* One backdrop at a time, never both.
-
-          The reel is the application's atmosphere when it can run. When it
-          cannot — reduced motion, Save-Data, animation switched off — the
-          generated field takes its place rather than leaving a flat panel,
-          so the shell has depth under every condition. `filmBlocked` is the
-          single rule both branches read; asking the question twice in two
-          slightly different ways is how you end up mounting two WebGL/video
-          backdrops on the same screen.
-
-          Intensity drops once an investigation is underway: the reel is a
-          front door, and a bright cut behind a paragraph someone is reading
-          is a distraction, not atmosphere.
-
-          Document Mode runs its own single FilmLayer (see DOC_FILM_SRC
-          below): the workspace reel unmounts while the document is open so
-          two background decoders never run on the same screen. */}
-      {view !== "document" && (filmBlocked(animationMode, false) ? (
-        <CerebrumFieldCanvas
-          accent={accent}
-          P={P}
-          mode={started ? "reading" : "ambient"}
-          energy={busy ? 1 : 0}
-          core={started ? 0.34 : 0.85}
-          corePos={started ? [0.72, 0.58] : [0, 0.08]}
-          coreScale={started ? 0.42 : 0.9}
-          animationMode={animationMode}
-        />
-      ) : (
-        <CinematicFilm
-          ref={filmRef}
-          animationMode={animationMode}
-          paused={!filmMotion}
-          /* Pro members with the toggle on get the members-only reel. */
-          proReel={!!(user && user.isPro && proReel)}
-          /* Opens on the door's clip when the visitor just stepped through,
-             so the background frame is retained across the handoff. */
-          startAt={enterClip}
-          /* Brightest on the search screen, dimmer once you are reading an
-             answer, dimmest on a working view like Inbox or Find people —
-             those are dense text on a wide column, and footage at full
-             strength behind them cost real legibility. */
-          intensity={
-            /* Four states, in order of how much attention the page is
-               asking for. Reading wins over everything: an answer is the
-               one screen where the footage is purely in the way. */
-            started ? 0.34
-              : (view && view !== "search") ? 0.42
-              : composerFocused ? 0.45
-              : (input && input.length > 0) ? 0.5
-              : 1
-          }
-        />
-      ))}
-      <div style={S.grain} />
       {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
-      {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
       {tourOpen && <GuidedTour P={P} accent={accent} forceShow onClose={() => setTourOpen(false)} />}
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
@@ -26603,7 +26248,7 @@ function App() {
                     {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
                     <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
                       <button onClick={() => { setError(""); setErrorDetail(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }}
-                        style={{ minHeight: 44, padding: "0 24px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: "#11140f", border: "none", borderRadius: 999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        style={{ minHeight: 44, padding: "0 24px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: "#11140f", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                         Try again
                       </button>
                     </div>
@@ -26652,11 +26297,10 @@ function App() {
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 10px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
             <div className="cb-appfoot-links" style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
-                /* The reel plays behind the whole application, not just the
-                   intro, so its attribution has to be reachable from in here
-                   too — the CC BY clips are on screen either way. */
-                ["credits", "Film credits"],
-                ["motion", filmMotion ? "Pause background" : "Play background"],
+                /* Pass 1 (2026-09-17): the app-level ambient reel is gone,
+                   so its footer controls go with it — "Film credits" and
+                   the background play/pause live on the intro's own
+                   footer now, next to the footage they describe. */
                 ["/about", "About"],
                 ["/privacy", "Privacy"],
                 ["/terms", "Terms"],
@@ -26674,17 +26318,6 @@ function App() {
                   textDecoration: "underline", textDecorationStyle: "dotted",
                   textDecorationColor: withAlpha(P.faint, 0.55), textUnderlineOffset: "3px",
                 };
-                if (href === "credits") return <button key={label} type="button" onClick={() => setFilmCreditsOpen(true)} style={st}>{label}</button>;
-                if (href === "motion") return (
-                  <button key="motion" type="button" style={st} onClick={() => {
-                    const next = !filmMotion;
-                    setFilmMotion(next); setFilmForcedOn(next);
-                    /* Synchronous, in the tap's gesture window: the only
-                       play() iOS Low Power Mode honours. The effect-driven
-                       path alone silently fails there. */
-                    if (next) { try { filmRef.current?.playNow(); } catch {} }
-                  }}>{label}</button>
-                );
                 return <a key={label} href={href} style={st}>{label}</a>;
               })}
               <span className="cb-appfoot-copy" style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}</span>
@@ -26727,11 +26360,7 @@ function App() {
       )}
       {view === "document" && (
         <Reveal style={S.pageView} deps={[view]}>
-          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro}
-            /* The document page runs its own single FilmLayer; mirror the
-               workspace reel's rule so reduced motion / Save-Data /
-               animation-off / low-memory hold the graded still instead. */
-            filmOK={!filmBlocked(animationMode, false)} />
+          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro} />
         </Reveal>
       )}
       {/* ══════════════════════════════════════════════════════════
@@ -27513,7 +27142,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
    pill in the top-left. The one class every keyboard user needs. */
 .cb-skip-link {
   position: fixed; top: 12px; left: 16px; z-index: 10000;
-  padding: 10px 18px; border-radius: 999px;
+  padding: 10px 18px; border-radius: 6px;
   background: var(--cb-accent, #34d399); color: #0b0f0d;
   font-size: 14px; font-weight: 600; text-decoration: none;
   transform: translateY(-64px);
@@ -27552,16 +27181,11 @@ summary::-webkit-details-marker { display: none; }
 }
 @keyframes cbHuddlePulse { 0%, 100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 0.35; } }
 
-/* v6.6: this used to drift via a continuous 34s transform animation. Given
-   a live, repeated report of laggy/unresponsive scrolling, that's a risk not
-   worth taking: this layer sits directly behind the header, answer card,
-   search bar, and chips, every one of which uses a backdrop blur filter —
-   and a blurred surface has to recompute its blur every single frame its
-   backdrop changes, even from a "barely-there" transform. Static costs
-   nothing (painted once, cached); animated costs a continuous repaint tax on
-   every blurred element in the app, for a decorative effect that was never
-   meant to be consciously noticed anyway. Depth without the tax. */
-.cb-ambient { /* intentionally static — see comment above */ }
+/* (Pass 1, 2026-09-17: the .cb-ambient layer and its "intentionally
+   static" rule are retired with the ambient stack — nothing mounts that
+   class anymore. The note below is kept as the record of why a drifting
+   backdrop was a scroll-performance risk, in case a future ambient layer
+   is ever reconsidered.) */
 
 /* Horizontally-scrollable strips (the Settings tab bar on narrow viewports)
    still need to scroll with a finger or a wheel, just not show a visible
@@ -27784,8 +27408,9 @@ summary::-webkit-details-marker { display: none; }
   background: #06080a;
   animation: cbVeilLift 2.4s var(--cb-ease-out) 0.2s both;
 }
-/* Leaving: the chrome fades fast, the film frame stays behind for the
-   handoff into the workspace (see .cb-enter-frame). */
+/* Leaving: the chrome fades fast. (The workspace-handoff half of this
+   rule — a graded still bridging into the app — retired with the ambient
+   stack in the 2026-09-17 pass 1; the intro keeps its own film frame.) */
 .cb-intro-leaving .cb-intro-chrome {
   opacity: 0 !important;
   transition: opacity 0.32s ease;
@@ -27868,18 +27493,6 @@ summary::-webkit-details-marker { display: none; }
   transition: opacity 1s var(--cb-ease), transform 1s var(--cb-ease);
 }
 .cb-real-answer.cb-inview { opacity: 1; transform: none; }
-/* The handoff bridge: the current clip's graded still, full-viewport,
-   dissolving over the workspace so the film frame is retained and no
-   blank screen or video restart ever flashes. Removed after the fade. */
-.cb-enter-frame {
-  position: fixed; inset: 0; z-index: 240; pointer-events: none;
-  background-size: cover; background-position: center; background-repeat: no-repeat;
-  animation: cbEnterFrameOut 0.85s ease 0.1s both;
-}
-@keyframes cbEnterFrameOut {
-  from { opacity: 1; }
-  to   { opacity: 0; }
-}
 
 /* ── Composer states ──
    (The old pill's scan/dots styles were removed with the query-line
@@ -28583,10 +28196,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-echo { animation: none; }
   .cb-echo-cursor { animation: none; display: none; }
   .cb-answer-enter { animation: cbFade 180ms ease both; }
-  /* Intro: the hero arrives without motion; the handoff bridge dissolves
-     near-instantly so nothing animates at the people who asked for none. */
+  /* Intro: the hero arrives without motion. */
   .cb-focus-in { animation: none; }
-  .cb-enter-frame { animation-duration: 0.01s; }
   /* Premium pass: every new motion dies here too. */
   .cb-title-veil { display: none; }
   .cb-real-answer { opacity: 1 !important; transform: none !important; transition: none !important; }
@@ -29609,9 +29220,9 @@ button.cb-cite { min-height: 0; min-width: 0; }
 /* 44px touch-target floor for controls inside rebuilt surfaces. */
 .cb-tap { min-height: 44px; min-width: 44px; }
 
-/* Reduced motion: ambient layers go still; no animated typing caret. */
+/* Reduced motion: no animated typing caret. (The ambient-layer half of
+   this rule retired with the ambient stack in the 2026-09-17 pass 1.) */
 @media (prefers-reduced-motion: reduce) {
-  .cb-ambient, .cb-ambient video, .cb-ambient canvas { animation: none !important; transition: none !important; }
   .cb-typing-caret { animation: none !important; }
 }
 
