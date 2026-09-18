@@ -51,7 +51,7 @@ if (await exists(join(dist, "_headers"))) {
 }
 
 // ── 2. Every legal route is a real document ───────────────────────────────
-const { PAGES } = await import(join(root, "src/legalContent.js"));
+const { PAGES, LEGAL_VERSION } = await import(join(root, "src/legalContent.js"));
 const slugs = Object.keys(PAGES);
 
 for (const slug of slugs) {
@@ -80,6 +80,19 @@ for (const slug of slugs) {
 }
 for (const p of sitemapPaths) {
   check(slugs.includes(p), `sitemap.xml lists /${p}, which has no content and will 404 or fall through.`);
+}
+// The versioned legal documents (privacy/terms/disclosures) carry their
+// version date in the page itself; the sitemap's lastmod must say the same
+// date, or crawlers are told the policy is older than it is. (/, /about and
+// /contact are deliberately excluded — their lastmods track content edits,
+// which have no single version constant to check against.)
+const sitemapLastmod = {};
+for (const m of sitemap.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)) {
+  sitemapLastmod[new URL(m[1]).pathname.replace(/^\/|\/$/g, "")] = m[2];
+}
+for (const slug of ["privacy", "terms", "disclosures"]) {
+  check(sitemapLastmod[slug] === LEGAL_VERSION,
+    `sitemap.xml lastmod for /${slug} is ${sitemapLastmod[slug] || "(missing)"} but the legal content is version ${LEGAL_VERSION}.`);
 }
 
 // ── 4. One answer to the database count ───────────────────────────────────
@@ -145,6 +158,35 @@ for (const file of ["src/CerebrumApp.jsx", "src/main.jsx"]) {
   const missing = [...used].filter((n) => !defined.has(n));
   for (const n of missing) {
     failures.push(`${file}: <${n}> is used in JSX but never defined or imported. The build will succeed and the page will fail at runtime.`);
+  }
+}
+
+// ── 7. Prerendered pages are not shadowed by the SPA catch-all ──────────
+/* public/_redirects ends with `/* /index.html 200` so the SPA boots on any
+ * unknown path. The prerendered info pages (/about, /privacy, /terms,
+ * /disclosures, /contact) are real static documents that the sitemap
+ * advertises — crawlers must receive THEM, not the shell. Static files
+ * already win over the catch-all in production, but that precedence is
+ * accidental: it must be explicit rules, above the catch-all, because the
+ * first matching rule wins. If someone reorders the file or deletes a
+ * rule, the build fails here instead of silently serving the shell. */
+{
+  const redirects = await readFile(join(root, "public/_redirects"), "utf8");
+  const rules = redirects.split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+  const catchAllIdx = rules.findIndex((l) => /^\/\*/.test(l));
+  check(catchAllIdx !== -1, "public/_redirects has no /* catch-all rule.");
+  for (const slug of ["about", "privacy", "terms", "disclosures", "contact"]) {
+    const idx = rules.findIndex(
+      (l) => new RegExp(`^/${slug}(\\s|$)`).test(l) && l.includes(`/${slug}.html`) && /\b200\b/.test(l)
+    );
+    check(idx !== -1,
+      `public/_redirects has no explicit /${slug} -> /${slug}.html 200 rule.`);
+    if (idx !== -1 && catchAllIdx !== -1) {
+      check(idx < catchAllIdx,
+        `public/_redirects: the /${slug} rule must appear ABOVE the /* catch-all (first match wins).`);
+    }
   }
 }
 

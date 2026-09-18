@@ -1,1 +1,10 @@
+# Prerendered info pages: these are real static documents (written by
+# scripts/prerender.mjs) and must be what crawlers receive — not the SPA
+# shell. First match wins, so these explicit rules sit ABOVE the catch-all.
+# scripts/check.mjs fails the build if this ordering ever breaks.
+/about         /about.html         200
+/privacy        /privacy.html       200
+/terms          /terms.html         200
+/disclosures    /disclosures.html   200
+/contact        /contact.html       200
 /*    /index.html   200

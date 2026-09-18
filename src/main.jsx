@@ -123,6 +123,56 @@ class ErrorBoundary extends React.Component {
 }
 
 /**
+ * Client-side 404 view.
+ *
+ * Every unknown path serves the SPA shell (the `_redirects` catch-all), so
+ * without this an invented URL renders the search UI with a 200 — a soft
+ * 404. This gives crawlers and humans a real "not here" page: the correct
+ * <title>, plain wording, and links to the places that do exist.
+ *
+ * A server-side 404 status is deliberately NOT implemented: no edge code
+ * can distinguish "unknown path" from "static asset that Pages would have
+ * served" without a build-time allowlist, and a catch-all Function route
+ * would shadow real static files. This view is the safe half; see the
+ * ship report for the deferred edge half.
+ */
+function NotFound() {
+  React.useEffect(() => {
+    try { document.title = "Page not found — Cerebrum"; } catch {}
+  }, []);
+  const link = {
+    color: "#e8e6e1", textDecoration: "underline",
+    textUnderlineOffset: 3, textDecorationColor: "rgba(232,230,225,0.4)",
+  };
+  return (
+    <div style={{
+      minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "#0a0d14", color: "#e8e6e1", padding: 24, textAlign: "center",
+      fontFamily: "var(--cb-font, 'Inter Tight', system-ui, sans-serif)",
+    }}>
+      <div style={{ maxWidth: 480 }}>
+        <div style={{ fontSize: 13, letterSpacing: "0.14em", color: "rgba(232,230,225,0.45)", marginBottom: 14 }}>
+          404
+        </div>
+        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 12px" }}>
+          That page isn&rsquo;t here
+        </h1>
+        <p style={{ fontSize: 15, lineHeight: 1.65, color: "rgba(232,230,225,0.72)", margin: "0 0 26px" }}>
+          The address doesn&rsquo;t match anything on Cerebrum. If you were
+          looking for a paper or an answer, start a fresh search — or open
+          Document Mode from the sidebar once you&rsquo;re in.
+        </p>
+        <div style={{ display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap", fontSize: 14, fontWeight: 600 }}>
+          <a href="/" style={link}>Back to search</a>
+          <a href="/about" style={link}>About Cerebrum</a>
+          <a href="/contact" style={link}>Contact</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Route dispatch.
  *
  * The informational routes are also prerendered to static HTML at build time
@@ -137,16 +187,23 @@ function Root() {
   const INFO = ["about", "privacy", "terms", "disclosures", "contact"];
   const slug = path.replace(/^\//, "");
   const isInfo = INFO.includes(slug);
-  const content = isInfo ? <InfoPage page={slug} /> : <App />;
+  /* "/" and "/index.html" are the application. The app never reads the
+     pathname for routing (it only ever clears or rewrites it), so any other
+     path that reaches the SPA shell has no static file and no function
+     behind it — it is a dead end, not a deep link. Render the 404 view
+     instead of the search UI. */
+  const isRoot = slug === "" || slug === "index";
+  const content = isInfo ? <InfoPage page={slug} /> : isRoot ? <App /> : <NotFound />;
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       {/* Screen-reader-only h1 for the application route. The app shell is
           a ceremonial intro with no visible heading by design; InfoPage
-          routes render their own visible h1, so this only fills the gap
-          where crawlers and assistive tech would otherwise find no
-          top-level heading at all. Zero visual impact. */}
-      {!isInfo && (
+          routes render their own visible h1, and the 404 view has its own
+          visible h1, so this only fills the gap where crawlers and
+          assistive tech would otherwise find no top-level heading at all.
+          Zero visual impact. */}
+      {isRoot && (
         <h1 style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 }}>
           Cerebrum — free scientific literature search
         </h1>

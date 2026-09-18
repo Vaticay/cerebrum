@@ -44,6 +44,7 @@ function saveInvestigation(history, turns, allSources, now = Date.now()) {
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
+import { getDeepLinkQuery } from "./deepLink.js";
 import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
    where DATABASES is derived from it. */
@@ -24518,6 +24519,30 @@ function App() {
       await handleAuthed(u, { checkImport: false });
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // `?q=` deep-link search. index.html's SearchAction structured data
+  // advertises https://askcerebrum.org/?q={search_term_string}, so arriving
+  // with ?q= prefills the composer and runs the search once on load — the
+  // same question a visitor would get from typing it and pressing Enter.
+  // Coexists with ?magic= (getDeepLinkQuery yields to the sign-in flow) and
+  // #pro= (a separate effect on the fragment). The param is consumed from
+  // the URL so a reload does not re-run the search. askRef is the stable
+  // indirection to the ask callback (it closes over `input`, so calling it
+  // directly would read a stale closure).
+  useEffect(() => {
+    const deepQ = getDeepLinkQuery(window.location.search);
+    if (!deepQ) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("q");
+      const rest = url.searchParams.toString();
+      window.history.replaceState({}, "", url.pathname + (rest ? "?" + rest : "") + url.hash);
+    } catch {}
+    setInput(deepQ);
+    const t = setTimeout(() => { try { askRef.current?.(deepQ); } catch {} }, 60);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -29,6 +29,7 @@ const root = join(here, "..");
 const dist = join(root, "dist");
 
 const { PAGES } = await import(join(root, "src/legalContent.js"));
+const { demoteNoscriptH1 } = await import("./prerender-lib.mjs");
 
 const ORIGIN = "https://askcerebrum.org";
 
@@ -150,6 +151,10 @@ function renderPage(slug, data, shell) {
   if (!html.includes("cb-prerender")) {
     html = html.replace('<div id="root"></div>', `<div id="root">${noscriptDoc}</div>`);
   }
+  // The shell's <noscript> fallback carries its own <h1>; demote it so the
+  // injected document keeps exactly one top-level heading.
+  html = demoteNoscriptH1(html);
+
   return html;
 }
 
