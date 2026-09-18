@@ -11,6 +11,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App, InfoPage, CSS } from "./CerebrumApp.jsx";
+import { classifyRoute } from "./routeClassify.js";
 
 /**
  * Catches a render error anywhere below it.
@@ -181,19 +182,15 @@ function NotFound() {
  * two cannot drift.
  */
 function Root() {
-  const path = typeof window !== "undefined"
-    ? window.location.pathname.replace(/\.html$/, "").replace(/\/+$/, "")
-    : "";
-  const INFO = ["about", "privacy", "terms", "disclosures", "contact"];
-  const slug = path.replace(/^\//, "");
-  const isInfo = INFO.includes(slug);
+  const { kind, slug } = classifyRoute(
+    typeof window !== "undefined" ? window.location.pathname : ""
+  );
   /* "/" and "/index.html" are the application. The app never reads the
      pathname for routing (it only ever clears or rewrites it), so any other
      path that reaches the SPA shell has no static file and no function
      behind it — it is a dead end, not a deep link. Render the 404 view
      instead of the search UI. */
-  const isRoot = slug === "" || slug === "index";
-  const content = isInfo ? <InfoPage page={slug} /> : isRoot ? <App /> : <NotFound />;
+  const content = kind === "info" ? <InfoPage page={slug} /> : kind === "app" ? <App /> : <NotFound />;
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -203,7 +200,7 @@ function Root() {
           visible h1, so this only fills the gap where crawlers and
           assistive tech would otherwise find no top-level heading at all.
           Zero visual impact. */}
-      {isRoot && (
+      {kind === "app" && (
         <h1 style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 }}>
           Cerebrum — free scientific literature search
         </h1>
