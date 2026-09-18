@@ -161,15 +161,16 @@ for (const file of ["src/CerebrumApp.jsx", "src/main.jsx"]) {
   }
 }
 
-// ── 7. Prerendered pages are not shadowed by the SPA catch-all ──────────
-/* public/_redirects ends with `/* /index.html 200` so the SPA boots on any
- * unknown path. The prerendered info pages (/about, /privacy, /terms,
- * /disclosures, /contact) are real static documents that the sitemap
- * advertises — crawlers must receive THEM, not the shell. Static files
- * already win over the catch-all in production, but that precedence is
- * accidental: it must be explicit rules, above the catch-all, because the
- * first matching rule wins. If someone reorders the file or deletes a
- * rule, the build fails here instead of silently serving the shell. */
+// ── 7. _redirects must not fight Pages' pretty URLs ─────────────────────
+/* 2026-09-18, verified live: adding explicit `/about /about.html 200`
+ * rules above the catch-all 308-loops every info page in production. The
+ * 200-rewrite turns /about into /about.html, then Pages' pretty-URL
+ * canonicalization 308s /about.html back to /about, which rewrites again —
+ * forever. The prerendered documents need NO _redirects rule: static files
+ * already take precedence over the /* catch-all (verified live on
+ * askcerebrum.org), and section 2 above fails the build if any
+ * dist/<slug>.html is missing. So this section asserts the absence: no
+ * non-catch-all rule may name a prerendered slug, or the loop comes back. */
 {
   const redirects = await readFile(join(root, "public/_redirects"), "utf8");
   const rules = redirects.split("\n")
@@ -179,14 +180,10 @@ for (const file of ["src/CerebrumApp.jsx", "src/main.jsx"]) {
   check(catchAllIdx !== -1, "public/_redirects has no /* catch-all rule.");
   for (const slug of ["about", "privacy", "terms", "disclosures", "contact"]) {
     const idx = rules.findIndex(
-      (l) => new RegExp(`^/${slug}(\\s|$)`).test(l) && l.includes(`/${slug}.html`) && /\b200\b/.test(l)
+      (l, i) => i !== catchAllIdx && new RegExp(`^/${slug}(\\s|$|/)`).test(l)
     );
-    check(idx !== -1,
-      `public/_redirects has no explicit /${slug} -> /${slug}.html 200 rule.`);
-    if (idx !== -1 && catchAllIdx !== -1) {
-      check(idx < catchAllIdx,
-        `public/_redirects: the /${slug} rule must appear ABOVE the /* catch-all (first match wins).`);
-    }
+    check(idx === -1,
+      `public/_redirects has a rule for /${slug} — slug-specific rules 308-loop against Pages' pretty URLs (2026-09-18). Prerendered pages rely on static-file precedence; see section 2.`);
   }
 }
 

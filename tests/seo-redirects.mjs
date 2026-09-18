@@ -1,9 +1,12 @@
 /**
- * _redirects precedence tests.
+ * _redirects safety tests.
  *
- * The prerendered info pages must be served as their real static documents,
- * not the SPA shell. public/_redirects therefore needs explicit
- * /slug -> /slug.html 200 rules ABOVE the /* catch-all (first match wins).
+ * The prerendered info pages are served because static files take
+ * precedence over the /* catch-all (verified live on askcerebrum.org) —
+ * NOT via explicit rewrite rules. 2026-09-18 proved the alternative
+ * broken: `/about /about.html 200` 308-loops every info page in
+ * production (the rewrite turns /about into /about.html, Pages'
+ * pretty-URL canonicalization 308s it back to /about, forever).
  * scripts/check.mjs enforces this at build time; these tests pin the live
  * file independently of the build.
  *
@@ -34,13 +37,17 @@ t("catch-all /* -> /index.html 200 exists", () => {
   assert.ok(/\b200\b/.test(rules[catchAllIdx]), "catch-all is not a 200 rewrite");
 });
 
+t("catch-all is the only dynamic rule", () => {
+  const dynamic = rules.filter((l) => /[*:]/.test(l.split(/\s+/)[0]));
+  assert.equal(dynamic.length, 1, `expected only the /* catch-all, found: ${dynamic.join(" | ")}`);
+});
+
 for (const slug of ["about", "privacy", "terms", "disclosures", "contact"]) {
-  t(`explicit /${slug} -> /${slug}.html 200 rule exists above the catch-all`, () => {
+  t(`no slug-specific rule for /${slug} (would 308-loop on Pages)`, () => {
     const idx = rules.findIndex(
-      (l) => new RegExp(`^/${slug}(\\s|$)`).test(l) && l.includes(`/${slug}.html`) && /\b200\b/.test(l)
+      (l, i) => i !== catchAllIdx && new RegExp(`^/${slug}(\\s|$|/)`).test(l)
     );
-    assert.ok(idx !== -1, `no explicit /${slug} rule`);
-    assert.ok(idx < catchAllIdx, `/${slug} rule is below the catch-all and would never match`);
+    assert.equal(idx, -1, `rule would loop: ${rules[idx]}`);
   });
 }
 

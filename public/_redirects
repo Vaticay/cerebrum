@@ -1,10 +1,13 @@
-# Prerendered info pages: these are real static documents (written by
-# scripts/prerender.mjs) and must be what crawlers receive — not the SPA
-# shell. First match wins, so these explicit rules sit ABOVE the catch-all.
-# scripts/check.mjs fails the build if this ordering ever breaks.
-/about         /about.html         200
-/privacy        /privacy.html       200
-/terms          /terms.html         200
-/disclosures    /disclosures.html   200
-/contact        /contact.html       200
+# Single catch-all: unknown paths boot the SPA (src/main.jsx renders the
+# 404 view for them).
+#
+# NOTE (2026-09-18): do NOT add explicit `/about /about.html 200` rules
+# here. They look like belt-and-braces but they 308-loop every info page in
+# production: the 200-rewrite turns /about into /about.html, then Pages'
+# pretty-URL canonicalization 308s /about.html back to /about, which
+# rewrites again, forever. The prerendered documents (/about, /privacy,
+# /terms, /disclosures, /contact) are served because static files take
+# precedence over this catch-all — verified live — and scripts/check.mjs
+# fails the build if any dist/<slug>.html is missing or if a slug-specific
+# rule ever reappears below.
 /*    /index.html   200
