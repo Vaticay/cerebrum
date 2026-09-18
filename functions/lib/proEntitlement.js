@@ -563,6 +563,18 @@ export async function verifyStripeWebhookSignature(rawBody, sigHeader, secret, o
   }
 }
 
+// Verify a webhook payload against any of the configured endpoint secrets.
+// Stripe signs test-mode events with the test secret and live events with
+// the live secret; trying each in order lets one endpoint serve both modes
+// without weakening anything — a valid HMAC against a configured secret is
+// still required.
+export async function verifyWebhookSignatureAny(rawBody, sigHeader, secrets) {
+  for (const secret of secrets || []) {
+    if (secret && (await verifyStripeWebhookSignature(rawBody, sigHeader, secret))) return true;
+  }
+  return false;
+}
+
 // ── Subscription status → entitlement transition ──────────────────────────
 
 // past_due keeps Pro: Stripe retries the payment, and yanking access during a

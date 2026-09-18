@@ -43,6 +43,7 @@ import {
   recordFlowchart,
   consumeFlowchart,
   verifyStripeWebhookSignature,
+  verifyWebhookSignatureAny,
   subscriptionTransition,
   subscriptionInterval,
   intervalToPlan,
@@ -61,6 +62,7 @@ import {
   consumeStudentVerification,
   PRO_PLANS,
 } from "../functions/lib/proEntitlement.js";
+import { webhookRequestFor } from "../functions/api/pro/webhook.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -418,6 +420,55 @@ await test("webhook signature rejects tampered body, wrong secret, replay", asyn
   assert.equal(await verifyStripeWebhookSignature(raw, stripeTestHeader(raw, secret, oldT), secret), false);
   assert.equal(await verifyStripeWebhookSignature(raw, "t=abc", secret), false);
   assert.equal(await verifyStripeWebhookSignature(raw, good, ""), false);
+});
+
+await test("webhook signature accepts the test secret as fallback (test vs live mode)", async () => {
+  const raw = JSON.stringify({ id: "evt_456", type: "invoice.paid" });
+  const t = Math.floor(Date.now() / 1000);
+  const liveSecret = "whsec_live_aaa";
+  const testSecret = "whsec_test_bbb";
+  // Signed with the live secret: first secret matches.
+  assert.equal(
+    await verifyWebhookSignatureAny(raw, stripeTestHeader(raw, liveSecret, t), [liveSecret, testSecret]),
+    true
+  );
+  // Signed with the test secret (Stripe test-mode deliveries): fallback matches.
+  assert.equal(
+    await verifyWebhookSignatureAny(raw, stripeTestHeader(raw, testSecret, t), [liveSecret, testSecret]),
+    true
+  );
+  // Signed with neither: still rejected. Empty list: rejected.
+  assert.equal(
+    await verifyWebhookSignatureAny(raw, stripeTestHeader(raw, "whsec_other", t), [liveSecret, testSecret]),
+    false
+  );
+  assert.equal(await verifyWebhookSignatureAny(raw, stripeTestHeader(raw, liveSecret, t), []), false);
+  assert.equal(await verifyWebhookSignatureAny(raw, stripeTestHeader(raw, liveSecret, t), [null, ""]), false);
+});
+
+await test("/api/pro/webhook rewrites to /api/pro, preserving method, headers, and body", async () => {
+  const body = JSON.stringify({ id: "evt_789", type: "checkout.session.completed" });
+  const original = new Request("https://askcerebrum.org/api/pro/webhook", {
+    method: "POST",
+    headers: { "stripe-signature": "t=1,v1=abc", "content-type": "application/json" },
+    body,
+  });
+  const rewritten = webhookRequestFor(original);
+  assert.equal(new URL(rewritten.url).pathname, "/api/pro");
+  assert.equal(rewritten.method, "POST");
+  assert.equal(rewritten.headers.get("stripe-signature"), "t=1,v1=abc");
+  assert.equal(await rewritten.text(), body);
+  // The original request is untouched.
+  assert.equal(new URL(original.url).pathname, "/api/pro/webhook");
+});
+
+await test("webhook route exists and delegates to the single shared handler", async () => {
+  const src = await readFile(join(root, "functions/api/pro/webhook.js"), "utf8");
+  assert.match(src, /from "\.\/index\.js"/, "webhook.js must delegate to ./index.js, not duplicate the handler");
+  assert.match(src, /webhookRequestFor/, "path-rewrite helper missing");
+  const indexSrc = await readFile(join(root, "functions/api/pro/index.js"), "utf8");
+  assert.match(indexSrc, /STRIPE_WEBHOOK_SECRET_TEST/, "handler must try the test endpoint secret");
+  assert.match(indexSrc, /verifyWebhookSignatureAny/, "handler must verify against any configured secret");
 });
 
 // ── Entitlement reads + metering ──────────────────────────────────────────
@@ -781,7 +832,7 @@ await test("search.js gates all three AI waves on the Pro gate", async () => {
 });
 
 await test("pro.js verifies webhooks before parsing the body, and gates grants on the founder", async () => {
-  const src = await readFile(join(root, "functions/api/pro.js"), "utf8");
+  const src = await readFile(join(root, "functions/api/pro/index.js"), "utf8");
   const sigBranch = src.indexOf('request.headers.get("stripe-signature")');
   const bodyParse = src.indexOf("readJsonBody(request");
   assert.ok(sigBranch !== -1 && sigBranch < bodyParse, "webhook branch must precede body parsing");
@@ -795,7 +846,7 @@ await test("pro.js verifies webhooks before parsing the body, and gates grants o
 });
 
 await test("all three founder actions deny non-founders with 403", async () => {
-  const src = await readFile(join(root, "functions/api/pro.js"), "utf8");
+  const src = await readFile(join(root, "functions/api/pro/index.js"), "utf8");
   for (const fn of ["handleGrant", "handleRevoke", "handleListLifetime"]) {
     const start = src.indexOf(`async function ${fn}`);
     assert.ok(start !== -1, fn + " missing");
@@ -875,7 +926,7 @@ await test("settings account tab hosts the Pro section and founder grant panel",
 });
 
 await test("pro.js GET exposes quota and billing shapes the UI reads", async () => {
-  const src = await readFile(join(root, "functions/api/pro.js"), "utf8");
+  const src = await readFile(join(root, "functions/api/pro/index.js"), "utf8");
   assert.match(src, /quota: \{ used: gate\.aiUsed, cap:/, "quota shape missing from GET");
   assert.match(src, /billing: \{/, "billing shape missing from GET");
   assert.match(src, /intervalToPlan\(/, "intervalToPlan not used in GET");
@@ -1128,7 +1179,7 @@ await test("document endpoint gates: sign-in required, free 3/mo, quota in respo
 });
 
 await test("flowchart-allow action meters new charts and denies at the cap", async () => {
-  const src = await readFile(join(root, "functions/api/pro.js"), "utf8");
+  const src = await readFile(join(root, "functions/api/pro/index.js"), "utf8");
   assert.match(src, /case "flowchart-allow"/, "pro.js must route flowchart-allow");
   assert.match(src, /consumeFlowchart\(env, user\.id, cap\)/, "flowchart-allow must atomically consume");
   assert.match(src, /FREE_FLOWCHARTS_PER_MONTH/, "flowchart-allow must use the free chart cap");

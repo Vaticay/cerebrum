@@ -4,6 +4,9 @@
 //   POST /api/pro {action:"create-checkout"}   → Stripe Checkout Session URL (signed in)
 //   POST /api/pro {action:"create-portal"}     → Stripe Customer Portal URL (signed in)
 //   POST /api/pro {action:"verify-session"}    → close the paid-but-webhook-pending gap
+//   POST /api/pro/webhook (+ Stripe-Signature) → Stripe webhook endpoint
+//     (the URL configured in the Stripe Dashboard; delegates here — see
+//     functions/api/pro/webhook.js — so there is one handler to audit)
 //   POST /api/pro {action:"student-request-code"} → 6-digit code to a .edu email (signed in)
 //   POST /api/pro {action:"student-verify-code"}  → confirm the code (signed in)
 //   POST /api/pro {action:"grant"|"revoke"}   → founder-only lifetime Pro
@@ -16,9 +19,9 @@
 import {
   corsHeaders, requireTrustedOrigin, forbiddenOrigin, errorResponse,
   tooManyRequests, unauthorized, json, readJsonBody, clientIp, privacyKey,
-} from "../lib/http.js";
-import { checkRateLimit } from "../lib/rateLimit.js";
-import { getSessionUser } from "../lib/authHelpers.js";
+} from "../../lib/http.js";
+import { checkRateLimit } from "../../lib/rateLimit.js";
+import { getSessionUser } from "../../lib/authHelpers.js";
 import {
   FREE_AI_ANSWERS_PER_MONTH, FREE_DOC_READS_PER_MONTH, FREE_FLOWCHARTS_PER_MONTH,
   LITE_AI_ANSWERS, LITE_DOC_READS, LITE_FLOWCHARTS,
@@ -26,14 +29,14 @@ import {
   PRO_PLANS, isValidProPlan, isLiteRow, tierOfRow, capsForTier, tierForCheckoutPlan,
   ensureProTables, getUserProRow, resolveAiGate,
   getDocReads, getFlowchartCount, consumeFlowchart,
-  verifyStripeWebhookSignature, applyStripeEvent,
+  verifyStripeWebhookSignature, verifyWebhookSignatureAny, applyStripeEvent,
   normalizeEmail, validateGrantTarget,
   grantLifetimePro, revokeLifetimePro, listLifetimePros,
   stripeRequest, priceIdForPlan, buildCheckoutParams,
   intervalToPlan, subscriptionInterval,
   isStudentEmail, issueStudentCode, checkStudentCode,
   getUsableStudentVerification, consumeStudentVerification,
-} from "../lib/proEntitlement.js";
+} from "../../lib/proEntitlement.js";
 
 function isBillingConfigured(env) {
   return !!(
@@ -324,7 +327,7 @@ async function sendStudentCodeEmail(env, email, code) {
   </div>
 </div>`;
   try {
-    const { fetchWithTimeout } = await import("../lib/resilience.js");
+    const { fetchWithTimeout } = await import("../../lib/resilience.js");
     const res = await fetchWithTimeout("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
@@ -435,10 +438,13 @@ async function handleWebhook(request, env, cors) {
   if (!env.DB) {
     return errorResponse(503, "no_db", "No database.", cors);
   }
-  const secret = env.STRIPE_WEBHOOK_SECRET || "";
   const sig = request.headers.get("stripe-signature") || "";
   const raw = await request.text();
-  if (!secret || !(await verifyStripeWebhookSignature(raw, sig, secret))) {
+  // Stripe signs test-mode events with the test endpoint secret and live
+  // events with the live one. Accept either configured secret so a single
+  // endpoint serves both modes — a valid HMAC is still required.
+  const secrets = [env.STRIPE_WEBHOOK_SECRET, env.STRIPE_WEBHOOK_SECRET_TEST].filter(Boolean);
+  if (!(await verifyWebhookSignatureAny(raw, sig, secrets))) {
     return errorResponse(400, "bad_signature", "Bad signature.", cors);
   }
   let event;
