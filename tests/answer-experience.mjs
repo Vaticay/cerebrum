@@ -314,19 +314,53 @@ await test("absent flag counts as settled — cached turns never stick on a load
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Pass 2 — article + evidence ledger");
+group("Pass 3 — answer-first: one article column, evidence drawer");
 
-await test("answer surface is an article plus a sticky evidence rail", () => {
+await test("answer surface is one wide article column; evidence is a drawer", () => {
   assert.match(appSrc, /function EvidenceRail/, "EvidenceRail missing");
-  assert.match(appSrc, /\.cb-answer-grid/, "answer grid CSS missing");
+  assert.match(appSrc, /\.cb-answer-wrap/, "answer wrap CSS missing");
+  assert.ok(!/cb-answer-grid/.test(appSrc), "old two-column answer grid still referenced");
   assert.match(appSrc, /<article style=\{S\.answerCard\} className="cb-answer-enter cb-article"/, "article not on the answer-enter contract");
-  assert.match(appSrc, /\.cb-ev-rail/, "evidence rail CSS missing");
-  const railCssStart = appSrc.indexOf(".cb-ev-rail {");
-  const railCss = appSrc.slice(railCssStart, railCssStart + 200);
-  assert.ok(/position: sticky/.test(railCss), "rail is not sticky");
+  // Article measure stays in the 65–75ch readability band.
+  const articleRule = appSrc.slice(appSrc.indexOf(".cb-answer-wrap .cb-article"));
+  assert.match(articleRule.slice(0, 160), /max-width: 7[0-5]ch/, "article measure outside 65–75ch");
   assert.match(appSrc, /function AnswerDiagnostics/, "AnswerDiagnostics missing");
   assert.match(appSrc, /className="cb-diag"/, "diagnostics disclosure not on the contract");
   assert.match(appSrc, /Answer diagnostics/, "diagnostics disclosure title missing");
+});
+
+await test("citation highlight: toggles off, clears on Escape, flash is temporary", () => {
+  assert.match(appSrc, /function clearSourceLinked\(\)/, "clearSourceLinked missing");
+  const rsStart = appSrc.indexOf("function revealSource(");
+  const rsBlock = appSrc.slice(rsStart, rsStart + 1500);
+  assert.ok(/clearSourceLinked\(\);/.test(rsBlock), "revealSource does not clear before flashing");
+  assert.ok(/el\.classList\.add\("cb-source-linked"\)/.test(rsBlock), "revealSource does not flash the row");
+  assert.ok(/\}, 1600\)/.test(rsBlock), "flash has no 1600ms expiry");
+  // The chip toggles: activating the active citation clears it everywhere.
+  const chipBlock = appSrc.slice(appSrc.indexOf("const isActive = activeCite === n;"), appSrc.indexOf("const isActive = activeCite === n;") + 1600);
+  assert.match(chipBlock, /if \(activeCite === n\)/, "chip has no toggle-off branch");
+  assert.ok(/setActiveCite\(0\)/.test(chipBlock) && /clearSourceLinked\(\)/.test(chipBlock), "toggle-off does not clear state and flash");
+  // Turn-level Escape clears citation + drawer + flash together.
+  assert.match(appSrc, /e\.key !== "Escape"\) return;[\s\S]{0,120}setActiveCite\(0\)/, "turn-level Escape does not clear the citation");
+  assert.match(appSrc, /setEvidenceOpen\(false\)/, "Escape does not close the drawer");
+});
+
+await test("evidence drawer: portaled dialog, closed by default, declarative sync", () => {
+  const start = appSrc.indexOf("function EvidenceRail");
+  const block = appSrc.slice(start, appSrc.indexOf("function stripFallbackChrome", start));
+  assert.match(block, /role="dialog"/, "drawer missing dialog role");
+  assert.match(block, /if \(!open\) return null/, "drawer does not start closed");
+  assert.match(block, /createPortal\(/, "drawer not portaled to document.body");
+  assert.match(block, /aria-label=\{`Evidence index,/, "drawer missing source count label");
+  // Active-row highlight is declarative — no sticky timer/class bug possible.
+  assert.match(block, /className=\{"cb-ledger-row" \+ \(isActive \? " cb-source-linked" : ""\)\}/, "drawer row highlight not declarative");
+  assert.ok(!/setTimeout/.test(block), "drawer uses a timer for highlight state");
+  // Escape closes; the number rows still activate the citation sync.
+  assert.match(block, /e\.key === "Escape"/, "drawer missing Escape-to-close");
+  assert.match(block, /onActivate\(\w+\)/, "drawer number rows not wired to citation sync");
+  // Turn-level: the drawer opens from citation taps, toolbar, and jump rail.
+  assert.match(appSrc, /, \(\) => setEvidenceOpen\(true\)\)/, "citation taps do not open the drawer");
+  assert.match(appSrc, /setEvidenceOpen\(\(v\) => !v\)/, "toolbar Evidence index does not toggle the drawer");
 });
 
 await test("question is a serif title with a quiet mono metadata line", () => {

@@ -153,6 +153,7 @@ async function youtubeDirectSearch(query, limit = 6) {
           author,
           thumbnail,
           id: v.videoId,
+          provider: "youtube",
         });
         if (out.length >= limit) return out;
       }
@@ -203,12 +204,47 @@ async function tryProxy(inst, query) {
         author: pAuthor,
         thumbnail: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg",
         id,
+        provider: "youtube",
       });
       if (out.length >= 6) break;
     }
     if (!out.length) throw new Error(inst.url + ": no usable results");
     return out;
   } catch (e) { throw e; }
+}
+
+// The provider race, factored out of onRequest so unit tests can drive it
+// with a stubbed fetch. Exported.
+export async function searchVideos(query) {
+  // First HEALTHY leg wins; a fast failure can never beat a slow
+  // success. Every leg degrades to "out of the race" rather than
+  // throwing, and the whole race has a hard deadline — the client
+  // always gets an answer within ~4s, even if that answer is [].
+  //
+  // An empty direct result is demoted to "out of the race" too. The old
+  // code only treated null/throw as a lost leg, so when YouTube's scrape
+  // SUCCEEDED but the relevance gate rejected everything (the common
+  // case for niche topics), the empty array WON the race and the proxy
+  // fallback never ran — "provider fallback" existed only for hard
+  // errors, not for the empty results that actually happen.
+  const legs = [
+    neverFail(youtubeDirectSearch(query, 6).then((v) => (v && v.length ? v : null)), null, "youtube-direct"),
+    (async () => {
+      // shuffle
+      const arr = PROXIES.slice();
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      const proxies = arr.slice(0, 4).map((p) =>
+        neverFail(tryProxy(p, query), null, "proxy:" + p.url)
+      );
+      const result = await raceFirst(proxies, { timeoutMs: 2500, label: "proxies", fallback: null });
+      return result && result.length ? result : null;
+    })(),
+  ];
+  const videos = await raceFirst(legs, { timeoutMs: 4000, label: "videos", fallback: [] });
+  return videos || [];
 }
 
 export async function onRequest(context) {
@@ -249,31 +285,7 @@ export async function onRequest(context) {
     }
     if (!query) return jsonOk({ videos: [] }, cors);
 
-    const doFetch = async () => {
-      // First HEALTHY leg wins; a fast failure can never beat a slow
-      // success. Every leg degrades to "out of the race" rather than
-      // throwing, and the whole race has a hard deadline — the client
-      // always gets an answer within ~4s, even if that answer is [].
-      const legs = [
-        neverFail(youtubeDirectSearch(query, 6), null, "youtube-direct"),
-        (async () => {
-          // shuffle
-          const arr = PROXIES.slice();
-          for (let i = arr.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
-          }
-          const proxies = arr.slice(0, 4).map((p) =>
-            neverFail(tryProxy(p, query), null, "proxy:" + p.url)
-          );
-          const result = await raceFirst(proxies, { timeoutMs: 2500, label: "proxies", fallback: null });
-          return result && result.length ? result : null;
-        })(),
-      ];
-      const videos = await raceFirst(legs, { timeoutMs: 4000, label: "videos", fallback: [] });
-      return videos || [];
-    };
-    const videos = await doFetch();
+    const videos = await searchVideos(query);
     return jsonOk({ videos }, cors);
   } catch (e) {
     console.error("Cerebrum videos endpoint error:", safeErr(e));

@@ -38,6 +38,14 @@ import { fetchWithTimeout, neverFail, safeErr, jsonOk, jsonError, clampText, isS
 const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60000;
 const CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days — subjects don't change
+// A MISS is not a subject that doesn't change — it's a subject whose
+// providers were down, rate-limited, or parser-broken at resolve time. The
+// old code cached {"image":null} for the same 14 days as a verified hit,
+// so a subject that missed once kept serving null for two weeks AFTER its
+// providers recovered. Misses get hours, not weeks: cheap enough to avoid
+// a fetch storm on genuinely imageless subjects, short enough that a fixed
+// provider heals on its own.
+const MISS_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const FETCH_TIMEOUT_MS = 4000;
 const MAX_QUERY_LEN = 160;
 
@@ -147,7 +155,7 @@ async function fromEuropePMC(query) {
 export function parseNasa(data) {
   const items = (data && data.collection && data.collection.items) || [];
   for (const it of items) {
-    const link = (it.links || []).find((l) => l && l.href && /\.(jpg|jpeg|png)$/i.test(l.href));
+    const link = (it.links || []).find((l) => l && l.href && hasStillExtension(l.href));
     const meta = (it.data || [])[0] || {};
     if (link) {
       return {
@@ -176,7 +184,7 @@ export function parseCommons(data) {
     const p = pages[k];
     const info = (p.imageinfo || [])[0];
     if (!info || !info.url) continue;
-    if (!/\.(jpg|jpeg|png)$/i.test(info.url)) continue;
+    if (!hasStillExtension(info.url)) continue;
     const ext = (info.extmetadata || {});
     const licence = (ext.LicenseShortName && ext.LicenseShortName.value) || "";
     // No stated licence, no image. A picture is not worth an attribution
@@ -289,7 +297,7 @@ async function fromPexels(env, query) {
        as a black rectangle is worse than shipping no video at all. */
 export function pickNasaVideoAsset(list) {
   if (!Array.isArray(list)) return null;
-  const mp4s = list.filter((u) => typeof u === "string" && /\.mp4$/i.test(u));
+  const mp4s = list.filter((u) => typeof u === "string" && hasMp4Extension(u));
   if (!mp4s.length) return null;
   // Filename hints are the only size signal the manifest gives us.
   const rank = (u) => (/~mobile\.mp4$/i.test(u) ? 0 : /~small\.mp4$/i.test(u) ? 1 : /~preview\.mp4$/i.test(u) ? 2 : /~orig\.mp4$/i.test(u) ? 4 : 3);
@@ -309,7 +317,7 @@ async function fromNasaVideo(query) {
     const asset = pickNasaVideoAsset(manifest);
     if (asset) {
       const meta = (it.data || [])[0] || {};
-      const poster = (it.links || []).find((l) => l && l.href && /\.(jpg|jpeg|png)$/i.test(l.href));
+      const poster = (it.links || []).find((l) => l && l.href && hasStillExtension(l.href));
       return {
         url: asset,
         type: "video",
@@ -330,7 +338,7 @@ export function parseCommonsVideo(data) {
     const info = (p.imageinfo || [])[0];
     if (!info || !info.url) continue;
     // webm only — see the note above about .ogv.
-    if (!/\.webm$/i.test(info.url)) continue;
+    if (!hasVideoExtension(info.url)) continue;
     const ext = info.extmetadata || {};
     const licence = (ext.LicenseShortName && ext.LicenseShortName.value) || "";
     if (!licence) continue;
@@ -357,6 +365,25 @@ async function fromCommonsVideo(query) {
       prop: "imageinfo", iiprop: "url|extmetadata", iiurlwidth: "800",
     })
   ));
+}
+
+// ── Extension tests for provider payloads ─────────────────────────────
+// Wikimedia Commons' API appends tracking parameters to every imageinfo
+// URL (…/Gut_microbiota_composition.png?utm_source=commons.wikimedia.org&…),
+// so a $-anchored extension test rejects EVERY real Commons result and the
+// whole source reads as "empty" — the actual root cause of the lead-media
+// endpoint returning {"ok":true,"image":null} for subjects Commons covers.
+// The extension must be followed by a query string, a fragment, or the end
+// of the URL — never by more path characters (which would accept
+// "x.png.evil").
+export function hasStillExtension(url) {
+  return /\.(jpg|jpeg|png|webp)(\?|#|$)/i.test(String(url || ""));
+}
+export function hasVideoExtension(url) {
+  return /\.webm(\?|#|$)/i.test(String(url || ""));
+}
+export function hasMp4Extension(url) {
+  return /\.mp4(\?|#|$)/i.test(String(url || ""));
 }
 
 // ── Commit: verify the winning URL before returning it ──────────────────
@@ -397,44 +424,54 @@ export async function verifyMediaUrl(url, kind) {
 async function ensureCache(env) {
   try {
     await env.DB.exec("CREATE TABLE IF NOT EXISTS image_cache (q TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at INTEGER NOT NULL)");
+    // Added for the miss/hit TTL split below. Guarded: on a table created
+    // before this column existed the ALTER throws "duplicate column name"
+    // exactly once, which is swallowed here.
+    await env.DB.exec("ALTER TABLE image_cache ADD COLUMN hit INTEGER NOT NULL DEFAULT 0").catch(() => {});
   } catch {}
 }
 
-export async function onRequest(context) {
-  const { request, env } = context;
-  const cors = corsHeaders(request, env, { methods: "GET, OPTIONS", credentials: false });
-  // This file built CORS headers and never rejected anything — it was the only
-  // gate-less endpoint besides report.js and config.js.
-  if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  if (request.method !== "GET") {
-    return jsonError(405, "method_not_allowed", "Method not allowed.", cors);
-  }
-  const url = new URL(request.url);
-  const query = clampText(url.searchParams.get("q"), MAX_QUERY_LEN);
-  const category = clampText(url.searchParams.get("category"), 60);
-  if (!query) return jsonOk({ image: null }, cors);
+// Pure: is a cached image_cache row still servable? Verified hits live
+// 14 days; misses live 6 hours. Exported for unit tests.
+export function isImageCacheFresh(row, now) {
+  const age = now - Number(row && row.created_at);
+  const ttl = Number(row && row.hit) === 1 ? CACHE_TTL_MS : MISS_TTL_MS;
+  return age < ttl;
+}
 
-  const rlKey = await privacyKey("image", clientIp(request), env);
-  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
-    // 429, not 200: the frontend treats non-ok as "no image" and falls back
-    // to the generated cover, so this degrades silently.
-    return jsonError(429, "rate_limited", "Too many requests.", { ...cors, "Retry-After": "30" });
-  }
+export function mediaCacheKey(category, query) {
+  return ((category || "") + "|" + imageTerms(query, 4) + "|v3").toLowerCase();
+}
 
-  const key = (category + "|" + imageTerms(query, 4) + "|v2").toLowerCase();
+// ── Shared lead-media resolver ──────────────────────────────────────────
+// The whole pipeline — cache lookup, nine-source fan-out, URL verification,
+// priority-order winner selection, cache write — factored out of onRequest
+// so other endpoints can resolve lead media for their own payloads without
+// duplicating it: trending.js enriches every feed item at refresh time, and
+// document.js (separate owner) attaches it to analysis responses.
+//
+// Returns { image, diag, cacheHit } where image is the verified winning
+// candidate ({ url, credit, creditUrl, license, source, [type, poster],
+// verified: true }) or null when no provider had anything usable — the
+// honest empty, cached briefly rather than denied.
+export async function resolveLeadMedia(env, query, category) {
+  const diag = [];
+  const key = mediaCacheKey(category, query);
+  if (!imageTerms(query, 4)) return { image: null, diag, cacheHit: false };
+
   if (env.DB) {
     await ensureCache(env);
     try {
-      const row = await env.DB.prepare("SELECT payload, created_at FROM image_cache WHERE q = ?").bind(key).first();
-      if (row && Date.now() - Number(row.created_at) < CACHE_TTL_MS) {
-        // A cached miss is cached too — re-running six upstream searches on
-        // every page view for a subject that has no picture anywhere is the
-        // expensive half of this endpoint, not the hits.
-        return new Response(row.payload, {
-          status: 200,
-          headers: { ...cors, "Cache-Control": "public, max-age=86400" },
-        });
+      const row = await env.DB.prepare("SELECT payload, created_at, hit FROM image_cache WHERE q = ?").bind(key).first();
+      if (row && isImageCacheFresh(row, Date.now())) {
+        // A cached miss is cached too — re-running nine upstream searches
+        // on every page view for a subject that has no picture anywhere is
+        // the expensive half of this endpoint, not the hits. But misses
+        // expire in hours (see MISS_TTL_MS), so a recovered provider heals
+        // without anyone flushing the cache by hand.
+        let image = null;
+        try { image = JSON.parse(row.payload).image || null; } catch {}
+        return { image, diag, cacheHit: true };
       }
     } catch {}
   }
@@ -468,7 +505,6 @@ export async function onRequest(context) {
     ["nasa-video", () => fromNasaVideo(query)],
     ["commons-video", () => fromCommonsVideo(query)],
   ];
-  const diag = [];
   const settled = await Promise.all(SOURCES.map(async ([name, fn]) => {
     const t0 = Date.now();
     try {
@@ -485,16 +521,58 @@ export async function onRequest(context) {
     }
   }));
   // The winner must actually BE what it claims to be — see verifyMediaUrl
-  // above. Walk the priority-ordered candidates and return the first one
-  // whose URL resolves to its declared media type; unverified candidates
-  // are simply skipped, so a dead provider URL never blocks a working one
-  // further down the list.
-  let image = null;
+  // above. Every candidate is verified CONCURRENTLY (each under its own
+  // timeout) and the winner is then walked in priority order: a dead URL
+  // early in the list can never head-of-line-block a working one further
+  // down, and a slow HEAD on one candidate can't stall the rest. The old
+  // sequential walk burned up to 6s per dead candidate before even trying
+  // the next one.
+  const verified = await Promise.all(settled.map((cand) =>
+    cand ? verifyMediaUrl(cand.url, cand.type === "video" ? "video" : "image") : Promise.resolve(false)
+  ));
+  let winner = null;
   for (let i2 = 0; i2 < settled.length; i2++) {
-    const cand = settled[i2];
-    if (!cand) continue;
-    if (await verifyMediaUrl(cand.url, cand.type === "video" ? "video" : "image")) { image = cand; break; }
+    if (settled[i2] && verified[i2]) { winner = settled[i2]; break; }
   }
+  // verified:true is the contract: downstream surfaces render this URL
+  // directly, and the flag is what tells "checked and real" apart from
+  // "the provider said so".
+  const image = winner ? { ...winner, verified: true } : null;
+
+  const payload = JSON.stringify({ ok: true, image });
+  if (env.DB) {
+    try {
+      await env.DB.prepare(
+        "INSERT INTO image_cache (q, payload, created_at, hit) VALUES (?, ?, ?, ?) ON CONFLICT(q) DO UPDATE SET payload = excluded.payload, created_at = excluded.created_at, hit = excluded.hit"
+      ).bind(key, payload, Date.now(), image ? 1 : 0).run();
+    } catch {}
+  }
+  return { image, diag, cacheHit: false };
+}
+
+export async function onRequest(context) {
+  const { request, env } = context;
+  const cors = corsHeaders(request, env, { methods: "GET, OPTIONS", credentials: false });
+  // This file built CORS headers and never rejected anything — it was the only
+  // gate-less endpoint besides report.js and config.js.
+  if (!readOriginAllowed(request, env)) return forbiddenOrigin(cors);
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  if (request.method !== "GET") {
+    return jsonError(405, "method_not_allowed", "Method not allowed.", cors);
+  }
+  const url = new URL(request.url);
+  const query = clampText(url.searchParams.get("q"), MAX_QUERY_LEN);
+  const category = clampText(url.searchParams.get("category"), 60);
+  if (!query) return jsonOk({ image: null }, cors);
+
+  const rlKey = await privacyKey("image", clientIp(request), env);
+  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
+    // 429, not 200: the frontend treats non-ok as "no image" and falls back
+    // to the generated cover, so this degrades silently.
+    return jsonError(429, "rate_limited", "Too many requests.", { ...cors, "Retry-After": "30" });
+  }
+
+  const { image, diag, cacheHit } = await resolveLeadMedia(env, query, category);
 
   // ?debug=1 reports what every source actually did. This endpoint depends
   // on nine third parties, none of which can be reached from a development
@@ -521,19 +599,13 @@ export async function onRequest(context) {
       query,
       terms: imageTerms(query, 4),
       category: category || null,
+      cacheHit,
       keys: { custom: !!env.CUSTOM_IMAGE_BASE, unsplash: !!env.UNSPLASH_KEY, pexels: !!env.PEXELS_KEY },
       sources: diag.sort((a2, b2) => a2.ms - b2.ms),
     }, null, 2), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
   }
 
   const payload = JSON.stringify({ ok: true, image });
-  if (env.DB) {
-    try {
-      await env.DB.prepare(
-        "INSERT INTO image_cache (q, payload, created_at) VALUES (?, ?, ?) ON CONFLICT(q) DO UPDATE SET payload = excluded.payload, created_at = excluded.created_at"
-      ).bind(key, payload, Date.now()).run();
-    } catch {}
-  }
   return new Response(payload, {
     status: 200,
     headers: { ...cors, "Cache-Control": "public, max-age=86400" },

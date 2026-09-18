@@ -3022,6 +3022,24 @@ function h3Block(text, key, P) {
  * element.style.background directly and restored it with a timeout, which
  * fought every other style on the element.
  */
+/* Synchronized source highlighting. revealSource scrolls the bibliography
+ * row into view and flashes it; the flash is TEMPORARY — a module timer
+ * removes the class ~1.6s after it lands, so the highlight can never stick
+ * the way the old add-and-never-remove version did. The evidence drawer's
+ * own row highlight is declarative instead (driven by activeCite), so it
+ * clears the moment the citation deactivates.
+ *
+ * clearSourceLinked() removes every lingering .cb-source-linked in the
+ * document: called on Escape, on citation toggle-off, and on turn
+ * unmount, so no flash survives its context.
+ */
+let sourceLinkTimer = null;
+function clearSourceLinked() {
+  try {
+    if (sourceLinkTimer) { clearTimeout(sourceLinkTimer); sourceLinkTimer = null; }
+    document.querySelectorAll(".cb-source-linked").forEach((x) => x.classList.remove("cb-source-linked"));
+  } catch {}
+}
 function revealSource(n, accent) {
   try {
     const el = document.getElementById(`ref-${n}`);
@@ -3043,9 +3061,14 @@ function revealSource(n, accent) {
 
     // Coordinated flash on the source. The matching claim is styled through
     // the citation chip's own `aria-current`, so both ends light up together.
-    document.querySelectorAll(".cb-source-linked").forEach((x) => x.classList.remove("cb-source-linked"));
+    // The class is removed on a timer — a flash, not a state.
+    clearSourceLinked();
     el.classList.add("cb-source-linked");
     el.style.setProperty("--cb-link-accent", accent || "currentColor");
+    sourceLinkTimer = setTimeout(() => {
+      sourceLinkTimer = null;
+      try { el.classList.remove("cb-source-linked"); } catch {}
+    }, 1600);
   } catch {}
 }
 
@@ -3479,7 +3502,7 @@ function renderFlashpointClaim(text, P) {
    and because the recording happens inside the render itself — including
    the recursive passes for glued headings — the rail's numbering can
    never drift from the claim spines on the page. */
-function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null) {
+function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null) {
   let clean = stripDanglingAsterisks(normalizeSectionHeaders(text || ""))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
@@ -3551,17 +3574,17 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     // whole product's credibility.
     if (h2) {
       const { head, body } = splitGluedHeading(h2[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</div>
+        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</div>
         : h2Block(head, pi, P, accent);
     }
     const h3 = para.match(/^###\s+(.+)$/);
     if (h3) {
       const { head, body } = splitGluedHeading(h3[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</div>
+        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</div>
         : h3Block(head, pi, P);
     }
 
@@ -3585,9 +3608,9 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       const title = split.head;
       const below = [split.body, (markedHead[3] || "").trim()].filter(Boolean).join("\n\n");
       const head = markedHead[1].length <= 2 ? h2Block(title, pi + "-h", P, accent) : h3Block(title, pi + "-h", P);
-      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</React.Fragment> : null;
+      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</React.Fragment> : null;
       return below
-        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}</div>
+        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</div>
         : <React.Fragment key={pi}>{head}</React.Fragment>;
     }
     // Bold-line headers (e.g., "**Mechanism**")
@@ -3648,7 +3671,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
         return (
           <div key={pi}>
             <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, margin: "34px 0 10px", letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
-            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}
+            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}
           </div>
         );
       }
@@ -3670,7 +3693,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
           {items.map((item, ii) => (
             <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-font)", fontWeight: 500 }}>
               <span style={{ position: "absolute", left: -12, top: "0.55em", width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.7 }} />
-              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
+              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate)}
             </li>
           ))}
         </ul>
@@ -3687,7 +3710,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
           {items.map((item, ii) => (
             <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-font)", fontWeight: 500, counterIncrement: "cb-list" }}>
               <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{ii + 1}.</span>
-              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
+              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate)}
             </li>
           ))}
         </ol>
@@ -3740,7 +3763,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     }}>
       {paraClean.split("\n").map((line, li) => (
         <React.Fragment key={li}>
-          {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite)}
+          {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate)}
           {li < paraClean.split("\n").length - 1 && <br />}
         </React.Fragment>
       ))}
@@ -3759,7 +3782,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
 }
 
 /** Inline segment renderer — handles bold, italic, underline, citations, and inline code */
-function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite) {
+function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate = null) {
   return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
     const b = seg.match(/^\*\*([^*]+)\*\*$/);
     if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 700 }}>{b[1]}</strong>;
@@ -3777,10 +3800,13 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
          signature. A small rectangular reference in the accent colour
          (.cb-cite carries the shape; currentColor carries the colour),
          sitting on the baseline like a scholarly [1], not a chat badge.
-         Activating it does three things: it marks the citation, it shows
-         the paper preview, and it lights the matching row in the evidence
-         index — the claim and the source stay visibly linked. Focus shows
-         the preview too, so keyboard readers get the same interaction. */
+         Activating it marks the citation, shows the paper preview, opens
+         the evidence drawer on the matching row, and flashes the
+         bibliography row — the claim and the source stay visibly linked.
+         Activating it again (or pressing Escape) clears the highlight
+         everywhere at once; the flash is temporary by construction, so it
+         can never stick. Focus shows the preview too, so keyboard readers
+         get the same interaction. */
       const isActive = activeCite === n;
       return <a key={si} href={`#ref-${n}`} title={src?.title || ""}
         data-cite={n}
@@ -3790,10 +3816,27 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
         aria-current={isActive ? "true" : undefined}
         onMouseEnter={() => setHoverCite(n)} onMouseLeave={() => setHoverCite(0)}
         onFocus={() => setHoverCite(n)} onBlur={() => setHoverCite(0)}
-        onClick={(e) => { e.preventDefault(); if (setActiveCite) setActiveCite(n); revealSource(n, accent); }}
+        onClick={(e) => {
+          e.preventDefault();
+          if (!setActiveCite) return;
+          if (activeCite === n) {
+            /* Toggle off: the highlight clears everywhere, at once. */
+            setActiveCite(0);
+            clearSourceLinked();
+          } else {
+            setActiveCite(n);
+            revealSource(n, accent);
+            if (onCiteActivate) onCiteActivate(n);
+          }
+        }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (setActiveCite) setActiveCite(n); revealSource(n, accent); }
-          if (e.key === "Escape" && setActiveCite) setActiveCite(0);
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (!setActiveCite) return;
+            if (activeCite === n) { setActiveCite(0); clearSourceLinked(); }
+            else { setActiveCite(n); revealSource(n, accent); if (onCiteActivate) onCiteActivate(n); }
+          }
+          if (e.key === "Escape" && setActiveCite) { setActiveCite(0); clearSourceLinked(); }
         }}
         style={{ color: accent, textDecoration: "none" }}
       >[{n}]</a>;
@@ -8999,93 +9042,171 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
    light up (data-active) when their citation is activated in the answer;
    activating a row's number lights the citation and scrolls to the claim.
    No confidence badges: study design and direction in plain text. */
-function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, onOpenPaper }) {
+/* The evidence index as a drawer, not a column: the answer owns the page,
+   the index is one tap away and clearly secondary. Portaled to
+   document.body so no transformed ancestor (page reveals, GSAP) can
+   re-containing-block the fixed positioning. Desktop: a non-modal right
+   rail (the page stays scrollable behind it). Mobile: a bottom sheet with
+   a scrim. Closed by default at every width; citation taps, the toolbar,
+   and the jump rail open it. Escape or the close button dismisses it.
+
+   The active row's highlight is DECLARATIVE (driven by activeCite), so it
+   clears the instant the citation deactivates — the old sticky-class bug
+   cannot recur here. Numbering matches the bibliography and the answer's
+   citations: one source, one number, everywhere. */
+function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, onOpenPaper, open, onClose }) {
   const sources = t.sources || [];
-  const [collapsed, setCollapsed] = useState(false);
-  /* The parent only mounts the rail when sources exist; an empty array
-     simply renders no rows rather than a null-returning guard. */
+  const closeRef = useRef(null);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
   const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
   const claimsOf = (n) => (claimSink || []).filter((c) => c.cites.includes(n)).map((c) => c.claim);
   const doiOf = (s) => String(s.doi || s.DOI || "")
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
-  return (
-    <aside className="cb-ev-rail" aria-label="Evidence index"
-      style={{
-        /* The rail owns the evidence index as a document-material column,
-           same as the answer card: fully opaque theme surface, hairline
-           border, no backdrop blur. Bright footage must never ghost
-           through behind the ledger rows. */
-        background: P.surface,
-        border: `1px solid ${P.line}`,
-        borderRadius: 6,
-        padding: "16px 14px 16px 16px",
+
+  /* Focus the close button on open; keep the active row visible. */
+  useEffect(() => {
+    if (!open) return;
+    if (closeRef.current) { try { closeRef.current.focus({ preventScroll: true }); } catch {} }
+  }, [open ]);
+  useEffect(() => {
+    if (!open || !activeCite) return;
+    try {
+      const el = document.getElementById(`evref-${activeCite}`);
+      if (el) el.scrollIntoView({ block: "nearest", behavior: cbMotionOff() ? "auto" : "smooth" });
+    } catch {}
+  }, [open, activeCite ]);
+  /* Escape closes. The mobile sheet also locks body scroll; the desktop
+     drawer is deliberately non-modal so the answer stays readable. */
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape" && onClose) onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  useEffect(() => {
+    if (!open || !isMobile) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open, isMobile]);
+
+  if (!open) return null;
+
+  const rows = sources.map((s, i) => {
+    const n = i + 1;
+    const rel = relOf(n);
+    const claims = claimsOf(n);
+    const doi = doiOf(s);
+    const doiHref = /^10\.\d{4,9}\//.test(doi) ? "https://doi.org/" + doi : null;
+    const meta = [s.authors, s.year].filter(Boolean).join(" · ");
+    const claimsLine = s.uncited
+      ? "Not cited by the answer"
+      : claims.length
+        ? `${rel === "conflicts" ? "Contested in" : "Supports"} claim${claims.length === 1 ? "" : "s"} ${claims.join(", ")}`
+        : "Cited by the answer";
+    const why = s.uncited
+      ? (s.uncitedReason || "Listed for further reading.")
+      : (s.studyType ? s.studyType + " · " : "") +
+        (rel === "conflicts"
+          ? "its findings push against the answer's claims — see where the literature disagrees."
+          : rel === "qualifies"
+            ? "it both supports and complicates the answer — read it against the surrounding claims."
+            : "its findings run with the answer's claims.");
+    const isActive = activeCite === n;
+    return (
+      <div key={n} id={`evref-${n}`} data-rel={rel} data-active={isActive ? "true" : undefined}
+        /* Declarative sync highlight: present exactly while this citation
+           is active, gone the moment it isn't. No timers, no leftovers. */
+        className={"cb-ledger-row" + (isActive ? " cb-source-linked" : "")}
+        style={isActive ? { ["--cb-link-accent"]: accent } : undefined}>
+        <button type="button" className="cb-ledger-num" onClick={() => onActivate(n)}
+          title={`Show source ${n} in the answer`} aria-label={`Source ${n}: show in the answer`}
+          style={{ background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left", minHeight: 44 }}>
+          {n}
+        </button>
+        <div style={{ minWidth: 0 }}>
+          {(s.retracted || s.concern) && (
+            <div style={{ fontSize: 11, fontWeight: 700, color: s.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+              {s.retracted ? "Retracted" : "Expression of concern"}
+            </div>
+          )}
+          <div style={{ fontSize: 14, fontWeight: 600, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{s.title}</div>
+          {meta && <div style={{ fontSize: 12, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>{meta}</div>}
+          <div className="cb-kicker" style={{ marginTop: 7 }}>{claimsLine}</div>
+          <div style={{ fontSize: 12, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
+            <span style={{ color: P.faint }}>Why this paper is here: </span>{why}
+          </div>
+          {doiHref && (
+            <div style={{ marginTop: 6 }}>
+              <a href={doiHref} target="_blank" rel="noreferrer" className="cb-mono"
+                onClick={(e) => e.stopPropagation()}
+                style={{ fontSize: 11, color: accent, textDecoration: "none", overflowWrap: "anywhere" }}>
+                doi:{doi}
+              </a>
+            </div>
+          )}
+        </div>
+        <div>
+          <button type="button" className="cb-textbtn" style={{ padding: "6px 0", minHeight: 44, whiteSpace: "nowrap" }}
+            onClick={() => onOpenPaper(n)}>
+            Open paper
+          </button>
+        </div>
+      </div>
+    );
+  });
+
+  const panel = (
+    <aside role="dialog" aria-label={`Evidence index, ${sources.length} sources`} className="cb-ev-rail"
+      style={isMobile ? {
+        position: "fixed", left: 0, right: 0, bottom: 0, maxHeight: "84dvh", zIndex: 210,
+        background: P.surface, borderTop: `1px solid ${P.line}`, borderRadius: "16px 16px 0 0",
+        boxShadow: "0 -24px 64px rgba(0,0,0,0.4)",
+        display: "flex", flexDirection: "column",
+        animation: "cbSheetIn .3s cubic-bezier(0.16,1,0.3,1) both",
+      } : {
+        position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: 210,
+        background: P.surface, borderLeft: `1px solid ${P.line}`,
+        boxShadow: "-24px 0 64px rgba(0,0,0,0.35)",
+        display: "flex", flexDirection: "column",
+        animation: "cbDrawerIn .28s cubic-bezier(0.16,1,0.3,1) both",
       }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+      {isMobile && (
+        <div aria-hidden="true" style={{ padding: "10px 0 2px", display: "flex", justifyContent: "center", flexShrink: 0 }}>
+          <span style={{ width: 40, height: 4, borderRadius: 2, background: P.line2 }} />
+        </div>
+      )}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        padding: "14px 8px 10px 18px", borderBottom: `1px solid ${P.line}`, flexShrink: 0,
+      }}>
         <span className="cb-kicker">Evidence index · {sources.length}</span>
-        <button type="button" className="cb-textbtn" style={{ padding: "6px 0", minHeight: 0 }}
-          aria-expanded={!collapsed} onClick={() => setCollapsed((v) => !v)}>
-          {collapsed ? "Show" : "Hide"}
+        <button ref={closeRef} type="button" onClick={onClose} aria-label="Close evidence index"
+          style={{
+            minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
+            background: "none", border: "none", cursor: "pointer", color: P.faint, borderRadius: 8,
+          }}>
+          <Icon name="close" size={16} />
         </button>
       </div>
-      {!collapsed && sources.map((s, i) => {
-        const n = i + 1;
-        const rel = relOf(n);
-        const claims = claimsOf(n);
-        const doi = doiOf(s);
-        const doiHref = /^10\.\d{4,9}\//.test(doi) ? "https://doi.org/" + doi : null;
-        const meta = [s.authors, s.year].filter(Boolean).join(" · ");
-        const claimsLine = s.uncited
-          ? "Not cited by the answer"
-          : claims.length
-            ? `${rel === "conflicts" ? "Contested in" : "Supports"} claim${claims.length === 1 ? "" : "s"} ${claims.join(", ")}`
-            : "Cited by the answer";
-        const why = s.uncited
-          ? (s.uncitedReason || "Listed for further reading.")
-          : (s.studyType ? s.studyType + " · " : "") +
-            (rel === "conflicts"
-              ? "its findings push against the answer's claims — see where the literature disagrees."
-              : rel === "qualifies"
-                ? "it both supports and complicates the answer — read it against the surrounding claims."
-                : "its findings run with the answer's claims.");
-        return (
-          <div key={n} className="cb-ledger-row" data-rel={rel} data-active={activeCite === n ? "true" : undefined}>
-            <button type="button" className="cb-ledger-num" onClick={() => onActivate(n)}
-              title={`Show source ${n} in the answer`} aria-label={`Source ${n}: show in the answer`}
-              style={{ background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
-              {n}
-            </button>
-            <div style={{ minWidth: 0 }}>
-              {(s.retracted || s.concern) && (
-                <div style={{ fontSize: 11, fontWeight: 700, color: s.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
-                  {s.retracted ? "Retracted" : "Expression of concern"}
-                </div>
-              )}
-              <div style={{ fontSize: 14, fontWeight: 600, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{s.title}</div>
-              {meta && <div style={{ fontSize: 12, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>{meta}</div>}
-              <div className="cb-kicker" style={{ marginTop: 7 }}>{claimsLine}</div>
-              <div style={{ fontSize: 12, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
-                <span style={{ color: P.faint }}>Why this paper is here: </span>{why}
-              </div>
-              {doiHref && (
-                <div style={{ marginTop: 6 }}>
-                  <a href={doiHref} target="_blank" rel="noreferrer" className="cb-mono"
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ fontSize: 11, color: accent, textDecoration: "none", overflowWrap: "anywhere" }}>
-                    doi:{doi}
-                  </a>
-                </div>
-              )}
-            </div>
-            <div>
-              <button type="button" className="cb-textbtn" style={{ padding: "6px 0", minHeight: 0, whiteSpace: "nowrap" }}
-                onClick={() => onOpenPaper(n)}>
-                Open paper
-              </button>
-            </div>
-          </div>
-        );
-      })}
+      <div style={{ overflowY: "auto", flex: 1, padding: "6px 14px 20px 16px", overscrollBehavior: "contain" }}>
+        {rows}
+      </div>
     </aside>
+  );
+
+  return createPortal(
+    <>
+      {isMobile && (
+        <div aria-hidden="true" onClick={onClose}
+          style={{
+            position: "fixed", inset: 0, zIndex: 205, background: "rgba(0,0,0,0.5)",
+            animation: "cbFade .2s ease both",
+          }} />
+      )}
+      {panel}
+    </>,
+    document.body
   );
 }
 
@@ -9182,13 +9303,16 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   // them; the band carries its own tabs.
   const [evOpen, setEvOpen] = useState(null);
   const [evTab, setEvTab] = useState("biblio");
+  /* The evidence index lives in a drawer now, not a side column: the
+     answer is the page, the index is one tap away. Closed by default at
+     every width; citation taps and the toolbar/jump-rail entries open it. */
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [listenOpen, setListenOpen] = useState(false);
   const [openVideo, setOpenVideo] = useState(null);
   const reducedMotion = useReducedMotion();
   const answerTopRef = useRef(null);
   const bandSectionRef = useRef(null);
   const evMapRef = useRef(null);
-  const railHeadRef = useRef(null);
   const fcSectionRef = useRef(null);
   const vennSectionRef = useRef(null);
   const compareSectionRef = useRef(null);
@@ -9222,7 +9346,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   };
   const jumpToSection = (id) => {
     if (id === "videos") setEvTab("videos");
-    else if (id === "evidence") setEvTab("biblio");
+    else if (id === "evidence") { setEvidenceOpen(true); return; }
     const refs = { answer: answerTopRef, evidence: bandSectionRef, videos: bandSectionRef, factcheck: fcSectionRef, disagreements: vennSectionRef, compare: compareSectionRef, openquestions: oqSectionRef };
     if (id === "openquestions" && openQuestions.length > 0) setShowOQ(true);
     scrollToRef(refs[id]);
@@ -9272,17 +9396,24 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
      composed rather than pasted). The ref stays so citation-scroll targets
      keep working. */
   const answerRevealRef = useRef(null);
-  /* Which citation the reader is currently following. Persists until they
-     choose another or press Escape, so after reading a source they can find
-     the sentence it belonged to. Local to the turn: two answers on screen
-     should not fight over one selection. */
+  /* Which citation the reader is currently following. Escape clears the
+     citation, closes the evidence drawer, and removes any lingering
+     source flash — one keypress, everything back to reading. A turn
+     unmounting clears stragglers too, so a flash can never outlive the
+     answer that caused it. */
   const [activeCite, setActiveCite] = useState(0);
   useEffect(() => {
-    if (!activeCite) return undefined;
-    const onKey = (e) => { if (e.key === "Escape") setActiveCite(0); };
+    if (!activeCite && !evidenceOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      setActiveCite(0);
+      setEvidenceOpen(false);
+      clearSourceLinked();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeCite]);
+  }, [activeCite, evidenceOpen]);
+  useEffect(() => () => clearSourceLinked(), []);
   const [copiedAnswer, setCopiedAnswer] = useState(false);
   // Commit 98 — "up" | "down" | "" ; one vote per answer per session.
   const [vote, setVote] = useState("");
@@ -9374,7 +9505,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
      the settled answer text, so it's deterministic, never stale. */
   const claimSink = [];
   const minRead = t.answer ? Math.ceil(t.answer.split(/\s+/).length / 238) : 0;
-  const onActivateCite = (n) => { setActiveCite(n); revealClaim(n); };
+  const onActivateCite = (n) => { setActiveCite(n); setEvidenceOpen(true); };
   return (
     <div style={S.turn} className="cb-rise">
       {/* Pass 2 — the answer header: the question as a serif title, then one
@@ -9412,12 +9543,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           )}
         </div>
       </div>
-      {/* Pass 2 — the answer surface: one grid, an article column plus a
-          sticky evidence rail. The article owns the document material
-          (fully opaque paper); the rail owns the evidence index. On narrow
-          screens the grid collapses to a single column and the evidence
-          index follows the article in reading order. */}
-      <div className="cb-answer-grid">
+      {/* The answer surface: one wide article column — the answer is the
+          main focus, not one of two skinny columns. The evidence index
+          lives in a drawer (below), secondary and closed by default. */}
+      <div className="cb-answer-wrap">
         <article style={S.answerCard} className="cb-answer-enter cb-article">
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
@@ -9482,13 +9611,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 >
                   {linkCopied ? "Link copied" : "Share"}
                 </button>
-                {/* Evidence index: scrolls the sticky rail (or, on mobile,
-                    the evidence section below the article) into view. */}
-                <button type="button" className="cb-textbtn" title="Jump to the evidence index"
-                  onClick={() => {
-                    const el = railHeadRef && railHeadRef.current;
-                    if (el) el.scrollIntoView({ block: "start", behavior: cbMotionOff() ? "auto" : "smooth" });
-                  }}
+                {/* Evidence index: toggles the evidence drawer — the index is
+                    a secondary surface now, not a column competing with the
+                    answer. */}
+                <button type="button" className="cb-textbtn" title={evidenceOpen ? "Hide the evidence index" : "Show the evidence index"}
+                  aria-expanded={evidenceOpen}
+                  onClick={() => setEvidenceOpen((v) => !v)}
                 >
                   Evidence index
                 </button>
@@ -9549,11 +9677,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
-                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)}
+                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true))}
               </div>
             </>
           ) : (
-            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink)
+            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true))
           )}
         </div>
         {done && (
@@ -9593,19 +9721,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         ) : null}
         {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
         </article>
-        {/* Pass 2 — the evidence index: the answer's sources as ledger rows
-            in a sticky right rail. One source, one number, everywhere — the
-            rail, the bibliography below, and the answer's citations all
-            share the same numbering. On mobile this section follows the
-            article in reading order. */}
-        {done && t.answer && sources.length > 0 && (
-          <div ref={railHeadRef} style={{ scrollMarginTop: 130, minWidth: 0 }}>
-            <EvidenceRail t={t} P={P} accent={accent} venn={venn} claimSink={claimSink}
-              activeCite={activeCite} onActivate={onActivateCite}
-              onOpenPaper={(n) => onOpenPaper(t, n)} />
-          </div>
-        )}
       </div>
+      {/* The evidence index drawer: secondary, portaled, closed by default.
+          Citation taps, the toolbar, and the jump rail open it. */}
+      {done && t.answer && sources.length > 0 && (
+        <EvidenceRail t={t} P={P} accent={accent} venn={venn} claimSink={claimSink}
+          activeCite={activeCite} onActivate={onActivateCite}
+          onOpenPaper={(n) => onOpenPaper(t, n)}
+          open={evidenceOpen} onClose={() => setEvidenceOpen(false)} />
+      )}
       {/* StressTest and EvidenceStructure now live inside the "How this was
           built" drawer (QueryAutopsy) — they're autopsy material, not
           reading material. See QueryAutopsy. */}
@@ -11101,11 +11225,175 @@ function trendProvenance(item, generatedAt) {
   }
   return parts.join(" · ");
 }
+/* ════════════════════════════════════════════════════════════════════
+   VERIFIED MEDIA CONTRACT (2026-09-17)
+   /api/trending items and /api/document analysis responses carry
+     media: { image: {...}|null, video: {...}|null, resolvedAt }
+   Each slot is { url, credit, creditUrl, license, source, verified }.
+   - image XOR video is ever set (image preferred); a video slot carries
+     a poster and is a verified NASA/Commons clip, shown with controls,
+     never autoplayed.
+   - { image: null, video: null } = the resolver ran and found nothing
+     honest → render nothing, never a broken frame.
+   - media ABSENT on a trending item = not resolved yet (the feed
+     backfills within ~1 min) → render nothing, no error state.
+   - image_url is kept for back-compat on trending payloads that predate
+     the media object; precedence: media.image.url → image_url.
+   These resolvers are pure so tests can pin the contract. Anything that
+   fails verification (unverified flag, unsafe URL) is not media — it is
+   nothing, and the caller renders nothing.
+   ════════════════════════════════════════════════════════════════════ */
+const MEDIA_URL_RE = /^https:\/\/[^"'\s<>]+$/i;
+function cleanMediaUrl(u) {
+  const s = String(u || "").trim();
+  return MEDIA_URL_RE.test(s) ? s : null;
+}
+function cleanMediaText(t, max) {
+  const s = String(t || "").trim();
+  return s ? s.slice(0, max) : null;
+}
+/* The verified slot of a media object, normalized, or null. */
+function verifiedMediaOf(media) {
+  if (!media || typeof media !== "object") return null;
+  const pick = (slot, kind) => {
+    if (!slot || typeof slot !== "object" || slot.verified !== true) return null;
+    const url = cleanMediaUrl(slot.url);
+    if (!url) return null;
+    return {
+      kind,
+      url,
+      poster: kind === "video" ? cleanMediaUrl(slot.poster) : null,
+      credit: cleanMediaText(slot.credit, 160),
+      creditUrl: cleanMediaUrl(slot.creditUrl),
+      license: cleanMediaText(slot.license, 60),
+      source: cleanMediaText(slot.source, 40),
+      verified: true,
+    };
+  };
+  return pick(media.image, "image") || pick(media.video, "video") || null;
+}
+/* A trending item → renderable media or null. */
+function trendingMediaOf(item) {
+  if (!item || typeof item !== "object") return null;
+  const v = verifiedMediaOf(item.media);
+  if (v) return v;
+  /* media present but nothing verified = resolved: nothing exists (or an
+     unverified slot) → honest nothing. The legacy url is only a fallback
+     for payloads that predate the media object entirely. */
+  if (item.media) return null;
+  const url = cleanMediaUrl(item.image_url);
+  if (!url) return null;
+  return { kind: "image", url, poster: null, credit: null, creditUrl: null, license: null, source: null, verified: false };
+}
+/* A document analysis payload → renderable media or null. The analysis
+   JSON always carries the media key on the final response, so absent =
+   not attempted → nothing. */
+function docMediaOf(summary) {
+  if (!summary || typeof summary !== "object") return null;
+  return verifiedMediaOf(summary.media);
+}
+
+/* Verified media figure — the only sanctioned way to show a trending or
+   document image/video. Renders ONLY resolved media; a failed load removes
+   the whole figure so a broken frame can never appear. Credit + license
+   ride under the frame, linked when the backend supplies a credit URL.
+   - `still`: video renders as its poster with a play badge (for use inside
+     buttons/links where a <video> with controls would nest interactives).
+   - `linkCredit`: false inside elements (like the hero button) where a
+     nested <a> would be invalid. */
+function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect = "16/9", rounded = 12 }) {
+  const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
+  if (!media || failed) return null;
+  const creditHref = media.creditUrl && safeHref(media.creditUrl) !== "#" ? safeHref(media.creditUrl) : null;
+  const showVideo = media.kind === "video" && !still;
+  const stillSrc = media.kind === "video" ? media.poster || null : media.url;
+  return (
+    <figure style={{ margin: 0 }}>
+      <div style={{
+        position: "relative", aspectRatio: aspect, borderRadius: rounded, overflow: "hidden",
+        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
+        border: `1px solid ${P.line}`,
+      }}>
+        {showVideo ? (
+          /* Verified NASA/Commons clip. Controls, no autoplay — a video
+             that starts talking the moment it appears is hostile. */
+          <video src={safeHref(media.url)} poster={media.poster ? safeHref(media.poster) : undefined}
+            controls preload="metadata" playsInline
+            onError={() => setFailed(true)}
+            style={{ width: "100%", height: "100%", display: "block", background: "#000" }} />
+        ) : stillSrc ? (
+          <img src={safeHref(stillSrc)}
+            alt={title ? `Illustration related to: ${title}` : "Related illustration"}
+            loading="lazy" referrerPolicy="no-referrer"
+            onLoad={() => setReady(true)} onError={() => setFailed(true)}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: ready ? 1 : 0, transition: "opacity 0.4s ease" }} />
+        ) : (
+          /* Video with no poster in still mode: an honest play affordance,
+             not a fabricated frame. */
+          <div aria-hidden="true" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0a0c10" }}>
+            <span style={{ width: 44, height: 44, borderRadius: "50%", background: "rgba(255,255,255,0.14)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="#fff" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" /></svg>
+            </span>
+          </div>
+        )}
+        {media.kind === "video" && !showVideo && stillSrc && (
+          <span aria-hidden="true" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+            <span style={{ width: 44, height: 44, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="#fff" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" /></svg>
+            </span>
+          </span>
+        )}
+      </div>
+      {(media.credit || media.license) && (
+        <figcaption style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "baseline", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>
+          {media.credit && (creditHref && linkCredit ? (
+            <a href={creditHref} target="_blank" rel="noreferrer" style={{ color: P.faint, textDecoration: "underline", textUnderlineOffset: 2 }}>{media.credit}</a>
+          ) : (
+            <span>{media.credit}</span>
+          ))}
+          {media.credit && media.license && <span aria-hidden="true"> · </span>}
+          {media.license && <span>{media.license}</span>}
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+/* Small thumbnail for trending digest rows. A failed load removes the
+   thumb; the row reads fine without it. */
+function TrendThumb({ P, media, title }) {
+  const [failed, setFailed] = useState(false);
+  if (!media || failed) return null;
+  const src = media.kind === "video" ? media.poster || null : media.url;
+  if (!src) return null;
+  return (
+    <span aria-hidden="true" style={{
+      position: "relative", width: 88, height: 66, flexShrink: 0, borderRadius: 8,
+      overflow: "hidden", border: `1px solid ${P.line}`,
+      background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
+    }}>
+      <img src={safeHref(src)} alt="" loading="lazy" referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      {media.kind === "video" && (
+        <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="#fff" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" /></svg>
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function TrendingHero({ P, accent, item, onExpand, generatedAt }) {
-  // Pass 4 (2026-09-17): the lead story is a flat editorial block, not a
-  // cinematic card — no photograph, no gradient scrim, no full-bleed
-  // treatment. A strong left margin, one thin accent rule, and a serif
-  // headline; the words do the work.
+  // The lead story carries its verified lead media again (Commons stills,
+  // NASA/Commons clips) — as a figure ABOVE the headline, never a scrim
+  // behind text. Text over bright footage drowned; the words sit on the
+  // page, the picture sits in its own frame. No media → the flat
+  // editorial block, unchanged.
+  const media = trendingMediaOf(item);
   return (
     <button
       type="button" onClick={() => onExpand(item)} className="cb-row"
@@ -11116,6 +11404,13 @@ function TrendingHero({ P, accent, item, onExpand, generatedAt }) {
         font: "inherit", cursor: "pointer",
       }}
     >
+      {media && (
+        <div style={{ marginBottom: 18, maxWidth: 860 }}>
+          {/* Inside a button: still mode (poster + play badge for video)
+              and an unlinked credit — nested interactives would be invalid. */}
+          <MediaFigure P={P} media={media} title={item.title} still linkCredit={false} />
+        </div>
+      )}
       <div className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Lead story · {trendKind(item)}
       </div>
@@ -11180,7 +11475,10 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
       .catch(() => {});
     return () => { cancelled = true; };
   }, [item.title]);
-  const [imgStatus, setImgStatus] = useState(item.image_url ? "loading" : "error");
+  /* Lead media via the verified contract: media.image.url → legacy
+     image_url. A resolved {null, null} or an absent media object renders
+     nothing — the modal simply opens without a lead figure. */
+  const leadMedia = trendingMediaOf(item);
   const publishedLabel = item.publishedAt
     ? new Date(item.publishedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
     : "";
@@ -11195,11 +11493,9 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
       }}
     >
         <div style={{ position: "relative", flexShrink: 0 }}>
-          {item.image_url && imgStatus !== "error" && (
-            <div style={{ position: "relative", aspectRatio: "16/9", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)" }}>
-              <img src={item.image_url} alt="" aria-hidden="true" onLoad={() => setImgStatus("ready")} onError={() => setImgStatus("error")}
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: imgStatus === "ready" ? 1 : 0, transition: "opacity 0.4s ease" }} />
-              <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(0,0,0,0.55) 0%, transparent 45%)" }} />
+          {leadMedia && (
+            <div style={{ padding: "18px 18px 0" }}>
+              <MediaFigure P={P} media={leadMedia} title={item.title} />
             </div>
           )}
           <button onClick={close} aria-label="Close" style={{ minWidth: 44, minHeight: 44, position: "absolute", top: 8, right: 8, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
@@ -11915,6 +12211,9 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                       {trendProvenance(item, generatedAt)}
                     </span>
                   </span>
+                  {/* Verified lead media as a small thumb. Absent/unverified
+                      media renders nothing — the row reads fine without it. */}
+                  <TrendThumb P={P} media={trendingMediaOf(item)} title={item.title} />
                 </button>
               ))}
             </div>
@@ -20077,7 +20376,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // Long-document analyses report per-section progress (done/total) over
   // the stream; null while the run is single-pass or not yet reporting.
   const [analyzeProgress, setAnalyzeProgress] = useState(null);
-  const [summary, setSummary] = useState(null); // { raw, model, mode: "summary", executiveSummary, methodology, keyFindings, limitations }
+  const [summary, setSummary] = useState(null); // { raw, model, mode: "summary", executiveSummary, methodology, keyFindings, limitations, media: { image|null, video|null, resolvedAt } }
   const [error, setError] = useState("");
   const [qaQuery, setQaQuery] = useState("");
   const [qaBusy, setQaBusy] = useState(false);
@@ -20466,6 +20765,34 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      one continuous text node, so selection offsets map 1:1 onto character
      offsets. Marks are persisted with the document; the browser's native
      selection clears after the mark is placed. */
+  /* The fixed "Highlight" action must never stick around: it clears when
+     the selection collapses, when the pointer lands outside the reader
+     (or on anything that isn't the action itself), on Escape, when the
+     view flips between Source and Read, and when the document changes
+     (handled where the document resets). The reader's own mouseup/
+     touchend already nulls it for collapsed/outside selections. */
+  useEffect(() => {
+    if (!pendingHL) return undefined;
+    const onPointerDown = (e) => {
+      const body = readBodyRef.current;
+      if (body && body.contains(e.target)) return;
+      if (e.target && e.target.closest && e.target.closest("[data-hl-action]")) return;
+      setPendingHL(null);
+      try { window.getSelection().removeAllRanges(); } catch {}
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setPendingHL(null);
+        try { window.getSelection().removeAllRanges(); } catch {}
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pendingHL]);
   const onReadSelect = () => {
     setTimeout(() => {
       try {
@@ -20602,7 +20929,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         )}
         <div style={{ marginBottom: 14, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
           {hasDoc ? (
-            <SegControl value={sourceView} onChange={setSourceView} P={P} accent={accent} ariaLabel="Document view"
+            <SegControl value={sourceView} onChange={(v) => { setPendingHL(null); setSourceView(v); }} P={P} accent={accent} ariaLabel="Document view"
               options={[{ id: "source", label: "Source" }, { id: "read", label: "Read" }]} />
           ) : (
             /* Identifier-first intake header: one field below takes a DOI,
@@ -20625,14 +20952,21 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             </div>
             <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
               className="cb-doc-reader"
-              style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.75, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "0.002em" }}>
+              /* Read-view containment: the reader is one normal-flow block.
+                 min-width:0 + width:100% keep it inside its grid column;
+                 overflow-wrap breaks the long unbreakable tokens (DOIs,
+                 URLs, chemical names) that extracted text is full of, so a
+                 single token can never force the text over the card below.
+                 pre-wrap preserves the document's own line breaks. */
+              style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.75, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "0.002em", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
               {renderMarkedText(documentText)}
             </div>
             <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
               Select any passage to highlight it. Marks and notes are saved with this document.
             </div>
             {pendingHL && (
-              <div style={{
+              <div data-hl-action
+                style={{
                 position: "fixed", left: Math.min(Math.max(pendingHL.x - 70, 8), (typeof window !== "undefined" ? window.innerWidth : 400) - 148),
                 top: pendingHL.y, zIndex: 60,
               }}>
@@ -20822,9 +21156,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const renderDocReader = (form) => {
     const cardStyle = {
       /* Sep 2026: opaque, not 0.94 — the near-opaque veil let bright
-         footage ghost through behind text. */
+         footage ghost through behind text. Roomier padding now: the
+         analysis is a reading surface, not a dense panel. */
       background: P.surface,
-      borderRadius: 12, padding: isMobile ? 18 : 24, border: `1px solid ${P.line}`,
+      borderRadius: 12, padding: isMobile ? 20 : 32, border: `1px solid ${P.line}`,
       ...(form === "overlay" ? { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 } : null),
     };
     return (
@@ -20864,11 +21199,26 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           </div>
         )}
         {summary && (
-          <div style={cardStyle}>
+          <div style={cardStyle} className="cb-doc-analysis-card">
             <div className="cb-doc-tabs" style={{ marginBottom: 14, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
               <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
                 options={allTabOptions} />
             </div>
+            {/* Verified lead media for the document (Commons still or
+                NASA/Commons clip, with credit). The analysis JSON always
+                carries the media key on the final response: verified media
+                renders, {null, null} renders nothing — no broken frames,
+                no placeholders. Skipped on the compare tab (two documents,
+                one figure would misattribute) and Q&A. */}
+            {(rightTab !== "qa" && rightTab !== "compare") && (() => {
+              const docMedia = docMediaOf(summary);
+              if (!docMedia) return null;
+              return (
+                <div style={{ marginBottom: 22, maxWidth: 640 }}>
+                  <MediaFigure P={P} media={docMedia} title={docTitleOf(documentText)} />
+                </div>
+              );
+            })()}
             <div className="cb-doc-reader" style={form === "overlay" ? { flex: 1, overflowY: "auto", paddingRight: 4, minHeight: 0 } : null}>
               {rightTab === "compare" ? (
                 <>
@@ -20924,11 +21274,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   return (
                     <>
                       {hasFindings && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginBottom: 10 }}>Key Findings</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginBottom: 12 }}>Key Findings</div>
                         {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                       {hasLimitations && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginTop: hasFindings ? 20 : 0, marginBottom: 10 }}>Limitations</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginTop: hasFindings ? 28 : 0, marginBottom: 12 }}>Limitations</div>
                         {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                     </>
@@ -20945,8 +21295,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 <>
                   {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
                   {qaHistory.map((h, i) => (
-                    <div key={i} style={{ marginTop: i === 0 ? 0 : 20, paddingTop: i === 0 ? 0 : 16, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
-                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)" }}>{h.query}</div>
+                    <div key={i} style={{ marginTop: i === 0 ? 0 : 28, paddingTop: i === 0 ? 0 : 24, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 12, fontFamily: "var(--cb-font)" }}>{h.query}</div>
                       {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
                     </div>
                   ))}
@@ -21076,7 +21426,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             on mobile, two columns on desktop — all in normal flow, so the
             page scrolls instead of trapping scroll inside panes. ── */
         <div style={{
-          position: "relative", zIndex: 1, flex: 1, width: "100%", maxWidth: 1120,
+          position: "relative", zIndex: 1, flex: 1, width: "100%", maxWidth: 1280,
           margin: "0 auto", padding: isMobile ? "20px 16px" : "28px 24px",
           paddingBottom: `max(${isMobile ? 40 : 64}px, env(safe-area-inset-bottom))`,
           display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 5fr) minmax(0, 7fr)",
@@ -23313,6 +23663,10 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ] },
     { label: "Your work", items: [
       ["investigations", "Investigations", "history", history.length || null],
+      /* Always-visible fresh start, adjacent to the ledger it belongs to.
+         "new" is an action, not a view — handleSidebarNavigate runs
+         newSession() and lands on Search. */
+      ["new", "New investigation", "plus", null],
       ["library", "Library", "bookmark", saved.length || null],
       ...(user ? [["collections", "Collections", "folder", (collections && collections.length) || null]] : []),
       ...(user ? [["usage", "Usage", "gauge", null]] : []),
@@ -23381,11 +23735,14 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
                  A stable hook on the row itself, so the animation never has
                  to guess at the rail's structure. */
               <button key={key} data-nav={key} onClick={() => onNavigate(key)} title={expanded ? undefined : label}
-                style={{ minHeight: 38, ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
+                /* The "New investigation" action row gets a full 44px target
+                   and a slightly stronger label on mobile — it's the one row
+                   here that starts something, not a destination. */
+                style={{ minHeight: key === "new" ? 44 : 38, ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
                 aria-current={view === key ? "page" : undefined} aria-label={label} className=""
                 onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
                 <Icon name={icon} size={16} />
-                {expanded && <span>{label}</span>}
+                {expanded && <span style={key === "new" && isMobile ? { fontSize: 16, fontWeight: 600 } : undefined}>{label}</span>}
                 {expanded && !!badge && <span style={S.sidebarItemBadge}>{badge}</span>}
                 {!expanded && !!badge && <span style={{ position: "absolute", marginLeft: 26, marginTop: -18, width: 8, height: 8, borderRadius: "50%", background: accent }} aria-hidden="true" />}
               </button>
@@ -26950,9 +27307,16 @@ function App() {
             P={P} accent={accent} isMobile={isMobile} wide
             title="Investigations" count={history.length}
             description="Every question you've asked, with the papers each one turned up. Open one to keep going from where you stopped."
-            actions={history.length >= 2 ? (
-              <UIButton P={P} accent={accent} at={at} size="sm" icon="compare" onClick={() => setCompareOpen(true)}>Compare two</UIButton>
-            ) : null}
+            actions={(
+              /* "New investigation" is always visible — starting fresh should
+                 never require hunting. "Compare two" still needs 2+ records. */
+              <>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" style={isMobile ? { fontSize: 16 } : undefined} onClick={() => { newSession(); setView("search"); }}>New investigation</UIButton>
+                {history.length >= 2 && (
+                  <UIButton P={P} accent={accent} at={at} size="sm" icon="compare" onClick={() => setCompareOpen(true)}>Compare two</UIButton>
+                )}
+              </>
+            )}
           >
             {history.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="history"
@@ -27709,6 +28073,13 @@ summary::-webkit-details-marker { display: none; }
 /* ── Document Mode reader (§9) ──
    Reflowed reading surface: media can never force horizontal scroll,
    long tokens (DOIs, URLs) wrap instead of overflowing their column. */
+.cb-doc-reader { min-width: 0; overflow-wrap: break-word; }
+/* Document Mode analysis: a roomier reading surface than the answer
+   thread. The analysis card's prose sets at 1.75 leading with generous
+   section rhythm — the document deserves the air. (!important: the
+   paragraphs carry inline line-height from the shared renderer.) */
+.cb-doc-analysis-card .cb-doc-reader p,
+.cb-doc-analysis-card .cb-doc-reader li { line-height: 1.75 !important; }
 .cb-doc-reader img, .cb-doc-reader video { max-width: 100%; height: auto; }
 .cb-doc-reader pre { max-width: 100%; overflow-x: auto; }
 .cb-doc-reader table { display: block; max-width: 100%; overflow-x: auto; }
@@ -29628,29 +29999,27 @@ button.cb-cite { min-height: 0; min-width: 0; }
 /* 44px touch-target floor for controls inside rebuilt surfaces. */
 .cb-tap { min-height: 44px; min-width: 44px; }
 
-/* ── Pass 2 — the answer surface: article + evidence ledger ──
-   Desktop: one row — a 680–760px article column beside a sticky
-   320–380px evidence rail. The article's measure is capped (68ch on the
-   body keeps sustained prose in the 45–75ch band); the rail sticks under
-   the header so the index is always beside the claims it documents.
-   Mobile: a single column — the evidence index follows the article in
-   reading order, and ledger rows collapse to number-over-content. */
-.cb-answer-grid {
-  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px;
-  align-items: start; max-width: 1180px;
-}
-.cb-article { max-width: 760px; min-width: 0; }
-.cb-ev-rail {
-  position: sticky; top: 96px; max-height: calc(100vh - 120px); overflow-y: auto;
-  min-width: 0; padding-right: 2px;
-  scrollbar-width: thin;
-}
+/* ── Pass 3 — the answer surface: one primary article column ──
+   The answer is the main focus — a single, wide, breathable column, never
+   one of two skinny columns competing with a rail. The article's measure
+   is capped at 72ch so sustained prose sits in the 65–75ch readability
+   band; the frame (1320px) gives it air on wide screens. The evidence
+   index lives in a drawer now (EvidenceRail): portaled, secondary, and
+   closed by default. One layout at every width — the column is the column
+   everywhere, drawer or not. */
+.cb-answer-wrap { width: 100%; max-width: 1320px; margin: 0 auto; }
+.cb-answer-wrap .cb-article { max-width: 72ch; min-width: 0; margin-left: auto; margin-right: auto; }
+/* The drawer positions itself via inline styles (fixed, portaled); the
+   old sticky-rail positioning is retired. .cb-ev-rail stays as a hook. */
 @media (max-width: 1023px) {
-  .cb-answer-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; max-width: 760px; }
-  .cb-article { max-width: none; }
-  .cb-ev-rail { position: static; max-height: none; overflow: visible; }
   .cb-ledger-row { grid-template-columns: minmax(0,1fr); gap: 6px; }
   .cb-ledger-num { padding-top: 0; }
+}
+/* Drawer entrances: slide-and-settle, transform + opacity only. */
+@keyframes cbDrawerIn { from { opacity: 0; transform: translateX(48px); } to { opacity: 1; transform: none; } }
+@keyframes cbSheetIn { from { opacity: 0; transform: translateY(48px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .cb-ev-rail { animation: none !important; }
 }
 
 /* Reduced motion: no animated typing caret. (The ambient-layer half of

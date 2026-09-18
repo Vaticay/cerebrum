@@ -27,6 +27,7 @@
 import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { fetchTrendingItems } from "../lib/trendingSource.js";
+import { resolveLeadMedia } from "./image.js";
 
 
 const RATE_LIMIT = 30;
@@ -143,14 +144,109 @@ function scheduleRefresh(env, waitUntil) {
 // a failed background refresh must not affect the response already sent.
 async function refreshCache(env) {
   try {
-    const items = await fetchTrendingItems();
+    let items = await fetchTrendingItems();
     if (!Array.isArray(items) || items.length === 0) return;
+    // Every item leaves here carrying verified lead media (or an honest
+    // empty) — see attachMedia/enrichTrendingMedia below. This is the pass
+    // that puts pictures back on the biology/medicine/preprint/physics
+    // cards: those sources ship no thumbnails of their own, so without this
+    // enrichment three quarters of the feed can never have lead media.
+    items = await enrichTrendingMedia(env, items);
     const body = JSON.stringify({ items, generatedAt: Date.now() });
     await env.DB.prepare(
       "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
     ).bind(body, Date.now()).run();
   } catch (e) {
     console.error("Cerebrum trending background refresh failed:", e);
+  }
+}
+
+// ── Lead media on every trending item ─────────────────────────────────
+// The media contract, attached to each feed item:
+//
+//   media: {
+//     image: { url, credit, creditUrl, license, source, verified: true }
+//            | null,   // a verified still, when one exists
+//     video: { url, poster, credit, creditUrl, license, source,
+//              verified: true } | null,  // verified last-resort clip,
+//                                        // only when no still exists
+//     resolvedAt: <ms epoch>
+//   }
+//
+// image XOR video is ever set: a still is calmer and cheaper, so a card
+// only moves when nothing static could be verified — the same ordering
+// /api/image itself uses. { image: null, video: null } is the honest
+// "no media exists for this subject": the UI renders nothing rather than
+// a broken frame. `image_url` (the Space source's own thumbnail) is kept
+// untouched for backward compatibility; consumers should prefer
+// media.image.url when present and fall back to image_url.
+//
+// Pure — exported for unit tests.
+export function attachMedia(item, candidate) {
+  const media = { image: null, video: null, resolvedAt: Date.now() };
+  if (candidate && candidate.url) {
+    const entry = {
+      url: candidate.url,
+      credit: candidate.credit || "",
+      creditUrl: candidate.creditUrl || "",
+      license: candidate.license || "",
+      source: candidate.source || "",
+      verified: true,
+    };
+    if (candidate.poster) entry.poster = candidate.poster;
+    if (candidate.type === "video") media.video = entry;
+    else media.image = entry;
+  }
+  return { ...item, media };
+}
+
+// Resolves lead media for every item through the shared /api/image
+// pipeline (resolveLeadMedia), which carries its own per-subject cache —
+// so the steady-state cost of this pass is one D1 read per item, not nine
+// upstream fetches. Items that already carry media are skipped, and one
+// item's failure never affects the rest. Concurrency is capped so a cold
+// refresh can't open hundreds of upstream connections at once.
+export async function enrichTrendingMedia(env, items, { concurrency = 4 } = {}) {
+  const out = (items || []).slice();
+  let next = 0;
+  const worker = async () => {
+    while (next < out.length) {
+      const i = next++;
+      const item = out[i];
+      if (!item || (item.media && (item.media.image || item.media.video))) continue;
+      try {
+        const { image } = await resolveLeadMedia(env, item.title || "", item.category || "");
+        out[i] = attachMedia(item, image);
+      } catch {
+        out[i] = attachMedia(item, null);
+      }
+    }
+  };
+  const n = Math.max(1, Math.min(concurrency, out.length));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return out;
+}
+
+// Backfills media into a cache row that was written without it — the live
+// fallback path in onRequest serves the feed immediately (no visitor waits
+// for 40 media resolutions) and then enriches the cached copy in the
+// background, so the next request serves items with media attached. Never
+// throws.
+async function backfillTrendingMedia(env) {
+  try {
+    if (!env.DB) return;
+    await ensureTable(env);
+    const row = await env.DB.prepare("SELECT payload, fetched_at FROM trending_cache WHERE id = 1").first();
+    const parsed = parseCachePayload(row);
+    if (!parsed || !isUsableCachePayload(parsed)) return;
+    if (parsed.items.every((it) => it && it.media)) return;
+    const items = await enrichTrendingMedia(env, parsed.items);
+    const body = JSON.stringify({ items, generatedAt: parsed.generatedAt });
+    await env.DB.prepare(
+      "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
+    ).bind(body, Date.now()).run();
+  } catch (e) {
+    console.error("Cerebrum trending media backfill failed:", e);
   }
 }
 
@@ -233,12 +329,18 @@ export async function onRequest(context) {
     const body = JSON.stringify({ items, generatedAt });
     // Opportunistically warm the cache with this live result too, so the
     // next visitor — and the next hourly refresh, whenever it lands —
-    // isn't starting from nothing either.
+    // isn't starting from nothing either. Media enrichment happens in the
+    // background right after: the response goes out immediately with the
+    // items as fetched (no `media` key yet), and backfillTrendingMedia
+    // rewrites the cached row with verified lead media attached, so the
+    // following request serves it. Consumers: a missing `media` key means
+    // "not resolved yet" — treat it as no media.
     if (env.DB) {
       const write = env.DB.prepare(
         "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
       ).bind(body, generatedAt).run().catch(() => {});
-      if (typeof waitUntil === "function") waitUntil(write); else await write;
+      const after = write.then(() => backfillTrendingMedia(env)).catch(() => {});
+      if (typeof waitUntil === "function") waitUntil(after); else await after;
     }
     return okRes({ items, generatedAt }, 200, { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "live" });
   } catch (e) {

@@ -379,7 +379,7 @@ await test("network failure verifies as false, never throws", async () => {
 
 await test("image.js walks candidates and caches a verified payload", () => {
   assert.ok(imageSrc.includes("verifyMediaUrl"), "image.js does not verify the winning URL");
-  assert.ok(imageSrc.includes("|v2"), "image cache key was not bumped — stale dead URLs survive");
+  assert.ok(imageSrc.includes("|v3"), "image cache key was not bumped — stale dead URLs and 14-day-cached nulls survive");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

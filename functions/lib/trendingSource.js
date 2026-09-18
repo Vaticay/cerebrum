@@ -255,6 +255,28 @@ async function getText(url, timeoutMs = 8000) {
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
+// Normalizes one upstream record into the feed's item shape. Pure and
+// exported for unit tests: the HTML cleanup here must decode/strip markup
+// in titles and summaries without ever touching the media URL — a cleanup
+// that strips image_url is a cleanup that silently deletes every picture
+// on the feed.
+export function buildTrendingItem(a, category) {
+  return {
+    // Decode entities/strip tags BEFORE anything else: a title that is
+    // nothing but markup is not a title.
+    title: cleanTrendingText(a.title),
+    summary: cleanTrendingText(a.summary).slice(0, 900),
+    url: (a.url || "").trim(),
+    image_url: a.image_url || "",
+    source: a.source || category,
+    publishedAt: a.publishedAt || null,
+    category,
+    // Carried through from the source parse only; never invented here.
+    // Europe PMC is currently the only source that provides one.
+    citedByCount: Number(a.citedByCount) > 0 ? Math.floor(Number(a.citedByCount)) : 0,
+  };
+}
+
 export async function fetchTrendingItems() {
   const perSource = await Promise.all(SOURCES.map(async (src) => {
     try {
@@ -277,31 +299,17 @@ export async function fetchTrendingItems() {
     if (!group) continue;
     const clean = [];
     for (const a of group.items || []) {
-      // Decode entities/strip tags BEFORE the empty check: a title that is
-      // nothing but markup is not a title.
-      const title = cleanTrendingText(a.title);
-      const url = (a.url || "").trim();
+      const item = buildTrendingItem(a, group.category);
       // A summary is genuinely optional for a paper (many records have no
       // abstract); a title and a link are not — without those there's
       // nothing to show and nowhere to send anyone.
-      if (!title || !url) continue;
-      const urlKey = normalizeUrl(url);
-      const titleKey = normalizeTitle(title);
+      if (!item.title || !item.url) continue;
+      const urlKey = normalizeUrl(item.url);
+      const titleKey = normalizeTitle(item.title);
       if (seenUrls.has(urlKey) || seenTitles.has(titleKey)) continue;
       seenUrls.add(urlKey);
       seenTitles.add(titleKey);
-      clean.push({
-        title,
-        summary: cleanTrendingText(a.summary).slice(0, 900),
-        url,
-        image_url: a.image_url || "",
-        source: a.source || group.category,
-        publishedAt: a.publishedAt || null,
-        category: group.category,
-        // Carried through from the source parse only; never invented here.
-        // Europe PMC is currently the only source that provides one.
-        citedByCount: Number(a.citedByCount) > 0 ? Math.floor(Number(a.citedByCount)) : 0,
-      });
+      clean.push(item);
     }
     if (clean.length) buckets.push(clean);
   }

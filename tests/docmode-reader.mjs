@@ -439,5 +439,78 @@ await test("frontend sends the backend's field names (no phantom mode field)", a
   assert.ok(!/mode:\s*"(qa|analyze)"/.test(src), "phantom `mode` field sent to /api/document");
 });
 
+// ── Read-view highlight action: never sticky ──────────────────────────
+group("read-view Highlight action — clears everywhere, never sticks");
+
+await test("pendingHL clears on outside pointer, Escape, and view change", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The fixed "Highlight" action is tagged so the outside-pointer handler
+  // can tell it apart from the rest of the page.
+  assert.match(src, /data-hl-action/, "Highlight action missing data-hl-action tag");
+  assert.match(src, /closest\("\[data-hl-action\]\"\)/, "outside-pointer handler does not spare the action itself");
+  assert.match(src, /document\.addEventListener\("pointerdown", onPointerDown\)/, "no outside-pointer cleanup for pendingHL");
+  assert.match(src, /document\.addEventListener\("keydown", onKey\)/, "no Escape cleanup for pendingHL");
+  // Flipping between Source and Read drops a stale action.
+  assert.match(src, /onChange=\{\(v\) => \{ setPendingHL\(null\); setSourceView\(v\); \}\}/, "view change does not clear pendingHL");
+  // Completing the highlight still clears the action and the selection.
+  const addBlock = src.slice(src.indexOf("const addPendingHighlight"));
+  assert.match(addBlock.slice(0, 900), /setPendingHL\(null\)/, "addPendingHighlight does not clear pendingHL");
+});
+
+await test("read body is contained: no overflow past its card", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const bodyAt = src.indexOf("ref={readBodyRef}");
+  const bodyBlock = src.slice(bodyAt, bodyAt + 900);
+  assert.match(bodyBlock, /minWidth: 0/, "read body missing min-width:0");
+  assert.match(bodyBlock, /width: "100%"/, "read body missing width:100%");
+  assert.match(bodyBlock, /overflowWrap: "break-word"/, "read body does not break long tokens");
+  assert.match(bodyBlock, /whiteSpace: "pre-wrap"/, "read body lost pre-wrap");
+  assert.match(src, /\.cb-doc-reader \{ min-width: 0; overflow-wrap: break-word; \}/, "reader CSS missing containment");
+});
+
+// ── Document Mode breathing room ──────────────────────────────────────
+group("document mode — the analysis gets room to breathe");
+
+await test("wider page and roomier analysis card", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /maxWidth: 1280/, "document page not widened to 1280");
+  assert.match(src, /className="cb-doc-analysis-card"/, "analysis card missing hook class");
+  assert.match(src, /\.cb-doc-analysis-card \.cb-doc-reader p,/, "analysis leading rule missing");
+  assert.match(src, /line-height: 1\.75 !important/, "analysis leading not set to 1.75");
+});
+
+await test("Q&A and findings sections have section spacing", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /marginTop: i === 0 \? 0 : 28, paddingTop: i === 0 \? 0 : 24/, "Q&A entries still tight");
+  assert.match(src, /marginTop: hasFindings \? 28 : 0, marginBottom: 12/, "findings/limitations still tight");
+});
+
+// ── Investigations: always-visible fresh start ────────────────────────
+group("investigations — New investigation is always one tap away");
+
+await test("header New investigation renders with records present", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const headAt = src.indexOf('title="Investigations" count={history.length}');
+  const headBlock = src.slice(headAt, headAt + 1200);
+  assert.match(headBlock, />New investigation</, "header New investigation button missing");
+  // It must not be gated on history length — the old defect was that the
+  // header only showed "Compare two" once records existed.
+  assert.ok(!/history\.length >= 2 \?[\s\S]{0,300}New investigation/.test(headBlock), "New investigation gated on history length");
+  assert.match(headBlock, /newSession\(\); setView\("search"\)/, "New investigation does not start a fresh session on Search");
+  // The empty-state CTA is untouched.
+  assert.match(src, /\}>\s*Ask something\s*</, "empty-state Ask something CTA missing");
+});
+
+await test("sidebar carries New investigation next to Investigations", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const navAt = src.indexOf('["investigations", "Investigations", "history"');
+  const navBlock = src.slice(navAt, navAt + 400);
+  assert.match(navBlock, /\["new", "New investigation", "plus", null\]/, "sidebar New investigation item missing or misplaced");
+  // The action row gets a full 44px target.
+  assert.match(src, /minHeight: key === "new" \? 44 : 38/, "sidebar action row missing 44px target");
+  // The nav key is wired: handleSidebarNavigate runs newSession + Search.
+  assert.match(src, /case "new": newSession\(\); setView\("search"\); break;/, '"new" nav case missing');
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

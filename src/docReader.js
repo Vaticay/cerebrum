@@ -16,6 +16,23 @@
  *    error events, non-OK responses, aborts, and — critically — on streams
  *    that end without a "done" event. A partial answer is never returned
  *    as final; the caller clears it and says so.
+ *    Event protocol (backend: functions/api/document.js):
+ *      quota    — { quota } usage info, sent first.
+ *      start    — { mode, chunks, phase } the work plan up front; when
+ *                 chunks > 0 the client seeds its progress bar via
+ *                 onProgress(0, chunks, "map") immediately instead of
+ *                 discovering the total mid-stream.
+ *      progress — { phase: "map"|"reduce", done, total }; forwarded as
+ *                 onProgress(done, total, phase). "map" ticks per settled
+ *                 chunk ("Reading section X of Y"); "reduce" brackets the
+ *                 final synthesis.
+ *      token    — { text } Q&A answer tokens (summaries arrive whole).
+ *      done     — the final payload. The backend never fails an analysis:
+ *                 a degraded result arrives as done with partial:true,
+ *                 missingSections:[...], and per-chunk `sections` digests
+ *                 the client can pass back as `priorSections` to resume
+ *                 only the missing chunks.
+ *      error    — last resort only; throws with the backend's message/code.
  *  - canAddHighlight: overlap guard for text highlights.
  *  - docTitleOf: a human title for a document (recent-documents list).
  *  - loadDocStore / saveDocStore: localStorage persistence for
@@ -179,11 +196,18 @@ export async function streamDocumentApi(body, opts = {}) {
           if (ev.text && onToken) onToken(ev.text);
         } else if (ev.type === "quota") {
           if (onQuota) onQuota();
+        } else if (ev.type === "start") {
+          // The backend announces the work plan before any chunk lands:
+          // seed the progress bar with the real total immediately, so the
+          // "Reading section X of Y" UI never starts from an unknown.
+          // phase is forwarded as a third onProgress arg (additive — the
+          // existing (done, total) callers are unaffected).
+          if (onProgress && Number.isFinite(ev.chunks) && ev.chunks > 0) onProgress(0, ev.chunks, ev.phase || "map");
         } else if (ev.type === "progress") {
           // Long-document map/reduce: the backend digests the document
           // section by section before writing the summary. Forward the
           // counts so the UI can show real progress instead of a spinner.
-          if (onProgress && Number.isFinite(ev.done) && Number.isFinite(ev.total)) onProgress(ev.done, ev.total);
+          if (onProgress && Number.isFinite(ev.done) && Number.isFinite(ev.total)) onProgress(ev.done, ev.total, ev.phase);
         } else if (ev.type === "done") {
           donePayload = ev;
         } else if (ev.type === "error") {
