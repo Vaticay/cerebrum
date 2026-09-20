@@ -8392,6 +8392,9 @@ async function runSearchPipeline(pctx) {
   const requestId = contextRequestId(pctx && pctx.context);
 
   try {
+    // Carried for the top-level catch: the pipeline's degraded response
+    // needs the query even when the throw happened before/around parsing.
+    let catchQuery = "";
     // Bounded body: the search payload carries history, settings, and an
     // optional attached image — cap it well above any legitimate request
     // but far below what could exhaust worker memory.
