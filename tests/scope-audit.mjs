@@ -58,7 +58,7 @@ const GLOBALS = new Set([
   "innerHeight", "pageXOffset", "pageYOffset", "scrollX", "scrollY",
   "React", "ReactDOM", "process", "__DEV__",
   // Build-time defines injected by vite.config (typeof-guarded at use sites).
-  "__CB_BUILD__",
+  "__CB_BUILD__", "__CB_VIDEO_CDN__",
 ]);
 
 function unboundReferences(src, filename) {

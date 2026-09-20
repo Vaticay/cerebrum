@@ -114,7 +114,7 @@ await test("the field becomes the full-viewport flight atmosphere", () => {
 
 group("Document Mode film");
 await test("Document Mode keeps its own single FilmLayer", () => {
-  assert.match(appSrc, /const DOC_FILM_SRC = "\/assets\/cinematic\/science-66\.mp4"/, "DOC_FILM_SRC missing");
+  assert.match(appSrc, /const DOC_FILM_SRC = (?:videoUrl\()?\"\/assets\/cinematic\/science-66\.mp4\"(?:\))?/, "DOC_FILM_SRC missing");
   assert.match(appSrc, /src=\{DOC_FILM_SRC\}/, "Document Mode film mount missing");
   assert.match(appSrc, /filmOK=\{!filmBlocked\(animationMode, false\)\}/, "filmOK not passed to the document page");
 });

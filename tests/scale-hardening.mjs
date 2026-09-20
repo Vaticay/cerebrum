@@ -162,7 +162,7 @@ await test("source: every HTTP leg (OR, compat, fastpath) receives w1Abort.signa
   );
   assert.match(
     src,
-    /callOR\(preferredModel, messages, maxTokens, clampLegTimeout\(8000\), w1Abort\.signal\)/,
+    /callOR\(fastpathModel, messages, maxTokens, clampLegTimeout\(8000\), w1Abort\.signal\)/,
     "fastpath leg gets the signal"
   );
 });

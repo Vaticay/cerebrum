@@ -29,6 +29,11 @@ const root = join(here, "..");
 const dist = join(root, "dist");
 
 const { PAGES } = await import(join(root, "src/legalContent.js"));
+/* Marketing pages (/features, /pricing, /document-mode, /diagram-studio,
+   /investigations) share the same data shape as PAGES, so the same render
+   pipeline produces their documents. */
+const { MARKETING_PAGES } = await import(join(root, "src/marketingContent.js"));
+const ALL_PAGES = { ...PAGES, ...MARKETING_PAGES };
 const { demoteNoscriptH1 } = await import("./prerender-lib.mjs");
 
 const ORIGIN = "https://askcerebrum.org";
@@ -89,6 +94,25 @@ function renderPage(slug, data, shell) {
       })}\n    </script>`
     : "";
 
+  /* SoftwareApplication structured data. Marketing pages carry
+   * softwareApp: true (see src/marketingContent.js); the pricing page also
+   * carries its real offers so search engines see the actual $20/mo and
+   * $144/yr plans instead of a generic "free app". */
+  const softwareJsonLd = data.softwareApp
+    ? `\n    <script type="application/ld+json">\n    ${JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Cerebrum",
+        "applicationCategory": data.applicationCategory || "EducationalApplication",
+        "operatingSystem": data.operatingSystem || "Web",
+        "url": `${ORIGIN}/`,
+        "description": String(data.lede || "").slice(0, 300),
+        "offers": Array.isArray(data.offers) && data.offers.length
+          ? data.offers.map((o) => ({ "@type": "Offer", ...o }))
+          : { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      })}\n    </script>`
+    : "";
+
   const head = `
     <title>${esc(title)}</title>
     <meta name="description" content="${esc(description)}" />
@@ -106,7 +130,7 @@ function renderPage(slug, data, shell) {
     <meta name="twitter:title" content="${esc(title)}" />
     <meta name="twitter:description" content="${esc(description)}" />
     <meta name="twitter:image" content="${ORIGIN}/og-image.png?v=20260912" />
-    <meta name="robots" content="index, follow" />${faqJsonLd}`;
+    <meta name="robots" content="index, follow" />${faqJsonLd}${softwareJsonLd}`;
 
   /* The prerendered content sits inside the SPA's mount point. React replaces
    * it on hydration, so a normal visitor sees the application and never this
@@ -159,11 +183,11 @@ function renderPage(slug, data, shell) {
 }
 
 const shell = await readFile(join(dist, "index.html"), "utf8");
-const slugs = ["about", "privacy", "terms", "disclosures", "contact"];
+const slugs = Object.keys(ALL_PAGES);
 let written = 0;
 
 for (const slug of slugs) {
-  const data = PAGES[slug];
+  const data = ALL_PAGES[slug];
   if (!data) {
     console.error(`prerender: no content for /${slug} — skipping`);
     continue;

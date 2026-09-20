@@ -206,7 +206,11 @@ async function handleCreateCheckout(request, env, cors, body) {
       buildCheckoutParams({
         userId: user.id, email: user.email, customerId,
         priceId, plan, origin, couponId,
-      }));
+      }),
+      // Nuance #26: a double-tapped "Upgrade" (or a retried request after a
+      // dropped response) reuses the same Checkout Session within the hour
+      // instead of minting a second one on Stripe's side.
+      { idempotencyKey: `checkout:${user.id}:${plan}:${Math.floor(Date.now() / 3600000)}` });
     if (!session || !session.url) throw new Error("stripe_error: no checkout url");
     return json({ url: session.url }, 200, cors);
   } catch (e) {
@@ -249,7 +253,10 @@ async function handleCreatePortal(request, env, cors) {
     const portal = await stripeRequest(env, "POST", "/billing_portal/sessions", {
       customer: row.stripe_customer_id,
       return_url: origin + "/#pro=portal",
-    });
+    },
+      // Nuance #26: same double-tap protection for portal sessions —
+      // harmless to create twice, but pointless and noisy in Stripe logs.
+      { idempotencyKey: `portal:${user.id}:${Math.floor(Date.now() / 60000)}` });
     if (!portal || !portal.url) throw new Error("stripe_error: no portal url");
     return json({ url: portal.url }, 200, cors);
   } catch (e) {
@@ -434,7 +441,43 @@ async function handleRevoke(request, env, cors, body) {
 
 // ── Stripe webhook ────────────────────────────────────────────────────────
 
-async function handleWebhook(request, env, cors) {
+// Nuance #26 — the old handler verified, claimed the event id, applied the
+// entitlement SYNCHRONOUSLY, and only then returned. Stripe's delivery clock
+// runs during our D1 writes: a slow apply risks Stripe's timeout, and a
+// duplicate delivery racing the first could only be contained by deleting an
+// already-acknowledged claim row on failure — exactly the wrong shape once
+// the 200 has gone out.
+//
+// New shape:
+//   1. verify signature (HMAC is the auth — no origin gate, same as before)
+//   2. atomically claim the event id (INSERT OR IGNORE — the race guard)
+//   3. return 200 IMMEDIATELY
+//   4. apply the entitlement in the background via context.waitUntil
+//   5. the claim row carries a status (pending → processed | failed), so an
+//      event that fails AFTER we acknowledged it is a visible dead letter,
+//      not a silent drop — Stripe will never resend it.
+//
+// ensureStripeEventStatusColumn runs an idempotent ALTER TABLE so D1
+// databases created before this column existed self-heal on first delivery.
+async function ensureStripeEventStatusColumn(env) {
+  for (const ddl of [
+    "ALTER TABLE stripe_events ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE stripe_events ADD COLUMN error TEXT",
+  ]) {
+    try { await env.DB.prepare(ddl).run(); }
+    catch (e) {
+      // "duplicate column name" is the expected steady state — the column
+      // already exists. Anything else is worth hearing about but must not
+      // fail the webhook: the status writes below are best-effort.
+      if (!/duplicate column/i.test(String((e && e.message) || e))) {
+        console.error("pro webhook: stripe_events migration:", String((e && e.message) || e).slice(0, 200));
+      }
+    }
+  }
+}
+
+async function handleWebhook(context, cors) {
+  const { request, env } = context;
   if (!env.DB) {
     return errorResponse(503, "no_db", "No database.", cors);
   }
@@ -454,27 +497,72 @@ async function handleWebhook(request, env, cors) {
   if (!event || !event.id) return errorResponse(400, "bad_payload", "Bad payload.", cors);
   try {
     await ensureProTables(env);
+    await ensureStripeEventStatusColumn(env);
     // Claim the event id FIRST: a retried delivery that arrives while the
     // first is still applying must not double-apply the transition.
     const claimed = await env.DB.prepare(
-      "INSERT OR IGNORE INTO stripe_events (event_id, received_at) VALUES (?, ?)"
+      "INSERT OR IGNORE INTO stripe_events (event_id, received_at, status) VALUES (?, ?, 'pending')"
     ).bind(event.id, Date.now()).run();
     const changes = claimed && claimed.meta ? claimed.meta.changes : 0;
-    if (changes === 0) return json({ received: true, duplicate: true }, 200, cors);
-    let outcome;
-    try {
-      outcome = await applyStripeEvent(env, event);
-    } catch (applyErr) {
-      // The claim above must not become a tombstone: if applying failed, a
-      // Stripe retry must be allowed to re-apply instead of being swallowed
-      // as a "duplicate". Release the claim, then report the failure (500
-      // tells Stripe to retry).
+    if (changes === 0) {
+      // A concurrent duplicate, or a Stripe retry. One exception: an event
+      // whose previous attempt FAILED is re-armed so the retry can actually
+      // apply — swallowing it as "duplicate" would cement the failure.
+      let priorStatus = null;
       try {
-        await env.DB.prepare("DELETE FROM stripe_events WHERE event_id = ?").bind(event.id).run();
-      } catch { /* best effort — the 500 below still triggers a Stripe retry */ }
-      throw applyErr;
+        const row = await env.DB.prepare(
+          "SELECT status FROM stripe_events WHERE event_id = ?"
+        ).bind(event.id).first();
+        priorStatus = row && row.status;
+      } catch {}
+      if (priorStatus !== "failed") {
+        return json({ received: true, duplicate: true }, 200, cors);
+      }
+      try {
+        await env.DB.prepare(
+          "UPDATE stripe_events SET status = 'pending', error = NULL WHERE event_id = ?"
+        ).bind(event.id).run();
+      } catch {}
     }
-    return json({ received: true, outcome }, 200, cors);
+    // The background settlement: apply the entitlement AFTER the 200.
+    // Stripe's retry clock is the enemy here — the 200 below lands in
+    // milliseconds while D1 does the real work on waitUntil time.
+    const settle = (async () => {
+      try {
+        await applyStripeEvent(env, event);
+        try {
+          await env.DB.prepare(
+            "UPDATE stripe_events SET status = 'processed', error = NULL WHERE event_id = ?"
+          ).bind(event.id).run();
+        } catch {}
+      } catch (applyErr) {
+        // Stripe will NOT retry after the 200 we already sent, so a failure
+        // here would be a silent drop without the dead letter below: the
+        // claim row keeps the error, and this structured log is the alert.
+        const errMsg = String((applyErr && applyErr.message) || applyErr).slice(0, 500);
+        try {
+          await env.DB.prepare(
+            "UPDATE stripe_events SET status = 'failed', error = ? WHERE event_id = ?"
+          ).bind(errMsg, event.id).run();
+        } catch { /* best effort — the log below is the backstop */ }
+        console.error(JSON.stringify({
+          level: "error",
+          kind: "stripe_webhook_dlq",
+          event_id: event.id,
+          event_type: event.type || null,
+          error: errMsg.slice(0, 300),
+          hint: "Reconcile via the Stripe Dashboard (resend event) or POST /api/pro {action:\"verify-session\"} for checkout events.",
+        }));
+      }
+    })();
+    if (context && typeof context.waitUntil === "function") {
+      context.waitUntil(settle);
+    } else {
+      // Outside the worker runtime (tests, direct invocation) there is no
+      // waitUntil — settle inline so behavior stays observable.
+      await settle;
+    }
+    return json({ received: true }, 200, cors);
   } catch (e) {
     console.error("pro webhook:", String((e && e.message) || e).slice(0, 300));
     // 500 tells Stripe to retry; the idempotency claim above makes retries safe.
@@ -497,7 +585,7 @@ export async function onRequest(context) {
   // gate — but it must come BEFORE any body parsing, because verification
   // needs the exact raw bytes.
   if (request.method === "POST" && request.headers.get("stripe-signature")) {
-    return handleWebhook(request, env, cors);
+    return handleWebhook(context, cors);
   }
 
   if (!requireTrustedOrigin(request, env)) return forbiddenOrigin(cors);

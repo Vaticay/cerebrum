@@ -1,4 +1,5 @@
 // Stateless auth endpoint for Cloudflare Pages Functions.
+import { requireConfirmation } from "../lib/inputGuard.js";
 //
 // Primary sign-in path: a 6-digit one-time code emailed via Resend. Nobody
 // chooses or types a password on this path — proving you can read one email
@@ -586,7 +587,7 @@ export async function onRequest(context) {
         return json(
           { error: "Too many codes requested for this email. Try again later." },
           429,
-          cors
+          { ...cors, "Retry-After": "900" }
         );
       }
       /* Mail-bombing backstop: the 5-per-15-minutes cap stops a burst, but a
@@ -603,7 +604,7 @@ export async function onRequest(context) {
         return json(
           { error: "Too many codes requested for this email. Try again tomorrow." },
           429,
-          cors
+          { ...cors, "Retry-After": "3600" }
         );
       }
 
@@ -664,7 +665,7 @@ export async function onRequest(context) {
       const { privacyKey: _pk2 } = await import("../lib/http.js");
       const verifyKey = await _pk2("otp-verify", emailLower, env);
       if (!(await checkRateLimit(env, verifyKey, 8, 15 * 60000))) {
-        return json({ error: "Too many attempts. Please wait a moment." }, 429, cors);
+        return json({ error: "Too many attempts. Please wait a moment." }, 429, { ...cors, "Retry-After": "300" });
       }
 
       const auth = await fullAuth();
@@ -809,8 +810,14 @@ export async function onRequest(context) {
      * epoch to a tombstone the verifier checks, and getSessionUser also now
      * confirms the account row still exists. */
     if (action === "delete-account") {
-      const current = await auth.getSessionUser(request, env);
-      if (!current) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
+      const current0 = await auth.getSessionUser(request, env);
+      if (!current0) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
+      // Nuance #28 — irreversible: the server refuses unless the caller
+      // explicitly confirmed. A CSRF-adjacent POST (or a misclick that the
+      // client forgot to gate) must never delete an account.
+      const conf = requireConfirmation(body, "delete-account");
+      if (conf) return json({ error: conf.message, code: conf.code }, conf.status, cors);
+      const current = current0;
       const uid = current.id;
       const emailLower = String(current.email || "").toLowerCase();
 

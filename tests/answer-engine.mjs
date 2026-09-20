@@ -781,7 +781,10 @@ test("synthesis adapters keep the abort armed through the body read", () => {
   // production wave at 53s with a "12s timeout". The timeout must bound the
   // whole operation: no clearTimeout between fetch() and r.json(), and the
   // disarm must live in a finally.
-  for (const fnName of ["const callOR = ", "const callCompat = "]) {
+  // 2026-09-20: the adapters gained thin circuit-breaker wrappers
+  // (callOR/callCompat); the abort-armed fetch bodies live in the Inner
+  // functions, which is what this test pins.
+  for (const fnName of ["const callORInner = ", "const callCompatInner = "]) {
     const start = apiSrc.indexOf(fnName);
     assert.ok(start > 0, fnName + "not found");
     // Strip line comments so the check sees code, not prose about the fix.

@@ -23,6 +23,13 @@ import {
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { maybeSweep } from "../lib/retention.js";
 import { classifyQuery, cacheKey as derivedCacheKey, CACHE_TTL_MS } from "../lib/queryPrivacy.js";
+import { wantsStream, createSseStream, parseLastEventId, sseHeaders } from "../lib/searchSse.js";
+import { contextRequestId } from "../lib/requestLog.js";
+import { getBreaker, isTransientError, CircuitOpenError, withBackoff, callWithCircuit } from "../lib/llmCircuit.js";
+import { clampMessages, MAX_PROMPT_CHARS, messagesChars, UNTRUSTED_SYSTEM_NOTE } from "../lib/inputGuard.js";
+import { recordCacheHit, recordCacheMiss, recordCacheLookup } from "../lib/aiCacheStats.js";
+import { authorizeLlmCall, spendTokens, CHEAP_MODEL } from "../lib/costControl.js";
+import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
 
 // ============ CORE UTILITIES ============
 
@@ -68,6 +75,30 @@ const OR_VALIDATE = "google/gemma-4-31b-it:free";
  * vision list (gemini-2.0-flash-exp, llama-3.2-11b-vision, qwen2.5-vl) is
  * retired; image description falls back to null when this is unavailable. */
 const OR_VISION_MODELS = ["inclusionai/ling-3.0-flash-vl:free"];
+
+// ── LLM circuit-breaker wiring (nuance #24) ────────────────────────────
+// The synthesis adapters below race providers against each other, so a
+// single sick provider must fail FAST rather than burn its timeout on
+// every wave. Each provider id gets one shared breaker (5 consecutive
+// TRANSIENT failures → 60s open). Raced legs never retry internally — the
+// race itself is the redundancy; retries live on the sequential call path
+// (postChatCompletion) where there is no race to absorb the failure.
+function guardedLlmCall(providerId, fn) {
+  const b = getBreaker("llm:" + providerId, { failureThreshold: 5, openTimeoutMs: 60000 });
+  if (!b.allowRequest()) throw new CircuitOpenError(b.name, b.msUntilRetry());
+  let p;
+  try {
+    p = fn();
+  } catch (e) {
+    // A synchronous throw from the adapter factory is a programming error,
+    // not provider sickness — never trip the breaker on it.
+    throw e;
+  }
+  return Promise.resolve(p).then(
+    (v) => { b.recordSuccess(); return v; },
+    (e) => { if (isTransientError(e)) b.recordFailure(e); throw e; }
+  );
+}
 
 function stripTags(s) {
   return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -5729,6 +5760,27 @@ export function buildFalsificationBullets({ papers, verdict, newestYear }) {
  * that would reject a 200-token claim list) and a short timeout.
  */
 export async function postChatCompletion({ url, key, model, messages, maxTokens, timeoutMs = 10000, extraHeaders = {} }) {
+  // Nuance #28: prompt-size cap at the single choke point every OpenAI-
+  // shaped call in this file funnels through. A token bomb is truncated
+  // (never silently — the caller is told) before it can buy inference.
+  const { messages: clamped, truncated } = clampMessages(messages, MAX_PROMPT_CHARS);
+  if (truncated) {
+    console.warn(`Cerebrum postChatCompletion: prompt truncated to ${MAX_PROMPT_CHARS.toLocaleString()} chars for model ${model}`);
+  }
+  // Nuance #24: circuit breaker + transient-only retries with capped
+  // exponential backoff, jitter, and Retry-After honoring. Permanent
+  // failures (4xx, empty completion) are never retried.
+  let providerId = "generic";
+  try { providerId = new URL(url).hostname || providerId; } catch {}
+  const breaker = getBreaker("llm:" + providerId, { failureThreshold: 5, openTimeoutMs: 60000 });
+  return callWithCircuit(
+    breaker,
+    (attempt) => postChatCompletionOnce({ url, key, model, messages: clamped, maxTokens, timeoutMs, extraHeaders }),
+    { maxAttempts: 3, baseMs: 400, capMs: 4000 }
+  );
+}
+
+async function postChatCompletionOnce({ url, key, model, messages, maxTokens, timeoutMs = 10000, extraHeaders = {} }) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
   try {
@@ -5738,7 +5790,17 @@ export async function postChatCompletion({ url, key, model, messages, maxTokens,
       body: JSON.stringify({ model, temperature: 0.2, max_tokens: maxTokens, messages }),
       signal: c.signal,
     });
-    if (!r.ok) throw new Error("HTTP " + r.status);
+    if (!r.ok) {
+      // Nuance #24: surface Retry-After so the backoff layer honors it
+      // instead of guessing.
+      const err = new Error("HTTP " + r.status);
+      err.status = r.status;
+      try {
+        const ra = r.headers.get("retry-after");
+        if (ra) err.retryAfter = ra;
+      } catch {}
+      throw err;
+    }
     const j = await r.json().catch(() => null);
     const txt = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
     const out = String(txt || "").trim();
@@ -8270,11 +8332,65 @@ export async function onRequest(context) {
       { status: 429, headers: { ...secureCors, "Retry-After": "30" } }
     );
   }
+  // Nuance #25 — burst window on top of the sustained 20/min: search is the
+  // most LLM-costly route, and a scripted burst of parallel searches burns
+  // provider quota far faster than the per-minute cap alone suggests.
+  if (!(await checkRateLimit(env, rlKey + ":burst", 6, 10000))) {
+    return new Response(
+      JSON.stringify({ error: "Too many searches at once. Give it a few seconds and try again." }),
+      { status: 429, headers: { ...secureCors, "Retry-After": "10" } }
+    );
+  }
 
   // NEXT-GEN: the top-level catch converts failures into a valid degraded
   // research response (never a 5xx dead end), so it needs the query even
   // when the throw happened before/around parsing.
-  let catchQuery = "";
+  // ── SSE stream path (nuance #23) ──────────────────────────────────
+  // POST /api/search?stream=1 returns text/event-stream emitting the
+  // pipeline's real stage transitions as they happen. The single-fetch
+  // path below is unchanged and remains the default + fallback.
+  const shared = { requestDeadline, msLeft, secureCors };
+  if (wantsStream(request)) {
+    const sse = createSseStream({ resumeFrom: parseLastEventId(request) });
+    const requestId = contextRequestId(context);
+    const run = (async () => {
+      try {
+        const resp = await runSearchPipeline({ context, shared, hooks: { onStage: (event, data) => sse.emit(event, data) } });
+        let payload = null;
+        try { payload = await resp.json(); }
+        catch { payload = { ok: false, code: "unreadable_final", error: "The answer finished but could not be read; retry as a normal search." }; }
+        await sse.emit("done", payload);
+      } catch (e) {
+        console.error("Cerebrum /api/search stream failed:", e && e.stack ? e.stack : e);
+        try { await sse.emit("error", { code: "stream_failed", message: "The answer stream failed. Retry as a normal search." }); } catch {}
+      } finally {
+        try { await sse.close(); } catch {}
+      }
+    })();
+    // Keep the worker alive for the stream even after the Response is
+    // returned; the open stream itself also holds the request context.
+    try { if (typeof waitUntil === "function") waitUntil(run); else await run; } catch {}
+    return new Response(sse.readable, { status: 200, headers: { ...sseHeaders(secureCors), "X-Request-ID": requestId } });
+  }
+  return runSearchPipeline({ context, shared, hooks: {} });
+}
+
+// ── The search pipeline, extracted verbatim from onRequest ─────────────
+// onRequest above keeps the request-scoped setup (deadline, CORS, method /
+// origin / rate-limit gates); everything from the try block down lives here
+// so the SSE path (?stream=1) can run the same pipeline while emitting
+// staged events. `pctx.hooks.onStage(name, payload)` is null on the
+// single-fetch path (zero overhead) and writes SSE frames on the stream
+// path. Returns the same Response objects onRequest used to return.
+async function runSearchPipeline(pctx) {
+  const { context } = pctx;
+  const { request, env } = context;
+  const waitUntil = context.waitUntil;
+  const { requestDeadline, msLeft, secureCors } = (pctx && pctx.shared) || {};
+  const hooks = (pctx && pctx.hooks) || {};
+  const emitStage = hooks.onStage || null;
+  const requestId = contextRequestId(pctx && pctx.context);
+
   try {
     // Bounded body: the search payload carries history, settings, and an
     // optional attached image — cap it well above any legitimate request
@@ -8296,6 +8412,13 @@ export async function onRequest(context) {
     }
     if (!query && hasImage) query = "Identify and explain what this image shows, scientifically.";
     catchQuery = query;
+    // SSE stage 1/6 (nuance #23): the question is understood — validated,
+    // privacy-classified, and ready for retrieval. No-op on single-fetch.
+    if (emitStage) await emitStage("question_understood", {
+      query: query.slice(0, 200),
+      queryLength: query.length,
+      requestId,
+    });
     // Reject oversized input (cost control + abuse).
     if (query.length > MAX_QUERY_LEN) {
       query = query.slice(0, MAX_QUERY_LEN);
@@ -8724,6 +8847,10 @@ export async function onRequest(context) {
         const earlyHit = await env.DB.prepare(
           "SELECT answer, sources FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
         ).bind(earlyCacheKey, Date.now() - CACHE_TTL_MS).first();
+        // Nuance #29: hit-rate telemetry for the D1 answer cache — a lookup
+        // hit is "a row with an answer existed", regardless of whether the
+        // entitlement gate below serves it.
+        await recordCacheLookup(env, "answer", !!(earlyHit && earlyHit.answer));
         // PRO TIER — the shared cache is an optimization, not an entitlement
         // bypass: a gated caller (anonymous, or a free account past its
         // monthly bucket) falls through to the normal pipeline below, which
@@ -9241,6 +9368,11 @@ export async function onRequest(context) {
       // budget; this is the backstop so a hung retrieval can never hang
       // the request. The fallback keeps the pipeline moving: the answer
       // degrades to the no-results terminal state, never a dead end.
+      // SSE stage 2/6: retrieval begins — the multi-database paper hunt.
+      if (emitStage) await emitStage("finding_papers", {
+        searchQuery: String(searchQuery).slice(0, 200),
+        requestId,
+      });
       const retrievalStage = await runStage("retrieval", () => gatherPapers(searchQuery, {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
@@ -9688,6 +9820,14 @@ export async function onRequest(context) {
     // bibliography states it honestly.
     if (useEvidence && evidencePapers.length === 0) useEvidence = false;
 
+    // SSE stage 3/6: retrieval + validation + relevance gating are done —
+    // this is the screened evidence set synthesis will work from.
+    if (emitStage) await emitStage("screening_sources", {
+      retrieved: ((gResult && gResult.papers) || []).length,
+      screened: evidencePapers.length,
+      gatedOut: relevanceGatedOut,
+      requestId,
+    });
     // CITATION ALIGNMENT: the bibliography the user sees MUST be the exact same
     // list, in the exact same order, that the AI was given. Otherwise the model
     // writes "[3]" meaning its third source while the UI renders a different
@@ -9981,7 +10121,13 @@ export async function onRequest(context) {
       // opened with "The 12 sources below converge on crack and patterns
       // and soil" — keyword soup, not an answer. Mechanical rules:
       "- Each distinct finding appears ONCE in the answer. Never restate the same claim in different words in a later section — if two sources report the same result, state it once and cite both, e.g. \u2018... [1][2]\u2019.\n" +
-      "- Open with a direct answer in natural prose, never a keyword summary. NEVER open with \u2018The N sources below converge on X and Y and Z\u2019 or any sentence assembled from topic keywords. The first sentence must make a substantive claim that answers the question.\n";
+      "- Open with a direct answer in natural prose, never a keyword summary. NEVER open with \u2018The N sources below converge on X and Y and Z\u2019 or any sentence assembled from topic keywords. The first sentence must make a substantive claim that answers the question.\n" +
+      // Nuance #28 — retrieved abstracts are UNTRUSTED third-party text.
+      // The nonce fence around the evidence block marks the data; this
+      // line states the policy in the model's own instruction block so a
+      // prompt-injection inside a paper abstract is refused as policy,
+      // not just fenced as formatting.
+      UNTRUSTED_SYSTEM_NOTE;
 
     // v28: this was previously a loose suggestion buried in CONTEXT
     // ("use bold section headers to organize") — real Markdown structure a
@@ -10517,6 +10663,8 @@ export async function onRequest(context) {
         const cached = await env.DB.prepare(
           "SELECT answer, sources, score, created_at FROM answer_cache WHERE query_key = ? AND score >= 0 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
         ).bind(cacheKey, Date.now() - CACHE_TTL_MS).first();
+        // Nuance #29: same hit-rate telemetry on the second cache read.
+        await recordCacheLookup(env, "answer", !!(cached && cached.answer));
         if (cached && cached.answer) {
           cachedAnswer = cached;
         }
@@ -10626,7 +10774,13 @@ export async function onRequest(context) {
     // waves = 54s of all-fail tail. Wave 3 keeps its explicit 24s runway.
     // (linkWaveAbort is defined + exported at module level, above getJSON.)
 
-    const callOR = async (model, msgs, maxTok, timeoutMs = 12000, waveSignal) => {
+    // Nuance #24: circuit-breaker wrapper around the raw OpenRouter leg.
+    // No retries inside the race — a wave fans out across providers, so the
+    // race itself is the redundancy. An open circuit fails the leg instantly
+    // without touching the network, so a dead provider stops costing legs.
+    const callOR = (model, msgs, maxTok, timeoutMs, waveSignal) =>
+      guardedLlmCall("openrouter", () => callORInner(model, msgs, maxTok, timeoutMs, waveSignal));
+    const callORInner = async (model, msgs, maxTok, timeoutMs = 12000, waveSignal) => {
       if (!token) throw new Error(model + ": no OpenRouter key configured (OPENROUTER_KEY or OPENROUTER_API_KEY)");
       const c = new AbortController();
       // 2026-09-12: the abort stays armed for the WHOLE operation — headers
@@ -10716,7 +10870,11 @@ export async function onRequest(context) {
     // trail in the logs, and the model_perf table, can tell which BUCKET
     // won — which is the number that matters when the complaint is rate
     // limiting, not which model name did.
-    const callCompat = (provider) => async (model, msgs, maxTok, timeoutMs = 12000, waveSignal) => {
+    // Nuance #24: same breaker treatment for the compat providers — one
+    // circuit per provider id, since each is an independent quota bucket.
+    const callCompat = (provider) => (model, msgs, maxTok, timeoutMs, waveSignal) =>
+      guardedLlmCall("compat:" + provider.id, () => callCompatInner(provider)(model, msgs, maxTok, timeoutMs, waveSignal));
+    const callCompatInner = (provider) => async (model, msgs, maxTok, timeoutMs = 12000, waveSignal) => {
       const tag = provider.id + ":" + model;
       const c = new AbortController();
       // 2026-09-12: same whole-operation timeout fix as callOR — the abort
@@ -10784,7 +10942,11 @@ export async function onRequest(context) {
 
     // 2026-09-12: 18s -> 12s, same rationale as callOR above — the default
     // only binds all-fail waves, and healthy Workers AI legs answer in ~2s.
-    const callCF = async (model, msgs, maxTok, timeoutMs = 12000) => {
+    // Nuance #24: breaker for Workers AI too — one stalled binding must not
+    // eat a leg on every wave for a minute.
+    const callCF = (model, msgs, maxTok, timeoutMs) =>
+      guardedLlmCall("workers-ai", () => callCFInner(model, msgs, maxTok, timeoutMs));
+    const callCFInner = async (model, msgs, maxTok, timeoutMs = 12000) => {
       if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
       try {
         // callOR and pollinationsCall both bound their fetch to a 12s
@@ -10823,7 +10985,10 @@ export async function onRequest(context) {
     // markers, no organism/relevance/retraction gating — while the UI still
     // showed the full, now-disconnected bibliography. Fixed by giving this
     // the same real `messages`/`maxTok` every other provider call gets.
-    const pollinationsCall = async (modelParam, msgs, maxTok) => {
+    // Nuance #24: breaker for the Pollinations leg as well.
+    const pollinationsCall = (modelParam, msgs, maxTok) =>
+      guardedLlmCall("pollinations", () => pollinationsCallInner(modelParam, msgs, maxTok));
+    const pollinationsCallInner = async (modelParam, msgs, maxTok) => {
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 18000); // see Commit 41 note on callOR above
       const tag = "pollinations:" + modelParam;
@@ -11134,6 +11299,12 @@ export async function onRequest(context) {
       console.warn("Cerebrum search: Workers AI binding (env.AI) is NOT bound — Cloudflare models are absent from all synthesis waves. Bind it in the Pages project's dashboard settings.");
     }
 
+    // SSE stage 4/6: synthesis begins — the answer is being composed from
+    // the screened evidence.
+    if (emitStage) await emitStage("synthesizing", {
+      sources: evidencePapers.length,
+      requestId,
+    });
     // NEXT-GEN: the synthesis stage gets one overall deadline. Each wave's
     // calls already race with per-model timeouts, but a pathological run
     // could stack waves past any reasonable budget. When the deadline
@@ -11153,6 +11324,47 @@ export async function onRequest(context) {
     // early-return AI path), so the waves below just read aiSynthesisAllowed.
     // Metering happens once per search after the waves, below.
 
+    // Nuance #33 — token-budget authorization BEFORE any inference burns.
+    // The tenant's monthly token budget is checked once per search (not per
+    // leg — a wave race must not multiply the authorization), and the
+    // cheap-first router picks the lead model for low-complexity requests.
+    // A denial skips every wave: the pipeline falls through to the
+    // deterministic Wave-4 extractive answer, exactly like any other
+    // synthesis failure. Spend is recorded once after the waves, next to
+    // meterAiAnswer. The check fails OPEN on ledger errors — a broken
+    // budget table must not take search offline; the answer-count quota
+    // above remains the hard gate.
+    let llmBudget = null;
+    let budgetDenied = false;
+    let routedModel = null;
+    // Skipped entirely when the answer-count gate already said no — the
+    // waves below won't run, so there's nothing to authorize.
+    if (aiSynthesisAllowed) {
+      try {
+        llmBudget = await authorizeLlmCall(env, {
+          userId: (aiGate && aiGate.userId) || "anonymous",
+          tier: (aiGate && aiGate.kind) || "anonymous",
+          promptChars: messagesChars(messages),
+          complexity: {
+            queryLength: query.length,
+            historyTurns: Array.isArray(body.history) ? body.history.length : 0,
+            sourceCount: evidencePapers.length,
+            ambiguous: /\bor\b/i.test(query),
+            multiPart: (query.match(/\?/g) || []).length > 1,
+          },
+        });
+        if (!llmBudget.ok) {
+          budgetDenied = true;
+          aiAttempts.push({ wave: 0, ok: false, budget: llmBudget.reason, summary: "token budget exhausted — waves skipped, non-LLM fallback" });
+        } else {
+          routedModel = llmBudget.model;
+        }
+      } catch (e) {
+        // Import failure or worse — never let metering break a search.
+        llmBudget = null;
+      }
+    }
+
     // WAVE 1: small, fast, historically-reliable set from EVERY provider,
     // raced together (fastpath included — see above). This is what actually
     // fixes "OpenRouter-only outage blocks everything" — Workers AI and
@@ -11160,7 +11372,7 @@ export async function onRequest(context) {
     // after OpenRouter tiers exhaust. The whole wave is additionally raced
     // against the synthesis deadline: even if a leg's abort misbehaves,
     // the wave cannot outlive the budget.
-    if (!aiOK && aiSynthesisAllowed) {
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied) {
       // 2026-09-14 scale fix: ONE AbortController for the whole wave. The
       // moment the race is decided the losers' in-flight HTTP is aborted —
       // without this every search burns ~15 AI legs of quota for one
@@ -11169,9 +11381,14 @@ export async function onRequest(context) {
       // is created after the controller and gets the signal too.
       const w1Abort = new AbortController();
       const wave1Timeout = clampLegTimeout(10000);
-      const fastpathCalls = (preferredModel && token && msLeft() > 3000)
-        ? [raceEntry(0, "fastpath:" + preferredModel,
-            callOR(preferredModel, messages, maxTokens, clampLegTimeout(8000), w1Abort.signal))]
+      // Nuance #33 cheap-first: when the router judged this request
+      // low-complexity, the fastpath leg leads with the cheap model instead
+      // of the domain favorite — the wave race still lets a better answer
+      // win, but the cheapest adequate model gets first crack.
+      const fastpathModel = routedModel === CHEAP_MODEL ? routedModel : preferredModel;
+      const fastpathCalls = (fastpathModel && token && msLeft() > 3000)
+        ? [raceEntry(0, "fastpath:" + fastpathModel,
+            callOR(fastpathModel, messages, maxTokens, clampLegTimeout(8000), w1Abort.signal))]
         : [];
       const wave1Calls = [
         ...fastpathCalls,
@@ -11209,7 +11426,7 @@ export async function onRequest(context) {
     // reserve). Past that, Wave 4 takes over.
     // 2026-09-12: the old gate (Date.now() < 90s synthesisDeadline) let
     // wave 2 start with seconds left and 12s legs, blowing the 20s ceiling.
-    if (!aiOK && aiSynthesisAllowed && Date.now() < synthesisDeadline && msLeft() > 6000) {
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied && Date.now() < synthesisDeadline && msLeft() > 6000) {
       // Bounded wait for the speculative brief: the brief starts HERE (not
       // alongside wave 1 — see startBrief above), and the small wave-2
       // models do far better composing from pre-digested claims than from
@@ -11280,7 +11497,7 @@ export async function onRequest(context) {
     // 20s global ceiling. Now gated on ≥4s of remaining budget, legs
     // clamped to it, and raced against the synthesis deadline like waves
     // 1-2. A last resort that can't fit in the budget is skipped, not run.
-    if (!aiOK && aiSynthesisAllowed && Date.now() < synthesisDeadline && msLeft() > 4000) {
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied && Date.now() < synthesisDeadline && msLeft() > 4000) {
       const bulletproofSystem =
         ID +
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass — be direct and skip elaboration.\n\n" +
@@ -11372,6 +11589,29 @@ export async function onRequest(context) {
     // never reach the AI waves). Best-effort by design: a failed increment
     // must never fail the search itself.
     if (aiOK) await meterAiAnswer();
+
+    // Nuance #33 — token spend accounting, once per search. The budget was
+    // authorized before the waves (not per leg — a race must not multiply
+    // the spend); the actual burn is recorded here from the winning leg:
+    // prompt estimate + ~4 chars/token on the answer. Best-effort by
+    // design: accounting must never fail the search.
+    if (aiOK && llmBudget && llmBudget.ok) {
+      try {
+        const winLeg = aiAttempts.find((a) => a && typeof a.wave === "number" && a.ok === true && typeof a.model === "string");
+        const completionChars = typeof answer === "string" ? answer.length : 0;
+        await spendTokens(
+          env,
+          (aiGate && aiGate.userId) || "anonymous",
+          estimateTokensFromChars(messagesChars(messages)) + estimateTokensFromChars(completionChars)
+        );
+        await recordLlmUsage(env, {
+          userId: (aiGate && aiGate.userId) || "anonymous",
+          model: (winLeg && winLeg.model) || routedModel || "unknown",
+          promptChars: messagesChars(messages),
+          completionChars,
+        });
+      } catch {}
+    }
 
     // Log the full attempt trail so a future total-failure is diagnosable
     // from Cloudflare's dashboard logs instead of requiring another live
@@ -11825,6 +12065,12 @@ export async function onRequest(context) {
       }
     }
 
+    // SSE stage 5/6: answer drafted — now checking every claim against its
+    // cited sources.
+    if (emitStage) await emitStage("checking_citations", {
+      sources: evidencePapers.length,
+      requestId,
+    });
     // NEXT-GEN claim-level integrity.
     //
     // (a) EXTRACTIVE PATH — the deterministic answer gets a deterministic

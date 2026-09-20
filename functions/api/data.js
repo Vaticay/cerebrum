@@ -26,6 +26,7 @@ import {
   cleanDeviceLabel,
 } from "../lib/e2eeValidate.js";
 import { clientIp, privacyKey, requireTrustedOrigin, corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
+import { requireConfirmation } from "../lib/inputGuard.js";
 
 const MAX_MESSAGE_LEN = 4000;
 const MAX_NAME_LEN = 120;
@@ -1259,6 +1260,24 @@ export async function onRequest(context) {
     const resource = body && body.resource;
     const action = body && body.action;
 
+    /* Nuance #25 — Private Vault / E2EE endpoints get their own limiter.
+     * These move key material and encrypted blobs; they previously shared
+     * the generic per-IP data budget, so one chatty vault sync could eat
+     * the budget — or one abusive client could hammer key endpoints inside
+     * it. Per-USER burst (12/10s) + sustained (60/min) windows, with
+     * Retry-After on 429 like every other limiter in this codebase. */
+    if (typeof action === "string" && (action.startsWith("zk-") || action.startsWith("e2ee-"))) {
+      const vaultKey = `vault:${user.id}`;
+      const sustainedOk = await checkRateLimit(env, vaultKey, 60, 60000);
+      const burstOk = sustainedOk ? await checkRateLimit(env, vaultKey + ":burst", 12, 10000) : false;
+      if (!burstOk) {
+        return errRes(
+          "You're syncing the vault very quickly. Give it a few seconds and try again.",
+          429, "rate_limited", { ...cors, "Retry-After": sustainedOk ? "10" : "30" }
+        );
+      }
+    }
+
     // Whole-array sync used by the frontend's debounced "push local state to
     // my account" effect — simpler and more robust than diffing add/remove
     // client-side against server ids, and cheap at the scale one person's
@@ -1844,6 +1863,10 @@ export async function onRequest(context) {
     // its unclaimed one-time prekeys are destroyed, and my other devices
     // learn about it from the next e2ee-publish-device response.
     if (action === "e2ee-revoke-device") {
+      // Nuance #28 — revocation is sticky and irreversible: a misclick or a
+      // forged cross-site POST must never kill a device. Server-side gate.
+      const conf0 = requireConfirmation(body, "e2ee-revoke-device");
+      if (conf0) return errRes(conf0.message, conf0.status, conf0.code, cors);
       const deviceId = typeof body.device_id === "string" ? body.device_id : "";
       if (!isDeviceId(deviceId)) return errRes("Bad device_id.", 400, "bad_request", cors);
       const own = await env.DB.prepare(
@@ -2076,6 +2099,10 @@ export async function onRequest(context) {
     // writing plaintext back is a separate, explicitly-consented client
     // action, never a side effect of disabling.
     if (action === "zk-drop-vault") {
+      // Nuance #28 — drops every ciphertext row the user owns. Same
+      // server-side confirmation gate as the other irreversible actions.
+      const conf1 = requireConfirmation(body, "zk-drop-vault");
+      if (conf1) return errRes(conf1.message, conf1.status, conf1.code, cors);
       await env.DB.batch([
         env.DB.prepare("DELETE FROM zk_saved_items WHERE user_id = ?").bind(user.id),
         env.DB.prepare("DELETE FROM zk_data_vault WHERE user_id = ?").bind(user.id),

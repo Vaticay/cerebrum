@@ -85,12 +85,47 @@
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
 
-# The HTML shell changes every deploy. Revalidate rather than serve a stale
-# document that references assets which no longer exist.
+# The HTML shell changes every deploy. Browsers must always revalidate, but the
+# edge may serve a cached copy for 5 minutes with stale-while-revalidate for a
+# day — HTML is small, crawlers and repeat visitors get fast documents, and
+# the app's version.json poll still surfaces the "new version" banner on
+# deploy. (Cloudflare Pages purges the edge cache on each deployment, so the
+# 5-minute window only matters mid-deploy.)
 /index.html
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
 
 # The root path serves the same HTML shell as /index.html — it gets the same
 # rule, stated explicitly rather than inherited by luck.
 /
-  Cache-Control: public, max-age=0, must-revalidate
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+
+# The prerendered info/marketing documents (scripts/prerender.mjs writes
+# dist/<slug>.html, served at /<slug>). Same short edge-cache as the shell:
+# content changes are deploy-bound, and a stale copy older than 5 minutes is
+# never acceptable for legal documents.
+/about
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/privacy
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/terms
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/disclosures
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/contact
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/features
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/pricing
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/document-mode
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/diagram-studio
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+/investigations
+  Cache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=86400
+
+# version.json is the deploy-detection signal: the app polls it and compares
+# against the baked-in __CB_BUILD__. Any caching here delays (or breaks) the
+# "new version ready" banner, so it stays fully dynamic.
+/version.json
+  Cache-Control: no-store

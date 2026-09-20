@@ -89,7 +89,7 @@ function mockDB() {
   const usage = new Map();
   const docReads = new Map();
   const flowcharts = new Map();
-  const events = new Set();
+  const events = new Map(); // event_id -> { status, error } — the webhook inbox
   // student_verifications: id -> row; email uniqueness enforced like D1.
   const student = new Map();
   const studentByEmail = new Map();
@@ -186,6 +186,10 @@ function mockDB() {
               }
               return best ? { id: best.id, email: best.email, verified_at: best.verified_at } : null;
             }
+            if (q.startsWith("SELECT status FROM stripe_events WHERE event_id = ?")) {
+              const r = events.get(args[0]);
+              return r ? { status: r.status } : null;
+            }
             throw new Error("mockDB.first: unhandled: " + q.slice(0, 80));
           };
           const all = async () => {
@@ -227,10 +231,31 @@ function mockDB() {
               if (r) { r.plan = null; r.pro_source = null; r.pro_granted_at = null; }
               return { meta: { changes: 1 } };
             }
-            if (q === "INSERT OR IGNORE INTO stripe_events (event_id, received_at) VALUES (?, ?)") {
+            // 2026-09-20 (nuance #26): the webhook claims with a status now —
+            // the inbox row tracks pending → processed | failed so a failure
+            // after the 200 is a visible dead letter, not a silent drop.
+            if (q === "INSERT OR IGNORE INTO stripe_events (event_id, received_at, status) VALUES (?, ?, 'pending')") {
               const added = !events.has(args[0]);
-              events.add(args[0]);
+              if (added) events.set(args[0], { status: "pending", error: null, received_at: args[1] });
               return { meta: { changes: added ? 1 : 0 } };
+            }
+            if (q.startsWith("ALTER TABLE stripe_events ADD COLUMN")) {
+              return { meta: { changes: 0 } }; // idempotent migration — no-op in the mock
+            }
+            if (q === "UPDATE stripe_events SET status = 'processed', error = NULL WHERE event_id = ?") {
+              const r = events.get(args[0]);
+              if (r) { r.status = "processed"; r.error = null; }
+              return { meta: { changes: r ? 1 : 0 } };
+            }
+            if (q === "UPDATE stripe_events SET status = 'failed', error = ? WHERE event_id = ?") {
+              const r = events.get(args[1]);
+              if (r) { r.status = "failed"; r.error = args[0]; }
+              return { meta: { changes: r ? 1 : 0 } };
+            }
+            if (q === "UPDATE stripe_events SET status = 'pending', error = NULL WHERE event_id = ?") {
+              const r = events.get(args[0]);
+              if (r) { r.status = "pending"; r.error = null; }
+              return { meta: { changes: r ? 1 : 0 } };
             }
             if (q.startsWith("DELETE FROM student_verifications WHERE user_id = ? AND email = ? AND verified_at IS NULL")) {
               const id = studentByEmail.get(args[1]);
@@ -837,7 +862,11 @@ await test("pro.js verifies webhooks before parsing the body, and gates grants o
   const bodyParse = src.indexOf("readJsonBody(request");
   assert.ok(sigBranch !== -1 && sigBranch < bodyParse, "webhook branch must precede body parsing");
   assert.match(src, /INSERT OR IGNORE INTO stripe_events/, "webhook idempotency claim missing");
-  assert.match(src, /DELETE FROM stripe_events WHERE event_id = \?/, "failed apply must release the idempotency claim so Stripe retries re-apply");
+  // 2026-09-20 (nuance #26): the webhook 200s BEFORE applying, so a failed
+  // apply can no longer release the claim for a Stripe retry — instead the
+  // claim row is marked failed (dead letter) and re-armed on retry.
+  assert.match(src, /status = 'failed'/, "failed webhook applies must leave a dead-letter status, not delete the claim");
+  assert.ok(!src.includes("DELETE FROM stripe_events WHERE event_id = ?"), "the old delete-the-claim-on-failure pattern must be gone");
   assert.match(src, /FOUNDER_EMAIL/, "founder gate missing");
   assert.match(src, /grantLifetimePro|revokeLifetimePro/, "lifetime grant wiring missing");
   assert.match(src, /case "list-lifetime"/, "list-lifetime action missing");

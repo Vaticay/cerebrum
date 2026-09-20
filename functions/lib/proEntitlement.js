@@ -800,18 +800,26 @@ function stripeForm(params) {
   return body.toString();
 }
 
-export async function stripeRequest(env, method, path, params) {
+export async function stripeRequest(env, method, path, params, opts) {
   const key = env.STRIPE_SECRET_KEY || "";
   if (!key) throw new Error("stripe_not_configured");
+  const headers = {
+    Authorization: "Bearer " + key,
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  // Nuance #26 — Stripe-side idempotency: a retried POST (client double-tap,
+  // dropped response retried by our own retry layer) must not mint a second
+  // Checkout Session or portal session. Callers pass a deterministic key;
+  // Stripe dedupes on it for 24h. GETs never carry it.
+  if (opts && opts.idempotencyKey && method !== "GET") {
+    headers["Idempotency-Key"] = String(opts.idempotencyKey).slice(0, 255);
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
     const res = await fetch(STRIPE_API + path, {
       method,
-      headers: {
-        Authorization: "Bearer " + key,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
+      headers,
       body: method === "GET" ? undefined : stripeForm(params),
       signal: ctrl.signal,
     });

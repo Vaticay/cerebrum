@@ -39,7 +39,15 @@
 
 import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey, readJsonBody } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import {
+  enqueueJob as enqueueDocJob, getJobStatus as getDocJobStatus,
+  startJob as startDocJob, advanceJob as advanceDocJob,
+  completeJob as completeDocJob, failJob as failDocJob,
+} from "../lib/docJobs.js";
 import { withTimeout } from "../lib/resilience.js";
+import { authorizeLlmCall, spendTokens, CHEAP_MODEL } from "../lib/costControl.js";
+import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
+import { clampMessages, MAX_PROMPT_CHARS, messagesChars } from "../lib/inputGuard.js";
 
 
 // Lower than search.js's 20/min — a document analysis call carries a much
@@ -349,12 +357,52 @@ const FULL_PROVIDERS = [
 // can never win. If every leg fails, one sequential small-model retry
 // runs before the error propagates — callers (runSummary/runQA) turn that
 // into the extractive fallback rather than a user-facing failure.
-async function generate(env, messages, maxTokens, { timeoutMs = 20000, idleTimeoutMs = 25000, onToken = null, providers = null } = {}) {
+async function generate(env, messages, maxTokens, { timeoutMs = 20000, idleTimeoutMs = 25000, onToken = null, providers = null, costCtl = null } = {}) {
+  // Nuance #28: prompt cap at the document LLM choke point — every
+  // document call funnels through here. Truncated, never silent.
+  const { messages: clamped, truncated } = clampMessages(messages, MAX_PROMPT_CHARS);
+  if (truncated) {
+    console.warn(`Cerebrum document generate: prompt truncated to ${MAX_PROMPT_CHARS.toLocaleString()} chars`);
+  }
+  const promptChars = messagesChars(clamped);
+  // Nuance #33: token-budget authorization BEFORE any inference burns.
+  // A denial throws a typed error — runSummary/runQA catch it per call and
+  // degrade to the deterministic extractive output (never a 500, never
+  // partial LLM garbage). The routed model is advisory here: the roster
+  // below already races cheap models, so the budget is the binding
+  // constraint on this path.
+  if (costCtl && costCtl.userId) {
+    const auth = await authorizeLlmCall(env, {
+      userId: costCtl.userId,
+      tier: costCtl.tier || "free",
+      promptChars,
+      complexity: costCtl.complexity || { queryLength: promptChars, historyTurns: 0, sourceCount: 1 },
+    });
+    if (!auth.ok) {
+      const e = new Error("token budget exhausted — degrading to non-LLM output");
+      e.code = "token_budget_exhausted";
+      throw e;
+    }
+  }
+  // Best-effort spend accounting, once per winning call. Never throws.
+  const accountSpend = async (result) => {
+    if (!(costCtl && costCtl.userId)) return;
+    try {
+      const completionChars = result && typeof result.answer === "string" ? result.answer.length : 0;
+      await spendTokens(env, costCtl.userId, estimateTokensFromChars(promptChars) + estimateTokensFromChars(completionChars));
+      await recordLlmUsage(env, {
+        userId: costCtl.userId,
+        model: (result && result.model) || "unknown",
+        promptChars,
+        completionChars,
+      });
+    } catch {}
+  };
   const raceController = new AbortController();
   const roster = providers || FULL_PROVIDERS;
   const useStream = typeof onToken === "function";
   const calls = roster.map((model, i) =>
-    callOR(env, model, messages, maxTokens, {
+    callOR(env, model, clamped, maxTokens, {
       timeoutMs,
       idleTimeoutMs,
       externalSignal: raceController.signal,
@@ -364,11 +412,12 @@ async function generate(env, messages, maxTokens, { timeoutMs = 20000, idleTimeo
     })
   );
   if (env.AI && typeof env.AI.run === "function") {
-    calls.push(callCF(env, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", messages, maxTokens, Math.min(timeoutMs, 30000)));
+    calls.push(callCF(env, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", clamped, maxTokens, Math.min(timeoutMs, 30000)));
   }
   try {
     const winner = await Promise.any(calls);
     raceController.abort();
+    await accountSpend(winner);
     return winner;
   } catch (agg) {
     raceController.abort();
@@ -376,7 +425,9 @@ async function generate(env, messages, maxTokens, { timeoutMs = 20000, idleTimeo
     // One fast retry with a small model before giving up.
     if (openRouterKey(env)) {
       try {
-        return await callOR(env, "meta-llama/llama-3.2-3b-instruct:free", messages, Math.min(maxTokens, 1200), { timeoutMs: Math.min(timeoutMs, 30000), idleTimeoutMs });
+        const r = await callOR(env, "meta-llama/llama-3.2-3b-instruct:free", clamped, Math.min(maxTokens, 1200), { timeoutMs: Math.min(timeoutMs, 30000), idleTimeoutMs });
+        await accountSpend(r);
+        return r;
       } catch (e2) {
         throw new Error("All providers failed: " + errList.concat(String(e2.message || e2)).join(" | "));
       }
@@ -467,7 +518,7 @@ const CHUNK_SYSTEM_PROMPT =
 // The default per-chunk digestion: one generate() call over the fast
 // provider roster. Injectable via summarizeChunks' `digest` option so
 // unit tests can simulate failures without network access.
-function defaultDigest(env, chunkText, index, total) {
+function defaultDigest(env, chunkText, index, total, { costCtl = null } = {}) {
   return generate(
     env,
     [
@@ -475,7 +526,15 @@ function defaultDigest(env, chunkText, index, total) {
       { role: "user", content: "SECTION " + (index + 1) + " OF " + total + ":\n\n" + chunkText },
     ],
     MAP_MAX_TOKENS,
-    { timeoutMs: MAP_PER_CHUNK_TIMEOUT_MS, providers: CHUNK_PROVIDERS }
+    {
+      timeoutMs: MAP_PER_CHUNK_TIMEOUT_MS,
+      providers: CHUNK_PROVIDERS,
+      // Chunk digestion is a simple, bounded task — the cheap-first router
+      // sees it as low complexity.
+      costCtl: costCtl
+        ? { ...costCtl, complexity: { queryLength: 200, historyTurns: 0, sourceCount: 1 } }
+        : null,
+    }
   );
 }
 
@@ -492,8 +551,8 @@ function defaultDigest(env, chunkText, index, total) {
 // path: a retry only pays for the sections that failed last time. A length
 // mismatch is treated as "no prior state" (full digest) rather than a
 // misaligned merge, which would silently attach digests to wrong sections.
-export async function summarizeChunks(env, chunks, onProgress, { digest = null, priorSections = null } = {}) {
-  const doDigest = digest || defaultDigest;
+export async function summarizeChunks(env, chunks, onProgress, { digest = null, priorSections = null, costCtl = null } = {}) {
+  const doDigest = digest || ((e, c, i, t) => defaultDigest(e, c, i, t, { costCtl }));
   const n = chunks.length;
   const sections = new Array(n).fill(null);
   const failed = [];
@@ -520,6 +579,10 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
     }
   }
   let next = 0;
+  // Nuance #33: if the token budget denies a chunk, every sibling chunk
+  // will be denied too — remember it so runSummary can say WHY the
+  // fallback is extractive instead of leaving the user guessing.
+  let budgetDenied = false;
   const worker = async () => {
     while (next < n) {
       const i = next++;
@@ -530,6 +593,7 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
         sections[i] = text && text.trim().length >= 40 ? text.trim() : null;
         if (!sections[i]) failed.push(i + 1);
       } catch (e) {
+        if (e && e.code === "token_budget_exhausted") budgetDenied = true;
         console.error("Cerebrum document map: chunk " + (i + 1) + "/" + n + " failed:", (e && e.message) || e);
         sections[i] = null;
         failed.push(i + 1);
@@ -542,7 +606,7 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
   for (let w = 0; w < Math.min(MAP_CONCURRENCY, n); w++) workers.push(worker());
   await Promise.all(workers);
   failed.sort((a, b) => a - b);
-  return { sections, failed };
+  return { sections, failed, budgetDenied };
 }
 
 // ---- extractive fallback (no LLM, never throws) --------------------------
@@ -693,10 +757,17 @@ export function extractiveQA(text, query) {
 // any best-effort degradation, and `sections` (mapreduce only) carries the
 // per-chunk digests (null for failed chunks, each capped) so a retry can
 // pass them back as `priorSections` and only re-digest the missing ones.
-export async function runSummary(env, documentText, { onProgress = null, onPhase = null, digest = null, generateFn = null, priorSections = null } = {}) {
+export async function runSummary(env, documentText, { onProgress = null, onPhase = null, digest = null, generateFn = null, priorSections = null, costCtl = null } = {}) {
   const gen = generateFn || ((e, m, t, o) => generate(e, m, t, o));
+  // A budget denial degrades like any other generate failure — but the
+  // user is told WHY this one is extractive, so an exhausted budget
+  // doesn't look like a broken model.
+  const budgetNote = (e) =>
+    e && e.code === "token_budget_exhausted"
+      ? "\n\n[Note: this account's monthly AI token budget is exhausted, so this is an extractive summary of key passages rather than an AI synthesis.]"
+      : "";
   const asExtractive = (sourceText, extra = {}) => ({
-    answer: extractiveSummary(sourceText),
+    answer: extractiveSummary(sourceText) + budgetNote(extra.cause),
     model: "extractive",
     partial: true,
     missingSections: extra.missingSections || [],
@@ -720,20 +791,24 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
             { role: "user", content: "DOCUMENT:\n\n" + documentText },
           ],
           SUMMARY_MAX_TOKENS,
-          { timeoutMs: SUMMARY_SINGLE_TIMEOUT_MS, idleTimeoutMs: 25000, onToken: () => {} }
+          { timeoutMs: SUMMARY_SINGLE_TIMEOUT_MS, idleTimeoutMs: 25000, onToken: () => {}, costCtl }
         );
         return { answer: r.answer, model: r.model, partial: false, missingSections: [], sections: null, chunkCount: 0, path: "single" };
-      } catch {
-        return asExtractive(documentText);
+      } catch (e) {
+        return asExtractive(documentText, { cause: e });
       }
     }
     const chunks = chunkDocument(documentText, MAP_CHUNK_CHARS);
-    const { sections, failed } = await summarizeChunks(env, chunks, onProgress, { digest, priorSections });
+    const { sections, failed, budgetDenied } = await summarizeChunks(env, chunks, onProgress, { digest, priorSections, costCtl });
     const good = sections.filter(Boolean);
     if (!good.length) {
       // Nothing was digestible — synthesizing placeholders would be
       // fiction, so go straight to the extract of the raw text.
-      return asExtractive(documentText, { missingSections: failed, chunkCount: chunks.length });
+      return asExtractive(documentText, {
+        missingSections: failed,
+        chunkCount: chunks.length,
+        cause: budgetDenied ? { code: "token_budget_exhausted" } : null,
+      });
     }
     const condensed = sections.map((s, i) => "SECTION " + (i + 1) + " OF " + sections.length + ":\n" + (s || "[This section could not be read.]")).join("\n\n");
     const framing =
@@ -753,7 +828,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
           { role: "user", content: framing + "\n\n" + condensed },
         ],
         SUMMARY_MAX_TOKENS,
-        { timeoutMs: SUMMARY_SYNTH_TIMEOUT_MS, idleTimeoutMs: 25000, onToken: () => {} }
+        { timeoutMs: SUMMARY_SYNTH_TIMEOUT_MS, idleTimeoutMs: 25000, onToken: () => {}, costCtl }
       );
       return {
         answer: r.answer + missingNote(failed, chunks.length),
@@ -764,11 +839,11 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
         chunkCount: chunks.length,
         path: "mapreduce",
       };
-    } catch {
+    } catch (e) {
       // Digests exist but the synthesis call failed: extract from the
       // digests themselves — dense, factual, and far better than raw-text
       // extraction or an error.
-      const ex = asExtractive(good.join("\n\n"), { missingSections: failed, chunkCount: chunks.length });
+      const ex = asExtractive(good.join("\n\n"), { missingSections: failed, chunkCount: chunks.length, cause: e });
       ex.sections = sections.map((s) => (s ? s.slice(0, 1200) : null));
       return ex;
     }
@@ -785,7 +860,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
 // was already sent so a mid-stream failure can hand off gracefully — the
 // extractive answer is appended after a plain handoff line instead of
 // leaving a half-written AI answer standing alone.
-export async function runQA(env, documentText, query, historyBlock, { onToken = null, generateFn = null } = {}) {
+export async function runQA(env, documentText, query, historyBlock, { onToken = null, generateFn = null, costCtl = null } = {}) {
   const gen = generateFn || ((e, m, t, o) => generate(e, m, t, o));
   const messages = [
     { role: "system", content: QA_SYSTEM_PROMPT },
@@ -801,14 +876,17 @@ export async function runQA(env, documentText, query, historyBlock, { onToken = 
       }
     : () => {};
   try {
-    const r = await gen(env, messages, 1400, { timeoutMs: QA_TIMEOUT_MS, idleTimeoutMs: 25000, onToken: sink });
+    const r = await gen(env, messages, 1400, { timeoutMs: QA_TIMEOUT_MS, idleTimeoutMs: 25000, onToken: sink, costCtl });
     return { answer: r.answer, model: r.model, partial: false };
-  } catch {
+  } catch (e) {
     const fb = extractiveQA(documentText, query);
+    const budgetNote = e && e.code === "token_budget_exhausted"
+      ? "\n\n[Note: this account's monthly AI token budget is exhausted, so this is an extractive answer from key passages rather than an AI synthesis.]"
+      : "";
     const handoff = streamed
       ? "\n\n[The AI answer above was cut short when the service faltered — continuing with the most relevant passages from your document:]\n\n"
       : "";
-    const tail = handoff + fb;
+    const tail = handoff + fb + budgetNote;
     if (onToken) {
       try {
         onToken(tail);
@@ -893,6 +971,32 @@ export async function onRequest(context) {
   const cors = corsHeaders(request, env);
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
+  // ── Nuance #31 — durable job status reads ──────────────────────────
+  // GET /api/document?job_id=… returns the status of a background analysis
+  // enqueued with { async: true }. Authenticated and user-scoped: a job id
+  // is unguessable, but we still refuse to serve another user's job.
+  if (request.method === "GET") {
+    const jobId = new URL(request.url).searchParams.get("job_id");
+    if (!jobId) return errRes("Method not allowed.", 405, "method_not_allowed", cors);
+    if (!readOriginAllowed(request, env)) return errRes("Origin not allowed.", 403, "origin_not_allowed", cors);
+    if (!requireTrustedOrigin(request, env)) return forbiddenOrigin(cors);
+    let jobUser = null;
+    try {
+      const { getSessionUser } = await import("../lib/authHelpers.js");
+      jobUser = await getSessionUser(request, env);
+    } catch { jobUser = null; }
+    if (!jobUser) return errRes("Sign in to check document jobs.", 401, "auth_required", cors);
+    try {
+      const status = await getDocJobStatus(env, jobUser.id, String(jobId));
+      if (!status) return errRes("Job not found.", 404, "not_found", cors);
+      return okRes(status, 200, cors);
+    } catch (e) {
+      console.error("Cerebrum document job status:", (e && e.message) || e);
+      return errRes("Couldn't read the job status. Try again.", 500, "job_status_failed", cors);
+    }
+  }
+
   if (request.method !== "POST") return errRes("Method not allowed.", 405, "method_not_allowed", cors);
   if (!readOriginAllowed(request, env)) return errRes("Origin not allowed.", 403, "origin_not_allowed", cors);
   // Write-path origin gate (same posture as data.js): document analysis is
@@ -903,8 +1007,18 @@ export async function onRequest(context) {
   const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
   // Use the hashed privacyKey (not the raw IP) — consistent with every
   // other endpoint, and avoids storing raw IPs in the rate-limit KV.
-  if (!(await checkRateLimit(env, privacyKey("document", clientIP), RATE_LIMIT, RATE_WINDOW_MS))) {
+  // NB: privacyKey is async — it MUST be awaited. Passing the raw promise
+  // as the limiter key used to collapse every caller into one shared
+  // "[object Promise]" bucket (a real, silent rate-limit bug).
+  const docRateKey = await privacyKey("document", clientIP, env);
+  if (!(await checkRateLimit(env, docRateKey, RATE_LIMIT, RATE_WINDOW_MS))) {
     return errRes("Too many requests. Please wait a moment and try again.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
+  }
+  // Nuance #25 — burst window: one document analysis carries a whole paper's
+  // worth of prompt tokens, so parallel bursts are capped harder than the
+  // sustained rate.
+  if (!(await checkRateLimit(env, docRateKey + ":burst", 4, 10000))) {
+    return errRes("Too many analyses at once. Give it a few seconds and try again.", 429, "rate_limited", { ...cors, "Retry-After": "10" });
   }
 
   try {
@@ -958,6 +1072,10 @@ export async function onRequest(context) {
     // analysis burns the reserved slot instead of risking unbounded
     // overshoot. Best-effort: a metering failure never blocks the analysis.
     const docTier = docGate.kind === "pro" ? "pro" : docGate.kind === "lite" ? "lite" : "free";
+    // Nuance #33 — per-call token budget + spend accounting for document
+    // LLM calls. Threaded into runSummary/runQA → generate(); a denial
+    // degrades to the deterministic extractive output, never a 500.
+    const docCostCtl = { userId: docUser.id, tier: docTier };
     const docCap = docTier === "pro" ? null : proLib.capsForTier(docTier).docs;
     let docUsed = 0;
     if (docCap !== null) {
@@ -995,6 +1113,77 @@ export async function onRequest(context) {
     }
 
     const isQA = query.length > 0;
+
+    // ── Nuance #31 — durable background analysis ─────────────────────
+    // POST { async: true } (or ?async=1) enqueues instead of analyzing
+    // inline: 202 { job_id, status: "queued" }. The client polls
+    // GET ?job_id=…. Auth, quota reservation, and truncation above are
+    // identical to the sync path — async is a scheduling choice, not a
+    // cheaper one. The background worker reuses runSummary/runQA, which
+    // never throw; unexpected failures land in the dead-letter table with
+    // a structured alert instead of vanishing.
+    const wantsAsync = body.async === true || new URL(request.url).searchParams.get("async") === "1";
+    if (wantsAsync) {
+      const { jobId } = await enqueueDocJob(env, {
+        userId: docUser.id,
+        kind: isQA ? "qa" : "summary",
+        payload: { documentText, query, historyBlock, priorSections, truncatedNote },
+      });
+      const bg = (async () => {
+        const total = isQA ? 1 : (documentText.length > MAP_REDUCE_THRESHOLD
+          ? chunkDocument(documentText, MAP_CHUNK_CHARS).length
+          : 1);
+        await startDocJob(env, jobId, total, isQA ? "answering question" : "digesting sections");
+        try {
+          if (isQA) {
+            const result = await withTimeout(
+              runQA(env, documentText, query, historyBlock, { costCtl: docCostCtl }),
+              QA_TIMEOUT_MS + 15000,
+              "document qa"
+            );
+            await completeDocJob(env, jobId, {
+              mode: "qa",
+              answer: result.answer + truncatedNote,
+              model: result.model,
+              partial: !!result.partial,
+            });
+          } else {
+            const result = await withTimeout(
+              runSummary(env, documentText, {
+                onProgress: (done, t) => {
+                  // Forward-only, best-effort: a progress write must never
+                  // fail the analysis (advanceDocJob ignores backward steps).
+                  advanceDocJob(env, jobId, done, t || total, "digesting sections").catch(() => {});
+                },
+                priorSections,
+                costCtl: docCostCtl,
+              }),
+              SUMMARY_TIMEOUT_MS,
+              "document analysis"
+            );
+            const sectioned = splitSummarySections(result.answer);
+            await completeDocJob(env, jobId, {
+              mode: "summary",
+              raw: result.answer + truncatedNote,
+              ...sectioned,
+              truncated: !!truncatedNote,
+              partial: !!result.partial,
+              missingSections: result.missingSections || [],
+              sections: result.sections || null,
+              chunkCount: result.chunkCount || 0,
+              model: result.model,
+            });
+          }
+        } catch (e) {
+          // Dead letter + structured operator alert (failDocJob) — a job
+          // that fails after the 202 must be visible, not silent.
+          await failDocJob(env, jobId, e);
+        }
+      })();
+      if (context && typeof context.waitUntil === "function") context.waitUntil(bg);
+      else await bg; // outside the worker runtime (tests): run inline
+      return okRes({ job_id: jobId, status: "queued" }, 202, cors);
+    }
 
     // Lead media resolves CONCURRENTLY with the analysis — it is decorative
     // and never sits on the critical path. The key is always present on the
@@ -1063,6 +1252,7 @@ export async function onRequest(context) {
               result = await withTimeout(
                 runQA(env, documentText, query, historyBlock, {
                   onToken: (token) => send({ type: "token", text: token }),
+                  costCtl: docCostCtl,
                 }),
                 QA_TIMEOUT_MS + 15000,
                 "document qa"
@@ -1080,6 +1270,7 @@ export async function onRequest(context) {
                     send({ type: "progress", phase, done: 0, total: 1 });
                   },
                   priorSections,
+                  costCtl: docCostCtl,
                 }),
                 SUMMARY_TIMEOUT_MS,
                 "document analysis"
@@ -1131,10 +1322,10 @@ export async function onRequest(context) {
       });
     }
     if (isQA) {
-      const result = await withTimeout(runQA(env, documentText, query, historyBlock), QA_TIMEOUT_MS + 15000, "document qa");
+      const result = await withTimeout(runQA(env, documentText, query, historyBlock, { costCtl: docCostCtl }), QA_TIMEOUT_MS + 15000, "document qa");
       return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model, partial: !!result.partial, quota: docQuota() }, 200, cors);
     }
-    const result = await withTimeout(runSummary(env, documentText, { priorSections }), SUMMARY_TIMEOUT_MS, "document analysis");
+    const result = await withTimeout(runSummary(env, documentText, { priorSections, costCtl: docCostCtl }), SUMMARY_TIMEOUT_MS, "document analysis");
     const sectioned = splitSummarySections(result.answer);
     // The truncation note is appended to what the reader actually sees —
     // a summary that silently covers only part of a document is worse than

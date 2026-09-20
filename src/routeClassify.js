@@ -11,8 +11,17 @@
  *
  * Normalization mirrors the shell: a trailing `.html` (e.g. someone typing
  * /about.html) and trailing slashes are folded away before classification.
+ *
+ * The marketing slugs (/features, /pricing, /document-mode, /diagram-studio,
+ * /investigations) live here too: their content is defined in
+ * src/marketingContent.js and prerendered by scripts/prerender.mjs, and the
+ * SPA's InfoPage renders them from the same object (frontend wires the
+ * lookup; see docs/video-cdn-frontend-map.md's sibling note in the report).
  */
-export const INFO_SLUGS = ["about", "privacy", "terms", "disclosures", "contact"];
+export const INFO_SLUGS = [
+  "about", "privacy", "terms", "disclosures", "contact",
+  "features", "pricing", "document-mode", "diagram-studio", "investigations",
+];
 
 export function classifyRoute(rawPath) {
   const path = (rawPath || "").replace(/\.html$/, "").replace(/\/+$/, "");

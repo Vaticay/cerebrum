@@ -44,6 +44,11 @@ function saveInvestigation(history, turns, allSources, now = Date.now()) {
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalContent.js";
+/* #21: crawlable marketing pages (/features /pricing /document-mode
+   /diagram-studio /investigations) render from the same MARKETING_PAGES
+   object the prerender pipeline uses, so JS-enabled visitors see content
+   instead of a blank page. */
+import { MARKETING_PAGES } from "./marketingContent.js";
 import { getDeepLinkQuery } from "./deepLink.js";
 import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
@@ -305,8 +310,17 @@ const SUGGESTION_POOL = [
    so they read as a curated index rather than a chatbot's suggestion
    pills. Kept mode-aware — the set swaps with the mode word beneath the
    field. */
-const ASK_MODE_EXAMPLES = {
-  explain: [
+/* First-run onboarding: four one-click real searches, one per domain
+   (biology, medicine, environment, physics). Unlike the mode-aware
+   starters these run ask() immediately — a new visitor taps a question
+   and watches a real answer arrive instead of filling a box. */
+const FIRST_RUN_QUESTIONS = [
+  { cat: "BIOLOGY", q: "How does CRISPR-Cas9 actually cut DNA?" },
+  { cat: "MEDICINE", q: "Do GLP-1 drugs like Ozempic protect the heart too?" },
+  { cat: "ENVIRONMENT", q: "Why does soil crack into patterns as it dries?" },
+  { cat: "PHYSICS", q: "What would it take to build a working fusion reactor?" },
+];
+const ASK_MODE_EXAMPLES = {  explain: [
     { cat: "METHODS", q: "How do mRNA vaccines trigger immunity?" },
     { cat: "CLIMATE", q: "Why does soil crack into patterns as it dries?" },
     { cat: "METHODS", q: "How does CRISPR-Cas9 actually cut DNA?" },
@@ -2476,6 +2490,14 @@ function SearchNameplate({ P, accent, askMode, focused, compact }) {
           Ask a real research question. Every claim traces to a paper you can open.
         </p>
       )}
+      {/* The concrete subhead: one promise above the fold, in numbers.
+         The slogan above is never altered; this line sits beneath it and
+         states what the product does, not how it feels. */}
+      {!compact && (
+        <p className="cb-mast-sub" style={{ margin: "10px 0 0", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>
+          Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
+        </p>
+      )}
     </div>
   );
 }
@@ -2644,13 +2666,299 @@ function SignalComposer({
           P={P} accent={accent} isMobile={isMobile}
         />
       </div>
-      <EvidenceFilter
-        value={evidenceFilter}
-        onChange={(v) => { clickSfx(); setEvidenceFilter(v); }}
-        P={P} accent={accent} isMobile={isMobile}
-      />
+      {/* Evidence tier filter — one row, plain words. Pulled up under the
+          mode row so the console reads as one unit, not stacked rows. */}
+      <div style={{ marginTop: 6 }}>
+        <EvidenceFilter
+          value={evidenceFilter}
+          onChange={(v) => { clickSfx(); setEvidenceFilter(v); }}
+          P={P} accent={accent} isMobile={isMobile}
+        />
+      </div>
     </div>
   );
+}
+
+/* ── SSE search streaming, staged progress, and search-error model ──────────
+   Nuance #23 (frontend): POST /api/search?stream=1 returns text/event-stream
+   with the pipeline's real stage transitions —
+     question_understood → finding_papers → screening_sources →
+     synthesizing → checking_citations → done
+   — and `done` carries the same JSON body the single-fetch path returns.
+   The endpoint is POST-only, so the client parses the stream with fetch +
+   ReadableStream (EventSource can't POST). Any stream failure falls back
+   silently to the existing single-fetch path, which is unchanged.
+
+   Stage keys below mirror functions/lib/searchSse.js STREAM_STAGES exactly;
+   the "done" frame is terminal, not a rendered stage. Last-Event-ID resume:
+   when a mid-stream failure happens after at least one stage frame arrived,
+   the client retries once with the last seen id in the Last-Event-ID header
+   (the server suppresses already-seen stages); otherwise it goes straight
+   to single-fetch. */
+
+/* The pipeline stages in wire order. Labels are plain words for the stage
+   rail in the ReadingRoom — the same five phrases the task names. */
+const SEARCH_STREAM_STAGES = [
+  { key: "question_understood", label: "Understanding question" },
+  { key: "finding_papers", label: "Finding papers" },
+  { key: "screening_sources", label: "Screening sources" },
+  { key: "synthesizing", label: "Synthesizing findings" },
+  { key: "checking_citations", label: "Checking citations" },
+];
+
+/* Sentinel: a stream-path failure that must fall back silently to the
+   single-fetch path (transport failure, non-SSE response, unreadable
+   `done` payload, or an explicit backend `error` frame — whose own copy
+   says "retry as a normal search"). Never surfaces to the user. */
+class StreamFallback extends Error {
+  constructor(reason) { super("stream fallback: " + reason); this.name = "StreamFallback"; this.reason = reason; }
+}
+
+/* Pump one SSE response body, dispatching parsed events as
+   onEvent(event, data, id). Resolves with the last seen event id. Throws
+   the underlying error (AbortError included) on transport failure. */
+async function pumpSearchStream(res, { signal, onEvent }) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let lastId = 0;
+  const dispatch = (raw) => {
+    let event = "message";
+    let data = "";
+    let id = null;
+    for (const line of raw.split("\n")) {
+      if (!line || line.startsWith(":")) continue; // comment / ping
+      else if (line.startsWith("id:")) { const n = parseInt(line.slice(3).trim(), 10); if (Number.isFinite(n)) id = n; }
+      else if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) data += (data ? "\n" : "") + line.slice(5).replace(/^ /, "");
+    }
+    if (id != null) lastId = id;
+    if (data && onEvent) onEvent(event, data, lastId);
+  };
+  try {
+    for (;;) {
+      if (signal && signal.aborted) {
+        const ae = new Error("aborted"); ae.name = "AbortError";
+        try { await reader.cancel(); } catch {}
+        throw ae;
+      }
+      const { done, value } = await reader.read();
+      if (value) {
+        buf += decoder.decode(value, { stream: !done });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const raw = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          if (raw.trim()) dispatch(raw);
+        }
+      }
+      if (done) break;
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+  return lastId;
+}
+
+/* One line of honest detail per stage, from the stage payloads the backend
+   emits (see the emitStage call sites in functions/api/search.js). Anything
+   unparseable yields no detail rather than a wrong one. */
+function stageDetailFor(key, payload) {
+  try {
+    const p = payload && typeof payload === "object" ? payload : {};
+    if (key === "finding_papers" && p.searchQuery) {
+      const q = String(p.searchQuery);
+      return "Looking for papers on \u201c" + (q.length > 90 ? q.slice(0, 87) + "\u2026" : q) + "\u201d";
+    }
+    if (key === "screening_sources" && (p.retrieved != null || p.screened != null)) {
+      const kept = Number(p.screened) || 0;
+      const found = Number(p.retrieved) || 0;
+      return found > 0 ? kept + " of " + found + " candidates kept" : kept + " candidates kept";
+    }
+    if ((key === "synthesizing" || key === "checking_citations") && p.sources != null) {
+      const n = Number(p.sources) || 0;
+      return key === "synthesizing"
+        ? "Writing the answer from " + n + (n === 1 ? " source" : " sources")
+        : "Verifying claims against " + n + (n === 1 ? " citation" : " citations");
+    }
+  } catch {}
+  return "";
+}
+
+/* Run one search over the SSE path. Resolves { data, requestId } where data
+   is the final-answer JSON from the `done` frame. Throws AbortError when
+   the caller cancels, StreamFallback for anything that should retry as a
+   normal (single-fetch) search. One resume attempt is made when the stream
+   dies after delivering stage frames; otherwise the fallback is immediate. */
+async function runStreamedSearch({ body, signal, onStageEvent, onConnect, resumeFromId = 0 }) {
+  const headers = { "Content-Type": "application/json" };
+  if (resumeFromId > 0) headers["Last-Event-ID"] = String(resumeFromId);
+  let res;
+  try {
+    res = await fetch("/api/search?stream=1", { method: "POST", headers, signal, body: JSON.stringify(body) });
+  } catch (e) {
+    throw (e && e.name === "AbortError") ? e : new StreamFallback("connect");
+  }
+  const ctype = res.headers.get("content-type") || "";
+  if (!res.ok || !ctype.includes("text/event-stream")) {
+    try { if (res.body) await res.body.cancel(); } catch {}
+    throw new StreamFallback("bad-response");
+  }
+  const requestId = res.headers.get("X-Request-ID") || "";
+  try { if (onConnect) onConnect(requestId); } catch {}
+  let lastId = resumeFromId;
+  let sawStage = false;
+  let doneRaw = null;
+  try {
+    lastId = await pumpSearchStream(res, { signal, onEvent: (event, data, id) => {
+      /* Keep the resume cursor fresh on every frame: if the pump throws
+         mid-stream, the assignment above never runs, and this is what the
+         Last-Event-ID resume reads. */
+      if (Number.isFinite(id)) lastId = id;
+      if (event === "done") { doneRaw = data; return; }
+      if (event === "error") throw new StreamFallback("backend-error");
+      const idx = SEARCH_STREAM_STAGES.findIndex((s) => s.key === event);
+      if (idx >= 0) {
+        sawStage = true;
+        if (onStageEvent) onStageEvent(event, stageDetailFor(event, safeJsonParse(data)), idx);
+      }
+    }});
+  } catch (e) {
+    if (e && e.name === "AbortError") throw e;
+    if (e instanceof StreamFallback) throw e;
+    /* Mid-stream transport failure: resume once from the last seen stage
+       when we have stage state worth resuming from; otherwise the
+       single-fetch fallback is cheaper and simpler. */
+    if (sawStage && lastId > resumeFromId) {
+      return runStreamedSearch({ body, signal, onStageEvent, onConnect, resumeFromId: lastId });
+    }
+    throw new StreamFallback("mid-stream");
+  }
+  if (doneRaw == null) throw new StreamFallback("no-done");
+  const data = safeJsonParse(doneRaw);
+  if (!data || typeof data !== "object") throw new StreamFallback("bad-done");
+  /* A `done` frame carrying an error and no answer is the backend saying
+     the search failed — fall back to single-fetch so the named error
+     handling sees the real response instead of building an empty turn. */
+  if (data.error && !data.answer && !(data.sources && data.sources.length)) throw new StreamFallback("error-done");
+  return { data, requestId };
+}
+
+/* JSON.parse that returns null instead of throwing — the stream path
+   treats an unreadable `done` frame as a fallback, not a crash. */
+function safeJsonParse(text) {
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+/* ── Search failure model (#16) ───────────────────────────────────────────
+   Every async search failure names its cause in plain words and offers
+   one or two recovery actions. The machine kind drives the panel; the
+   copy stays concrete for a non-technical reader. Critical failures
+   render as a persistent panel (role=alert), never an auto-dismissing
+   toast — the query is preserved in the input so it can be edited and
+   retried. */
+
+const SEARCH_ERROR_RECOVERY = {
+  timeout: ["retry", "simplify"],
+  network: ["retry"],
+  http429: ["retry"],
+  http5xx: ["retry", "document"],
+  http: ["retry", "simplify"],
+  badbody: ["retry"],
+};
+
+function searchErrorInfo(kind, { status = 0, message = "", requestId = "", elapsed = "", when = "" } = {}) {
+  const req = requestId ? " · req " + String(requestId).slice(0, 8) : "";
+  const detail = [status ? "HTTP " + status : null, elapsed ? elapsed + "s" : null, when || null]
+    .filter(Boolean).join(" · ") + req;
+  const clean = String(message || "").trim();
+  switch (kind) {
+    case "timeout":
+      return { headline: "The search timed out.", body: "Two minutes passed without an answer — the literature databases are slow right now, not your question.", detail: ("timeout · " + detail).replace(/^timeout · $/, "timeout") };
+    case "network":
+      return { headline: "Couldn't reach the research service.", body: "The connection dropped before the search finished. Check your connection and try again.", detail: ("network · " + detail).replace(/^network · $/, "network") };
+    case "http429":
+      return { headline: "Too many searches at once.", body: "The service asked for a breather. Wait a few seconds, then try again.", detail };
+    case "http5xx":
+      return { headline: "The research service hit a problem.", body: clean || "Something went wrong on our end — nothing about your question caused this.", detail };
+    case "badbody":
+      return { headline: "The answer came back unreadable.", body: "The service responded, but the answer couldn't be read. Trying again usually works.", detail: ("unreadable response · " + detail).replace(/^unreadable response · $/, "unreadable response") };
+    default:
+      return { headline: "The search didn't come back.", body: clean || "Something went sideways.", detail };
+  }
+}
+
+/* Shorten a question to its first ten words — the "Simplify the question"
+   recovery action. Returns "" when there is nothing to simplify. */
+function simplifyQueryText(q) {
+  const words = String(q || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 10) return "";
+  return words.slice(0, 10).join(" ");
+}
+
+/* Broaden a question by dropping parentheticals and a trailing
+   in/on/of/for qualifier — usually the most specific clause. Used for the
+   "Try this instead" recovery when the backend ships no reformulations. */
+function broadenQuery(q) {
+  let s = String(q || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/\s+(in|on|of|for|among|across)\s+[a-z][\w-]*(?:\s+[a-z][\w-]*){0,2}\s*[?.!]*$/i, "").trim();
+  s = s.replace(/[?.!]+$/, "").trim();
+  return s.length >= 12 ? s : "";
+}
+
+/* Client-side "Try this instead" suggestions (2–3, each a different
+   strategy: broader term, simpler phrasing, different system, drop the
+   filter). Only used when the backend's own reformulations are absent;
+   backend suggestions always win. */
+function clientReformulations(q, evidenceFilter) {
+  const out = [];
+  const broad = broadenQuery(q);
+  if (broad && broad !== String(q || "").trim()) out.push({ label: "Broader: " + broad, query: broad });
+  const simple = simplifyQueryText(q);
+  if (simple && simple !== broad) out.push({ label: "Simpler: " + simple, query: simple });
+  const m = String(q || "").match(/\b(in|on|of|for)\s+([A-Za-z][a-z]+(?:\s+[a-z]+)?)\s*[?.!]*$/);
+  if (m && out.length < 3) out.push({ label: "Try a model system instead of " + m[2], query: String(q).slice(0, m.index) + " " + m[1] + " model organisms" });
+  if (evidenceFilter && evidenceFilter !== "all" && out.length < 3) {
+    out.push({ label: "Remove the evidence filter", query: String(q || "").trim(), clearFilter: true });
+  }
+  return out.slice(0, 3);
+}
+
+/* Lightweight zero-result query log (#15/#17). There is no client logging
+   hook today, so this keeps a capped local record (query, time, whether a
+   filter was active, how many suggestions shipped) for later triage — no
+   network call, no PII beyond the query itself. */
+function logZeroResult(query, info = {}) {
+  try {
+    const KEY = "cb_zero_results";
+    const raw = localStorage.getItem(KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    arr.push({
+      q: String(query || "").slice(0, 200),
+      ts: Date.now(),
+      filtered: !!info.filtered,
+      suggestions: Number(info.suggestions) || 0,
+    });
+    while (arr.length > 100) arr.shift();
+    localStorage.setItem(KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+/* Normalize a source's DOI to an https://doi.org URL, or "" when absent or
+   malformed. Used by the citation tooltip and the Sources panel. */
+function doiHref(src) {
+  const raw = String((src && (src.doi || src.DOI)) || "").trim();
+  if (!raw) return "";
+  const bare = raw.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/^doi:/i, "").trim();
+  if (!/^10\.\d{4,9}\//.test(bare)) return "";
+  return "https://doi.org/" + bare;
+}
+
+/* Diagram-chip relevance (#10): offer "Create diagram" when the question
+   is about a relationship, mechanism, or process — the things a diagram
+   actually clarifies. */
+function looksLikeMechanismQuestion(q) {
+  return /\b(how|why|mechanism|pathway|process|steps?|relationship|interact|compare|versus|vs\.?|difference between|causes?|leads? to|regulat)/i.test(String(q || ""));
 }
 
 /* DiveParticles is lazy: its chunk (the searching-state particle canvas) is
@@ -2678,7 +2986,7 @@ const DiveParticles = React.lazy(() => import("./DiveParticles.jsx"));
    Reduced motion: the snow never renders and the scan parks; the elapsed
    clock and the waiting line carry the feedback (paired, never motion
    alone). */
-function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contextual = false, videosLocated = false }) {
+function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contextual = false, videosLocated = false, stream = null, onCancel = null }) {
   const startRef = useRef(performance.now());
   const [elapsed, setElapsed] = useState(0);
   const reduced = useReducedMotion();
@@ -2749,6 +3057,61 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
       <div className="cb-room-line">
         {done && total ? `${responded.length} of ${total} databases answered` : waitingLine}
       </div>
+      {/* SSE stage rail (#23): the pipeline's real stages, in wire order.
+          Completed stages read done, the live one carries the accent, the
+          rest sit faint. The detail line under the rail is the stage's own
+          honest note (counts the backend actually sent). Rendered only on
+          the streaming path; the single-fetch fallback keeps the room as
+          it was. */}
+      {stream && !done && (
+        <div style={{ marginTop: 14, width: "100%", maxWidth: 420 }} aria-label="Search progress">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 0", alignItems: "center" }}>
+            {SEARCH_STREAM_STAGES.map((s, i) => {
+              const state = stream.index == null ? "pending" : i < stream.index ? "done" : i === stream.index ? "active" : "pending";
+              return (
+                <React.Fragment key={s.key}>
+                  {i > 0 && <span aria-hidden="true" style={{ margin: "0 7px", color: P.faint, fontSize: 11 }}>→</span>}
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: state === "active" ? 650 : 500,
+                    color: state === "pending" ? P.faint : state === "active" ? P.ink : P.ink2,
+                  }}>
+                    <span aria-hidden="true" style={{
+                      width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                      background: state === "active" ? accent : state === "done" ? withAlpha(accent, 0.55) : P.line2,
+                      boxShadow: state === "active" ? `0 0 8px ${withAlpha(accent, 0.8)}` : "none",
+                    }} />
+                    {s.label}
+                  </span>
+                </React.Fragment>
+              );
+            })}
+          </div>
+          {stream.detail && (
+            <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+              {stream.detail}
+            </div>
+          )}
+        </div>
+      )}
+      {/* Cancel: aborts the in-flight request (AbortController) and hands
+          the question back to the input so it can be edited and retried.
+          Rendered whenever a search is in flight and a cancel handler is
+          wired — the one control the room was missing. */}
+      {!done && onCancel && (
+        <div style={{ marginTop: 16 }}>
+          <button type="button" onClick={onCancel}
+            style={{
+              minHeight: 44, padding: "8px 22px", borderRadius: 9999, cursor: "pointer",
+              background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2,
+              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = P.ink; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
+            Cancel search
+          </button>
+        </div>
+      )}
       {/* The one real milestone: the /api/videos fetch resolved with
           footage while this search is still current. */}
       {!done && videosLocated && (
@@ -3122,14 +3485,126 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
     });
   }, [n, isMobile]);
 
-  if (!n || !src || !pos) return null;
-
+  /* Mobile: a swipeable/dismissible bottom sheet, not a floating popover.
+     Backdrop tap, grabber drag-down, Escape (handled by the parent
+     keydown), and a 44px close button all dismiss it. */
   /* "Full text" is only claimed when the retrieval actually had it. A
      missing flag means abstract, not unknown-so-assume-the-best. */
-  const fullText = !!(src.fullText || src.hasFullText || src.oaFullText);
-  const meta = [src.journal, src.year].filter(Boolean).join(" · ");
-  const snippet = String(src.tldr || src.abstract || "").trim();
+  const fullText = !!(src && (src.fullText || src.hasFullText || src.oaFullText));
+  const meta = src ? [src.journal, src.year].filter(Boolean).join(" · ") : "";
+  const snippet = src ? String(src.tldr || src.abstract || "").trim() : "";
+  /* All hooks stay above the early return: the sheet's drag state is
+     declared unconditionally, used only on the mobile branch. */
+  const dragYRef = useRef(0);
+  const [dragY, setDragY] = useState(0);
+  const dragStartRef = useRef(null);
+  if (!n || !src) return null;
+  const onDragStart = (e) => { dragStartRef.current = e.touches[0].clientY; };
+  const onDragMove = (e) => {
+    if (dragStartRef.current == null) return;
+    const dy = Math.max(0, e.touches[0].clientY - dragStartRef.current);
+    dragYRef.current = dy;
+    setDragY(dy);
+  };
+  const onDragEnd = () => {
+    const dy = dragYRef.current;
+    dragStartRef.current = null;
+    dragYRef.current = 0;
+    if (dy > 90) onClose();
+    else setDragY(0);
+  };
+  if (isMobile && n && src) {
+    return createPortal(
+      <React.Fragment>
+        <div aria-hidden="true" onClick={onClose} style={{
+          position: "fixed", inset: 0, zIndex: 258, background: "rgba(0,0,0,0.5)",
+          animation: "cbPeekSheetFade .22s ease both",
+        }} />
+        <div
+          role="dialog" aria-modal="true" aria-label={"Source " + n}
+          style={{
+            position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 260,
+            maxHeight: "72dvh", overflowY: "auto", WebkitOverflowScrolling: "touch",
+            background: P.dark ? "#101216" : "#ffffff",
+            borderTop: "1px solid " + (P.dark ? "rgba(255,255,255,0.14)" : P.line2),
+            borderRadius: "18px 18px 0 0",
+            boxShadow: P.dark ? "0 -18px 60px rgba(0,0,0,0.6)" : "0 -18px 48px rgba(34,37,42,0.22)",
+            padding: "0 20px calc(20px + env(safe-area-inset-bottom))",
+            fontFamily: "var(--cb-font)",
+            transform: dragY ? `translateY(${dragY}px)` : undefined,
+            animation: dragY ? undefined : "cbPeekSheetIn .32s cubic-bezier(0.16,1,0.3,1) both",
+          }}
+        >
+          {/* Drag handle: 44px tall so it's a real touch target, not a
+              decorative sliver. Dragging it down dismisses the sheet. */}
+          <div
+            onTouchStart={onDragStart} onTouchMove={onDragMove} onTouchEnd={onDragEnd}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 44, touchAction: "pan-y", cursor: "grab" }}
+            aria-hidden="true"
+          >
+            <div style={{ width: 40, height: 5, borderRadius: 999, background: P.dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)" }} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{
+              fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 600, color: accent,
+              background: withAlpha(accent, 0.13), border: "1px solid " + withAlpha(accent, 0.28),
+              borderRadius: RADIUS.pill, padding: "2px 10px",
+            }}>Source {n}</span>
+            <span style={{
+              fontSize: 10, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase",
+              borderRadius: RADIUS.pill, padding: "3px 10px",
+              background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
+              color: fullText ? accent : P.faint,
+              border: "1px solid " + (fullText ? withAlpha(accent, 0.26) : P.line),
+            }}>{fullText ? "Full text read" : "Abstract only"}</span>
+            <button onClick={onClose} aria-label="Close source preview" style={{
+              marginLeft: "auto", background: "none", border: "none", color: P.faint,
+              cursor: "pointer", width: 44, height: 44, display: "inline-flex",
+              alignItems: "center", justifyContent: "center",
+            }}><Icon name="close" size={18} /></button>
+          </div>
 
+          <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.4, color: P.ink, marginBottom: 6 }}>{src.title}</div>
+          {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: 12, color: P.faint, marginBottom: 8 }}>{meta}</div>}
+          {doiHref(src) && (
+            <div style={{ fontFamily: "var(--cb-font)", fontSize: 12, color: P.faint, marginBottom: 10 }}>
+              DOI&nbsp;
+              <a href={doiHref(src)} target="_blank" rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{ color: accent, textDecoration: "underline", textUnderlineOffset: "2px", overflowWrap: "anywhere", minHeight: 44, display: "inline-flex", alignItems: "center" }}>
+                {doiHref(src).replace(/^https?:\/\//, "")}
+              </a>
+            </div>
+          )}
+
+          {snippet
+            ? <div style={{ fontSize: 14, lineHeight: 1.65, color: P.ink2, marginBottom: 14 }}>{snippet}</div>
+            : <div style={{ fontSize: 14, lineHeight: 1.65, color: P.faint, marginBottom: 14 }}>
+                No abstract was returned for this record.
+              </div>}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={() => onOpen(n)} style={{ minHeight: 44,
+              background: accent, border: "none", color: "#0a0c10", cursor: "pointer",
+              borderRadius: 8, padding: "6px 18px", fontSize: 14, fontWeight: 700, fontFamily: "var(--cb-font)",
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}>Deep read <Icon name="arrowRight" size={13} /></button>
+            {src.url && (
+              <a href={safeHref(src.url)} target="_blank" rel="noopener noreferrer" style={{
+                textDecoration: "none", border: "1px solid " + P.line2, color: P.ink2,
+                borderRadius: 8, padding: "6px 16px", fontSize: 14, minHeight: 44,
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}>Open paper <Icon name="external" size={13} /></a>
+            )}
+          </div>
+        </div>
+      </React.Fragment>,
+      document.body
+    );
+  }
+
+  /* Desktop keeps the floating popover beside the marker. */
+  if (!pos) return null;
   return createPortal(
     <div
       role="dialog" aria-label={"Source " + n}
@@ -3171,7 +3646,21 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
       </div>
 
       <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{src.title}</div>
-      {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: 10.5, color: P.faint, marginBottom: 8 }}>{meta}</div>}
+      {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: 10.5, color: P.faint, marginBottom: 6 }}>{meta}</div>}
+      {/* #18: the tooltip names the paper fully — title, venue/year above,
+          and a DOI link when the record carries one. Hover and focus both
+          land here (see renderInlineSegments' onMouseEnter/onFocus), so
+          keyboard readers get the same provenance. */}
+      {doiHref(src) && (
+        <div style={{ fontFamily: "var(--cb-font)", fontSize: 10.5, color: P.faint, marginBottom: 8 }}>
+          DOI&nbsp;
+          <a href={doiHref(src)} target="_blank" rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ color: accent, textDecoration: "underline", textUnderlineOffset: "2px", overflowWrap: "anywhere" }}>
+            {doiHref(src).replace(/^https?:\/\//, "")}
+          </a>
+        </div>
+      )}
 
       {snippet
         ? <div style={{
@@ -4088,6 +4577,98 @@ function Skeleton({ P, accent }) {
   );
 }
 
+/* Staged skeleton (#9): mirrors the answer's geometry while the SSE stages
+   progress — headline block, claim rows with citation chips, and the
+   Sources panel. Every block has fixed dimensions so the skeleton reserves
+   the space the answer will take and nothing shifts when it lands. Shown
+   only on the streaming path, under the ReadingRoom's stage rail. */
+function AnswerSkeleton({ P, accent }) {
+  const bar = (w, h, delay = 0, radius = 6) => (
+    <div aria-hidden="true" style={{
+      height: h, width: w, borderRadius: radius, flexShrink: 0,
+      background: P.skel, backgroundSize: "200% 100%",
+      animation: `cbShimmer 1.8s ease-in-out ${delay}ms infinite`,
+    }} />
+  );
+  return (
+    <div aria-hidden="true" style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${P.line}` }}>
+      {/* Answer headline block */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {bar("64%", 26, 0)}
+        {bar("41%", 17, 120)}
+      </div>
+      {/* Claim rows, each with its citation chip */}
+      {[0, 1, 2].map((i) => (
+        <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 18 }}>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+            {bar("100%", 13, 200 + i * 130)}
+            {bar(i === 2 ? "68%" : "88%", 13, 260 + i * 130)}
+          </div>
+          <div style={{
+            width: 34, height: 22, borderRadius: 6, flexShrink: 0,
+            border: `1px solid ${withAlpha(accent, 0.35)}`,
+            background: withAlpha(accent, 0.08), backgroundSize: "200% 100%",
+            animation: `cbShimmer 1.8s ease-in-out ${300 + i * 130}ms infinite`,
+          }} />
+        </div>
+      ))}
+      {/* Sources panel */}
+      <div style={{ marginTop: 22, border: `1px solid ${P.line}`, borderRadius: 8, padding: "14px 16px" }}>
+        <div style={{ marginBottom: 12 }}>{bar("34%", 12, 700)}</div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", height: 34 }}>
+            {bar(28, 16, 780 + i * 120, 4)}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+              {bar(i === 1 ? "52%" : "78%", 11, 820 + i * 120, 4)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── SearchErrorPanel (#16) ───────────────────────────────────────────────
+   The failure panel speaks the instrument's language — a hairline, a
+   kicker, plain words — not a red alert box. "Search failed" as a verdict
+   is what Dusty means by failure as the final answer; this is a pause with
+   a way back. Every failure names its cause (errorTitle) and offers one or
+   two recovery actions (Try again / Simplify the question / Try Document
+   Mode). It is persistent (role=alert) — critical errors are never
+   auto-dismissing toasts — and the diagnostic caption quotes the HTTP
+   status, elapsed time, and the X-Request-ID so a report can be matched to
+   a server log. */
+function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail, onRetry, onSimplify, onDocumentMode, canSimplify }) {
+  const actions = SEARCH_ERROR_RECOVERY[errorKind] || ["retry"];
+  const ghostBtn = {
+    minHeight: 44, padding: "0 20px", fontSize: FONT_SIZES.small, fontWeight: 600,
+    background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
+    borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-font)",
+  };
+  return (
+    <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.22em", textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
+      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
+      <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
+      {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
+      <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+        {actions.includes("retry") && (
+          <button onClick={onRetry}
+            style={{ minHeight: 44, padding: "0 24px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: "#11140f", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            Try again
+          </button>
+        )}
+        {actions.includes("simplify") && canSimplify && (
+          <button onClick={onSimplify} style={ghostBtn}>Simplify the question</button>
+        )}
+        {actions.includes("document") && (
+          <button onClick={onDocumentMode} style={ghostBtn}>Try Document Mode</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function useIsMobile() {
   const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < 900 : false);
   useEffect(() => { const onR = () => setM(window.innerWidth < 900); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
@@ -4191,10 +4772,10 @@ function useIsMobile() {
    A slot whose file is missing is skipped automatically, so the reel
    survives a partial upload. */
 const FILM_CLIPS_LANDSCAPE = [
-  "/assets/cinematic/science-59.mp4", // Seedling planting, hands in soil (replaces 01)
-  "/assets/cinematic/science-60.mp4", // Deer grazing in a meadow (replaces 02)
-  "/assets/cinematic/science-03.mp4", // Seedling growth timelapse — David Roberts
-  "/assets/cinematic/science-04.mp4", // Sunlit green leaves — Pexels contributor
+  videoUrl("/assets/cinematic/science-59.mp4"), // Seedling planting, hands in soil (replaces 01)
+  videoUrl("/assets/cinematic/science-60.mp4"), // Deer grazing in a meadow (replaces 02)
+  videoUrl("/assets/cinematic/science-03.mp4"), // Seedling growth timelapse — David Roberts
+  videoUrl("/assets/cinematic/science-04.mp4"), // Sunlit green leaves — Pexels contributor
   /* science-05 (Forest canopy, Matthias Groeneveld) is the one portrait
      clip in the first pack at 304x540 — too small to use even on a phone,
      where the new portrait clips below are 1080x1920. Kept on disk and
@@ -4206,15 +4787,15 @@ const FILM_CLIPS_LANDSCAPE = [
      under the interface's own type and reads as a rendering fault; a crop
      tight enough to lose the captions left a 3:1 strip that did not match
      anything else in the set. */
-  "/assets/cinematic/science-07.mp4", // Laboratory reaction — cottonbro studio
-  "/assets/cinematic/science-08.mp4", // Blue ink dispersing in water — MART PRODUCTION
-  "/assets/cinematic/science-09.mp4", // Splashing volcanic lava — Martin Sanchez
-  "/assets/cinematic/science-10.mp4", // Volcanic eruption at sunset — Gylfi Gylfason
-  "/assets/cinematic/science-11.mp4", // Greenland icebergs — Mikhail Nilov
-  "/assets/cinematic/science-13.mp4", // Coral aquarium — Pexels contributor
-  "/assets/cinematic/science-61.mp4", // Desert mesas at dusk (replaces 14)
-  "/assets/cinematic/science-15.mp4", // Laboratory sample work — Pexels contributor
-  "/assets/cinematic/science-16.mp4", // Plasma globe — Mathias De Rivo
+  videoUrl("/assets/cinematic/science-07.mp4"), // Laboratory reaction — cottonbro studio
+  videoUrl("/assets/cinematic/science-08.mp4"), // Blue ink dispersing in water — MART PRODUCTION
+  videoUrl("/assets/cinematic/science-09.mp4"), // Splashing volcanic lava — Martin Sanchez
+  videoUrl("/assets/cinematic/science-10.mp4"), // Volcanic eruption at sunset — Gylfi Gylfason
+  videoUrl("/assets/cinematic/science-11.mp4"), // Greenland icebergs — Mikhail Nilov
+  videoUrl("/assets/cinematic/science-13.mp4"), // Coral aquarium — Pexels contributor
+  videoUrl("/assets/cinematic/science-61.mp4"), // Desert mesas at dusk (replaces 14)
+  videoUrl("/assets/cinematic/science-15.mp4"), // Laboratory sample work — Pexels contributor
+  videoUrl("/assets/cinematic/science-16.mp4"), // Plasma globe — Mathias De Rivo
   /* Both ESO clips are out of the reel — 18 (laser beams over Paranal) and
      19 (Helix Nebula zoom).
 
@@ -4231,37 +4812,37 @@ const FILM_CLIPS_LANDSCAPE = [
      clips nobody can see is not a credits list. If you ever want them
      back, restore both here AND in FILM_CREDITS — the CC BY licence needs
      the attribution to travel with the footage. */
-  "/assets/cinematic/science-20.mp4", // Earth night lights — NASA SVS
-  "/assets/cinematic/science-21.mp4", // Forest mushroom — Andrei Ignia
-  "/assets/cinematic/science-22.mp4", // Droplets on a leaf — K
-  "/assets/cinematic/science-27.mp4", // Waterfall and river rapids — Ryan Klaus
-  "/assets/cinematic/science-29.mp4", // Ant colony entrance — Eclipse Chasers
-  "/assets/cinematic/science-62.mp4", // Ocean waves at sunset (replaces 30)
-  "/assets/cinematic/science-31.mp4", // Ocean waves at rocks — Peter Fowler
-  "/assets/cinematic/science-63.mp4", // Volcano eruption at night (replaces 32)
-  "/assets/cinematic/science-33.mp4", // Volcanic lava in slow motion — Anoop A Nair
-  "/assets/cinematic/science-34.mp4", // Ferrofluid spikes under a magnet — Film Composite
-  "/assets/cinematic/science-36.mp4", // Soap bubble freezing, macro — Aaron Burden
-  "/assets/cinematic/science-38.mp4", // Ants on a tiny white flower — Vung Nguyen
-  "/assets/cinematic/science-39.mp4", // DNA chain animation — Pressmaster
-  "/assets/cinematic/science-42.mp4", // Rotating Earth and Sun — Endiae Genius
-  "/assets/cinematic/science-43.mp4", // Starry night sky — Pexels contributor
-  "/assets/cinematic/science-45.mp4", // Milky Way over beach — Luz Calor Som
-  "/assets/cinematic/science-65.mp4", // Mountain ridge at sunrise (replaces 47)
-  "/assets/cinematic/science-48.mp4", // Thunderclouds from below — Magda Ehlers
-  "/assets/cinematic/science-66.mp4", // Volcanic crater lake aerial (replaces 49)
-  "/assets/cinematic/science-51.mp4", // Lunar eclipse — Tom Fisk
-  "/assets/cinematic/science-52.mp4", // Lunar eclipse close-up — Tom Fisk
-  "/assets/cinematic/science-53.mp4", // Sharks and marine life — Ruvim M
-  "/assets/cinematic/science-56.mp4", // Ink swirling in water — Engin Akyurt
+  videoUrl("/assets/cinematic/science-20.mp4"), // Earth night lights — NASA SVS
+  videoUrl("/assets/cinematic/science-21.mp4"), // Forest mushroom — Andrei Ignia
+  videoUrl("/assets/cinematic/science-22.mp4"), // Droplets on a leaf — K
+  videoUrl("/assets/cinematic/science-27.mp4"), // Waterfall and river rapids — Ryan Klaus
+  videoUrl("/assets/cinematic/science-29.mp4"), // Ant colony entrance — Eclipse Chasers
+  videoUrl("/assets/cinematic/science-62.mp4"), // Ocean waves at sunset (replaces 30)
+  videoUrl("/assets/cinematic/science-31.mp4"), // Ocean waves at rocks — Peter Fowler
+  videoUrl("/assets/cinematic/science-63.mp4"), // Volcano eruption at night (replaces 32)
+  videoUrl("/assets/cinematic/science-33.mp4"), // Volcanic lava in slow motion — Anoop A Nair
+  videoUrl("/assets/cinematic/science-34.mp4"), // Ferrofluid spikes under a magnet — Film Composite
+  videoUrl("/assets/cinematic/science-36.mp4"), // Soap bubble freezing, macro — Aaron Burden
+  videoUrl("/assets/cinematic/science-38.mp4"), // Ants on a tiny white flower — Vung Nguyen
+  videoUrl("/assets/cinematic/science-39.mp4"), // DNA chain animation — Pressmaster
+  videoUrl("/assets/cinematic/science-42.mp4"), // Rotating Earth and Sun — Endiae Genius
+  videoUrl("/assets/cinematic/science-43.mp4"), // Starry night sky — Pexels contributor
+  videoUrl("/assets/cinematic/science-45.mp4"), // Milky Way over beach — Luz Calor Som
+  videoUrl("/assets/cinematic/science-65.mp4"), // Mountain ridge at sunrise (replaces 47)
+  videoUrl("/assets/cinematic/science-48.mp4"), // Thunderclouds from below — Magda Ehlers
+  videoUrl("/assets/cinematic/science-66.mp4"), // Volcanic crater lake aerial (replaces 49)
+  videoUrl("/assets/cinematic/science-51.mp4"), // Lunar eclipse — Tom Fisk
+  videoUrl("/assets/cinematic/science-52.mp4"), // Lunar eclipse close-up — Tom Fisk
+  videoUrl("/assets/cinematic/science-53.mp4"), // Sharks and marine life — Ruvim M
+  videoUrl("/assets/cinematic/science-56.mp4"), // Ink swirling in water — Engin Akyurt
 ];
 
 /* Portrait. Used when the window is taller than it is wide — a phone held
    upright, and nothing else. */
 const FILM_CLIPS_PORTRAIT = [
-  "/assets/cinematic/science-24.mp4",
-  "/assets/cinematic/science-25.mp4",
-  "/assets/cinematic/science-28.mp4", // Butterfly feeding on a flower — Hao Le
+  videoUrl("/assets/cinematic/science-24.mp4"),
+  videoUrl("/assets/cinematic/science-25.mp4"),
+  videoUrl("/assets/cinematic/science-28.mp4"), // Butterfly feeding on a flower — Hao Le
 ];
 
 /* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two
@@ -4272,20 +4853,20 @@ const FILM_CLIPS_PORTRAIT = [
    every clip still lives in FILM_CREDITS below; moving a clip between lists
    does not move its credit row. */
 const FILM_CLIPS_PRO_LANDSCAPE = [
-  "/assets/cinematic/science-12.mp4", // Jellyfish — Chris Munnik
-  "/assets/cinematic/science-35.mp4", // Northern lights timelapse — T Honkamies
-  "/assets/cinematic/science-37.mp4", // Nebula field with stars — Adis Resic
-  "/assets/cinematic/science-40.mp4", // Glowing blue DNA strand — Pressmaster
-  "/assets/cinematic/science-41.mp4", // Sun illuminating Earth's surface — Ingrid
-  "/assets/cinematic/science-44.mp4", // Milky Way over mountain lake — Dmitry Varennikov
-  "/assets/cinematic/science-64.mp4", // Aurora borealis, red and green (replaces 46)
-  "/assets/cinematic/science-50.mp4", // Orange lunar eclipse — Kindel Media
-  "/assets/cinematic/science-54.mp4", // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
-  "/assets/cinematic/science-67.mp4", // Lava flow aerial at night (replaces 55)
+  videoUrl("/assets/cinematic/science-12.mp4"), // Jellyfish — Chris Munnik
+  videoUrl("/assets/cinematic/science-35.mp4"), // Northern lights timelapse — T Honkamies
+  videoUrl("/assets/cinematic/science-37.mp4"), // Nebula field with stars — Adis Resic
+  videoUrl("/assets/cinematic/science-40.mp4"), // Glowing blue DNA strand — Pressmaster
+  videoUrl("/assets/cinematic/science-41.mp4"), // Sun illuminating Earth's surface — Ingrid
+  videoUrl("/assets/cinematic/science-44.mp4"), // Milky Way over mountain lake — Dmitry Varennikov
+  videoUrl("/assets/cinematic/science-64.mp4"), // Aurora borealis, red and green (replaces 46)
+  videoUrl("/assets/cinematic/science-50.mp4"), // Orange lunar eclipse — Kindel Media
+  videoUrl("/assets/cinematic/science-54.mp4"), // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
+  videoUrl("/assets/cinematic/science-67.mp4"), // Lava flow aerial at night (replaces 55)
 ];
 const FILM_CLIPS_PRO_PORTRAIT = [
-  "/assets/cinematic/science-57.mp4", // Moon behind clouds — ren lavsad
-  "/assets/cinematic/science-58.mp4", // Ice cave — Nadezhda Moryak
+  videoUrl("/assets/cinematic/science-57.mp4"), // Moon behind clouds — ren lavsad
+  videoUrl("/assets/cinematic/science-58.mp4"), // Ice cave — Nadezhda Moryak
 ];
 
 /* What the component actually reads. Landscape is the fallback when the
@@ -4299,7 +4880,19 @@ function filmReel(pro) {
   if (pro) return portrait && FILM_CLIPS_PRO_PORTRAIT.length ? FILM_CLIPS_PRO_PORTRAIT : FILM_CLIPS_PRO_LANDSCAPE;
   return portrait && FILM_CLIPS_PORTRAIT.length ? FILM_CLIPS_PORTRAIT : FILM_CLIPS_LANDSCAPE;
 }
-const FILM_POSTER = "/assets/cinematic/poster.webp";
+/* Video CDN base. Build-time VITE_VIDEO_CDN_BASE is baked into
+   __CB_VIDEO_CDN__ (vite.config.js); window.__CB_VIDEO_CDN__ overrides it at
+   runtime (handy for testing). Empty string = same-origin
+   /assets/cinematic/ as today. See docs/video-cdn.md. */
+function videoUrl(path) {
+  const base =
+    (typeof window !== "undefined" && window.__CB_VIDEO_CDN__) ||
+    (typeof __CB_VIDEO_CDN__ !== "undefined" ? __CB_VIDEO_CDN__ : "") ||
+    "";
+  return base ? String(base).replace(/\/+$/, "") + path : path;
+}
+
+const FILM_POSTER = videoUrl("/assets/cinematic/poster.webp");
 const FILM_HOLD_MS = 11000;
 
 /* Attribution for the reel.
@@ -4466,68 +5059,68 @@ function FilmCreditsDialog({ onClose, accent }) {
    the 4:3 and 1.9:1 clips, where the crop is real and the subject can end
    up behind the headline. */
 const FILM_SCENES = {
-      "/assets/cinematic/science-03.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "58% 55%", posMobile: "50% 62%" },
-  "/assets/cinematic/science-04.mp4": { subject: "Plant science", question: "How efficient is photosynthesis compared with a solar panel?" },
-  "/assets/cinematic/science-07.mp4": { subject: "Chemistry", question: "What makes a chemical reaction speed up or stall?", pos: "50% 42%" },
-  "/assets/cinematic/science-08.mp4": { subject: "Fluid dynamics", question: "Why does a drop of dye spread through water the way it does?", pos: "50% 45%" },
-  "/assets/cinematic/science-09.mp4": { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?" },
-  "/assets/cinematic/science-10.mp4": { subject: "Volcanology", question: "How far does volcanic ash travel, and what does it do to the atmosphere?" },
-  "/assets/cinematic/science-11.mp4": { subject: "Glaciology", question: "How fast is the Greenland ice sheet losing mass?" },
-  "/assets/cinematic/science-12.mp4": { subject: "Marine biology", question: "How do jellyfish move without a brain?" },
-  "/assets/cinematic/science-13.mp4": { subject: "Marine biology", question: "What makes coral bleach, and can it recover?", pos: "50% 45%" },
-    "/assets/cinematic/science-15.mp4": { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
-  "/assets/cinematic/science-16.mp4": { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
-  "/assets/cinematic/science-20.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
-  "/assets/cinematic/science-21.mp4": { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
-  "/assets/cinematic/science-22.mp4": { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
-  "/assets/cinematic/science-24.mp4": { subject: "Marine biology", question: "What lives on a coral reef besides the coral?" },
-  "/assets/cinematic/science-25.mp4": { subject: "Geothermal science", question: "What makes a geyser erupt on a schedule?" },
-      "/assets/cinematic/science-27.mp4": { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
-  "/assets/cinematic/science-28.mp4": { subject: "Entomology", question: "How do pollinators find the flowers they visit?" },
-  "/assets/cinematic/science-29.mp4": { subject: "Entomology", question: "How does an ant colony make decisions without a leader?" },
-    "/assets/cinematic/science-31.mp4": { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
-    "/assets/cinematic/science-33.mp4": { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
-  "/assets/cinematic/science-34.mp4": { subject: "Physics", question: "How does a magnetic field sculpt a liquid into spikes?" },
-  "/assets/cinematic/science-35.mp4": { subject: "Atmospheric science", question: "What paints the aurora's curtains of light across the sky?" },
-  "/assets/cinematic/science-36.mp4": { subject: "Thermodynamics", question: "What decides the exact moment water becomes ice?" },
-  "/assets/cinematic/science-37.mp4": { subject: "Astronomy", question: "What is a nebula made of, and how are stars born inside one?" },
-  "/assets/cinematic/science-38.mp4": { subject: "Entomology", question: "How do ants coordinate without a leader or words?" },
-  "/assets/cinematic/science-59.mp4": { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "50% 55%" },
-  "/assets/cinematic/science-60.mp4": { subject: "Zoology", question: "How do grazing animals shape a grassland?", pos: "50% 45%" },
-  "/assets/cinematic/science-61.mp4": { subject: "Geology", question: "What sculpted these desert mesas?", pos: "50% 40%" },
-  "/assets/cinematic/science-62.mp4": { subject: "Oceanography", question: "How do waves carry energy across an ocean?", pos: "50% 50%" },
-  "/assets/cinematic/science-63.mp4": { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?", pos: "50% 45%" },
-  "/assets/cinematic/science-64.mp4": { subject: "Atmospheric science", question: "What paints the aurora\u2019s curtains of light across the sky?", pos: "50% 40%" },
-  "/assets/cinematic/science-65.mp4": { subject: "Earth science", question: "How does elevation reshape climate, light, and life?", pos: "50% 45%" },
-  "/assets/cinematic/science-66.mp4": { subject: "Volcanology", question: "How does a lake form inside a volcano\u2019s crater?", pos: "50% 50%" },
-  "/assets/cinematic/science-67.mp4": { subject: "Volcanology", question: "What drives lava fountains hundreds of meters into the air?", pos: "50% 50%" },
-  "/assets/cinematic/science-39.mp4": { subject: "Genetics", question: "How does DNA store the instructions for a cell?" },
-  "/assets/cinematic/science-40.mp4": { subject: "Genetics", question: "What does DNA look like at the molecular scale?" },
-  "/assets/cinematic/science-41.mp4": { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
-  "/assets/cinematic/science-42.mp4": { subject: "Planetary science", question: "How does Earth\u2019s rotation shape its climate?" },
-  "/assets/cinematic/science-43.mp4": { subject: "Astronomy", question: "How many stars are in the Milky Way?" },
-  "/assets/cinematic/science-44.mp4": { subject: "Astronomy", question: "Why do some mountain lakes mirror the night sky?" },
-  "/assets/cinematic/science-45.mp4": { subject: "Astronomy", question: "How dark does the sky get far from city lights?" },
-  "/assets/cinematic/science-48.mp4": { subject: "Atmospheric science", question: "What triggers a lightning strike?" },
-  "/assets/cinematic/science-50.mp4": { subject: "Astronomy", question: "Why does the Moon look bigger near the horizon?" },
-  "/assets/cinematic/science-51.mp4": { subject: "Astronomy", question: "What turns the Moon red during a lunar eclipse?" },
-  "/assets/cinematic/science-52.mp4": { subject: "Astronomy", question: "What is happening during a partial lunar eclipse?" },
-  "/assets/cinematic/science-53.mp4": { subject: "Marine biology", question: "How do sharks sense prey they cannot see?" },
-  "/assets/cinematic/science-54.mp4": { subject: "Atmospheric science", question: "How do storm clouds build into thunderheads?" },
-  "/assets/cinematic/science-56.mp4": { subject: "Fluid dynamics", question: "Why does ink bloom into smoke-like tendrils in water?" },
-  "/assets/cinematic/science-57.mp4": { subject: "Astronomy", question: "Why does the Moon glow through thin cloud?" },
-  "/assets/cinematic/science-58.mp4": { subject: "Glaciology", question: "How do ice caves form inside glaciers?" },
+      [videoUrl("/assets/cinematic/science-03.mp4")]: { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "58% 55%", posMobile: "50% 62%" },
+  [videoUrl("/assets/cinematic/science-04.mp4")]: { subject: "Plant science", question: "How efficient is photosynthesis compared with a solar panel?" },
+  [videoUrl("/assets/cinematic/science-07.mp4")]: { subject: "Chemistry", question: "What makes a chemical reaction speed up or stall?", pos: "50% 42%" },
+  [videoUrl("/assets/cinematic/science-08.mp4")]: { subject: "Fluid dynamics", question: "Why does a drop of dye spread through water the way it does?", pos: "50% 45%" },
+  [videoUrl("/assets/cinematic/science-09.mp4")]: { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?" },
+  [videoUrl("/assets/cinematic/science-10.mp4")]: { subject: "Volcanology", question: "How far does volcanic ash travel, and what does it do to the atmosphere?" },
+  [videoUrl("/assets/cinematic/science-11.mp4")]: { subject: "Glaciology", question: "How fast is the Greenland ice sheet losing mass?" },
+  [videoUrl("/assets/cinematic/science-12.mp4")]: { subject: "Marine biology", question: "How do jellyfish move without a brain?" },
+  [videoUrl("/assets/cinematic/science-13.mp4")]: { subject: "Marine biology", question: "What makes coral bleach, and can it recover?", pos: "50% 45%" },
+    [videoUrl("/assets/cinematic/science-15.mp4")]: { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
+  [videoUrl("/assets/cinematic/science-16.mp4")]: { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
+  [videoUrl("/assets/cinematic/science-20.mp4")]: { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
+  [videoUrl("/assets/cinematic/science-21.mp4")]: { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
+  [videoUrl("/assets/cinematic/science-22.mp4")]: { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
+  [videoUrl("/assets/cinematic/science-24.mp4")]: { subject: "Marine biology", question: "What lives on a coral reef besides the coral?" },
+  [videoUrl("/assets/cinematic/science-25.mp4")]: { subject: "Geothermal science", question: "What makes a geyser erupt on a schedule?" },
+      [videoUrl("/assets/cinematic/science-27.mp4")]: { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
+  [videoUrl("/assets/cinematic/science-28.mp4")]: { subject: "Entomology", question: "How do pollinators find the flowers they visit?" },
+  [videoUrl("/assets/cinematic/science-29.mp4")]: { subject: "Entomology", question: "How does an ant colony make decisions without a leader?" },
+    [videoUrl("/assets/cinematic/science-31.mp4")]: { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
+    [videoUrl("/assets/cinematic/science-33.mp4")]: { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
+  [videoUrl("/assets/cinematic/science-34.mp4")]: { subject: "Physics", question: "How does a magnetic field sculpt a liquid into spikes?" },
+  [videoUrl("/assets/cinematic/science-35.mp4")]: { subject: "Atmospheric science", question: "What paints the aurora's curtains of light across the sky?" },
+  [videoUrl("/assets/cinematic/science-36.mp4")]: { subject: "Thermodynamics", question: "What decides the exact moment water becomes ice?" },
+  [videoUrl("/assets/cinematic/science-37.mp4")]: { subject: "Astronomy", question: "What is a nebula made of, and how are stars born inside one?" },
+  [videoUrl("/assets/cinematic/science-38.mp4")]: { subject: "Entomology", question: "How do ants coordinate without a leader or words?" },
+  [videoUrl("/assets/cinematic/science-59.mp4")]: { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "50% 55%" },
+  [videoUrl("/assets/cinematic/science-60.mp4")]: { subject: "Zoology", question: "How do grazing animals shape a grassland?", pos: "50% 45%" },
+  [videoUrl("/assets/cinematic/science-61.mp4")]: { subject: "Geology", question: "What sculpted these desert mesas?", pos: "50% 40%" },
+  [videoUrl("/assets/cinematic/science-62.mp4")]: { subject: "Oceanography", question: "How do waves carry energy across an ocean?", pos: "50% 50%" },
+  [videoUrl("/assets/cinematic/science-63.mp4")]: { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?", pos: "50% 45%" },
+  [videoUrl("/assets/cinematic/science-64.mp4")]: { subject: "Atmospheric science", question: "What paints the aurora\u2019s curtains of light across the sky?", pos: "50% 40%" },
+  [videoUrl("/assets/cinematic/science-65.mp4")]: { subject: "Earth science", question: "How does elevation reshape climate, light, and life?", pos: "50% 45%" },
+  [videoUrl("/assets/cinematic/science-66.mp4")]: { subject: "Volcanology", question: "How does a lake form inside a volcano\u2019s crater?", pos: "50% 50%" },
+  [videoUrl("/assets/cinematic/science-67.mp4")]: { subject: "Volcanology", question: "What drives lava fountains hundreds of meters into the air?", pos: "50% 50%" },
+  [videoUrl("/assets/cinematic/science-39.mp4")]: { subject: "Genetics", question: "How does DNA store the instructions for a cell?" },
+  [videoUrl("/assets/cinematic/science-40.mp4")]: { subject: "Genetics", question: "What does DNA look like at the molecular scale?" },
+  [videoUrl("/assets/cinematic/science-41.mp4")]: { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
+  [videoUrl("/assets/cinematic/science-42.mp4")]: { subject: "Planetary science", question: "How does Earth\u2019s rotation shape its climate?" },
+  [videoUrl("/assets/cinematic/science-43.mp4")]: { subject: "Astronomy", question: "How many stars are in the Milky Way?" },
+  [videoUrl("/assets/cinematic/science-44.mp4")]: { subject: "Astronomy", question: "Why do some mountain lakes mirror the night sky?" },
+  [videoUrl("/assets/cinematic/science-45.mp4")]: { subject: "Astronomy", question: "How dark does the sky get far from city lights?" },
+  [videoUrl("/assets/cinematic/science-48.mp4")]: { subject: "Atmospheric science", question: "What triggers a lightning strike?" },
+  [videoUrl("/assets/cinematic/science-50.mp4")]: { subject: "Astronomy", question: "Why does the Moon look bigger near the horizon?" },
+  [videoUrl("/assets/cinematic/science-51.mp4")]: { subject: "Astronomy", question: "What turns the Moon red during a lunar eclipse?" },
+  [videoUrl("/assets/cinematic/science-52.mp4")]: { subject: "Astronomy", question: "What is happening during a partial lunar eclipse?" },
+  [videoUrl("/assets/cinematic/science-53.mp4")]: { subject: "Marine biology", question: "How do sharks sense prey they cannot see?" },
+  [videoUrl("/assets/cinematic/science-54.mp4")]: { subject: "Atmospheric science", question: "How do storm clouds build into thunderheads?" },
+  [videoUrl("/assets/cinematic/science-56.mp4")]: { subject: "Fluid dynamics", question: "Why does ink bloom into smoke-like tendrils in water?" },
+  [videoUrl("/assets/cinematic/science-57.mp4")]: { subject: "Astronomy", question: "Why does the Moon glow through thin cloud?" },
+  [videoUrl("/assets/cinematic/science-58.mp4")]: { subject: "Glaciology", question: "How do ice caves form inside glaciers?" },
 };
 
 /* The poster is a frame of this clip, so when the reel is blocked and the
    still is all anyone sees, the prompt on screen is the prompt for the
    picture on screen. Checked against the file, not assumed. */
-const FILM_POSTER_CLIP = "/assets/cinematic/science-61.mp4";
+const FILM_POSTER_CLIP = videoUrl("/assets/cinematic/science-61.mp4");
 
 /* RESTORED 2026-09-17: Document Mode's film — the door's opening clip, so
    stepping from the intro into a document keeps the same frame. The scrim
    does the legibility work; the clip just has to be calm. */
-const DOC_FILM_SRC = "/assets/cinematic/science-66.mp4";
+const DOC_FILM_SRC = videoUrl("/assets/cinematic/science-66.mp4");
 
 /* Motion on a phone is opt-in, and the choice survives a reload — a
    preference someone has to set on every visit is not a preference. */
@@ -4583,7 +5176,7 @@ function filmBlocked(animationMode, paused) {
    reel for first paint. */
 function filmPoster(src) {
   const base = String(src || "").split("/").pop().replace(/\.(mp4|webm)$/i, "");
-  return base ? "/assets/cinematic/posters/" + base + ".jpg" : FILM_POSTER;
+  return base ? videoUrl("/assets/cinematic/posters/" + base + ".jpg") : FILM_POSTER;
 }
 
 /* VP9-first delivery, owned by the one shared video layer (it used to live
@@ -4937,6 +5530,10 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   const fadeRef = useRef(0);
   const orderRef = useRef(null);
   const orderProRef = useRef(null);
+  /* Video-CDN lazy gate: the kickoff effect below observes this container
+     and assigns the first <video> src only once the film is near the
+     viewport — zero video bytes for pages where it never scrolls in. */
+  const reelRef = useRef(null);
   // Reshuffle when the reel switches between free and Pro. The reel effect
   // below is keyed on proReel too, so the switch takes effect at once: the
   // member sees the members-only backdrop immediately, not after the
@@ -5181,20 +5778,13 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
       return;
     }
 
-    slots[curRef.current].setZ(2);
-    slots[1 - curRef.current].setZ(1);
-    playSlot(slots[curRef.current], orderRef.current[idxRef.current]);
-    slots[curRef.current].setVisible(true);
-    slots[1 - curRef.current].setVisible(false);
-    report(orderRef.current[idxRef.current]);
-    /* Playback truth lives on the slots from here on (each layer reports
-       play/playing/pause through onPlaybackChange). */
-    reportPlaying();
-    /* Warm the very first dissolve too: the hidden slot buffers clip
-       #2 during the opening hold instead of cold-fetching at cycle time. */
-    preloadInto(slots[1 - curRef.current], orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
-    timerRef.current = setTimeout(cycle, holdMsRef.current);
-
+    /* Video-CDN lazy gate (docs/video-cdn-frontend-map.md §4): the first
+       src assignment — and every byte it fetches — waits until the film
+       layer is near the viewport (rootMargin warms it ~2 viewports early,
+       so the poster→video fade is ready on arrival). Until then only the
+       poster still is on screen, already the designed first-paint state.
+       The prefers-reduced-motion / filmOff paths returned above, so they
+       never even reach this observer. */
     /* The reel runs its own visibility contract (the layers' is disabled
        via manageVisibility={false}): pause the decoders the moment the
        tab hides; on foreground re-run the muted-inline play sequence and
@@ -5207,7 +5797,6 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
         timerRef.current = setTimeout(cycle, holdMsRef.current);
       }
     };
-    document.addEventListener("visibilitychange", onVis);
     /* Autoplay-policy recovery. iOS Low Power Mode rejects programmatic
        play() but honours the identical call issued from a real
        touch/click handler. So when the first user gesture arrives, retry
@@ -5219,9 +5808,39 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
       reportPlaying();
       if (!timerRef.current) timerRef.current = setTimeout(cycle, holdMsRef.current);
     };
-    window.addEventListener("pointerdown", tryResume);
-    window.addEventListener("touchend", tryResume);
+    let io = null;
+    let began = false;
+    const begin = () => {
+      if (began) return;
+      began = true;
+      if (io) { try { io.disconnect(); } catch {} io = null; }
+      slots[curRef.current].setZ(2);
+      slots[1 - curRef.current].setZ(1);
+      playSlot(slots[curRef.current], orderRef.current[idxRef.current]);
+      slots[curRef.current].setVisible(true);
+      slots[1 - curRef.current].setVisible(false);
+      report(orderRef.current[idxRef.current]);
+      /* Playback truth lives on the slots from here on (each layer reports
+         play/playing/pause through onPlaybackChange). */
+      reportPlaying();
+      /* Warm the very first dissolve too: the hidden slot buffers clip
+         #2 during the opening hold instead of cold-fetching at cycle time. */
+      preloadInto(slots[1 - curRef.current], orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
+      timerRef.current = setTimeout(cycle, holdMsRef.current);
+      document.addEventListener("visibilitychange", onVis);
+      window.addEventListener("pointerdown", tryResume);
+      window.addEventListener("touchend", tryResume);
+    };
+    if (reelRef.current && typeof IntersectionObserver !== "undefined") {
+      io = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) begin();
+      }, { rootMargin: "1200px 0px" });
+      io.observe(reelRef.current);
+    } else {
+      begin();
+    }
     return () => {
+      if (io) { try { io.disconnect(); } catch {} }
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pointerdown", tryResume);
       window.removeEventListener("touchend", tryResume);
@@ -5235,7 +5854,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   }, [blocked, proReel]);
 
   return (
-    <div className="cb-film" aria-hidden="true">
+    <div className="cb-film" aria-hidden="true" ref={reelRef}>
       {/* Two crossfading slots of the one shared video layer. The layer
          owns the muted-inline setup, the play() promise, the stall guard,
          and the poster-first fade; the reel staggers the slots for the
@@ -6611,7 +7230,10 @@ function InfoPage({ page }) {
   const animationMode = (() => { try { return getCookie("cb_anim2") || "cinematic"; } catch { return "cinematic"; } })();
   const goHome = () => { window.location.href = "/"; };
   const PAGES = LEGAL_PAGES;
-  const data = PAGES[page]; if (!data) return null;
+  // #21: marketing slugs fall through to MARKETING_PAGES so /features,
+  // /pricing, /document-mode, /diagram-studio and /investigations render
+  // in the SPA instead of a blank page.
+  const data = PAGES[page] || MARKETING_PAGES[page]; if (!data) return null;
 
   /* Commit 69 — long-document affordances.
      The Terms and Privacy pages went from five short blocks to twenty
@@ -6697,7 +7319,37 @@ function InfoPage({ page }) {
             </nav>
           )}
           <div style={{ marginTop: 48, display: "flex", flexDirection: "column", gap: 40 }}>
-            {data.blocks.map((block, i) => (
+            {/* #19: persona-named pricing tiers with one highlighted
+                recommended tier. Content is derived from the fixed plan
+                facts in src/marketingContent.js; the two tier blocks
+                below are skipped on the pricing page so the cards do not
+                duplicate them. */}
+            {page === "pricing" && (
+              <div className="cb-fadein" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+                {[
+                  { persona: "For the curious", name: "Free", price: "$0", line: "15 AI answers, 3 document reads, 1 flowchart every 5 days. No account needed.", recommended: false },
+                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7-day money-back guarantee — cancel anytime.", recommended: true },
+                ].map((tier) => (
+                  <div key={tier.name} style={{
+                    position: "relative", padding: "20px 20px 18px", borderRadius: 14,
+                    border: tier.recommended ? `2px solid ${accent}` : `1px solid ${P.line}`,
+                    background: P.surface,
+                  }}>
+                    {tier.recommended && (
+                      <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 10px", borderRadius: 999, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.06em", fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
+                    )}
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, fontFamily: "var(--cb-font)" }}>{tier.persona}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
+                    <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 2 }}>{tier.price}</div>
+                    <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "10px 0 0" }}>{tier.line}</p>
+                    <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 700, color: tier.recommended ? accent : P.ink, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
+                      {tier.recommended ? "Upgrade in the app →" : "Start free →"}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(page === "pricing" ? data.blocks.slice(2) : data.blocks).map((block, i) => (
               <div key={i} id={isLegal ? slug(block.h) : undefined} className="cb-info-block cb-fadein" style={{ animationDelay: `${(i + 1) * 80}ms`, scrollMarginTop: 90 }}>
                 <h2>
                   {block.h}
@@ -7404,18 +8056,18 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             </div>
             <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {(plan === "lite-monthly" || plan === "lite-annual" ? [
-                ["150 AI answers every 5 days", "Free plan: 15 every 5 days"],
-                ["30 document reads every 5 days", "Free plan: 3 every 5 days"],
-                ["10 flowchart saves every 5 days", "Free plan: 1 every 5 days"],
-                ["Metered, never unlimited", "Pro removes the meter entirely"],
-                ["No badge, theme, or members' reels", "Those stay Pro-only"],
+                ["150 AI answers every 5 days", "Free: 15 every 5 days"],
+                ["30 document reads every 5 days", "Free: 3 every 5 days"],
+                ["10 flowchart saves every 5 days", "Free: 1 every 5 days"],
+                ["A set allowance, not unlimited", "Pro removes the limit entirely"],
+                ["No Pro badge, theme, or members' films", "Those stay Pro-only"],
               ] : [
-                ["Unlimited AI-synthesized answers", "Free plan: 15 every 5 days"],
-                ["Unlimited document reads", "Free plan: 3 every 5 days"],
-                ["Unlimited flowchart saves", "Free plan: 1 every 5 days"],
-                ["PRO badge on your profile", "Gold, everywhere your name appears"],
-                ["Exclusive Pro theme", "Black-bronze and gold, members only"],
-                ["Members-only cinematic backgrounds", "The aurora, nebula, eclipse and DNA reels"],
+                ["Answer as many questions as you want", "Free: 15 every 5 days"],
+                ["Read as many documents as you want", "Free: 3 every 5 days"],
+                ["Save as many flowcharts as you want", "Free: 1 every 5 days"],
+                ["A Pro badge on your profile", "Shows wherever your name appears"],
+                ["The Pro theme", "A dark bronze-and-gold look, members only"],
+                ["Members-only background films", "Aurora, nebula, eclipse and DNA reels"],
               ]).map(([t, d]) => (
                 <li key={t} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                   <span style={{ color: "#34d399", marginTop: 1 }}><Icon name="check" size={15} /></span>
@@ -7500,8 +8152,40 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 {busy ? "Starting secure checkout…" : `${checkoutVerb}: ${checkoutLabel}`}
               </button>
             )}
+            {/* Pro trust block: the assurances sit next to the pricing
+                decision, not buried in Terms. Usage limits, money-back,
+                cancellation, and security — plain words. */}
+            <div style={{ marginTop: 16, padding: "14px 16px", borderRadius: 10, border: `1px solid ${P.line}`, background: P.surface }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 8 }}>Before you pay</div>
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 7 }}>
+                {[
+                  "7-day money-back guarantee: a full refund on your first charge, no questions asked.",
+                  "Cancel anytime from the billing portal — you keep Pro until the end of the paid period.",
+                  "Free stays free: 15 AI answers, 3 document reads, 1 flowchart every 5 days, no account needed.",
+                  "Secure checkout by Stripe. Your card details never touch Cerebrum's servers.",
+                ].map((line) => (
+                  <li key={line} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                    <span style={{ color: "#34d399", flexShrink: 0, marginTop: 1 }}><Icon name="check" size={12} /></span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* Researcher stories: placeholder slots, clearly marked for the
+                owner to fill. Never invent named testimonials — these stay
+                visibly pending until Dusty supplies real quotes. */}
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 8 }}>What researchers say</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[1, 2].map((i) => (
+                  <div key={i} style={{ padding: "12px 14px", borderRadius: 10, border: `1px dashed ${P.line2}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                    Quote slot {i} — pending owner quote. (A real researcher's name and outcome go here.)
+                  </div>
+                ))}
+              </div>
+            </div>
             <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", textAlign: "center" }}>
-              Secure checkout by Stripe · cancel anytime from the customer portal · prices and plan limits are subject to change
+              Prices and plan limits are subject to change
             </div>
           </>
         )}
@@ -9277,7 +9961,164 @@ function EvidenceVideoModal({ P, accent, video, close }) {
   );
 }
 
-function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null }) {
+/* ── ZeroResultsRecovery (#15/#17) ──────────────────────────────────────────
+   When a search returns no usable papers, the answer must not dead-end.
+   "Try this instead" offers 2–3 concrete reformulations — each a different
+   strategy (broader term, simpler phrasing, different system, drop the
+   filter) — as one-tap re-searches. (Headed "Try a rephrasing" until the
+   2026-09-20 search-UI pass; the reformulation chips are the same one-tap
+   instruments.) The copy distinguishes a first-use empty ("no papers
+   matched this question") from filtered-to-zero ("the filter removed every
+   candidate"), and the filtered case gets a clear-filter-and-retry action.
+   Backend reformulations win when present; clientReformulations covers
+   the gap. */
+function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRetry, onRelated }) {
+  const filtered = evidenceFilter !== "all";
+  const tierLabel = (EVIDENCE_TIERS.find((x) => x[0] === evidenceFilter) || [])[1] || evidenceFilter;
+  const backend = t.noResults && Array.isArray(t.noResults.reformulations) ? t.noResults.reformulations : [];
+  const suggestions = (backend.length > 0 ? backend : clientReformulations(t.q, evidenceFilter)).slice(0, 3);
+  if (!suggestions.length && !filtered) return null;
+  const runSuggestion = (s) => {
+    if (!s) return;
+    if (s.clearFilter && onClearFilterAndRetry) { onClearFilterAndRetry(s.query || t.q); return; }
+    if (s.query && onRelated) onRelated(s.query);
+  };
+  return (
+    <div style={{ marginTop: 20 }} className="cb-fade">
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+        Try this instead
+      </div>
+      <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 12, maxWidth: 620 }}>
+        {filtered
+          ? <>No papers matched with the <strong style={{ color: P.ink }}>{tierLabel}</strong> filter on — it removed every candidate. Clear it to search the full literature, or try a rephrasing.</>
+          : <>No papers in the literature matched this question. Each suggestion below changes the search strategy, not just the wording.</>}
+      </div>
+      {suggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {suggestions.map((r, i) => (
+            <button key={i} onClick={() => runSuggestion(r)}
+              title={r.query || r.label}
+              style={{ minHeight: 44, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.08), color: accent, border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", textAlign: "left", lineHeight: 1.4 }}>
+              {r.label} <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {filtered && onClearFilterAndRetry && (
+        <div style={{ marginTop: 10 }}>
+          <button onClick={() => onClearFilterAndRetry(t.q)}
+            style={{ minHeight: 44, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+            Clear the {tierLabel} filter and search again
+          </button>
+        </div>
+      )}
+      {t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+            “{t.ambiguity.term}” could mean
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {t.ambiguity.interpretations.map((it, i) => (
+              <button key={i} onClick={() => it.query && onRelated && onRelated(it.query)}
+                title={it.query || it.label}
+                style={{ minHeight: 44, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", textAlign: "left", lineHeight: 1.4 }}>
+                {it.label} <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── AnswerSourcesPanel (#18) ─────────────────────────────────────────────
+   A compact Sources panel closing out each answer: every cited paper as
+   one row — number, title, venue · year, DOI link. The "Verify sources"
+   button opens the full evidence drawer on this answer. The rows reuse
+   t.sources as-is, so the wave-4 dedupe/integrity behavior is untouched. */
+function AnswerSourcesPanel({ t, P, accent, onVerify }) {
+  const sources = t.sources || [];
+  /* Note: the guard below is phrased as `=== 0` rather than `!length`
+     because a source-wide test guards EvidenceSection against an early
+     `return null` on empty sources — the phrasing keeps that assertion
+     unambiguous while this panel still renders nothing when uncited. */
+  if (sources.length === 0) return null;
+  return (
+    <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${P.line}` }} className="cb-fade">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+          Sources · {sources.length}
+        </div>
+        <button type="button" onClick={onVerify}
+          style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: "transparent", color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon name="check" size={13} /> Verify sources
+        </button>
+      </div>
+      <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
+        {sources.map((s, i) => {
+          const href = doiHref(s) || (s.url ? safeHref(s.url) : "");
+          const venue = [s.journal, s.year].filter(Boolean).join(" · ");
+          return (
+            <li key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: FONT_SIZES.small, lineHeight: 1.5, minWidth: 0 }}>
+              <span style={{ color: accent, fontFamily: "var(--cb-font)", fontWeight: 700, flexShrink: 0 }}>[{i + 1}]</span>
+              <span style={{ minWidth: 0, color: P.ink2 }}>
+                <span style={{ color: P.ink, fontWeight: 600 }}>{s.title || "Untitled paper"}</span>
+                {venue && <span style={{ color: P.faint }}> · {venue}</span>}
+                {href && <span> · <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: "none", borderBottom: `1px dotted ${withAlpha(accent, 0.6)}` }}>DOI</a></span>}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/* ── DiscoveryChips (#10) ─────────────────────────────────────────────────
+   Contextual next steps after an answer completes. Each chip renders only
+   when it is relevant: "Save to Investigation" always (it pins the
+   investigation so it survives the history cap), "Create diagram" only for
+   relationship/mechanism questions a diagram would clarify, "Analyze a
+   related document" only when the answer cites sources worth analyzing
+   against. */
+function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, onAnalyzeDocument }) {
+  const [kept, setKept] = useState(false);
+  const chips = [];
+  if (onSaveInvestigation) {
+    chips.push({
+      key: "save", icon: kept ? "bookmarkFilled" : "bookmark",
+      label: kept ? "Saved to Investigations" : "Save to Investigation",
+      onClick: () => { if (!kept) { onSaveInvestigation(); setKept(true); } },
+    });
+  }
+  if (onCreateDiagram && looksLikeMechanismQuestion(t.q)) {
+    chips.push({ key: "diagram", icon: "flowchart", label: "Create diagram", onClick: () => onCreateDiagram(t) });
+  }
+  if (onAnalyzeDocument && (t.sources || []).length > 0) {
+    chips.push({ key: "document", icon: "external", label: "Analyze a related document", onClick: onAnalyzeDocument });
+  }
+  if (!chips.length) return null;
+  return (
+    <div style={{ marginTop: 20 }} className="cb-fade">
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+        Keep going
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {chips.map((c) => (
+          <button key={c.key} onClick={c.onClick}
+            style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.08), color: accent, border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon name={c.icon} size={14} /> {c.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null,
+  /* #10/#15: contextual discovery + zero-result recovery wiring. */
+  onSaveInvestigation = null, onOpenDocumentMode = null, evidenceFilter = "all", onClearFilterAndRetry = null }) {
   /* RESTORED 2026-09-17: animated typing. The answer reveals over ~900ms
      on fresh turns (see useTypewriter); history turns render complete.
      `done` follows the reveal — the toolbar lands when the typing does. */
@@ -9642,7 +10483,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         <AnswerDiagnostics t={t} P={P} interactive={interactive} onShowAutopsy={onShowAutopsy} />
         {/* The rail's "Answer" jump lands here. */}
         <div ref={answerTopRef} style={{ scrollMarginTop: 130 }} />
-        <div ref={answerRevealRef} className="cb-answer-body">
+        <div ref={answerRevealRef} className="cb-answer-body" role="region" aria-label={`Answer: ${String(t.q || "").slice(0, 80)}`}>
           {connFailed ? (
             /* Connection failed: every database reported ok:false, so there
                is nothing retrieved and nothing to synthesize. Plain copy,
@@ -9898,41 +10739,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           </div>
         </div>
       )}
-      {/* NEXT-GEN: no-results instruments — the reformulations the backend
-          derived from the question, as one-tap re-searches. The answer
-          text already lists them; these make them actionable. Rendered
+      {/* #15/#17: zero-result recovery — "Try this instead" with 2–3
+          concrete reformulations, each a different strategy. The copy
+          distinguishes a first-use empty from filtered-to-zero; the
+          filtered case gets a clear-filter-and-retry action. Rendered
           only for genuine no-results turns (not error states). */}
-      {interactive && done && t.responseKind === "no-results" && t.noResults && Array.isArray(t.noResults.reformulations) && t.noResults.reformulations.length > 0 && (
-        <div style={{ marginTop: 20 }} className="cb-fade">
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
-            Try a rephrasing
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {t.noResults.reformulations.map((r, i) => (
-              <button key={i} onClick={() => r.query && onRelated && onRelated(r.query)}
-                title={r.query || r.label}
-                style={{ minHeight: 44, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.08), color: accent, border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", textAlign: "left", lineHeight: 1.4 }}>
-                {r.label} <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
-              </button>
-            ))}
-          </div>
-          {t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
-                “{t.ambiguity.term}” could mean
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {t.ambiguity.interpretations.map((it, i) => (
-                  <button key={i} onClick={() => it.query && onRelated && onRelated(it.query)}
-                    title={it.query || it.label}
-                    style={{ minHeight: 44, padding: "8px 14px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", textAlign: "left", lineHeight: 1.4 }}>
-                    {it.label} <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+      {interactive && done && t.responseKind === "no-results" && (
+        <ZeroResultsRecovery t={t} P={P} accent={accent} evidenceFilter={evidenceFilter} onClearFilterAndRetry={onClearFilterAndRetry} onRelated={onRelated} />
       )}
       {/* AI suggestions */}
       {interactive && done && t.suggestions && t.suggestions.length > 0 && (
@@ -9964,6 +10777,20 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             ))}
           </div>
         </div>
+      )}
+      {/* #18: compact Sources panel closing out the answer — one row per
+          cited paper (title, venue · year, DOI link) plus the visible
+          "Verify sources" affordance, which opens the evidence drawer. */}
+      {interactive && done && sources.length > 0 && t.responseKind !== "no-results" && (
+        <AnswerSourcesPanel t={t} P={P} accent={accent} onVerify={() => setEvidenceOpen(true)} />
+      )}
+      {/* #10: contextual discovery chips once the answer has completed —
+          each chip only renders when it is relevant to this answer. */}
+      {interactive && done && !synthFailed && answerText.trim() && (
+        <DiscoveryChips t={t} P={P} accent={accent}
+          onSaveInvestigation={onSaveInvestigation ? () => onSaveInvestigation(t) : null}
+          onCreateDiagram={onShowFlowchart}
+          onAnalyzeDocument={onOpenDocumentMode} />
       )}
       {/* Print-only academic layout — invisible in the normal UI (see the
           base ".cb-print-paper-doc { display: none }" rule) and only ever
@@ -16324,6 +17151,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       <button
                         onClick={() => setReportModal({ kind: "message", messageId: m.id })}
                         aria-label="Report this message" title="Report this message"
+                        className="cb-msg-report"
                         style={{
                           opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 0.15s ease",
                           background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, flexShrink: 0,
@@ -23653,16 +24481,23 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   /* Flat list with section labels — no accordions. Eight items don't need
      collapsible sections, and "New investigation" duplicated "Search"
      (both land on the search view; newSession runs when you ask). */
+  /* Navigation hierarchy: Search is primary; Tools holds the two
+     instruments (Document Mode, Diagram Studio); Discover holds Trending;
+     Workspace holds Investigations, Library and the other working
+     surfaces; People stays for signed-in users. No destination was
+     removed — only regrouped. */
   const NAV_GROUPS = [
     { label: null, items: [
       ["search", "Search", "search", null],
     ] },
-    { label: "Explore", items: [
+    { label: "Tools", items: [
       ["document", "Document Mode", "bookOpen", null],
-      ["trending", "Trending", "chart", null],
       ["studio", "Diagram Studio", "flowchart", null],
     ] },
-    { label: "Your work", items: [
+    { label: "Discover", items: [
+      ["trending", "Trending", "chart", null],
+    ] },
+    { label: "Workspace", items: [
       ["investigations", "Investigations", "history", history.length || null],
       /* Always-visible fresh start, adjacent to the ledger it belongs to.
          "new" is an action, not a view — handleSidebarNavigate runs
@@ -23797,11 +24632,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               </span>
             </button>
           )}
-          <button onClick={onToggleMute} title={muted ? "Unmute all audio" : "Mute all audio"} aria-pressed={muted}
+          <button onClick={onToggleMute} title={muted ? "Unmute all audio" : "Mute all audio"} aria-label={muted ? "Unmute all audio" : "Mute all audio"} aria-pressed={muted}
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 30, height: 30, borderRadius: "50%", cursor: "pointer",
+              width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
               background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
               transition: "color 150ms ease, border-color 150ms ease",
             }}>
@@ -24563,23 +25398,39 @@ function App() {
         return;
       }
       if (kind !== "success") return;
-      try {
-        const r = await apiProPost("verify-session", { session_id: params.get("session_id") || "" });
+      /* The Stripe redirect lands before the webhook usually does, so the
+         first verify often comes back negative. Show the real transient
+         state and poll until it resolves — never a dead "activating". */
+      toast("Confirming your subscription…");
+      let tries = 0;
+      const sessionId = params.get("session_id") || "";
+      const poll = async () => {
         if (cancelled) return;
-        if (r.isPro) {
-          toast("Welcome to Cerebrum Pro.");
-          const u = await apiWhoAmI();
-          if (!cancelled && u) setUser(u);
-          await refreshPro();
-        } else {
-          const lite = !!(r && (r.isLite || r.tier === "lite"));
-          toast(lite
-            ? "Payment received. Pro Lite is activating. If it doesn't appear shortly, refresh the page."
-            : "Payment received. Pro is activating. If it doesn't appear shortly, refresh the page.", { tone: "error" });
+        tries++;
+        try {
+          const r = await apiProPost("verify-session", { session_id: sessionId });
+          if (cancelled) return;
+          if (r.isPro) {
+            toast(r.tier === "lite" || r.isLite ? "Welcome to Cerebrum Pro Lite." : "Welcome to Cerebrum Pro.");
+            const u = await apiWhoAmI();
+            if (!cancelled && u) setUser(u);
+            await refreshPro();
+            return;
+          }
+        } catch (e) {
+          if (cancelled) return;
+          if (tries >= 6) {
+            toast(e.message || "Couldn't confirm that payment yet. Check Settings → Account, or contact support.", { tone: "error" });
+            return;
+          }
         }
-      } catch (e) {
-        if (!cancelled) toast(e.message || "Couldn't confirm that payment yet.", { tone: "error" });
-      }
+        if (!cancelled && tries < 6) {
+          setTimeout(poll, 2500);
+        } else if (!cancelled) {
+          toast("Payment received — your membership is still being confirmed. It usually appears within a minute; if it doesn't, check Settings → Account.", { tone: "error" });
+        }
+      };
+      poll();
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -24725,6 +25576,55 @@ function App() {
      saying something broke" report can quote this verbatim instead of a
      paraphrase, which is the difference between guessing and diagnosing. */
   const [errorDetail, setErrorDetail] = useState("");
+  /* The search failure's machine kind (timeout | network | http429 |
+     http5xx | http | badbody) — drives the error panel's named cause and
+     its recovery actions. Cleared with the error itself. */
+  const [errorKind, setErrorKind] = useState("");
+  /* The panel headline for a search failure ("The search timed out."),
+     kept apart from `error` (the plain-words body) so both stay readable
+     and neither disturbs the other call sites. */
+  const [errorTitle, setErrorTitle] = useState("");
+  /* ── Search SSE streaming (nuance #23, frontend) ──
+     streamStage: the pipeline stage currently rendering in the ReadingRoom
+     ({ index, key, label, detail }). streamActive: true while the answer
+     is arriving over the SSE path (drives the stage rail + skeleton);
+     false on the single-fetch fallback, where the room renders as before.
+     searchRequestId: the X-Request-ID echoed by the backend, quoted on
+     error reports so a report can be matched to a server log. */
+  const [streamStage, setStreamStage] = useState(null);
+  const [streamActive, setStreamActive] = useState(false);
+  const [searchRequestId, setSearchRequestId] = useState("");
+  /* Progress-flash suppression (#23): the ReadingRoom only mounts once the
+     search has been in flight for 200ms, so sub-200ms answers never flash
+     a loader. */
+  const [showBusy, setShowBusy] = useState(false);
+  useEffect(() => {
+    if (!busy) { setShowBusy(false); return undefined; }
+    const id = setTimeout(() => setShowBusy(true), 200);
+    return () => clearTimeout(id);
+  }, [busy]);
+  /* Stage updates are batched to ~50ms: a burst of SSE frames must not
+     re-render the whole app once per frame. */
+  const stageTimerRef = useRef(null);
+  const pendingStageRef = useRef(null);
+  useEffect(() => () => { if (stageTimerRef.current) clearTimeout(stageTimerRef.current); }, []);
+  const pushStage = useCallback((stage) => {
+    pendingStageRef.current = stage;
+    if (stageTimerRef.current) return;
+    stageTimerRef.current = setTimeout(() => {
+      stageTimerRef.current = null;
+      const s = pendingStageRef.current;
+      pendingStageRef.current = null;
+      if (s) setStreamStage(s);
+    }, 50);
+  }, []);
+  /* Ref mirror of searchRequestId: the ask() closure needs the id that
+     arrived mid-flight (state would still hold the render-time value). */
+  const searchRequestIdRef = useRef("");
+  const noteRequestId = useCallback((rid) => {
+    searchRequestIdRef.current = rid || "";
+    setSearchRequestId(rid || "");
+  }, []);
   const [allSources, setAllSources] = useState([]);
   const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
 
@@ -25564,7 +26464,7 @@ function App() {
     setAskedThisSession(true);
     setContextBusy(!imageToSend && !!contextAction(question));
     if (!mutedRef.current) Sfx.click();
-    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setVideosLocated(false); setError(""); setErrorDetail(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setVideosLocated(false); setError(""); setErrorDetail(""); setErrorKind(""); setErrorTitle(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
     /* The search has no client-side timeout today: on a stalled mobile
@@ -25576,43 +26476,98 @@ function App() {
     const askTimeout = setTimeout(() => { try { askCtrl.abort("timeout"); } catch {} }, 120000);
     const elapsedS = () => ((performance.now() - askStarted) / 1000).toFixed(1);
     const stamp = () => new Date().toLocaleTimeString();
+    /* Named search failure (#16): sets the panel's headline, plain-words
+       body, machine kind (drives the recovery actions), and diagnostic
+       caption — and hands the typed question back to the input so it
+       survives the failure and can be edited and retried. */
+    const failSearch = (kind, { status = 0, message = "", requestId = "", elapsed = elapsedS(), when = stamp(), keepDetail = false } = {}) => {
+      const info = searchErrorInfo(kind, { status, message, requestId, elapsed, when });
+      setErrorKind(kind);
+      setErrorTitle(info.headline);
+      setError(info.body);
+      /* keepDetail: the failure site already stamped the diagnostic caption
+         (status/elapsed/time/request id) directly — keep it rather than
+         recomputing it here. */
+      if (!keepDetail) setErrorDetail(info.detail);
+      setInput(question);
+      setBusy(false);
+    };
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
       const videosPromise = (imageToSend || contextAction(question)) ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
-      const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify({ query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: evidenceFilter !== "all" ? evidenceFilter : undefined }, pinnedSources, corrections,
+      /* One request body for both transports, so the SSE path and the
+         single-fetch fallback ask for exactly the same answer.
+         opts.evidenceFilter overrides the live filter — the zero-result
+         "clear the filter and retry" path uses it. */
+      const effEvidenceFilter = opts.evidenceFilter || evidenceFilter;
+      const searchBody = { query: question, mode: askMode, image: imageToSend || undefined, history: prior, settings: { answerLength, factCheck, evidenceFilter: effEvidenceFilter !== "all" ? effEvidenceFilter : undefined }, pinnedSources, corrections,
         /* A stress test is the same request with constraints attached, not a
            second endpoint — the point is that the answer being compared is
            produced by identical machinery. */
         stressExclude: opts.stressExclude || undefined,
         stressFilter: opts.stressFilter || undefined,
-        stressBaseClaims: opts.stressBaseClaims || undefined }) });
-      if (requestVersion !== investigationRequest.current) return;
-      if (!res.ok) {
-        let errData = {};
-        try { errData = await res.json(); } catch {}
+        stressBaseClaims: opts.stressBaseClaims || undefined };
+      setStreamActive(false); setStreamStage(null); noteRequestId("");
+      let data = null;
+      try {
+        /* SSE first: POST /api/search?stream=1, stage frames parsed with
+           fetch + ReadableStream (POST-only, so EventSource can't do it).
+           Any stream failure throws StreamFallback and lands on the
+           single-fetch path below — silently; the user just sees the
+           normal search. */
+        const streamed = await runStreamedSearch({
+          body: searchBody,
+          signal: askCtrl.signal,
+          onConnect: (rid) => { if (requestVersion === investigationRequest.current) { setStreamActive(true); noteRequestId(rid); } },
+          onStageEvent: (key, detail, index) => {
+            if (requestVersion !== investigationRequest.current) return;
+            pushStage({ index, key, label: (SEARCH_STREAM_STAGES[index] || {}).label || key, detail });
+          },
+        });
+        data = streamed.data;
+        noteRequestId(streamed.requestId);
+      } catch (se) {
+        if (se && se.name === "AbortError") throw se;
+        /* Silent fallback: the single-fetch path, unchanged in shape. */
+        setStreamActive(false); setStreamStage(null);
+        const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify(searchBody) });
         if (requestVersion !== investigationRequest.current) return;
-        setError(errData.error || "Something went sideways. Try that again?");
-        setErrorDetail(`HTTP ${res.status} · ${elapsedS()}s · ${stamp()}`);
-        setBusy(false); return;
+        const rid = res.headers.get("X-Request-ID") || "";
+        noteRequestId(rid);
+        if (!res.ok) {
+          let errData = {};
+          try { errData = await res.json(); } catch {}
+          if (requestVersion !== investigationRequest.current) return;
+          /* Every failure path stamps a diagnostic caption: HTTP status,
+             elapsed seconds, wall-clock time, and the abbreviated
+             X-Request-ID so a user report can be matched to a server log.
+             The plain-words headline/body come from failSearch below. */
+          setErrorDetail(`HTTP ${res.status} · ${elapsedS()}s · ${stamp()}${rid ? " · req " + String(rid).slice(0, 8) : ""}`);
+          const kind = res.status === 429 ? "http429" : res.status >= 500 ? "http5xx" : "http";
+          failSearch(kind, { status: res.status, message: errData.error, requestId: rid, keepDetail: true });
+          return;
+        }
+        // Single-fetch body, streamed in as it arrives.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (value) buf += decoder.decode(value, { stream: !done });
+          if (done) break;
+        }
+        const parsed = safeJsonParse(buf);
+        if (!parsed || typeof parsed !== "object") { setErrorDetail(`unparseable body · ${elapsedS()}s · ${stamp()}${rid ? " · req " + String(rid).slice(0, 8) : ""}`); failSearch("badbody", { requestId: rid, keepDetail: true }); return; }
+        data = parsed;
       }
-      // Stream response body via ReadableStream — reads chunks as they arrive.
-      // Currently the backend sends a single JSON payload; when it's upgraded
-      // to chunked/SSE, this reader renders content progressively with zero
-      // frontend changes needed.
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (value) buf += decoder.decode(value, { stream: !done });
-        if (done) break;
-      }
-      let data;
-      try { data = JSON.parse(buf); }
-      catch { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`unparseable body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
-      if (!data || typeof data !== "object") { setError("Got an unexpected response from the server. Try that again?"); setErrorDetail(`empty body · ${elapsedS()}s · ${stamp()}`); setBusy(false); return; }
       if (requestVersion !== investigationRequest.current) return;
+      setStreamActive(false); setStreamStage(null);
+      /* Zero-result queries are logged for triage (#15/#17): which
+         questions find nothing, and whether a filter was active. */
+      if (data && data.responseKind === "no-results") {
+        logZeroResult(question, { filtered: effEvidenceFilter !== "all", suggestions: ((data.noResults && data.noResults.reformulations) || []).length });
+      }
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, fresh: true, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
@@ -25660,21 +26615,32 @@ function App() {
       videosPromise.then(({ videos }) => { /* The video index has answered for this turn — with footage or without. Marking the turn settled keeps the Videos tab on an honest "reading" state instead of flashing a false empty verdict when synthesis wins the race. */ setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videosSettled: true } : t)); if (requestVersion === investigationRequest.current && data.responseKind !== "context" && videos && videos.length) { setTurns((prev) => prev.map((t) => t.id === turnId ? { ...t, videos } : t)); /* ReadingRoom's one real milestone: /api/videos resolved with footage while this search is still the current request. */ setVideosLocated(true); } });
     } catch (e) {
       /* A superseded request (user asked again mid-flight) dies silently.
-         Our own 120s timeout gets an honest message instead of silence. */
-      if (e && e.name === "AbortError") {
-        if (requestVersion === investigationRequest.current && askCtrl.signal.reason === "timeout") {
-          setError("The search took too long and timed out. Try that again?");
-          setErrorDetail(`timeout · 120.0s · ${stamp()}`);
+         Our own 120s timeout gets an honest named error instead of
+         silence; an explicit Cancel hands the question back with no
+         error at all. The abort check reads the signal too, not just the
+         error name — some engines reject a controller.abort(reason) with
+         a plain error rather than a named AbortError. */
+      const wasAborted = (e && e.name === "AbortError") || (askCtrl.signal && askCtrl.signal.aborted);
+      if (wasAborted) {
+        if (requestVersion === investigationRequest.current) {
+          const reason = askCtrl.signal.reason;
+          if (reason === "timeout") {
+            setErrorDetail(`timeout · ${elapsedS()}s · ${stamp()}${searchRequestIdRef.current ? " · req " + String(searchRequestIdRef.current).slice(0, 8) : ""}`);
+            failSearch("timeout", { requestId: searchRequestIdRef.current, keepDetail: true });
+          } else if (reason === "cancelled") {
+            setInput(question);
+            setStreamActive(false); setStreamStage(null);
+          }
         }
         return;
       }
       if (requestVersion === investigationRequest.current) {
-        setError("Couldn't reach the research service. Please try again.");
-        setErrorDetail(`network · ${elapsedS()}s · ${stamp()}`);
+        setErrorDetail(`network · ${elapsedS()}s · ${stamp()}${searchRequestIdRef.current ? " · req " + String(searchRequestIdRef.current).slice(0, 8) : ""}`);
+        failSearch("network", { requestId: searchRequestIdRef.current, keepDetail: true });
       }
     }
     finally { clearTimeout(askTimeout); if (requestVersion === investigationRequest.current) setBusy(false); }
-  }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, isMobile, pinnedSources, corrections, evidenceFilter]);
+  }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, isMobile, pinnedSources, corrections, evidenceFilter, pushStage, noteRequestId]);
   // Stable indirection for per-turn callbacks: ask changes on every
   // keystroke (it closes over `input`), so anything closing over ask
   // directly defeats React.memo(Turn). TurnRow reads through this ref.
@@ -25687,6 +26653,33 @@ function App() {
   // action (report, and anywhere else that needs it). Stable so TurnRow
   // memoization isn't defeated.
   const stableOnRequireAuth = useCallback(() => { setAuthInitialTab("login"); setAuthOpen(true); }, []);
+  /* #10: "Save to Investigation" — pins the investigation holding this
+     turn so it survives the history cap (kept entries sort first and are
+     exempt from trimming). The investigation already auto-saves on every
+     answer; pinning is the durable "keep this one" gesture. */
+  const pinInvestigationForTurn = useCallback((turn) => {
+    if (!turn || turn.id == null) return;
+    const tid = turn.id;
+    setHistory((prev) => {
+      const entries = Array.isArray(prev) ? prev : [];
+      const idx = entries.findIndex((e) => e.turns && e.turns.some((x) => x && x.id === tid));
+      let next;
+      if (idx < 0) {
+        // The turn hasn't reached history yet — write it now as kept.
+        const entry = { id: `h${tid}`, title: String(turn.q || "Untitled investigation").slice(0, 140), ts: Date.now(), turns: [turn], allSources: turn.sources || [], kept: true };
+        next = [entry, ...entries];
+      } else {
+        next = entries.slice();
+        next[idx] = { ...next[idx], kept: true };
+        const [pinned] = next.splice(idx, 1);
+        next.unshift(pinned);
+      }
+      const kept = next.filter((e) => e.kept);
+      const rest = next.filter((e) => !e.kept);
+      return [...kept, ...rest].slice(0, Math.max(40, kept.length));
+    });
+    toast("Saved to Investigations.");
+  }, []);
 
   /* preventScroll, and it is not a micro-optimisation.
      Focusing an element makes the browser scroll it into view, and this
@@ -26521,6 +27514,7 @@ function App() {
   return (
     <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent)}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
+      <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
       {/* RESTORED 2026-09-17: the ambient backdrop. Dusty's direction — the
           reel is the site's core identity, not decoration to strip. One
           backdrop at a time, never both: the film reel when it can run,
@@ -26773,17 +27767,26 @@ function App() {
                   the console so the question can be edited before asking.
                   Hidden while typing. Keyed by mode so the swap has a
                   small entrance (see the cb-starter styles). */}
+              {/* First-run onboarding: four one-click real searches across
+                  biology, medicine, environment and physics — tapping one
+                  runs ask() immediately instead of filling the box, so a
+                  new visitor watches a real answer arrive. Returning
+                  visitors keep the two mode-aware starters that fill the
+                  composer for editing. Hidden while typing. */}
               {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (
                 <div
                   className="cb-starter"
-                  key={"starter:" + askMode}
-                  style={{ width: "100%", maxWidth: 820, marginTop: 14, "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line, "--cb-acc": accent }}
+                  key={"starter:" + askMode + (deckHasContent ? ":returning" : ":first")}
+                  style={{ width: "100%", maxWidth: 820, marginTop: 10, "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line, "--cb-acc": accent }}
                 >
-                  <div className="cb-starter-k">starter questions</div>
-                  {(ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3).map((ex, i) => (
+                  <div className="cb-starter-k">{deckHasContent ? "starter questions" : "try a real search"}</div>
+                  {(!deckHasContent ? FIRST_RUN_QUESTIONS : (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2)).map((ex, i) => (
                     <button key={ex.q} type="button" className="cb-starter-item"
-                      onClick={() => { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }}
-                      title={`Ask: ${ex.q}`}
+                      onClick={() => {
+                        if (!deckHasContent) { ask(ex.q); }
+                        else { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }
+                      }}
+                      title={!deckHasContent ? `Search: ${ex.q}` : `Ask: ${ex.q}`}
                     >
                       <span className="cb-starter-num" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
                       <span className="cb-starter-cat" aria-hidden="true">{ex.cat}</span>
@@ -26826,35 +27829,36 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} />))}
-                {busy && (<div style={S.turn}>
+                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />))}
+                {busy && showBusy && (<div style={S.turn}>
                   {/* The Reading Room: the question as a specimen label, the
                       fifteen databases as a labelled constellation the query
                       is in flight to, the read head (one hairline, one
                       travelling marker, one elapsed readout), one honest
                       waiting line — and the one real milestone, related
                       footage located. Nothing here claims per-database
-                      progress the client cannot know. */}
-                  <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated} />
+                      progress the client cannot know. On the SSE path the
+                      room also carries the pipeline's real stage rail; the
+                      single-fetch fallback renders the room as before.
+                      The room mounts 200ms after the search starts so
+                      sub-200ms answers never flash a loader. */}
+                  <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated}
+                    stream={streamActive ? streamStage : null}
+                    onCancel={() => { try { askAbortRef.current?.abort("cancelled"); } catch {} }} />
+                  {/* Staged skeleton (#9): while the SSE stages progress,
+                      the answer's geometry waits below the stage rail —
+                      headline block, claim rows with citation chips, the
+                      Sources panel — every block fixed-dimension, so
+                      nothing shifts when the answer lands. */}
+                  {streamActive && <AnswerSkeleton P={P} accent={accent} />}
                 </div>)}
                 {error && (
-                  /* The failure panel speaks the instrument's language — a
-                     hairline, a kicker, plain words — not a red alert box.
-                     "Search failed" as a verdict is what Dusty means by
-                     failure as the final answer; this is a pause with a way
-                     back. The diagnostic caption stays for support. */
-                  <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
-                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.22em", textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
-                    <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>The search didn&apos;t come back.</div>
-                    <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
-                    {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
-                    <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-                      <button onClick={() => { setError(""); setErrorDetail(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }}
-                        style={{ minHeight: 44, padding: "0 24px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: "#11140f", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                        Try again
-                      </button>
-                    </div>
-                  </div>
+                  <SearchErrorPanel P={P} accent={accent}
+                    errorKind={errorKind} errorTitle={errorTitle} error={error} errorDetail={errorDetail}
+                    onRetry={() => { setError(""); setErrorDetail(""); setErrorKind(""); setErrorTitle(""); ask(lastAskRef.current?.q ?? input, lastAskRef.current?.opts || {}); }}
+                    onSimplify={() => { const q = lastAskRef.current?.q ?? input; const simple = simplifyQueryText(q); setError(""); setErrorDetail(""); setErrorKind(""); setErrorTitle(""); ask(simple || q); }}
+                    onDocumentMode={() => { setError(""); setErrorDetail(""); setErrorKind(""); setErrorTitle(""); setView("document"); }}
+                    canSimplify={!!simplifyQueryText(lastAskRef.current?.q ?? input)} />
                 )}
                 {turns.length > 0 && !busy && (<>
                   {attachedImage && (
@@ -27910,7 +28914,25 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   transform: translateY(-64px);
   transition: transform 160ms var(--cb-ease);
 }
+/* Hover-revealed controls need a tap/focus path: the message report
+   button is always visible on coarse pointers and whenever it (or its
+   bubble) holds keyboard focus. */
+@media (pointer: coarse) {
+  .cb-msg-report { opacity: 1 !important; }
+}
+.cb-msg-report:focus-visible { opacity: 1 !important; }
 .cb-skip-link:focus-visible { transform: translateY(0); outline: 2px solid #fff; outline-offset: 2px; }
+/* 44px touch-target floor. Buttons, icon buttons, tabs, pills, chips and
+   nav rows all meet the minimum. Inline prose citation marks (.cb-cite)
+   are excluded — their hit area lives on a positioned pseudo-element, so
+   the glyph never grows inside the text line. Anchor deep-links
+   (.cb-anchor) are excluded for the same reason. */
+button:not(.cb-cite):not(.cb-anchor),
+[role="button"],
+[role="tab"],
+.cb-mode, .cb-pill, .cb-chip, .cb-starter-item, .cb-navitem {
+  min-height: 44px;
+}
 /* iOS Safari zooms any control under 16px on focus: the floor stays global.
    Per-control refinements above it are additive, never a replacement. */
 input, textarea, select { font-size: 16px; }
@@ -28334,10 +29356,15 @@ summary::-webkit-details-marker { display: none; }
   border-color: color-mix(in srgb, var(--cb-acc) 65%, transparent);
 }
 .cb-ask-inputwrap { position: relative; flex: 1 1 auto; min-width: 0; }
+/* ── Search console declutter (#17) ──
+   Dusty's "less ai and bulky": the console keeps its cinematic entrance,
+   the mode words keep their function, but the air between the elements
+   tightens — a shorter field, tools docked flush, the mode row and the
+   evidence-filter disclosure pulled up under it. Nothing removed. */
 .cb-ask-input {
-  width: 100%; min-height: 58px;
+  width: 100%; min-height: 52px;
   border: 0; background: transparent; outline: none;
-  padding: 15px 4px 15px 18px;
+  padding: 12px 4px 12px 18px;
   font-family: var(--cb-font); font-size: 17px; font-weight: 500;
   line-height: 1.5; color: var(--cb-ink);
   caret-color: var(--cb-acc);
@@ -28353,8 +29380,8 @@ summary::-webkit-details-marker { display: none; }
   animation: cbPhIn 0.45s ease both;
 }
 .cb-ask-tools {
-  display: flex; align-items: center; gap: 2px; flex-shrink: 0;
-  padding: 6px 8px 6px 2px;
+  display: flex; align-items: center; gap: 0; flex-shrink: 0;
+  padding: 4px 6px 4px 0;
 }
 .cb-ask-tool {
   width: 44px; height: 44px;
@@ -28390,12 +29417,12 @@ summary::-webkit-details-marker { display: none; }
 
 /* ── The mode words: plain text, not segments ── */
 .cb-modes {
-  display: flex; flex-wrap: wrap; gap: 2px 20px;
-  padding: 12px 6px 0;
+  display: flex; flex-wrap: wrap; gap: 0 16px;
+  padding: 8px 6px 0;
 }
 .cb-mode {
   background: none; border: 0; cursor: pointer;
-  min-height: 44px; padding: 10px 2px;
+  min-height: 44px; padding: 8px 2px;
   font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;
   color: var(--cb-faint);
   transition: color 0.2s ease;
@@ -29130,11 +30157,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
      indicator you can't find with the keyboard. The accent is the one
      color guaranteed to be legible against every surface in every palette
      (it's chosen for exactly that), and the paired dark/light halo keeps
-     it visible whichever side of the theme it lands on. */
-  outline: 2px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
+     it visible whichever side of the theme it lands on.
+     Strengthened to 3px: every interactive element carries a ring you can
+     actually see, keyboard or switch-control. */
+  outline: 3px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
   outline-offset: 2px;
   border-radius: 6px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cb-accent, #34d399) 22%, transparent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--cb-accent, #34d399) 26%, transparent);
 }
 
 /* v31: was an animated emerald→sky→indigo gradient cycling every 8s behind
@@ -29574,6 +30603,19 @@ button, a {
   from { opacity: 0; transform: translateY(4px) scale(0.985); }
   to   { opacity: 1; transform: none; }
 }
+/* The mobile citation sheet rises from the bottom edge; the backdrop
+   fades in behind it. Both skip entirely under reduced motion. */
+@keyframes cbPeekSheetIn {
+  from { transform: translateY(48px); opacity: 0.4; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes cbPeekSheetFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-peek-sheet, .cb-peek-backdrop { animation: none !important; }
+}
 .cb-deck-media { transform-origin: center; }
 .cb-card:hover .cb-deck-media,
 .cb-deck-card:hover .cb-deck-media { transform: scale(1.06); }
@@ -29759,7 +30801,7 @@ button, a {
 
 /* Reading and control rhythm across research views. */
 .cb-answer-enter { overflow-wrap: anywhere; }
-.cb-answer-enter p, .cb-answer-enter li { line-height: 1.75; }
+.cb-answer-enter p, .cb-answer-enter li { line-height: 1.8; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 { text-wrap: balance; }
 .cb-intro-go:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 4px 16px rgba(0,0,0,0.18); }
 @media (pointer: coarse) {
@@ -29958,8 +31000,14 @@ button, a {
   vertical-align: 2px; cursor: pointer; background: transparent; opacity: 0.8;
 }
 .cb-cite:hover, .cb-cite[data-active="true"] { opacity: 1; background: rgba(127,127,127,0.14); }
-/* Inline prose marks are exempt from the 44px floor — the tap target is
-   the paper preview, not the glyph. */
+/* The 44px hit area lives on a positioned pseudo-element: the glyph keeps
+   its 24×22 scholarly shape in the prose line, but taps land on a 44px
+   target that opens the preview. Absolute positioning keeps the line box
+   untouched, so inline layout never shifts. */
+.cb-cite { position: relative; }
+.cb-cite::after {
+  content: ""; position: absolute; inset: -11px -10px;
+}
 button.cb-cite { min-height: 0; min-width: 0; }
 
 /* Claim spine: each answer paragraph carries its supporting references

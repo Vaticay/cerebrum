@@ -52,7 +52,9 @@ if (await exists(join(dist, "_headers"))) {
 
 // ── 2. Every legal route is a real document ───────────────────────────────
 const { PAGES, LEGAL_VERSION } = await import(join(root, "src/legalContent.js"));
-const slugs = Object.keys(PAGES);
+/* Marketing pages share the prerender pipeline; check them identically. */
+const { MARKETING_PAGES } = await import(join(root, "src/marketingContent.js"));
+const slugs = [...Object.keys(PAGES), ...Object.keys(MARKETING_PAGES)];
 
 for (const slug of slugs) {
   const file = join(dist, `${slug}.html`);
