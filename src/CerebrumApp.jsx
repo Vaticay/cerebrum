@@ -5144,19 +5144,14 @@ function filmPoster(src) {
 let __filmVp9OK = null;
 let __filmIosH264 = null;
 function filmBestFile(el, mp4) {
-  if (__filmIosH264 === null) {
-    try {
-      const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
-      __filmIosH264 = /iPad|iPhone|iPod/.test(ua) ||
-        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    } catch { __filmIosH264 = false; }
-  }
-  if (__filmIosH264) return mp4;
-  if (__filmVp9OK === null) {
-    try { __filmVp9OK = !!el.canPlayType && el.canPlayType('video/webm; codecs="vp9"') !== ""; }
-    catch { __filmVp9OK = false; }
-  }
-  return __filmVp9OK ? String(mp4).replace(/\.mp4$/i, ".webm") : mp4;
+  /* 2026-10-05: VP9 remap disabled. The reel is now the seven ambient
+     clips, which ship as H.264 .mp4 only — no .webm versions exist on the
+     CDN, so the old remap turned every desktop Chrome load into a 404
+     and the reel stalled on the poster with a dead "tap to play" pill.
+     H.264 hardware-decodes everywhere; the bandwidth delta is not worth
+     a second encode pipeline. If .webm versions ever ship, gate the remap
+     on their existence instead of re-enabling it blindly. */
+  return mp4;
 }
 
 /* ════════════════════════════════════════════════════════════════
