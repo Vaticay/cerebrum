@@ -287,3 +287,20 @@ export function saveDocStore(store) {
     /* Private mode / quota: reading still works, it just won't persist. */
   }
 }
+
+/* Delete one document from the shelf. Returns true when something was
+   removed. There was previously no way to delete a document at all — a
+   pasted confidential draft sat in plaintext localStorage until LRU
+   eviction displaced it. */
+export function deleteDocFromStore(fp) {
+  try {
+    const store = loadDocStore();
+    if (!store.docs || !store.docs[fp]) return false;
+    delete store.docs[fp];
+    if (store.lastOpened === fp) store.lastOpened = null;
+    saveDocStore(store);
+    return true;
+  } catch {
+    return false;
+  }
+}

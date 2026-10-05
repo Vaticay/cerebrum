@@ -1,5 +1,6 @@
 import { contextAction } from "../functions/lib/conversation.js";
 import { ensureE2EEDevice, encryptMessage, decryptThreadMessages, restoreFromPhrase, listBackups, uploadBackupNow, getRecoveryPhrase, confirmRecoveryPhrase, getBackupInfo, listDevices, revokeDevice, upgradeThread, isPeerEncryptionReady, getSafetyNumber, markSafetyNumberVerified, clearSafetyNumberVerified, clearE2EEMemory } from "./e2ee/messaging.js";
+import { wipeLocalKeys } from "./e2ee/store.js";
 /* Private Vault (zero-knowledge saved work, Phase 1). The crypto lives in
    src/zkData.js; this file only wires it into sync, settings, and search.
    Ciphertext and keys never touch the DOM or the console anywhere below. */
@@ -71,7 +72,7 @@ import {
    contract, HTML text extraction, highlight guards, durable reading state. */
 import {
   docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight,
-  docTitleOf, loadDocStore, saveDocStore, DOCMODE_MAX_DOCS, DOCMODE_MAX_TEXT,
+  docTitleOf, loadDocStore, saveDocStore, deleteDocFromStore, DOCMODE_MAX_DOCS, DOCMODE_MAX_TEXT,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 import { createPortal } from "react-dom";
@@ -1656,25 +1657,6 @@ function todayLabel() {
   }
 }
 
-function readStreak() {
-  try {
-    const raw = JSON.parse(localStorage.getItem("cb_streak") || "{}");
-    return { days: raw.days || 0, last: raw.last || "" };
-  } catch { return { days: 0, last: "" }; }
-}
-function bumpStreak() {
-  try {
-    const today = new Date().toDateString();
-    const cur = readStreak();
-    if (cur.last === today) return cur;
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
-    const days = cur.last === yesterday ? cur.days + 1 : 1;
-    const next = { days, last: today };
-    localStorage.setItem("cb_streak", JSON.stringify(next));
-    return next;
-  } catch { return { days: 0, last: "" }; }
-}
-
 /* Commit 65 — Watched topics.
    ---------------------------------------------------------------------
    This is the retention mechanic, and it is deliberately the honest one.
@@ -1779,6 +1761,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busyTopic, setBusyTopic] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const load = useCallback(async () => {
     if (!user) { setItems([]); return; }
     setLoading(true);
@@ -1873,7 +1856,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
         {/* In the deck a card is one grid cell among several — a 40-row
             watchlist would stretch the whole row. Show the four freshest and
             say how many more there are. */}
-        {(deck ? items.slice(0, 4) : items).map((item) => (
+        {(deck && !showAll ? items.slice(0, 4) : items).map((item) => (
           <div key={item.id} className="cb-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0 9px 8px", margin: "0 -8px 0 -8px", borderTop: `1px solid ${P.line}` }}>
             <button
               onClick={() => open(item)}
@@ -1914,9 +1897,9 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
         )}
       </div>
       {deck && items.length > 4 && (
-        <div style={{ marginTop: 9, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>
-          +{items.length - 4} more watched
-        </div>
+        <button onClick={() => setShowAll((v) => !v)} style={{ marginTop: 9, fontSize: FONT_SIZES.micro, color: accent, fontFamily: "var(--cb-font)", background: "none", border: "none", cursor: "pointer", padding: 0, fontWeight: 600 }}>
+          {showAll ? "Show fewer" : `+${items.length - 4} more watched`}
+        </button>
       )}
     </div>
   );
@@ -2443,8 +2426,8 @@ function parseQueryEntities(text) {
 /* ── SearchNameplate: a quiet masthead ─────────────────────────────────────────
    Was an engraved instrument plate — ringed mark, tracked-out caps, a mode
    window, a spec line. Four bands of chrome before the question. Now it is
-   one small mark, the name in plain case, and the slogan as a single modest
-   line. The wording is never altered. */
+   one small mark, the name in plain case, and a subhead in numbers. The
+   intro door carries the slogan; this doesn't repeat it. */
 function SearchNameplate({ P, accent, askMode, focused, compact }) {
   return (
     <div
@@ -2455,14 +2438,9 @@ function SearchNameplate({ P, accent, askMode, focused, compact }) {
         <Mark size={compact ? 22 : 28} accent={accent} glow={false} />
       </div>
       <div className="cb-mast-name">Cerebrum</div>
-      {!compact && (
-        <p className="cb-mast-line">
-          Ask a real research question. Every claim traces to a paper you can open.
-        </p>
-      )}
+      {/* The intro door carries the slogan; the masthead doesn't repeat it. */}
       {/* The concrete subhead: one promise above the fold, in numbers.
-         The slogan above is never altered; this line sits beneath it and
-         states what the product does, not how it feels. */}
+         States what the product does, not how it feels. */}
       {!compact && (
         <p className="cb-mast-sub" style={{ margin: "10px 0 0", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>
           Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
@@ -5924,8 +5902,7 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
    offer to run a real one. The example question is a question, not a
    claim, and the answer a visitor sees is produced live by the same search
    every other question uses. */
-const HOW_IT_WORKS_EXAMPLE = "How do jellyfish move without a brain?";
-function HowItWorksDialog({ onClose, accent, onRunExample }) {
+function HowItWorksDialog({ onClose, accent }) {
   const steps = [
     { n: "1", h: "Ask in plain language",
       b: "A question the way you would ask a colleague. No boolean operators, no field codes, no learning a query syntax first." },
@@ -5954,27 +5931,6 @@ function HowItWorksDialog({ onClose, accent, onRunExample }) {
         ))}
       </div>
 
-      <div style={{
-        marginTop: 20, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.07)",
-      }}>
-        <div style={{
-          fontFamily: "var(--cb-font)", fontSize: 10.5, letterSpacing: "0.16em",
-          textTransform: "uppercase", color: "rgba(242,244,242,0.44)", marginBottom: 8,
-        }}>Example investigation</div>
-        <div style={{ fontSize: 16, lineHeight: 1.45, marginBottom: 14, color: "#f2f4f2" }}>
-          &ldquo;{HOW_IT_WORKS_EXAMPLE}&rdquo;
-        </div>
-        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <button type="button" onClick={() => onRunExample(HOW_IT_WORKS_EXAMPLE)} className="cb-intro-go" style={{
-            border: "none", cursor: "pointer", borderRadius: 9999, padding: "12px 22px",
-            background: accent, color: "#11140f", fontWeight: 600, fontSize: 14.5,
-            fontFamily: "var(--cb-font)",
-          }}>Run this investigation</button>
-          <span style={{ fontSize: 12.5, color: "rgba(242,244,242,0.52)", lineHeight: 1.5 }}>
-            Runs a real search. Nothing here is pre-written.
-          </span>
-        </div>
-      </div>
     </IntroModal>
   );
 }
@@ -6615,13 +6571,14 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             gap: isMobile ? "12px 16px" : "10px 22px",
           }}>
             {isMobile
-              ? ["About", "Privacy", "Contact", "Terms"].map((item) => (
+              ? ["About", "Privacy", "Terms", "Disclosures", "Contact"].map((item) => (
                   <a key={item} href={"/" + item.toLowerCase()} style={footLink}>{item}</a>
                 ))
               : (
                 <>
                   <a href="/privacy" style={footLink}>Privacy</a>
                   <a href="/terms" style={footLink}>Terms</a>
+                  <a href="/disclosures" style={footLink}>Disclosures</a>
                   <a href="/contact" style={footLink}>Contact</a>
                 </>
               )}
@@ -6654,7 +6611,6 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         <HowItWorksDialog
           accent={introAccent}
           onClose={() => setHowOpen(false)}
-          onRunExample={(q) => { setHowOpen(false); go(q, true); }}
         />
       )}
 
@@ -7420,10 +7376,6 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     else if (fmt === "csv") { download("cerebrum-bibliography.csv", toCSV(sources)); logExport("CSV", "cerebrum-bibliography.csv"); }
     setExportOpen(false);
   };
-  // Claim-first: which claims stand on which papers, read from the answer's
-  // own citations — the same rows the answer's EvidenceMap shows, so the
-  // two never disagree. Renders nothing when the answer cites nothing.
-  const matrixRows = useMemo(() => claimRowsFromAnswer(answer, sources), [answer, sources]);
   // Jump bar: first letters of the author field, for long lists.
   const jumpLetters = useMemo(() => {
     if (!sources || sources.length <= 12) return null;
@@ -7506,37 +7458,6 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     )}
     </>
   );
-  /* The claim matrix: claim → citations as annotated links, before the
-     flat reference list. Each numeral jumps to its reference row and
-     lights the citation in the answer. */
-  const matrix = matrixRows.length > 0 && (
-    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, marginBottom: 16, overflow: "hidden" }}>
-      <div className="cb-kicker" style={{ padding: "10px 18px 0" }}>Claim matrix</div>
-      <div style={{ padding: "2px 18px 6px" }}>
-        {matrixRows.map((r, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "10px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
-            <span className="cb-mono" style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 600, whiteSpace: "nowrap" }}>
-              Claim {i + 1}
-            </span>
-            <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55 }}>
-              {r.text.length > 160 ? r.text.slice(0, 160).trimEnd() + "…" : r.text}
-            </span>
-            <span aria-hidden="true" style={{ flexShrink: 0, color: P.faint, fontSize: FONT_SIZES.small }}>→</span>
-            <span style={{ flexShrink: 0, display: "inline-flex", gap: 10 }}>
-              {r.cites.map((c) => (
-                <a key={c} href={`#ref-${c}`} onClick={(e) => { e.preventDefault(); onActivateCite(c); }}
-                  title={`Reference ${c}: ${(sources[c - 1] && sources[c - 1].title) || ""}`}
-                  className="cb-mono"
-                  style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, textDecoration: "none" }}>
-                  {String(c).padStart(2, "0")}
-                </a>
-              ))}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
   const ledger = (
     /* The ledger sits on matte paper (same material as the answer above it):
        one flat surface, hairline rules between entries, no per-row frost.
@@ -7594,7 +7515,6 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     return (
       <div>
         <div style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>{controls}</div>
-      {matrix}
       {ledger}
       {/* Honesty: the backend relevance gate withholds papers that score below
           the citation floor instead of citing them. Say how many were held
@@ -7610,7 +7530,6 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
   return (
     <AnswerSection eyebrow={`Bibliography · ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
       right={controls}>
-      {matrix}
       {ledger}
       {gatedOut > 0 && (
         <div style={{ marginTop: 10, padding: "8px 4px", borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }} className="cb-fade">
@@ -10077,7 +9996,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
   if (onSaveInvestigation) {
     chips.push({
       key: "save", icon: kept ? "bookmarkFilled" : "bookmark",
-      label: kept ? "Saved to Investigations" : "Save to Investigations",
+      label: kept ? "Pinned to Investigations" : "Pin investigation",
       onClick: () => { if (!kept) { onSaveInvestigation(); setKept(true); } },
     });
   }
@@ -15608,7 +15527,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           // between "the call feature is broken" and "why didn't Dusty's
           // deploy work" being knowable at all from the UI.
           if (!cancelled) {
-            setErrorReason("Video calling isn't set up on the server yet, /api/callsignal isn't answering. Check that functions/api/callsignal.js and iceservers.js are both deployed.");
+            setErrorReason("Video calling isn't available right now. Try again in a bit — if it keeps happening, let us know.");
             setStatus("error");
           }
           return;
@@ -15733,9 +15652,9 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           }
           setErrorReason(
             relayKind === "none" || !sawRelay
-              ? "This call needs a relay server and none is available. Two networks like a phone on mobile data and a computer behind a home router usually can't reach each other directly, so the call needs somewhere to bounce through. Set TURN_KEY_ID and TURN_KEY_API_TOKEN in the Cloudflare Pages environment to fix this for everyone."
+              ? "This call couldn't connect — your network and theirs can't reach each other directly, and no relay server is available right now. Try again later, or switch networks (for example off VPN) and retry."
               : iceErr
-                ? `The relay server rejected the connection (code ${iceErr.code}). The TURN credentials in the Cloudflare Pages environment look wrong or expired.`
+                ? `The call couldn't connect through the relay server (code ${iceErr.code}). Try again in a bit — if it keeps happening, let us know.`
                 : "Couldn't establish a connection to the other person. This can happen on some restrictive networks."
           );
           setStatus("error");
@@ -16473,14 +16392,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 cbBlip(660, 0.07, 0.045);
                 // Encrypted threads never put content in a notification:
                 // the envelope is ciphertext and the plaintext belongs on
-                // this device, not in a notification tray.
-                const isCipher = next.encrypted && fresh.msgKind === "cipher";
-                // Generic notifications for encrypted threads: never the
-                // content, never even "encrypted" metadata beyond the bare
-                // fact of a message. Exactly "New message."
-                const body = isCipher
-                  ? "New message."
-                  : (fresh.text || "Sent an attachment").slice(0, 140);
+                // Generic notifications for every thread: never message content
+                // in the OS tray — a shared screen or a locked phone should
+                // not read your conversations.
+                const body = "New message.";
                 cbNotify(fresh.who || next.name || "New message", body, "cb-msg-" + activeId, "message");
               }
             }
@@ -16699,16 +16614,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   };
 
   const subtitle = activeThread
-    ? (activeThread.kind === "group"
-      ? (typeof activeThread.memberCount === "number"
-        ? `${activeThread.memberCount} member${activeThread.memberCount === 1 ? "" : "s"}`
-        : "Group conversation")
+    ? (// Only "dm" threads exist — group creation was never built, so no
+      // group subtitle branch.
       // Commit 100 — was [otherEmail, otherAffiliation]. The email is no
       // longer sent by the server at all, and the affiliation now arrives
       // already filtered by that person's show_affiliation setting. The
       // handle is what belongs here: public, stable, and the thing that
       // tells two people with the same name apart.
-      : [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · "))
+      [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · "))
     : "";
 
   // Read receipts — DMs only (see the otherLastReadAt comment in
@@ -17026,9 +16939,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                 >
-                  {!m.mine && activeThread.kind === "group" && m.who && (
-                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, marginBottom: 3, marginLeft: 4 }}>{m.who}</div>
-                  )}
+                  {/* Only "dm" threads exist — no group sender labels. */}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
                       {bubbleText && (
@@ -17314,7 +17225,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               Compare these numbers with {activeThread.name} on a call or in person. If they match, your conversation is private — no one else can read it.
             </div>
             <div style={{ fontSize: FONT_SIZES.caption, color: mFaint, fontFamily: "var(--cb-font)", marginBottom: 18 }}>
-              Covers {safetyModal.deviceCount} of {activeThread.name}'s device{safetyModal.deviceCount === 1 ? "" : "s"} plus yours. Each of your devices has its own numbers.
+              Covers {safetyModal.deviceCount} of {activeThread.name}'s device{safetyModal.deviceCount === 1 ? "" : "s"} plus yours. You share one set of numbers per person, across all your devices.
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               {safetyModal.verified ? (<>
@@ -18248,55 +18159,7 @@ const PURSUIT_EXTRA_STOP = new Set(
 // The most frequent significant words across the owner's recent
 // investigation titles. Frequency-ranked over the last 14 investigations,
 // one vote per word per title so a long title can't stuff the ballot.
-function derivePursuits(history, max = 4) {
-  const counts = new Map();
-  for (const h of (history || []).slice(0, 14)) {
-    const words = String(h.title || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/[\s-]+/);
-    const seen = new Set();
-    for (const w of words) {
-      if (w.length < 5 || seen.has(w) || QUERY_COMMON_WORDS.has(w) || PURSUIT_EXTRA_STOP.has(w) || /^\d+$/.test(w)) continue;
-      seen.add(w);
-      counts.set(w, (counts.get(w) || 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, max)
-    .map(([w]) => w);
-}
 
-// The field signature: one tick per investigation in the last 120 days,
-// positioned by time, height by papers found. Pure SVG, nothing to
-// animate, honest at any data volume — including zero.
-function FieldRidge({ history, accent, P }) {
-  const W = 680, H = 60, PAD = 16, BASE = H - 10;
-  const now = Date.now();
-  const SPAN = 120 * 864e5;
-  const items = (history || []).filter((h) => h && h.ts && now - h.ts <= SPAN);
-  const maxPapers = Math.max(1, ...items.map((h) => (h.allSources || []).length));
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`} role="img"
-      aria-label={items.length === 0
-        ? "No investigations in the last 120 days"
-        : `${items.length} investigation${items.length === 1 ? "" : "s"} in the last 120 days`}
-      style={{ display: "block", width: "100%", height: "auto", overflow: "visible" }}
-    >
-      <line x1={0} y1={BASE} x2={W} y2={BASE} stroke={P.line} strokeWidth={1} />
-      {items.map((h, i) => {
-        const x = PAD + ((h.ts - (now - SPAN)) / SPAN) * (W - PAD * 2);
-        const papers = (h.allSources || []).length;
-        const th = 5 + (papers / maxPapers) * (BASE - 18);
-        return (
-          <line
-            key={(h.id || h.ts || "h") + "-" + i} x1={x} y1={BASE} x2={x} y2={BASE - th}
-            stroke={withAlpha(accent, 0.6)} strokeWidth={1.5} strokeLinecap="round"
-          />
-        );
-      })}
-    </svg>
-  );
-}
 
 /* Star rating for saved papers (Goodreads/Letterboxd-style, 1-5).
    Personal, not aggregated — it's your library, your taste.
@@ -19663,7 +19526,6 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
 }
 
 
-
 /* Commit 100 — the privacy panel.
 
    These three switches are the settings side of the changes in
@@ -20662,7 +20524,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   );
 }
 
-function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker }) {
+function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker, user }) {
   const [state, setState] = useState(null);
   const [busy, setBusy] = useState("");
 
@@ -20696,6 +20558,15 @@ function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker }) {
   };
 
   if (!state) {
+    // Guests have no profile row, so this never resolves — say so instead
+    // of spinning forever.
+    if (!user) {
+      return (
+        <Section title="Privacy" footer="Sign in to control who can find you.">
+          <Row label="Privacy settings live here" desc="Sign in and this becomes your discoverability controls." last />
+        </Section>
+      );
+    }
     return (
       <Section title="Privacy">
         <Row label="Loading your privacy settings…" last />
@@ -20790,7 +20661,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
   }, [userId]);
 
   const u = data && data.user;
-  const displayName = (u && u.name) || "Researcher";
+  const displayName = (u && u.name) || (u && u.username ? `@${u.username}` : "Cerebrum member");
   const initial = displayName.trim().charAt(0).toUpperCase() || "?";
   const isFounder = !!(data && data.badges || []).includes("founder");
   const isVerified = !!(data && data.badges || []).includes("verified");
@@ -21293,6 +21164,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // hole for a saved web page.
   const extractFileText = async (file) => {
     const name = file.name || "";
+    // Early size rejection for every type: a 200MB PDF must not be
+    // arrayBuffer'd and page-looped when nothing over ~200k characters
+    // can be analyzed anyway. (This used to sit after the PDF branch,
+    // so PDFs skipped it entirely.)
+    if (typeof file.size === "number" && file.size > 5 * 1024 * 1024) {
+      throw new Error("That file is too large to read (over 5MB). Try a shorter excerpt, or paste the text directly instead.");
+    }
+    if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || /\.docx$/i.test(name)) {
+      throw new Error("Word documents (.docx) aren't supported yet — export the text or copy it and paste it directly instead.");
+    }
     const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(name);
     if (isPdf) {
       let text = "";
@@ -21308,12 +21189,6 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       return text;
     }
     const isHtml = file.type === "text/html" || /\.html?$/i.test(name);
-    // Early size rejection for text/HTML, like the PDF path has: a 50MB
-    // log file must not be read fully into memory when nothing over
-    // ~200k characters can be analyzed anyway.
-    if (typeof file.size === "number" && file.size > 5 * 1024 * 1024) {
-      throw new Error("That file is too large to read (over 5MB). Try a shorter excerpt, or paste the text directly instead.");
-    }
     const raw = await file.text();
     if (isHtml) {
       const text = extractHtmlText(raw);
@@ -21329,18 +21204,23 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setError("");
     const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
     if (isPdf) setExtractingPdf(true);
+    // Generation guard: a slow extraction must not land on a document the
+    // user has since replaced (drop PDF, then paste text before the PDF
+    // finishes). openDocument bumps docGen, so a stale completion bails.
+    const gen = docGen.current;
     extractFileText(file)
-      .then((text) => openDocument(text))
-      .catch((e) => setError(e.message || "Couldn't read that file. Try pasting the text directly instead."))
-      .finally(() => setExtractingPdf(false));
+      .then((text) => { if (gen === docGen.current) openDocument(text); })
+      .catch((e) => { if (gen === docGen.current) setError(e.message || "Couldn't read that file. Try pasting the text directly instead."); })
+      .finally(() => { if (gen === docGen.current) setExtractingPdf(false); });
   };
   // Second document for comparison: same ingestion, separate slot.
   const readFileB = (file) => {
     if (!file) return;
     setDocBError("");
+    const gen = docGen.current;
     extractFileText(file)
-      .then((text) => setDocB(text))
-      .catch((e) => setDocBError(e.message || "Couldn't read that file."));
+      .then((text) => { if (gen === docGen.current) setDocB(text); })
+      .catch((e) => { if (gen === docGen.current) setDocBError(e.message || "Couldn't read that file."); });
   };
 
   /* Open a document: with a saved entry, its whole reading state comes
@@ -21393,6 +21273,17 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       const d = store.docs[fp];
       if (d && d.text) openDocument(d.text, d);
     } catch (e) {}
+  };
+  // Delete a document from the shelf and from durable storage. Confirmed:
+  // these can be confidential drafts with no other copy.
+  const deleteRecent = (fp, title) => {
+    if (!window.confirm(`Delete "${title || "this document"}" from this browser? This can't be undone.`)) return;
+    if (deleteDocFromStore(fp)) {
+      setRecentDocs((prev) => prev.filter((d) => d.fp !== fp));
+      try {
+        if (documentText.trim() && docFingerprint(documentText.trim()) === fp) openDocument("");
+      } catch (e) {}
+    }
   };
 
   /* Restore the last-opened document on mount, and list the shelf. */
@@ -21495,6 +21386,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setError("");
     // The previous summary stays visible while the new run streams, and is
     // kept on failure: a failed re-analysis must not wipe a good result.
+    // Re-running also clears the follow-up Q&A thread — confirm first so a
+    // long interrogation isn't silently discarded.
+    if (qaHistory.length > 0 && !window.confirm("Re-running the analysis will clear your follow-up questions for this document. Continue?")) return;
     setQaHistory([]);
     setRightTab("summary");
     const ctrl = new AbortController();
@@ -21525,8 +21419,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       else if (code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(); }
       else if (code === "aborted") setError("Analysis canceled.");
       else if (code === "timeout") setError("The analysis took too long. Try again in a moment.");
-      else if (code === "http_413") setError("That document is too large for the analyzer right now. Try a shorter excerpt.");
-      else if (code === "http_503") setError("The analysis service is briefly overloaded. Try again in a moment.");
+      // Backend error codes (functions/api/document.js): provider_unavailable,
+      // upstream_timeout, upstream_rate_limited, analysis_failed,
+      // token_budget_exhausted. There are no http_413/http_503 codes.
+      else if (code === "provider_unavailable") setError("The analysis service is briefly unavailable. Try again in a moment.");
+      else if (code === "upstream_timeout") setError("The analysis took too long. Try again in a moment.");
+      else if (code === "upstream_rate_limited") setError("The analysis service is busy right now. Try again in a moment.");
+      else if (code === "analysis_failed") setError("The analysis didn't complete. Try again in a moment.");
+      else if (code === "token_budget_exhausted") setError("That document is too long to analyze. Try a shorter excerpt.");
       else if (code === "incomplete_stream") setError("The analysis was interrupted before it finished. Nothing was saved — try again.");
       else setError(e.message || "Something went wrong. Try again in a moment.");
     } finally {
@@ -21592,7 +21492,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           : code === "timeout" ? "The answer took too long — try asking again."
           : code === "incomplete_stream" ? "The answer was interrupted before it finished — nothing was saved."
           : e.message || "Something went wrong. Try asking again.";
-        setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, errorMsg: msg } : x)));
+        // Clear the streaming flag on failure: the persistence filter drops
+        // streaming entries, so a failed question must not keep the flag or
+        // it vanishes on reload — untraceable and unrecoverable.
+        setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: "", streaming: false, errorMsg: msg } : x)));
       }
     } finally {
       if (qaAbort.current === ctrl) qaAbort.current = null;
@@ -21802,7 +21705,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (rightTab === "compare" && !docB.trim()) setRightTab("summary");
   }, [rightTab, docB]);
 
-  const renderDocSource = (form) => {
+  const renderDocSource = () => {
     const hasDoc = !!docTextTrimmed && !docIdentOnly;
     // Compact box only for identifier-like input (a DOI/URL); short prose
     // pasted as a document must not be cramped into two rows.
@@ -21811,9 +21714,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const textareaStyle = {
       width: "100%", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
       background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.6,
-      ...(form === "page"
-        ? { resize: "vertical", minHeight: 220 }
-        : { flex: 1, resize: "none", minHeight: isMobile ? 140 : 240 }),
+      resize: "vertical", minHeight: 220,
     };
     return (
       <>
@@ -21823,17 +21724,25 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ ...docEyebrow, marginBottom: 8 }}>Recent documents</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {recentDocs.slice(0, 5).map((d) => (
-                <button key={d.fp} onClick={() => openRecent(d.fp)}
-                  style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", width: "100%" }}>
-                  <Icon name="document" size={15} style={{ color: P.faint, flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{d.title}</span>
-                  {d.words > 0 && <span style={{ flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{d.words.toLocaleString()} words</span>}
-                </button>
+                <div key={d.fp} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 10, padding: "6px 6px 6px 12px", width: "100%" }}>
+                  <button onClick={() => openRecent(d.fp)}
+                    style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}
+                    aria-label={`Open ${d.title}`}>
+                    <Icon name="document" size={15} style={{ color: P.faint, flexShrink: 0 }} />
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{d.title}</span>
+                    {d.words > 0 && <span style={{ flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{d.words.toLocaleString()} words</span>}
+                  </button>
+                  <button onClick={() => deleteRecent(d.fp, d.title)} aria-label={`Delete ${d.title}`}
+                    title="Delete this document from this browser"
+                    style={{ width: 36, height: 36, minWidth: 36, borderRadius: 8, border: "none", background: "transparent", color: P.faint, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
               ))}
             </div>
           </div>
         )}
-        <div style={{ marginBottom: 14, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
+        <div style={{ marginBottom: 14, }}>
           {hasDoc ? (
             <SegControl value={sourceView} onChange={(v) => { setPendingHL(null); setSourceView(v); }} P={P} accent={accent} ariaLabel="Document view"
               options={[{ id: "source", label: "Source" }, { id: "read", label: "Read" }]} />
@@ -21848,7 +21757,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           /* READ — the document as a typeset reading surface. One
              continuous text node, so selection maps 1:1 onto character
              offsets for highlights. */
-          <div style={form === "overlay" ? { flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 } : null}>
+          <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
               <div style={{ ...docEyebrow, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{docTitleOf(documentText)}</div>
               <button onClick={() => openDocument("")}
@@ -21938,24 +21847,19 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 Extracting text from PDF…
               </div>
             )}
-            {/* Extracted metadata preview, before analysis. Unknown fields
-                render as "—" rather than guessed. */}
-            {docMeta && (
+            {/* Detected identifier, before analysis. The old heuristic table
+                (title/authors/journal/year guessed from line shapes) is gone:
+                it duplicated what the analysis itself produces, and three of
+                its five rows routinely read "—". Only the identifier — the
+                one thing the analysis can't derive — is shown. */}
+            {docMeta && docMeta.ident && (
               <div style={{ marginTop: 12, border: `1px solid ${P.line}`, borderRadius: 6, background: P.surface, overflow: "hidden" }}>
                 <div className="cb-kicker" style={{ padding: "10px 14px 0" }}>Document</div>
                 <div style={{ padding: "2px 14px 8px" }}>
-                  {[
-                    ["Title", docMeta.title || "—"],
-                    ["Authors", docMeta.authors || "—"],
-                    ["Journal", docMeta.journal || "—"],
-                    ["Year", docMeta.year || "—"],
-                    ["Identifier", docMeta.ident ? `${docMeta.ident.kind}: ${docMeta.ident.value}` : "—"],
-                  ].map(([k, v], i) => (
-                    <div key={k} style={{ display: "flex", gap: 12, padding: "7px 0", borderTop: i ? `1px solid ${P.line}` : "none", fontSize: FONT_SIZES.small }}>
-                      <span style={{ width: 82, flexShrink: 0, color: P.faint, fontWeight: 600, fontFamily: "var(--cb-font)" }}>{k}</span>
-                      <span className={k === "Identifier" ? "cb-mono" : undefined} style={{ flex: 1, minWidth: 0, color: P.ink, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{v}</span>
-                    </div>
-                  ))}
+                  <div style={{ display: "flex", gap: 12, padding: "7px 0", fontSize: FONT_SIZES.small }}>
+                    <span style={{ width: 82, flexShrink: 0, color: P.faint, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Identifier</span>
+                    <span className="cb-mono" style={{ flex: 1, minWidth: 0, color: P.ink, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{`${docMeta.ident.kind}: ${docMeta.ident.value}`}</span>
+                  </div>
                 </div>
                 {docIdentOnly && (
                   <div style={{ padding: "0 14px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
@@ -21976,7 +21880,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </button>
               )}
             </div>
-            <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, ...(form === "page" ? { flexWrap: "wrap" } : { flexShrink: 0 }) }}>
+            <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, flexWrap: "wrap" }}>
               <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {!docStats ? <span>Paste a paper, report, or any long document</span> : <>
                   <span>{docStats.words.toLocaleString()} words</span>
@@ -21984,7 +21888,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   <span>~{docStats.mins} min read</span>
                 </>}
               </div>
-              <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, ...(form === "page" ? { flexWrap: "wrap" } : null) }}>
+              <div className="cb-doc-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
                 <button
                   onClick={analyze}
                   disabled={!hasDoc || analyzing}
@@ -22010,7 +21914,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 )}
               </div>
               {(docIsPro || docCap != null) && (
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5, ...(form === "page" ? { flexBasis: "100%" } : { marginTop: 8 }) }}>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5, flexBasis: "100%" }}>
                   {docIsPro
                     ? "Pro: unlimited document reads."
                     : docLeft > 0
@@ -22059,19 +21963,18 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     );
   };
 
-  const renderDocReader = (form) => {
+  const renderDocReader = () => {
     const cardStyle = {
       /* Sep 2026: opaque, not 0.94 — the near-opaque veil let bright
          footage ghost through behind text. Roomier padding now: the
          analysis is a reading surface, not a dense panel. */
       background: P.surface,
       borderRadius: 12, padding: isMobile ? 20 : 32, border: `1px solid ${P.line}`,
-      ...(form === "overlay" ? { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 } : null),
-    };
+      };
     return (
       <>
         {!summary && !analyzing && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint, textAlign: "center", ...(form === "page" ? { padding: isMobile ? "32px 8px" : "64px 16px" } : { flex: 1 }) }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint, textAlign: "center", padding: isMobile ? "32px 8px" : "64px 16px" }}>
             <WorkspaceEmpty P={P} accent={accent} icon="bookOpen"
               /* Pass 3 (2026-09-17): operational copy. "Read a paper with
                  me" was companion-speak; this is an instrument — it says
@@ -22083,7 +21986,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           </div>
         )}
         {analyzing && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, ...(form === "page" ? { padding: isMobile ? "8px 0" : "16px 0" } : { flex: 1 }) }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: isMobile ? "8px 0" : "16px 0" }}>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>Reading the document…</div>
             {analyzeProgress && analyzeProgress.total > 0 ? (
               <>
@@ -22099,17 +22002,24 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
               </>
             ) : (
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Racing five models — whichever answers first wins.</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Reading the document section by section.</div>
             )}
             <Skeleton P={P} accent={accent} />
           </div>
         )}
         {summary && (
           <div style={cardStyle} className="cb-doc-analysis-card">
-            <div className="cb-doc-tabs" style={{ marginBottom: 14, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
+            <div className="cb-doc-tabs" style={{ marginBottom: 14, }}>
               <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
                 options={allTabOptions} />
             </div>
+            {/* Partial analyses must not render as complete: the backend
+                marks degraded runs with partial:true and missingSections. */}
+            {summary.partial && Array.isArray(summary.missingSections) && summary.missingSections.length > 0 && (
+              <div style={{ fontSize: FONT_SIZES.small, color: P.warn || "#b98a2f", background: P.warnBg || "rgba(185,138,47,0.10)", border: `1px solid ${P.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+                This analysis is incomplete — {summary.missingSections.length === 1 ? "one section" : `${summary.missingSections.length} sections`} didn't finish. Run it again to fill the gaps.
+              </div>
+            )}
             {/* Verified lead media for the document (Commons still or
                 NASA/Commons clip, with credit). The analysis JSON always
                 carries the media key on the final response: verified media
@@ -22125,7 +22035,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
               );
             })()}
-            <div className="cb-doc-reader" style={form === "overlay" ? { flex: 1, overflowY: "auto", paddingRight: 4, minHeight: 0 } : null}>
+            <div className="cb-doc-reader">
               {rightTab === "compare" ? (
                 <>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 14 }}>
@@ -22175,7 +22085,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   const hasFindings = !!(summary.keyFindings && summary.keyFindings.trim());
                   const hasLimitations = !!(summary.limitations && summary.limitations.trim());
                   if (!hasFindings && !hasLimitations) {
-                    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>No separate findings section this time. Its all in the summary.</div>;
+                    const failed = summary.partial && Array.isArray(summary.missingSections) &&
+                      summary.missingSections.some((s) => /finding|limitation/i.test(String(s)));
+                    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>{failed
+                      ? "The findings section didn't finish this time. Run the analysis again to fill it in."
+                      : "No separate findings section this time. It's all in the summary."}</div>;
                   }
                   return (
                     <>
@@ -22209,7 +22123,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </>
               )}
             </div>
-            <div style={{ display: "flex", gap: 8, paddingTop: 14, marginTop: 14, borderTop: `1px solid ${P.line}`, ...(form === "overlay" ? { flexShrink: 0 } : null) }}>
+            <div style={{ display: "flex", gap: 8, paddingTop: 14, marginTop: 14, borderTop: `1px solid ${P.line}`, }}>
               <input
                 value={qaQuery}
                 onChange={(e) => setQaQuery(e.target.value)}
@@ -22231,6 +22145,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </button>
               )}
             </div>
+            {/* Honest cost: each follow-up question consumes one document
+                read, the same as an analysis — say so before they ask. */}
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, paddingTop: 8 }}>
+              Each question uses one of your document reads.
+            </div>
           </div>
         )}
       </>
@@ -22251,7 +22170,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
        regions, no 48%-of-the-screen split: on a phone the whole page is
        one vertical reflow. */
     <div
-      {...(asPage ? { role: "region", "aria-label": "Document Mode" } : { role: "dialog", "aria-modal": "true", "aria-label": "Document Mode" })}
+      role="region" aria-label="Document Mode"
       style={asPage
         ? {
             position: "relative", display: "flex", flexDirection: "column",
@@ -22340,12 +22259,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         }}>
           {/* SOURCE — the document, rendered by renderDocSource below. */}
           <section aria-label="Document source" style={{ minWidth: 0, ...docPanelCard }}>
-            {renderDocSource("page")}
+            {renderDocSource()}
           </section>
 
           {/* READER — the analysis, rendered by renderDocReader below. */}
           <section aria-label="Document analysis" style={{ minWidth: 0 }}>
-            {renderDocReader("page")}
+            {renderDocReader()}
           </section>
         </div>
       ) : (
@@ -22718,7 +22637,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setAccentName("Sage");          // cb_accent
     setCustomAccent("");            // cb_ca
     setAnswerLength("medium");      // cb_len
-    setFactCheck(true);             // not persisted
+    setFactCheck(true);             // cb_fc !== "0"
     setMuted(false);                // cb_muted !== "1"
     setSoundMode("pulse");          // cb_snd
     setAnimationMode("cinematic");  // cb_anim2
@@ -22736,6 +22655,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setProReel(false);              // cb_pro_reel !== "1"
     const allOn = { call: true, message: true, watch: true };
     setNotify(allOn); setNotifyPref(allOn);
+    try { localStorage.removeItem("cb_tts_voice"); } catch {} // TTS voice lives in localStorage, not a cookie
     setResetOpen(false);
     sfx();
     toast("Settings reset to defaults.");
@@ -22835,7 +22755,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Let people find me in search", "privacy", "privacy discoverable hidden invisible directory find people search"],
     ["Show my institution on my profile", "privacy", "privacy affiliation university college hide institution"],
     ["Who can start a conversation with you", "privacy", "privacy dm direct message strangers block messages"],
-    ["Citation format", "answers", "apa mla chicago vancouver bibtex reference style"],
     ["Theme", "appearance", "dark light palette colour color"],
     ["Accent color", "appearance", "colour highlight brand"],
     ["Motion", "sound", "background animation motion particles effects reduce"],
@@ -23188,10 +23107,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Check answers against their sources" desc="Before showing an answer, go back through it and confirm each claim really appears in the papers it cites. Adds a few seconds." control={<Switch on={factCheck} onChange={(v) => { sfx(); setFactCheck(v); }} label="Fact check pass" />} />
               {/* RESTORED 2026-09-17: animated typing — the answer reveals
                   over about a second on fresh turns. */}
-              <Row label="Animated typing" desc="Answers type themselves in as they are ready" control={<Switch on={typewriter} onChange={(v) => { sfx(); setTypewriter(v); }} label="Animated typing" />} />
-              <Row label="Citation format" control={
-                <Picker value={citationStyle} options={[["vancouver", "Vancouver"], ["apa", "APA"], ["mla", "MLA"], ["chicago", "Chicago"], ["bibtex", "BibTeX"]]} onChange={setCitationStyle} />
-              } last />
+              <Row label="Animated typing" desc="Answers type themselves in as they are ready" control={<Switch on={typewriter} onChange={(v) => { sfx(); setTypewriter(v); }} label="Animated typing" />} last />
+              {/* Citation format lives on each answer's References section,
+                  where the decision is made — not duplicated here. */}
             </Section>
 
             {/* Wave 3 — how an answer is spoken is part of what an answer
@@ -23280,7 +23198,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 because "who can see me" and "where does my data live" are
                 one question, and the notifications that touch that data are
                 part of the same answer. */}
-            <PrivacySettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} Switch={Switch} Picker={Picker} />
+            <PrivacySettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} Switch={Switch} Picker={Picker} user={user} />
 
             {/* Commit 67. Cerebrum was raising three kinds of desktop
                 notification with no way to turn any of them off short of
@@ -23415,7 +23333,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Reduce transparency" desc="Makes panels solid instead of frosted glass" control={<Switch on={reducedTransparency} onChange={(v) => { sfx(); setReducedTransparency(v); }} label="Reduce transparency" />} last />
             </Section>
 
-            <Section title="Auto read" footer="Voice selection and playback speed are on the Answers tab.">
+            <Section title="Auto read" footer="Voice selection is on the Answers tab.">
               <Row label="Auto read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} last />
             </Section>
           </>)}
@@ -23430,7 +23348,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} last={(history || []).length === 0} />
               {(history || []).length > 0 && (
                 <Row label="Clear conversation history" destructive control={
-                  <button onClick={() => { setHistory([]); sfx(); }} style={{ padding: "6px 14px", minHeight: 44, fontSize: FONT_SIZES.small, color: statusBad(P, paletteName), background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
+                  <button onClick={() => { if (window.confirm("Clear your conversation history? This can't be undone.")) { setHistory([]); sfx(); } }} style={{ padding: "6px 14px", minHeight: 44, fontSize: FONT_SIZES.small, color: statusBad(P, paletteName), background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
                 } last />
               )}
             </Section>
@@ -23438,7 +23356,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             {/* Wave 3 — the old "Storage" section's Clear-all-data row used
                 the same inline Delete/Cancel expander pattern as the other
                 destructive confirmations. It is a Dialog sheet now. */}
-            <Section title="Erase" footer="Wipes everything Cerebrum keeps in this browser: conversations, saved articles and preferences. Your account and anything on our servers are untouched.">
+            <Section title="Erase" footer="Clears conversations, saved articles, and search history — in this browser and in your account's synced copy. Preferences, watched topics, collections, documents, and device encryption keys are kept.">
               <Row label="Clear all data" destructive onClick={() => setClearOpen(true)} last />
             </Section>
 
@@ -23478,14 +23396,16 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               </Section>
             )}
 
-            <Section title="Workspace" footer="Everything, as JSON. Reimport it anywhere.">
+            <Section title="Workspace" footer="Everything, as JSON. Reimport it anywhere. Note: this exports your data decrypted — if Private Vault is on, the file is readable by anyone who gets it.">
               <Row label="Export workspace" desc="Download all your data as JSON" control={
                 <button onClick={() => {
+                  let ttsVoice = "";
+                  try { ttsVoice = localStorage.getItem("cb_tts_voice") || ""; } catch {}
                   const workspace = {
                     version: APP_VERSION_LABEL,
                     exported: new Date().toISOString(),
                     saved, history,
-                    preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity },
+                    preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity, animSpeed, highContrast: highContrast ? "1" : "0", fontSize, reducedTransparency: reducedTransparency ? "1" : "0", autoplay: autoplay ? "1" : "0", dyslexicFont: dyslexicFont ? "1" : "0", lineSpacing, focusHighlight: focusHighlight ? "1" : "0", typewriter: typewriter ? "1" : "0", proReel: proReel ? "1" : "0", notify, ttsVoice },
                   };
                   const blob = new Blob([JSON.stringify(workspace, null, 2)], { type: "application/json" });
                   const url = URL.createObjectURL(blob);
@@ -23506,24 +23426,43 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     if (!file) return;
                     const reader = new FileReader();
                     reader.onload = () => {
+                      // Import replaces the current workspace — confirm before
+                      // touching anything, then validate enums so a malformed
+                      // file can't silently install garbage preferences.
+                      let data;
+                      try { data = JSON.parse(reader.result); }
+                      catch { toast("Couldn't import that file — it isn't valid workspace JSON.", { tone: "error" }); return; }
+                      if (!window.confirm("Replace your current workspace (library, history, preferences) with this file? This can't be undone.")) return;
                       try {
-                        const data = JSON.parse(reader.result);
                         if (data.saved && Array.isArray(data.saved)) setSaved(data.saved);
                         if (data.history && Array.isArray(data.history)) setHistory(data.history);
                         // Export writes preferences; restore them too so an
                         // import actually brings the workspace back whole.
                         if (data.preferences && typeof data.preferences === "object") {
                           const p = data.preferences;
+                          const inSet = (v, set) => set.includes(v);
                           if (typeof p.paletteName === "string") setPaletteName(p.paletteName);
                           if (typeof p.accentName === "string") setAccentName(p.accentName);
                           if (typeof p.customAccent === "string") setCustomAccent(p.customAccent);
-                          if (typeof p.answerLength === "string") setAnswerLength(p.answerLength);
+                          if (inSet(p.answerLength, ["short", "medium", "long"])) setAnswerLength(p.answerLength);
                           if (p.factCheck === "1" || p.factCheck === "0") setFactCheck(p.factCheck === "1");
                           if (p.muted === "1" || p.muted === "0") setMuted(p.muted === "1");
-                          if (typeof p.soundMode === "string") setSoundMode(p.soundMode);
-                          if (typeof p.citationStyle === "string") setCitationStyle(p.citationStyle);
-                          if (typeof p.animationMode === "string") setAnimationMode(p.animationMode);
-                          if (typeof p.dataDensity === "string") setDataDensity(p.dataDensity);
+                          if (inSet(p.soundMode, ["pulse", "shimmer", "warm", "minimal"])) setSoundMode(p.soundMode);
+                          if (inSet(p.citationStyle, ["vancouver", "apa", "mla", "chicago", "bibtex"])) setCitationStyle(p.citationStyle);
+                          if (inSet(p.animationMode, ["off", "subtle", "cinematic"])) setAnimationMode(p.animationMode);
+                          if (inSet(p.dataDensity, ["comfortable", "compact"])) setDataDensity(p.dataDensity);
+                          if (typeof p.animSpeed === "number" && p.animSpeed >= 0.25 && p.animSpeed <= 4) setAnimSpeed(p.animSpeed);
+                          if (p.highContrast === "1" || p.highContrast === "0") setHighContrast(p.highContrast === "1");
+                          if (inSet(p.fontSize, ["small", "medium", "large", "xlarge"])) setFontSize(p.fontSize);
+                          if (p.reducedTransparency === "1" || p.reducedTransparency === "0") setReducedTransparency(p.reducedTransparency === "1");
+                          if (p.autoplay === "1" || p.autoplay === "0") setAutoplay(p.autoplay === "1");
+                          if (p.dyslexicFont === "1" || p.dyslexicFont === "0") setDyslexicFont(p.dyslexicFont === "1");
+                          if (inSet(p.lineSpacing, ["normal", "relaxed", "loose"])) setLineSpacing(p.lineSpacing);
+                          if (p.focusHighlight === "1" || p.focusHighlight === "0") setFocusHighlight(p.focusHighlight === "1");
+                          if (p.typewriter === "1" || p.typewriter === "0") setTypewriter(p.typewriter === "1");
+                          if (p.proReel === "1" || p.proReel === "0") setProReel(p.proReel === "1");
+                          if (p.notify && typeof p.notify === "object") { const n = { call: true, message: true, watch: true }; for (const k of ["call", "message", "watch"]) if (typeof p.notify[k] === "boolean") n[k] = p.notify[k]; setNotify(n); setNotifyPref(n); }
+                          if (typeof p.ttsVoice === "string" && p.ttsVoice) { try { localStorage.setItem("cb_tts_voice", p.ttsVoice); } catch {} }
                         }
                         sfx();
                         toast("Workspace imported.");
@@ -23591,10 +23530,10 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {clearOpen && (
         <Dialog label="Clear all data" onClose={() => setClearOpen(false)} zIndex={240}>
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
-            Wipe everything Cerebrum keeps in this browser — your conversations, saved articles and preferences.
+            Clear your conversations, saved articles, and search history — in this browser and in your account's synced copy.
           </p>
           <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
-            Your account and anything stored on our servers are untouched. This can't be undone.
+            Preferences, watched topics, collections, documents, and this device's encryption keys are kept. This can't be undone.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
             <button onClick={() => setClearOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my data</button>
@@ -23605,7 +23544,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {resetOpen && (
         <Dialog label="Reset all settings" onClose={() => setResetOpen(false)} zIndex={240}>
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
-            Put every preference back to its default — theme, accent, sounds, motion, answer style, everything on the Appearance and Sound & motion tabs.
+            Put every preference back to its default — theme, accent, sounds, motion, answer style, notifications, everything on the Appearance, Sound & motion, and Answers tabs.
           </p>
           <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Your library, history and watchlist are untouched.
@@ -23622,7 +23561,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             Permanently delete your account and all its data — email, library, history, everything on our servers.
           </p>
           <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
-            Immediately, and for good. If you have an active subscription, cancel it in the billing portal first. Deletion doesn't stop billing.
+            Immediately, and for good. If you have an active subscription,{" "}
+            <button onClick={async () => { try { const r = await apiProPost("create-portal", {}); window.location.href = r.url; } catch { toast("Couldn't open billing. Try again?", { tone: "error" }); } }} style={{ background: "none", border: "none", padding: 0, color: accent, cursor: "pointer", fontSize: "inherit", fontWeight: 600, fontFamily: "var(--cb-font)", textDecoration: "underline" }}>cancel it in the billing portal</button>{" "}
+            first. Deletion doesn't stop billing.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
             <button onClick={() => setDeleteOpen(false)} style={{ padding: "10px 18px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my account</button>
@@ -25379,7 +25320,6 @@ function App() {
         grad_year: profileRes.user.grad_year || "",
         avatar_base64: profileRes.user.avatar_base64 || "",
         bio: profileRes.user.bio || "",
-        cover: profileRes.user.cover || "",
         link_site: profileRes.user.link_site || "",
         link_orcid: profileRes.user.link_orcid || "",
         link_scholar: profileRes.user.link_scholar || "",
@@ -25490,6 +25430,10 @@ function App() {
       window.history.replaceState({}, "", url.pathname + (rest ? "?" + rest : "") + url.hash);
     } catch {}
     setInput(deepQ);
+    // The consent gate is the price of admission: a deep link may prefill
+    // the question, but it may not spend the visitor's anonymous quota or
+    // skip the gate. Without consent the question waits in the box.
+    if (!legalOk) return;
     const t = setTimeout(() => { try { askRef.current?.(deepQ); } catch {} }, 60);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -25584,6 +25528,11 @@ function App() {
     investigationRequest.current += 1;
     setBusy(false); setTurns([]); setAllSources([]);
     zkLockNow();
+    // The deleted account's E2EE device identity must not survive: without
+    // this, a new account in the same browser resurrects the old Olm
+    // identity and publishes its keys under the new account.
+    try { wipeLocalKeys().catch(() => {}); } catch {}
+    try { clearE2EEMemory(); } catch {}
     setUser(null); setSyncReady(false); setCollections([]); setSaved([]); setHistory([]);
     setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
   }
@@ -25634,7 +25583,7 @@ function App() {
     ];
     (h.turns || []).forEach((t, i) => {
       lines.push(`Q${i + 1}: ${t.q || ""}`);
-      if (t.answer) lines.push(t.answer.replace(/<[^>]+>/g, "").slice(0, 2000));
+      if (t.answer) { const plain = t.answer.replace(/<[^>]+>/g, ""); lines.push(plain.slice(0, 2000) + (plain.length > 2000 ? "\n[…answer truncated at 2,000 characters — the full answer is in the investigation]" : "")); }
       lines.push("");
     });
     if ((h.allSources || []).length) {
@@ -26238,7 +26187,7 @@ function App() {
       let x = 0;
       const s = String(h.id || "");
       for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) >>> 0;
-      map.set(h.id, `INV-${ds}-${x.toString(16).padStart(8, "0").slice(0, 4).toUpperCase()}`);
+      map.set(h.id, `INV-${ds}-${x.toString(16).padStart(8, "0").slice(0, 6).toUpperCase()}`);
     }
     return map;
   }, [history]);
@@ -26263,15 +26212,6 @@ function App() {
      not as a second save model. Exports are this browser's export
      receipts. `savedUsage` maps each saved paper to the investigations
      that turned it up, for the ledger's "Used in" column. */
-  const answeredTurns = useMemo(() => {
-    const out = [];
-    for (const h of (history || [])) {
-      for (const t of (h.turns || [])) {
-        if (t.answer && String(t.answer).trim().length > 40) out.push({ inv: h, turn: t });
-      }
-    }
-    return out;
-  }, [history]);
   const savedUsage = useMemo(() => {
     const map = new Map();
     for (const h of (history || [])) {
@@ -26342,7 +26282,7 @@ function App() {
   const [srcSort, setSrcSort] = useState("relevance");
   const [srcFilter, setSrcFilter] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
-  const [factCheck, setFactCheck] = useState(true);
+  const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") !== "0");
   const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
@@ -26474,8 +26414,9 @@ function App() {
   // the Home Deck. Drives the compact hero; see the comment at its
   // <Reveal>. Deliberately does NOT include the watchlist: that loads
   // asynchronously inside WatchList, and keying the hero's height on it
-  // would make the whole page jump a second after paint.
-  const deckHasContent = !!(user && ((history && history.length) || (saved && saved.length)));
+  // would make the whole page jump a second after paint. Includes local
+  // history/saved so signed-out returners get the compact hero too.
+  const deckHasContent = !!(((history && history.length) || (saved && saved.length)));
   // Commit 87 — the greeting hero. A display name is whatever the person
   // actually put in their profile; falling back to the email local-part
   // would greet someone as "dustybreen2", which is worse than no name.
@@ -26584,9 +26525,6 @@ function App() {
   const [contextBusy, setContextBusy] = useState(false);
   const lastAskRef = useRef(null);
   const ask = useCallback(async (q, opts = {}) => {
-    // Counts a day only when a real investigation runs — not for opening
-    // the app. See readStreak/bumpStreak for why that distinction matters.
-    try { bumpStreak(); } catch {}
     const question = (q ?? input).trim();
     const imageToSend = attachedImage;
     const imageNameToSend = attachedImageName;
@@ -27151,7 +27089,7 @@ function App() {
       // (local-only: the library stays in this browser).
       if (await zkPushSaved(saved)) return;
       if (vaultLocalOnlyRef.current) return;
-      apiDataPost("saved", { action: "replace-all", items: saved }).catch(() => {});
+      apiDataPost("saved", { action: "replace-all", items: saved }).catch(() => toast("Saved papers could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" }));
     }, 900);
     return () => clearTimeout(savedSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -27235,7 +27173,6 @@ function App() {
         degree: profile.degree || "",
         grad_year: profile.grad_year || "",
         bio: profile.bio || "",
-        cover: profile.cover || "",
         link_site: profile.link_site || "",
         link_orcid: profile.link_orcid || "",
         link_scholar: profile.link_scholar || "",
@@ -27244,7 +27181,7 @@ function App() {
     }, 900);
     return () => clearTimeout(profileSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.name, profile.username, profile.affiliation, profile.degree, profile.grad_year, profile.bio, profile.cover, profile.link_site, profile.link_orcid, profile.link_scholar, profile.interests, user, syncReady]);
+  }, [profile.name, profile.username, profile.affiliation, profile.degree, profile.grad_year, profile.bio, profile.link_site, profile.link_orcid, profile.link_scholar, profile.interests, user, syncReady]);
 
   // Collections CRUD — thin wrappers around /api/data's "collections"
   // actions, plus the local `saved` array update so the Collections modal
@@ -28185,8 +28122,6 @@ function App() {
             <div style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: 12, background: P.surface, marginBottom: 30, overflow: "hidden" }} aria-label="Library categories">
               {[
                 { key: "papers", label: "Saved papers", count: saved.length, go: () => scrollToLibSection("lib-papers") },
-                { key: "answers", label: "Saved answers", count: answeredTurns.length, go: () => scrollToLibSection("lib-answers") },
-                { key: "investigations", label: "Investigations", count: history.length, go: () => { sfx(); setView("investigations"); } },
                 { key: "maps", label: "Evidence maps", count: flowcharts.length, go: () => scrollToLibSection("lib-maps") },
                 { key: "exports", label: "Exports", count: exportLog.length, go: () => scrollToLibSection("lib-exports") },
               ].map((c, i) => (
@@ -28241,7 +28176,7 @@ function App() {
                             {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                           </select>
                         )}
-                        <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); sfx(); }}>Remove selected</UIButton>
+                        <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { if (window.confirm(`Remove ${selectedSavedKeys.size} saved paper${selectedSavedKeys.size === 1 ? "" : "s"} from your library?`)) { setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); sfx(); } }}>Remove selected</UIButton>
                         <button onClick={() => setSelectedSavedKeys(new Set())} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Clear</button>
                       </div>
                     )}
@@ -28300,7 +28235,7 @@ function App() {
                               )}
                               {isMobile && (
                                 <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== key))}>Remove</UIButton>
+                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { if (window.confirm("Remove this paper from your library?")) setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); }}>Remove</UIButton>
                                 </span>
                               )}
                             </span>
@@ -28322,7 +28257,7 @@ function App() {
                                       <Icon name="search" size={15} />
                                     </button>
                                   )}
-                                  <button onClick={() => setSaved((prev) => prev.filter((x) => sourceKey(x) !== key))} title="Remove from library" aria-label={`Remove ${sv.title || "paper"} from library`}
+                                  <button onClick={() => { if (window.confirm("Remove this paper from your library?")) setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); }} title="Remove from library" aria-label={`Remove ${sv.title || "paper"} from library`}
                                     style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: 8 }}>
                                     <Icon name="close" size={15} />
                                   </button>
@@ -28339,65 +28274,6 @@ function App() {
             )}
             </div>
           </WorkspacePage>
-          {/* Saved answers: answered turns from investigations, surfaced as a
-              record. They open back into the investigation they belong to. */}
-          <div id="lib-answers" style={{ scrollMarginTop: 80 }}>
-            <WorkspacePage
-              P={P} accent={accent} isMobile={isMobile} wide
-              title="Saved answers" count={answeredTurns.length}
-              description="Answers you've received, kept with the investigations they belong to. Select one to reopen its thread."
-              actions={answeredTurns.length > 0 ? (
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="download"
-                  onClick={() => { sfx(); libDownload("TXT", "cerebrum-answers.txt", answeredTurns.map(({ inv, turn }, i) => `${i + 1}. ${turn.q}\nInvestigation: ${inv.title}\nAnswered: ${inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}\n${stripMarkdown(String(turn.answer || ""))}\n`).join("\n—\n\n")); }}>
-                  Export answers
-                </UIButton>
-              ) : null}
-            >
-              {answeredTurns.length === 0 ? (
-                <WorkspaceEmpty P={P} accent={accent} icon="chat" size="sm"
-                  title="No answers yet"
-                  body="Answers live with their investigations — ask a question and the thread appears here as part of your record."
-                  actionLabel="Ask something" onAction={() => { sfx(); setView("search"); }} />
-              ) : (
-                <div role="list" aria-label="Saved answers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
-                  {!isMobile && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 640 }}>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>QUESTION</span>
-                      <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>INVESTIGATION</span>
-                      <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>ANSWERED</span>
-                      <span style={{ width: 76, flexShrink: 0 }} />
-                    </div>
-                  )}
-                  {answeredTurns.map(({ inv, turn }, i) => (
-                    <div key={`${inv.id}-${turn.id || i}`} role="listitem"
-                      style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 640 }}>
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <button onClick={() => openHistoryItem(inv)} className="cb-textbtn"
-                          style={{ display: "block", width: "100%", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>
-                          {turn.q}
-                        </button>
-                        <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
-                          {turn.sources && turn.sources.length ? `${turn.sources.length} cited paper${turn.sources.length === 1 ? "" : "s"}` : "No citations attached"}
-                          {isMobile ? ` · ${inv.title} · ${inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}` : ""}
-                        </span>
-                      </span>
-                      {!isMobile && (
-                        <>
-                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={inv.title}>{inv.title}</span>
-                          <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                            {inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
-                          </span>
-                          <span style={{ width: 76, flexShrink: 0, display: "inline-flex", justifyContent: "flex-end" }}>
-                            <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => openHistoryItem(inv)}>Open</UIButton>
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </WorkspacePage>
-          </div>
           {/* Flowchart Studio — saved charts live in the library next to saved
               papers, because a diagram of what the evidence says is a research
               artifact in the same sense a saved paper is. */}
@@ -28436,7 +28312,7 @@ function App() {
                     <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
                       <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}>Open</UIButton>
                       <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG</UIButton>
-                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); }}>Delete</UIButton>
+                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { if (window.confirm("Delete this evidence map? This can't be undone.")) { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); } }}>Delete</UIButton>
                     </span>
                   </div>
                 ))}
@@ -28469,14 +28345,14 @@ function App() {
                     </div>
                   )}
                   {exportLog.map((r, i) => (
-                    <div key={`${r.ts}-${i}`} role="listitem"
+                    <div key={`${r.at ?? r.ts}-${i}`} role="listitem"
                       style={{ display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "12px 16px" : "10px 16px", borderTop: i ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 560 }}>
                       <span style={{ width: 110, flexShrink: 0 }}>
                         <span className="cb-pill" style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4 }}>{r.kind}</span>
                       </span>
                       <span className="cb-mono" style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.filename}>{r.filename}</span>
                       <span style={{ width: 160, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                        {new Date(r.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · {new Date(r.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                        {new Date(r.at ?? r.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · {new Date(r.at ?? r.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </span>
                     </div>
                   ))}
@@ -30565,7 +30441,6 @@ body {
      of their tracks when their animations are killed. */
   .cb-readhead-marker { transform: none; }
 }
-
 
 
 /* ══════════════════════════════════════════════════════════════════
