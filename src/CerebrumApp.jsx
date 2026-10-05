@@ -415,6 +415,34 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename 
     accent,
   });
 }
+/* Pro: Answer PDF export. Opens a clean print view of the answer with
+   citations; the user saves as PDF from the print dialog. No dependencies,
+   works everywhere. */
+function exportAnswerToPDF(answer, sources, question) {
+  const win = window.open("", "_blank", "width=800,height=600");
+  if (!win) return { ok: false };
+  const srcList = (sources || []).map((s, i) =>
+    `<li><strong>[${i + 1}]</strong> ${(s.title || "Untitled").replace(/</g, "&lt;")}<br/>` +
+    `<em>${(s.authors || "").replace(/</g, "&lt;")}</em>${s.journal ? `, ${s.journal.replace(/</g, "&lt;")}` : ""}${s.year ? ` (${s.year})` : ""}<br/>` +
+    `${s.doi ? `DOI: ${s.doi}<br/>` : ""}${s.url ? `<a href="${s.url}">${s.url}</a>` : ""}</li>`
+  ).join("");
+  win.document.write(`<!DOCTYPE html><html><head><title>Cerebrum Answer</title><style>
+    body { font-family: Georgia, serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.6; }
+    h1 { font-size: 22px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+    h2 { font-size: 18px; margin-top: 30px; }
+    ol { padding-left: 20px; } li { margin-bottom: 12px; font-size: 14px; }
+    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; font-size: 12px; color: #666; }
+    @media print { body { margin: 20px; } }
+  </style></head><body>
+    <h1>${(question || "Research Answer").replace(/</g, "&lt;")}</h1>
+    <div>${answer || ""}</div>
+    <h2>Sources</h2><ol>${srcList}</ol>
+    <div class="footer">Exported from Cerebrum &middot; ${new Date().toLocaleDateString()} &middot; askcerebrum.org</div>
+  </body></html>`);
+  win.document.close();
+  setTimeout(() => { win.print(); }, 500);
+  return { ok: true };
+}
 async function saveToZotero(sources, apiKey, userId) {
   const items = sources.map((s) => ({ itemType: "journalArticle", title: s.title || "", creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })), publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "" }));
   const res = await fetch(`https://api.zotero.org/users/${userId}/items`, { method: "POST", headers: { "Zotero-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(items) });
@@ -7936,6 +7964,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 ["A Pro badge on your profile", "Shows wherever your name appears"],
                 ["The Pro theme", "A dark bronze-and-gold look, members only"],
                 ["Members-only background films", "Aurora, nebula, eclipse and DNA reels"],
+                ["Answer PDF export", "Clean PDFs with citations for your thesis"],
               ]).map(([t, d]) => (
                 <li key={t} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                   <span style={{ color: "#34d399", marginTop: 1 }}><Icon name="check" size={15} /></span>
@@ -10322,6 +10351,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 >
                   {copiedAnswer ? "Copied" : "Copy answer"}
                 </button>
+                {user?.isPro && (
+                  <button type="button" className="cb-textbtn"
+                    title="Export as PDF"
+                    onClick={() => { exportAnswerToPDF(t.answer, t.sources, t.q); logExport("PDF", "cerebrum-answer.pdf"); }}
+                  >
+                    Export PDF
+                  </button>
+                )}
                 <button type="button" className="cb-textbtn"
                   title={linkCopied ? "Link copied!" : "Share"}
                   onClick={async () => {
@@ -22998,7 +23035,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
                   style={{ minHeight: 44, flexShrink: 0, padding: "8px 10px 10px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
               ))}
-              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 0, width: 1, height: 2, background: accent, borderRadius: 8, transform: "translateX(" + tabUnderline.left + "px) scaleX(" + tabUnderline.width + ")", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
+              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 0, width: 1, height: 2, background: accent, borderRadius: 8, transformOrigin: "0 50%", transform: "translateX(" + tabUnderline.left + "px) scaleX(" + tabUnderline.width + ")", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
             </div>
           )}
         </div>
