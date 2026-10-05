@@ -29,8 +29,11 @@ export default defineConfig({
        from this origin's /assets/cinematic/ as today. Set at build time via
        VITE_VIDEO_CDN_BASE, or at runtime via window.__CB_VIDEO_CDN__
        (see docs/video-cdn.md). The find/replace map the frontend applies in
-       CerebrumApp.jsx is docs/video-cdn-frontend-map.md. */
-    __CB_VIDEO_CDN__: JSON.stringify(process.env.VITE_VIDEO_CDN_BASE || ""),
+       CerebrumApp.jsx is docs/video-cdn-frontend-map.md.
+       Default is the live R2 bucket (public URL, not a secret) — 2026-10-05.
+       Switch to https://video-cdn.askcerebrum.org once the custom domain
+       resolves. */
+    __CB_VIDEO_CDN__: JSON.stringify(process.env.VITE_VIDEO_CDN_BASE || "https://pub-546d531fe901438bbc0834d0baf0d603.r2.dev"),
   },
   resolve: {
     alias: [
