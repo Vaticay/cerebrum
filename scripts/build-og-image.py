@@ -36,7 +36,8 @@ d = ImageDraw.Draw(img, "RGBA")
 
 # brain mark, cropped from the current repo og art (vector-crisp source);
 # feather the crop edges so the source background melts into the new art
-src = Image.open("public/og-image-prev.png  # previous committed art; the mark is cropped from it").convert("RGBA")
+# previous committed art; the mark is cropped from it
+src = Image.open("public/og-image-prev.png").convert("RGBA")
 mark = src.crop((282, 548, 362, 658))          # 80x110 incl. padding
 mw, mh = mark.size
 mask = Image.new("L", (mw, mh), 255)

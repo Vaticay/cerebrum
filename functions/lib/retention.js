@@ -40,7 +40,7 @@ export const RETENTION = {
   /** Expired sessions. */
   sessionsMs: 0, // deleted on their own expires_at
   /** Rate-limit counters. */
-  rateLimitMs: 0, // deleted on their own reset_at
+  rateLimitMs: 0, // deleted on their own expires_at
 };
 
 /**
@@ -75,7 +75,7 @@ export async function sweepExpiredData(env) {
     ["otp_codes",          "DELETE FROM otp_codes WHERE expires_at < ?",          now - RETENTION.otpMs],
     ["magic_links",        "DELETE FROM magic_links WHERE expires_at < ?",        now - RETENTION.magicLinkMs],
     ["sessions",           "DELETE FROM sessions WHERE expires_at < ?",           now],
-    ["rate_limits",        "DELETE FROM rate_limits WHERE reset_at < ?",          now],
+    ["rate_limits",        "DELETE FROM rate_limits WHERE expires_at < ?",        now],
   ];
 
   /* Historical raw_query rows are NOT cleared automatically.

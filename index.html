@@ -24,17 +24,15 @@
          every single first visit. Requesting it here starts the fetch
          before the JS bundle has even finished parsing.
 
-         Loaded as a non-render-blocking stylesheet (the standard
-         preload-then-swap trick: media="print" makes the browser fetch it
-         at low priority without waiting on it, then onload flips it to
-         "all" once it's actually ready) rather than a plain blocking
-         <link rel="stylesheet">. A blocking stylesheet link in <head>
-         delays every deferred/module script — including this whole app —
-         until it resolves; on a network or browser extension that blocks
-         Google Fonts, a plain blocking link means the entire app never
-         renders at all, not just an unstyled headline. This way a slow or
-         blocked font fetch costs a few seconds of fallback-font text,
-         never a blank white screen. -->
+         Loaded as a render-blocking stylesheet (preload + a plain
+         <link rel="stylesheet">), not through the old non-render-blocking
+         media="print" onload-swap trick: that trick needs an inline event
+         handler, which a strict CSP must forbid, and it would have left the
+         site permanently unstyled once the CSP shipped. Same-origin CSS
+         blocks for a few milliseconds, not a network round trip, so the
+         trick bought nothing here. A slow font fetch costs a few seconds
+         of fallback-font text via font-display: swap, never a blank
+         white screen. -->
     <!-- Fonts are served from this origin, not from Google.
          Previously three <link>s pointed at fonts.googleapis.com, which meant
          every visitor's IP address and User-Agent reached a third party
@@ -52,6 +50,7 @@
     <link rel="preload" as="style" href="/fonts/cerebrum-fonts.css" />
     <link rel="stylesheet" href="/fonts/cerebrum-fonts.css" />
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/NGSwv5HMAFg6IuGlBNMjxLsH8ag.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/NGSwv5HMAFg6IuGlBNMjxLsJ8ah8QA.woff2" />
 
     <!-- The one typeface. Inter Tight ships as a variable font (wght
          100–900) from this origin's /fonts directory — the woff2 files

@@ -267,8 +267,10 @@ export async function onRequest(context) {
   if (request.method !== "GET") return errRes("Method not allowed.", 405, "method_not_allowed", cors);
   if (!readOriginAllowed(request, env)) return errRes("Origin not allowed.", 403, "origin_not_allowed", cors);
 
-  const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
-  if (!(await checkRateLimit(env, `trending:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
+  // Hashed rate-limit key under a server secret; clientIp() deliberately
+  // ignores the client-settable X-Forwarded-For.
+  const rlKey = await privacyKey("trending-ip", clientIp(request), env);
+  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
     return errRes("Too many requests. Please wait a moment and try again.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
   }
 

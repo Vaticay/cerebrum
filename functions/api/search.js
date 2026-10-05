@@ -27,7 +27,7 @@ import { wantsStream, createSseStream, parseLastEventId, sseHeaders } from "../l
 import { contextRequestId } from "../lib/requestLog.js";
 import { getBreaker, isTransientError, CircuitOpenError, withBackoff, callWithCircuit } from "../lib/llmCircuit.js";
 import { clampMessages, MAX_PROMPT_CHARS, messagesChars, UNTRUSTED_SYSTEM_NOTE } from "../lib/inputGuard.js";
-import { recordCacheHit, recordCacheMiss, recordCacheLookup } from "../lib/aiCacheStats.js";
+import { recordCacheLookup } from "../lib/aiCacheStats.js";
 import { authorizeLlmCall, spendTokens, CHEAP_MODEL } from "../lib/costControl.js";
 import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
 
@@ -6627,6 +6627,12 @@ async function recallTopicMemory(topic, db) {
 // much wall-clock time has elapsed, stop trying additional fallback
 // stages and synthesize from whatever's already been gathered, rather
 // than let a thin query march through every remaining stage regardless.
+//
+// NOTE: this 20s value exceeds the 19s global REQUEST_BUDGET_MS on purpose
+// as defense in depth — the real effective bound is the runStage backstop
+// at the call site (timeoutMs: Math.max(3000, msLeft() - 6000)), which
+// always fires first. This constant is a backstop for direct callers of
+// gatherPapers, not a guarantee the pipeline can honor.
 const GATHER_PAPERS_BUDGET_MS = 20000;
 async function gatherPapers(rawQuery, opts) {
   const _searchStart = Date.now();
@@ -7992,16 +7998,30 @@ async function answerConversationally(query, history, env) {
   messages.push({ role: "user", content: query });
   try {
     return await Promise.any(models.map(async (m) => {
-      const res = await fetch(m.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": "https://askcerebrum.org" },
-        body: JSON.stringify({ model: m.model, messages, max_tokens: 320, temperature: 0.8 }),
-      });
-      if (!res.ok) { await res.text().catch(() => {}); throw new Error(String(res.status)); }
-      const data = await res.json();
-      const text = (data.choices?.[0]?.message?.content || "").trim();
-      if (!text) throw new Error("empty");
-      return text;
+      // The only LLM call site that used to run without a timeout: a hung
+      // provider held the worker, and provider-error text could be served
+      // verbatim as persona chat. Bounded like every other leg now.
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 15000);
+      try {
+        const res = await fetch(m.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": "https://askcerebrum.org" },
+          body: JSON.stringify({ model: m.model, messages, max_tokens: 320, temperature: 0.8 }),
+          signal: c.signal,
+        });
+        if (!res.ok) { await res.text().catch(() => {}); throw new Error(String(res.status)); }
+        const data = await res.json();
+        const text = (data.choices?.[0]?.message?.content || "").trim();
+        if (!text) throw new Error("empty");
+        assertValidProviderText(text, "conversational");
+        return text;
+      } catch (e) {
+        if (e && e.name === "AbortError") throw new Error("conversational: timed out");
+        throw e;
+      } finally {
+        clearTimeout(t);
+      }
     }));
   } catch { return null; }
 }
@@ -8484,17 +8504,16 @@ async function runSearchPipeline(pctx) {
     });
 
     // ════════════════════════════════════════════════════════════════
-    // IMAGE COMPREHENSION — see describeImage() above. A hard size cap
-    // (~6MB base64, comfortably above any reasonable photo/screenshot but
-    // well short of what could be used to abuse the endpoint) guards
-    // against a crafted request trying to burn vision-model time on
-    // something absurd. Failure here is silent-and-continue: if the vision
+    // IMAGE COMPREHENSION — see describeImage() above. The size guard is
+    // the 4MB request-body cap enforced by readJsonBody() above: anything
+    // larger never reaches this point, so no separate check is needed here.
+    // Failure here is silent-and-continue: if the vision
     // call fails or isn't configured, the request still proceeds as a
     // normal text-only search rather than erroring out.
     let imageContext = null;
     // Vision description is provider-backed AI: gated like every other AI
     // surface. A gated caller still gets the text query path below.
-    if (hasImage && body.image.length < 8_000_000 && openRouterKey(env) && aiSynthesisAllowed) {
+    if (hasImage && openRouterKey(env) && aiSynthesisAllowed) {
       imageContext = await describeImage(body.image, query, openRouterKey(env)).catch(() => null);
       if (imageContext) {
         query = (query + " " + imageContext).slice(0, MAX_QUERY_LEN);
@@ -11109,13 +11128,19 @@ async function runSearchPipeline(pctx) {
       return p;
     };
 
-    // Check if we know the best model for this topic domain
-    const domainKey = query.toLowerCase().split(/\s+/).slice(0, 3).join(" ");
+    // Check if we know the best model for this topic domain.
+    // Privacy: model_perf is shared storage keyed by the query's own words.
+    // A question that may not be persisted must neither write to it nor read
+    // from it (a read is observable in the fast-path choice, the same oracle
+    // reason the cache read is refused above for non-cacheable queries).
+    const domainKey = privacy.persist
+      ? query.toLowerCase().split(/\s+/).slice(0, 3).join(" ")
+      : null;
     // Declared here (not below with the waves) so the fast path can record
     // its attempt — otherwise the per-leg diagnostics go blind on it.
     const aiAttempts = []; // diagnostic trail — surfaced in _aiAttempts for debugging
     let preferredModel = null;
-    if (env.DB) {
+    if (env.DB && domainKey) {
       try {
         const pref = await env.DB.prepare(
           "SELECT model, wins FROM model_perf WHERE domain = ? ORDER BY wins DESC LIMIT 1"
@@ -11214,7 +11239,7 @@ async function runSearchPipeline(pctx) {
       // NB: OpenRouter's own free names end in ":free", so a blanket
       // "contains a colon" test would exclude every model this path exists
       // to remember. Match the provider prefix specifically.
-      if (!env.DB || !model || model.startsWith("@cf/")) return;
+      if (!env.DB || !domainKey || !model || model.startsWith("@cf/")) return;
       if (/^(?:pollinations|groq|cerebras|gemini|mistral|github|nvidia):/.test(model)) return;
       env.DB.prepare(
         "INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1"
@@ -12261,7 +12286,9 @@ async function runSearchPipeline(pctx) {
             ? null
             : aiGate.kind === "anonymous"
               ? "signin-required"
-              : "free-cap",
+              : aiGate.kind === "lite"
+                ? "lite-cap"
+                : "free-cap",
         },
         source:
           aiOK && useEvidence

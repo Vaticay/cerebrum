@@ -519,7 +519,11 @@ export async function decryptThreadMessages({ messages, myDeviceId, peerUserId }
       ok: false,
       error: "Couldn't decrypt this message.",
     }));
-    gDecryptCache.set(m.id, result.e2ee);
+    // Cache successes only: a failure (keys not yet arrived) must be
+    // retried on the next render, not frozen as "couldn't decrypt" until
+    // reload. Evict so a stale failure entry can never linger.
+    if (result.e2ee && result.e2ee.ok) gDecryptCache.set(m.id, result.e2ee);
+    else gDecryptCache.delete(m.id);
     out.push(result);
   }
   // Collapse the sender's fan-out AND kill replays. Own echoes collapse by
@@ -769,10 +773,11 @@ export async function isPeerEncryptionReady(apiAction, peerUserId) {
 // digest. A stored value that no longer matches the live digest surfaces as
 // `changed: true` — the UI must show that loudly, never silently.
 //
-// The number is per DEVICE PAIR in a multi-device world: Alice's phone and
-// her laptop derive different numbers (different key in the union), and
-// each must be verified separately. That is honest — they ARE different
-// key material.
+// The number is per USER PAIR, not per device pair: the digest hashes the
+// union of every device record (device id + signing key) on both sides, so
+// all of Alice's devices derive the same number for Bob. A new device on
+// either side changes the number everywhere, which is the honest signal —
+// the key material the conversation is encrypted to has changed.
 
 async function safetyDigest(apiAction, peerUserId) {
   await ensureE2EEDevice(apiAction);

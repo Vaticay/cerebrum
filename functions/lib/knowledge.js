@@ -749,8 +749,8 @@ export const EVIDENCE_TIERS = {
   RCT: { tier: 2, label: "Randomized controlled trial", weight: 13 },
   COHORT: { tier: 3, label: "Cohort study", weight: 10 },
   CASE_CONTROL: { tier: 4, label: "Case-control / cross-sectional study", weight: 7 },
-  CASE_REPORT: { tier: 5, label: "Case report / case series", weight: 3 },
-  PRECLINICAL: { tier: 6, label: "Preclinical (animal / in vitro / in silico)", weight: 4 },
+  CASE_REPORT: { tier: 5, label: "Case report / case series", weight: 4 },
+  PRECLINICAL: { tier: 6, label: "Preclinical (animal / in vitro / in silico)", weight: 3 },
   NARRATIVE_REVIEW: { tier: null, label: "Narrative review", weight: 6 },
   EDITORIAL: { tier: null, label: "Editorial / commentary / letter", weight: -4 },
 };
@@ -1066,10 +1066,10 @@ export const COMMON_DRUGS = new Set([
   "bevacizumab", "pembrolizumab", "nivolumab", "atezolizumab", "ipilimumab",
   "durvalumab", "cetuximab", "panitumumab", "daratumumab",
   // Immunosuppressants / biologics for autoimmune disease
-  "prednisolone", "azathioprine", "mycophenolate", "tacrolimus", "cyclosporine",
+  "azathioprine", "mycophenolate", "tacrolimus", "cyclosporine",
   "sirolimus", "adalimumab", "infliximab", "etanercept", "certolizumab",
   "golimumab", "ustekinumab", "secukinumab", "tofacitinib", "baricitinib",
-  "upadacitinib", "abatacept", "rituximab",
+  "upadacitinib", "abatacept",
   // GLP-1 / weight / hormone
   "levothyroxine", "methimazole", "propylthiouracil", "testosterone",
   "estradiol", "progesterone", "finasteride", "tadalafil", "sildenafil",
@@ -1136,19 +1136,25 @@ const GENE_SYMBOL_STOPLIST = new Set([
   "KOH", "CACO3", "NACL", "MGCL2", "CACL2", "C2H4", "C6H12O6",
 ]);
 const GENE_SYMBOL_RE = /^[A-Z][A-Z0-9]{1,6}$/;
+/* A handful of 3-letter oncogenes are real gene symbols despite matching the
+ * dictionary-word shape below; without this carve-out the strict rule would
+ * drop them. */
+const GENE_3LETTER_ALLOW = new Set(["RAS", "MYC", "FOS", "JUN"]);
 
 /** Heuristic: does this token look like a real gene/protein symbol? */
 export function looksLikeGeneSymbol(token) {
   if (!token || GENE_SYMBOL_STOPLIST.has(token)) return false;
   if (!GENE_SYMBOL_RE.test(token)) return false;
-  // Require at least one digit OR mixed-case-looking pattern typical of real
-  // symbols (BRCA1, TP53, EGFR, IL6, CDKN2A) — pure short dictionary-word-
-  // shaped all-caps tokens (CAT, DOG, RUN) are excluded by requiring the
-  // token be at least 3 chars AND either contain a digit or be 4+ letters
-  // (most 3-letter real symbols like "RAS", "MYC", "FOS", "JUN" are common
-  // enough oncogenes that they're allowed through at length 3 too, since the
-  // stoplist above already screens ordinary short words).
-  if (token.length === 2) return false;
+  // Pure short dictionary-word-shaped all-caps tokens (CAT, DOG, RUN) are
+  // excluded: a token must be at least 3 chars AND either contain a digit
+  // (BRCA1, TP53, IL6, CDKN2A) or be 4+ letters (EGFR). Three-letter tokens
+  // without a digit fail unless allowlisted above — the stoplist screens
+  // common short words, but it cannot enumerate every dictionary word, so
+  // the shape rule is the backstop. (A false negative here just means the
+  // token isn't gene-checked; a false positive tanks the fact-check score
+  // of a good answer, so the bias is deliberate.)
+  if (token.length < 3) return false;
+  if (token.length === 3 && !/\d/.test(token) && !GENE_3LETTER_ALLOW.has(token)) return false;
   return true;
 }
 
@@ -1303,7 +1309,10 @@ export function intentEvidenceBonus(studyTypeKey, intents) {
       bonus += 6;
     }
   }
-  return bonus;
+  // Capped: a multi-intent query must not stack the bonus past the tier
+  // weights themselves (top tier is 16) — the bonus nudges ranking toward
+  // the right evidence type, it doesn't outrank the evidence hierarchy.
+  return Math.min(bonus, 12);
 }
 
 // ════════════════════════════════════════════════════════════════════════

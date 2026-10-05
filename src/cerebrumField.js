@@ -36,7 +36,7 @@ export function staticFieldCss(accent, deep, { core = true } = {}) {
   ].filter(Boolean).join(', ');
 }
 
-export async function createField(canvas, initial = {}) {
+export function createField(canvas, initial = {}) {
   if (!canvas || typeof Path2D === 'undefined') return null;
 
   let ctx;
@@ -56,7 +56,6 @@ export async function createField(canvas, initial = {}) {
     deep: '#0a1020',
     mode: 'arrival',
     core: 1,
-    coreScale: 1,
     energy: 0,
     light: false,
     paused: false,
@@ -457,7 +456,6 @@ export async function createField(canvas, initial = {}) {
         'mode',
         'energy',
         'core',
-        'coreScale',
         'light',
         'paused',
       ]) {

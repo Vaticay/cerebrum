@@ -366,8 +366,10 @@ export async function onRequest(context) {
      below, which is a different and much richer response.
      ══════════════════════════════════════════════════════════════════ */
   if (!user && request.method === "GET" && url.searchParams.get("resource") === "public-profile") {
-    const clientIPAnon = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
-    if (!(await checkRateLimit(env, `anonprofile:${clientIPAnon}`, 20, 60000))) {
+    // Hashed rate-limit key under a server secret; clientIp() deliberately
+    // ignores the client-settable X-Forwarded-For.
+    const rlAnon = await privacyKey("anonprofile-ip", clientIp(request), env);
+    if (!(await checkRateLimit(env, rlAnon, 20, 60000))) {
       return errRes("Too many requests.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
     }
     // Ids are opaque values we generated (newId) — safeId rejects anything
@@ -403,7 +405,6 @@ export async function onRequest(context) {
 
   if (!user) return errRes("Sign in first.", 401, "unauthenticated", cors);
 
-  const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
   // Commit 56 — polling resources are exempt from the shared per-IP budget
   // and metered per user instead. This was a real, silent production
   // failure, not a tuning preference: DATA_RATE_LIMIT is 60 requests per
@@ -419,7 +420,9 @@ export async function onRequest(context) {
   // Keyed on user id (not IP) so two people behind one router can't starve
   // each other, and sized to comfortably fit both poll loops plus headroom.
   const pollingResource = request.method === "GET" && ["incoming-calls", "thread", "inbox"].includes(url.searchParams.get("resource"));
-  const rateKey = pollingResource ? `data-poll:${user.id}` : `data:${clientIP}`;
+  // The shared per-IP key is hashed under a server secret and ignores the
+  // client-settable X-Forwarded-For, matching vote.js/report.js.
+  const rateKey = pollingResource ? `data-poll:${user.id}` : await privacyKey("data-ip", clientIp(request), env);
   const rateLimit = pollingResource ? 240 : DATA_RATE_LIMIT;
   if (!(await checkRateLimit(env, rateKey, rateLimit, DATA_RATE_WINDOW_MS))) {
     return errRes("Too many requests. Please wait a moment.", 429, "rate_limited", { ...cors, "Retry-After": "20" });
@@ -1291,10 +1294,12 @@ export async function onRequest(context) {
         (await env.DB.prepare("SELECT id FROM user_collections WHERE user_id = ?").bind(user.id).all()).results?.map((r) => r.id) || []
       );
       const stmts = [env.DB.prepare("DELETE FROM user_saved_sources WHERE user_id = ?").bind(user.id)];
+      let written = 0;
       for (const item of items) {
         const { collectionId, rating, ...source } = item || {};
         const sourceJson = JSON.stringify(source);
         if (sourceJson.length > MAX_SOURCE_JSON_LEN) continue;
+        written++;
         // Rating is validated: null (unrated) or integer 1-5. Anything else
         // is dropped to null rather than rejected — a malformed rating
         // shouldn't fail the whole library sync.
@@ -1309,7 +1314,9 @@ export async function onRequest(context) {
       // client's debounced whole-array sync re-sends the full list on the
       // next change and heals it.
       await batchedWrites(env.DB, stmts);
-      return new Response(JSON.stringify({ ok: true, count: items.length }), { status: 200, headers: cors });
+      // Count what was actually written: oversized items are skipped above,
+      // so reporting items.length would claim a full sync that never happened.
+      return new Response(JSON.stringify({ ok: true, count: written, skipped: items.length - written }), { status: 200, headers: cors });
     }
 
     /* Paper ratings (Goodreads/Letterboxd-style, 1-5 stars, personal).
@@ -2326,15 +2333,32 @@ export async function onRequest(context) {
       if (!(await mayStartConversation(env, user.id, targetId))) {
         return errRes("This person only accepts messages from people they follow. Follow them and they may follow you back, which opens a conversation.", 403, "dm_not_allowed", cors);
       }
-      // Note: back-to-back double-clicks could theoretically race past this
-      // check and create two separate DM threads for the same pair — low-
-      // stakes (cosmetic duplicate conversation, not a security issue) and
-      // not worth a locking scheme for a find-or-create this infrequent.
+      // Double-click race fix (previously documented but unfixed): two
+      // requests can both pass the `existing` check above before either
+      // commits. After inserting, re-check for a sibling DM thread for the
+      // same pair. The winner is deterministic — the lexicographically
+      // smaller thread id — so every concurrent loser deletes its own
+      // just-created thread and returns the winner's id instead. Exactly
+      // one thread survives no matter how many requests raced.
       const threadId = newId("thr");
       const now = Date.now();
       await env.DB.prepare("INSERT INTO threads (id, kind, name, created_at) VALUES (?, 'dm', NULL, ?)").bind(threadId, now).run();
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, user.id, now).run();
       await env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, targetId, now).run();
+      const sibling = await env.DB.prepare(
+        `SELECT t.id FROM threads t
+         JOIN thread_participants tp1 ON tp1.thread_id = t.id AND tp1.user_id = ?
+         JOIN thread_participants tp2 ON tp2.thread_id = t.id AND tp2.user_id = ?
+         WHERE t.kind = 'dm' AND t.id != ?
+         LIMIT 1`
+      ).bind(user.id, targetId, threadId).first();
+      if (sibling && sibling.id < threadId) {
+        await env.DB.batch([
+          env.DB.prepare("DELETE FROM thread_participants WHERE thread_id = ?").bind(threadId),
+          env.DB.prepare("DELETE FROM threads WHERE id = ?").bind(threadId),
+        ]);
+        return okRes({ thread_id: sibling.id, created: false }, 200, cors);
+      }
       // E2EE Phase 1 — new DMs are born encrypted when both sides are
       // ready (each has ≥1 active E2EE device). Either side missing keys
       // means a plaintext thread the pair can upgrade later via
@@ -2439,9 +2463,14 @@ export async function onRequest(context) {
 
       // One open report per target per reporter. Without this, the guard
       // above still allows a thousand duplicates from a genuine contact.
+      // The target is the (user, thread) pair, NULL-safe: a report naming
+      // only a thread must not collide with a report against a different
+      // thread just because both have reported_user_id NULL (NULL IS NULL
+      // is true in SQLite, so the old single-column check 429'd distinct
+      // thread-only reports as duplicates of each other).
       const dupe = await env.DB.prepare(
-        "SELECT 1 FROM content_reports WHERE reporter_id = ? AND reported_user_id IS ? AND created_at > ? LIMIT 1"
-      ).bind(user.id, reportedUserId, Date.now() - 24 * 60 * 60 * 1000).first().catch(() => null);
+        "SELECT 1 FROM content_reports WHERE reporter_id = ? AND reported_user_id IS ? AND thread_id IS ? AND created_at > ? LIMIT 1"
+      ).bind(user.id, reportedUserId, threadId, Date.now() - 24 * 60 * 60 * 1000).first().catch(() => null);
       if (dupe) {
         return errRes("You've already reported this. We're looking at it.", 429, "duplicate_report", cors);
       }
@@ -2548,12 +2577,15 @@ export async function onRequest(context) {
       if (!founderEmail || userEmail !== founderEmail) {
         return errRes("Only the owner can verify accounts.", 403, "forbidden", cors);
       }
-      const targetId = (body.target_id || "").toString().trim();
+      const targetId = safeId(body.target_id);
       const grant = body.grant !== false; // default true, set false to revoke
       if (!targetId) return errRes("Missing target user.", 400, "bad_request", cors);
-      // Don't let anyone revoke the founder's own verified badge
+      // A grant to a nonexistent id used to succeed silently, landing a row
+      // in accolades for an id with no user behind it.
       const targetRow = await env.DB.prepare("SELECT email_lower, email FROM users WHERE id = ?").bind(targetId).first();
-      if (targetRow) {
+      if (!targetRow) return errRes("That account isn't available.", 404, "not_available", cors);
+      // Don't let anyone revoke the founder's own verified badge
+      {
         const targetEmail = ((targetRow.email_lower || targetRow.email || "") + "").toLowerCase();
         if (targetEmail === founderEmail && !grant) {
           return errRes("Cannot revoke the owner's verification.", 400, "bad_request", cors);

@@ -10,8 +10,9 @@
  *
  * Constraints honored here:
  * - Rendered <title> is `${title} — Cerebrum`, which must stay within
- *   50–60 chars, so each title below is 38–48 chars (tests/seo-marketing.mjs
- *   enforces this).
+ *   50–60 chars (tests/seo-marketing.mjs enforces the rendered length).
+ *   With the 11-char " — Cerebrum" suffix that means raw titles of
+ *   roughly 38–49 chars.
  * - The lede becomes the meta description and must be 140–160 chars
  *   (also enforced by the test).
  * - Database counts must say "15 open scholarly databases" — the sanctioned

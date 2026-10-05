@@ -1,5 +1,22 @@
 import assert from 'node:assert/strict';
-import { saveInvestigation } from '../src/investigationHistory.js';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { parse } from '@babel/parser';
+import { transformSync } from 'esbuild';
+
+// saveInvestigation is deliberately inlined in src/CerebrumApp.jsx (a
+// one-function module was a Cloudflare deployment hazard), so the test
+// extracts it from the app source instead of importing a module.
+const source = fs.readFileSync('src/CerebrumApp.jsx', 'utf8');
+const ast = parse(source, { sourceType: 'module', plugins: ['jsx'] });
+const node = ast.program.body.find((n) => n.type === 'FunctionDeclaration' && n.id.name === 'saveInvestigation');
+assert.ok(node, 'saveInvestigation must be declared in src/CerebrumApp.jsx');
+const js = transformSync(source.slice(node.start, node.end), { loader: 'js' }).code;
+const context = vm.createContext({});
+vm.runInContext(js, context);
+const { saveInvestigation } = context;
+assert.equal(typeof saveInvestigation, 'function');
+
 const old = Array.from({length:4},(_,i)=>({id:`old${i}`,title:`Old ${i}`,ts:i,turns:[{id:i,q:`Old ${i}`}]}));
 const first = {id:10,q:'How do roots grow?',answer:'A cited answer',sources:[{title:'Root paper'}]};
 const saved = saveInvestigation(old,[first],first.sources,100);

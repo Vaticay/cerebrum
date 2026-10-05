@@ -10,7 +10,7 @@ The count is not typed here — it is derived from `SCHOLARLY_SOURCES` in `funct
 
 - **Frontend**: React + Vite, deployed as static site on Cloudflare Pages
 - **Backend**: Cloudflare Pages Functions (`functions/api/search.js`)
-- **AI**: OpenRouter free models (Gemini Flash, DeepSeek, Llama, Qwen, Mistral) + Cloudflare Workers AI fallback
+- **AI**: OpenRouter free models (Gemini Flash, DeepSeek, Llama, Qwen, Mistral) + Pollinations legs + Cloudflare Workers AI fallback
 - **Databases**: see `SCHOLARLY_SOURCES` in `functions/lib/product.js` for the authoritative list
 - **Animation**: GSAP for choreography, OGL for the WebGL background. Both bundled; nothing is loaded from a CDN.
 

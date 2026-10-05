@@ -20,6 +20,8 @@
 //
 // Pure functions are exported so tests/pro.mjs can exercise them with no DB.
 
+import { timingSafeEqualHex } from "./authHelpers.js";
+
 export const FREE_AI_ANSWERS_PER_MONTH = 15;
 // Notebook Mode (document analysis) and Flowchart Studio are metered the
 // same way: free accounts get a small quota-period bucket, Pro is unlimited.
@@ -186,7 +188,9 @@ export async function checkStudentCode(env, userId, email, code) {
     return { ok: false, reason: "too_many_attempts" };
   }
   const guess = await sha256Hex(row.code_salt + ":" + String(code || "").trim());
-  if (guess !== row.code_hash) {
+  // Timing-safe compare, matching the codebase standard (auth.js OTP path):
+  // plain !== on hashes is a minor timing side-channel.
+  if (!timingSafeEqualHex(guess, row.code_hash)) {
     await env.DB.prepare(
       "UPDATE student_verifications SET attempts = attempts + 1 WHERE id = ?"
     ).bind(row.id).run();

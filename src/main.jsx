@@ -22,10 +22,11 @@ import { classifyRoute } from "./routeClassify.js";
  * using. This keeps the page, says plainly that something broke, and offers
  * the two actions that actually help.
  *
- * It deliberately does NOT show the error message: that text can contain
- * anything the failing component was holding, which may include the person's
- * own research. It goes to the console, where they can retrieve it if they
- * are reporting a bug.
+ * It shows only a short snippet (the first 220 characters) of the error
+ * message — enough to recognize the failure — plus a "Copy details" button
+ * for the full text. The snippet may include the person's own search words,
+ * which the copy button's label discloses; the full message and stack go to
+ * the console, where they can be retrieved when reporting a bug.
  */
 class ErrorBoundary extends React.Component {
   constructor(props) {

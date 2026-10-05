@@ -201,7 +201,7 @@ export async function unwrapVaultBundle(phrase, envelope) {
   if (!envelope || envelope.v !== 1 || envelope.kdf !== "argon2id") {
     throw new Error("zkData: unsupported vault envelope");
   }
-  if (!isValidRecoveryPhrase(phrase)) throw wrongPhraseError();
+  if (!(await isValidRecoveryPhrase(phrase))) throw wrongPhraseError();
   const s = subtleCrypto().subtle;
   const salt = b64decode(envelope.salt);
   const kek = await deriveDataKEK(phrase, salt);
@@ -634,10 +634,17 @@ export class ZkSession {
   /**
    * First-time enable: generate DEK, wrap it, publish the vault row.
    * Precondition: the phrase must be a valid 24-word recovery phrase.
+   * Refuses to run when a vault row already exists: overwriting it would
+   * orphan every saved item encrypted under the old DEK. Re-enabling is
+   * unlock(), not enable().
    */
   async enable(phrase) {
-    if (!isValidRecoveryPhrase(phrase)) {
+    if (!(await isValidRecoveryPhrase(phrase))) {
       throw new Error("zkData: a valid 24-word recovery phrase is required to enable the vault");
+    }
+    const existing = await this.getVaultState();
+    if (existing.exists) {
+      throw new Error("zkData: a vault already exists (dek " + existing.dekId + ") — unlock it instead of enabling a new one");
     }
     const dek = generateDEK();
     const dekId = makeDekId();
@@ -670,44 +677,60 @@ export class ZkSession {
    */
   async pullItems(since = 0) {
     this._requireUnlocked();
-    const res = await this._post("zk-get-items", { since, limit: 500 });
-    const rows = (res && res.items) || (Array.isArray(res) ? res : []);
     const items = [];
     const quarantined = [];
-    for (const rawRow of rows) {
-      // The server serializes rows camelCase ({ dekId, collectionId,
-      // updatedAt }); accept snake_case too — the AAD bind must see the
-      // exact dek_id/kind the row was written with either way.
-      const row = rawRow && typeof rawRow === "object" ? {
-        ...rawRow,
-        dek_id: rawRow.dek_id ?? rawRow.dekId,
-        collection_id: rawRow.collection_id ?? rawRow.collectionId ?? null,
-        updated_at: rawRow.updated_at ?? rawRow.updatedAt,
-        created_at: rawRow.created_at ?? rawRow.createdAt,
-      } : rawRow;
-      try {
-        const payload = await decryptItem(this._dek, {
-          userId: this.userId,
-          itemId: row.id,
-          row,
-        });
-        const item = {
-          id: row.id,
-          kind: row.kind,
-          collectionId: row.collection_id ?? null,
-          payload,
-          updatedAt: row.updated_at ?? Date.now(),
-          rev: row.rev ?? 0,
-          dekId: row.dek_id,
-        };
-        items.push(item);
-        // Defensive copy: the row object belongs to the post() layer and may
-        // be reused or mutated by it; the cache must be our own snapshot.
-        this._rows.set(row.id, { ...row });
-        this._indexUpsert(item);
-      } catch {
-        quarantined.push(row.id);
+    // Paginate: the server caps each page at PAGE_LIMIT rows, and a vault
+    // with more changed rows than that would otherwise silently stop syncing.
+    // Pages are ordered by updated_at ascending, so the cursor advances to
+    // the newest timestamp seen; a short page ends the walk.
+    const PAGE_LIMIT = 500;
+    let cursor = since;
+    for (;;) {
+      const res = await this._post("zk-get-items", { since: cursor, limit: PAGE_LIMIT });
+      const rows = (res && res.items) || (Array.isArray(res) ? res : []);
+      let newest = cursor;
+      for (const rawRow of rows) {
+        // The server serializes rows camelCase ({ dekId, collectionId,
+        // updatedAt }); accept snake_case too — the AAD bind must see the
+        // exact dek_id/kind the row was written with either way.
+        const row = rawRow && typeof rawRow === "object" ? {
+          ...rawRow,
+          dek_id: rawRow.dek_id ?? rawRow.dekId,
+          collection_id: rawRow.collection_id ?? rawRow.collectionId ?? null,
+          updated_at: rawRow.updated_at ?? rawRow.updatedAt,
+          created_at: rawRow.created_at ?? rawRow.createdAt,
+        } : rawRow;
+        try {
+          const payload = await decryptItem(this._dek, {
+            userId: this.userId,
+            itemId: row.id,
+            row,
+          });
+          const item = {
+            id: row.id,
+            kind: row.kind,
+            collectionId: row.collection_id ?? null,
+            payload,
+            updatedAt: row.updated_at ?? Date.now(),
+            rev: row.rev ?? 0,
+            dekId: row.dek_id,
+          };
+          items.push(item);
+          // Defensive copy: the row object belongs to the post() layer and may
+          // be reused or mutated by it; the cache must be our own snapshot.
+          this._rows.set(row.id, { ...row });
+          this._indexUpsert(item);
+          const ts = typeof row.updated_at === "number" ? row.updated_at : 0;
+          if (ts > newest) newest = ts;
+        } catch {
+          quarantined.push(row.id);
+        }
       }
+      if (rows.length < PAGE_LIMIT) break;
+      // A full page with no forward progress would loop forever; bail out
+      // rather than spin (the server should never do this).
+      if (newest <= cursor) break;
+      cursor = newest;
     }
     this._persistIndexSoon();
     return { items, quarantined };
@@ -776,7 +799,7 @@ export class ZkSession {
    */
   async rotate(phrase) {
     this._requireUnlocked();
-    if (!isValidRecoveryPhrase(phrase)) {
+    if (!(await isValidRecoveryPhrase(phrase))) {
       throw new Error("zkData: a valid 24-word recovery phrase is required to rotate");
     }
     const newDek = generateDEK();

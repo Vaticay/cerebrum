@@ -34,6 +34,10 @@ async function exists(p) {
 }
 
 // ── 1. Security headers are actually in the build output ──────────────────
+if (!(await exists(dist))) {
+  console.error("dist/ does not exist yet. Run `npm run build` first (vite build creates it), then `npm run check`.");
+  process.exit(1);
+}
 check(await exists(join(dist, "_headers")),
   "_headers is missing from dist/. It must live in public/, not the repo root — Vite only copies public/. Every security header is unserved without it.");
 

@@ -158,9 +158,11 @@ CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
 -- auth.js — genuinely true for anyone signing up during this preview
 -- phase). `top_peer_reviewer` and `published_author` have no granting
 -- mechanism yet — they stay honestly empty for everyone rather than being
--- faked, until there’s a real way to verify either claim. See PROFILE_
--- BADGES in main.jsx for the one client-side exception (“Verified
--- sign-in”), which needs no DB row since it’s implied by having a session.
+-- faked, until there’s a real way to verify either claim. The one badge
+-- that needs no DB row is “Verified sign-in”: it’s implied by having a
+-- session and is rendered client-side (VerifiedCheck in
+-- src/CerebrumApp.jsx). The `verified` badge_type itself is granted by the
+-- `set-verified` action in functions/api/data.js.
 -- id is a plain TEXT primary key (no autoincrement) — every insert supplies
 -- its own generated id via authHelpers.js’s newId(`acc`).
 CREATE TABLE IF NOT EXISTS accolades (

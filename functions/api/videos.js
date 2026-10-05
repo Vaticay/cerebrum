@@ -1,4 +1,4 @@
-import { corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed, readJsonBody, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { neverFail, raceFirst, fetchWithTimeout, safeErr, jsonOk, jsonError, clampText } from "../lib/resilience.js";
 
@@ -259,11 +259,11 @@ export async function onRequest(context) {
   if (!readOriginAllowed(request, env)) {
     return jsonError(403, "origin_not_allowed", "Origin not allowed.", cors);
   }
-  const clientIP =
-    request.headers.get("CF-Connecting-IP") ||
-    request.headers.get("X-Forwarded-For") ||
-    "unknown";
-  if (!(await checkRateLimit(env, `videos:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
+  // Rate-limit key is hashed under a server secret, and clientIp()
+  // deliberately ignores the client-settable X-Forwarded-For: a raw-IP key
+  // with XFF honored lets anyone reset their own bucket with a header change.
+  const rlKey = await privacyKey("videos-ip", clientIp(request), env);
+  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
     return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", {
       ...cors, "Retry-After": "30",
     });

@@ -15,7 +15,7 @@
     "prebuild": "node scripts/write-version.mjs",
     "build": "vite build && node scripts/prerender.mjs && node scripts/check.mjs",
     "preview": "wrangler pages dev ./dist",
-    "deploy": "vite build && wrangler pages deploy ./dist",
+    "deploy": "npm run build && wrangler pages deploy ./dist",
     "test": "node tests/run",
     "check": "node scripts/check.mjs"
   },
@@ -32,6 +32,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@babel/parser": "^7.24.0",
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.8",
     "wrangler": "^3.78.0"

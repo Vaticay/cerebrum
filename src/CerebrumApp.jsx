@@ -342,13 +342,6 @@ const ASK_MODE_EXAMPLES = {  explain: [
     { cat: "CLIMATE", q: "Where should I start with microbiome science?" },
   ],
 };
-function pick(n = 4) {
-  const a = [...SUGGESTION_POOL];
-  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
-  return a.slice(0, n);
-}
-
-
 function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
 function toRIS(sources) {
   return sources.map((s) => {
@@ -481,6 +474,14 @@ function renderCleanTitle(raw) {
   }
   if (last < title.length) parts.push(title.slice(last));
   return parts;
+}
+
+/* Plain-text twin of renderCleanTitle: for aria-labels and other string
+   contexts. renderCleanTitle returns an ARRAY of React nodes when safe
+   tags are present, which stringifies to "[object Object]" inside a
+   template literal — this strips the tags instead. */
+function cleanTitleText(raw) {
+  return String(raw || "").replace(/<\/?(sub|sup|i|b)>/gi, "");
 }
 
 /* Investigation titles are the user's own raw questions — "tempretures",
@@ -892,7 +893,12 @@ function accentText(hex) {
   const rDark = (L + 0.05) / (relLuminance("#0f172a") + 0.05);
   return rWhite >= rDark ? "#fff" : "#0f172a";
 }
-function withAlpha(hex, a) { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`; }
+function withAlpha(hex, a) {
+  // Never throw: accent is optional at several call sites, and a crash here
+  // takes down the whole render. Fall back to a neutral gray wash.
+  if (typeof hex !== "string" || !/^#[0-9a-fA-F]{6}$/.test(hex)) return `rgba(128,128,128,${a})`;
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`;
+}
 
 function mixHex(h1, h2, t) {
   const c = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -944,36 +950,6 @@ function accentInk(P, accent) {
 // hue and are left alone.
 function statusBad(P, pn) {
   return P.dark ? (pn === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31";
-}
-
-// Rotates a hex color's hue by `deg` degrees, keeping its own saturation/
-// lightness — used to derive a second, related-but-distinct color from a
-// single accent (e.g. LivingBackground's two-stop fallback gradient) so a
-// two-tone effect doesn't collapse to one flat color for every accent.
-function hueShift(hex, deg) {
-  const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
-  let h, s;
-  if (max === min) { h = s = 0; }
-  else {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-    else if (max === g) h = ((b - r) / d + 2) / 6;
-    else h = ((r - g) / d + 4) / 6;
-  }
-  h = (h + deg / 360) % 1;
-  if (h < 0) h += 1;
-  const hue2rgb = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
-  let nr, ng, nb;
-  if (s === 0) { nr = ng = nb = l; }
-  else {
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    nr = hue2rgb(p, q, h + 1 / 3); ng = hue2rgb(p, q, h); nb = hue2rgb(p, q, h - 1 / 3);
-  }
-  const toHex = (v) => Math.round(v * 255).toString(16).padStart(2, "0");
-  return `#${toHex(nr)}${toHex(ng)}${toHex(nb)}`;
 }
 
 // Shared "de-chromed" <select> treatment — Settings' own Picker already
@@ -1044,7 +1020,6 @@ function Icon({ name, size = 17, className, style }) {
     case "sparkle": return <svg {...common}><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" /></svg>;
     // Human-audit: the Space trend category used to borrow "sparkle" — the
     // universal "an AI did this" badge. Space gets its own planet glyph.
-    case "planet": return <svg {...common}><circle cx="12" cy="12" r="5.5" /><ellipse cx="12" cy="12" rx="10" ry="3.4" transform="rotate(-18 12 12)" /></svg>;
     case "history": return <svg {...common}><path d="M3 12a9 9 0 109-9 9 9 0 00-9 9z" /><path d="M12 7v5l3 3" /><path d="M3 3v6h6" /><path d="M3 9a9 9 0 011.5-3.5" /></svg>;
     case "image": return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2.5" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>;
     case "pin": return <svg {...common}><path d="M12 21s-7-7.7-7-12.3A7 7 0 0119 8.7C19 13.3 12 21 12 21z" /><circle cx="12" cy="8.7" r="2.4" /></svg>;
@@ -1056,7 +1031,6 @@ function Icon({ name, size = 17, className, style }) {
     case "gauge": return <svg {...common}><path d="M4.5 19a9 9 0 1115 0" /><path d="M12 15l4.5-4.5" /><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none" /></svg>;
     case "shield": return <svg {...common}><path d="M12 2.5l8 3.2v5.8c0 5.2-3.4 8.9-8 10.3-4.6-1.4-8-5.1-8-10.3V5.7z" /></svg>;
     case "lock": return <svg {...common}><rect x="5" y="10.5" width="14" height="9.5" rx="2" /><path d="M8 10.5V7.5a4 4 0 018 0v3" /></svg>;
-    case "brain": return <svg {...common}><circle cx="12" cy="5.2" r="1.9" /><circle cx="5.7" cy="16" r="1.9" /><circle cx="18.3" cy="16" r="1.9" /><path d="M12 7.1v3.3M12 10.4L7.1 14.4M12 10.4l4.9 4" /></svg>;
     case "partial": return <svg {...common}><path d="M4 13c1.6-2.6 3.2-2.6 4.8 0s3.2 2.6 4.8 0 3.2-2.6 4.8 0" /></svg>;
     case "printer": return <svg {...common}><path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1.5" /><path d="M6 17v4h12v-4" /></svg>;
     case "eye": return <svg {...common}><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>;
@@ -1071,7 +1045,6 @@ function Icon({ name, size = 17, className, style }) {
     // into an output box — the three shapes read as "flowchart" at 17px.
     case "flowchart": return <svg {...common}><rect x="8.5" y="2.5" width="7" height="4.6" rx="1" /><path d="M12 7.1v1.6" /><path d="M12 8.7l4.6 3.4L12 15.5l-4.6-3.4z" /><path d="M12 15.5v1.6" /><rect x="7.5" y="17.1" width="9" height="4.4" rx="1" /></svg>;
     case "mail": return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3.5 6.5L12 13l8.5-6.5" /></svg>;
-    case "badge": return <svg {...common}><circle cx="12" cy="9" r="5.5" /><path d="M8.5 13.5L7 21l5-2.6L17 21l-1.5-7.5" /></svg>;
     case "send": return <svg {...common}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
     // Commit 98 — answer-quality feedback. /api/vote has existed since the
     // answer cache landed (and /api/search returns an answerId with the
@@ -1114,6 +1087,12 @@ function Icon({ name, size = 17, className, style }) {
     // existing convention (see "external") uses a rectangle+arrow language
     // for "send this out," reused here for the same reason.
     case "screenShare": return <svg {...common}><rect x="2" y="4" width="20" height="14" rx="2" /><path d="M12 15V8M9 11l3-3 3 3" /><path d="M8 21h8" /></svg>;
+    // Slashed variant for the active-sharing state — same off-slash
+    // convention as micOff/cameraOff above.
+    case "screenShareOff": return <svg {...common}><rect x="2" y="4" width="20" height="14" rx="2" /><path d="M12 15V8M9 11l3-3 3 3" /><path d="M8 21h8" /><path d="M3 3l18 18" /></svg>;
+    // Speaker-view glyph: one large tile, the counterpart to "grid" for
+    // the huddle's switch-view toggle.
+    case "speakerView": return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /></svg>;
     default: return null;
   }
 }
@@ -1734,7 +1713,22 @@ function WatchTopicButton({ q, P, accent, user, onChanged }) {
   const topic = deriveTopic(q);
   const [state, setState] = useState("idle"); // idle | saving | on
   const [err, setErr] = useState("");
-  useEffect(() => { setState("idle"); setErr(""); }, [topic]);
+  // Read the existing watchlist: without this the button always starts at
+  // "Watch this topic" even for topics the user already watches.
+  useEffect(() => {
+    setState("idle"); setErr("");
+    if (!topic || !user) return;
+    let live = true;
+    (async () => {
+      try {
+        const d = await apiDataGet("watchlist");
+        if (!live) return;
+        const items = d && Array.isArray(d.items) ? d.items : [];
+        if (items.some((w) => w.topic === topic)) setState("on");
+      } catch { /* stay idle on fetch failure */ }
+    })();
+    return () => { live = false; };
+  }, [topic, user]);
   if (!topic || topic.length < 3) return null;
   const signedIn = !!user;
   const toggle = async () => {
@@ -1953,34 +1947,6 @@ function toMs(v) {
 }
 
 // Counts a number up when it first appears. Purely presentational — it
-// always lands on the true value, and lands immediately for reduced-motion
-// users. Numbers that animate into place read as "measured"; numbers that
-// blink into existence read as "printed", and this screen is full of
-// measurements.
-function useCountUp(target, ms = 900) {
-  const [n, setN] = useState(() => (cbMotionOff() ? target : 0));
-  const prev = useRef(target);
-  useEffect(() => {
-    if (cbMotionOff()) { setN(target); prev.current = target; return; }
-    const from = prev.current === target ? 0 : prev.current;
-    prev.current = target;
-    if (target === from) { setN(target); return; }
-    const t0 = performance.now();
-    let raf = 0;
-    const tick = (t) => {
-      const p = Math.min(1, (t - t0) / ms);
-      // Same easing curve as the rest of the motion system, so a counter
-      // settling and a card rising feel like one gesture.
-      const eased = 1 - Math.pow(1 - p, 3);
-      setN(Math.round(from + (target - from) * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, ms]);
-  return n;
-}
-
 // A stat's label has a long form and a short one. Four columns of
 // "QUESTIONS ASKED" do not fit across a phone at any tracking that still
 // looks like this app's mono label style — on a real 390px screen every
@@ -2373,8 +2339,12 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
       <div style={{
         display: "grid",
         gridTemplateRows: open ? "1fr" : "0fr",
-        transition: "grid-template-rows 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.24s ease",
+        transition: "grid-template-rows 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.24s ease, visibility 0.24s",
         opacity: open ? 1 : 0,
+        // A collapsed panel with opacity 0 still leaves its tier buttons
+        // in the Tab order — visibility:hidden removes them from the
+        // keyboard/a11y tree while the grid row stays 0fr.
+        visibility: open ? "visible" : "hidden",
         width: "100%",
       }}>
         <div style={{ overflow: "hidden", minHeight: 0 }}>
@@ -2587,6 +2557,9 @@ function SignalComposer({
           <input
             ref={inputRef}
             className="cb-ask-input"
+            role="combobox"
+            aria-controls="cb-ask-recents"
+            aria-activedescendant={showRecents && recentActive >= 0 ? `cb-ask-recent-opt-${recentActive}` : undefined}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
@@ -2630,7 +2603,7 @@ function SignalComposer({
           ><Icon name="image" size={17} /></button>
           {/* The voice button brings its own 34px square styling; the ghost
               wrapper gives it the same 44px hit area as its neighbours. */}
-          <span className="cb-ask-mic"><MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} /></span>
+          <span className="cb-ask-mic"><MicButton onTranscript={(t) => setInput(t)} getInput={() => input} accent={accent} P={P} /></span>
           <button
             onClick={doAsk}
             disabled={busy}
@@ -2641,11 +2614,12 @@ function SignalComposer({
             : "Ask"}</button>
         </div>
         {showRecents && (
-          <div className="cb-ask-recent" role="listbox" aria-label="Recent questions">
+          <div className="cb-ask-recent" role="listbox" aria-label="Recent questions" id="cb-ask-recents">
             <div className="cb-ask-recent-k" aria-hidden="true">recent</div>
             {recents.map((q, i) => (
               <button
                 key={q + "·" + i}
+                id={`cb-ask-recent-opt-${i}`}
                 type="button"
                 role="option"
                 aria-selected={i === recentActive}
@@ -3050,7 +3024,11 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
 
       <div className="cb-dive-center">
         <div className="cb-dive-elabel">Elapsed</div>
-        <div className="cb-dive-clock">{String(seconds).padStart(2, "0")}<span className="cb-dive-s">s</span></div>
+        {/* The clock ticks every 200ms — it must not live inside the
+            aria-live region or screen readers re-announce the whole room
+            five times a second. aria-live="off" keeps it out of the
+            announcement stream. */}
+        <div className="cb-dive-clock" aria-live="off">{String(seconds).padStart(2, "0")}<span className="cb-dive-s">s</span></div>
         <div className="cb-dive-state">{done ? "Received" : "Sending"}</div>
       </div>
 
@@ -3064,7 +3042,7 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
           the streaming path; the single-fetch fallback keeps the room as
           it was. */}
       {stream && !done && (
-        <div style={{ marginTop: 14, width: "100%", maxWidth: 420 }} aria-label="Search progress">
+        <div role="status" style={{ marginTop: 14, width: "100%", maxWidth: 420 }} aria-label="Search progress">
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 0", alignItems: "center" }}>
             {SEARCH_STREAM_STAGES.map((s, i) => {
               const state = stream.index == null ? "pending" : i < stream.index ? "done" : i === stream.index ? "active" : "pending";
@@ -3107,7 +3085,10 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
               fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600,
             }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = P.ink; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}
+            // Keyboard parity with the hover restyle above.
+            onFocus={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = P.ink; }}
+            onBlur={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
             Cancel search
           </button>
         </div>
@@ -3436,18 +3417,6 @@ function revealSource(n, accent) {
   } catch {}
 }
 
-/* The reverse trip: from a source row back to the sentence that cites it.
-   Used by the evidence index — activating a row lights the citation in the
-   answer and brings it into view. Unlike revealSource (which deliberately
-   avoids moving the page), scrolling here IS the request: the reader asked
-   to see the claim. */
-function revealClaim(n) {
-  try {
-    const el = document.querySelector('[data-cite="' + n + '"]');
-    if (el) el.scrollIntoView({ block: "center", behavior: cbMotionOff() ? "auto" : "smooth" });
-  } catch {}
-}
-
 
 /* CITATION PEEK — the answer's most important interaction.
 
@@ -3498,6 +3467,19 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
   const dragYRef = useRef(0);
   const [dragY, setDragY] = useState(0);
   const dragStartRef = useRef(null);
+  /* Desktop popover: crossing the gap between the citation marker and the
+     popover must not kill it instantly — a short close delay (hysteresis)
+     keeps it alive while the pointer travels, and Escape dismisses it. */
+  const closeTimerRef = useRef(null);
+  const cancelClose = () => { if (closeTimerRef.current) { clearTimeout(closeTimerRef.current); closeTimerRef.current = null; } };
+  const scheduleClose = () => { cancelClose(); closeTimerRef.current = setTimeout(() => { closeTimerRef.current = null; onClose(); }, 280); };
+  useEffect(() => () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); }, []);
+  useEffect(() => {
+    if (isMobile) return;
+    const onKey = (e) => { if (e.key === "Escape") { cancelClose(); onClose(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isMobile, onClose]);
   if (!n || !src) return null;
   const onDragStart = (e) => { dragStartRef.current = e.touches[0].clientY; };
   const onDragMove = (e) => {
@@ -3608,7 +3590,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
   return createPortal(
     <div
       role="dialog" aria-label={"Source " + n}
-      onMouseEnter={() => {}} onMouseLeave={onClose}
+      onMouseEnter={cancelClose} onMouseLeave={scheduleClose}
       style={{
         /* The flip is baked into `top` at measure time rather than applied
            as a transform, because the entrance animation owns transform and
@@ -4262,7 +4244,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     if (!paraCites.length) return <div key={pi} style={{ margin: "0 0 22px" }}>{pNode}</div>;
     return (
       <div key={pi} className="cb-claim" data-claim={claimNo || undefined} style={{ margin: "0 0 22px" }}>
-        <div className="cb-claim-refs" aria-label={`Supported by references ${paraCites.join(", ")}`}>
+        <div className="cb-claim-refs" role="group" aria-label={`Supported by references ${paraCites.join(", ")}`}>
           {paraCites.map((n) => `[${n}]`).join(" ")}
         </div>
         {pNode}
@@ -6045,9 +6027,6 @@ function SourcesDialog({ onClose, accent }) {
   );
 }
 
-/* Last CTA click point for the iris origin. Set by Intro, read by App. */
-let lastEnterClick = null;
-
 /* Web Audio "thoom": 120Hz -> 38Hz sine drop + bandpassed noise shimmer.
    Synthesized in the click handler = gesture-compliant by construction.
    No audio file needed. */
@@ -6084,14 +6063,6 @@ function playEnterThoom() {
     noise.start(t);
     setTimeout(() => { try { ctx.close(); } catch (e) {} }, 2000);
   } catch (e) { /* audio is enhancement, never a blocker */ }
-}
-
-/* Furthest-corner radius for iris — guarantees full coverage from any origin. */
-function irisEndRadius(x, y) {
-  return Math.sqrt(
-    Math.max(x, window.innerWidth - x) ** 2 +
-    Math.max(y, window.innerHeight - y) ** 2
-  );
 }
 
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
@@ -6190,10 +6161,6 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const go = (q, submit, evt) => {
     const payload = typeof q === "string" ? q : "";
     if (leaving) return;
-    // Capture click point for iris origin (fallback to viewport center)
-    const cx = evt && evt.clientX != null ? evt.clientX : window.innerWidth / 2;
-    const cy = evt && evt.clientY != null ? evt.clientY : window.innerHeight / 2;
-    lastEnterClick = { x: cx, y: cy };
     // The boom: synthesized thoom on the user's gesture
     playEnterThoom();
     if (animationMode === "off" || reduced) { onEnter(payload, !!submit, clip); return; }
@@ -6244,8 +6211,11 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       /* overflow-x only. `overflow: hidden` here was clipping the page to
          one viewport, so on a short window — a laptop with the browser
          chrome open, a phone in landscape — the footer and the prompt were
-         simply unreachable. The page scrolls now; nothing is cut off. */
-      overflowX: "hidden",
+         simply unreachable. The page scrolls now; nothing is cut off.
+         `clip` (not `hidden`): hidden creates its own scroll container,
+         which breaks position: sticky descendants and nests scrolling
+         contexts; clip suppresses the paint without doing that. */
+      overflowX: "clip",
       display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-font)",
       background:
@@ -6833,17 +6803,6 @@ function CerebrumFieldCanvas({
 // file), so the wordmark assembles itself rather than just fading in as one
 // block. Falls back to the plain gradient text for anything screen readers
 // or copy/paste care about — the stagger is purely decorative markup.
-function KineticText({ text, style, className }) {
-  return (
-    <span className={`cb-gradient-text cb-kinetic ${className || ""}`} style={{ ...style, display: "inline-block" }} aria-label={text}>
-      {text.split("").map((ch, i) => (
-        <span key={i} style={{ animationDelay: `${i * 45}ms` }} aria-hidden="true">{ch === " " ? " " : ch}</span>
-      ))}
-    </span>
-  );
-}
-
-
 /* v31: this used to be VantaCellsField — the pre-v5 Intro background
    brought back as a bundled npm dependency (`vanta`+`three`) rather than a
    runtime CDN script, with WebGLNeuralField as its fallback. Both are gone
@@ -6855,12 +6814,21 @@ function KineticText({ text, style, className }) {
    own comment block), rendered via the lightweight `ogl` WebGL library
    instead. `vanta` and `three` both stay out of package.json going
    forward. */
-function MicButton({ onTranscript, accent, P }) {
+function MicButton({ onTranscript, accent, P, getInput }) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
   const cbRef = useRef(onTranscript);
   cbRef.current = onTranscript;
+  // The dictation callbacks deliver the RUNNING transcript (final + interim
+  // accumulated), so a bare setInput(t) wipes whatever the user already
+  // typed. Snapshot the pre-dictation input when listening starts and
+  // re-attach it on every callback instead of overwriting.
+  const baseRef = useRef("");
+  const emit = (t, done) => {
+    const base = baseRef.current;
+    cbRef.current((base ? base.replace(/\s+$/, "") + " " : "") + t, done);
+  };
   const wantListenRef = useRef(false);
   const finalTextRef = useRef("");
   const beep = (freq, dur = 0.08, gain = 0.05) => { try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; const ctx = new AC(); const osc = ctx.createOscillator(); const g = ctx.createGain(); osc.type = "sine"; osc.frequency.value = freq; g.gain.value = 0; osc.connect(g); g.connect(ctx.destination); const now = ctx.currentTime; g.gain.linearRampToValueAtTime(gain, now + 0.01); g.gain.linearRampToValueAtTime(0, now + dur); osc.start(now); osc.stop(now + dur + 0.02); setTimeout(() => { try { ctx.close(); } catch {} }, (dur + 0.1) * 1000); } catch {} };
@@ -6868,7 +6836,7 @@ function MicButton({ onTranscript, accent, P }) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setSupported(false); return; }
     const rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = navigator.language || "en-US";
-    rec.onresult = (e) => { let interim = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) { finalTextRef.current = (finalTextRef.current + " " + t).replace(/\s+/g, " ").trim(); } else { interim += t; } } const combined = (finalTextRef.current + (interim ? " " + interim : "")).replace(/\s+/g, " ").trim(); cbRef.current(combined, false); };
+    rec.onresult = (e) => { let interim = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) { finalTextRef.current = (finalTextRef.current + " " + t).replace(/\s+/g, " ").trim(); } else { interim += t; } } const combined = (finalTextRef.current + (interim ? " " + interim : "")).replace(/\s+/g, " ").trim(); emit(combined, false); };
     rec.onerror = (e) => { const err = e && e.error; if (err === "no-speech" || err === "aborted") return; if (err === "not-allowed" || err === "service-not-allowed") { wantListenRef.current = false; setListening(false); } };
     rec.onend = () => { if (wantListenRef.current) { try { rec.start(); } catch { wantListenRef.current = false; setListening(false); } } else { setListening(false); } };
     recRef.current = rec;
@@ -6877,12 +6845,12 @@ function MicButton({ onTranscript, accent, P }) {
   if (!supported) return null;
   const toggle = () => {
     if (!recRef.current) return;
-    if (listening) { wantListenRef.current = false; try { recRef.current.stop(); } catch {} setListening(false); cbRef.current(finalTextRef.current.trim(), true); beep(660, 0.09); setTimeout(() => beep(440, 0.11), 90); }
-    else { finalTextRef.current = ""; wantListenRef.current = true; try { recRef.current.start(); setListening(true); beep(523, 0.07); setTimeout(() => beep(784, 0.09), 70); } catch { wantListenRef.current = false; setListening(false); } }
+    if (listening) { wantListenRef.current = false; try { recRef.current.stop(); } catch {} setListening(false); emit(finalTextRef.current.trim(), true); beep(660, 0.09); setTimeout(() => beep(440, 0.11), 90); }
+    else { finalTextRef.current = ""; try { baseRef.current = getInput ? (getInput() || "") : ""; } catch { baseRef.current = ""; } wantListenRef.current = true; try { recRef.current.start(); setListening(true); beep(523, 0.07); setTimeout(() => beep(784, 0.09), 70); } catch { wantListenRef.current = false; setListening(false); } }
   };
   return (
-    <button onClick={toggle} title={listening ? "Stop dictation" : "Start voice dictation"} className="cb-hbtn"
-      style={{ minWidth: 44, minHeight: 44, width: 34, height: 34, borderRadius: 8, border: "none", cursor: "pointer", background: listening ? accent : "transparent", color: listening ? "#fff" : P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
+    <button onClick={toggle} title={listening ? "Stop dictation" : "Start voice dictation"} aria-label={listening ? "Stop dictation" : "Start voice dictation"} className="cb-hbtn"
+      style={{ minWidth: 44, minHeight: 44, borderRadius: 8, border: "none", cursor: "pointer", background: listening ? accent : "transparent", color: listening ? "#fff" : P.faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, position: "relative" }}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /><path d="M5 12a7 7 0 0014 0M12 19v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
       {listening && <span style={{ position: "absolute", inset: -4, borderRadius: 8, border: `2px solid ${accent}`, animation: "cbMicPulse 1.5s ease-in-out infinite", pointerEvents: "none" }} />}
     </button>
@@ -6979,7 +6947,11 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   const [progress, setProgress] = useState(0);
   const audioRef = useRef(null);
   const utterRef = useRef(null);
-  const stop = () => { if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } try { window.speechSynthesis.cancel(); } catch {} utterRef.current = null; setStatus("idle"); setProgress(0); };
+  const urlRef = useRef(null);
+  // The object URL used to be revoked only in audio.onended — hitting Stop
+  // or unmounting mid-play leaked it. Revoking centrally in stop() covers
+  // every path (Stop button, new play, unmount via the effect below).
+  const stop = () => { if (urlRef.current) { try { URL.revokeObjectURL(urlRef.current); } catch {} urlRef.current = null; } if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } try { window.speechSynthesis.cancel(); } catch {} utterRef.current = null; setStatus("idle"); setProgress(0); };
   const playBrowser = () => {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
@@ -7032,7 +7004,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     if (pref) utter.voice = pref;
     utter.onstart = () => setStatus("playing"); utter.onend = () => { setStatus("idle"); setProgress(0); }; utter.onerror = () => { setStatus("idle"); setProgress(0); }; utter.onboundary = (e) => { if (e.charIndex && text.length) setProgress(e.charIndex / text.length); }; utterRef.current = utter; window.speechSynthesis.speak(utter);
   };
-  const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {} const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); URL.revokeObjectURL(url); audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
+  const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {} const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); urlRef.current = url; const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); try { URL.revokeObjectURL(url); } catch {} if (urlRef.current === url) urlRef.current = null; audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
   // Commit 67 — "Auto read answers" was a DEAD SWITCH. The preference
   // existed, defaulted to ON, wrote its cookie, and was read by absolutely
   // nothing: `autoplay` appeared in App's state, in the cookie effect, and
@@ -7058,7 +7030,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   useEffect(() => () => stop(), []);
   const label = status === "loading" ? "Loading…" : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
   const active = status === "playing" || status === "paused";
-  const playIcon = <svg width={compact ? 12 : 11} height={compact ? 12 : 11} viewBox="0 0 24 24" fill="currentColor">{status === "playing" ? (<><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>) : (<path d="M8 5v14l11-7z" />)}</svg>;
+  const playIcon = <svg width={compact ? 11 : 12} height={compact ? 11 : 12} viewBox="0 0 24 24" fill="currentColor">{status === "playing" ? (<><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>) : (<path d="M8 5v14l11-7z" />)}</svg>;
   // v28: docked into the new top-right answer toolbar (see `Turn`) alongside
   // Copy/Share/PDF/Illustrate, this needs to be the same 28x28 icon-only
   // shape as its neighbors instead of the wider icon+label pill it used to
@@ -7252,7 +7224,7 @@ function InfoPage({ page }) {
   const toc = isLegal ? data.blocks.map((b2) => ({ h: b2.h, id: slug(b2.h) })) : [];
   const NAV = [["about", "About"], ["privacy", "Privacy"], ["terms", "Terms"], ["disclosures", "Disclosures"], ["contact", "Contact"]];
   return (
-    <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", position: "relative", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+    <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", position: "relative", display: "flex", flexDirection: "column", overflowX: "clip" }}>
       <style>{`
         .cb-info-block:hover .cb-anchor, .cb-info-block:focus-within .cb-anchor, .cb-anchor:focus-visible { opacity: 1; }
         @media (hover: none) { .cb-info-block .cb-anchor { opacity: 1; } }
@@ -7494,7 +7466,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
         {exportOpen && (
           <>
             <span onClick={() => setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} aria-hidden="true" />
-            <span role="menu" style={{
+            <span role="menu" aria-label="Export formats" onKeyDown={menuArrowKeys} style={{
               position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, minWidth: 240,
               background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
               border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
@@ -7523,7 +7495,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     </span>
     {zoteroOpen && (
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, width: "100%" }}>
-        <input aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
+        <input type="password" autoComplete="off" aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
           style={{ minHeight: 44, padding: "8px 12px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 160px" }} />
         <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
           style={{ minHeight: 44, padding: "8px 12px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 120px" }} />
@@ -7573,7 +7545,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
        column — like a printed references page, not a stack of cards. */
     <div style={{ minHeight: 44, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 18px 6px" }}>
       {jumpLetters && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 6, paddingTop: 8 }} aria-label="Jump to author">
+        <div role="group" style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 6, paddingTop: 8 }} aria-label="Jump to author">
           {jumpLetters.map((L) => (
             <a key={L} href={`#ref-alpha-${L}`} style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, textDecoration: "none", padding: "3px 7px", borderRadius: 6 }}
               onMouseEnter={(e) => { e.currentTarget.style.color = accent; e.currentTarget.style.background = withAlpha(accent, 0.08); }}
@@ -7769,7 +7741,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
     </li>
   );
 }
-function bibBtn(P, accent) { return { padding: "5px 10px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }; }
+
 
 function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 0.15s ease, color 0.15s ease" }; }
 
@@ -8774,7 +8746,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
                 const s = src(n);
                 const label = `[${n}] ${s.title || "Untitled source"}: no stance signal`;
                 return (
-                  <button key={n} type="button" role="listitem" title={s.title || "Untitled source"} aria-label={label + ". Activate to open the paper."}
+                  <button key={n} type="button" title={s.title || "Untitled source"} aria-label={label + ". Activate to open the paper."}
                     onClick={() => onOpenPaper(n)}
                     style={{ minWidth: 44, minHeight: 44,
                       width: 14, height: 14, borderRadius: "50%", padding: 0, cursor: "pointer",
@@ -9404,7 +9376,7 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
             </span>
           </button>
           {moreOpen && (
-            <div role="menu" aria-label="More answer sections" className="cb-fade"
+            <div role="menu" aria-label="More answer sections" className="cb-fade" onKeyDown={menuArrowKeys}
               style={{
                 /* Right-anchored: the More button sits at the rail's right
                    edge, so a left-anchored menu runs off the viewport on a
@@ -9444,6 +9416,22 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
    a labeled "More" menu. Items are plain data ({ id, label, icon, hint,
    onClick } or { divider: true }) so TurnInner decides the set. Closes on
    selection, outside tap, or Escape. */
+/* Basic arrow-key navigation for role="menu" popups: Up/Down walks the
+   menuitems, Home/End jumps to the ends. Wired on the export menu, the
+   jump-rail "More" menu, and ToolbarOverflow. */
+function menuArrowKeys(e) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+  const items = Array.from(e.currentTarget.querySelectorAll('[role="menuitem"]')).filter((el) => !el.disabled);
+  if (!items.length) return;
+  e.preventDefault();
+  const i = items.indexOf(document.activeElement);
+  let next = 0;
+  if (e.key === "ArrowDown") next = i < 0 ? 0 : (i + 1) % items.length;
+  else if (e.key === "ArrowUp") next = i < 0 ? items.length - 1 : (i - 1 + items.length) % items.length;
+  else if (e.key === "End") next = items.length - 1;
+  items[next].focus();
+}
+
 function ToolbarOverflow({ P, accent, items }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -9472,7 +9460,7 @@ function ToolbarOverflow({ P, accent, items }) {
         </span>
       </button>
       {open && (
-        <div role="menu" aria-label="More answer actions" className="cb-fade"
+        <div role="menu" aria-label="More answer actions" className="cb-fade" onKeyDown={menuArrowKeys}
           style={{
             position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 224, zIndex: 70,
             background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
@@ -9607,7 +9595,8 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
       right={(
         /* Pass 2: underlined editorial tabs, not the segmented pill
            control. Same two views, same counts. */
-        <div className="cb-tabrow" role="tablist" aria-label="Evidence views">
+        <div className="cb-tabrow" role="tablist" aria-label="Evidence views"
+          onClick={(e) => { const b = e.target.closest(".cb-tab"); if (b) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }}>
           <button type="button" role="tab" className="cb-tab" data-active={tab === "biblio" ? "true" : undefined}
             aria-selected={tab === "biblio"} onClick={() => setTab("biblio")}>
             Bibliography · {sources.length}
@@ -10363,7 +10352,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       }}>
         <h2 className="cb-serif" style={{ ...S.headline, fontFamily: "var(--cb-serif)", fontWeight: 600, marginBottom: 0, textShadow: P.dark ? "0 2px 26px rgba(0,0,0,0.65)" : "none" }}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
         <div className="cb-mono" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: P.faint, marginTop: 12 }}>
-          <span>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+          <span>{new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
           <span>{sources.length} cited paper{sources.length === 1 ? "" : "s"}</span>
           {dbOutcomes && dbOutcomes.length > 0 && (
@@ -11769,7 +11758,8 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
   return (
     <AnswerSection quiet eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}
       right={(
-        <div className="cb-tabrow" role="tablist" aria-label="Compare views">
+        <div className="cb-tabrow" role="tablist" aria-label="Compare views"
+          onClick={(e) => { const b = e.target.closest(".cb-tab"); if (b) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }}>
           {tabs.map(([id, label]) => (
             <button key={id} type="button" role="tab" aria-selected={evOpen === id} className="cb-tab"
               data-active={evOpen === id ? "true" : undefined}
@@ -12407,50 +12397,6 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
   );
 }
 
-// Related-video playback — same dialog pattern as TrendingArticleModal
-// (backdrop click + Escape both close, focus trapped inside) but hosting a
-// real YouTube <iframe> instead of a text summary, so a related video plays
-// inline instead of just linking out to youtube.com in a new tab. autoplay
-// only fires once the iframe itself is actually mounted inside the open
-// dialog, never in the results grid, so nothing plays until someone
-// actually asks for it.
-function VideoPlayerModal({ P, accent, at, video, close }) {
-  const ytId = getYouTubeId(video);
-  return (
-    <Dialog label={video.title || "Video"} onClose={close} zIndex={217} width={860}
-      panelStyle={{
-        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
-        border: P.dark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.08)",
-        borderRadius: 12, display: "flex", flexDirection: "column",
-        boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
-      }}
-    >
-        <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#000", flexShrink: 0 }}>
-          {ytId ? (
-            <iframe
-              src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`}
-              title={video.title || "Video"}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          ) : (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: P.faint, fontSize: FONT_SIZES.small }}>Couldn't identify this video.</div>
-          )}
-          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 8, right: 8, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
-        </div>
-        <div style={{ padding: "18px 22px 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, lineHeight: 1.35 }}>{video.title}</div>
-            {video.author && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 6 }}>{video.author}</div>}
-          </div>
-          <a href={safeHref(video.url)} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, textDecoration: "none", whiteSpace: "nowrap" }}>
-            Watch on YouTube <Icon name="external" size={13} />
-          </a>
-        </div>
-    </Dialog>
-  );
-}
 
 // How often an open Trending tab re-polls its own endpoint. The feed
 // itself only actually changes once an hour (trending-refresh.js's own
@@ -13061,44 +13007,6 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   );
 }
 
-/* ════════════════════════════════════════════════════════════════
-   LITERATURE TIMELINE
-   Plots the current answer's sources across publication year — purely
-   client-side, reusing data already fetched for the answer itself, so
-   this needed zero backend work. Answers the question a flat citation
-   list can't: is this an established, decades-deep literature, or is
-   everything from the last two years? Dot color reuses the same
-   relevance tokens as the sources panel (STATUS.good/warn, P.faint) so
-   the two views read as one consistent system rather than introducing
-   a second, unrelated color language.
-   ════════════════════════════════════════════════════════════════ */
-function buildTimelineLayout(sources, width, margin) {
-  const withYear = sources
-    .map((s) => ({ s, year: parseInt(s.year, 10) }))
-    .filter((x) => Number.isFinite(x.year) && x.year > 1500 && x.year <= new Date().getFullYear() + 1);
-  if (!withYear.length) return { points: [], minYear: null, maxYear: null };
-  const minYear = Math.min(...withYear.map((x) => x.year));
-  const maxYear = Math.max(...withYear.map((x) => x.year));
-  const span = Math.max(1, maxYear - minYear);
-  const xFor = (year) => (minYear === maxYear ? width / 2 : margin + ((year - minYear) / span) * (width - margin * 2));
-  // Stack same-year (or near-same-x) sources vertically so they don't
-  // overlap into one indistinguishable blob.
-  const byYear = new Map();
-  for (const x of withYear) {
-    if (!byYear.has(x.year)) byYear.set(x.year, []);
-    byYear.get(x.year).push(x.s);
-  }
-  const points = [];
-  for (const [year, group] of byYear) {
-    group
-      .slice()
-      .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
-      .forEach((s, i) => {
-        points.push({ s, year, x: xFor(year), y: 90 - i * 24 });
-      });
-  }
-  return { points, minYear, maxYear };
-}
 
 function LiteratureTimeline({ P, accent, at, turn, close }) {
   /* The Plot|Arc toggle is gone — the Arc is the only view. The scatter
@@ -15517,6 +15425,9 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
   const pcRef = useRef(null);
   const screenTrackRef = useRef(null);
   const clientIdRef = useRef(null);
+  // Set when endCall posts its own bye: the effect cleanup must not post
+  // a second one on the unmount that follows.
+  const byeSentRef = useRef(false);
   if (!clientIdRef.current) clientIdRef.current = newHuddleClientId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -15584,6 +15495,11 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     let madeOffer = false;
     let remoteDescSet = false;
     let connected = false;
+    // Set once a ring is actually delivered: only then does the peer have
+    // any reason to expect us, and only then is a "bye" owed on cleanup. A
+    // call that died before ringing (permission denied, signaling down)
+    // must not send a phantom hangup for a call that never existed.
+    let didRing = false;
     let pollFailures = 0;
     let ringTimer = null;
     const startedAt = Date.now();
@@ -15873,7 +15789,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
             );
             setStatus("error");
           }
-        } else { ringFailures = 0; lastRingReason = ""; }
+        } else { ringFailures = 0; lastRingReason = ""; didRing = true; }
       };
       ring();
       ringTimer = setInterval(ring, 3000);
@@ -15886,7 +15802,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
       if (ringTimer) clearInterval(ringTimer);
-      postSignal("bye", {});
+      if (didRing && !byeSentRef.current) postSignal("bye", {});
       if (pc) { try { pc.close(); } catch {} }
       if (localStream) localStream.getTracks().forEach((t) => t.stop());
       if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch {} screenTrackRef.current = null; }
@@ -15894,7 +15810,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       localStreamRef.current = null;
       remoteStreamRef.current = null;
     };
-  }, [threadId, currentUserId, retryTick]);
+  }, [threadId, currentUserId, retryTick, audioOnly]);
 
   const toggleMic = () => {
     const track = localStreamRef.current?.getAudioTracks()[0];
@@ -15909,7 +15825,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     setCamMuted(!track.enabled);
   };
   const toggleView = () => setMainIsSelf((v) => !v);
-  const endCall = () => { postCallSignal(threadId, clientIdRef.current, "bye", {}); onClose(); };
+  const endCall = () => { byeSentRef.current = true; postCallSignal(threadId, clientIdRef.current, "bye", {}); onClose(); };
   const stopScreenShare = () => {
     const camTrack = localStreamRef.current?.getVideoTracks()[0];
     const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
@@ -16067,13 +15983,13 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
             <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: "#fff", background: "rgba(0,0,0,0.5)", padding: "3px 8px", borderRadius: 100, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, pointerEvents: "auto" }}>
-            <button onClick={(e) => { e.stopPropagation(); toggleMic(); }} aria-label={micMuted ? "Unmute microphone" : "Mute microphone"} style={{ minWidth: 44, minHeight: 44, width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button onClick={(e) => { e.stopPropagation(); toggleMic(); }} aria-label={micMuted ? "Unmute microphone" : "Mute microphone"} style={{ width: 30, height: 30, minHeight: 0, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name={micMuted ? "micOff" : "mic"} size={14} />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); setMinimized(false); }} aria-label="Expand call" title="Expand" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button onClick={(e) => { e.stopPropagation(); setMinimized(false); }} aria-label="Expand call" title="Expand" style={{ width: 30, height: 30, minHeight: 0, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name="maximize2" size={14} />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); endCall(); }} aria-label="End call" title="End call" style={{ width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer", background: "#d13438", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button onClick={(e) => { e.stopPropagation(); endCall(); }} aria-label="End call" title="End call" style={{ width: 30, height: 30, minHeight: 0, borderRadius: "50%", border: "none", cursor: "pointer", background: "#d13438", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name="phoneOff" size={14} />
             </button>
           </div>
@@ -16130,8 +16046,8 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         }}>
           {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
           {controlBtn(camMuted, toggleCam, "camera", "cameraOff", camMuted ? "Turn camera on" : "Turn camera off")}
-          {!isMobile && controlBtn(screenSharing, toggleScreenShare, "screenShare", "screenShare", screenSharing ? "Stop sharing screen" : "Share screen")}
-          {controlBtn(mainIsSelf, toggleView, "grid", "grid", "Switch view")}
+          {!isMobile && controlBtn(screenSharing, toggleScreenShare, "screenShare", "screenShareOff", screenSharing ? "Stop sharing screen" : "Share screen")}
+          {controlBtn(mainIsSelf, toggleView, "grid", "speakerView", "Switch view")}
           {controlBtn(dataSaver, toggleDataSaver, "zap", "zap", dataSaver ? "Turn off data saver" : "Turn on data saver (lower video quality)")}
           <button onClick={() => setReportOpen(true)} aria-label="Report this call" title="Report this call" style={{
             width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
@@ -16193,6 +16109,10 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // The success auto-close timer must not fire after a manual close —
+  // otherwise onClose runs twice.
+  const closeTimerRef = useRef(null);
+  useEffect(() => () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); }, []);
 
   const title = kind === "message" ? "Report message" : kind === "call" ? "Report this call" : `Report ${targetLabel || "this person"}`;
 
@@ -16208,7 +16128,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
         message_id: messageId || null,
       });
       setSubmitted(true);
-      setTimeout(() => onClose(), 1600);
+      closeTimerRef.current = setTimeout(() => { closeTimerRef.current = null; onClose(); }, 1600);
     } catch (err) {
       toast(err.message || "Couldn't send that report.", { tone: "error" });
       setSubmitting(false);
@@ -16241,9 +16161,9 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
             </div>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 8 }}>Reason</div>
-              <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div role="radiogroup" aria-label="Report reason" style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {REPORT_REASONS.map((r) => (
-                  <button key={r.id} type="button" onClick={() => setReason(r.id)} style={{ minHeight: 44,
+                  <button key={r.id} type="button" role="radio" aria-checked={reason === r.id} onClick={() => setReason(r.id)} style={{ minHeight: 44,
                     fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
                     fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease",
                     background: reason === r.id ? withAlpha(accent, 0.16) : "transparent",
@@ -16277,6 +16197,26 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
 function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThreadId, onConsumeInitialThread, onStartHuddle, activeHuddleRoomSeed, onCompose }) {
   const [activeId, setActiveId] = useState(null);
   const [activeThread, setActiveThread] = useState(null);
+  // E2EE Phase 1.4 — legacy divider index, memoized. The old code ran
+  // messages.slice(0, i).some(...) per message — O(n²) on long threads.
+  // One pass finds the first cipher message with plaintext history before
+  // it; the divider renders only there.
+  const legacyDividerIdx = useMemo(() => {
+    const msgs = (activeThread && activeThread.messages) || [];
+    let sawPlaintext = false;
+    for (let i = 0; i < msgs.length; i++) {
+      const x = msgs[i];
+      const isCipher = x.msgKind === "cipher";
+      const skipped = x.e2ee && x.e2ee.skipped;
+      if (!isCipher && !skipped) sawPlaintext = true;
+      else if (isCipher && sawPlaintext) return i;
+    }
+    return -1;
+  }, [activeThread && activeThread.messages]);
+  // Message ids already blipped/notified for: the setActiveThread updater
+  // below can run twice under StrictMode, so notification side effects
+  // there must be idempotent.
+  const notifiedMsgIds = useRef(new Set());
   const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -16312,6 +16252,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   const recRef = useRef(null);
+  const recSecondsRef = useRef(0);
   const [lightbox, setLightbox] = useState(null);
 
   // Downscales to fit inside 1400px and re-encodes as JPEG before upload.
@@ -16369,14 +16310,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // someone who can't play audio right now, while the recording keeps the
   // tone and emphasis a transcript loses.
   async function startRecording() {
-    if (recording || !activeId) return;
+    // Guard on the ref, not the `recording` state: state hasn't updated
+    // yet on a rapid double-click, which used to leak a second
+    // MediaRecorder. The placeholder reserves the slot synchronously
+    // across the getUserMedia await.
+    if (recording || recRef.current || !activeId) return;
+    recRef.current = { starting: true };
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { toast("Microphone access is needed for a voice note.", { tone: "error" }); return; }
+    catch { recRef.current = null; toast("Microphone access is needed for a voice note.", { tone: "error" }); return; }
     const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => {
       try { return window.MediaRecorder && MediaRecorder.isTypeSupported(m); } catch { return false; }
     });
-    if (!mime) { stream.getTracks().forEach((t) => t.stop()); toast("Voice notes aren't supported in this browser.", { tone: "error" }); return; }
+    if (!mime) { recRef.current = null; stream.getTracks().forEach((t) => t.stop()); toast("Voice notes aren't supported in this browser.", { tone: "error" }); return; }
     const chunks = [];
     const rec = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 32000 });
     let transcript = "";
@@ -16409,7 +16355,16 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // 90 seconds is the hard ceiling the D1 row size implies at this
     // bitrate; stopping automatically is friendlier than letting someone
     // record for three minutes and then telling them it can't be sent.
-    recRef.current = { rec, timer: setInterval(() => setRecSeconds((v) => { const nv = v + 1; if (nv >= 90) stopRecording(); return nv; }), 1000) };
+    // The count lives in a ref: calling stopRecording() inside the state
+    // updater below was a side effect in the updater and double-fired
+    // under StrictMode.
+    recSecondsRef.current = 0;
+    recRef.current = { rec, timer: setInterval(() => {
+      recSecondsRef.current += 1;
+      const nv = recSecondsRef.current;
+      setRecSeconds(nv);
+      if (nv >= 90) stopRecording();
+    }, 1000) };
     rec.start();
     setRecSeconds(0);
     setRecording(true);
@@ -16421,6 +16376,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     clearInterval(cur.timer);
     try { cur.rec.stop(); } catch {}
     recRef.current = null;
+    recSecondsRef.current = 0;
     setRecording(false);
     setRecSeconds(0);
   }
@@ -16508,7 +16464,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             const nextMsgs = (next && next.messages) || [];
             if (prevThread && nextMsgs.length > prevMsgs.length) {
               const fresh = nextMsgs[nextMsgs.length - 1];
-              if (fresh && !fresh.mine) {
+              // The updater can run twice under StrictMode: dedupe by
+              // message id so the blip/notification never double-fires.
+              const fid = fresh && (fresh.id || fresh.clientId);
+              if (fresh && !fresh.mine && fid && !notifiedMsgIds.current.has(fid)) {
+                notifiedMsgIds.current.add(fid);
+                if (notifiedMsgIds.current.size > 200) notifiedMsgIds.current.delete(notifiedMsgIds.current.values().next().value);
                 cbBlip(660, 0.07, 0.045);
                 // Encrypted threads never put content in a notification:
                 // the envelope is ciphertext and the plaintext belongs on
@@ -16739,7 +16700,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
 
   const subtitle = activeThread
     ? (activeThread.kind === "group"
-      ? `${activeThread.memberCount} member${activeThread.memberCount === 1 ? "" : "s"}`
+      ? (typeof activeThread.memberCount === "number"
+        ? `${activeThread.memberCount} member${activeThread.memberCount === 1 ? "" : "s"}`
+        : "Group conversation")
       // Commit 100 — was [otherEmail, otherAffiliation]. The email is no
       // longer sent by the server at all, and the affiliation now arrives
       // already filtered by that person's show_affiliation setting. The
@@ -16770,7 +16733,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const showThread = !isMobile || !!activeId;
 
   const filteredThreads = threadQuery.trim()
-    ? threads.filter((t) => (t.name || "").toLowerCase().includes(threadQuery.trim().toLowerCase()))
+    // Unnamed threads carry the peer's identity in otherUsername /
+    // otherAffiliation instead of name — matching only name made them
+    // unfindable in search.
+    ? threads.filter((t) => ((t.name || "") + " " + (t.otherUsername || "") + " " + (t.otherAffiliation || "")).toLowerCase().includes(threadQuery.trim().toLowerCase()))
     : threads;
 
   return (
@@ -17045,7 +17011,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 // above it was readable by the server, everything below it
                 // wasn't. Skipped rows (other-device) don't count as
                 // history either way.
-                const showLegacyDivider = isCipher && activeThread.messages.slice(0, i).some((x) => !(x.e2ee && x.e2ee.skipped) && x.msgKind !== "cipher");
+                const showLegacyDivider = isCipher && i === legacyDividerIdx;
                 return (
                 <React.Fragment key={key}>
                 {showLegacyDivider && (
@@ -17057,7 +17023,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showDay && (
                   <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>{dayLabel}</div>
                 )}
-                <div style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
+                <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                 >
                   {!m.mine && activeThread.kind === "group" && m.who && (
@@ -17503,8 +17469,7 @@ function UICard({ children, P, pad = true, className = "", style, onClick, speci
 
 /* ── Label ───────────────────────────────────────────────────────────
    The section marker. Sentence case, body face, one accent dot — the
-   pattern that replaced five different shouted uppercase-mono eyebrows.
-   There is exactly one of these now, so it can never drift again. */
+   pattern that replaced five different shouted uppercase-mono eyebrows. */
 function UILabel({ children, P, accent, right, style }) {
   return (
     <div style={{
@@ -17541,7 +17506,7 @@ function UILabel({ children, P, accent, right, style }) {
    bibliography styles, settings tabs, notebook tabs, trending filters.
    ══════════════════════════════════════════════════════════════════ */
 
-function Eyebrow({ children, P, accent, right, style }) {
+function Eyebrow({ children, P, right, style }) {
   return (
     <div className="cb-eyebrow" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, ...style }}>
       <span style={{
@@ -17566,7 +17531,7 @@ function AnswerSection({ eyebrow, title, right, children, P, accent, style, quie
           {right && <span className="cb-eyebrow-right" style={{ flexShrink: 0 }}>{right}</span>}
         </div>
       ) : (
-        <Eyebrow P={P} accent={accent} right={right}>{eyebrow}</Eyebrow>
+        <Eyebrow P={P} right={right}>{eyebrow}</Eyebrow>
       )}
       {title && (
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: "-6px 0 12px", letterSpacing: "-0.01em", fontFamily: "var(--cb-font)", lineHeight: 1.35 }}>{title}</div>
@@ -17603,7 +17568,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
       </div>
       <button
         onClick={onClose}
-        aria-label={"Close " + (label || title)}
+        aria-label={label || title ? "Close " + (label || title) : "Close"}
         /* 44px hit area; the visible 30px circle is drawn by the inner
            span so the touch target meets the minimum without changing
            the chrome's look. */
@@ -17705,7 +17670,7 @@ function Dialog({
 
   useEffect(() => {
     const id = idRef.current;
-    const record = { id, onClose };
+    const record = { id };
     const prevActive = document.activeElement;
     cbDialogStack.push(record);
     cbDialogLockScroll();
@@ -17737,7 +17702,12 @@ function Dialog({
       }
       if (e.key === "Tab" && panelRef.current) {
         const nodes = Array.from(panelRef.current.querySelectorAll(CB_FOCUSABLE))
-          .filter((el) => !el.disabled && el.offsetParent !== null);
+          // offsetParent is null for position:fixed elements — excluding
+          // them drops fixed-position focusables (sticky headers, floating
+          // action buttons) out of the Tab cycle entirely. Keep fixed
+          // elements; visibility is still enforced by the checks below.
+          .filter((el) => !el.disabled && (el.offsetParent !== null || getComputedStyle(el).position === "fixed"))
+          .filter((el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return cs.visibility !== "hidden" && cs.display !== "none" && (r.width > 0 || r.height > 0); });
         if (nodes.length === 0) { e.preventDefault(); return; }
         const first = nodes[0], last = nodes[nodes.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
@@ -17778,9 +17748,11 @@ function Dialog({
   return createPortal(
     <div
       role="dialog" aria-modal="true"
-      aria-label={labelledBy ? undefined : label}
+      // A dialog with neither label nor labelledBy gets no accessible name
+      // — default to a generic one so AT always announces something.
+      aria-label={labelledBy ? undefined : (label || "Dialog")}
       aria-labelledby={labelledBy}
-      onMouseDown={(e) => { if (dismissable && e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) { if (onEscapeRef.current) onEscapeRef.current(); else if (dismissable) onCloseRef.current(); } }}
       style={{
         position: "fixed", inset: 0, zIndex, display: "flex",
         alignItems: drawer ? "stretch" : "center", justifyContent: drawer ? "flex-end" : "center",
@@ -17813,7 +17785,7 @@ function Dialog({
   );
 }
 
-function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex = 200, width = 640, ticks = false, tall = false, drawer = false, P = null, children }) {
+function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex = 220, width = 640, ticks = false, tall = false, drawer = false, P = null, children }) {
   // Drawers are theme-aware (they read like a document); centered modals
   // keep the dark instrument-glass treatment.
   const panelBg = drawer && P ? P.bg : "rgba(15,17,21,0.97)";
@@ -17872,11 +17844,14 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
      plain text and a single accent bar slides beneath the active one.
      Sentence case — the labels arrive that way and no longer get shouted. */
   const btnRefs = useRef({});
-  const [bar, setBar] = useState({ left: 0, width: 0 });
+  const [bar, setBar] = useState({ left: 0, width: 0, visible: false });
   useEffect(() => {
     const measure = () => {
       const el = btnRefs.current[value];
-      if (el) setBar({ left: el.offsetLeft, width: el.offsetWidth });
+      // An unmatched value must not leave a stale accent bar parked under
+      // a tab that isn't selected: hide it instead.
+      if (el) setBar({ left: el.offsetLeft, width: el.offsetWidth, visible: true });
+      else setBar((b) => ({ ...b, visible: false }));
     };
     measure();
     /* Rotating the phone (or any resize) moves the tabs under a stale
@@ -17896,7 +17871,7 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
         return (
           <button
             key={String(id)} ref={(el) => { btnRefs.current[id] = el; }}
-            role="tab" aria-selected={on} onClick={() => onChange(id)}
+            role="tab" aria-selected={on} aria-current={on ? "true" : undefined} onClick={() => onChange(id)}
             style={{
               /* 44px touch targets: the tab bar must never clip or crowd
                  at 360px, and a tab smaller than a fingertip is a miss. */
@@ -17915,7 +17890,11 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
         position: "absolute", bottom: -1, left: 0, width: 1, height: 2,
         background: accent, borderRadius: 2,
         transform: "translateX(" + bar.left + "px) scaleX(" + bar.width + ")",
+        /* scaleX grows from the left edge: with the default center origin
+           the underline would sit half a tab left of its target. */
+        transformOrigin: "left center",
         transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+        opacity: bar.visible ? 1 : 0,
       }} />
     </div>
   );
@@ -17933,6 +17912,10 @@ function UIRow({ label, desc, control, onClick, P, accent, last, tone, style, pa
   return (
     <div
       onClick={onClick}
+      // Clickable rows are keyboard-operable: role + tabIndex + Enter/Space.
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
       className={onClick ? "cb-row" : undefined}
       style={{
         display: "flex", alignItems: "center", gap: SP.md,
@@ -17968,31 +17951,66 @@ function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3,
     : <input {...common} />;
 }
 
-/* Commit 77 — the radius scale.
-   ---------------------------------------------------------------------
-   An audit of this file found TWELVE different corner radii in use: 3
-   (120 times), 100 (56), 8, 14, 2, 16, 12, 10, 4, 6, 18 and 0. That is
-   not a style, it is the absence of one, and it is the loudest reason the
-   interface reads as assembled rather than designed — a 3px modal corner
-   next to a fully-round pill next to a 14px card tells the eye that
-   nobody decided.
+/* ── SuggestInput ──────────────────────────────────────────────────────
+   Filter-as-you-type text field with a suggestion dropdown (degree,
+   affiliation). One component for both: proper combobox/listbox
+   semantics (role, aria-expanded, aria-controls, aria-activedescendant)
+   and arrow-key navigation — the old inline copies were bare divs with
+   no keyboard path at all. */
+function SuggestInput({ value, onChange, placeholder, ariaLabel, matches, P, accent, inputStyle, style }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const listId = useRef("cb-suggest-" + Math.random().toString(36).slice(2));
+  const show = open && matches.length > 0;
+  const pick = (v) => { onChange(v); setOpen(false); setActive(-1); };
+  const onKeyDown = (e) => {
+    if (e.key === "ArrowDown" && show) { e.preventDefault(); setActive((a) => Math.min(a + 1, matches.length - 1)); }
+    else if (e.key === "ArrowUp" && show) { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === "Enter" && show && active >= 0 && matches[active]) { e.preventDefault(); pick(matches[active]); }
+    else if (e.key === "Escape" && open) { setOpen(false); setActive(-1); }
+  };
+  return (
+    <div style={{ position: "relative", ...(style || {}) }}>
+      <input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(-1); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={show}
+        aria-controls={listId.current}
+        aria-activedescendant={active >= 0 && show ? `${listId.current}-opt-${active}` : undefined}
+        style={{ ...inputStyle, fontFamily: "var(--cb-font)", fontSize: 16 }}
+      />
+      {show && (
+        <div id={listId.current} role="listbox" aria-label={ariaLabel + " suggestions"} style={{
+          position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
+          background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
+          overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+        }}>
+          {matches.map((m, i) => (
+            <div
+              key={m}
+              id={`${listId.current}-opt-${i}`}
+              role="option"
+              aria-selected={i === active}
+              onMouseDown={(e) => { e.preventDefault(); pick(m); }}
+              onMouseEnter={() => setActive(i)}
+              style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer", background: i === active ? withAlpha(accent, 0.08) : "transparent" }}
+            >{m}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
-   Four tokens now, and every value in the file was normalized onto them:
-
-     SM  8   chips, inputs, small controls, thumbnails      (was 2,3,4,6,8)
-     MD  12  cards, panels, popovers, media blocks          (was 10,12,14)
-     LG  16  modals, sheets, the largest surfaces           (was 16,18)
-     PILL 100 buttons, tags, avatars, anything capsule      (unchanged)
-
-   Use these when adding anything new. A fifth value is a decision to
-   defend, not a default. */
-/* Corner radii. Nudged up a step across the board: at 8/12/16 over a
-   moving film backdrop the panels read as cut rectangles, and the extra
-   couple of pixels is what makes a surface look moulded rather than
-   trimmed. `pill` is unchanged — a pill is a pill. */
-/* Radius contract (2026-09-17 evidence-first redesign): 6px controls/buttons,
-   8px inputs, 12px cards/panels max, 999px ONLY for compact status pills
-   and filter chips. */
+/* Radius contract: sm/md 6px for controls and inputs, lg 12px for cards/panels,
+   pill 100 for capsules. */
 const RADIUS = { sm: 6, md: 6, lg: 12, pill: 100 };
 
 const BADGE_DISPLAY = {
@@ -18265,13 +18283,13 @@ function FieldRidge({ history, accent, P }) {
       style={{ display: "block", width: "100%", height: "auto", overflow: "visible" }}
     >
       <line x1={0} y1={BASE} x2={W} y2={BASE} stroke={P.line} strokeWidth={1} />
-      {items.map((h) => {
+      {items.map((h, i) => {
         const x = PAD + ((h.ts - (now - SPAN)) / SPAN) * (W - PAD * 2);
         const papers = (h.allSources || []).length;
         const th = 5 + (papers / maxPapers) * (BASE - 18);
         return (
           <line
-            key={h.id || h.ts} x1={x} y1={BASE} x2={x} y2={BASE - th}
+            key={(h.id || h.ts || "h") + "-" + i} x1={x} y1={BASE} x2={x} y2={BASE - th}
             stroke={withAlpha(accent, 0.6)} strokeWidth={1.5} strokeLinecap="round"
           />
         );
@@ -18362,14 +18380,17 @@ function ProfileMarkers({ P, accent, markers }) {
    "Saved ✓" briefly after, then quiet. One save model (autosave), three
    visually distinct states — never guessing whether an edit persisted. */
 function SaveIndicator({ state, P, accent }) {
-  if (state === "idle") return null;
+  // Only "saving" ever reaches this component: PublicProfile's saveState is
+  // only ever "idle" or "saving" — nothing sets "saved", so the old
+  // "✓ Saved" branch was dead.
+  if (state !== "saving") return null;
   return (
     <span style={{
       fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
-      color: state === "saved" ? accent : P.faint,
+      color: P.faint,
       display: "inline-flex", alignItems: "center", gap: 5,
     }}>
-      {state === "saving" ? "Saving…" : "✓ Saved"}
+      Saving…
     </span>
   );
 }
@@ -18438,7 +18459,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
       }
     }
     return { nodes, links };
-  }, [papers, pinnedIds]);
+  }, [papers, pinnedIds, shelfNameOf]);
 
   const [tip, setTip] = React.useState(null);
   const h = height || 240;
@@ -18470,7 +18491,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
             stroke={P.faint} strokeWidth={0.14} opacity={0.35} />
         ))}
         {layout.nodes.map((n, i) => (
-          <g key={n.id + i}>
+          <g key={(n.id != null ? n.id : "node") + "-" + i}>
             {n.pinned && <circle cx={n.x} cy={n.y} r={n.r + 1.6} fill="none" stroke={accent} strokeWidth={0.3} opacity={0.9} />}
             <circle cx={n.x} cy={n.y} r={n.r * 0.42}
               fill={n.pinned ? accent : P.ink2} opacity={n.pinned ? 0.95 : 0.75}
@@ -18480,7 +18501,6 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
               onFocus={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ x: r.left + r.width / 2, y: r.top, title: n.title, shelf: n.shelf }); }}
               onBlur={() => setTip(null)}
               tabIndex={0} role="img" aria-label={n.title}>
-              <title>{n.title}</title>
             </circle>
           </g>
         ))}
@@ -18574,6 +18594,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     canvas.width = 256;
     canvas.height = 256;
     const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Couldn't process that image in this browser. Try a different one.");
     ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
     return canvas.toDataURL("image/jpeg", 0.85);
   }
@@ -18621,7 +18642,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   // currently typed, live, on every keystroke. Capped to a handful of
   // results — with 350+ real institutions in the list, an empty query would
   // otherwise render the entire list into the dropdown.
-  const [affiliationOpen, setAffiliationOpen] = useState(false);
   const affiliationQuery = (profile.affiliation || "").trim().toLowerCase();
   const affiliationMatches = UNIVERSITIES.filter(
     (u) => u.toLowerCase().includes(affiliationQuery) && u.toLowerCase() !== affiliationQuery
@@ -18629,7 +18649,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
   // Degree command-palette: same filter-as-you-type pattern as affiliation
   // above, matched against the DEGREES reference list.
-  const [degreeOpen, setDegreeOpen] = useState(false);
   const degreeQuery = (profile.degree || "").trim().toLowerCase();
   const degreeMatches = DEGREES.filter(
     (d) => d.toLowerCase().includes(degreeQuery) && d.toLowerCase() !== degreeQuery
@@ -18785,7 +18804,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           margin: isMobile ? "0 -18px" : "0 -28px",
         }}>
         <div style={{
-          margin: isMobile ? "0" : "0",
+          margin: 0,
           padding: isMobile ? "10px 18px" : "10px 28px",
           display: "flex", alignItems: "center", gap: 10,
           /* Pass 1 (2026-09-17): opaque. This is a sticky chrome bar, not
@@ -18979,7 +18998,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             nothing floats in tiles. */}
         {!editing && (
           <div style={{ marginTop: 22, borderTop: `1px solid ${P.line}` }} role="list" aria-label="Membership and work">
-            <button onClick={onOpenPro} role="listitem" className="cb-row" style={{
+            <button onClick={onOpenPro} className="cb-row" style={{
               display: "flex", alignItems: "center", gap: 12, width: "100%",
               background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
               padding: "13px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44,
@@ -18992,7 +19011,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
             </button>
             {profileStats.map((s) => (
-              <button key={s.id} role="listitem" onClick={() => setTab(s.id)} className="cb-row" style={{
+              <button key={s.id} onClick={() => setTab(s.id)} className="cb-row" style={{
                 display: "flex", alignItems: "baseline", gap: 12, width: "100%",
                 background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
                 padding: "13px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44,
@@ -19050,35 +19069,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             <div>
               <div style={{ ...eyebrow, marginBottom: 8 }}>Standing</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                <div style={{ position: "relative", flex: "1 1 200px" }}>
-                  <input
-                    value={profile.degree || ""}
-                    onChange={(e) => setProfile((p) => ({ ...p, degree: e.target.value }))}
-                    onFocus={() => setDegreeOpen(true)}
-                    onBlur={() => setDegreeOpen(false)}
-                    placeholder="Degree, e.g. Ph.D. Microbiology"
-                    aria-label="Degree"
-                    autoComplete="off"
-                    style={{ ...inputStyle, fontFamily: "var(--cb-font)", fontSize: 16 }}
-                  />
-                  {degreeOpen && degreeMatches.length > 0 && (
-                    <div style={{
-                      position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
-                      background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
-                      overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
-                    }}>
-                      {degreeMatches.map((d) => (
-                        <div
-                          key={d}
-                          onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, degree: d })); setDegreeOpen(false); }}
-                          style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                        >{d}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <SuggestInput
+                  value={profile.degree || ""}
+                  onChange={(v) => setProfile((p) => ({ ...p, degree: v }))}
+                  placeholder="Degree, e.g. Ph.D. Microbiology"
+                  ariaLabel="Degree"
+                  matches={degreeMatches}
+                  P={P} accent={accent} inputStyle={inputStyle}
+                  style={{ flex: "1 1 200px" }}
+                />
                 <input
                   value={profile.grad_year || ""}
                   onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
@@ -19087,35 +19086,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   style={{ ...inputStyle, width: 104, flex: "0 0 104px", fontFamily: "var(--cb-font)", fontSize: 16 }}
                 />
               </div>
-              <div style={{ position: "relative", marginTop: 8, maxWidth: 440 }}>
-                <input
-                  value={profile.affiliation || ""}
-                  onChange={(e) => setProfile((p) => ({ ...p, affiliation: e.target.value }))}
-                  onFocus={() => setAffiliationOpen(true)}
-                  onBlur={() => setAffiliationOpen(false)}
-                  placeholder="Affiliation, e.g. University of Tennessee"
-                  aria-label="Affiliation"
-                  autoComplete="off"
-                  style={inputStyle}
-                />
-                {affiliationOpen && affiliationMatches.length > 0 && (
-                  <div style={{
-                    position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
-                    background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
-                    overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
-                  }}>
-                    {affiliationMatches.map((u) => (
-                      <div
-                        key={u}
-                        onMouseDown={(e) => { e.preventDefault(); setProfile((p) => ({ ...p, affiliation: u })); setAffiliationOpen(false); }}
-                        style={{ padding: "9px 13px", fontSize: FONT_SIZES.small, color: P.ink, cursor: "pointer" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                      >{u}</div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <SuggestInput
+                value={profile.affiliation || ""}
+                onChange={(v) => setProfile((p) => ({ ...p, affiliation: v }))}
+                placeholder="Affiliation, e.g. University of Tennessee"
+                ariaLabel="Affiliation"
+                matches={affiliationMatches}
+                P={P} accent={accent} inputStyle={inputStyle}
+                style={{ marginTop: 8, maxWidth: 440 }}
+              />
             </div>
           </div>
         )}
@@ -19150,7 +19129,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       </div>
                       {editing && (
                         <button type="button" onClick={() => togglePin(key)} disabled={pinSaving}
-                          aria-label={`Unpin ${renderCleanTitle(sv.title)}`}
+                          aria-label={`Unpin ${cleanTitleText(sv.title)}`}
                           style={{ minHeight: 44, alignSelf: "flex-start", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", padding: "10px 0 2px", opacity: pinSaving ? 0.5 : 1 }}>
                           Remove
                         </button>
@@ -19371,6 +19350,9 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
   const [followBusy, setFollowBusy] = useState(() => new Set());
   const [messageBusy, setMessageBusy] = useState(() => new Set());
   const searchTimer = useRef(null);
+  // The founder card is fetched once, not on every keystroke: clearing the
+  // search box used to re-fire search-users with q:"" per keystroke.
+  const founderFetched = useRef(false);
 
   // Real accounts, searched live via functions/api/data.js's search-users —
   // this used to be a hardcoded 4-name MOCK_RESEARCHERS array labeled
@@ -19400,8 +19382,12 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
       setResults([]);
       setLoading(false);
       // The founder card is still worth fetching with an empty box: it is
-      // the one thing this screen shows before you type.
-      apiDataGet("search-users", { q: "" }).then((d) => setFounder((d && d.founder) || null)).catch(() => {});
+      // the one thing this screen shows before you type. Once per mount —
+      // not on every keystroke while clearing.
+      if (!founderFetched.current) {
+        founderFetched.current = true;
+        apiDataGet("search-users", { q: "" }).then((d) => setFounder((d && d.founder) || null)).catch(() => {});
+      }
       return;
     }
     setLoading(true);
@@ -19459,7 +19445,15 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
     setMessageBusy((prev) => new Set(prev).add(r.id));
     try {
       const res = await apiDataAction("start-thread", { target_id: r.id });
-      onMessage(r, res.thread_id);
+      // onMessage is the parent's callback: if it throws, the busy flag
+      // must still clear or the button stays disabled forever.
+      try {
+        onMessage(r, res.thread_id);
+      } catch (e) {
+        console.error("onMessage callback failed:", e);
+        toast("Couldn't open that conversation.", { tone: "error" });
+      }
+      setMessageBusy((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
     } catch (e) {
       toast(e.message || "Couldn't start that conversation.", { tone: "error" });
       setMessageBusy((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
@@ -19692,6 +19686,37 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
 // Everything here speaks plain language: "encrypted messaging",
 // "recovery phrase", "devices". The crypto vocabulary (Olm, prekeys,
 // vodozemac, AES-GCM, Argon2id, pickles) never reaches the user.
+/* The restore-from-phrase panel, used in both EncryptionSettings branches
+   (setup and confirmed). It was duplicated verbatim; one component now. */
+function RestorePhrasePanel({ P, backups, restoreDeviceId, setRestoreDeviceId, restorePhrase, setRestorePhrase, doRestore, busy, pillBtn, sfx }) {
+  return (
+    <div style={{ padding: "14px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
+      {backups.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
+          <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none" }}>
+            {backups.map((b) => (
+              <option key={b.deviceId} value={b.deviceId}>{b.label} — backed up {relativeTime(b.updatedAt)}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24-word recovery phrase</div>
+      <textarea
+        aria-label="Your 24-word recovery phrase"
+        value={restorePhrase}
+        onChange={(e) => setRestorePhrase(e.target.value)}
+        rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
+        placeholder="Enter the 24 words in order, separated by spaces"
+        style={{ width: "100%", padding: "10px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none", resize: "vertical", marginBottom: 10 }}
+      />
+      <button onClick={doRestore} disabled={!restorePhrase.trim() || busy === "restore"} style={{ ...pillBtn, opacity: !restorePhrase.trim() ? 0.45 : 1 }}>
+        {busy === "restore" ? "Restoring…" : "Restore encrypted messaging"}
+      </button>
+    </div>
+  );
+}
+
 function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   const [loading, setLoading] = useState(true);
   const [setUp, setSetUp] = useState(false);
@@ -19734,22 +19759,30 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
       // getRecoveryPhrase is a safe probe: it never creates a device, so
       // merely opening Settings can't silently enroll the user.
       const existing = await getRecoveryPhrase().catch(() => null);
+      if (!mountedRef.current) return;
       if (!existing) { setSetUp(false); setDeviceId(null); return; }
       setSetUp(true);
       const [dev, info] = await Promise.all([
         listDevices(apiDataAction).catch(() => null),
         getBackupInfo().catch(() => null),
       ]);
+      if (!mountedRef.current) return;
       setDeviceId(dev ? dev.currentDeviceId : null);
       setDevices(dev ? dev.devices : []);
       setBackupInfo(info);
       setConfirmed(!!(info && info.phraseConfirmed));
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   };
 
-  useEffect(() => { refresh(); }, []);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    refresh();
+    return () => { mountedRef.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pickChallenges = () => {
     const idx = new Set();
@@ -19866,10 +19899,17 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
     }
   };
 
+  // Ref mirror of showRestore: the toggle below must branch on the LATEST
+  // intent, not the render closure — a fast double-click otherwise closes
+  // the panel while the stale `showRestore` still reads false and fires
+  // listBackups anyway.
+  const showRestoreRef = useRef(false);
   const openRestore = async () => {
     sfx();
-    setShowRestore((v) => !v);
-    if (!showRestore) {
+    const next = !showRestoreRef.current;
+    showRestoreRef.current = next;
+    setShowRestore(next);
+    if (next) {
       try {
         const b = await listBackups(apiDataAction).catch(() => []);
         setBackups(b || []);
@@ -19885,6 +19925,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
     try {
       sfx();
       await restoreFromPhrase(apiDataAction, p, restoreDeviceId || null);
+      showRestoreRef.current = false;
       setShowRestore(false);
       setRestorePhrase("");
       setPhrase(null);
@@ -19931,8 +19972,9 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
           </div>
           {challenges.map((c) => (
             <div key={c.index} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, minWidth: 74, fontFamily: "var(--cb-font)" }}>Word {c.index + 1}</span>
+              <label htmlFor={"cb-challenge-" + c.index} style={{ fontSize: FONT_SIZES.small, color: P.ink2, minWidth: 74, fontFamily: "var(--cb-font)" }}>Word {c.index + 1}</label>
               <input
+                id={"cb-challenge-" + c.index}
                 value={c.typed}
                 onChange={(e) => setChallenges((prev) => prev.map((x) => x.index === c.index ? { ...x, typed: e.target.value } : x))}
                 autoComplete="off" autoCapitalize="off" spellCheck={false}
@@ -19982,29 +20024,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
           last={!showRestore}
         />
         {showRestore && (
-          <div style={{ padding: "14px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
-            {backups.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
-                <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none" }}>
-                  {backups.map((b) => (
-                    <option key={b.deviceId} value={b.deviceId}>{b.label} — backed up {relativeTime(b.updatedAt)}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24-word recovery phrase</div>
-            <textarea
-              value={restorePhrase}
-              onChange={(e) => setRestorePhrase(e.target.value)}
-              rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
-              placeholder="Enter the 24 words in order, separated by spaces"
-              style={{ width: "100%", padding: "10px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none", resize: "vertical", marginBottom: 10 }}
-            />
-            <button onClick={doRestore} disabled={!restorePhrase.trim() || busy === "restore"} style={{ ...pillBtn, opacity: !restorePhrase.trim() ? 0.45 : 1 }}>
-              {busy === "restore" ? "Restoring…" : "Restore encrypted messaging"}
-            </button>
-          </div>
+          <RestorePhrasePanel P={P} backups={backups} restoreDeviceId={restoreDeviceId} setRestoreDeviceId={setRestoreDeviceId} restorePhrase={restorePhrase} setRestorePhrase={setRestorePhrase} doRestore={doRestore} busy={busy} pillBtn={pillBtn} sfx={sfx} />
         )}
       </>) : (<>
         <Row
@@ -20043,29 +20063,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
           last={!showRestore}
         />
         {showRestore && (
-          <div style={{ padding: "14px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
-            {backups.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
-                <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none" }}>
-                  {backups.map((b) => (
-                    <option key={b.deviceId} value={b.deviceId}>{b.label} — backed up {relativeTime(b.updatedAt)}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24-word recovery phrase</div>
-            <textarea
-              value={restorePhrase}
-              onChange={(e) => setRestorePhrase(e.target.value)}
-              rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
-              placeholder="Enter the 24 words in order, separated by spaces"
-              style={{ width: "100%", padding: "10px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none", resize: "vertical", marginBottom: 10 }}
-            />
-            <button onClick={doRestore} disabled={!restorePhrase.trim() || busy === "restore"} style={{ ...pillBtn, opacity: !restorePhrase.trim() ? 0.45 : 1 }}>
-              {busy === "restore" ? "Restoring…" : "Restore encrypted messaging"}
-            </button>
-          </div>
+          <RestorePhrasePanel P={P} backups={backups} restoreDeviceId={restoreDeviceId} setRestoreDeviceId={setRestoreDeviceId} restorePhrase={restorePhrase} setRestorePhrase={setRestorePhrase} doRestore={doRestore} busy={busy} pillBtn={pillBtn} sfx={sfx} />
         )}
       </>)}
     </Section>
@@ -20075,7 +20073,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
         title="Devices"
         footer="Every device you use gets its own keys. Removing a device stops it from reading new messages right away — it can't sneak back in later."
       >
-        {devices.length === 0 && <Row label="Loading devices…" last />}
+        {devices.length === 0 && <Row label="No other devices yet" desc="Set up encrypted messaging on another device and it will appear here." last />}
         {devices.map((d, i) => (
           <Row
             key={d.deviceId}
@@ -20169,7 +20167,11 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     const devicePhrase = await getRecoveryPhrase().catch(() => null);
     if (!devicePhrase) { setNeedE2ee(true); setEnableStep(null); return; }
     const typed = typedPhrase.trim();
-    if (!isValidRecoveryPhrase(typed)) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
+    // isValidRecoveryPhrase is async in the production bundle (the vite
+    // alias routes e2ee/recovery.js through the lazy facade): a bare call
+    // returns a Promise, which is always truthy, silently bypassing this
+    // validation. Await it.
+    if (!(await isValidRecoveryPhrase(typed))) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
     // The typed phrase must be THIS device's phrase: enabling under any
     // other phrase would lock the vault to a key this device doesn't hold.
     if (normalizePhrase(typed) !== normalizePhrase(devicePhrase)) { toast("That doesn't match the recovery phrase on this device.", { tone: "error" }); return; }
@@ -20230,8 +20232,10 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
       setTypedPhrase("");
       setEnableStep(null);
       if (deleted) {
+        setPurgeNeeded(false);
         toast(`Private Vault is on. Removed the old readable copies: ${deleted.saved || 0} saved, ${deleted.history || 0} investigations, ${deleted.collections || 0} collections.`);
       } else if (!purgeFailed) {
+        setPurgeNeeded(false);
         toast("Private Vault is on.");
       }
     } catch (e) {
@@ -20258,7 +20262,9 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     if (busy) return;
     if (!user || !user.id) { toast("Sign in first."); return; }
     const devicePhrase = await getRecoveryPhrase().catch(() => null);
-    if (!devicePhrase || !isValidRecoveryPhrase(devicePhrase)) {
+    // Awaited: isValidRecoveryPhrase is async in the production bundle
+    // (lazy facade via the vite alias); a bare call is always truthy.
+    if (!devicePhrase || !(await isValidRecoveryPhrase(devicePhrase))) {
       toast("Couldn't find your recovery phrase on this device. Set up encrypted conversations first.", { tone: "error" });
       return;
     }
@@ -20299,8 +20305,10 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         toast("Private Vault is on, but the old readable copies couldn't be removed. Use \"Remove old readable copies\" below to try again.", { tone: "error" });
       }
       if (deleted) {
+        setPurgeNeeded(false);
         toast(`Private Vault is on. Removed the old readable copies: ${deleted.saved || 0} saved, ${deleted.history || 0} investigations, ${deleted.collections || 0} collections.`);
       } else if (!purgeFailed) {
+        setPurgeNeeded(false);
         toast("Private Vault is on.");
       }
     } catch (e) {
@@ -20354,7 +20362,9 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const doUnlock = async () => {
     if (busy) return;
     const typed = unlockPhrase.trim();
-    if (!isValidRecoveryPhrase(typed)) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
+    // Awaited: isValidRecoveryPhrase is async in the production bundle
+    // (lazy facade via the vite alias); a bare call is always truthy.
+    if (!(await isValidRecoveryPhrase(typed))) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
     setBusy("unlock");
     try {
       sfx();
@@ -20392,12 +20402,24 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     const strip = (s) => { const { zkId, zkRev, ...rest } = s || {}; return rest; };
     const idMap = new Map();
     const freshCols = [];
+    const failedCols = [];
     for (const c of collections || []) {
       try {
         const r = await apiDataPost("collections", { action: "create", name: c.name });
         freshCols.push({ id: r.id, name: r.name, created_at: Date.now() });
         idMap.set(c.id, r.id);
-      } catch {}
+      } catch (e) {
+        // Never silently drop a collection: items filed under a collection
+        // that failed to recreate would lose their shelf. Surface it.
+        failedCols.push(c.name || "Untitled collection");
+      }
+    }
+    if (failedCols.length) {
+      throw new Error(
+        "Couldn't write back " + failedCols.length + " collection" + (failedCols.length === 1 ? "" : "s") +
+        " (" + failedCols.slice(0, 3).join(", ") + (failedCols.length > 3 ? ", …" : "") +
+        "). Your saved items are untouched — try again in a moment."
+      );
     }
     const remap = (s) => {
       const st = strip(s);
@@ -20521,6 +20543,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
               <span>This proves the phrase is really yours, and it's the phrase your vault will be locked with. It never leaves this device.</span>
             </div>
             <textarea
+              aria-label="Type your 24-word recovery phrase"
               value={typedPhrase}
               onChange={(e) => setTypedPhrase(e.target.value)}
               rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
@@ -20566,6 +20589,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
           <div style={noteBox}>
             <div style={fieldLabel}>Your 24-word recovery phrase</div>
             <textarea
+              aria-label="Your 24-word recovery phrase"
               value={unlockPhrase}
               onChange={(e) => setUnlockPhrase(e.target.value)}
               rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
@@ -20790,7 +20814,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
         return { ...prev, badges };
       });
     } catch (e) {
-      // Silent fail - the button just doesn't change
+      toast(e.message || "Couldn't change verification.", { tone: "error" });
     } finally {
       setVerifyBusy(false);
     }
@@ -20823,6 +20847,9 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
       onMessage(u, res.thread_id);
     } catch (e) {
       toast(e.message || "Couldn't start that conversation.", { tone: "error" });
+    } finally {
+      // Always clear: on success the parent usually unmounts this dialog,
+      // but if it doesn't, the button must not stick on "Opening…".
       setMsgBusy(false);
     }
   };
@@ -21050,6 +21077,8 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
 let pdfjsLibPromise = null;
 function loadPdfJs() {
   if (!pdfjsLibPromise) {
+    // Only cache the resolved module: a rejected import must not be cached,
+    // or one transient failure breaks every PDF drop until the page reloads.
     pdfjsLibPromise = import("pdfjs-dist").then((mod) => {
       mod.GlobalWorkerOptions.workerSrc = new URL(
         "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -21057,6 +21086,7 @@ function loadPdfJs() {
       ).toString();
       return mod;
     });
+    pdfjsLibPromise.catch(() => { pdfjsLibPromise = null; });
   }
   return pdfjsLibPromise;
 }
@@ -21074,13 +21104,19 @@ async function extractPdfText(file) {
   const pdfjsLib = await loadPdfJs();
   const data = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data }).promise;
-  const pages = [];
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    pages.push(content.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim());
+  try {
+    const pages = [];
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const content = await page.getTextContent();
+      pages.push(content.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim());
+    }
+    return pages.join("\n\n").trim();
+  } finally {
+    // Release the worker-side document resources: without this, dropping
+    // many PDFs leaks worker/document memory until the tab is closed.
+    try { await pdf.destroy(); } catch {}
   }
-  return pages.join("\n\n").trim();
 }
 
 // Right-pane analysis tabs. "findings" folds together the backend's
@@ -21230,6 +21266,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const docBFileRef = useRef(null);
   const compareAbort = useRef(null);
   const qaAbort = useRef(null);
+  // Generation counter: bumped every time a different document is opened.
+  // In-flight analyze/Q&A/compare streams capture the generation at start
+  // and must not commit state once it has moved on — otherwise the old
+  // document's result (or its abort error) lands on the new document.
+  const docGen = useRef(0);
   const docEyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
   /* Sep 2026: the source (intake) pane sits over Document Mode's own film.
      Bare content on the page scrim let video texture ghost through behind
@@ -21267,6 +21308,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       return text;
     }
     const isHtml = file.type === "text/html" || /\.html?$/i.test(name);
+    // Early size rejection for text/HTML, like the PDF path has: a 50MB
+    // log file must not be read fully into memory when nothing over
+    // ~200k characters can be analyzed anyway.
+    if (typeof file.size === "number" && file.size > 5 * 1024 * 1024) {
+      throw new Error("That file is too large to read (over 5MB). Try a shorter excerpt, or paste the text directly instead.");
+    }
     const raw = await file.text();
     if (isHtml) {
       const text = extractHtmlText(raw);
@@ -21301,6 +21348,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      A streaming (unfinished) payload is never restored — a half-written
      answer must not come back from a reload looking final. */
   const openDocument = (text, saved) => {
+    // A different document is taking over: stop any in-flight analysis,
+    // Q&A, or compare streams for the previous document, and mark this
+    // generation so their late results/errors are ignored instead of
+    // landing on the new document.
+    docGen.current += 1;
+    if (analyzeAbort.current) analyzeAbort.current.abort();
+    if (qaAbort.current) qaAbort.current.abort();
+    if (compareAbort.current) compareAbort.current.abort();
     // The bundled sample is an array of paragraphs; everything else is a string.
     const t = Array.isArray(text) ? text.join("\n\n") : String(text || "");
     setDocumentText(t);
@@ -21438,11 +21493,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setAnalyzing(true);
     setAnalyzeProgress(null);
     setError("");
-    setSummary(null);
+    // The previous summary stays visible while the new run streams, and is
+    // kept on failure: a failed re-analysis must not wipe a good result.
     setQaHistory([]);
     setRightTab("summary");
     const ctrl = new AbortController();
     analyzeAbort.current = ctrl;
+    const gen = docGen.current;
     try {
       // The backend's contract: documentText carries the text, the absence
       // of `query` selects analysis mode, and stream:true selects the SSE
@@ -21461,8 +21518,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       setSummary(result);
     } catch (e) {
+      // Superseded by a document switch: leave the new document's state alone.
+      if (gen !== docGen.current) return;
       const code = e && e.code;
-      setSummary(null);
       if (code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); }
       else if (code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(); }
       else if (code === "aborted") setError("Analysis canceled.");
@@ -21502,6 +21560,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setQaHistory((h) => [...h, { query: q, answer: "", streaming: true }]);
     const ctrl = new AbortController();
     qaAbort.current = ctrl;
+    const qaGen = docGen.current;
     try {
       const result = await streamDocumentApi(
         { documentText: documentText.trim(), query: q, history: historyForRequest, stream: true },
@@ -21509,14 +21568,18 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           signal: ctrl.signal,
           onToken: (t) => {
             if (!t) return;
+            if (qaGen !== docGen.current) return;
             setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { ...x, answer: x.answer + t } : x)));
           },
           onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
         }
       );
+      if (qaGen !== docGen.current) return;
       const finalText = result && result.answer ? result.answer : "";
       setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: finalText } : x)));
     } catch (e) {
+      // Superseded by a document switch: leave the new document's state alone.
+      if (qaGen !== docGen.current) return;
       const code = e && e.code;
       if (code === "auth_required") {
         setQaHistory((h) => h.slice(0, -1));
@@ -21548,12 +21611,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const b = docB.trim();
     if (!a || !b || compareBusy) return;
     if (!docGate()) return;
+    // Same paste cap as analysis: two large documents must not sail into
+    // an oversized request that the backend rejects with a 413.
+    if (a.length > DOCMODE_MAX_TEXT || b.length > DOCMODE_MAX_TEXT) { setCompareError("Those documents are too long to compare. Try shorter excerpts under about 200,000 characters each."); return; }
     setCompareBusy(true);
     setCompareError("");
     setCompareResult({ streaming: true, text: "" });
     setRightTab("compare");
     const ctrl = new AbortController();
     compareAbort.current = ctrl;
+    const cmpGen = docGen.current;
     const combined =
       "DOCUMENT A:\n" + a +
       "\n\n========================================\nDOCUMENT B:\n" + b;
@@ -21568,13 +21635,17 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           signal: ctrl.signal,
           onToken: (t) => {
             if (!t) return;
+            if (cmpGen !== docGen.current) return;
             setCompareResult((r) => (r ? { ...r, text: r.text + t } : r));
           },
           onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
         }
       );
+      if (cmpGen !== docGen.current) return;
       setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "" });
     } catch (e) {
+      // Superseded by a document switch: leave the new document's state alone.
+      if (cmpGen !== docGen.current) return;
       const code = e && e.code;
       setCompareResult(null);
       if (code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); }
@@ -21611,6 +21682,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     };
     const onKey = (e) => {
       if (e.key === "Escape") {
+        // Stop propagation: without this the window-level handler closes
+        // Document Mode itself right after the bubble is dismissed —
+        // one keystroke doing two things.
+        e.stopPropagation();
         setPendingHL(null);
         try { window.getSelection().removeAllRanges(); } catch {}
       }
@@ -21729,7 +21804,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
 
   const renderDocSource = (form) => {
     const hasDoc = !!docTextTrimmed && !docIdentOnly;
-    const docIdentMode = docTextTrimmed.length < 300 && !/\n/.test(docTextTrimmed);
+    // Compact box only for identifier-like input (a DOI/URL); short prose
+    // pasted as a document must not be cramped into two rows.
+    const docIdentMode = docIdentOnly;
     const docMeta = docTextTrimmed ? docMetaPreview(documentText) : null;
     const textareaStyle = {
       width: "100%", padding: 14, borderRadius: 12, border: `1px solid ${P.line}`,
@@ -21938,7 +22015,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     ? "Pro: unlimited document reads."
                     : docLeft > 0
                       ? `${docLeft} of ${docCap} free document reads left. Refills every 5 days.`
-                      : "You've used your 3 free document reads for these 5 days. Pro reads are unlimited."}
+                      : `You've used your ${docCap} free document reads for these 5 days. Pro reads are unlimited.`}
                 </div>
               )}
             </div>
@@ -22395,7 +22472,9 @@ function SystemStatus({ P, accent }) {
           if (d && d.image && d.image.url) { state = "ok"; detail = "via " + (d.image.source || "?"); }
           else if (errs.length) { state = "down"; detail = errs[0].source + ": " + (errs[0].error || "error"); }
           else { state = "down"; detail = "no source returned a picture"; }
-          if (hits.length) detail = "via " + hits[0].source;
+          // Keep the failure detail next to the warn dot: a "via X" from a
+          // surviving source must not overwrite e.g. "openverse: 500".
+          if (hits.length && state === "down") detail += " · via " + hits[0].source;
         }
         else if (res.ok || res.status === 401 || res.status === 403 || res.status === 400) { state = "ok"; }
         else {
@@ -22565,7 +22644,7 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
   // Wave 3 — the three destructive confirmations used to be inline
@@ -22578,6 +22657,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // Commit 67
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState("");
+  const highlightTimer = useRef(null);
   const [notify, setNotify] = useState(() => notifyPref());
   const [notifPerm, setNotifPerm] = useState(() => {
     try { return "Notification" in window ? Notification.permission : "unsupported"; } catch { return "unsupported"; }
@@ -22589,7 +22669,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // never even ask the server for owner status.
     if (tab !== "account" || !user || !user.isFounder) return;
     let dead = false;
-    apiDataGet("founder-status").then((d) => { if (!dead && d) setFounderStatus(d); });
+    apiDataGet("founder-status").then((d) => { if (!dead && d) setFounderStatus(d); }).catch(() => {});
     return () => { dead = true; };
   }, [tab, user]);
   const setNotifyKind = (k, v) => {
@@ -22603,9 +22683,16 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const loadWatchlist = useCallback(async () => {
     if (!user) { setWatchlist([]); return; }
     setWlLoading(true);
-    const d = await apiDataGet("watchlist");
-    setWlLoading(false);
-    setWatchlist(d && Array.isArray(d.items) ? d.items : []);
+    try {
+      const d = await apiDataGet("watchlist");
+      setWatchlist(d && Array.isArray(d.items) ? d.items : []);
+    } catch (e) {
+      // Never leave the loading state stuck on: a failed fetch shows an
+      // empty watchlist rather than "Loading your watchlist…" forever.
+      setWatchlist([]);
+    } finally {
+      setWlLoading(false);
+    }
   }, [user]);
   // Only fetched when the tab is actually open — this costs a live
   // literature query per topic upstream, and paying for it on every visit
@@ -22645,6 +22732,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setFocusHighlight(false);       // cb_fh !== "1"
     setCitationStyle("vancouver");  // cb_cite
     setDataDensity("comfortable");  // cb_density
+    setTypewriter(true);            // cb_tw !== "0"
+    setProReel(false);              // cb_pro_reel !== "1"
     const allOn = { call: true, message: true, watch: true };
     setNotify(allOn); setNotifyPref(allOn);
     setResetOpen(false);
@@ -22749,7 +22838,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Citation format", "answers", "apa mla chicago vancouver bibtex reference style"],
     ["Theme", "appearance", "dark light palette colour color"],
     ["Accent color", "appearance", "colour highlight brand"],
-    ["Background animation", "sound", "motion particles effects reduce"],
+    ["Motion", "sound", "background animation motion particles effects reduce"],
     ["Pro cinematic reel", "sound", "motion video footage background members"],
     ["Animation speed", "sound", "motion speed particles rate"],
     ["Reduce transparency", "sound", "glass blur frosted solid"],
@@ -22808,9 +22897,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setQuery("");
     // Flash the row so the eye lands on it — arriving on a tab of twenty
     // controls with no indication which one you searched for is barely
-    // better than not searching.
+    // better than not searching. The previous timer is cleared so quick
+    // successive jumps don't erase the new highlight early.
     setHighlight(hit.label);
-    setTimeout(() => setHighlight(""), 2400);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlight(""), 2400);
   };
 
   /* ── Building blocks. Pass 4 — Settings is a sober preference table,
@@ -23403,6 +23494,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   document.body.appendChild(a); a.click(); document.body.removeChild(a);
                   URL.revokeObjectURL(url);
                   sfx();
+                  toast("Workspace exported.");
                 }} style={{ minHeight: 44, padding: "6px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Export JSON</button>
               } />
               <Row label="Import workspace" desc="Restore from a previously exported file" control={
@@ -23418,9 +23510,25 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                         const data = JSON.parse(reader.result);
                         if (data.saved && Array.isArray(data.saved)) setSaved(data.saved);
                         if (data.history && Array.isArray(data.history)) setHistory(data.history);
+                        // Export writes preferences; restore them too so an
+                        // import actually brings the workspace back whole.
+                        if (data.preferences && typeof data.preferences === "object") {
+                          const p = data.preferences;
+                          if (typeof p.paletteName === "string") setPaletteName(p.paletteName);
+                          if (typeof p.accentName === "string") setAccentName(p.accentName);
+                          if (typeof p.customAccent === "string") setCustomAccent(p.customAccent);
+                          if (typeof p.answerLength === "string") setAnswerLength(p.answerLength);
+                          if (p.factCheck === "1" || p.factCheck === "0") setFactCheck(p.factCheck === "1");
+                          if (p.muted === "1" || p.muted === "0") setMuted(p.muted === "1");
+                          if (typeof p.soundMode === "string") setSoundMode(p.soundMode);
+                          if (typeof p.citationStyle === "string") setCitationStyle(p.citationStyle);
+                          if (typeof p.animationMode === "string") setAnimationMode(p.animationMode);
+                          if (typeof p.dataDensity === "string") setDataDensity(p.dataDensity);
+                        }
                         sfx();
+                        toast("Workspace imported.");
                       } catch {
-                        // Silently fail on malformed JSON — the button stays inert
+                        toast("Couldn't import that file — it isn't valid workspace JSON.", { tone: "error" });
                       }
                     };
                     reader.readAsText(file);
@@ -23668,7 +23776,6 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        and `appMain` is permanently offset by its width. Mobile: sidebar
        becomes a slide-in drawer (see `sidebarMobile*` below) and `appMain`
        stays full-width, opened with a hamburger button in the header. */
-    sidebarWidth: 260,
     sidebar: {
       position: "fixed", top: 0, left: 0, bottom: 0, width: 216, zIndex: 30,
       /* Pass 1 (2026-09-17): solid. The smoked-glass treatment existed to
@@ -24242,6 +24349,9 @@ async function copyToClipboard(text, successMessage) {
     throw new Error("Clipboard API unavailable");
   } catch {
     // Legacy fallback: a temporary offscreen textarea + document.execCommand.
+    // The previously focused element is restored afterwards — without
+    // this, focus is lost to <body> after every fallback copy.
+    const prevFocus = document.activeElement;
     try {
       const ta = document.createElement("textarea");
       ta.value = text;
@@ -24252,6 +24362,7 @@ async function copyToClipboard(text, successMessage) {
       ta.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
+      try { if (prevFocus && prevFocus.focus && document.contains(prevFocus)) prevFocus.focus({ preventScroll: true }); } catch {}
       if (ok) {
         toast(successMessage || "Copied to clipboard");
         return true;
@@ -24281,16 +24392,18 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, suggestions
           <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, padding: "10px 4px 6px", fontFamily: "var(--cb-font)" }}>Ask</div>
         )}
         {suggestions.map((s, i) => (
-          <button key={s} onClick={() => onAsk(s)} onMouseEnter={() => setActive(i)}
+          <button key={s + "::" + i} onClick={() => onAsk(s)} onMouseEnter={() => setActive(i)}
             style={{ minHeight: 44, width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", fontSize: FONT_SIZES.small, color: P.ink, background: active === i ? withAlpha(accent, 0.1) : "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", textAlign: "left" }}>
             <span style={{ minHeight: 44, color: accent, fontFamily: "var(--cb-font)" }}>→</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s}</span>
           </button>
         ))}
-        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, padding: "10px 4px 6px", fontFamily: "var(--cb-font)" }}>Commands</div>
+        {commands.length > 0 && (
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, padding: "10px 4px 6px", fontFamily: "var(--cb-font)" }}>Commands</div>
+        )}
         {commands.map((c, i) => {
           const flatIdx = suggestions.length + i;
           return (
-            <button key={c.label} onClick={c.run} onMouseEnter={() => setActive(flatIdx)}
+            <button key={c.label + "::" + i} onClick={c.run} onMouseEnter={() => setActive(flatIdx)}
               style={{ minHeight: 44, width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", fontSize: FONT_SIZES.small, color: P.ink, background: active === flatIdx ? withAlpha(accent, 0.1) : "transparent", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", textAlign: "left" }}>
               {c.icon && <span style={{ minHeight: 44, display: "inline-flex", color: P.faint }}><Icon name={c.icon} size={15} /></span>}
               <span style={{ flex: 1 }}>{c.label}</span>
@@ -24324,7 +24437,7 @@ function ToastHost({ P, accent }) {
     // failures) updated only visually — a screen-reader user got zero
     // announcement for any of them. role="status" + aria-live="polite"
     // makes assistive tech announce new toasts as they appear.
-    <div role="status" aria-live="polite" style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
+    <div role="status" aria-live="polite" style={{ position: "fixed", bottom: "max(24px, env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
       {toasts.map((t) => (
         <div key={t.id} className="cb-toast-pop" style={{
           background: "rgba(18,20,32,0.96)", color: "#fff", padding: "10px 16px", borderRadius: 8,
@@ -24713,7 +24826,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   );
   return (
     <>
-      {mobileOpen && <div onClick={onCloseMobile} className="cb-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 29 }} />}
+      {mobileOpen && <div aria-hidden="true" onClick={onCloseMobile} className="cb-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 29 }} />}
       {body}
       {acctOpen && (
         <AccountMenu P={P} accent={accent} at={at} user={user} proStatus={proStatus}
@@ -24761,7 +24874,7 @@ function writeLegalAccepted(version) {
   setCookie("cb_legal", version + "|" + Date.now());
 }
 
-function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
+function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [declined, setDeclined] = useState(false);
@@ -24827,10 +24940,10 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
         ) : (
           <>
             <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 8px", fontFamily: "var(--cb-font)", lineHeight: 1.2 }}>
-              {serverVersion ? "We've updated our terms" : "Before you start"}
+              {hasAcceptedBefore ? "We've updated our terms" : "Before you start"}
             </h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 4px" }}>
-              {serverVersion
+              {hasAcceptedBefore
                 ? "Our Terms, Privacy Policy and Disclosures have changed materially since you last accepted them. Please review and accept the new version to continue."
                 : "Cerebrum is free and collects as little as it can. Three things are worth knowing before your first search. They take fifteen seconds and they matter."}
             </p>
@@ -24895,7 +25008,7 @@ function ConsentGate({ P, accent, at, user, serverVersion, onAccepted }) {
    live. The banner surfaces only while idle — never mid-search. */
 function VersionBanner({ P, accent, onRefresh, onDismiss }) {
   return (
-    <div role="status" style={{
+    <div style={{
       position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
       zIndex: 150, display: "flex", alignItems: "center", gap: 10,
       background: P.bg, border: `1px solid ${withAlpha(accent, 0.4)}`,
@@ -24904,8 +25017,12 @@ function VersionBanner({ P, accent, onRefresh, onDismiss }) {
       fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.ink,
       maxWidth: "calc(100vw - 32px)",
     }}>
-      <span style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />
-      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>New version ready</span>
+      {/* The announcement text is the live region; the buttons sit outside
+          it so AT doesn't treat interactive controls as status content. */}
+      <span role="status" style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} aria-hidden="true" />
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>New version ready</span>
+      </span>
       <button onClick={onRefresh} className="cb-press" style={{ minHeight: 44,
         background: accent, color: "#0b0d10", border: "none", borderRadius: 100,
         padding: "6px 14px", fontSize: FONT_SIZES.caption, fontWeight: 700,
@@ -24941,7 +25058,9 @@ function liveFaviconBadge(unread) {
 
 function useDynamicFavicon({ accent, busy, unread }) {
   const stateRef = useRef({ accent, busy, unread });
-  stateRef.current = { accent, busy, unread };
+  // The rAF loop reads this snapshot; keep it fresh from an effect, not by
+  // writing the ref during render (concurrent-mode anti-pattern).
+  useEffect(() => { stateRef.current = { accent, busy, unread }; }, [accent, busy, unread]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -25046,6 +25165,8 @@ function useDynamicFavicon({ accent, busy, unread }) {
       running = false;
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVis);
+      // Don't leave the injected live icon in <head> after unmount.
+      try { const el = document.querySelector('link[rel="icon"][data-live="1"]'); if (el) el.remove(); } catch {}
     };
   }, [accent, busy, unread]);
 }
@@ -25053,14 +25174,6 @@ function useDynamicFavicon({ accent, busy, unread }) {
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
-  /* Iris open: when the visitor steps through, a veil starts covering the
-     viewport and irises open from the click point. */
-  const [irisOpen, setIrisOpen] = useState(false);
-  /* Iris open disabled (hotfix): veil divs removed due to black screen.
-     The effect is a no-op. */
-  useEffect(() => {
-    setIrisOpen(false);
-  }, [entered]);
 
   /* Attention, as a piece of state. The backdrop is at its most present
      when someone is looking around, and steps back the moment they start
@@ -25137,14 +25250,12 @@ function App() {
   const [syncReady, setSyncReady] = useState(false);
   const [importPrompt, setImportPrompt] = useState(null);
   const [collections, setCollections] = useState([]);
-  const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   // Commit 46: Inbox is now a real full-page `view` (like profile/settings/
   // trending) instead of a centered modal — see InboxView and the "inbox"
   // case in handleSidebarNavigate below. The old `inboxOpen` boolean is
   // gone; `view === "inbox"` is the single source of truth now.
   const [networkSearchOpen, setNetworkSearchOpen] = useState(false);
-  const [notebookOpen, setNotebookOpen] = useState(false);
   // Commit 100 — hubOpen/activeHubName removed with InstitutionModal.
   const [viewingProfileId, setViewingProfileId] = useState(null);
   // Which full-page view fills the app shell to the right of the Sidebar.
@@ -25340,7 +25451,10 @@ function App() {
       const params = new URLSearchParams(window.location.search);
       const magicToken = params.get("magic");
       if (magicToken) {
-        window.history.replaceState({}, "", window.location.pathname);
+        // Consume the token from the URL, but preserve the hash: a
+        // #pro=success fragment arriving alongside ?magic= belongs to the
+        // checkout-return effect below and must survive sign-in.
+        window.history.replaceState({}, "", window.location.pathname + window.location.hash);
         try {
           const data = await apiAuth("magic-verify", { token: magicToken });
           if (!cancelled) await handleAuthed(data.user, { checkImport: true });
@@ -25482,7 +25596,7 @@ function App() {
   // newSession() snapshots the outgoing thread here before clearing it.
   // Declared up here (rather than down by newSession()) because the
   // scroll-lock effect below reads historyOpen in its dependency array.
-  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_history") || "[]"); } catch { return []; } });
+  const [history, setHistory] = useState(() => { try { const v = JSON.parse(localStorage.getItem("cb_history") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } });
   // v5: destructive-delete confirmation used to be inconsistent three ways —
   // Settings' "Clear all data" had a real inline confirm, Saved's "Clear
   // all" popped a jarring unstyled native browser confirm() (the only place
@@ -25500,6 +25614,17 @@ function App() {
   const [historyRenameId, setHistoryRenameId] = useState(null);
   const [historyRenameValue, setHistoryRenameValue] = useState("");
   const [historyMenuId, setHistoryMenuId] = useState(null);
+  // The investigations overflow menu had no Escape-to-close or
+  // click-outside — once opened it only closed by picking an item or
+  // toggling the same row's button again.
+  useEffect(() => {
+    if (historyMenuId == null) return;
+    const onKey = (e) => { if (e.key === "Escape") setHistoryMenuId(null); };
+    const onDown = (e) => { if (!e.target.closest || !e.target.closest('[data-hmenu]')) setHistoryMenuId(null); };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
+  }, [historyMenuId]);
   /* Export a single investigation as a readable text file. */
   const exportInvestigation = useCallback((h) => {
     const lines = [
@@ -25626,7 +25751,7 @@ function App() {
     setSearchRequestId(rid || "");
   }, []);
   const [allSources, setAllSources] = useState([]);
-  const [saved, setSaved] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_saved") || "[]"); } catch { return []; } });
+  const [saved, setSaved] = useState(() => { try { const v = JSON.parse(localStorage.getItem("cb_saved") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } });
 
   /* ── Private Vault (zero-knowledge saved work, Phase 1) ─────────────
      One ZkSession per signed-in user, held in a ref (it is not render
@@ -25836,7 +25961,19 @@ function App() {
   // Encrypted push for one store. Rows are built at their current rev;
   // zkPushRows bumps rev only for content that actually changed, and the
   // write-back below is idempotent, so the push effect can't loop.
-  const zkPushSaved = async (items) => {
+  //
+  // All pushes run through a single promise chain: overlapping debounced
+  // pushes must never run concurrently, or two pushes can mint different
+  // zkIds for the same item and upload it twice as two encrypted rows.
+  const zkPushChain = useRef(Promise.resolve());
+  const chainZkPush = (fn) => {
+    const run = zkPushChain.current.then(fn, fn);
+    // A failure must not break the chain for later pushes; the caller
+    // still sees its own rejection via `run`.
+    zkPushChain.current = run.catch(() => {});
+    return run;
+  };
+  const zkPushSaved = (items) => chainZkPush(async () => {
     const rows = (items || []).map((s) => {
       const id = s.zkId || makeItemId("paper");
       return { id, kind: "paper", collectionId: s.collectionId || null, payload: zkPaperPayload(s), rev: zkRevRef.current.get(id) || s.zkRev || 0 };
@@ -25844,8 +25981,8 @@ function App() {
     const owned = await zkPushRows("saved", rows);
     if (owned && vaultModeRef.current === "unlocked") setSaved((prev) => zkWriteBack(prev, rows));
     return owned;
-  };
-  const zkPushHistory = async (items) => {
+  });
+  const zkPushHistory = (items) => chainZkPush(async () => {
     const rows = (items || []).map((h) => {
       const id = h.zkId || h.id || makeItemId("inv");
       return { id, kind: "investigation", collectionId: null, payload: zkInvPayload(h), rev: zkRevRef.current.get(id) || h.zkRev || 0 };
@@ -25853,7 +25990,7 @@ function App() {
     const owned = await zkPushRows("history", rows);
     if (owned && vaultModeRef.current === "unlocked") setHistory((prev) => zkWriteBack(prev, rows));
     return owned;
-  };
+  });
   // Decrypted rows -> render state. The vault is the source of truth once
   // unlocked: plaintext tables are not read afterwards.
   const applyVaultItems = (session, items, quarantined) => {
@@ -26001,10 +26138,15 @@ function App() {
      only when the underlying lists change, not per keystroke. Items that
      somehow lack a vault id fall back to the plain local filter, which is
      still fully on-device. */
-  const zkIndexReady = useMemo(() => {
-    if (vaultMode !== "unlocked") return false;
+  const [zkIndexReady, setZkIndexReady] = useState(false);
+  useEffect(() => {
+    // buildLocalIndex is a side effect: it must not run during render
+    // (the old useMemo called it while computing, and re-minted throwaway
+    // ids on every recompute). Effects run after commit, which is also
+    // where the dependent memos below pick up the readiness flip.
+    if (vaultMode !== "unlocked") { setZkIndexReady(false); return; }
     const session = zkSessionRef.current;
-    if (!session || typeof session.buildLocalIndex !== "function") return false;
+    if (!session || typeof session.buildLocalIndex !== "function") { setZkIndexReady(false); return; }
     try {
       const rows = [
         ...(saved || []).map((s) => ({ id: s.zkId || makeItemId("paper"), kind: "paper", collectionId: s.collectionId || null, payload: zkPaperPayload(s), rev: zkRevRef.current.get(s.zkId) || 0 })),
@@ -26014,8 +26156,8 @@ function App() {
       // store; the arity check picks the right call shape.
       if (session.buildLocalIndex.length > 0) session.buildLocalIndex(rows);
       else session.buildLocalIndex();
-      return true;
-    } catch { return false; }
+      setZkIndexReady(true);
+    } catch { setZkIndexReady(false); }
   }, [saved, history, vaultMode]);
   const zkQueryIds = (q) => {
     if (!zkIndexReady) return null;
@@ -26175,11 +26317,9 @@ function App() {
 
   const [sessions, setSessions] = useState([]);
   const [mobilePanel, setMobilePanel] = useState(false);
-  const [suggestions, setSuggestions] = useState(pick());
   /* Chosen once per mount, not per render — a line that reshuffled every
      time React re-rendered would flicker while you type. */
   const [composerPrompt] = useState(() => COMPOSER_PROMPTS[Math.floor(Math.random() * COMPOSER_PROMPTS.length)]);
-  const chipsPausedRef = useRef(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState("answers");
   const [drawerSource, setDrawerSource] = useState(null);
   const [focusedSourceIdx, setFocusedSourceIdx] = useState(-1);
@@ -26237,18 +26377,10 @@ function App() {
   // v5: this used to swap the chip row's content out from under the user
   // every 8s unconditionally — a real interaction hazard, not just a CSS
   // animation, since a keyboard user who tabs to a chip and takes >8s to
-  // decide would submit a DIFFERENT question than the one they read. Pause
-  // while any chip has hover or focus, and don't rotate at all when the
-  // user has turned animations off in Settings. (This effect has to live
-  // down here, after animationMode's own declaration — its dependency array
-  // reads that binding, and a dependency array is evaluated eagerly on every
-  // render, unlike the effect body itself; declaring it any earlier in the
-  // component would be reading `animationMode` before its own `const` runs.)
-  useEffect(() => {
-    if (turns.length > 0 || animationMode === "off") return;
-    const id = setInterval(() => { if (!chipsPausedRef.current) setSuggestions(pick()); }, 8000);
-    return () => clearInterval(id);
-  }, [turns.length, animationMode]);
+  // decide would submit a DIFFERENT question than the one they read.
+  // Removed 2026-10-05: the chip row it rotated was replaced by the static
+  // cb-starter examples, so the interval only churned state no render ever
+  // read — and the hover/focus pause (chipsPausedRef) was never wired up.
   // Bug: three independent binary Switches (General>Motion "Background
   // effects", General>Motion "Reduced motion", Accessibility>Motion "Reduce
   // motion") used to each control this same 3-way ("off"|"subtle"|
@@ -26306,14 +26438,21 @@ function App() {
   const [askedThisSession, setAskedThisSession] = useState(false);
   const [autoplay, setAutoplay] = useState(() => {
     try {
-      if (getCookie("cb_ap_v") !== "2") {
-        setCookie("cb_ap", "0");
-        setCookie("cb_ap_v", "2");
-        return false;
-      }
+      // One-time migration: the old default was on; v2 resets it to off.
+      // The cookie writes themselves happen in the effect below — never
+      // during render (initializers run twice under StrictMode).
+      if (getCookie("cb_ap_v") !== "2") return false;
     } catch {}
     return getCookie("cb_ap") === "1";
   });
+  useEffect(() => {
+    try {
+      if (getCookie("cb_ap_v") !== "2") {
+        setCookie("cb_ap", "0");
+        setCookie("cb_ap_v", "2");
+      }
+    } catch {}
+  }, []);
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
@@ -26450,6 +26589,7 @@ function App() {
     try { bumpStreak(); } catch {}
     const question = (q ?? input).trim();
     const imageToSend = attachedImage;
+    const imageNameToSend = attachedImageName;
     if ((!question && !imageToSend) || busy) return;
     lastAskRef.current = { q: question, opts };
     // Commit 85 — auto-read is for an answer the reader just asked for, not
@@ -26462,7 +26602,9 @@ function App() {
     const askCtrl = new AbortController();
     askAbortRef.current = askCtrl;
     setAskedThisSession(true);
-    setContextBusy(!imageToSend && !!contextAction(question));
+    // Computed once: contextAction is called twice per ask below without this.
+    const ctxAction = !imageToSend ? contextAction(question) : null;
+    setContextBusy(!imageToSend && !!ctxAction);
     if (!mutedRef.current) Sfx.click();
     setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setVideosLocated(false); setError(""); setErrorDetail(""); setErrorKind(""); setErrorTitle(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
     const prior = [];
@@ -26490,12 +26632,15 @@ function App() {
          recomputing it here. */
       if (!keepDetail) setErrorDetail(info.detail);
       setInput(question);
+      // The image was cleared when the search started; put it back so
+      // "try again" retries with the image instead of silently dropping it.
+      if (imageToSend) { setAttachedImage(imageToSend); setAttachedImageName(imageNameToSend); }
       setBusy(false);
     };
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
-      const videosPromise = (imageToSend || contextAction(question)) ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
+      const videosPromise = (imageToSend || ctxAction) ? Promise.resolve({ videos: [] }) : fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify({ query: videoQuery }) }).then((r) => r.ok ? r.json() : { videos: [] }).catch(() => ({ videos: [] }));
       /* One request body for both transports, so the SSE path and the
          single-fetch fallback ask for exactly the same answer.
          opts.evidenceFilter overrides the live filter — the zero-result
@@ -26531,6 +26676,10 @@ function App() {
         if (se && se.name === "AbortError") throw se;
         /* Silent fallback: the single-fetch path, unchanged in shape. */
         setStreamActive(false); setStreamStage(null);
+        // Reset: the SSE stream's request id must not be quoted on
+        // diagnostics for the fallback request if the fallback itself
+        // fails before its own id arrives.
+        noteRequestId("");
         const res = await fetch("/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, signal: askCtrl.signal, body: JSON.stringify(searchBody) });
         if (requestVersion !== investigationRequest.current) return;
         const rid = res.headers.get("X-Request-ID") || "";
@@ -26569,7 +26718,7 @@ function App() {
         logZeroResult(question, { filtered: effEvidenceFilter !== "all", suggestions: ((data.noResults && data.noResults.reformulations) || []).length });
       }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, fresh: true, answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
+      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -26700,7 +26849,7 @@ function App() {
     const onNav = (e) => {
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (view !== "search" || cmdOpen || authOpen || collectionsOpen) return;
+      if (view !== "search" || cmdOpen || authOpen) return;
       const srcCount = allSources.length;
       if (e.key === "j" || e.key === "J") {
         e.preventDefault();
@@ -26720,7 +26869,7 @@ function App() {
     };
     window.addEventListener("keydown", onNav);
     return () => window.removeEventListener("keydown", onNav);
-  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, authOpen, collectionsOpen]);
+  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, authOpen]);
 
   // Auto-attribution clipboard: when text containing citation brackets
   // [N] is copied from an answer card, append full references to the
@@ -26761,7 +26910,7 @@ function App() {
       if (refs.length === 0) return;
 
       e.preventDefault();
-      const attributed = text + "\n\n, References, \n" + refs.join("\n") + "\n\nRetrieved via Cerebrum (askcerebrum.org)";
+      const attributed = text + "\n\nReferences\n" + refs.join("\n") + "\n\nRetrieved via Cerebrum (askcerebrum.org)";
       e.clipboardData.setData("text/plain", attributed);
     };
     document.addEventListener("copy", onCopy);
@@ -26869,7 +27018,11 @@ function App() {
   // happens once when the first overlay opens and the restore happens once
   // when the last one closes, with the scroll offset from the first open.
   const anyOverlayOpen = cmdOpen || mobilePanel
-    || authOpen || collectionsOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource;
+    || authOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource
+    // Background scroll bled through these modals on iOS (body never
+    // locked): flowchart studio, Pro modal, profile viewer, provenance
+    // panel, film credits, and incoming/active call overlays.
+    || flowchartOpen || proModalOpen || !!viewingProfileId || provenanceOpen || filmCreditsOpen || !!incomingCall || !!activeHuddle;
   useEffect(() => {
     if (!anyOverlayOpen) return;
     const scrollY = window.scrollY;
@@ -27170,14 +27323,16 @@ function App() {
     if (!mutedRef.current) Sfx.click();
     investigationRequest.current += 1;
     setBusy(false); setAskedThisSession(false);
-    setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setSuggestions(pick()); setCmdOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
+    setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setCmdOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
   }
   function openHistoryItem(entry) {
     investigationRequest.current += 1;
     setBusy(false); setAskedThisSession(false); setInput(""); setAttachedImage(null);
     setView("search");
     sfx();
-    setTurns(entry.turns || []);
+    // Turns saved before per-turn timestamps existed inherit the entry's
+    // timestamp, so the answer header shows the answer's date, not today's.
+    setTurns((entry.turns || []).map((t) => (t && t.ts ? t : { ...t, ts: entry.ts })));
     setAllSources(entry.allSources || []);
     setPinnedSources([]); setCorrections([]); setError("");
     /* Pass 4: the investigations ledger shows "last opened". It is recorded
@@ -27198,7 +27353,6 @@ function App() {
     // the same silently. Navigation is the one action that must always win,
     // so anything covering the shell is dismissed before the destination
     // changes rather than being left to each case to remember.
-    setNotebookOpen(false);
     switch (key) {
       case "new": newSession(); setView("search"); break;
       case "search": setView("search"); break;
@@ -27396,7 +27550,7 @@ function App() {
         {!legalOk && (
           <ConsentGate
             P={P} accent={accent} at={at} user={user}
-            serverVersion={!!(readLegalAccepted() || {}).version}
+            hasAcceptedBefore={!!(readLegalAccepted() || {}).version}
             onAccepted={() => setLegalOk(true)}
           />
         )}
@@ -27420,7 +27574,10 @@ function App() {
   const typeColor = () => accent;
 
   const SourceCard = (s, i) => (
-    <div key={i} className="cb-fade" style={{
+    /* Keyed on the paper's identity, not its index: sorting re-orders the
+       list, and an index key would reuse DOM (and hover/cite state) across
+       different papers. */
+    <div key={s.doi || s.url || s.title || i} className="cb-fade" style={{
       ...S.srcItem,
       borderLeft: `2px solid ${withAlpha(relColor(s.relevance ?? 0), 0.5)}`,
       /* Hover/focus states keep the fog — they brighten the scrim rather
@@ -27473,18 +27630,22 @@ function App() {
       <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{panelSources.length}</span></div>
       {pinnedSources.length > 0 && (<div style={{ minHeight: 44, padding: "7px 10px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="pinFilled" size={11} />{pinnedSources.length} pinned</span><button onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
       {corrections.length > 0 && (<div style={{ minHeight: 44, padding: "7px 10px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: 8, fontSize: FONT_SIZES.caption, color: STATUS.warn, display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><button onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: STATUS.warn, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</button></div>)}
-      {allSources.length > 0 && (<>
+      {/* The gates below read the CURRENT turn's sources (activeTurnSources),
+          not the cumulative allSources: a turn with no sources must not
+          show "No sources match" just because earlier turns had some. */}
+      {activeTurnSources.length > 0 && (<>
         <input style={S.srcFilterInput} placeholder="Filter sources…" aria-label="Filter sources" value={srcFilter} onChange={(e) => setSrcFilter(e.target.value)} />
         {/* Pass 5: the segmented pill sort bar becomes underlined text
             filters — the same pattern as the evidence-band tabs. */}
-        <div className="cb-tabrow" role="tablist" aria-label="Sort sources" style={{ marginBottom: 14 }}>
+        <div className="cb-tabrow" role="tablist" aria-label="Sort sources" style={{ marginBottom: 14 }}
+          onClick={(e) => { const b = e.target.closest(".cb-tab"); if (b) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }}>
           {[["relevance", "Relevance"], ["date", "Date"], ["database", "Type"]].map(([k, label]) => (
             <button key={k} type="button" role="tab" aria-selected={srcSort === k} className="cb-tab" data-active={srcSort === k ? "true" : undefined} onClick={() => { sfx(); setSrcSort(k); }}>{label}</button>
           ))}
         </div>
       </>)}
       <div style={S.srcList} className="cb-stagger">
-        {allSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources land here as you go.</div> :
+        {activeTurnSources.length === 0 ? <div style={S.empty} className="cb-fade">Sources land here as you go.</div> :
           sortedSources.length === 0 ? <div style={S.empty} className="cb-fade">No sources match "{srcFilter}".</div> :
           grouped ? grouped.map(([label, items]) => (<div key={label} className="cb-fade"><div style={S.srcGroupLabel}>{label} <span style={{ color: P.faint, fontWeight: 500 }}>· {items.length}</span></div>{items.map((s) => SourceCard(s, sourceIndexMap.get(s)))}</div>)) : sortedSources.map((s) => SourceCard(s, sourceIndexMap.get(s)))}
       </div>
@@ -27683,7 +27844,7 @@ function App() {
                of deck cards land on the first screen together. A visitor
                with nothing on the deck still gets the full curtain-raise. */
             <Reveal style={{ ...S.hero, ...(deckHasContent ? S.heroCompact : null) }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
-              <div style={S.heroGlow} className="cb-hero-glow" data-cb-no-reveal="" />
+              <div style={S.heroGlow} data-cb-no-reveal="" />
               {/* ══════════════════════════════════════════════════════
                   Commit 87 — the returning-user hero was still a brand
                   panel.
@@ -27877,7 +28038,7 @@ function App() {
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
                     <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
-                    <MicButton onTranscript={(t) => setInput(t)} accent={accent} P={P} />
+                    <MicButton onTranscript={(t) => setInput(t)} getInput={() => input} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
                   </div>
                 </>)}
@@ -27955,7 +28116,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, turns, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -28385,6 +28546,7 @@ function App() {
                       const status = investigationStatus(h);
                       const qCount = (h.turns || []).length;
                       const pCount = (h.allSources || []).length;
+                      const mCount = (h.turns || []).filter((t) => t && t.evidenceStructure).length;
                       const accession = accessionById.get(h.id) || "—";
                       const invTitle = h.title || ((h.turns || [])[0] && (h.turns || [])[0].q) || "Untitled";
                       const statusTone = status === "Answered" ? accent : status === "Needs review" ? STATUS.warn : P.faint;
@@ -28458,7 +28620,7 @@ function App() {
                                       {h.ts ? new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
                                     </span>
                                     <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                      {qCount} Q · {pCount} papers · — maps
+                                      {qCount} Q · {pCount} papers · {mCount} map{mCount === 1 ? "" : "s"}
                                     </span>
                                     <span style={{ width: 110, flexShrink: 0 }}>
                                       <span style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: statusTone, border: `1px solid ${withAlpha(statusTone, 0.45)}`, borderRadius: 999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4, whiteSpace: "nowrap" }}>{status}</span>
@@ -28471,7 +28633,7 @@ function App() {
                                 {historyConfirmId === h.id ? null : (
                                   <span style={{ width: 44, flexShrink: 0, display: "inline-flex", justifyContent: "flex-end" }}>
                                     {/* Overflow menu on every breakpoint: rename, export, delete. */}
-                                    <div style={{ position: "relative" }}>
+                                    <div style={{ position: "relative" }} data-hmenu>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); setHistoryMenuId(historyMenuId === h.id ? null : h.id); }}
                                         aria-label={`Options for ${invTitle}`}
@@ -28666,13 +28828,6 @@ function App() {
           onSkip={() => { setSaved([]); setHistory([]); setImportPrompt(null); setSyncReady(true); }}
         />
       )}
-      {collectionsOpen && (
-        <CollectionsModal
-          P={P} accent={accent} at={at} S={S} saved={saved} collections={collections}
-          onCreateCollection={createCollection} onRenameCollection={renameCollection} onDeleteCollection={deleteCollection} onMoveSource={moveSourceToCollection}
-          close={() => setCollectionsOpen(false)}
-        />
-      )}
       {compareOpen && <CompareModal P={P} accent={accent} at={at} S={S} history={history} close={() => setCompareOpen(false)} />}
       {networkGraphSources && <SourceNetworkGraph P={P} accent={accent} at={at} sources={networkGraphSources} close={() => setNetworkGraphSources(null)} />}
       {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} turn={timelineSources} close={() => setTimelineSources(null)} />}
@@ -28710,7 +28865,7 @@ function App() {
           onAuthed={(u) => handleAuthed(u, { checkImport: true })}
         />
       )}
-      {notebookOpen && <NotebookMode P={P} accent={accent} at={at} close={() => setNotebookOpen(false)} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro} />}
+
       {proModalOpen && (
         <ProModal
           P={P} accent={accent} at={at} user={user} proStatus={proStatus}
@@ -28797,7 +28952,7 @@ function App() {
       {!legalOk && (
         <ConsentGate
           P={P} accent={accent} at={at} user={user}
-          serverVersion={!!(readLegalAccepted() || {}).version}
+          hasAcceptedBefore={!!(readLegalAccepted() || {}).version}
           onAccepted={() => setLegalOk(true)}
         />
       )}
@@ -28920,7 +29075,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 @media (pointer: coarse) {
   .cb-msg-report { opacity: 1 !important; }
 }
-.cb-msg-report:focus-visible { opacity: 1 !important; }
+.cb-msg-report:focus-visible,
+.cb-msg-bubble:focus-within .cb-msg-report { opacity: 1 !important; }
 .cb-skip-link:focus-visible { transform: translateY(0); outline: 2px solid #fff; outline-offset: 2px; }
 /* 44px touch-target floor. Buttons, icon buttons, tabs, pills, chips and
    nav rows all meet the minimum. Inline prose citation marks (.cb-cite)
@@ -28930,7 +29086,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 button:not(.cb-cite):not(.cb-anchor),
 [role="button"],
 [role="tab"],
-.cb-mode, .cb-pill, .cb-chip, .cb-starter-item, .cb-navitem {
+.cb-mode, .cb-pill, .cb-starter-item {
   min-height: 44px;
 }
 /* iOS Safari zooms any control under 16px on focus: the floor stays global.
@@ -28963,7 +29119,6 @@ summary::-webkit-details-marker { display: none; }
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.18); }
   50%      { box-shadow: 0 0 0 16px rgba(255,255,255,0); }
 }
-@keyframes cbHuddlePulse { 0%, 100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 0.35; } }
 
 /* (Pass 1, 2026-09-17: the .cb-ambient layer and its "intentionally
    static" rule are retired with the ambient stack — nothing mounts that
@@ -28984,10 +29139,6 @@ summary::-webkit-details-marker { display: none; }
    settles (this was the "exports as one squeezed column" bug). */
 @keyframes cbRise {
   from { opacity: 0; transform: translateY(12px); filter: blur(6px); }
-  to   { opacity: 1; transform: none; filter: none; }
-}
-@keyframes cbPop {
-  from { opacity: 0; transform: scale(0.97); filter: blur(4px); }
   to   { opacity: 1; transform: none; filter: none; }
 }
 @keyframes cbHero {
@@ -29206,9 +29357,11 @@ summary::-webkit-details-marker { display: none; }
   opacity: 0 !important;
   transition: opacity 0.32s ease;
 }
-/* Iris veil: the theatrical door. Fixed circle that opens from the click
-   point. WAAPI animates clip-path; this is just the base state. */
-.cb-iris-veil {
+/* Iris door: the theatrical transition. Fixed circle that opens from the
+   click point. WAAPI animates clip-path; this is just the base state.
+   (Separate class from .cb-iris-veil above: the two features merged into
+   one class name and the cascade stacked z-300 under z-9999.) */
+.cb-iris-door {
   position: fixed; inset: 0; z-index: 9999;
   background: #0a0a0a;
   pointer-events: none;
@@ -29315,7 +29468,6 @@ summary::-webkit-details-marker { display: none; }
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes cbReadingIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
 /* ── The masthead: one mark, the name, one line ── */
 .cb-mast {
@@ -29332,6 +29484,9 @@ summary::-webkit-details-marker { display: none; }
   letter-spacing: -0.01em; color: var(--cb-ink); margin-top: 10px;
   text-shadow: 0 2px 18px rgba(0,0,0,0.55);
 }
+/* Light theme: a hard black shadow reads as dirt on light backgrounds —
+   soften to a faint ink-colored lift instead. */
+:root[data-cb-light] .cb-mast-name { text-shadow: 0 1px 8px color-mix(in srgb, var(--cb-ink) 18%, transparent); }
 .cb-mast--compact .cb-mast-name { margin-top: 8px; font-size: 15px; }
 .cb-mast-line {
   margin: 8px 0 0; max-width: 480px; padding: 0 20px;
@@ -29339,6 +29494,7 @@ summary::-webkit-details-marker { display: none; }
   line-height: 1.6; color: var(--cb-ink2);
   text-shadow: 0 1px 14px rgba(0,0,0,0.6);
 }
+:root[data-cb-light] .cb-mast-line { text-shadow: 0 1px 6px color-mix(in srgb, var(--cb-ink) 14%, transparent); }
 
 /* ── The question field: one hairline box, no instrument ── */
 .cb-ask {
@@ -29540,60 +29696,6 @@ summary::-webkit-details-marker { display: none; }
    nodes, which flash faintly as the wavefront passes. Pure ambience for
    the outgoing query — the elapsed readout and the status line below
    stay the only claims about the work itself. */
-.cb-echo {
-  --cb-acc: #a3b899;
-  display: flex; flex-direction: column; align-items: center;
-  text-align: center;
-  padding: 40px 0 10px;
-  animation: cbSignalIn 0.7s var(--cb-ease) both;
-}
-.cb-echo-kicker {
-  font-family: var(--cb-font); font-size: 10.5px; font-weight: 500;
-  letter-spacing: 0.3em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--cb-acc) 85%, white);
-  margin-bottom: 16px;
-}
-.cb-echo-q {
-  font-family: var(--cb-font); font-weight: 600;
-  letter-spacing: -0.02em; line-height: 1.25;
-  font-size: clamp(22px, 4.6vw, 32px);
-  color: #f2f4f2;
-  max-width: 660px; margin: 0;
-}
-/* The reading line: a single hairline with one marker travelling it, the
-   whole loading metaphor in two elements. */
-.cb-echo-rule {
-  position: relative;
-  width: min(72vw, 380px); height: 1px;
-  background: rgba(255,255,255,0.16);
-  margin: 30px auto 0;
-  /* Query container so the travelling marker crosses the full track width
-     with a transform (100cqw) instead of animating left. */
-  container-type: inline-size;
-}
-.cb-echo-cursor {
-  position: absolute; top: -2.5px; left: 0;
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--cb-acc);
-  box-shadow: 0 0 10px var(--cb-acc);
-  animation: cbEchoScan 3.4s ease-in-out infinite;
-}
-@keyframes cbEchoScan {
-  0%   { transform: translateX(0); opacity: 0; }
-  10%  { opacity: 1; }
-  50%  { transform: translateX(calc(100cqw - 6px)); opacity: 1; }
-  60%  { opacity: 0; }
-  61%  { transform: translateX(0); }
-  70%  { opacity: 0; }
-  100% { transform: translateX(0); opacity: 0; }
-}
-.cb-echo-sub {
-  margin-top: 16px;
-  font-family: var(--cb-font); font-size: 10.5px; font-weight: 500;
-  letter-spacing: 0.22em; text-transform: uppercase;
-  color: rgba(242,244,242,0.4);
-}
-
 /* ── ReadingRoom: the descent instrument ──
    Water, not machinery. Marine snow drifts up through the field; a single
    reading line scans beneath it — the query reading the literature. The
@@ -29693,7 +29795,7 @@ summary::-webkit-details-marker { display: none; }
   align-items: center; text-align: center;
 }
 .cb-dive-elabel {
-  font-family: var(--cb-font); font-size: 8px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   letter-spacing: 0.34em; text-transform: uppercase;
   color: rgba(242,244,242,0.38);
   margin-bottom: 6px; padding-left: 0.34em; /* recenter tracked caps */
@@ -29711,7 +29813,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-dive-state {
   margin-top: 8px;
-  font-family: var(--cb-font); font-size: 8.5px; font-weight: 600;
+  font-family: var(--cb-font); font-size: 11px; font-weight: 600;
   letter-spacing: 0.3em; text-transform: uppercase;
   color: color-mix(in srgb, var(--cb-acc) 85%, white);
   padding-left: 0.3em;
@@ -29750,7 +29852,6 @@ body.cb-motion-off .cb-trace-chip,
 body.cb-motion-off .cb-focus-in,
 body.cb-motion-off .cb-title-veil,
 body.cb-motion-off .cb-trend-hero,
-body.cb-motion-off .cb-trend-card,
 body.cb-motion-off .cb-modeplate,
 body.cb-motion-off .cb-row,
 body.cb-motion-off .cb-row::before { animation: none !important; transition: none !important; }
@@ -29773,11 +29874,13 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
    Applied to answer cards, evidence boxes and the intro scene chip:
    the same skeleton, a more deliberate frame. */
 .cb-specimen { position: relative; }
+:root[data-cb-light] .cb-specimen { --cb-tick: rgba(10,12,16,0.45); }
 .cb-specimen::after {
   content: ""; position: absolute; inset: -1px; border-radius: inherit;
   pointer-events: none; z-index: 5;
   /* Ticks need to read as deliberate, not as dust: 0.5 alpha at 0.8
-     opacity lands them clearly above the hairline borders they frame. */
+     opacity lands them clearly above the hairline borders they frame.
+     White ticks vanish on light cards, so the light theme gets dark ticks. */
   --cb-tick: rgba(255,255,255,0.5);
   background:
     linear-gradient(var(--cb-tick), var(--cb-tick)) left 12px top 0 / 28px 1px,
@@ -29798,7 +29901,10 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
 @keyframes cbAnswerFocus {
   from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(12px); }
   55%  { opacity: 1; filter: blur(0); }
-  to   { opacity: 1; transform: none; filter: blur(0); }
+  /* "to" uses "filter: none" (v43 rule): a non-none filter keeps the card
+     a containing block for fixed/absolute descendants, so popovers inside
+     an answer would position against the card instead of the viewport. */
+  to   { opacity: 1; transform: none; filter: none; }
 }
 .cb-answer-enter { animation: cbAnswerFocus 800ms var(--cb-ease) both; }
 
@@ -29836,7 +29942,6 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
    run, citations and buttons must still be visible. */
 .cb-fade    { opacity: 1; animation: cbFade  180ms var(--cb-ease) both; }
 .cb-rise    { opacity: 1; animation: cbRise  320ms var(--cb-ease) both; }
-.cb-pop     { opacity: 1; animation: cbPop   320ms var(--cb-ease) both; }
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 560ms var(--cb-ease) both; }
 .cb-backdrop { animation: cbBackdrop 300ms ease both; }
@@ -29865,13 +29970,6 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
   opacity: 0;
 }
 @keyframes cbLetterIn { from { opacity: 0; } to { opacity: 1; } }
-
-/* ── Hero background: slow aurora drift instead of a static glow ── */
-/* .cb-hero-glow removed: dead code. */
-@keyframes cbAuroraDrift {
-  0%, 100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 0.9; }
-  50% { transform: translateX(-46%) translateY(18px) scale(1.08); opacity: 1; }
-}
 
 /* (The old marketing hero's ring span is gone with the hero.) */
 
@@ -30009,11 +30107,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   /* Innovation refinement: every new motion dies here too. The iris veil
      would otherwise leave a black disc over the screen with its animation
      removed mid-flight — display:none guarantees the content is reachable. */
-  .cb-iris-veil { display: none; }
+  .cb-iris-veil, .cb-iris-door { display: none; }
   .cb-threshold-veil { display: none; }
   .cb-trace-chip { animation: none; }
-  .cb-echo { animation: none; }
-  .cb-echo-cursor { animation: none; display: none; }
   .cb-answer-enter { animation: cbFade 180ms ease both; }
   /* Intro: the hero arrives without motion. */
   .cb-focus-in { animation: none; }
@@ -30116,31 +30212,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-film-layer-video { animation: none !important; transition: none !important; }
 }
 
-.cb-glass-panel {
-  box-shadow: 
-    0 0 0 0.5px rgba(255,255,255,0.05) inset,
-    0 1px 0 rgba(255,255,255,0.03) inset,
-    0 4px 16px rgba(0,0,0,0.2),
-    0 16px 48px rgba(0,0,0,0.15);
-}
-
 /* Smooth page-level transitions */
 .cb-page-enter {
   animation: cbPageEnter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes cbPageEnter {
   from { opacity: 0; transform: translateY(30px); filter: blur(12px); }
-  to { opacity: 1; transform: none; filter: none; }
-}
-
-/* Premium text reveal for headings */
-.cb-text-reveal {
-  animation: cbTextReveal 1s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-@keyframes cbTextReveal {
-  /* letter-spacing removed: it is a layout property and re-lays-out the
-     heading on every frame of the reveal. */
-  from { opacity: 0; transform: translateY(20px); filter: blur(8px); }
   to { opacity: 1; transform: none; filter: none; }
 }
 
@@ -30242,12 +30319,16 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 }
 .cb-hc-light { background: #ffffff !important; }
 
-/* ── Text size ── */
+/* ── Text size ──
+   The container-level font-size is what makes labels, buttons, and divs
+   scale too — the descendant rules below only tune specific elements. */
 .cb-text-sm  { font-size: 14px !important; }
 .cb-text-sm p, .cb-text-sm li, .cb-text-sm span { font-size: 14px !important; }
+.cb-text-lg  { font-size: 18px !important; }
 .cb-text-lg  p, .cb-text-lg li, .cb-text-lg span  { font-size: 18px !important; }
 .cb-text-lg  h1 { font-size: clamp(36px, 6vw, 56px) !important; }
 .cb-text-lg  h2 { font-size: 24px !important; }
+.cb-text-xl  { font-size: 21px !important; }
 .cb-text-xl  p, .cb-text-xl li, .cb-text-xl span  { font-size: 21px !important; }
 .cb-text-xl  h1 { font-size: clamp(40px, 7vw, 64px) !important; }
 .cb-text-xl  h2 { font-size: 28px !important; }
@@ -30435,12 +30516,10 @@ html { scroll-behavior: smooth; }
 }
 
 /* ── Text selection accent ──
-   v5: there used to be two competing ::selection rules in this file (one
-   here, one up near the base resets) — neither tied to the user's actual
-   chosen accent, so selection color mismatched the theme for 7 of the 8
-   accent choices. One rule now, keyed to the same --cb-accent custom
-   property the rest of the theme already uses. */
-::selection { background: color-mix(in srgb, var(--cb-accent, #34d399) 25%, transparent); }
+   One rule, keyed to the same --cb-accent custom property the rest of the
+   theme uses, so selection color matches the theme for every accent
+   choice. (Earlier passes left two more ::selection rules elsewhere in
+   this file; they were dead duplicates of this one.) */
 
 /* ── Smooth theme transitions ── */
 body {
@@ -30448,9 +30527,12 @@ body {
   font-weight: 450;
 }
 
-/* ── Better mobile touch targets ── */
+/* ── Better mobile touch targets ──
+   (Checkable and range inputs are excluded: a 44px min-height would
+   stretch checkboxes/radios into giant squares and wrap range tracks
+   in dead space.) */
 @media (max-width: 900px) {
-  button, a, input, select {
+  button, a, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select {
     min-height: 44px;
   }
   .cb-hbtn {
@@ -30481,7 +30563,7 @@ body {
   .cb-kinetic > span { opacity: 1 !important; }
   /* Park the converted (transform-based) travelling markers at the start
      of their tracks when their animations are killed. */
-  .cb-readhead-marker, .cb-echo-cursor { transform: none; }
+  .cb-readhead-marker { transform: none; }
 }
 
 
@@ -30501,10 +30583,11 @@ body {
 /* Every button gets its color/background changes eased. This is the single
    cheapest upgrade in the file: the difference between a UI that snaps and
    one that feels considered is usually 160ms on the properties that were
-   already changing. "transform" is deliberately NOT in this list — see
-   above. */
+   already changing. "transform" keeps the 120ms ease from the Global button
+   physics rule above, so hover lifts/press scales stay consistent — the
+   opt-in press classes below still own the actual transform values. */
 button, a {
-  transition: background-color 0.18s ease, border-color 0.18s ease,
+  transition: transform 120ms ease, background-color 0.18s ease, border-color 0.18s ease,
               color 0.18s ease, opacity 0.18s ease, box-shadow 0.22s ease;
 }
 
@@ -30515,20 +30598,20 @@ button, a {
    physical key behaves and why it reads as a control rather than a
    transition. Brightening the fill on hover keeps a primary pill from
    needing a second colour defined for its hover state. */
-.cb-deck-btn, .cb-press {
+.cb-press {
   transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
               filter 0.32s ease, background-color 0.24s ease,
               border-color 0.24s ease, color 0.24s ease, box-shadow 0.32s ease;
 }
-.cb-deck-btn:hover, .cb-press:hover { transform: translateY(-1.5px); filter: brightness(1.06); }
-.cb-deck-btn:active, .cb-press:active {
+.cb-press:hover { transform: translateY(-1.5px); filter: brightness(1.06); }
+.cb-press:active {
   transform: translateY(0) scale(0.975);
   transition-duration: 0.09s;
   filter: brightness(0.98);
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-deck-btn, .cb-press { transition: none !important; }
-  .cb-deck-btn:hover, .cb-press:hover, .cb-deck-btn:active, .cb-press:active { transform: none !important; }
+  .cb-press { transition: none !important; }
+  .cb-press:hover, .cb-press:active { transform: none !important; }
 }
 
 /* ── The opening signature ──
@@ -30614,54 +30697,36 @@ button, a {
   to   { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-peek-sheet, .cb-peek-backdrop { animation: none !important; }
 }
-.cb-deck-media { transform-origin: center; }
-.cb-card:hover .cb-deck-media,
-.cb-deck-card:hover .cb-deck-media { transform: scale(1.06); }
-
-/* The progress fill gets a slow sheen that crosses it once on arrival —
-   it draws the eye to the one number on the deck that moves. */
-.cb-progress-fill { position: relative; overflow: hidden; }
-.cb-progress-fill::after {
-  content: '';
-  position: absolute; inset: 0;
-  background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.42) 50%, transparent 80%);
-  transform: translateX(-120%);
-  animation: cbSheen 2.6s cubic-bezier(0.16, 1, 0.3, 1) 0.9s 1 forwards;
-}
-@keyframes cbSheen { to { transform: translateX(220%); } }
-
 @media (prefers-reduced-motion: reduce) {
-  .cb-deck-media, .cb-card:hover .cb-deck-media, .cb-deck-card:hover .cb-deck-media { transform: none !important; }
-  .cb-progress-fill::after { animation: none !important; }
-}
-
-/* The stats strip lifts as one object rather than per-number — the four
-   counts are one reading, not four cards. */
-.cb-deck-stats { transition: border-color 0.3s ease; }
-.cb-deck-stats:hover {
-  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 26%, transparent);
 }
 
 /* ── Selection ──
-   Default browser blue on a themed dark surface is the one place the app
-   still looked like an unstyled document. */
-::selection {
-  background: color-mix(in srgb, var(--cb-accent, #34d399) 30%, transparent);
-  color: inherit;
-}
+   (Single source of truth lives up near the base resets; the duplicate
+   that used to sit here is gone.) */
 
 /* ── Keyboard focus ──
    Scrollbars are hidden app-wide (see above), which makes keyboard
    navigation the only way some surfaces are reachable — so the focus ring
    has to be genuinely visible, and in the user's accent rather than the
    platform default. :focus-visible only, so it never fires on a mouse
-   click. */
+   click. Matches the designed 3px + halo ring (.cb-focus-ring above) so
+   focus looks the same everywhere, not faint outside the ring scope. */
 :focus-visible {
-  outline: 2px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
+  outline: 3px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--cb-accent, #34d399) 22%, transparent);
+  border-radius: 4px;
+}
+/* Text inputs kill their outline inline (outline: "none") with no
+   replacement — keyboard users get zero focus indication. This restores
+   a visible ring on inputs specifically; inline outline:none still wins
+   for non-input elements (dialog panels, decorative wrappers) where the
+   ring would be noise. */
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--cb-accent-ink, var(--cb-accent, #34d399)) !important;
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: 6px;
 }
 
 /* The existing reduced-motion block at the end of this stylesheet zeroes
@@ -30672,33 +30737,6 @@ button, a {
   .cb-deck-card::before { transform: scaleX(1); }
 }
 
-
-/* ── Trending cards ──
-   .cb-trend-card and .cb-trend-hero were applied in the markup and had no
-   rules anywhere in this stylesheet — dead class names, so the whole
-   Trending grid was the one major surface in the app with no hover
-   response at all. They behave like .cb-card, plus the thing a card with a
-   photograph should do: the image scales inside its own frame while the
-   card lifts, which reads as depth rather than as the card growing. */
-.cb-trend-card, .cb-trend-hero {
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.3s ease, box-shadow 0.3s ease;
-}
-.cb-trend-card:hover, .cb-trend-hero:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 16px 40px rgba(0,0,0,0.16);
-  border-color: color-mix(in srgb, var(--cb-accent, #34d399) 38%, transparent);
-}
-.cb-trend-card img, .cb-trend-hero img {
-  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.cb-trend-card:hover img, .cb-trend-hero:hover img { transform: scale(1.045); }
-.cb-trend-card:active, .cb-trend-hero:active { transform: translateY(-1px) scale(0.995); }
-
-/* The hero already lifts on hover; the text CTA needs its own signal, so
-   it underlines on hover and on keyboard focus. */
-.cb-trend-cta { text-decoration: none; }
-.cb-trend-hero:hover .cb-trend-cta, .cb-trend-hero:focus-visible .cb-trend-cta { text-decoration: underline; text-underline-offset: 3px; }
 
 /* ── Interactive list rows ──
    For lists that aren't card grids — inbox threads, saved papers, history
@@ -30808,27 +30846,28 @@ button, a {
   .cb-hbtn, .cb-intro-navlink { min-height: 44px; min-width: 44px; }
   /* (The console input is 17px desktop / 16px on small screens — never
      under the 16px iOS zoom threshold — so no override is needed here.)
-  /* Touch targets: icon buttons designed at 28-36px get bumped to the
-     44px minimum on touch devices. Desktop keeps the designed sizes. */
-  button { min-width: 44px; min-height: 44px; }
+  /* Touch targets: icon buttons designed at 28-36px keep their designed
+     width on touch devices — the 44px hit area comes from the ::after
+     pseudo-element pattern, not from visually chunking the buttons.
+     Only the height floor stays, so rows keep their alignment. */
+  button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cb-stagger > *, .cb-hero-glow { animation: none !important; opacity: 1; }
+  .cb-stagger > * { animation: none !important; opacity: 1; }
   .cb-card, .cb-intro-go { transition: none; }
 }
 
 /* Shared action treatment: solid, no decorative gradients. */
-.cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-deck-btn, .cb-hbtn {
+.cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-hbtn {
   box-shadow: 0 2px 5px rgba(0,0,0,.10);
   transition: box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
 }
-.cb-glass-action--ghost, .cb-glass-action--destructive { background-image: none; }
-.cb-modal, .cb-glass-panel, .cb-material-panel {
+.cb-modal, .cb-material-panel {
   border-top-color: rgba(160,175,165,.24);
 }
 @media (hover: hover) {
   .cb-glass-action:not(:disabled):hover, .cb-intro-go:hover, .cb-intro-chip:hover,
-  .cb-deck-btn:hover, .cb-hbtn:not(:disabled):hover {
+  .cb-hbtn:not(:disabled):hover {
     box-shadow: 0 4px 12px rgba(0,0,0,.14) !important;
     transform: translateY(-1px);
   }
@@ -30839,7 +30878,7 @@ button, a {
 .cb-intro-header { border-bottom: 0; }
 #cb-intro-wrap h1 { text-wrap: balance; }
 @media (prefers-reduced-motion: reduce) {
-  .cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-deck-btn, .cb-hbtn { transition: none !important; transform: none !important; }
+  .cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-hbtn { transition: none !important; transform: none !important; }
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -30959,6 +30998,21 @@ button, a {
   .cb-usage-cards { display: flex; flex-direction: column; gap: 12px; }
 }
 
+/* Tablet / narrow-window gap (481–900px): the phone fixes above don't
+   apply here, but the desktop layout still strains. Extend the key
+   wrapping and scroll cures so citation controls wrap, doc tabs scroll
+   horizontally instead of squeezing, and the usage comparison stacks
+   instead of cramming four columns into ~550px. */
+@media (min-width: 481px) and (max-width: 900px) {
+  .cb-cite-controls { flex-wrap: wrap; max-width: 100%; }
+  .cb-cite-controls .cb-seg { flex-wrap: wrap; }
+  .cb-cite-controls > button { white-space: nowrap; flex-shrink: 0; }
+  .cb-doc-tabs .cb-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .cb-doc-tabs .cb-seg::-webkit-scrollbar { display: none; }
+  .cb-usage-table-desktop { display: none; }
+  .cb-usage-cards { display: flex; flex-direction: column; gap: 12px; }
+}
+
 /* ════════════════════════════════════════════════════════════════════
    2026-09-17 · EVIDENCE-FIRST REDESIGN LAYER (4-AI consensus, approved)
 
@@ -31006,7 +31060,10 @@ button, a {
    untouched, so inline layout never shifts. */
 .cb-cite { position: relative; }
 .cb-cite::after {
-  content: ""; position: absolute; inset: -11px -10px;
+  /* -6px vertical: the old -11px let hit areas of adjacent lines overlap
+     in dense citation clusters, so taps opened the wrong paper's preview.
+     22px glyph + 12px vertical extension still clears touch comfortably. */
+  content: ""; position: absolute; inset: -6px -10px;
 }
 button.cb-cite { min-height: 0; min-width: 0; }
 
@@ -31069,9 +31126,6 @@ button.cb-cite { min-height: 0; min-width: 0; }
 /* Diagnostics disclosure (answer health, formerly the bare "Degraded"). */
 .cb-diag summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
 
-/* 44px touch-target floor for controls inside rebuilt surfaces. */
-.cb-tap { min-height: 44px; min-width: 44px; }
-
 /* ── Pass 3 — the answer surface: one primary article column ──
    The answer is the main focus — a single, wide, breathable column, never
    one of two skinny columns competing with a rail. The article's measure
@@ -31098,7 +31152,6 @@ button.cb-cite { min-height: 0; min-width: 0; }
 /* Reduced motion: no animated typing caret. (The ambient-layer half of
    this rule retired with the ambient stack in the 2026-09-17 pass 1.) */
 @media (prefers-reduced-motion: reduce) {
-  .cb-typing-caret { animation: none !important; }
 }
 
 `;

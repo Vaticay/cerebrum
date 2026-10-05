@@ -86,7 +86,16 @@ export async function getCacheStats(env, cache) {
   return { cache: name, hits, misses, hitRate: total > 0 ? hits / total : null };
 }
 
-/** For tests. */
-export function resetCacheStats() {
+/** For tests. Clears the memory map, and D1 too when env is provided —
+ * otherwise stats reappear after reset on any deployment with a database. */
+export async function resetCacheStats(env) {
   memoryStats.clear();
+  try {
+    if (env && env.DB && typeof env.DB.prepare === "function") {
+      await ensureTable(env.DB);
+      await env.DB.prepare("DELETE FROM ai_cache_stats").run();
+    }
+  } catch (e) {
+    jsonLog("warn", "cache_stats_reset_failed", { error: String((e && e.message) || e).slice(0, 120) });
+  }
 }

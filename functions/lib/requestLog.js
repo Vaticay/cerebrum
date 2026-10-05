@@ -243,7 +243,10 @@ export function monthKey(nowMs) {
 const memoryUsage = new Map(); // `${userId}:${period}:${model}` -> { calls, promptTokens, completionTokens, cost }
 
 function memoryKey(userId, period, model) {
-  return [userId, period, model].join("|");
+  // The read path splits this key on "|", so a model name containing "|"
+  // would corrupt the parse — strip the separator from every component.
+  const clean = (s) => String(s).replace(/\|/g, "");
+  return [clean(userId), clean(period), clean(model)].join("|");
 }
 
 /**

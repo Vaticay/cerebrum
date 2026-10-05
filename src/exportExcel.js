@@ -152,9 +152,6 @@ export async function buildPapersWorkbook(papers, opts = {}) {
   ws.columns = COLUMNS.map((c) => ({ width: c.width }));
   ws.autoFilter = "A5:F5";
   headerRow.height = 20;
-  headerRow.eachCell((cell) => {
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: headerFill } };
-  });
 
   /* ── Paper rows ── */
   list.forEach((p, idx) => {

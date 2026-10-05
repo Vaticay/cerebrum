@@ -211,7 +211,10 @@ export async function readJsonBody(request, headers, maxBytes = 1_000_000) {
   } catch {
     return { ok: false, response: errorResponse(400, "unreadable_body", "Couldn't read that request.", headers) };
   }
-  if (text.length > maxBytes) {
+  // text.length is UTF-16 code units, not bytes: a body of multibyte
+  // characters can be ~3x the "byte" ceiling in actual memory. Measure real
+  // bytes so the limit means what it says for every input.
+  if (new TextEncoder().encode(text).length > maxBytes) {
     return { ok: false, response: errorResponse(413, "body_too_large", "That request is too large.", headers) };
   }
   try {

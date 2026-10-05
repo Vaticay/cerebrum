@@ -99,7 +99,7 @@ export function splitAnswerSections(answer) {
 export function extractCitedIndices(text, maxN) {
   const idx = [];
   const seen = new Set();
-  for (const m of String(text || "").matchAll(/\[(\d{1,2})\]/g)) {
+  for (const m of String(text || "").matchAll(/\[(\d{1,4})\]/g)) {
     const n = parseInt(m[1], 10);
     if (n >= 1 && (!maxN || n <= maxN) && !seen.has(n)) {
       seen.add(n);

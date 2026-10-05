@@ -120,7 +120,7 @@ export function parseDocSseLine(line) {
  *    "auth_required" or "doc_quota_exhausted", so the UI can route the
  *    person to sign-in or Pro instead of showing a dead error),
  *  - the backend sends an "error" event mid-stream,
-+ *  - the request is aborted,
+ *  - the request is aborted,
  *  - the stream ends without a "done" event (err.code =
  *    "incomplete_stream") — the caller must discard any partial text,
  *    because a half-written answer must never stand as the final one.
@@ -195,7 +195,9 @@ export async function streamDocumentApi(body, opts = {}) {
         if (ev.type === "token") {
           if (ev.text && onToken) onToken(ev.text);
         } else if (ev.type === "quota") {
-          if (onQuota) onQuota();
+          // The quota event carries usage info sent first by the backend;
+          // forward it so callers can update their quota display.
+          if (onQuota) onQuota(ev.quota ?? ev);
         } else if (ev.type === "start") {
           // The backend announces the work plan before any chunk lands:
           // seed the progress bar with the real total immediately, so the

@@ -70,6 +70,8 @@ export async function onRequest(context) {
     return json({ ok: true, count: items.length, generatedAt: Date.now() }, 200);
   } catch (e) {
     console.error("Cerebrum trending-refresh error:", e);
-    return json({ ok: false, error: "Refresh failed: " + ((e && e.message) || String(e)) }, 502);
+    // The upstream error text stays server-side: e.message can carry
+    // provider internals (URLs, keys in query strings, stack frames).
+    return json({ ok: false, error: "Refresh failed. Existing cache left unchanged." }, 502);
   }
 }

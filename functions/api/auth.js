@@ -121,12 +121,6 @@ const THIRTY_DAYS = 60 * 60 * 24 * 30;
  * in D1. Both are verifiable. Neither can be minted by a client.
  */
 
-function getSessionCookie(request) {
-  const raw = request.headers.get("Cookie") || "";
-  const match = raw.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
-  return match ? match[1] : null;
-}
-
 // ── Pending-auth cookie (OTP flow only) ─────────────────────────────────
 // Short-lived, holds a random opaque token — never anything derived from the
 // email or the code, so there is nothing in it for a client to compute or
@@ -313,38 +307,6 @@ async function sendOtpEmail(env, email, code) {
     return res.ok;
   } catch (e) {
     console.error("OTP email send threw:", e);
-    return false;
-  }
-}
-
-async function sendMagicLinkEmail(env, email, link) {
-  if (!env.RESEND_API_KEY) {
-    console.error("RESEND_API_KEY not configured, cannot send magic link email");
-    return false;
-  }
-  const from = env.RESEND_FROM || RESEND_FROM_DEFAULT;
-  try {
-    const { fetchWithTimeout } = await import("../lib/resilience.js");
-    const res = await fetchWithTimeout("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: email,
-        subject: "Your Cerebrum sign-in link",
-        html: `<p>Click below to sign in to Cerebrum. This link expires in 15 minutes and can only be used once.</p><p><a href="${link}">Sign in to Cerebrum</a></p><p>If you didn't request this, you can ignore this email.</p>`,
-      }),
-    }, 12000);
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "<unreadable response body>");
-      console.error("Magic link send rejected by Resend:", res.status, detail);
-    }
-    return res.ok;
-  } catch (e) {
-    console.error("Magic link send threw:", e);
     return false;
   }
 }

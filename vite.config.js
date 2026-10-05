@@ -38,7 +38,11 @@ export default defineConfig({
          vodozemac, bip39's wordlists and hash-wasm stop riding in the initial
          JS bundle. The facades re-export the same names; the real modules
          become on-demand chunks loaded on first Private Vault use. Node-side
-         tests import the real modules directly and never see this alias. */
+         tests import the real modules directly and never see this alias.
+         The find patterns are anchored to the full import specifier: with a
+         RegExp find, Vite substitutes only the matched portion, so a
+         suffix-only pattern would leave a stray "./" prefix on the absolute
+         replacement path and break the build. */
       {
         find: /^\.\/e2ee\/messaging\.js$/,
         replacement: resolve(here, "src/e2ee/lazyMessaging.js"),

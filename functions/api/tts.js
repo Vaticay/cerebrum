@@ -1,4 +1,4 @@
-import { corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
+import { corsHeaders, readOriginAllowed, readJsonBody, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { withTimeout, neverFail, fetchWithTimeout, jsonError, clampText } from "../lib/resilience.js";
 
@@ -40,11 +40,10 @@ export async function onRequest(context) {
     return jsonError(403, "origin_not_allowed", "Origin not allowed.", cors);
   }
 
-  const clientIP =
-    request.headers.get("CF-Connecting-IP") ||
-    request.headers.get("X-Forwarded-For") ||
-    "unknown";
-  if (!(await checkRateLimit(env, `tts:${clientIP}`, RATE_LIMIT, RATE_WINDOW_MS))) {
+  // Hashed rate-limit key under a server secret; clientIp() deliberately
+  // ignores the client-settable X-Forwarded-For.
+  const rlKey = await privacyKey("tts-ip", clientIp(request), env);
+  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
     return jsonError(429, "rate_limited", "Too many requests. Please wait a moment and try again.", {
       ...cors, "Retry-After": "30",
     });

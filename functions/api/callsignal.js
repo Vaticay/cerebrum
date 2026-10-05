@@ -162,7 +162,9 @@ export async function onRequest(context) {
       }
       const vg = validateSignalGet(new URL(request.url).searchParams);
       if (!vg.ok) {
-        return new Response(JSON.stringify({ error: vg.message }), { status: vg.code === "payload_too_large" ? 413 : 400, headers: cors });
+        // validateSignalGet never returns payload_too_large (no payload on a
+        // GET) — the 413 mapping lives on the POST path below.
+        return new Response(JSON.stringify({ error: vg.message }), { status: 400, headers: cors });
       }
       const { threadId, clientId, since } = vg;
       const authorized = await authorizeThread(env, user.id, threadId);

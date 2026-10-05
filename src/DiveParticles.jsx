@@ -111,7 +111,7 @@ export default function DiveParticles({ done, reduced }) {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
     };
-  }, [reduced]);
+  }, [reduced, done]);
 
   return <canvas ref={canvasRef} className="cb-dive-particles" aria-hidden="true" />;
 }

@@ -92,7 +92,6 @@ async function readBudgetRow(db, userId, period, fallbackCap) {
 export async function checkTokenBudget(env, userId, estimatedTokens, tier = "anonymous") {
   const uid = String(userId || "anonymous");
   const est = Math.max(0, Math.ceil(Number(estimatedTokens) || 0));
-  const requestId = undefined;
   try {
     const db = env && env.DB;
     const period = monthKey();
@@ -100,7 +99,6 @@ export async function checkTokenBudget(env, userId, estimatedTokens, tier = "ano
     const remaining = Math.max(0, row.token_cap - row.used_tokens);
     if (est > remaining) {
       jsonLog("warn", "budget_rejected", {
-        requestId,
         userId: uid,
         tier,
         estimatedTokens: est,
