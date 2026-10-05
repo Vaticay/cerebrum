@@ -371,11 +371,12 @@ await test("question is a serif title with a quiet mono metadata line", () => {
   assert.ok(!/>Inquiry</.test(code), "Inquiry label still rendered");
 });
 
-await test("answer card is fully opaque paper", () => {
+await test("answer card is barely translucent (0.94) in dark mode", () => {
   const start = appSrc.indexOf("answerCard: {");
   const block = appSrc.slice(start, appSrc.indexOf("},", start));
-  assert.ok(!/withAlpha\(P\.surface/.test(block), "answer card still translucent");
-  assert.ok(/background: P\.surface/.test(block), "answer card not on solid surface");
+  // 2026-10-05: Dusty asked for a whisper of translucency — 0.94 lets the
+  // backdrop breathe through faintly without costing readability.
+  assert.ok(/withAlpha\(P\.surface, 0\.94\)/.test(block), "answer card not at 0.94 translucency");
 });
 
 await test("no bare Degraded chip — pipeline honesty lives in diagnostics", () => {

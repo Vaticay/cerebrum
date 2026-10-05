@@ -2014,10 +2014,13 @@ async function europePMC(query, limit = 8) {
   // work. Only fall back to the structured/organism forms if the given query
   // returns nothing.
   const runSearch = async (qs) => {
+    // 2026-10-05: prefer English. Europe PMC's LANG field filters to
+    // English-language records server-side.
+    const langQs = qs.includes("LANG:") ? qs : `(${qs}) AND LANG:eng`;
     const url =
       "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       new URLSearchParams({
-        query: qs,
+        query: langQs,
         resultType: "core",
         pageSize: String(limit),
         format: "json",
@@ -2686,7 +2689,10 @@ async function openAlex(query, limit = 10, key = "") {
       // A dataset deposit, a component record, a book chapter etc. never
       // matches either arm and is dropped server-side before it costs us a
       // slot in `limit`.
-      filter: "type:article|preprint",
+      filter: "type:article|preprint,language:en",
+// 2026-10-05: prefer English-language papers. OpenAlex's language filter
+// keeps results predominantly English; non-English papers from other
+// sources are demoted (not dropped) in post-fetch ranking.
       sort: "relevance_score:desc",
       per_page: String(limit),
       select:

@@ -6020,12 +6020,12 @@ const SPECIMENS = [
     doi: "https://doi.org/10.1093/sleep/26.2.117",
   },
   {
-    claim: "Distant exploding stars are dimmer than they should be \u2014 the expansion of the universe is speeding up.",
+    claim: "Distant exploding stars are dimmer than they should be, so the expansion of the universe is speeding up.",
     paper: "A. G. Riess et al., \u201cObservational evidence from supernovae for an accelerating universe,\u201d Astron. J. 116(3), 1998.",
     doi: "https://doi.org/10.1086/300499",
   },
   {
-    claim: "Running grows new neurons in the adult brain \u2014 at least in mice.",
+    claim: "Running grows new neurons in the adult brain, at least in mice.",
     paper: "H. van Praag et al., \u201cRunning increases cell proliferation and neurogenesis in the adult mouse dentate gyrus,\u201d Nat. Neurosci. 2(3), 1999.",
     doi: "https://doi.org/10.1038/6368",
   },
@@ -6316,7 +6316,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 fontVariantNumeric: "tabular-nums",
                 textShadow: "0 2px 18px rgba(0,0,0,0.55)",
               }}>
-                Specimen {String(specimenIdx + 1).padStart(2, "0")} &mdash; a verified claim
+                Specimen {String(specimenIdx + 1).padStart(2, "0")}, a verified claim
               </span>
             </div>
             <div key={specimenIdx} className={animate ? "cb-specimen-in" : undefined} style={{
@@ -24129,11 +24129,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        field without any translucency. */
     answerCard: {
       position: "relative",
-      /* Pass 2: the answer is a document on fully opaque paper. The old
-         0.78 translucency let the cinematic backdrop bleed through and
-         lowered text contrast; the article now sits on solid surface with
-         tighter padding, its measure set by the grid, not by padding. */
-      background: P.surface,
+      /* 2026-10-05: a whisper of translucency (0.94) — the cinematic
+         backdrop breathes through faintly without costing readability.
+         Light mode stays solid: translucency over footage hurts dark text
+         far more than it hurts light text. */
+      background: P.dark ? withAlpha(P.surface, 0.94) : P.surface,
       border: `1px solid ${P.line}`,
       borderRadius: 6,
       padding: isCompact ? (isMobile ? "18px 16px" : "24px 32px") : (isMobile ? "22px 18px" : "32px 40px"),
