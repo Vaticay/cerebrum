@@ -7524,7 +7524,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
             <span aria-hidden="true" style={{ flexShrink: 0, color: P.faint, fontSize: FONT_SIZES.small }}>→</span>
             <span style={{ flexShrink: 0, display: "inline-flex", gap: 10 }}>
               {r.cites.map((c) => (
-                <a key={c} href={`#ref-${c}`} onClick={() => onActivateCite(c)}
+                <a key={c} href={`#ref-${c}`} onClick={(e) => { e.preventDefault(); onActivateCite(c); }}
                   title={`Reference ${c}: ${(sources[c - 1] && sources[c - 1].title) || ""}`}
                   className="cb-mono"
                   style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, textDecoration: "none" }}>
@@ -9699,7 +9699,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
         ))}
         {interactive && onShowAutopsy && (
           <div>
-            <button type="button" className="cb-textbtn" onClick={() => onShowAutopsy(t)} style={{ padding: "6px 0", minHeight: 0 }}>
+            <button type="button" className="cb-textbtn" onClick={() => onShowAutopsy(t)} style={{ padding: "6px 0" }}>
               How this was built
             </button>
           </div>
@@ -10041,7 +10041,7 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
         </div>
         <button type="button" onClick={onVerify}
           style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: "transparent", color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <Icon name="check" size={13} /> Verify sources
+          Evidence index
         </button>
       </div>
       <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
@@ -10077,7 +10077,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
   if (onSaveInvestigation) {
     chips.push({
       key: "save", icon: kept ? "bookmarkFilled" : "bookmark",
-      label: kept ? "Saved to Investigations" : "Save to Investigation",
+      label: kept ? "Saved to Investigations" : "Save to Investigations",
       onClick: () => { if (!kept) { onSaveInvestigation(); setKept(true); } },
     });
   }
@@ -10517,11 +10517,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         </div>
         {done && (
           <div style={{ ...S.byline, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-            {/* synthesisMode comes from the backend: an extractive (non-AI)
-                fallback answer must not wear the "AI-synthesized" label. */}
             {/* synthesisMode comes from the backend. A failed synthesis ("none")
                 must never wear the AI-synthesized label — the state card
-                above already owns the failure plainly. */}
+                above already owns the failure plainly. An extractive
+                (non-AI) fallback is a different kind of object than a failed
+                AI one, and the byline must not call it a failure either. */}
             <span style={S.aiTag}>{t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
             {/* Pro quota nudge: when the backend gated AI synthesis (free cap
                 hit, or signed out), the footnote says why and where to go —
@@ -10769,7 +10769,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       )}
       {/* #18: compact Sources panel closing out the answer — one row per
           cited paper (title, venue · year, DOI link) plus the visible
-          "Verify sources" affordance, which opens the evidence drawer. */}
+          "Evidence index" affordance, which opens the evidence drawer. */}
       {interactive && done && sources.length > 0 && t.responseKind !== "no-results" && (
         <AnswerSourcesPanel t={t} P={P} accent={accent} onVerify={() => setEvidenceOpen(true)} />
       )}
