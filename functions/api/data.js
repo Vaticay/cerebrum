@@ -1020,6 +1020,20 @@ export async function onRequest(context) {
            LIMIT 20`
         ).bind(user.id, user.id, like, like, user.id, user.id).all();
 
+        // Verification badges ride along on search results (one query for
+        // all rows, not N+1): a checkmark that only appears on the profile
+        // teaches people that search results cannot be trusted.
+        const badgeMap = {};
+        const foundIds = (rows.results || []).map((r) => r.id);
+        if (foundIds.length) {
+          const badgeRows = await env.DB.prepare(
+            `SELECT user_id, badge_type FROM accolades WHERE user_id IN (${foundIds.map(() => "?").join(",")})`
+          ).bind(...foundIds).all();
+          for (const b of (badgeRows.results || [])) {
+            (badgeMap[b.user_id] = badgeMap[b.user_id] || []).push(b.badge_type);
+          }
+        }
+
         const items = (rows.results || []).map((r) => ({
           id: r.id,
           username: r.username,
@@ -1033,6 +1047,7 @@ export async function onRequest(context) {
           followers: r.followers || 0,
           following: !!r.is_following,
           isPro: r.plan === "pro",
+          badges: badgeMap[r.id] || [],
         }));
 
         return okRes({ items, founder: await founderCard(env, user) }, 200, cors);
@@ -2421,6 +2436,9 @@ export async function onRequest(context) {
     // schema.sql. No admin/review UI exists yet: rows land here for an
     // operator to query directly in D1 until one is built, same honest
     // limitation as `reports` itself.
+    // Conduct reports (user behavior). Deliberately separate from
+    // functions/api/report.js (`reports` table), which is for bad AI
+    // answers/citations: different reporters, targets, and triage.
     if (action === "file-report") {
       const kind = (body.kind || "").toString();
       if (!["message", "user", "call"].includes(kind)) {

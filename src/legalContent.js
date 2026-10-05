@@ -89,7 +89,7 @@ export const PAGES = {
         "Cloudflare: hosting, edge delivery, database, and the AI inference that generates answers.",
         "Stripe: payment processing for Pro subscriptions. Card and payment details go directly to Stripe; we never see or store your card number. Stripe receives your email address and subscription information to operate billing.",
         "Language-model providers reached through our server to generate summaries. Your question text reaches them; your identity does not.",
-        "Scholarly data providers: Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE. Each receives the search terms needed to answer your query.",
+        "Scholarly data providers: Europe PMC, PubMed/NCBI, OpenAlex, Crossref, Semantic Scholar, arXiv, bioRxiv, preprint servers (Europe PMC preprint index), DOAJ, PLOS, Zenodo, CORE, BASE, OpenAIRE. Each receives the search terms needed to answer your query.",
         "A public STUN/TURN relay, used only to establish calls when a direct connection is impossible.",
         "Optional and only if you enable it: Zotero for reference export, using a key you supply and that stays in your browser.",
         "We do not sell, rent, or share personal information with advertisers or data brokers. We have no advertising relationships of any kind."

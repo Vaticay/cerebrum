@@ -1,5 +1,12 @@
 // Bad-data / hallucination reporting endpoint.
 //
+// Deliberately separate from the conduct-report pipeline
+// (functions/api/data.js `file-report` -> `content_reports`): this one is
+// about the product's output (wrong citations, hallucinated claims) and can
+// be filed by anyone; that one is about user behavior and requires a real
+// relationship between reporter and reported. Different reporters,
+// different targets, different triage — one table would serve neither well.
+//
 // Accepts POST requests with a JSON body describing a data quality issue
 // (incorrect citation, hallucinated claim, broken source link, etc.) and
 // acknowledges receipt. When env.DB is available, reports are persisted to

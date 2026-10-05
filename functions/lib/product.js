@@ -42,7 +42,7 @@ export const SCHOLARLY_SOURCES = [
   { id: "BASE",           name: "BASE",             category: "aggregator",     peerReviewed: "mixed" },
   { id: "pmcFullText",    name: "PMC Full Text",    category: "biomedical",     peerReviewed: "mostly" },
   { id: "openAire",       name: "OpenAIRE",         category: "aggregator",     peerReviewed: "mixed" },
-  { id: "preprints",      name: "bioRxiv/medRxiv",  category: "preprint",       peerReviewed: "no" },
+  { id: "preprints",      name: "Preprint servers",   category: "preprint",       peerReviewed: "no" },
 ];
 
 /** Derived, never hand-written. */

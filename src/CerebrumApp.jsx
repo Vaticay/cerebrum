@@ -241,108 +241,103 @@ const kbdLabel = (key) => `${MOD}${IS_MAC ? "" : "+"}${key}`;
 
 // Loading messages retired — replaced by deterministic AgentTrace log.
 
-const SUGGESTION_POOL = [
-  // Biology & Genetics
-  "How does CRISPR-Cas9 achieve target specificity?",
-  "What causes antibiotic resistance to spread between species?",
-  "How do prions propagate protein misfolding?",
-  "Mechanisms of epigenetic inheritance across generations",
-  "How does the gut microbiome influence brain function?",
-  "What drives protein phase separation in cells?",
-  "How do CAR-T cells recognize and kill tumors?",
-  "Why do some species regenerate limbs and others cannot?",
-  // Medicine & Neuroscience
-  "How does mRNA vaccine technology work?",
-  "Mechanisms of long COVID and persistent symptoms",
-  "How do psychedelics rewire neural circuits?",
-  "What causes Alzheimer's amyloid plaques to form?",
-  "How does immunotherapy checkpoint inhibition work?",
-  "Neural mechanisms of general anesthesia",
-  "How do opioids hijack the brain's reward system?",
-  "What triggers autoimmune diseases?",
-  // Chemistry & Materials
-  "Why is the SN2 reaction stereospecific?",
-  "How do enzymes lower activation energy?",
-  "Mechanism of lithium-ion battery degradation",
-  "How do metallic glasses form without crystallization?",
-  "What makes graphene such an exceptional conductor?",
-  "How does photocatalytic water splitting work?",
-  // Physics & Astronomy
-  "What is dark matter and how do we detect it?",
-  "How do quantum computers achieve entanglement?",
-  "What causes high temperature superconductivity?",
-  "How do gravitational waves distort spacetime?",
-  "Mechanism of Hawking radiation from black holes",
-  "How does nuclear fusion sustain a star?",
-  "What evidence supports the multiverse hypothesis?",
-  // Earth & Environmental Science
-  "How does ocean acidification affect marine ecosystems?",
-  "What triggers mass extinction events?",
-  "How do tectonic plates drive continental drift?",
-  "Mechanisms of rapid Arctic ice sheet collapse",
-  "How do volcanoes influence global climate?",
-  "What causes harmful algal blooms to form?",
-  // Computer Science & AI
-  "How do transformer neural networks process language?",
-  "What is the halting problem and why is it unsolvable?",
-  "How does homomorphic encryption enable secure computation?",
-  "Mechanisms of reinforcement learning from human feedback",
-  "How do generative adversarial networks create images?",
-  "What makes P vs NP the most important open problem?",
-  // Psychology & Social Science
-  "How does chronic stress alter brain structure?",
-  "What causes the placebo effect at a molecular level?",
-  "How does sleep consolidate memory?",
-  "Neural basis of consciousness and subjective experience",
-  "How do mirror neurons enable empathy?",
-  // Ecology & Evolution
-  "How does natural selection drive speciation?",
-  "What caused the Cambrian explosion of life?",
-  "How do extremophiles survive in boiling acid?",
-  "Mechanisms of convergent evolution across distant species",
+/* One curated question library. Every suggestion surface — the
+   command-palette filter, the first-run one-click searches, the
+   mode-aware "Try asking" chips — derives from this single list,
+   so the pools can never drift apart again. Tags:
+   - topics: subject areas (drives the mono section label)
+   - modes: which ask modes the question fits
+   - chip: featured in the mode's "Try asking" chips (curated)
+   - firstRun: offered as a first-run one-click search */
+const QUESTION_LIBRARY = [
+  { q: "How does CRISPR-Cas9 achieve target specificity?", topics: ["Biology"], modes: ["explain"] },
+  { q: "What causes antibiotic resistance to spread between species?", topics: ["Biology"], modes: ["explain"] },
+  { q: "How do prions propagate protein misfolding?", topics: ["Biology"], modes: ["explain"] },
+  { q: "Mechanisms of epigenetic inheritance across generations", topics: ["Biology"], modes: ["explain"] },
+  { q: "How does the gut microbiome influence brain function?", topics: ["Biology"], modes: ["explain"] },
+  { q: "What drives protein phase separation in cells?", topics: ["Biology"], modes: ["explain"] },
+  { q: "How do CAR-T cells recognize and kill tumors?", topics: ["Biology"], modes: ["explain"] },
+  { q: "Why do some species regenerate limbs and others cannot?", topics: ["Biology"], modes: ["explain"] },
+  { q: "How does mRNA vaccine technology work?", topics: ["Medicine"], modes: ["explain"] },
+  { q: "Mechanisms of long COVID and persistent symptoms", topics: ["Medicine"], modes: ["explain"] },
+  { q: "How do psychedelics rewire neural circuits?", topics: ["Medicine"], modes: ["explain"] },
+  { q: "What causes Alzheimer's amyloid plaques to form?", topics: ["Medicine"], modes: ["explain"] },
+  { q: "How does immunotherapy checkpoint inhibition work?", topics: ["Medicine"], modes: ["explain"] },
+  { q: "Neural mechanisms of general anesthesia", topics: ["Medicine"], modes: ["explain"] },
+  { q: "How do opioids hijack the brain's reward system?", topics: ["Medicine"], modes: ["explain"] },
+  { q: "What triggers autoimmune diseases?", topics: ["Medicine"], modes: ["explain"] },
+  { q: "Why is the SN2 reaction stereospecific?", topics: ["Chemistry"], modes: ["explain"] },
+  { q: "How do enzymes lower activation energy?", topics: ["Chemistry"], modes: ["explain"] },
+  { q: "Mechanism of lithium-ion battery degradation", topics: ["Chemistry"], modes: ["explain"] },
+  { q: "How do metallic glasses form without crystallization?", topics: ["Chemistry"], modes: ["explain"] },
+  { q: "What makes graphene such an exceptional conductor?", topics: ["Chemistry"], modes: ["explain"] },
+  { q: "How does photocatalytic water splitting work?", topics: ["Chemistry"], modes: ["explain"] },
+  { q: "What is dark matter and how do we detect it?", topics: ["Physics"], modes: ["explain"] },
+  { q: "How do quantum computers achieve entanglement?", topics: ["Physics"], modes: ["explain"] },
+  { q: "What causes high temperature superconductivity?", topics: ["Physics"], modes: ["explain"] },
+  { q: "How do gravitational waves distort spacetime?", topics: ["Physics"], modes: ["explain"] },
+  { q: "Mechanism of Hawking radiation from black holes", topics: ["Physics"], modes: ["explain"] },
+  { q: "How does nuclear fusion sustain a star?", topics: ["Physics"], modes: ["explain"] },
+  { q: "What evidence supports the multiverse hypothesis?", topics: ["Physics"], modes: ["explain"] },
+  { q: "How does ocean acidification affect marine ecosystems?", topics: ["Environment"], modes: ["explain"] },
+  { q: "What triggers mass extinction events?", topics: ["Environment"], modes: ["explain"] },
+  { q: "How do tectonic plates drive continental drift?", topics: ["Environment"], modes: ["explain"] },
+  { q: "Mechanisms of rapid Arctic ice sheet collapse", topics: ["Environment"], modes: ["explain"] },
+  { q: "How do volcanoes influence global climate?", topics: ["Environment"], modes: ["explain"] },
+  { q: "What causes harmful algal blooms to form?", topics: ["Environment"], modes: ["explain"] },
+  { q: "How do transformer neural networks process language?", topics: ["Computing"], modes: ["explain"] },
+  { q: "What is the halting problem and why is it unsolvable?", topics: ["Computing"], modes: ["explain"] },
+  { q: "How does homomorphic encryption enable secure computation?", topics: ["Computing"], modes: ["explain"] },
+  { q: "Mechanisms of reinforcement learning from human feedback", topics: ["Computing"], modes: ["explain"] },
+  { q: "How do generative adversarial networks create images?", topics: ["Computing"], modes: ["explain"] },
+  { q: "What makes P vs NP the most important open problem?", topics: ["Computing"], modes: ["explain"] },
+  { q: "How does chronic stress alter brain structure?", topics: ["Psychology"], modes: ["explain"] },
+  { q: "What causes the placebo effect at a molecular level?", topics: ["Psychology"], modes: ["explain"] },
+  { q: "How does sleep consolidate memory?", topics: ["Psychology"], modes: ["explain"] },
+  { q: "Neural basis of consciousness and subjective experience", topics: ["Psychology"], modes: ["explain"] },
+  { q: "How do mirror neurons enable empathy?", topics: ["Psychology"], modes: ["explain"] },
+  { q: "How does natural selection drive speciation?", topics: ["Ecology"], modes: ["explain"] },
+  { q: "What caused the Cambrian explosion of life?", topics: ["Ecology"], modes: ["explain"] },
+  { q: "How do extremophiles survive in boiling acid?", topics: ["Ecology"], modes: ["explain"] },
+  { q: "Mechanisms of convergent evolution across distant species", topics: ["Ecology"], modes: ["explain"] },
+  { q: "How do mRNA vaccines trigger immunity?", topics: ["Methods"], modes: ["explain"], chip: true },
+  { q: "Does coffee raise heart disease risk?", topics: ["Medicine"], modes: ["verify"], chip: true },
+  { q: "mRNA vs protein vaccines: which protection lasts longer?", topics: ["Medicine"], modes: ["compare"], chip: true },
+  { q: "Who studies quantum error correction, and what's unsettled?", topics: ["Methods"], modes: ["map"], chip: true },
+  { q: "A reading list for understanding dark matter", topics: ["Methods"], modes: ["readinglist"], chip: true },
+  { q: "Why does soil crack into patterns as it dries?", topics: ["Climate"], modes: ["explain", "map"], chip: true, firstRun: true },
+  { q: "Do blue-light glasses reduce eye strain?", topics: ["Medicine"], modes: ["verify"], chip: true },
+  { q: "SSRIs vs CBT for depression: what does the evidence say?", topics: ["Medicine"], modes: ["compare"], chip: true },
+  { q: "Map the current state of longevity research", topics: ["Climate"], modes: ["map"], chip: true },
+  { q: "Where should I start with microbiome science?", topics: ["Climate"], modes: ["readinglist"], chip: true },
+  { q: "How does CRISPR-Cas9 actually cut DNA?", topics: ["Methods"], modes: ["explain"], chip: true, firstRun: true },
+  { q: "Do GLP-1 drugs like Ozempic protect the heart too?", topics: ["Medicine"], modes: ["explain"], firstRun: true },
+  { q: "What would it take to build a working fusion reactor?", topics: ["Physics"], modes: ["explain"], firstRun: true },
 ];
 
-// Mode-aware example questions for the "Try asking" chips under the
-// composer. These are prompts, not claims — they invite a real question
-// in the current mode's voice rather than leaving a first-time visitor
-// staring at an empty box.
-/* Starter questions are editorial: numbered, each carrying a mono section
-   label (METHODS / CLINICAL / CLIMATE) like a journal's table of contents,
-   so they read as a curated index rather than a chatbot's suggestion
-   pills. Kept mode-aware — the set swaps with the mode word beneath the
-   field. */
-/* First-run onboarding: four one-click real searches, one per domain
-   (biology, medicine, environment, physics). Unlike the mode-aware
-   starters these run ask() immediately — a new visitor taps a question
-   and watches a real answer arrive instead of filling a box. */
-const FIRST_RUN_QUESTIONS = [
-  { cat: "BIOLOGY", q: "How does CRISPR-Cas9 actually cut DNA?" },
-  { cat: "MEDICINE", q: "Do GLP-1 drugs like Ozempic protect the heart too?" },
-  { cat: "ENVIRONMENT", q: "Why does soil crack into patterns as it dries?" },
-  { cat: "PHYSICS", q: "What would it take to build a working fusion reactor?" },
-];
-const ASK_MODE_EXAMPLES = {  explain: [
-    { cat: "METHODS", q: "How do mRNA vaccines trigger immunity?" },
-    { cat: "CLIMATE", q: "Why does soil crack into patterns as it dries?" },
-    { cat: "METHODS", q: "How does CRISPR-Cas9 actually cut DNA?" },
-  ],
-  verify: [
-    { cat: "CLINICAL", q: "Does coffee raise heart disease risk?" },
-    { cat: "CLINICAL", q: "Do blue-light glasses reduce eye strain?" },
-  ],
-  compare: [
-    { cat: "CLINICAL", q: "mRNA vs protein vaccines: which protection lasts longer?" },
-    { cat: "CLINICAL", q: "SSRIs vs CBT for depression: what does the evidence say?" },
-  ],
-  map: [
-    { cat: "METHODS", q: "Who studies quantum error correction, and what's unsettled?" },
-    { cat: "CLIMATE", q: "Map the current state of longevity research" },
-  ],
-  readinglist: [
-    { cat: "METHODS", q: "A reading list for understanding dark matter" },
-    { cat: "CLIMATE", q: "Where should I start with microbiome science?" },
-  ],
+/* Derived views — do not hand-edit; edit QUESTION_LIBRARY. */
+const SUGGESTION_POOL = QUESTION_LIBRARY.map((e) => e.q);
+/* First-run cats are editorial per the onboarding design (BIOLOGY /
+   ENVIRONMENT), distinct from the topic labels used on the mode chips. */
+const FIRST_RUN_CATS = {
+  "How does CRISPR-Cas9 actually cut DNA?": "BIOLOGY",
+  "Do GLP-1 drugs like Ozempic protect the heart too?": "MEDICINE",
+  "Why does soil crack into patterns as it dries?": "ENVIRONMENT",
+  "What would it take to build a working fusion reactor?": "PHYSICS",
 };
+const FIRST_RUN_QUESTIONS = [
+  "How does CRISPR-Cas9 actually cut DNA?",
+  "Do GLP-1 drugs like Ozempic protect the heart too?",
+  "Why does soil crack into patterns as it dries?",
+  "What would it take to build a working fusion reactor?",
+].map((q) => ({ cat: FIRST_RUN_CATS[q], q }));
+const ASK_MODE_EXAMPLES = {};
+for (const e of QUESTION_LIBRARY) {
+  if (!e.chip) continue;
+  for (const m of e.modes) {
+    (ASK_MODE_EXAMPLES[m] = ASK_MODE_EXAMPLES[m] || []).push({ cat: e.topics[0].toUpperCase(), q: e.q });
+  }
+}
 function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
 function toRIS(sources) {
   return sources.map((s) => {
@@ -4502,13 +4497,11 @@ function FactCheck({ fc, P, accent }) {
   );
 }
 
-function Skeleton({ P, accent }) {
-  const bar = (w, h = 12, delay = 0) => (
-    <div style={{
+function Skeleton({ P, accent, label = "Working" }) {
+  const bar = (w, h = 12) => (
+    <div aria-hidden="true" style={{
       height: h, width: w, borderRadius: 8,
       background: P.skel,
-      backgroundSize: "200% 100%",
-      animation: `cbShimmer 1.8s ease-in-out ${delay}ms infinite`,
     }} />
   );
   return (
@@ -4521,18 +4514,28 @@ function Skeleton({ P, accent }) {
       borderRadius: 8, padding: "32px 34px",
       display: "flex", flexDirection: "column", gap: 14,
     }}>
+      {/* Read-head loading motif: a hairline with a travelling marker plus
+          a mono readout. Never a shimmer bar, never a bare "Loading…". */}
+      <div style={{ marginBottom: 6 }}>
+        <div className="cb-readhead" style={{ background: P.line }}>
+          <span className="cb-readhead-marker" style={{ background: accent }} />
+        </div>
+        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint }}>
+          {label}
+        </div>
+      </div>
       {/* Simulated header */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-        {bar("80px", 18, 0)}
-        {bar("50px", 18, 100)}
+        {bar("80px", 18)}
+        {bar("50px", 18)}
       </div>
       {/* Simulated paragraph */}
-      {bar("95%", 13, 150)}
-      {bar("100%", 13, 250)}
-      {bar("88%", 13, 350)}
+      {bar("95%", 13)}
+      {bar("100%", 13)}
+      {bar("88%", 13)}
       <div style={{ height: 6 }} />
-      {bar("92%", 13, 450)}
-      {bar("76%", 13, 550)}
+      {bar("92%", 13)}
+      {bar("76%", 13)}
     </div>
   );
 }
@@ -4543,43 +4546,51 @@ function Skeleton({ P, accent }) {
    the space the answer will take and nothing shifts when it lands. Shown
    only on the streaming path, under the ReadingRoom's stage rail. */
 function AnswerSkeleton({ P, accent }) {
-  const bar = (w, h, delay = 0, radius = 6) => (
+  const bar = (w, h, radius = 6) => (
     <div aria-hidden="true" style={{
       height: h, width: w, borderRadius: radius, flexShrink: 0,
-      background: P.skel, backgroundSize: "200% 100%",
-      animation: `cbShimmer 1.8s ease-in-out ${delay}ms infinite`,
+      background: P.skel,
     }} />
   );
   return (
     <div aria-hidden="true" style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${P.line}` }}>
+      {/* Read-head loading motif: hairline with travelling marker plus a
+          mono readout. Never a shimmer bar. */}
+      <div style={{ marginBottom: 18 }}>
+        <div className="cb-readhead" style={{ background: P.line }}>
+          <span className="cb-readhead-marker" style={{ background: accent }} />
+        </div>
+        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint }}>
+          Composing answer
+        </div>
+      </div>
       {/* Answer headline block */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {bar("64%", 26, 0)}
-        {bar("41%", 17, 120)}
+        {bar("64%", 26)}
+        {bar("41%", 17)}
       </div>
       {/* Claim rows, each with its citation chip */}
       {[0, 1, 2].map((i) => (
         <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 18 }}>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-            {bar("100%", 13, 200 + i * 130)}
-            {bar(i === 2 ? "68%" : "88%", 13, 260 + i * 130)}
+            {bar("100%", 13)}
+            {bar(i === 2 ? "68%" : "88%", 13)}
           </div>
           <div style={{
             width: 34, height: 22, borderRadius: 6, flexShrink: 0,
             border: `1px solid ${withAlpha(accent, 0.35)}`,
-            background: withAlpha(accent, 0.08), backgroundSize: "200% 100%",
-            animation: `cbShimmer 1.8s ease-in-out ${300 + i * 130}ms infinite`,
+            background: withAlpha(accent, 0.08),
           }} />
         </div>
       ))}
       {/* Sources panel */}
       <div style={{ marginTop: 22, border: `1px solid ${P.line}`, borderRadius: 8, padding: "14px 16px" }}>
-        <div style={{ marginBottom: 12 }}>{bar("34%", 12, 700)}</div>
+        <div style={{ marginBottom: 12 }}>{bar("34%", 12)}</div>
         {[0, 1, 2].map((i) => (
           <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", height: 34 }}>
-            {bar(28, 16, 780 + i * 120, 4)}
+            {bar(28, 16, 4)}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-              {bar(i === 1 ? "52%" : "78%", 11, 820 + i * 120, 4)}
+              {bar(i === 1 ? "52%" : "78%", 11, 4)}
             </div>
           </div>
         ))}
@@ -19467,6 +19478,9 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                    {((r.badges || []).includes("founder") || (r.badges || []).includes("verified")) && (
+                      <VerifiedCheck size={14} title={(r.badges || []).includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />
+                    )}
                     {r.isPro && <ProBadge style={{ fontSize: 9, flexShrink: 0 }} />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>@{r.username}</div>
@@ -21107,6 +21121,41 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const isMobile = useIsMobile();
   const [rightTab, setRightTab] = useState("summary");
   const [documentText, setDocumentText] = useState("");
+  /* Identifier resolver: paste a DOI/PMID/arXiv ID, resolve it against the
+     registry, and optionally load the abstract as the document. Cleared
+     whenever the input changes. */
+  const [identMeta, setIdentMeta] = useState(null);
+  const [identResolving, setIdentResolving] = useState(false);
+  const [identError, setIdentError] = useState("");
+  const resolveIdentifier = async (ident) => {
+    if (!ident || identResolving) return;
+    setIdentResolving(true);
+    setIdentError("");
+    setIdentMeta(null);
+    try {
+      const res = await fetch("/api/resolve-identifier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: ident.kind, value: ident.value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || "resolve failed");
+      setIdentMeta(data);
+    } catch {
+      setIdentError("Couldn't resolve that identifier. Check it and try again.");
+    } finally {
+      setIdentResolving(false);
+    }
+  };
+  const useIdentAsDocument = () => {
+    if (!identMeta || !identMeta.abstract) return;
+    const cite = [identMeta.title, identMeta.authors && identMeta.authors.slice(0, 8).join(", "),
+      identMeta.journal, identMeta.year].filter(Boolean).join(". ");
+    setDocumentText(`${identMeta.title}\n${cite}\n\nAbstract: ${identMeta.abstract}`);
+    setIdentMeta(null);
+    setIdentError("");
+  };
+  useEffect(() => { setIdentMeta(null); setIdentError(""); }, [documentText]);
   const [dragActive, setDragActive] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   // Long-document analyses report per-section progress (done/total) over
@@ -21856,12 +21905,39 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <div style={{ marginTop: 12, border: `1px solid ${P.line}`, borderRadius: 6, background: P.surface, overflow: "hidden" }}>
                 <div className="cb-kicker" style={{ padding: "10px 14px 0" }}>Document</div>
                 <div style={{ padding: "2px 14px 8px" }}>
-                  <div style={{ display: "flex", gap: 12, padding: "7px 0", fontSize: FONT_SIZES.small }}>
+                  <div style={{ display: "flex", gap: 12, padding: "7px 0", fontSize: FONT_SIZES.small, alignItems: "center" }}>
                     <span style={{ width: 82, flexShrink: 0, color: P.faint, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Identifier</span>
                     <span className="cb-mono" style={{ flex: 1, minWidth: 0, color: P.ink, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{`${docMeta.ident.kind}: ${docMeta.ident.value}`}</span>
+                    {docMeta.ident.kind !== "URL" && !identMeta && (
+                      <button type="button" onClick={() => resolveIdentifier(docMeta.ident)} disabled={identResolving}
+                        style={{ minHeight: 44, padding: "8px 14px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: accent, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: identResolving ? "wait" : "pointer", flexShrink: 0 }}>
+                        {identResolving ? "Resolving…" : "Resolve"}
+                      </button>
+                    )}
                   </div>
+                  {identError && (
+                    <div style={{ padding: "4px 0 8px 94px", fontSize: FONT_SIZES.caption, color: statusBad(P), fontFamily: "var(--cb-font)" }}>{identError}</div>
+                  )}
+                  {identMeta && (
+                    <div style={{ padding: "4px 0 8px 94px", fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
+                      <div style={{ color: P.ink, fontWeight: 600, lineHeight: 1.5 }}>{identMeta.title}</div>
+                      <div style={{ color: P.ink2, marginTop: 4, lineHeight: 1.5 }}>
+                        {[identMeta.authors && identMeta.authors.slice(0, 6).join(", "), identMeta.journal, identMeta.year].filter(Boolean).join(" · ")}
+                      </div>
+                      {identMeta.abstract ? (
+                        <button type="button" onClick={useIdentAsDocument}
+                          style={{ minHeight: 44, marginTop: 10, padding: "8px 16px", borderRadius: 6, background: accent, color: at, border: "none", fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                          Use this paper as the document
+                        </button>
+                      ) : (
+                        <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+                          No abstract available from the registry — paste the text or upload the file to analyze it.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {docIdentOnly && (
+                {docIdentOnly && !identMeta && (
                   <div style={{ padding: "0 14px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
                     Cerebrum reads the document you paste or upload — add the text or file and this identifier is attached as its citation.
                   </div>
@@ -22004,7 +22080,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             ) : (
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Reading the document section by section.</div>
             )}
-            <Skeleton P={P} accent={accent} />
+            <Skeleton P={P} accent={accent} label="Reading document" />
           </div>
         )}
         {summary && (
@@ -22050,7 +22126,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   {compareBusy && (
                     <>
                       <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Comparing the documents…</div>
-                      <Skeleton P={P} accent={accent} />
+                      <Skeleton P={P} accent={accent} label="Comparing documents" />
                       <button onClick={cancelCompare}
                         style={{ minHeight: 44, marginTop: 10, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
                         Cancel
@@ -28990,7 +29066,6 @@ summary::-webkit-details-marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .cb-indeterminate-bar { animation: none; }
 }
-@keyframes cbShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes cbHuddleRing {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.18); }
   50%      { box-shadow: 0 0 0 16px rgba(255,255,255,0); }
