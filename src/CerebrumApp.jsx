@@ -25215,6 +25215,12 @@ function App() {
      transition) and the film credits dialog. */
   const [enterClip, setEnterClip] = useState(null);
   const enterClipTimer = useRef(null);
+  /* Workspace film recovery: if iOS (Low Power Mode) vetoes autoplay, the
+     workspace reel has no tap affordance — it just sits on the poster.
+     These track the veto so a small play button can appear. */
+  const wsFilmRef = useRef(null);
+  const [wsFilmVetoed, setWsFilmVetoed] = useState(false);
+  const [wsFilmPlaying, setWsFilmPlaying] = useState(false);
   useEffect(() => () => clearTimeout(enterClipTimer.current), []);
   const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
   /* 2026-10-05: the filmMotion toggle lived here. It drove the workspace
@@ -27684,10 +27690,15 @@ function App() {
       ) : (
         <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", filter: "brightness(0.72) saturate(0.85)" }} aria-hidden="true">
           <CinematicFilm
+            ref={wsFilmRef}
             animationMode={animationMode}
+            onAutoplayBlocked={() => setWsFilmVetoed(true)}
+            onPlaybackChange={(playing) => { setWsFilmPlaying(playing); if (playing) setWsFilmVetoed(false); }}
             /* No manual pause control in the workspace — the reel runs while
                the tab is visible and yields to reduced-motion/Save-Data via
-               filmBlocked above. */
+               filmBlocked above. But if autoplay is vetoed (iOS Low Power
+               Mode), a tap-to-play button appears below — otherwise the
+               backdrop is stuck on the poster with no way out. */
             /* Opens on the door's clip when the visitor just stepped through,
                so the background frame is retained across the handoff. */
             startAt={enterClip}
@@ -27702,6 +27713,27 @@ function App() {
           />
         </div>
       ))}
+      {/* Autoplay recovery: iOS Low Power Mode vetoes programmatic play().
+          This button runs playNow() inside the tap's gesture window — the one
+          place iOS honours it. Rendered only when a veto was observed and the
+          reel is still not playing. */}
+      {wsFilmVetoed && !wsFilmPlaying && (
+        <button type="button"
+          onClick={() => { try { wsFilmRef.current?.playNow(); } catch {} }}
+          aria-label="Play background video"
+          style={{
+            position: "fixed", bottom: "max(18px, env(safe-area-inset-bottom))", right: 18,
+            zIndex: 50, width: 44, height: 44, borderRadius: 999,
+            border: "1px solid rgba(255,255,255,0.18)",
+            background: "rgba(10,12,14,0.62)", color: "#f2f4f2",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+          }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </button>
+      )}
       {/* The handoff bridge: the door's clip as a graded still, dissolving
           over the workspace while the new reel buffers on the same clip.
           pointer-events:none, gone after the fade. */}
