@@ -27709,14 +27709,53 @@ function App() {
     <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent)}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
-      {/* 2026-10-05: the workspace is quiet now. The film reel used to
-          play behind the whole application with the interface floating over
-          it on glass — cinematic, but footage behind a paragraph someone is
-          reading is a distraction, not atmosphere, and it read as a movie
-          rather than a research instrument. The cinema lives at the door
-          (Intro keeps its full reel); inside, the background is the solid
-          theme surface and the grain. No video decoders run in the
-          workspace at all. */}
+      {/* 2026-10-05 (revised): the ambient reel is back, executed properly.
+          The previous execution put footage behind text at intensities that
+          drowned readability. The new contract:
+          - intensities are much lower across the board (the dim layer does
+            the work: opacity = 1 - intensity), plus an extra CSS grade on
+            the wrapper for a darker, quieter room;
+          - footage lives in the negative space only — the reading panel and
+            content surfaces are near-opaque, so no paragraph ever competes
+            with a frame;
+          - the reel is dark, slow, real footage (no generative gradients);
+          - one backdrop at a time, never both: the film reel when it can
+            run, the generated field when it cannot (reduced motion,
+            Save-Data, animation off). `filmBlocked` is the single rule both
+            branches read. Document Mode stays quiet (no film) — the reading
+            space is sacred. */}
+      {view !== "document" && (filmBlocked(animationMode, false) ? (
+        <CerebrumFieldCanvas
+          accent={accent}
+          P={P}
+          mode={started ? "reading" : "ambient"}
+          energy={busy ? 1 : 0}
+          core={started ? 0.34 : 0.85}
+          corePos={started ? [0.72, 0.58] : [0, 0.08]}
+          coreScale={started ? 0.42 : 0.9}
+          animationMode={animationMode}
+        />
+      ) : (
+        <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", filter: "brightness(0.72) saturate(0.85)" }} aria-hidden="true">
+          <CinematicFilm
+            animationMode={animationMode}
+            /* No manual pause control in the workspace — the reel runs while
+               the tab is visible and yields to reduced-motion/Save-Data via
+               filmBlocked above. */
+            /* Opens on the door's clip when the visitor just stepped through,
+               so the background frame is retained across the handoff. */
+            startAt={enterClip}
+            /* Darkest while reading — an answer is the one screen where the
+               footage must be felt, never seen. Brighter on the home search
+               screen, which is mostly empty space around the composer. */
+            intensity={
+              started ? 0.16
+                : (view && view !== "search") ? 0.20
+                : 0.38
+            }
+          />
+        </div>
+      ))}
       {/* The handoff bridge: the door's clip as a graded still, dissolving
           over the workspace while the new reel buffers on the same clip.
           pointer-events:none, gone after the fade. */}

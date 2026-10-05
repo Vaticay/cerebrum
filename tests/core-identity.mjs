@@ -41,16 +41,15 @@ function group(name) {
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const diveSrc = await readFile(join(root, "src/DiveParticles.jsx"), "utf8");
 
-group("Workspace is quiet");
-await test("no film reel in the workspace (cinema lives at the door only)", () => {
+group("Workspace ambient reel (revised)");
+await test("workspace CinematicFilm mount exists, darker than before", () => {
   const mounts = appSrc.match(/<CinematicFilm/g) || [];
-  assert.strictEqual(mounts.length, 1, `expected only the intro mount, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 2, `expected intro + workspace mounts, found ${mounts.length}`);
+  assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
+  assert.match(appSrc, /brightness\(0\.72\)/, "extra CSS grade missing on the workspace reel wrapper");
 });
-await test("no generated field canvas in the workspace shell", () => {
-  assert.ok(!/<CerebrumFieldCanvas/.test(appSrc), "CerebrumFieldCanvas mount still present in the shell");
-});
-await test("workspace background is the solid theme surface", () => {
-  assert.match(appSrc, /2026-10-05: the workspace is quiet now/, "quiet-workspace note missing");
+await test("generated field is the fallback when film is blocked", () => {
+  assert.match(appSrc, /<CerebrumFieldCanvas/, "CerebrumFieldCanvas mount missing");
 });
 await test("grain overlay is restored", () => {
   assert.match(appSrc, /grain: \{ position: "fixed"/, "S.grain style missing");

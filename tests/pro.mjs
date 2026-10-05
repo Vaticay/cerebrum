@@ -930,15 +930,13 @@ await test("Pro badge renders on profile and in the account menu", async () => {
   assert.match(src, /\{user\.isPro && <ProBadge/, "account menu badge wiring missing");
 });
 
-await test("Pro reel is retired with the workspace film", async () => {
+await test("workspace film is back without the Pro reel toggle", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  // 2026-10-05: the workspace film reel is gone — cinema lives at the door
-  // only. The Pro reel toggle (members-only workspace footage) went with
-  // it; only the intro mount remains.
+  // 2026-10-05 (revised): the workspace reel is back, executed darker — but
+  // the Pro reel toggle (members-only footage) stays retired.
   assert.ok(!/Pro cinematic reel/.test(src), "Pro reel setting still present in Settings");
-  assert.ok(!/proReel=\{/.test(src.replace(/proReel = false/, "")), "workspace film still gated on the Pro reel toggle");
   const filmMounts = src.match(/<CinematicFilm/g) || [];
-  assert.strictEqual(filmMounts.length, 1, `expected one CinematicFilm mount (intro only), found ${filmMounts.length}`);
+  assert.strictEqual(filmMounts.length, 2, `expected two CinematicFilm mounts (intro + workspace), found ${filmMounts.length}`);
 });
 
 await test("settings account tab hosts the Pro section and founder grant panel", async () => {
