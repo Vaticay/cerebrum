@@ -41,23 +41,16 @@ function group(name) {
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const diveSrc = await readFile(join(root, "src/DiveParticles.jsx"), "utf8");
 
-group("Workspace film reel");
-await test("workspace CinematicFilm mount exists", () => {
+group("Workspace is quiet");
+await test("no film reel in the workspace (cinema lives at the door only)", () => {
   const mounts = appSrc.match(/<CinematicFilm/g) || [];
-  assert.strictEqual(mounts.length, 2, `expected intro + workspace mounts, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 1, `expected only the intro mount, found ${mounts.length}`);
 });
-await test("film intensity is state-aware (brightest on search, dimmest reading)", () => {
-  assert.match(appSrc, /started \? 0\.28/, "reading intensity missing");
-  assert.match(appSrc, /\(view && view !== "search"\) \? 0\.34/, "working-view intensity missing");
-  assert.match(appSrc, /composerFocused \? 0\.40/, "composer-focus intensity missing");
+await test("no generated field canvas in the workspace shell", () => {
+  assert.ok(!/<CerebrumFieldCanvas/.test(appSrc), "CerebrumFieldCanvas mount still present in the shell");
 });
-await test("workspace reel unmounts in Document Mode", () => {
-  assert.match(appSrc, /\{view !== "document" && \(filmBlocked\(animationMode, false\)/, "document-mode reel guard missing");
-});
-await test("generated field is the fallback when film is blocked", () => {
-  assert.match(appSrc, /<CerebrumFieldCanvas/, "CerebrumFieldCanvas mount missing");
-  assert.match(appSrc, /function CerebrumFieldCanvas\(/, "CerebrumFieldCanvas component missing");
-  assert.match(appSrc, /from "\.\/cerebrumField\.js"/, "cerebrumField.js import missing");
+await test("workspace background is the solid theme surface", () => {
+  assert.match(appSrc, /2026-10-05: the workspace is quiet now/, "quiet-workspace note missing");
 });
 await test("grain overlay is restored", () => {
   assert.match(appSrc, /grain: \{ position: "fixed"/, "S.grain style missing");
@@ -65,18 +58,16 @@ await test("grain overlay is restored", () => {
 });
 
 group("Intro-to-workspace handoff");
-await test("onEnter carries the intro clip into the workspace", () => {
+await test("onEnter carries the intro clip as a dissolving still", () => {
   assert.match(appSrc, /setEnterClip\(clipSrc\)/, "enterClip handoff missing from onEnter");
-  assert.match(appSrc, /startAt=\{enterClip\}/, "workspace reel does not open on the handoff clip");
   assert.match(appSrc, /cb-enter-frame/, "handoff still CSS missing");
 });
 
 group("App-level film controls");
-await test("footer exposes Film credits and background play/pause", () => {
+await test("footer exposes Film credits, no background toggle", () => {
   assert.match(appSrc, /\["credits", "Film credits"\]/, "Film credits footer entry missing");
-  assert.match(appSrc, /\["motion", filmMotion \? "Pause background" : "Play background"\]/, "motion toggle footer entry missing");
+  assert.ok(!/\["motion",/.test(appSrc), "dead background toggle still in the workspace footer");
   assert.match(appSrc, /setFilmCreditsOpen\(true\)/, "credits dialog opener missing");
-  assert.match(appSrc, /filmRef\.current\?\.playNow\(\)/, "play control does not resume through the reel ref");
 });
 await test("film credits dialog mounts from the shell", () => {
   assert.match(appSrc, /\{filmCreditsOpen && <FilmCreditsDialog/, "FilmCreditsDialog shell mount missing");
@@ -112,11 +103,10 @@ await test("the field becomes the full-viewport flight atmosphere", () => {
   assert.match(appSrc, /position: relative; z-index: 1;\n\}/, "room content does not stack above the atmosphere");
 });
 
-group("Document Mode film");
-await test("Document Mode keeps its own single FilmLayer", () => {
-  assert.match(appSrc, /const DOC_FILM_SRC = (?:videoUrl\()?\"\/assets\/cinematic\/science-66\.mp4\"(?:\))?/, "DOC_FILM_SRC missing");
-  assert.match(appSrc, /src=\{DOC_FILM_SRC\}/, "Document Mode film mount missing");
-  assert.match(appSrc, /filmOK=\{!filmBlocked\(animationMode, false\)\}/, "filmOK not passed to the document page");
+group("Document Mode is quiet");
+await test("Document Mode has no film layer", () => {
+  assert.ok(!/src=\{DOC_FILM_SRC\}/.test(appSrc), "Document Mode film mount still present");
+  assert.match(appSrc, /2026-10-05: Document Mode's own film is gone/, "quiet-document note missing");
 });
 
 group("Slogan");

@@ -930,20 +930,15 @@ await test("Pro badge renders on profile and in the account menu", async () => {
   assert.match(src, /\{user\.isPro && <ProBadge/, "account menu badge wiring missing");
 });
 
-await test("Pro reel is exclusive clips wired to the workspace film", async () => {
+await test("Pro reel is retired with the workspace film", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  assert.match(src, /FILM_CLIPS_PRO_LANDSCAPE/, "Pro landscape list missing");
-  assert.match(src, /FILM_CLIPS_PRO_PORTRAIT/, "Pro portrait list missing");
-  assert.match(src, /function filmReel\(pro\)/, "filmReel does not take the pro flag");
-  // RESTORED 2026-09-17: the workspace film is back — the product shell
-  // mounts its own ambient reel (the intro keeps its own). The Pro reel
-  // Settings row is live again and must be wired into that workspace
-  // mount, not dormant.
-  assert.ok(/Pro cinematic reel/.test(src), "Pro reel setting must appear in Settings");
-  assert.match(src, /proReel=\{\!\!\(user && user\.isPro && proReel\)\}/, "workspace film not gated on the Pro reel toggle");
-  assert.match(src, /\}, \[blocked, proReel\]\);/, "reel effect must re-run on proReel so the switch is immediate");
+  // 2026-10-05: the workspace film reel is gone — cinema lives at the door
+  // only. The Pro reel toggle (members-only workspace footage) went with
+  // it; only the intro mount remains.
+  assert.ok(!/Pro cinematic reel/.test(src), "Pro reel setting still present in Settings");
+  assert.ok(!/proReel=\{/.test(src.replace(/proReel = false/, "")), "workspace film still gated on the Pro reel toggle");
   const filmMounts = src.match(/<CinematicFilm/g) || [];
-  assert.strictEqual(filmMounts.length, 2, `expected two CinematicFilm mounts (intro + workspace), found ${filmMounts.length}`);
+  assert.strictEqual(filmMounts.length, 1, `expected one CinematicFilm mount (intro only), found ${filmMounts.length}`);
 });
 
 await test("settings account tab hosts the Pro section and founder grant panel", async () => {

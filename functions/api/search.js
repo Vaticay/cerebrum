@@ -101,7 +101,37 @@ function guardedLlmCall(providerId, fn) {
 }
 
 function stripTags(s) {
-  return (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  return decodeEntities((s || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+/* HTML entities in upstream metadata. Europe PMC, Crossref, and several
+   other registries ship abstracts and titles containing entities like
+   &#x2009; (thin space) or &ndash;. stripTags removed the tags but left
+   the entities, so they rode into the answer context and the model copied
+   them verbatim — the "OP&#x2009;+&#x2009;BL" rendering bug. Decoded here
+   so no downstream consumer ever sees them. */
+const NAMED_ENTITIES = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  nbsp: " ", thinsp: " ", ensp: " ", emsp: " ",
+  ndash: "–", mdash: "—", hellip: "…",
+  lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”",
+  trade: "™", reg: "®", copy: "©", deg: "°",
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", mu: "μ", sigma: "σ",
+};
+function decodeEntities(s) {
+  return String(s || "").replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, ent) => {
+    if (ent[0] === "#") {
+      const code = ent[1] === "x" || ent[1] === "X"
+        ? parseInt(ent.slice(2), 16)
+        : parseInt(ent.slice(1), 10);
+      if (Number.isFinite(code) && code > 0 && code < 0x110000) {
+        try { return String.fromCodePoint(code); } catch { return m; }
+      }
+      return m;
+    }
+    const named = NAMED_ENTITIES[ent.toLowerCase()];
+    return named !== undefined ? named : m;
+  });
 }
 
 function decodeInverted(inv) {

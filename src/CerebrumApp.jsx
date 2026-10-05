@@ -442,6 +442,31 @@ function escapeHtml(str) {
   }[c]));
 }
 
+// Upstream entities can still reach the answer body itself: the model copies
+// strings like "&#x2009;" verbatim out of source abstracts into its prose.
+// Decoded at render so readers never see raw entities. Rendered as React
+// text children (never innerHTML), so decoding cannot introduce markup.
+const HTML_NAMED_ENTITIES = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  nbsp: " ", thinsp: " ", ensp: " ", emsp: " ",
+  ndash: "–", mdash: "—", hellip: "…",
+  lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”",
+  trade: "™", reg: "®", copy: "©", deg: "°",
+};
+function decodeHtmlEntities(s) {
+  return String(s == null ? "" : s).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, ent) => {
+    if (ent[0] === "#") {
+      const code = ent[1] === "x" || ent[1] === "X" ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
+      if (Number.isFinite(code) && code > 0 && code < 0x110000) {
+        try { return String.fromCodePoint(code); } catch { return m; }
+      }
+      return m;
+    }
+    const named = HTML_NAMED_ENTITIES[ent.toLowerCase()];
+    return named !== undefined ? named : m;
+  });
+}
+
 // v33: some upstream scholarly metadata (Crossref/PubMed/OpenAlex title
 // fields, in particular) carries basic HTML formatting for chemical
 // formulas and species/genus names — "CO<sub>2</sub> capture", "<i>E.
@@ -3948,7 +3973,7 @@ function renderFlashpointClaim(text, P) {
    the recursive passes for glued headings — the rail's numbering can
    never drift from the claim spines on the page. */
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null) {
-  let clean = stripDanglingAsterisks(normalizeSectionHeaders(text || ""))
+  let clean = stripDanglingAsterisks(normalizeSectionHeaders(decodeHtmlEntities(text || "")))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
     // chance to look for "^##\s" / "^###\s" and render them as real
@@ -8203,7 +8228,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   return (
     <Section title="Membership">
       {!user ? (
-        <Row label="Go further with Pro" desc="Unlimited AI answers, document reads and flowcharts, the PRO badge, an exclusive theme and cinematic backgrounds."
+        <Row label="Go further with Pro" desc="Unlimited AI answers, document reads and flowcharts, the PRO badge and an exclusive theme."
           control={goldBtn("See plans", onOpenPro)} last />
       ) : (
         <>
@@ -10180,6 +10205,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const [vote, setVote] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  // Share fallback: when neither the native share sheet nor the clipboard
+  // is available, show the link in a dialog the user can copy manually —
+  // sharing must never fail silently.
+  const [shareUrl, setShareUrl] = useState(null);
   // The labeled More menu: every demoted toolbar action stays one tap
   // away, each still labeled. Dividers at a boundary collapse out.
   /* Paper/print state lives ABOVE the overflowItems IIFE: the Paper menu
@@ -10355,6 +10384,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 <button type="button" className="cb-textbtn"
                   title={linkCopied ? "Link copied!" : "Share"}
                   onClick={async () => {
+                    if (!t.q) { toast("Nothing to share yet", { tone: "error" }); return; }
                     const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
                     // Prefer the native share sheet (real "sharing" — Messages,
                     // Mail, social apps — on mobile and supporting desktop
@@ -10365,13 +10395,32 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                       try { await navigator.share({ title: "Cerebrum", text: t.q, url }); return; }
                       catch (err) { if (err && err.name === "AbortError") return; /* fall through to clipboard */ }
                     }
-                    copyToClipboard(url, "Link copied").then((ok) => {
-                      if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
-                    });
+                    const ok = await copyToClipboard(url, "Link copied");
+                    if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
+                    else { setShareUrl(url); }
                   }}
                 >
                   {linkCopied ? "Link copied" : "Share"}
                 </button>
+                {shareUrl && (
+                  <Dialog label="Share this answer" onClose={() => setShareUrl(null)} zIndex={230} width={480}>
+                    <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginBottom: 12, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+                      Copy the link below to share this answer.
+                    </div>
+                    <input readOnly value={shareUrl} onFocus={(e) => e.target.select()}
+                      aria-label="Share link"
+                      style={{ width: "100%", minHeight: 44, padding: "10px 12px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", boxSizing: "border-box" }} />
+                    <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
+                      <button type="button" onClick={() => { copyToClipboard(shareUrl, "Link copied").then((ok) => { if (ok) setShareUrl(null); }); }}
+                        style={{ minHeight: 44, padding: "10px 18px", borderRadius: 6, background: accent, color: at, border: "none", fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                        Copy link
+                      </button>
+                      <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "10px 14px" }} onClick={() => setShareUrl(null)}>
+                        Close
+                      </button>
+                    </div>
+                  </Dialog>
+                )}
                 {/* Evidence index: toggles the evidence drawer — the index is
                     a secondary surface now, not a column competing with the
                     answer. */}
@@ -22251,38 +22300,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         ? {
             position: "relative", display: "flex", flexDirection: "column",
             minHeight: "100svh",
-            /* Transparent so Document Mode's own film shows through — the
-               scrim above the footage does the legibility work. */
-            background: "transparent", overflow: "clip",
+            background: P.bg, overflow: "clip",
           }
         : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
-      {/* RESTORED 2026-09-17: Document Mode's own film. The workspace reel
-          unmounts while this view is open (see the App shell), so a single
-          FilmLayer here keeps one background decoder on screen. When the
-          film can't run the layer holds the clip's graded still. */}
-      {asPage && (
-        <>
-          <FilmLayer
-            src={DOC_FILM_SRC}
-            pinned={false}
-            preload="metadata"
-            fadeMs={2200}
-            /* filmOK mirrors the workspace reel's own rule (reduced
-               motion, Save-Data, animation off, low-memory devices): when
-               it is false the layer holds the clip's graded still and
-               decodes nothing. */
-            active={filmOK}
-          />
-          {/* The scrim: the ONLY layer in this stack whose background
-              opacity is tuned. It veils the footage so text stays crisp;
-              the reader card below is the established near-opaque
-              readingPanel surface, not another veil. */}
-          <div aria-hidden="true" style={{
-            position: "absolute", inset: 0, pointerEvents: "none",
-            background: P.bg, opacity: P.dark ? 0.88 : 0.94,
-          }} />
-        </>
-      )}
+      {/* 2026-10-05: Document Mode's own film is gone with the workspace
+          reel — the whole app is quiet now, cinema lives at the door only.
+          Solid theme surface, no footage, no scrim needed. */}
 
       {asPage ? (
         /* ── Compact toolbar: the page's real heading (Commit 99) and one
@@ -22639,7 +22662,7 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro, onProChanged, proReel, setProReel }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro, onProChanged }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
   // Wave 3 — the three destructive confirmations used to be inline
@@ -22728,7 +22751,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setCitationStyle("vancouver");  // cb_cite
     setDataDensity("comfortable");  // cb_density
     setTypewriter(true);            // cb_tw !== "0"
-    setProReel(false);              // cb_pro_reel !== "1"
     const allOn = { call: true, message: true, watch: true };
     setNotify(allOn); setNotifyPref(allOn);
     try { localStorage.removeItem("cb_tts_voice"); } catch {} // TTS voice lives in localStorage, not a cookie
@@ -22834,7 +22856,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Theme", "appearance", "dark light palette colour color"],
     ["Accent color", "appearance", "colour highlight brand"],
     ["Motion", "sound", "background animation motion particles effects reduce"],
-    ["Pro cinematic reel", "sound", "motion video footage background members"],
     ["Animation speed", "sound", "motion speed particles rate"],
     ["Reduce transparency", "sound", "glass blur frosted solid"],
     ["Data density", "appearance", "compact comfortable spacing padding layout"],
@@ -23389,11 +23410,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Motion" desc="Backgrounds, the search instrument, and entrance effects" control={
                 <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
               } last={animationMode === "off" && !(user && user.isPro)} />
-              {/* RESTORED 2026-09-17: the Pro cinematic reel. Members-only —
-                  a separate set of footage for the workspace backdrop. */}
-              {(user && user.isPro) && (
-                <Row label="Pro cinematic reel" desc="A members-only set of footage behind the workspace" control={<Switch on={proReel} onChange={(v) => { sfx(); setProReel(v); }} label="Pro cinematic reel" />} last={animationMode === "off"} />
-              )}
+              {/* 2026-10-05: the members-only footage toggle lived here. The
+                  workspace no longer plays film behind it (cinema lives at
+                  the door only), so the toggle had nothing to switch. */}
               {/* v6.9: was cookie-persisted and threaded all the way down into
                   LivingBackground already, but had no control anywhere to
                   actually change it from its default — this is the first real
@@ -23481,7 +23500,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     version: APP_VERSION_LABEL,
                     exported: new Date().toISOString(),
                     saved, history,
-                    preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity, animSpeed, highContrast: highContrast ? "1" : "0", fontSize, reducedTransparency: reducedTransparency ? "1" : "0", autoplay: autoplay ? "1" : "0", dyslexicFont: dyslexicFont ? "1" : "0", lineSpacing, focusHighlight: focusHighlight ? "1" : "0", typewriter: typewriter ? "1" : "0", proReel: proReel ? "1" : "0", notify, ttsVoice },
+                    preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity, animSpeed, highContrast: highContrast ? "1" : "0", fontSize, reducedTransparency: reducedTransparency ? "1" : "0", autoplay: autoplay ? "1" : "0", dyslexicFont: dyslexicFont ? "1" : "0", lineSpacing, focusHighlight: focusHighlight ? "1" : "0", typewriter: typewriter ? "1" : "0", notify, ttsVoice },
                   };
                   const blob = new Blob([JSON.stringify(workspace, null, 2)], { type: "application/json" });
                   const url = URL.createObjectURL(blob);
@@ -23536,7 +23555,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                           if (inSet(p.lineSpacing, ["normal", "relaxed", "loose"])) setLineSpacing(p.lineSpacing);
                           if (p.focusHighlight === "1" || p.focusHighlight === "0") setFocusHighlight(p.focusHighlight === "1");
                           if (p.typewriter === "1" || p.typewriter === "0") setTypewriter(p.typewriter === "1");
-                          if (p.proReel === "1" || p.proReel === "0") setProReel(p.proReel === "1");
                           if (p.notify && typeof p.notify === "object") { const n = { call: true, message: true, watch: true }; for (const k of ["call", "message", "watch"]) if (typeof p.notify[k] === "boolean") n[k] = p.notify[k]; setNotify(n); setNotifyPref(n); }
                           if (typeof p.ttsVoice === "string" && p.ttsVoice) { try { localStorage.setItem("cb_tts_voice", p.ttsVoice); } catch {} }
                         }
@@ -25242,18 +25260,20 @@ function App() {
   // Members-only cinematic reel toggle. A client-side preference, not a
   // security boundary: the toggle and the Pro palette are only offered to
   // Pro accounts, and the server is the authority on who is Pro.
-  const [proReel, setProReel] = useState(() => { try { return localStorage.getItem("cb_pro_reel") === "1"; } catch { return false; } });
-  useEffect(() => { try { localStorage.setItem("cb_pro_reel", proReel ? "1" : "0"); } catch {} }, [proReel]);
-  /* RESTORED 2026-09-17: the ambient reel behind the product surfaces.
-     Dusty's direction — the film is the site's core identity. State the
-     workspace CinematicFilm mount needs, kept together: the reel ref, the
-     intro-handoff clip, the credits dialog, and the motion toggle. */
-  const filmRef = useRef(null);
+  /* 2026-10-05: the proReel toggle lived here. It switched the workspace
+     film reel to members-only footage; the reel is gone, so the toggle went
+     with it. */
+  /* 2026-10-05: the ambient reel behind the product surfaces is gone —
+     cinema lives at the door only. What remains of this cluster: the
+     intro-handoff clip (the graded still that bridges the door-to-workspace
+     transition) and the film credits dialog. */
   const [enterClip, setEnterClip] = useState(null);
   const enterClipTimer = useRef(null);
   useEffect(() => () => clearTimeout(enterClipTimer.current), []);
   const [filmCreditsOpen, setFilmCreditsOpen] = useState(false);
-  const [filmMotion, setFilmMotion] = useState(() => true);
+  /* 2026-10-05: the filmMotion toggle lived here. It drove the workspace
+     film reel's paused prop; the reel is gone, cinema lives at the door
+     only. */
   /* RESTORED 2026-09-17: animated typing. The answer reveal plays a few
      words at a time on fresh answers (see TurnInner); the cb_tw cookie
      remembers the choice. */
@@ -27689,55 +27709,14 @@ function App() {
     <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent)}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
-      {/* RESTORED 2026-09-17: the ambient backdrop. Dusty's direction — the
-          reel is the site's core identity, not decoration to strip. One
-          backdrop at a time, never both: the film reel when it can run,
-          the generated field when it cannot (reduced motion, Save-Data,
-          animation off). `filmBlocked` is the single rule both branches
-          read. Intensity drops once an investigation is underway — a bright
-          cut behind a paragraph someone is reading is a distraction, not
-          atmosphere. Document Mode runs its own single FilmLayer, so the
-          workspace reel unmounts while a document is open and two
-          background decoders never run on the same screen. */}
-      {view !== "document" && (filmBlocked(animationMode, false) ? (
-        <CerebrumFieldCanvas
-          accent={accent}
-          P={P}
-          mode={started ? "reading" : "ambient"}
-          energy={busy ? 1 : 0}
-          core={started ? 0.34 : 0.85}
-          corePos={started ? [0.72, 0.58] : [0, 0.08]}
-          coreScale={started ? 0.42 : 0.9}
-          animationMode={animationMode}
-        />
-      ) : (
-        <CinematicFilm
-          ref={filmRef}
-          animationMode={animationMode}
-          paused={!filmMotion}
-          /* Pro members with the toggle on get the members-only reel. */
-          proReel={!!(user && user.isPro && proReel)}
-          /* Opens on the door's clip when the visitor just stepped through,
-             so the background frame is retained across the handoff. */
-          startAt={enterClip}
-          /* Brightest on the search screen, dimmer once you are reading an
-             answer, dimmest on a working view — those are dense text on a
-             wide column, and footage at full strength behind them cost real
-             legibility. Sep 2026 grade: darker and more dramatic throughout
-             (Planet Earth, not a hazy overlay) — the footage reads as cinema,
-             never as raw bright video bleeding past panel edges. */
-          intensity={
-            /* Four states, in order of how much attention the page is
-               asking for. Reading wins over everything: an answer is the
-               one screen where the footage is purely in the way. */
-            started ? 0.28
-              : (view && view !== "search") ? 0.34
-              : composerFocused ? 0.40
-              : (input && input.length > 0) ? 0.44
-              : 0.72
-          }
-        />
-      ))}
+      {/* 2026-10-05: the workspace is quiet now. The film reel used to
+          play behind the whole application with the interface floating over
+          it on glass — cinematic, but footage behind a paragraph someone is
+          reading is a distraction, not atmosphere, and it read as a movie
+          rather than a research instrument. The cinema lives at the door
+          (Intro keeps its full reel); inside, the background is the solid
+          theme surface and the grain. No video decoders run in the
+          workspace at all. */}
       {/* The handoff bridge: the door's clip as a graded still, dissolving
           over the workspace while the new reel buffers on the same clip.
           pointer-events:none, gone after the fade. */}
@@ -28075,7 +28054,6 @@ function App() {
                    to be reachable from in here too — the CC BY clips are on
                    screen either way. */
                 ["credits", "Film credits"],
-                ["motion", filmMotion ? "Pause background" : "Play background"],
                 ["/about", "About"],
                 ["/privacy", "Privacy"],
                 ["/terms", "Terms"],
@@ -28093,18 +28071,10 @@ function App() {
                   textDecoration: "underline", textDecorationStyle: "dotted",
                   textDecorationColor: withAlpha(P.faint, 0.55), textUnderlineOffset: "3px",
                 };
-                /* RESTORED 2026-09-17: the reel's own controls. Film credits
-                   opens the attribution dialog; the motion toggle pauses or
-                   plays the workspace reel (synchronous, in the tap's gesture
-                   window — the only play() iOS Low Power Mode honours). */
+                /* 2026-10-05: the motion toggle lived here. It paused and played
+                   the workspace film reel, which no longer exists — cinema
+                   lives at the door only, so the toggle had nothing to switch. */
                 if (href === "credits") return <button key={label} type="button" onClick={() => setFilmCreditsOpen(true)} style={st}>{label}</button>;
-                if (href === "motion") return (
-                  <button key="motion" type="button" style={st} onClick={() => {
-                    const next = !filmMotion;
-                    setFilmMotion(next); setFilmForcedOn(next);
-                    if (next) { try { filmRef.current?.playNow(); } catch {} }
-                  }}>{label}</button>
-                );
                 return <a key={label} href={href} style={st}>{label}</a>;
               })}
               <span className="cb-appfoot-copy" style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}</span>
@@ -28129,7 +28099,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, proReel, setProReel }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); } }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -30915,7 +30885,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   /* 8 · Intro footer: the same cure as the app footer. Its wrapping flex
      row went ragged on iOS — "Film credits" kicked to the right of its
      line with a dead gap below it. A deterministic two-column grid cannot
-     do that: About/Privacy, Contact/Terms, Film credits/Pause background.
+     do that: About/Privacy, Contact/Terms, Film credits/About.
      (!important: the row carries inline display/gap for desktop.)
      The rows stay compact and every item left-aligns: the global 44px
      touch-target rule makes each row 44px tall, and buttons center their
