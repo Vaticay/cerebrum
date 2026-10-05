@@ -4768,69 +4768,17 @@ function useIsMobile() {
    A slot whose file is missing is skipped automatically, so the reel
    survives a partial upload. */
 const FILM_CLIPS_LANDSCAPE = [
-  videoUrl("/assets/cinematic/science-59.mp4"), // Seedling planting, hands in soil (replaces 01)
-  videoUrl("/assets/cinematic/science-60.mp4"), // Deer grazing in a meadow (replaces 02)
-  videoUrl("/assets/cinematic/science-03.mp4"), // Seedling growth timelapse — David Roberts
-  videoUrl("/assets/cinematic/science-04.mp4"), // Sunlit green leaves — Pexels contributor
-  /* science-05 (Forest canopy, Matthias Groeneveld) is the one portrait
-     clip in the first pack at 304x540 — too small to use even on a phone,
-     where the new portrait clips below are 1080x1920. Kept on disk and
-     credited; not in either list.
-
-     science-06 (Perovskite crystal growth) is out too. It is a published
-     lab video with a title card, burned-in captions and a running
-     HOURS:MINUTES counter baked into the frame. Text in a backdrop sits
-     under the interface's own type and reads as a rendering fault; a crop
-     tight enough to lose the captions left a 3:1 strip that did not match
-     anything else in the set. */
-  videoUrl("/assets/cinematic/science-07.mp4"), // Laboratory reaction — cottonbro studio
-  videoUrl("/assets/cinematic/science-08.mp4"), // Blue ink dispersing in water — MART PRODUCTION
-  videoUrl("/assets/cinematic/science-09.mp4"), // Splashing volcanic lava — Martin Sanchez
-  videoUrl("/assets/cinematic/science-10.mp4"), // Volcanic eruption at sunset — Gylfi Gylfason
-  videoUrl("/assets/cinematic/science-11.mp4"), // Greenland icebergs — Mikhail Nilov
-  videoUrl("/assets/cinematic/science-13.mp4"), // Coral aquarium — Pexels contributor
-  videoUrl("/assets/cinematic/science-61.mp4"), // Desert mesas at dusk (replaces 14)
-  videoUrl("/assets/cinematic/science-15.mp4"), // Laboratory sample work — Pexels contributor
-  videoUrl("/assets/cinematic/science-16.mp4"), // Plasma globe — Mathias De Rivo
-  /* Both ESO clips are out of the reel — 18 (laser beams over Paranal) and
-     19 (Helix Nebula zoom).
-
-     Every frame of every clip was checked at 8fps, and neither file
-     contains a logo: 19's ESO title card was trimmed off and 18 never had
-     one. The card kept appearing on the live site anyway, which means the
-     old 19 is still being served from somewhere — the repo, an edge cache,
-     a browser. Chasing that is the wrong fight. A backdrop is decoration;
-     two clips out of thirty-one is nothing, and removing them makes the
-     bug impossible instead of unlikely. Nothing requests these files now,
-     so a stale copy in the repo can never play.
-
-     Their credit rows are gone too, because a credits list that names
-     clips nobody can see is not a credits list. If you ever want them
-     back, restore both here AND in FILM_CREDITS — the CC BY licence needs
-     the attribution to travel with the footage. */
-  videoUrl("/assets/cinematic/science-20.mp4"), // Earth night lights — NASA SVS
-  videoUrl("/assets/cinematic/science-21.mp4"), // Forest mushroom — Andrei Ignia
-  videoUrl("/assets/cinematic/science-22.mp4"), // Droplets on a leaf — K
-  videoUrl("/assets/cinematic/science-27.mp4"), // Waterfall and river rapids — Ryan Klaus
-  videoUrl("/assets/cinematic/science-29.mp4"), // Ant colony entrance — Eclipse Chasers
-  videoUrl("/assets/cinematic/science-62.mp4"), // Ocean waves at sunset (replaces 30)
-  videoUrl("/assets/cinematic/science-31.mp4"), // Ocean waves at rocks — Peter Fowler
-  videoUrl("/assets/cinematic/science-63.mp4"), // Volcano eruption at night (replaces 32)
-  videoUrl("/assets/cinematic/science-33.mp4"), // Volcanic lava in slow motion — Anoop A Nair
-  videoUrl("/assets/cinematic/science-34.mp4"), // Ferrofluid spikes under a magnet — Film Composite
-  videoUrl("/assets/cinematic/science-36.mp4"), // Soap bubble freezing, macro — Aaron Burden
-  videoUrl("/assets/cinematic/science-38.mp4"), // Ants on a tiny white flower — Vung Nguyen
-  videoUrl("/assets/cinematic/science-39.mp4"), // DNA chain animation — Pressmaster
-  videoUrl("/assets/cinematic/science-42.mp4"), // Rotating Earth and Sun — Endiae Genius
-  videoUrl("/assets/cinematic/science-43.mp4"), // Starry night sky — Pexels contributor
-  videoUrl("/assets/cinematic/science-45.mp4"), // Milky Way over beach — Luz Calor Som
-  videoUrl("/assets/cinematic/science-65.mp4"), // Mountain ridge at sunrise (replaces 47)
-  videoUrl("/assets/cinematic/science-48.mp4"), // Thunderclouds from below — Magda Ehlers
-  videoUrl("/assets/cinematic/science-66.mp4"), // Volcanic crater lake aerial (replaces 49)
-  videoUrl("/assets/cinematic/science-51.mp4"), // Lunar eclipse — Tom Fisk
-  videoUrl("/assets/cinematic/science-52.mp4"), // Lunar eclipse close-up — Tom Fisk
-  videoUrl("/assets/cinematic/science-53.mp4"), // Sharks and marine life — Ruvim M
-  videoUrl("/assets/cinematic/science-56.mp4"), // Ink swirling in water — Engin Akyurt
+  /* 2026-10-05: the reel is now seven dark, slow ambient loops — real
+     footage (ink, smoke, water, night sky), graded darker in the player.
+     The previous thirty-odd bright nature clips are retired from the reel;
+     their files and credit rows remain in the repo. */
+  videoUrl("/assets/cinematic/ambient-01.mp4"), // Defocused sunset reflection on the sea — Mixkit
+  videoUrl("/assets/cinematic/ambient-02.mp4"), // Metallic liquid, gray tones — Mixkit
+  videoUrl("/assets/cinematic/ambient-03.mp4"), // Black and white ink cloud in water — Mixkit
+  videoUrl("/assets/cinematic/ambient-04.mp4"), // Smoke in motion on black — Mixkit
+  videoUrl("/assets/cinematic/ambient-05.mp4"), // Bubbles rising in water — Mixkit
+  videoUrl("/assets/cinematic/ambient-06.mp4"), // Abstract smoke texture — Mixkit
+  videoUrl("/assets/cinematic/ambient-07.mp4"), // Moonlit clouds timelapse — Mixkit
 ];
 
 /* Portrait. Used when the window is taller than it is wide — a phone held
@@ -4901,6 +4849,13 @@ const FILM_HOLD_MS = 11000;
    lists only the clips it is legally forced to list is a strange thing to
    put in front of researchers. */
 const FILM_CREDITS = [
+  { n: "ambient-01", title: "Defocused sunset reflection on the sea", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
+  { n: "ambient-02", title: "Metallic liquid, gray tones", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
+  { n: "ambient-03", title: "Black and white ink cloud in water", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
+  { n: "ambient-04", title: "Smoke in motion", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
+  { n: "ambient-05", title: "Bubbles rising in water", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
+  { n: "ambient-06", title: "Abstract smoke texture", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
+  { n: "ambient-07", title: "Moonlit clouds timelapse", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
   { n: "03", title: "Seedling growth timelapse", credit: "David Roberts", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/time-lapse-of-seedlings-8522207/" },
   { n: "04", title: "Sunlit green leaves", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/sunlight-filtering-through-green-leaves-in-forest-32208331/" },
   { n: "07", title: "Laboratory reaction", credit: "cottonbro studio", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/chemistry-laboratorio-6208946/" },
