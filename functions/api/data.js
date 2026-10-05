@@ -234,7 +234,7 @@ async function founderRow(env) {
     // backfilled yet still resolves instead of the founder silently not
     // existing.
     return await env.DB.prepare(
-      "SELECT id, username, name, affiliation, degree, grad_year, plan FROM users WHERE email_lower = ? OR LOWER(email) = ?"
+      "SELECT id, username, name, affiliation, degree, grad_year, plan, discoverable, show_affiliation FROM users WHERE email_lower = ? OR LOWER(email) = ?"
     ).bind(founderEmail, founderEmail).first();
   } catch { return null; }
 }
@@ -250,6 +250,12 @@ async function founderRow(env) {
 async function founderCard(env, user) {
   const fr = await founderRow(env);
   if (!fr || fr.id === user.id) return null;
+  // The founder card is the one account the app surfaces unasked, so it
+  // honours the founder's own privacy settings like every other surface:
+  // opted out of discoverability means no card at all, and a hidden
+  // affiliation stays hidden here too.
+  if (fr.discoverable === 0) return null;
+  const showAffiliation = fr.show_affiliation !== 0;
   try {
     const followers = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM follows WHERE following_id = ?"
@@ -259,7 +265,7 @@ async function founderCard(env, user) {
     ).bind(user.id, fr.id).first();
     return {
       id: fr.id, username: fr.username, name: fr.name || fr.username || "Founder",
-      affiliation: fr.affiliation || null, degree: fr.degree || null,
+      affiliation: showAffiliation ? (fr.affiliation || null) : null, degree: fr.degree || null,
       gradYear: fr.grad_year || null,
       followers: (followers && followers.n) || 0,
       following: !!isFollowing,
@@ -2378,29 +2384,33 @@ export async function onRequest(context) {
     }
 
     // Commit 48: block/unblock the other person in a DM. Storage is
-    // directional (user_blocks.blocker_id/blocked_id, see schema.sql) but
-    // this toggle always resolves from "are we currently blocked at all" —
-    // isBlockedPair checks both directions, and unblocking deletes whichever
-    // direction's row actually exists (mine, theirs, or — in a stranger
-    // double-click race — both), so it fully clears the pair regardless of
-    // who blocked whom first.
+    // directional (user_blocks.blocker_id/blocked_id, see schema.sql).
+    // Unblock removes ONLY the caller's own row: if they blocked me, their
+    // row survives and they stay blocked against me. A blocked user must
+    // never be able to dissolve the block against them by pressing
+    // "Unblock" on a directionless toggle.
     if (action === "toggle-block") {
       const targetId = safeId(body.target_id);
       if (!targetId) return errRes("Missing target_id.", 400, "missing_id", cors);
       if (targetId === user.id) return errRes("You can't block yourself.", 400, "bad_request", cors);
       const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
       if (!target || target.discoverable === 0) return errRes("That account isn't available.", 404, "not_available", cors);
-      const wasBlocked = await isBlockedPair(env, user.id, targetId);
-      if (wasBlocked) {
+      const myRow = await env.DB.prepare(
+        "SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?"
+      ).bind(user.id, targetId).first();
+      const theirRow = await env.DB.prepare(
+        "SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?"
+      ).bind(targetId, user.id).first();
+      if (myRow) {
         await env.DB.prepare(
-          "DELETE FROM user_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)"
-        ).bind(user.id, targetId, targetId, user.id).run();
+          "DELETE FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?"
+        ).bind(user.id, targetId).run();
       } else {
         await env.DB.prepare(
           "INSERT OR IGNORE INTO user_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)"
         ).bind(user.id, targetId, Date.now()).run();
       }
-      return okRes({ blocked: !wasBlocked }, 200, cors);
+      return okRes({ blocked: !myRow || !!theirRow }, 200, cors);
     }
 
     // Commit 48: user/message/call conduct reports, filed from the Inbox
