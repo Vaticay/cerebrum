@@ -5414,6 +5414,101 @@ export function postCheckAIAlignment(answer, papers) {
   return { issues };
 }
 
+// ── Citation support strip (mechanical) ──────────────────────────
+// postCheckAIAlignment only FLAGS claims whose cited paper shares near-zero
+// vocabulary with the sentence — the false trace stays in the answer. This
+// removes the specific [N] marker instead. Removing the marker (not the
+// sentence) cannot mangle prose, and an unsupported claim with no citation
+// is honest where the same claim wearing a false citation is a lie.
+//
+// The bar for acting is deliberately the same strict bar as the flagger:
+// a marker is stripped only when the sentence shares FEWER THAN 2 distinct
+// tokens with the cited paper's title+abstract. The comparison itself is
+// more lenient than the flagger's (stopwords dropped, but numbers and short
+// words kept — "50 mg" matching "50 mg" counts), so this only fires on
+// near-zero overlap no honest paraphrase can explain.
+//
+// Safety rails, all failing toward KEEPING the citation:
+// - out-of-range markers are left for stripFabricatedCitations;
+// - papers with no usable title/abstract text (< 3 tokens) are never judged;
+// - sentences with < 6 tokens are too short to judge;
+// - the model only ever sees title+abstract, and the check uses the FULL
+//   abstract (more lenient than the capped slice the model saw) — if even
+//   the full text shares nothing, the slice it cited from didn't support it.
+function supportTokens(text) {
+  const out = [];
+  for (const w of String(text || "").toLowerCase().split(/[^a-z0-9]+/)) {
+    if (!w || EXTRACT_STOPWORDS.has(w)) continue;
+    out.push(w);
+  }
+  return out;
+}
+
+// The sentence enclosing `offset` in `text`, found by scanning for sentence
+// boundaries rather than splitting — splitting would force rejoining and
+// risk reformatting the answer. Abbreviations ("e.g.") can cut a sentence
+// short; the resulting fragment then fails the minimum-length rail and the
+// citation is kept, which is the safe direction.
+function sentenceAround(text, offset, radius = 600) {
+  const start = Math.max(0, offset - radius);
+  const end = Math.min(text.length, offset + radius);
+  let s = start;
+  for (let i = offset - 1; i >= start; i--) {
+    const c = text[i];
+    if (c === "\n") { s = i + 1; break; }
+    if ((c === "." || c === "!" || c === "?") && i + 1 < text.length && /\s/.test(text[i + 1])) { s = i + 2; break; }
+  }
+  let e = end;
+  for (let i = offset; i < end; i++) {
+    const c = text[i];
+    if (c === "\n") { e = i; break; }
+    if ((c === "." || c === "!" || c === "?") && (i + 1 >= text.length || /\s/.test(text[i + 1]))) { e = i + 1; break; }
+  }
+  return text.slice(s, e).trim();
+}
+
+export function stripUnsupportedCitations(answer, papers) {
+  const text = String(answer || "");
+  const list = Array.isArray(papers) ? papers : [];
+  const n = list.length;
+  const removed = [];
+  if (!text || n === 0) return { text, removed };
+  const paperTokenSets = new Array(n);
+  const getPaperTokens = (i) => {
+    if (paperTokenSets[i] !== undefined) return paperTokenSets[i];
+    const p = list[i] || {};
+    const toks = supportTokens((p.title || "") + " " + usableAbstract(p));
+    const set = toks.length >= 3 ? new Set(toks) : null;
+    paperTokenSets[i] = set;
+    return set;
+  };
+  const cleaned = text.replace(/\[(\d{1,3})\]/g, (m, num, offset) => {
+    const idx = parseInt(num, 10);
+    if (!(idx >= 1 && idx <= n)) return m; // out of range: stripFabricatedCitations owns this
+    const src = getPaperTokens(idx - 1);
+    if (!src) return m; // paper has no usable text — can't judge, don't punish
+    const sent = sentenceAround(text, offset).replace(/\[\d{1,3}\]/g, " ");
+    const sToks = supportTokens(sent);
+    if (sToks.length < 6) return m; // too short to judge
+    let shared = 0;
+    const seen = new Set();
+    for (const w of sToks) {
+      if (seen.has(w)) continue;
+      seen.add(w);
+      if (src.has(w) && ++shared >= 2) return m;
+    }
+    removed.push({
+      claim: sent.replace(/\s+/g, " ").trim().slice(0, 240),
+      idx,
+      reason: "Shares essentially no vocabulary with the title/abstract of the paper it cites [" + idx + "].",
+    });
+    return "";
+  });
+  // Tidy the gaps left behind: "word  ." -> "word."
+  const tidied = cleaned.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1");
+  return { text: tidied, removed };
+}
+
 // ── Evidence gaps (computed, not generated) ─────────────────────
 export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut }) {
   const gaps = [];
@@ -9979,6 +10074,12 @@ async function runSearchPipeline(pctx) {
             const studyTag = p.studyType ? " [" + p.studyType + "]" : "";
             const tierTag = p.journalTier ? " [established venue]" : "";
             const flagTag = p.flaggedPublisher ? " [⚠ venue matches a known low-integrity publishing pattern — weight this source cautiously]" : "";
+            // Title-only papers: the model never saw findings, so constrain
+            // what it may cite them for. An annotation (outside the nonce
+            // fence, with the other tags) so it reads as instruction, not as
+            // paper data. The mechanical backstop is stripUnsupportedCitations,
+            // which strips a marker the title alone cannot support.
+            const noAbsTag = usableAbstract(p) ? "" : " [NO ABSTRACT AVAILABLE — cite this paper only for what its title literally states; never for findings, numbers, or mechanisms]";
             const fullAbstract = p.abstract || "(no abstract available)";
             const cappedAbstract =
               fullAbstract.length > abstractCharCap
@@ -9992,7 +10093,7 @@ async function runSearchPipeline(pctx) {
             return (
               "[" + (i + 1) + "] " + fence.clean(p.title) +
               " (Authors: " + fence.clean(p.authors || "n/a") + ", " +
-              fence.clean(p.journal) + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag + preTag + citCount + studyTag + tierTag + flagTag +
+              fence.clean(p.journal) + ", " + (p.year || "n/a") + ")" + authorTag + speciesTag + retractTag + relTag + preTag + citCount + studyTag + tierTag + flagTag + noAbsTag +
               tldrLine +
               "\nAbstract: " + fence.clean(cappedAbstract)
             );
@@ -11824,6 +11925,10 @@ async function runSearchPipeline(pctx) {
     }
 
     // ============ CITATION QUALITY CHECK ============
+    // unsupportedStripped collects the false citations stripUnsupportedCitations
+    // removes below; declared here (function scope) so the fact-check merge
+    // near the end of the pipeline can report them.
+    let unsupportedStripped = [];
     // If the answer has zero citations but we gave it papers, that's often
     // CORRECT — the papers may not have been relevant. Only retry if the answer
     // also seems low quality (too short or generic).
@@ -11854,6 +11959,25 @@ async function runSearchPipeline(pctx) {
           } catch {}
         } catch {}
       }
+
+      // ============ CITATION SUPPORT STRIP ============
+      // Mechanical citation integrity (see stripUnsupportedCitations): remove
+      // [N] markers whose cited paper shares essentially no vocabulary with
+      // the sentence. The sentence stays — only the false trace goes.
+      // evidencePapers (not sourceList) is passed because sourceList drops
+      // the abstract field and the check needs title+abstract; the two lists
+      // are in the same order so indices align 1:1.
+      // Runs BEFORE the D1 paper-learning write below so a stripped false
+      // citation is never "confirmed" as a correct paper for this query, and
+      // before the no-citation honesty branch so an answer stripped of every
+      // citation gets the honest "related papers" treatment.
+      try {
+        const stripped = stripUnsupportedCitations(answer, evidencePapers);
+        if (stripped.removed.length > 0) {
+          answer = stripped.text;
+          unsupportedStripped = stripped.removed;
+        }
+      } catch { /* a mechanical pass must never break the answer */ }
 
       // Append a reference list at the bottom ONLY if citations were actually used.
       // Previously this appended sources even when they were irrelevant, which
@@ -12150,14 +12274,27 @@ async function runSearchPipeline(pctx) {
       try {
         aiAlignmentIssues = postCheckAIAlignment(answer, evidencePapers).issues;
       } catch { aiAlignmentIssues = []; }
-      if (aiAlignmentIssues.length > 0 && factCheckResult && Array.isArray(factCheckResult.claims)) {
+      // Stripped false citations join the flagged claims here so the
+      // FactCheck panel shows what was removed and why — the removal is
+      // visible, not silent.
+      const integrityFlags = [
+        ...aiAlignmentIssues.map((iss) => ({
+          claim: iss.claim,
+          note: iss.reason + " Worth opening the source to check where it came from.",
+        })),
+        ...unsupportedStripped.map((r) => ({
+          claim: r.claim,
+          note: "Cited [" + r.idx + "], but that paper's title/abstract shares essentially no vocabulary with the sentence — the citation was removed rather than left as a false trace. Worth opening the source to check where the claim came from.",
+        })),
+      ];
+      if (integrityFlags.length > 0 && factCheckResult && Array.isArray(factCheckResult.claims)) {
         const have = new Set(factCheckResult.claims.map((c) => String(c.claim || "").slice(0, 80)));
-        for (const iss of aiAlignmentIssues) {
+        for (const iss of integrityFlags) {
           if (have.has(String(iss.claim).slice(0, 80))) continue;
           factCheckResult.claims.push({
             claim: iss.claim,
             status: "unsupported",
-            note: iss.reason + " Worth opening the source to check where it came from.",
+            note: iss.note,
           });
         }
         const nUns = factCheckResult.claims.filter((c) => c.status === "unsupported").length;
@@ -12166,14 +12303,14 @@ async function runSearchPipeline(pctx) {
       if (!factCheckResult) {
         // No fact-check ran at all (toggle off) but the post-check found
         // unsupported claims — surface them rather than staying silent.
-        if (aiAlignmentIssues.length > 0) {
+        if (integrityFlags.length > 0) {
           factCheckResult = {
             overall: "partly",
-            summary: "Checked cited claims against their papers: " + aiAlignmentIssues.length + " claim" +
-              (aiAlignmentIssues.length === 1 ? "" : "s") + " share almost no vocabulary with the paper cited.",
-            claims: aiAlignmentIssues.map((iss) => ({
+            summary: "Checked cited claims against their papers: " + integrityFlags.length + " claim" +
+              (integrityFlags.length === 1 ? "" : "s") + " share almost no vocabulary with the paper cited.",
+            claims: integrityFlags.map((iss) => ({
               claim: iss.claim, status: "unsupported",
-              note: iss.reason + " Worth opening the source to check where it came from.",
+              note: iss.note,
             })),
             mode: "claims",
           };

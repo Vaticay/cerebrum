@@ -36,6 +36,7 @@ import {
   detectSourceConflicts,
   verifyExtractiveAlignment,
   postCheckAIAlignment,
+  stripUnsupportedCitations,
   buildEvidenceGaps,
   buildConfidenceLine,
   buildCoverageNote,
@@ -514,6 +515,61 @@ test("uncited bibliography entries are labeled, not implied as support", () => {
   assert.equal(out[0].uncited, undefined);
   assert.equal(out[1].uncited, true);
   assert.match(out[1].uncitedReason, /further reading/);
+});
+
+// ── stripUnsupportedCitations: the false trace is removed, the prose stays ──
+
+test("stripUnsupportedCitations removes the marker but keeps the sentence", () => {
+  const papers = [INC_PAPER, soilPaper()];
+  const r = stripUnsupportedCitations(
+    "Quantum entanglement explains why wheat grows taller near power lines [2].",
+    papers
+  );
+  assert.equal(r.removed.length, 1, "false citation not stripped");
+  assert.equal(r.removed[0].idx, 2);
+  assert.ok(!/\[\d+\]/.test(r.text), "marker left behind: " + r.text);
+  assert.match(r.text, /Quantum entanglement explains why wheat grows taller/);
+});
+
+test("stripUnsupportedCitations keeps citations the paper actually supports", () => {
+  const papers = [INC_PAPER, soilPaper()];
+  const legit = "Fertilizer X increased wheat yield by about a third across a dozen field trials [1].";
+  const r = stripUnsupportedCitations(legit, papers);
+  assert.equal(r.removed.length, 0, "legit citation stripped: " + JSON.stringify(r.removed));
+  assert.equal(r.text, legit);
+});
+
+test("stripUnsupportedCitations evaluates each marker independently", () => {
+  const papers = [INC_PAPER, soilPaper()];
+  // [1] is false here (soil claim on the wheat paper), [2] is true.
+  const r = stripUnsupportedCitations(
+    "Desiccation cracking widens measurably as the clay surface dries out [1]. " +
+    "Crack spacing narrows as desiccation proceeds in the clay samples [2].",
+    papers
+  );
+  assert.equal(r.removed.length, 1);
+  assert.equal(r.removed[0].idx, 1);
+  assert.match(r.text, /\[2\]/, "true citation was stripped too: " + r.text);
+});
+
+test("stripUnsupportedCitations never touches out-of-range markers", () => {
+  const r = stripUnsupportedCitations("Something happened [9].", [INC_PAPER]);
+  assert.equal(r.removed.length, 0);
+  assert.equal(r.text, "Something happened [9].");
+});
+
+test("stripUnsupportedCitations spares papers with no usable text and short sentences", () => {
+  const noText = [{ title: "", abstract: "" }];
+  const r1 = stripUnsupportedCitations("A completely unrelated assertion about quantum tunneling [1].", noText);
+  assert.equal(r1.removed.length, 0, "judged a paper with nothing to compare");
+  const r2 = stripUnsupportedCitations("Wheat up [1].", [INC_PAPER]);
+  assert.equal(r2.removed.length, 0, "judged a fragment");
+});
+
+test("stripUnsupportedCitations counts numbers and units as shared vocabulary", () => {
+  const papers = [{ title: "Dose response", abstract: "A dose of 50 mg reduced symptoms in the treatment group." }];
+  const r = stripUnsupportedCitations("The dose was 50 mg [1] and symptoms fell.", papers);
+  assert.equal(r.removed.length, 0, "numeric match stripped: " + JSON.stringify(r.removed));
 });
 
 // ══════════════════════════════════════════════════════════════════════════
