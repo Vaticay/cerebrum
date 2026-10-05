@@ -6012,6 +6012,30 @@ function playEnterThoom() {
   } catch (e) { /* audio is enhancement, never a blocker */ }
 }
 
+/* ── The specimen door ──
+   The intro is not a headline about the product; it IS the product,
+   shrunk to one claim. Three real, verified findings rotate as museum
+   specimens — each with its paper attached. A visitor understands
+   Cerebrum in one glance: a claim, and the evidence it traces to.
+   Every specimen below is a real published finding with a real DOI. */
+const SPECIMENS = [
+  {
+    claim: "Two weeks of six-hour nights impairs your thinking as much as two nights with no sleep at all.",
+    paper: "H. P. A. Van Dongen et al., \u201cThe cumulative cost of additional wakefulness,\u201d Sleep 26(2), 2003.",
+    doi: "https://doi.org/10.1093/sleep/26.2.117",
+  },
+  {
+    claim: "Distant exploding stars are dimmer than they should be \u2014 the expansion of the universe is speeding up.",
+    paper: "A. G. Riess et al., \u201cObservational evidence from supernovae for an accelerating universe,\u201d Astron. J. 116(3), 1998.",
+    doi: "https://doi.org/10.1086/300499",
+  },
+  {
+    claim: "Running grows new neurons in the adult brain \u2014 at least in mice.",
+    paper: "H. van Praag et al., \u201cRunning increases cell proliferation and neurogenesis in the adult mouse dentate gyrus,\u201d Nat. Neurosci. 2(3), 1999.",
+    doi: "https://doi.org/10.1038/6368",
+  },
+];
+
 function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const isMobile = useIsMobile();
   const reduced = useReducedMotion();
@@ -6087,6 +6111,19 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      frame is retained across the door — the video is never restarted and
      no blank screen flashes. */
   const [clip, setClip] = useState(null);
+  /* Specimen rotation: advance every 9s, paused while a dialog is open,
+     while the visitor hovers or focuses the specimen, or under reduced
+     motion. Dots select directly. */
+  const [specimenIdx, setSpecimenIdx] = useState(0);
+  const [specimenHeld, setSpecimenHeld] = useState(false);
+  const specimenCount = SPECIMENS.length;
+  useEffect(() => {
+    if (reduced || animationMode === "off") return undefined;
+    if (specimenHeld || howOpen || sourcesOpen || creditsOpen) return undefined;
+    const t = setInterval(() => setSpecimenIdx((i) => (i + 1) % specimenCount), 9000);
+    return () => clearInterval(t);
+  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, creditsOpen, specimenCount]);
+  const specimen = SPECIMENS[specimenIdx];
 
   /* ── The door rule ──
      This screen is a threshold, not a search screen: there is no composer
@@ -6136,21 +6173,6 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
      motion or with animation off, everything is simply present. */
   const animate = animationMode !== "off" && !reduced;
 
-  /* "A real answer" arrives on scroll, in the same language as the hero. */
-  const realAnswerRef = useRef(null);
-  useEffect(() => {
-    if (!animate) return undefined;
-    const el = realAnswerRef.current;
-    if (!el) return undefined;
-    if (typeof IntersectionObserver === "undefined") { el.classList.add("cb-inview"); return undefined; }
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) { el.classList.add("cb-inview"); io.disconnect(); }
-      }
-    }, { threshold: 0.15 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [animate]);
 
   return (
     <div id="cb-intro-wrap" className={[leaving ? "cb-intro-leaving" : "", reduced && !leaving ? "cb-intro-still" : ""].filter(Boolean).join(" ") || undefined} style={{
@@ -6278,40 +6300,84 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             position: "absolute", inset: "-12% -30%", zIndex: -1,
             background: "radial-gradient(ellipse 60% 52% at 50% 46%, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 70%)",
           }} />
-          <div className={animate ? "cb-focus-in" : undefined}
-            style={animate ? { animationDelay: "0.5s" } : undefined}>
-            <span style={{
-              fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "0.42em",
-              textIndent: "0.42em", fontWeight: 600,
-              textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
-              fontVariantNumeric: "tabular-nums",
-              textShadow: "0 2px 18px rgba(0,0,0,0.55)",
+          {/* ── The specimen ──
+              Not a headline about the product — the product itself, at
+              specimen scale. One verified claim, its paper, its verdict.
+              No card, no glass: museum-label type set directly on the
+              footage, held by the scrim. */}
+          <div
+            onMouseEnter={() => setSpecimenHeld(true)}
+            onMouseLeave={() => setSpecimenHeld(false)}
+            onFocus={() => setSpecimenHeld(true)}
+            onBlur={() => setSpecimenHeld(false)}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}
+          >
+            <div className={animate ? "cb-focus-in" : undefined}
+              style={animate ? { animationDelay: "0.5s" } : undefined}>
+              <span style={{
+                fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "0.42em",
+                textIndent: "0.42em", fontWeight: 600,
+                textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
+                fontVariantNumeric: "tabular-nums",
+                textShadow: "0 2px 18px rgba(0,0,0,0.55)",
+              }}>
+                Specimen {String(specimenIdx + 1).padStart(2, "0")} &mdash; a verified claim
+              </span>
+            </div>
+            <div key={specimenIdx} className={animate ? "cb-specimen-in" : undefined} style={{
+              display: "flex", flexDirection: "column", alignItems: "center", width: "100%",
             }}>
-              A research instrument
-            </span>
+              <p style={{
+                fontSize: isMobile ? "clamp(24px, 7vw, 34px)" : "clamp(30px, 3.8vw, 48px)",
+                fontWeight: 650, letterSpacing: "-0.02em", lineHeight: 1.22,
+                color: "#ffffff", margin: "26px auto 0", maxWidth: "24ch",
+                textAlign: "center", textWrap: "balance",
+                textShadow: "0 2px 44px rgba(0,0,0,0.55)",
+              }}>
+                &ldquo;{specimen.claim}&rdquo;
+              </p>
+              <div style={{
+                marginTop: 22, display: "flex", alignItems: "center", gap: 8,
+                fontSize: 12.5, fontWeight: 600, letterSpacing: "0.08em",
+                textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
+                textShadow: "0 2px 18px rgba(0,0,0,0.55)",
+              }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Traced to a direct finding
+              </div>
+              <p style={{
+                margin: "14px 0 0", maxWidth: "58ch",
+                fontSize: isMobile ? 13 : 14, lineHeight: 1.65,
+                color: "rgba(242,244,242,0.72)",
+                textShadow: "0 2px 30px rgba(0,0,0,0.5)",
+              }}>
+                {specimen.paper}{" "}
+                <a href={specimen.doi} target="_blank" rel="noopener noreferrer"
+                  className="cb-intro-sourcelink"
+                  style={{ color: withAlpha(introAccent, 0.95), fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
+                  Open the paper &#8599;
+                </a>
+              </p>
+            </div>
+            {/* Specimen dots — the only chrome on the specimen. */}
+            <div role="tablist" aria-label="Verified claims" style={{
+              marginTop: 26, display: "flex", alignItems: "center", gap: 10,
+            }}>
+              {SPECIMENS.map((sp, i) => (
+                <button key={i} type="button" role="tab" aria-selected={i === specimenIdx}
+                  aria-label={"Claim " + (i + 1) + ": " + sp.claim.slice(0, 60) + "\u2026"}
+                  onClick={() => setSpecimenIdx(i)}
+                  style={{
+                    width: i === specimenIdx ? 26 : 8, height: 8, borderRadius: 999,
+                    border: "none", cursor: "pointer", padding: 0,
+                    background: i === specimenIdx ? "rgba(242,244,242,0.9)" : "rgba(242,244,242,0.28)",
+                    transition: "width 0.35s ease, background 0.35s ease",
+                  }} />
+              ))}
+            </div>
           </div>
-          <h1 style={{
-            fontSize: isMobile ? "clamp(28px, 8vw, 40px)" : "clamp(36px, 4.5vw, 58px)",
-            fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15,
-            color: "#ffffff", margin: "28px auto 0", maxWidth: "20ch",
-            textAlign: "center",
-            textShadow: "0 2px 44px rgba(0,0,0,0.55)",
-            textWrap: "balance",
-            overflow: "hidden",
-          }}>
-            <span className={animate ? "cb-masked-reveal" : undefined}
-              style={{ display: "block", ...(animate ? { animationDelay: "0.7s" } : null) }}>There&rsquo;s a world behind your question.</span>
-          </h1>
-          <p className={animate ? "cb-focus-in cb-hero-slogan" : "cb-hero-slogan"} style={{
-            margin: "26px 0 0", maxWidth: "52ch",
-            fontSize: isMobile ? 12.5 : 13.5, lineHeight: 1.7, fontWeight: 500,
-            letterSpacing: "0.02em",
-            color: "rgba(242,244,242,0.62)",
-            textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-            ...(animate ? { animationDelay: "1.2s" } : null),
-          }}>
-            Ask a real research question. Every claim traces to a paper you can open.
-          </p>
           <div className={animate ? "cb-focus-in cb-hero-ctas" : "cb-hero-ctas"} style={{
             marginTop: 40,
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -6360,81 +6426,6 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           )}
         </div>
       </main>
-
-      {/* ── One real answer ──
-          Below the opening, before any feature list: a compact Question →
-          cited explanation → original paper. A visitor should understand
-          why Cerebrum is useful before meeting the product. */}
-      <section ref={realAnswerRef} className={animate ? "cb-intro-chrome cb-real-answer" : "cb-intro-chrome"} style={{
-        position: "relative", zIndex: 10,
-        borderTop: "1px solid rgba(255,255,255,0.08)",
-        background: "linear-gradient(180deg, rgba(8,10,13,0.55) 0%, rgba(8,10,13,0.80) 100%)",
-      }}>
-        <div style={{
-          ...container, maxWidth: 760,
-          paddingTop: isMobile ? 44 : 60, paddingBottom: isMobile ? 48 : 68,
-        }}>
-          <div style={{
-            fontSize: 11, letterSpacing: "0.26em", textTransform: "uppercase",
-            color: withAlpha(introAccent, 0.85), marginBottom: 18, fontWeight: 600,
-            fontVariantNumeric: "tabular-nums",
-          }}>
-            A real answer
-          </div>
-          <h2 style={{
-            fontSize: isMobile ? 24 : 30, fontWeight: 600, letterSpacing: "-0.02em",
-            lineHeight: 1.25, color: "#ffffff", margin: "0 0 16px",
-            textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-          }}>
-            Do we have direct evidence of gravitational waves?
-          </h2>
-          <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65,
-            color: "rgba(242,244,242,0.82)", margin: "0 0 22px",
-          }}>
-            Yes. In September 2015 the LIGO detectors recorded a split-second &ldquo;chirp&rdquo; as
-            two black holes merged 1.3&nbsp;billion light-years away &mdash; a signal matching
-            Einstein&rsquo;s predictions to remarkable precision, and the first direct detection
-            of ripples in spacetime itself.
-            <sup style={{ color: withAlpha(introAccent, 0.95), fontSize: "0.72em", marginLeft: 3 }}>[1]</sup>
-          </p>
-          <div style={{
-            border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
-            padding: isMobile ? "16px" : "18px 20px",
-            background: "rgba(255,255,255,0.03)",
-            marginBottom: 20,
-          }}>
-            <div style={{
-              fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase",
-              color: "rgba(242,244,242,0.5)", marginBottom: 8,
-            }}>[1] Original paper</div>
-            <div style={{ fontSize: 15, lineHeight: 1.55, color: "rgba(242,244,242,0.9)" }}>
-              B.&nbsp;P.&nbsp;Abbott <em>et&nbsp;al.</em> (LIGO Scientific Collaboration and Virgo Collaboration),
-              &ldquo;Observation of Gravitational Waves from a Binary Black Hole Merger,&rdquo; <em>Physical Review Letters</em> 116, 061102 (2016).
-            </div>
-            <a href="https://doi.org/10.1103/PhysRevLett.116.061102" target="_blank" rel="noopener noreferrer"
-              className="cb-intro-sourcelink"
-              style={{
-                display: "inline-block", marginTop: 10, fontSize: 14, fontWeight: 600,
-                color: withAlpha(introAccent, 0.95), textDecoration: "none",
-              }}>
-              Open the paper ↗
-            </a>
-          </div>
-          <button type="button" onClick={() => go("Do we have direct evidence of gravitational waves?", true)}
-            className="cb-intro-chip"
-            style={{ minHeight: 44,
-              cursor: "pointer", border: "none", background: "none", padding: "6px 0",
-              fontSize: 14.5, fontWeight: 600, color: "#f2f4f2", fontFamily: "var(--cb-font)",
-            }}>
-            <span style={{
-              textDecoration: "underline", textUnderlineOffset: 4,
-              textDecorationColor: withAlpha(introAccent, 0.6),
-            }}>Run this investigation</span>
-            <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span>
-          </button>
-        </div>
-      </section>
 
       {/* ── Ethics: why Cerebrum is built this way ──
           Calm reassurance, not a lecture. No greenwashing, no invented
@@ -29237,6 +29228,24 @@ summary::-webkit-details-marker { display: none; }
 .cb-focus-in {
   animation: cbFocusIn 1.15s var(--cb-ease-out) both;
 }
+/* Specimen change: the outgoing claim is gone with the key swap; the
+   incoming one resolves from a soft blur and a 14px rise — the same
+   focus-pull language as the entrance, quicker (0.7s) so rotation feels
+   like turning a page, not a scene change. Transform + opacity only. */
+@keyframes cbSpecimenIn {
+  from { opacity: 0; filter: blur(10px); transform: translateY(14px); }
+  to   { opacity: 1; filter: none; transform: translateY(0); }
+}
+.cb-specimen-in {
+  animation: cbSpecimenIn 0.7s var(--cb-ease-out) both;
+  will-change: transform, opacity;
+}
+@media (hover: none), (pointer: coarse) {
+  .cb-specimen-in { animation: none; filter: none; opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-specimen-in { animation: none; }
+}
 /* iOS quirk: the blur(12px)→blur(0) focus-in can freeze mid-animation or
    composite poorly on mobile GPUs, leaving resting text blurry — the
    footer and the headline were both reported "off" on touch. On touch
@@ -29346,12 +29355,6 @@ summary::-webkit-details-marker { display: none; }
   transform: none;
 }
 .cb-intro-how:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
-/* "A real answer" arrives on scroll, in the same language as the hero. */
-.cb-real-answer {
-  opacity: 0; transform: translateY(24px);
-  transition: opacity 1s var(--cb-ease), transform 1s var(--cb-ease);
-}
-.cb-real-answer.cb-inview { opacity: 1; transform: none; }
 
 /* ── Composer states ──
    (The old pill's scan/dots styles were removed with the query-line
@@ -30030,7 +30033,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-focus-in { animation: none; }
   /* Premium pass: every new motion dies here too. */
   .cb-title-veil { display: none; }
-  .cb-real-answer { opacity: 1 !important; transform: none !important; transition: none !important; }
   .cb-intro-how::after { display: none; }
 }
 

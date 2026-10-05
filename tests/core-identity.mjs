@@ -110,9 +110,11 @@ await test("Document Mode has no film layer", () => {
 
 group("Slogan");
 await test("slogan is byte-identical", () => {
+  // 2026-10-05: the specimen door rethink removed the marketing slogan.
+  // The promise now lives in the specimen verdict and the paper links.
   assert.ok(
-    appSrc.includes("Ask a real research question. Every claim traces to a paper you can open."),
-    "slogan wording changed"
+    appSrc.includes("Traced to a direct finding"),
+    "specimen verdict missing"
   );
 });
 

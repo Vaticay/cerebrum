@@ -1,26 +1,25 @@
 /**
- * Intro title-card regression tests.
+ * Specimen-door regression tests.
  *
- * The cinematic intro is a monumental title card, not an information
- * stack: full-bleed footage first, then a choreographed sequence —
- * kicker → title → slogan → single CTA. The title uses a masked line
- * reveal (premium title-sequence pattern), heavy weight, tight tracking.
- * Type is monumental through scale and motion craft.
+ * The cinematic intro is a specimen door, not a headline: the first
+ * viewport shows ONE verified claim as a museum specimen — the claim in
+ * large type, its paper attached, a "traced to a direct finding" verdict —
+ * rotating through real published findings. The product demonstrates
+ * itself instead of describing itself.
  *
- * These tests lock the invariants that broke in earlier shipped intros:
+ * These tests lock the invariants of the rethink (2026-10-05):
  *
- *   1. The exact slogan ("Ask a real research question. Every claim
- *      traces to a paper you can open.") must appear in the hero, word
- *      for word. The generic sub-copy it replaced must be gone.
- *   2. The film controls must report the video element's ACTUAL playback
+ *   1. SPECIMENS holds real published findings, each with a claim, a
+ *      paper citation, and a DOI link. The old headline and slogan are
+ *      gone.
+ *   2. Rotation advances on a timer, pauses while the visitor holds the
+ *      specimen (hover/focus), while a dialog is open, or under reduced
+ *      motion. Dots select specimens directly.
+ *   3. The film controls must report the video element's ACTUAL playback
  *      state (media events), never inferred intent — the lying
  *      "paused — tap to play" label came from intent flags.
- *   3. The quiet sci-fi language: focus-pull entrance (blur, never a
- *      rise), small tracked type, a whisper outline CTA with no light
- *      sweep — and none of the old oversized display treatment.
- *
- * They also lock the removals: no pointer parallax, no rotating scene
- * questions, no scene indexes, no explore links.
+ *   4. The quiet sci-fi language: focus-pull entrance, small tracked
+ *      type, a whisper outline CTA with no light sweep.
  *
  * Run with: node tests/intro-title-card.mjs
  */
@@ -51,27 +50,40 @@ function group(name) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-group("The slogan, word for word");
+group("The specimens — real claims, real papers");
 
 const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-const SLOGAN = "Ask a real research question. Every claim traces to a paper you can open.";
 
-await test("exact slogan appears in the source", () => {
-  assert.ok(src.includes(SLOGAN), "slogan missing or altered");
+await test("SPECIMENS holds at least three specimens", () => {
+  const m = src.match(/const SPECIMENS = \[([\s\S]*?)\n\];/);
+  assert.ok(m, "SPECIMENS not defined");
+  const claims = (m[1].match(/claim:/g) || []).length;
+  assert.ok(claims >= 3, `only ${claims} specimens`);
 });
 
-await test("generic sub-copy it replaced is gone", () => {
+await test("every specimen has a claim, a paper, and a DOI", () => {
+  const m = src.match(/const SPECIMENS = \[([\s\S]*?)\n\];/);
+  const block = m[1];
+  for (const field of ["claim:", "paper:", "doi:"]) {
+    const n = (block.match(new RegExp(field, "g")) || []).length;
+    assert.ok(n >= 3, `field ${field} appears only ${n} times`);
+  }
+  assert.ok(block.includes("https://doi.org/"), "no DOI links in specimens");
+});
+
+await test("old headline and slogan are gone", () => {
   assert.ok(
-    !src.includes("Explore scientific papers. Follow the evidence. Find your next question."),
-    "old generic hero copy still present"
+    !src.includes("There&rsquo;s a world behind your question."),
+    "old headline still present"
+  );
+  assert.ok(
+    !src.includes("Ask a real research question. Every claim traces to a paper you can open."),
+    "old slogan still present"
   );
 });
 
-await test("title is one quiet line, not a display shout", () => {
-  assert.ok(
-    src.includes("There&rsquo;s a world behind your question."),
-    "single-line title missing"
-  );
+await test("verdict line marks each claim as traced", () => {
+  assert.ok(src.includes("Traced to a direct finding"), "verdict line missing");
 });
 
 await test("single CTA reads \"Start researching\"", () => {
@@ -79,7 +91,34 @@ await test("single CTA reads \"Start researching\"", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Removals — the intro is a title card, not an information stack");
+group("Rotation — timed, pausable, directly selectable");
+
+await test("rotation advances on a 9s interval", () => {
+  assert.ok(src.includes("setInterval(() => setSpecimenIdx"), "no rotation interval");
+  assert.ok(src.includes("9000"), "rotation interval not 9s");
+});
+
+await test("rotation pauses while held, in dialogs, or under reduced motion", () => {
+  assert.ok(src.includes("specimenHeld"), "hold state missing");
+  assert.ok(src.includes("setSpecimenHeld(true)"), "hover/focus hold not wired");
+  // The effect bails when held, when any dialog is open, or under reduced motion.
+  const eff = src.slice(src.indexOf("const [specimenIdx, setSpecimenIdx]"), src.indexOf("const specimen = SPECIMENS"));
+  assert.ok(eff.includes("specimenHeld || howOpen || sourcesOpen || creditsOpen"), "pause conditions incomplete");
+  assert.ok(eff.includes("reduced"), "reduced-motion bail missing");
+});
+
+await test("dots select specimens directly", () => {
+  assert.ok(src.includes('role="tablist"'), "dots tablist missing");
+  assert.ok(src.includes("onClick={() => setSpecimenIdx(i)}"), "dot selection not wired");
+});
+
+await test("specimen change has its own entrance animation", () => {
+  assert.ok(src.includes("@keyframes cbSpecimenIn"), "specimen keyframes missing");
+  assert.ok(src.includes("cb-specimen-in"), "specimen entrance class missing");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Removals — the intro is a specimen, not an information stack");
 
 await test("no pointer parallax anywhere in the intro", () => {
   assert.ok(!src.includes("heroColRef"), "parallax ref still referenced");
@@ -91,6 +130,11 @@ await test("no rotating scene-question machinery", () => {
   assert.ok(!src.includes("scene.question"), "scene question lookup still referenced");
   assert.ok(!src.includes("Explore this question"), "explore link still present");
   assert.ok(!src.includes("sceneNo"), "editorial plate number still referenced");
+});
+
+await test("the old worked-example section is gone — the specimen is the example", () => {
+  assert.ok(!src.includes("A real answer"), "old worked-example section still present");
+  assert.ok(!src.includes("Do we have direct evidence of gravitational waves?"), "old example question still present");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -140,20 +184,13 @@ await test("focus-pull keyframes exist and resolve blur to sharp", () => {
   assert.ok(!kf.includes("translate"), "focus-pull must not move the type");
 });
 
-await test("hero text uses a premium entrance (focus-pull or masked reveal)", () => {
-  assert.ok(src.includes('"cb-focus-in"') || src.includes('"cb-masked-reveal"'), "no premium entrance applied to hero text");
+await test("hero text uses a premium entrance (focus-pull or specimen-in)", () => {
+  assert.ok(src.includes('"cb-focus-in"') || src.includes('"cb-specimen-in"'), "no premium entrance applied to hero text");
 });
 
 await test("old fade-and-rise entrance is fully gone", () => {
   assert.ok(!src.includes("cb-title-in"), "cb-title-in class still referenced");
   assert.ok(!src.includes("cbTitleIn"), "cbTitleIn keyframes still referenced");
-});
-
-await test("title type is monumental — masked reveal, heavy weight, tight tracking", () => {
-  assert.ok(src.includes('clamp(36px, 4.5vw, 58px)'), "desktop title not at monumental scale");
-  assert.ok(src.includes('clamp(28px, 8vw, 40px)'), "mobile title not at monumental scale");
-  assert.ok(src.includes("cb-masked-reveal"), "masked line reveal not applied");
-  assert.ok(src.includes("@keyframes cbMaskedRise"), "masked rise keyframes missing");
 });
 
 await test("kicker is tiny tracked caps", () => {
