@@ -6203,8 +6203,8 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       <div aria-hidden="true" style={{
         position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
         background:
-          "radial-gradient(ellipse 100% 88% at 50% 42%, transparent 22%, rgba(0,0,0,0.6) 58%, rgba(0,0,0,0.82) 100%)," +
-          "linear-gradient(180deg, rgba(8,10,13,0.44) 0%, transparent 26%, transparent 62%, rgba(8,10,13,0.62) 100%)",
+          "radial-gradient(ellipse 100% 88% at 50% 42%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.55) 42%, rgba(0,0,0,0.78) 72%, rgba(0,0,0,0.88) 100%)," +
+          "linear-gradient(180deg, rgba(8,10,13,0.52) 0%, rgba(8,10,13,0.18) 30%, rgba(8,10,13,0.18) 62%, rgba(8,10,13,0.68) 100%)",
       }} />
 
       {/* The film opening: a beat of near-black that lifts to reveal the
@@ -23628,7 +23628,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
   const font = "var(--cb-font)";
   const pad = isMobile ? 20 : 32;
   const glass = P.dark 
-    ? `${withAlpha(P.surface, 0.6)}` 
+    ? `${withAlpha(P.surface, 0.88)}` 
     : P.surface;
   const glassBorder = P.dark
     ? `1px solid ${withAlpha(P.ink2, 0.08)}`
@@ -23741,7 +23741,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // the `Ctrl+K` shortcut chip both set the body face; the chip keeps
     // its key-cap border and padding, which is what makes it read as a
     // key, not the typeface.
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: "-0.01em", boxShadow: P.shadowSm, marginRight: 4 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: "-0.01em", boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 8, padding: "2px 6px", fontWeight: 500 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: font },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", position: "relative" },
@@ -24161,7 +24161,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     relatedBtn: {
       display: "flex", alignItems: "center", justifyContent: "space-between",
       gap: 12, textAlign: "left", padding: "14px 18px",
-      fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.5) : P.surface, color: P.ink2,
+      fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, color: P.ink2,
       border: glassBorder, borderRadius: 8,
       cursor: "pointer", fontFamily: font,
       transition: "background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease", letterSpacing: "-0.01em",
