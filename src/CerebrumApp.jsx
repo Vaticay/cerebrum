@@ -27054,6 +27054,11 @@ function App() {
   // when the last one closes, with the scroll offset from the first open.
   const anyOverlayOpen = cmdOpen || mobilePanel
     || authOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource
+    // The consent gate must lock body scroll too — otherwise a first-time
+    // visitor (or anyone whose legal cookie expired) gets a fixed overlay
+    // over a scrollable page, and the body can be left overflow:hidden
+    // with no cleanup path when the gate is dismissed.
+    || !legalOk
     // Background scroll bled through these modals on iOS (body never
     // locked): flowchart studio, Pro modal, profile viewer, provenance
     // panel, film credits, and incoming/active call overlays.
