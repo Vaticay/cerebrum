@@ -7127,7 +7127,7 @@ function LegalProgress({ accent }) {
 }
 
 function InfoPage({ page }) {
-  const paletteName = (() => { try { return getCookie("cb_palette") || "Dark"; } catch { return "Dark"; } })();
+  const paletteName = (() => { try { return getCookie("cb_pal") || "Dark"; } catch { return "Dark"; } })();
   // The Pro palette is a members-only entitlement resolved from the signed-in
   // account inside App(). This standalone route has no account context, so a
   // stale cb_palette cookie (set while Pro, kept after logout/revocation)
