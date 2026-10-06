@@ -16211,6 +16211,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const recRef = useRef(null);
   const recSecondsRef = useRef(0);
   const [lightbox, setLightbox] = useState(null);
+  // If the user leaves the inbox mid-recording, InboxView unmounts and the
+  // mic would stay open with no UI to stop it. Clean up on unmount.
+  useEffect(() => () => { try { stopRecording(); } catch {} }, []);
 
   // Downscales to fit inside 1400px and re-encodes as JPEG before upload.
   // A phone photo is several MB; a message row in D1 has roughly 1MB to
@@ -16330,7 +16333,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // updater below was a side effect in the updater and double-fired
     // under StrictMode.
     recSecondsRef.current = 0;
-    recRef.current = { rec, timer: setInterval(() => {
+    recRef.current = { rec, stream, timer: setInterval(() => {
       recSecondsRef.current += 1;
       const nv = recSecondsRef.current;
       setRecSeconds(nv);
@@ -16348,7 +16351,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // recorder the user already dismissed.
     if (cur.starting) { cur.cancelled = true; }
     clearInterval(cur.timer);
-    try { cur.rec.stop(); } catch {}
+    try { cur.rec.stop(); } catch {
+      // If stop() throws (e.g. iOS InvalidStateError), onstop never fires
+      // and the mic tracks would leak — stop them directly.
+      try { cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); } catch {}
+    }
     recRef.current = null;
     recSecondsRef.current = 0;
     setRecording(false);
