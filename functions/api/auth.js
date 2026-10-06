@@ -357,10 +357,38 @@ async function issueSession(env, user, isSecure, cors, extraSetCookies = []) {
     const { epoch } = await auth.currentSessionEpoch(env, user.id);
     const jwt = await auth.signJWT({ sub: user.id, email: user.email, epoch }, env);
     headers.append("Set-Cookie", auth.jwtCookieHeader(jwt, isSecure));
-    return json({ success: true, user: payload }, 200, headers);
+  } else {
+    const token = await auth.createSession(env, user.id);
+    headers.append("Set-Cookie", auth.sessionCookieHeader(token, isSecure));
   }
-  const token = await auth.createSession(env, user.id);
-  headers.append("Set-Cookie", auth.sessionCookieHeader(token, isSecure));
+  // The sign-in response is installed directly as client user state
+  // (handleAuthed), so it must carry the Pro flags — otherwise every
+  // user.isPro gate (Pro themes, Pro features) evaluates false until the
+  // next page load re-fetches via GET /api/auth.
+  try {
+    await auth.ensureUserProfileColumns(env);
+    const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
+    const isFounder =
+      !!founderEmail &&
+      String(user.email || "").trim().toLowerCase() === founderEmail;
+    if (isFounder) {
+      try {
+        await env.DB.prepare(
+          "UPDATE users SET plan = 'pro', pro_source = 'lifetime', pro_granted_at = COALESCE(pro_granted_at, ?) WHERE id = ? AND (plan IS NULL OR plan != 'pro')"
+        ).bind(Date.now(), user.id).run();
+      } catch {}
+    }
+    const row = await env.DB.prepare(
+      "SELECT plan, pro_source FROM users WHERE id = ?"
+    ).bind(user.id).first();
+    payload.isPro = !!row && row.plan === "pro";
+    payload.proSource = (row && row.pro_source) || null;
+    payload.isFounder = isFounder;
+  } catch {
+    payload.isPro = false;
+    payload.proSource = null;
+    payload.isFounder = false;
+  }
   return json({ success: true, user: payload }, 200, headers);
 }
 

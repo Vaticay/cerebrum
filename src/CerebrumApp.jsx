@@ -16272,10 +16272,24 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // MediaRecorder. The placeholder reserves the slot synchronously
     // across the getUserMedia await.
     if (recording || recRef.current || !activeId) return;
-    recRef.current = { starting: true };
+    recRef.current = { starting: true, cancelled: false };
+    // Show the stop UI immediately: the getUserMedia permission prompt can
+    // sit for seconds, and until `recording` flips the toggle button keeps
+    // calling startRecording (a no-op) instead of stop — the "can't stop
+    // it" bug.
+    setRecording(true);
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { recRef.current = null; toast("Microphone access is needed for a voice note.", { tone: "error" }); return; }
+    catch { recRef.current = null; setRecording(false); toast("Microphone access is needed for a voice note.", { tone: "error" }); return; }
+    // The user hit stop while the permission prompt was up: do not start
+    // a recorder they already cancelled.
+    if (!recRef.current || recRef.current.cancelled) {
+      stream.getTracks().forEach((t) => t.stop());
+      recRef.current = null;
+      setRecording(false);
+      setRecSeconds(0);
+      return;
+    }
     const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => {
       try { return window.MediaRecorder && MediaRecorder.isTypeSupported(m); } catch { return false; }
     });
@@ -16324,12 +16338,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }, 1000) };
     rec.start();
     setRecSeconds(0);
-    setRecording(true);
   }
 
   function stopRecording() {
     const cur = recRef.current;
     if (!cur) return;
+    // Stopping during the getUserMedia permission prompt: mark cancelled
+    // so the resolver above abandons startup instead of starting a
+    // recorder the user already dismissed.
+    if (cur.starting) { cur.cancelled = true; }
     clearInterval(cur.timer);
     try { cur.rec.stop(); } catch {}
     recRef.current = null;
