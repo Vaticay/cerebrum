@@ -5561,6 +5561,14 @@ export function buildConfidenceLine(papers, verdict) {
         " — treat conclusions as provisional until the split is resolved.",
     };
   }
+  // If the papers have low average relevance, don't claim strong consensus —
+  // a dozen tangential papers are not evidence of agreement.
+  const avgRelevance = n > 0
+    ? (papers || []).reduce((s, p) => s + (Number(p.relevance) || Number(p.relevanceScore) || 50), 0) / n
+    : 50;
+  if (avgRelevance < 40) {
+    return { level: "thin", line: "Weak match: the sources found are only tangentially related to this question — treat this answer as provisional." };
+  }
   if (n >= 5) {
     return { level: "strong", line: "Strong consensus: " + n + " sources point the same way and none report opposing findings." };
   }

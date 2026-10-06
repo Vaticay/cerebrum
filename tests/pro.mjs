@@ -330,8 +330,8 @@ const envOf = (db) => ({ DB: db });
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
 
-await test("free cap is 15 AI answers a month", () => {
-  assert.equal(FREE_AI_ANSWERS_PER_MONTH, 15);
+await test("free cap is 50 AI answers a month", () => {
+  assert.equal(FREE_AI_ANSWERS_PER_MONTH, 50);
 });
 
 await test("monthKey is UTC YYYY-MM", () => {
@@ -531,11 +531,11 @@ await test("free user meters against the monthly bucket, cap enforced", async ()
   let gate = await resolveAiGate(env, me);
   assert.equal(gate.kind, "free");
   assert.equal(gate.aiUsed, 0);
-  assert.equal(gate.aiCap, 15);
+  assert.equal(gate.aiCap, 50);
   assert.equal(aiSynthesisAllowed(gate), true);
-  for (let i = 0; i < 15; i++) await recordAiAnswer(env, "u2");
+  for (let i = 0; i < 50; i++) await recordAiAnswer(env, "u2");
   gate = await resolveAiGate(env, me);
-  assert.equal(gate.aiUsed, 15);
+  assert.equal(gate.aiUsed, 50);
   assert.equal(aiSynthesisAllowed(gate), false);
 });
 
@@ -568,7 +568,7 @@ await test("lite tier helpers: isLiteRow, tierOfRow, capsForTier", () => {
   assert.equal(tierOfRow({ plan: null }), "free");
   assert.equal(tierOfRow(null), "free");
   assert.deepEqual(capsForTier("lite"), { ai: LITE_AI_ANSWERS, docs: LITE_DOC_READS, flowcharts: LITE_FLOWCHARTS });
-  assert.equal(LITE_AI_ANSWERS, 150);
+  assert.equal(LITE_AI_ANSWERS, 500);
   assert.equal(LITE_DOC_READS, 30);
   assert.equal(LITE_FLOWCHARTS, 10);
   assert.equal(capsForTier("pro").ai, Infinity);
@@ -601,19 +601,19 @@ await test("lite price IDs resolve server-side from env, never from the client",
   assert.equal(tierForPriceId(env, null), null);
 });
 
-await test("lite user meters at 150 AI answers, cap enforced", async () => {
+await test("lite user meters at 500 AI answers, cap enforced", async () => {
   const db = mockDB();
   db.addUser({ id: "uL", email: "lite@x.com", plan: "lite", pro_source: "subscription" });
   const env = envOf(db);
   const me = { id: "uL", email: "lite@x.com" };
   let gate = await resolveAiGate(env, me);
   assert.equal(gate.kind, "lite");
-  assert.equal(gate.aiCap, 150);
+  assert.equal(gate.aiCap, 500);
   assert.equal(gate.proSource, "subscription");
   assert.equal(aiSynthesisAllowed(gate), true);
-  for (let i = 0; i < 150; i++) await recordAiAnswer(env, "uL");
+  for (let i = 0; i < 500; i++) await recordAiAnswer(env, "uL");
   gate = await resolveAiGate(env, me);
-  assert.equal(gate.aiUsed, 150);
+  assert.equal(gate.aiUsed, 500);
   assert.equal(aiSynthesisAllowed(gate), false);
 });
 
@@ -1036,29 +1036,29 @@ await test("lifetime list API speaks { email, granted_at }", async () => {
 
 // ── Behavioral quota edges ──────────────────────────────────────────────
 
-await test("free 14/15 allows one more; 15/15 denies (exact boundary)", async () => {
+await test("free 49/50 allows one more; 50/50 denies (exact boundary)", async () => {
   const db = mockDB();
   db.addUser({ id: "u20", email: "edge@x.com" });
   const env = envOf(db);
   const me = { id: "u20", email: "edge@x.com" };
-  for (let i = 0; i < 14; i++) await recordAiAnswer(env, "u20");
+  for (let i = 0; i < 49; i++) await recordAiAnswer(env, "u20");
   let gate = await resolveAiGate(env, me);
-  assert.equal(gate.aiUsed, 14);
-  assert.equal(aiSynthesisAllowed(gate), true, "14/15 must still allow AI");
+  assert.equal(gate.aiUsed, 49);
+  assert.equal(aiSynthesisAllowed(gate), true, "49/50 must still allow AI");
   await recordAiAnswer(env, "u20");
   gate = await resolveAiGate(env, me);
-  assert.equal(gate.aiUsed, 15);
-  assert.equal(aiSynthesisAllowed(gate), false, "15/15 must deny AI");
+  assert.equal(gate.aiUsed, 50);
+  assert.equal(aiSynthesisAllowed(gate), false, "50/50 must deny AI");
 });
 
 await test("concurrent recordAiAnswer calls never lose increments", async () => {
   const db = mockDB();
   db.addUser({ id: "u21", email: "race@x.com" });
   const env = envOf(db);
-  await Promise.all(Array.from({ length: 20 }, () => recordAiAnswer(env, "u21")));
+  await Promise.all(Array.from({ length: 60 }, () => recordAiAnswer(env, "u21")));
   const gate = await resolveAiGate(env, { id: "u21", email: "race@x.com" });
-  assert.equal(gate.aiUsed, 20, "atomic upsert must not drop parallel increments");
-  assert.equal(aiSynthesisAllowed(gate), false, "20/15 must be over the cap");
+  assert.equal(gate.aiUsed, 60, "atomic upsert must not drop parallel increments");
+  assert.equal(aiSynthesisAllowed(gate), false, "60/50 must be over the cap");
 });
 
 // ── Atomic quota consumption (2026-09-15) ─────────────────────────────────
@@ -1116,15 +1116,15 @@ await test("lite cap 150 enforced atomically, not just free's 15", async () => {
   db.addUser({ id: "u43", email: "lite2@x.com", plan: "lite", pro_source: "subscription" });
   const env = envOf(db);
   const results = await Promise.all(
-    Array.from({ length: 200 }, () => consumeAiAnswer(env, "u43", LITE_AI_ANSWERS))
+    Array.from({ length: 600 }, () => consumeAiAnswer(env, "u43", LITE_AI_ANSWERS))
   );
-  assert.equal(results.filter((r) => r.allowed).length, 150, "exactly 150 of 200 concurrent consumes allowed");
+  assert.equal(results.filter((r) => r.allowed).length, 500, "exactly 500 of 600 concurrent consumes allowed");
   const gate = await resolveAiGate(env, { id: "u43", email: "lite2@x.com" });
   assert.equal(gate.kind, "lite");
-  assert.equal(gate.aiUsed, 150);
+  assert.equal(gate.aiUsed, 500);
   assert.equal(aiSynthesisAllowed(gate), false);
   const denied = await consumeAiAnswer(env, "u43", LITE_AI_ANSWERS);
-  assert.ok(!denied.allowed, "151st lite consume must be denied");
+  assert.ok(!denied.allowed, "501st lite consume must be denied");
 });
 
 await test("pro unlimited skips the consume: no DB write, always allowed", async () => {

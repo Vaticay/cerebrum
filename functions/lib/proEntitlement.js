@@ -22,7 +22,7 @@
 
 import { timingSafeEqualHex } from "./authHelpers.js";
 
-export const FREE_AI_ANSWERS_PER_MONTH = 15;
+export const FREE_AI_ANSWERS_PER_MONTH = 50;
 // Notebook Mode (document analysis) and Flowchart Studio are metered the
 // same way: free accounts get a small quota-period bucket, Pro is unlimited.
 // These caps are product policy set by Dusty (2026-09-15): 3 document reads
@@ -35,7 +35,7 @@ export const FREE_FLOWCHARTS_PER_MONTH = 1;
 // the free usage. Metered, never unlimited, and none of Pro's perks (no PRO
 // badge, no exclusive theme, no Pro reel). It is a bigger tank, not a
 // smaller Pro — the upsell to full Pro stays intact.
-export const LITE_AI_ANSWERS = 150;
+export const LITE_AI_ANSWERS = 500;
 export const LITE_DOC_READS = 30;
 export const LITE_FLOWCHARTS = 10;
 
