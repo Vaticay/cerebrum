@@ -919,8 +919,12 @@ await test("answer footnote nudges gated users toward Pro or sign-in", async () 
 await test("Pro palette exists and is gated to Pro members", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   assert.match(src, /Pro:\s+\{ dark: true/, "Pro palette missing from PALETTES");
-  assert.match(src, /pn !== "Pro" \|\| \(user && user\.isPro\)/, "theme picker does not gate the Pro palette");
-  assert.match(src, /paletteName === "Pro" && !\(user && user\.isPro\) \? "Dark" : paletteName/, "P resolution does not fall back for non-Pro");
+  assert.match(src, /"Pro Violet":\s+\{ dark: true/, "Pro Violet palette missing from PALETTES");
+  assert.match(src, /"Pro Abyss":\s+\{ dark: true/, "Pro Abyss palette missing from PALETTES");
+  assert.match(src, /"Pro Ember":\s+\{ dark: true/, "Pro Ember palette missing from PALETTES");
+  assert.match(src, /const isProPalette = \(pn\) => PRO_PALETTE_NAMES\.indexOf\(pn\) !== -1/, "isProPalette helper missing");
+  assert.match(src, /!isProPalette\(pn\) \|\| \(user && user\.isPro\)/, "theme picker does not gate the Pro palettes");
+  assert.match(src, /isProPalette\(paletteName\) && !\(user && user\.isPro\) \? "Dark" : paletteName/, "P resolution does not fall back for non-Pro");
 });
 
 await test("Pro badge renders on profile and in the account menu", async () => {

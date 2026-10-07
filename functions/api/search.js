@@ -8107,7 +8107,10 @@ async function gatherPapers(rawQuery, opts) {
     try {
       const embBudget = await checkEmbeddingBudget(opts.env);
       if (embBudget.allowed) {
-        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: 20, alpha: 0.5 });
+        // Pro depth: rerank twice the candidate pool. The neuron cost is flat
+        // (one batched embedding call either way), so this is free depth.
+        const rerankTopN = opts && opts.isPro ? 40 : 20;
+        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: rerankTopN, alpha: 0.5 });
         if (rr.semanticApplied) {
           await spendEmbeddingNeurons(opts.env, EMBEDDING_NEURON_COST_PER_RERANK);
           rerankedFinal = rr.papers;
@@ -8763,6 +8766,11 @@ async function runSearchPipeline(pctx) {
       aiGate = { kind: "anonymous", userId: null, aiUsed: 0, aiCap: 50, proSource: null };
     }
     const aiSynthesisAllowed = proLib ? proLib.aiSynthesisAllowed(aiGate) : false;
+    // PRO SEARCH DEPTH — Pro members get a deeper pipeline: more papers
+    // retrieved, a larger semantic-rerank pool, longer wave timeouts so the
+    // strongest models can finish, no cheap-first routing, and a richer
+    // wave-3 last resort. See the wave section below for the full branch.
+    const isProSearch = !!(aiGate && aiGate.kind === "pro");
     // Consume one AI answer from a metered account's bucket (free or Lite).
     // The cap check and the increment are ONE atomic statement
     // (consumeAiAnswer): concurrent requests can never overshoot the cap or
@@ -9576,7 +9584,8 @@ async function runSearchPipeline(pctx) {
             openAlexKey: env.OPENALEX_KEY || "",
             ncbiKey: env.NCBI_API_KEY || "",
             s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
-            limit: 15,
+            limit: isProSearch ? 25 : 15,
+            isPro: isProSearch,
             resolvedPersonName,
             db: env.DB,
             env,
@@ -9687,7 +9696,8 @@ async function runSearchPipeline(pctx) {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
         s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
-        limit: wantsMorePapers ? 40 : 25,
+        limit: isProSearch ? 50 : (wantsMorePapers ? 40 : 25),
+        isPro: isProSearch,
         resolvedPersonName,
         db: env.DB,
         env,
@@ -9717,6 +9727,8 @@ async function runSearchPipeline(pctx) {
         health: stageHealth,
       });
       gResult = retrievalStage.value || { papers: [], _diag: {} };
+      // Operator-visible flag: this request ran the Pro depth pipeline.
+      if (gResult._diag) gResult._diag.proSearchDepth = isProSearch;
 
       // ═══════════════════════════════════════════════════════════════
       // LLM RESCUE: if mechanical search found too few papers, use the
@@ -11053,7 +11065,10 @@ async function runSearchPipeline(pctx) {
     // sitting right next to it. 2500 chars (~380-400 words) still rejects
     // the specific failure mode reported (a ~250-word answer to a Detailed
     // request) without turning "not quite 800" into a retry trigger.
-    const minAnswerLen = answerLength === "long" ? 2500 : answerLength === "short" ? 30 : 150;
+    // Pro depth: "long" answers are held to a higher floor for Pro members —
+    // a lazy short response gets retried against the next model instead of
+    // being served. Depth over latency is the Pro trade.
+    const minAnswerLen = answerLength === "long" ? (isProSearch ? 3200 : 2500) : answerLength === "short" ? 30 : 150;
 
     // The enforcer prompt tells every model its **bold** term count is
     // "mechanically checked" and a low count gets it swapped for another
@@ -11703,12 +11718,19 @@ async function runSearchPipeline(pctx) {
       // :free shared). The fastpath leg is built here (not earlier) so it
       // is created after the controller and gets the signal too.
       const w1Abort = new AbortController();
-      const wave1Timeout = clampLegTimeout(10000);
+      // Pro depth: longer runway so the strongest (slower) models can finish
+      // instead of timing out — the 550B primary has won production waves
+      // well past the free 10s budget.
+      const wave1Timeout = clampLegTimeout(isProSearch ? 14000 : 10000);
       // Nuance #33 cheap-first: when the router judged this request
       // low-complexity, the fastpath leg leads with the cheap model instead
       // of the domain favorite — the wave race still lets a better answer
       // win, but the cheapest adequate model gets first crack.
-      const fastpathModel = routedModel === CHEAP_MODEL ? routedModel : preferredModel;
+      // Pro depth: Pro members never lead with the cheap model — the
+      // D1-learned domain favorite (or nothing) leads instead.
+      const fastpathModel = isProSearch
+        ? preferredModel
+        : (routedModel === CHEAP_MODEL ? routedModel : preferredModel);
       const fastpathCalls = (fastpathModel && token && msLeft() > 3000)
         ? [raceEntry(0, "fastpath:" + fastpathModel,
             callOR(fastpathModel, messages, maxTokens, clampLegTimeout(8000), w1Abort.signal))]
@@ -11769,7 +11791,8 @@ async function runSearchPipeline(pctx) {
       // 2026-09-12: legs clamped to the remaining budget (8s wanted) and
       // the wave raced against the synthesis deadline — same backstop as
       // wave 1.
-      const wave2Timeout = clampLegTimeout(8000);
+      // Pro depth: same longer-runway treatment as wave 1.
+      const wave2Timeout = clampLegTimeout(isProSearch ? 12000 : 8000);
       const wave2Calls = [
         ...(token ? OR_WAVE2.map((m) => raceEntry(2, m, callOR(m, wave2Messages, maxTokens, wave2Timeout))) : []),
         ...compatLegs(2, "w2", wave2Messages, maxTokens, wave2Timeout),
@@ -11890,7 +11913,10 @@ async function runSearchPipeline(pctx) {
         // do with whatever just failed.
         ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
         ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
-        ...(token ? [OR_FREE_MODELS[4], OR_FREE_MODELS[5]].map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
+        // Pro depth: wave 3 only fires after total failure, so the extra legs
+        // are cheap — Pro races four OpenRouter models here instead of two,
+        // in case the wave 1-2 throttle has cleared by now.
+        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]] : [OR_FREE_MODELS[4], OR_FREE_MODELS[5]]).map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
       ];
       try {
         const winner = await Promise.race([

@@ -536,7 +536,21 @@ const PALETTES = {
   // SettingsView), and the P resolution below falls back to Dark for anyone
   // else holding the cookie — so the palette can never leak to free.
   Pro:   { dark: true, bg: "#0b0a07", surface: "#14110b", raised: "#1e1a11", ink: "#faf3e0", ink2: "#e6d6a8", faint: "#a2936b", line: "rgba(212,175,55,0.13)", line2: "rgba(212,175,55,0.24)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #14110b 25%, #1e1a11 50%, #14110b 75%)" },
+  // Pro Violet — members' palette. Deep black-violet with a restrained
+  // violet register: the same premium-dark grammar as Pro, cooler mood.
+  "Pro Violet": { dark: true, bg: "#0c0a11", surface: "#14101c", raised: "#1d1626", ink: "#f5f0ff", ink2: "#d5c8f0", faint: "#9a8fb5", line: "rgba(167,139,250,0.13)", line2: "rgba(167,139,250,0.24)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #14101c 25%, #1d1626 50%, #14101c 75%)" },
+  // Pro Abyss — members' palette. Deep ocean black-blue with a cyan
+  // register: cold, deep, technical.
+  "Pro Abyss": { dark: true, bg: "#070b10", surface: "#0e141b", raised: "#16202a", ink: "#eef7ff", ink2: "#c2dcee", faint: "#7e9ab0", line: "rgba(103,232,249,0.12)", line2: "rgba(103,232,249,0.22)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #0e141b 25%, #16202a 50%, #0e141b 75%)" },
+  // Pro Ember — members' palette. Deep charcoal-red with an ember-orange
+  // register: warm, intense, the hot counterpart to Abyss.
+  "Pro Ember": { dark: true, bg: "#0f0a08", surface: "#17100c", raised: "#211712", ink: "#fff4ec", ink2: "#eed3b8", faint: "#a88a6b", line: "rgba(251,146,60,0.13)", line2: "rgba(251,146,60,0.24)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #17100c 25%, #211712 50%, #17100c 75%)" },
 };
+// Pro-exclusive palettes — the theme picker only offers these when
+// user.isPro is true, and P resolution falls back to Dark for anyone else
+// holding the cookie, so member-only chrome can never leak to free.
+const PRO_PALETTE_NAMES = ["Pro", "Pro Violet", "Pro Abyss", "Pro Ember"];
+const isProPalette = (pn) => PRO_PALETTE_NAMES.indexOf(pn) !== -1;
 // Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
 // (Matrix Green, Cyberpunk Cyan) moved to the front and pushed slightly
 // more saturated/electric; the rest of the wheel (Violet, Sky/Indigo,
@@ -6629,7 +6643,7 @@ function InfoPage({ page }) {
   // account inside App(). This standalone route has no account context, so a
   // stale cb_palette cookie (set while Pro, kept after logout/revocation)
   // must fall back to Dark — never render member-only chrome to a stranger.
-  const P = PALETTES[paletteName === "Pro" ? "Dark" : paletteName] || PALETTES.Dark;
+  const P = PALETTES[isProPalette(paletteName) ? "Dark" : paletteName] || PALETTES.Dark;
   // ACCENTS was collapsed to a single { Mono } entry when the app moved to
   // its current monochrome accent direction (App()'s own accentName state,
   // a few thousand lines down, already defaults to "Mono" to match) — this
@@ -20822,7 +20836,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <div style={{ display: "flex", gap: 8, padding: 12, flexWrap: "wrap" }}>
                 {/* The Pro palette is members-only: it is not offered in the
                     picker at all unless the signed-in account is Pro. */}
-                {Object.keys(PALETTES).filter((pn) => pn !== "Pro" || (user && user.isPro)).map((pn) => (
+                {Object.keys(PALETTES).filter((pn) => !isProPalette(pn) || (user && user.isPro)).map((pn) => (
                   <button key={pn} onClick={() => { sfx(); setPaletteName(pn); }}
                     style={{ flex: "1 1 100px", minWidth: 0, padding: "16px 12px 12px", borderRadius: 8, cursor: "pointer", border: paletteName === pn ? `2px solid ${accent}` : `1px solid ${divider}`, background: PALETTES[pn].bg, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                     <div style={{ display: "flex", gap: 4 }}>
@@ -24166,7 +24180,7 @@ function App() {
     // The Pro palette is members-only: anyone holding the cookie without a
     // Pro account (signed out, expired, revoked) falls back to Dark rather
     // than seeing the members' theme.
-    const name = paletteName === "Pro" && !(user && user.isPro) ? "Dark" : paletteName;
+    const name = isProPalette(paletteName) && !(user && user.isPro) ? "Dark" : paletteName;
     return PALETTES[name] || PALETTES.Dark;
   })();
   // "Mono" isn't a real color swatch — it means "match the current palette's

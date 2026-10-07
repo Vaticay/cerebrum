@@ -473,8 +473,10 @@ await test("search: budget authorized once before wave 1; every wave gated on de
 
 await test("search: cheap-first routing drives the fastpath leg", async () => {
   const src = await readSrc("functions/api/search.js");
-  assert.match(src, /const fastpathModel = routedModel === CHEAP_MODEL \? routedModel : preferredModel;/,
+  assert.match(src, /routedModel === CHEAP_MODEL \? routedModel : preferredModel/,
     "low-complexity requests lead the fastpath with the cheap model");
+  assert.match(src, /const fastpathModel = isProSearch\s*\n?\s*\? preferredModel/,
+    "Pro members skip cheap-first fastpath routing");
   assert.match(src, /callOR\(fastpathModel,/, "fastpath actually calls the routed model");
 });
 
