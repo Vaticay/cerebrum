@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS } from "./designSystem.jsx";
+import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z } from "./designSystem.jsx";
 
 export function cbMotionOff() {
   // Cached ~1s: this runs in hot paths (pointer handlers, count-up hooks)
@@ -527,7 +527,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               {studioBtn("Export", () => setExportOpen((v) => !v), { icon: "download", title: "Export as SVG, PNG, or Markdown" })}
               {exportOpen && (
                 <div style={{
-                  position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 10, minWidth: 220,
+                  position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: Z.sticky, minWidth: 220,
                   background: P.bg, border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
                   boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
                 }}>
@@ -614,7 +614,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.dark ? "#0b0d0b" : "#eef0ec", overflow: "hidden" }}>
             {/* vignette for depth */}
             <div aria-hidden="true" style={{
-              position: "absolute", inset: 0, pointerEvents: "none", zIndex: 2,
+              position: "absolute", inset: 0, pointerEvents: "none", zIndex: Z.raised,
               background: P.dark
                 ? "radial-gradient(120% 120% at 50% 40%, transparent 55%, rgba(0,0,0,0.42) 100%)"
                 : "radial-gradient(120% 120% at 50% 40%, transparent 60%, rgba(30,40,30,0.10) 100%)",
@@ -713,7 +713,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               </g>
             </svg>
             {nodes.length === 0 && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", padding: 24, zIndex: 3 }}>
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", padding: 24, zIndex: Z.overlay }}>
                 <div style={{ textAlign: "center", maxWidth: 380 }}>
                   <svg width="220" height="86" viewBox="0 0 220 86" aria-hidden="true" style={{ margin: "0 auto 18px", display: "block", opacity: 0.9 }}>
                     <defs>
@@ -740,7 +740,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               </div>
             )}
             {/* zoom controls */}
-            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: 3, display: "flex", alignItems: "center", gap: 2, background: P.bg, border: `1px solid ${P.line}`, borderRadius: 6, padding: 4 }}>
+            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: Z.overlay, display: "flex", alignItems: "center", gap: 2, background: P.bg, border: `1px solid ${P.line}`, borderRadius: 6, padding: 4 }}>
               {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"]].map(([label, f, t2]) => (
                 <UIButton P={P} variant="ghost" key={label} type="button" title={t2} aria-label={t2}
                   onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }))}
@@ -1768,7 +1768,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                 <div style={{
                   position: "absolute", top: 12, left: 12, right: 12, padding: "12px 16px", borderRadius: 12,
                   background: dark ? "rgba(60,16,16,0.92)" : "rgba(254,226,226,0.96)",
-                  border: "1px solid rgba(248,113,113,0.5)", zIndex: 5,
+                  border: "1px solid rgba(248,113,113,0.5)", zIndex: Z.float,
                 }}>
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
                     Mermaid could not parse this
@@ -1780,7 +1780,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                 </div>
               )}
               {/* Zoom controls — 44px targets, live percentage */}
-              <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: 5 }}>
+              <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: Z.float }}>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="Reset to 100%"
                   style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 600 }}>{Math.round(pan.k * 100)}%</button>
@@ -1819,7 +1819,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
 
       {/* ── Mobile rail drawer ── */}
       {isMobile && railOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 70 }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: Z.menu }}>
           <div onClick={() => setRailOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} aria-hidden="true" />
           <div style={{
             position: "absolute", top: 0, bottom: 0, left: 0, width: "min(320px, 85vw)",

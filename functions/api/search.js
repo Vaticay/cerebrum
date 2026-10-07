@@ -6393,6 +6393,81 @@ function scoreAnswerQuality(answer, query) {
 }
 
 
+// ============ RACE-BEST: quality over speed (replaces Promise.any) ============
+// Promise.any takes the FASTEST successful leg — a fast small model beats a
+// slower strong model even when the strong model's answer is better. raceBest
+// waits for the first success, then gives other legs a short grace window to
+// finish, and picks the highest-quality answer via scoreAnswerQuality.
+//
+// Quota tradeoff: losers run during the grace window instead of being aborted
+// immediately. Bounded by (a) the grace window, (b) stopping early once
+// maxFinishers successes arrive, and (c) the caller's AbortController which
+// still kills stragglers after we decide. The outer synthesis-deadline race
+// remains the hard backstop.
+//
+// Rejects with AggregateError (like Promise.any) when every leg fails, so
+// existing errMsgs(agg) handling works unchanged. Attaches raceBestScore and
+// raceBestPool to the winner for operator observability.
+async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3) {
+  const list = Array.isArray(calls) ? calls : [];
+  if (list.length === 0) throw new AggregateError([], "raceBest: no legs");
+  if (list.length === 1) return list[0];
+
+  return new Promise((resolve, reject) => {
+    const successes = [];
+    const failures = [];
+    let settled = false;
+    let graceTimer = null;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+      if (successes.length === 0) {
+        reject(new AggregateError(failures, "raceBest: all legs failed"));
+        return;
+      }
+      let best = successes[0];
+      let bestScore = -1;
+      for (const s of successes) {
+        let score = 0;
+        try {
+          score = scoreAnswerQuality(s && s.answer, query);
+        } catch (cbErr) { console.error("[Cerebrum] search.js raceBest: scoreAnswerQuality threw:", cbErr); }
+        if (score > bestScore) { bestScore = score; best = s; }
+      }
+      try { best.raceBestScore = bestScore; best.raceBestPool = successes.length; } catch (cbErr) { console.error("[Cerebrum] search.js raceBest: attach observability threw:", cbErr); }
+      resolve(best);
+    };
+
+    const checkDone = () => {
+      if (settled) return;
+      if (successes.length + failures.length >= list.length) finish();
+      else if (successes.length >= maxFinishers) finish();
+    };
+
+    const onSuccess = (r) => {
+      if (settled) return;
+      successes.push(r);
+      if (successes.length === 1 && !graceTimer) {
+        graceTimer = setTimeout(finish, Math.max(0, graceMs));
+      }
+      checkDone();
+    };
+
+    const onFailure = (e) => {
+      if (settled) return;
+      failures.push(e instanceof Error ? e : new Error(String(e)));
+      checkDone();
+    };
+
+    for (const c of list) {
+      Promise.resolve(c).then(onSuccess, onFailure);
+    }
+  });
+}
+
+
 // ============ LLM QUERY INTELLIGENCE ("THE BRAIN") ============
 // The conversational intelligence core. Instead of rigid regex-based intent
 // classification, we use a fast LLM call to UNDERSTAND what the user actually

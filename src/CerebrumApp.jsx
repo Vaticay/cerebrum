@@ -76,7 +76,7 @@ import {
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
-import { FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, UIButton, UICard, UIRow, UIField, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame } from "./designSystem.jsx";
+import { FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, UIButton, UICard, UIRow, UIField, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
@@ -699,7 +699,7 @@ function InvestigationOpening({ accent, animationMode }) {
   if (skip || gone) return null;
   return (
     <div aria-hidden="true" className="cb-open-veil" style={{
-      position: "fixed", inset: 0, zIndex: 220, pointerEvents: "none",
+      position: "fixed", inset: 0, zIndex: Z.dialog, pointerEvents: "none",
       display: "flex", alignItems: "center", justifyContent: "center",
     }}>
       <svg width="96" height="96" viewBox="0 0 24 24" fill="none"
@@ -3034,13 +3034,13 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
     return createPortal(
       <React.Fragment>
         <div aria-hidden="true" onClick={onClose} style={{
-          position: "fixed", inset: 0, zIndex: 258, background: "rgba(0,0,0,0.5)",
+          position: "fixed", inset: 0, zIndex: Z.sheetScrim, background: "rgba(0,0,0,0.5)",
           animation: "cbPeekSheetFade .22s ease both",
         }} />
         <div
           role="dialog" aria-modal="true" aria-label={"Source " + n}
           style={{
-            position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 260,
+            position: "fixed", left: 0, right: 0, bottom: 0, zIndex: Z.sheet,
             maxHeight: "72dvh", overflowY: "auto", WebkitOverflowScrolling: "touch",
             background: P.dark ? P.surface : P.raised,
             borderTop: "1px solid " + (P.dark ? "rgba(255,255,255,0.14)" : P.line2),
@@ -3130,7 +3130,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
         /* The flip is baked into `top` at measure time rather than applied
            as a transform, because the entrance animation owns transform and
            the two would cancel each other out. */
-        position: "fixed", left: pos.left, top: pos.top, width: pos.width, zIndex: 260,
+        position: "fixed", left: pos.left, top: pos.top, width: pos.width, zIndex: Z.sheet,
         background: P.dark ? "rgba(14, 16, 20, 0.97)" : "rgba(255,255,255,0.98)",
         backdropFilter: "blur(14px) saturate(130%)", WebkitBackdropFilter: "blur(14px) saturate(130%)",
         border: "1px solid " + (P.dark ? "rgba(255,255,255,0.11)" : P.line2),
@@ -3258,7 +3258,7 @@ function flyToLibrary(fromEl, accent) {
     const dot = document.createElement("div");
     dot.setAttribute("aria-hidden", "true");
     Object.assign(dot.style, {
-      position: "fixed", zIndex: "300", pointerEvents: "none",
+      position: "fixed", zIndex: Z.modal, pointerEvents: "none",
       left: a.left + a.width / 2 - 7 + "px",
       top: a.top + a.height / 2 - 7 + "px",
       width: "14px", height: "14px", borderRadius: "50%",
@@ -5734,7 +5734,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           plus top and bottom falls for the header and the footer. One fixed
           composite, not a repaint per scrolled pixel. */}
       <div aria-hidden="true" style={{
-        position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
+        position: "fixed", inset: 0, zIndex: Z.content, pointerEvents: "none",
         background:
           "radial-gradient(ellipse 100% 88% at 50% 42%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.55) 42%, rgba(0,0,0,0.78) 72%, rgba(0,0,0,0.88) 100%)," +
           "linear-gradient(180deg, rgba(8,10,13,0.52) 0%, rgba(8,10,13,0.18) 30%, rgba(8,10,13,0.18) 62%, rgba(8,10,13,0.68) 100%)",
@@ -5758,7 +5758,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           same over footage this dark. Readable logo and links — no
           miniature telemetry. */}
       <header className={animate ? "cb-intro-chrome cb-intro-header cb-focus-in" : "cb-intro-chrome cb-intro-header"} style={{
-        position: "relative", zIndex: 20,
+        position: "relative", zIndex: Z.header,
         paddingTop: "max(14px, env(safe-area-inset-top))",
         background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
         ...(animate ? { animationDelay: "0.45s", animationDuration: "1.8s" } : null),
@@ -5809,7 +5809,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       </header>
 
       <main className="cb-intro-chrome" style={{
-        position: "relative", zIndex: 10, flex: 1,
+        position: "relative", zIndex: Z.sticky, flex: 1,
         display: "flex", flexDirection: "column", justifyContent: "center",
         minHeight: isMobile ? "94svh" : "100svh",
         textAlign: "center",
@@ -5830,7 +5830,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           position: "relative",
         }}>
           <div aria-hidden="true" style={{
-            position: "absolute", inset: "-12% -30%", zIndex: -1,
+            position: "absolute", inset: "-12% -30%", zIndex: Z.behind,
             background: "radial-gradient(ellipse 60% 52% at 50% 46%, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 70%)",
           }} />
           {/* ── The specimen ──
@@ -5966,7 +5966,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           every number on the panel traces to a linked source — the same
           standard the product's answers are held to. */}
       <section aria-label="Why Cerebrum" className={animate ? "cb-intro-chrome cb-ethics" : "cb-intro-chrome cb-ethics"} style={{
-        position: "relative", zIndex: 10,
+        position: "relative", zIndex: Z.sticky,
         borderTop: `1px solid ${P.line}`,
         background: "linear-gradient(180deg, rgba(8,10,13,0.80) 0%, rgba(8,10,13,0.94) 100%)",
       }}>
@@ -6044,7 +6044,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       {/* ── Footer ──
           Credits and legal live here; the header stays clean. */}
       <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
-        position: "relative", zIndex: 10,
+        position: "relative", zIndex: Z.sticky,
         paddingBottom: "max(20px, env(safe-area-inset-bottom))",
         ...(animate ? { animationDelay: "4.1s", animationDuration: "1.8s" } : null),
         /* The centered scrim above deliberately falls off toward the bottom
@@ -6234,7 +6234,7 @@ function CerebrumFieldCanvas({
   }, [accent, deep, mode, energy, core, corePos[0], corePos[1], coreScale, isLight]);
 
   const fallbackStyle = {
-    position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+    position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none",
     background: staticFieldCss(accent, deep),
   };
 
@@ -6251,7 +6251,7 @@ function CerebrumFieldCanvas({
       aria-hidden="true"
       style={{
         position: "fixed", inset: 0, width: "100%", height: "100%",
-        zIndex: 0, pointerEvents: "none", display: "block",
+        zIndex: Z.base, pointerEvents: "none", display: "block",
         // Painted underneath while the shader module loads, so there is never
         // a black rectangle between first paint and first frame.
         background: staticFieldCss(accent, deep),
@@ -6394,7 +6394,7 @@ function SelectionAsk({ onAsk, P, accent, containerRef }) {
       }}
       style={{ minHeight: 44,
         position: "fixed", top: pos.top, left: pos.left, transform: "translateX(-50%)",
-        zIndex: 90, display: "inline-flex", alignItems: "center", gap: 7,
+        zIndex: Z.badge, display: "inline-flex", alignItems: "center", gap: 7,
         padding: "8px 16px", borderRadius: RADIUS.pill, cursor: "pointer",
         fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
         color: P.ink, whiteSpace: "nowrap",
@@ -6701,7 +6701,7 @@ function InfoPage({ page }) {
         .cb-info-block:hover .cb-anchor, .cb-info-block:focus-within .cb-anchor, .cb-anchor:focus-visible { opacity: 1; }
         @media (hover: none) { .cb-info-block .cb-anchor { opacity: 1; } }
         .cb-toc-link:hover { color: ${accent}; }
-        .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: 30; transform-origin: left; }
+        .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: ${Z.dropdown}; transform-origin: left; }
         .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-font); }
         .cb-info-block p { font-size: 16px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
         .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
@@ -6715,7 +6715,7 @@ function InfoPage({ page }) {
         .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16,1,0.3,1) both; }
         @keyframes cbInfoFade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
       `}</style>
-      <header style={{ position: "sticky", top: 0, zIndex: 10 }}>
+      <header style={{ position: "sticky", top: 0, zIndex: Z.sticky }}>
         {/* Opaque shell (2026-09-17 redesign pass 1): the ambient field
             canvas is gone and the header is a solid surface — the blur
             layer below used to sit over moving footage, and there is
@@ -6724,7 +6724,7 @@ function InfoPage({ page }) {
             comment in the main app styles for the compositor-trap
             reasoning), but the layer is now just an opaque background
             with the hairline border. */}
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: P.bg, borderBottom: `1px solid ${P.line}` }} />
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: Z.behind, pointerEvents: "none", background: P.bg, borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
@@ -6738,7 +6738,7 @@ function InfoPage({ page }) {
       </header>
       {isLegal && <LegalProgress accent={accent} />}
       {isLegal && <LegalHashScroll />}
-      <main style={{ flex: 1, position: "relative", zIndex: 1 }}>
+      <main style={{ flex: 1, position: "relative", zIndex: Z.content }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "72px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)" }}>{data.eyebrow}</span>
@@ -6830,7 +6830,7 @@ function InfoPage({ page }) {
           )}
         </div>
       </main>
-      <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 24px", textAlign: "center", position: "relative", zIndex: 1 }}>
+      <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 24px", textAlign: "center", position: "relative", zIndex: Z.content }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)" }}><Mark size={16} accent={accent} /> Cerebrum</div>
           <nav style={{ alignItems: "center", display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
@@ -6937,9 +6937,9 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
         </button>
         {exportOpen && (
           <>
-            <span onClick={() => setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} aria-hidden="true" />
+            <span onClick={() => setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: Z.popover }} aria-hidden="true" />
             <span role="menu" aria-label="Export formats" onKeyDown={menuArrowKeys} style={{
-              position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, minWidth: 240,
+              position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: Z.popoverMenu, minWidth: 240,
               background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
               border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
               boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
@@ -8130,7 +8130,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
         <circle
           r={r + 6} fill="transparent"
           tabIndex={0} role="button" aria-label={label + ". Activate to open the paper."}
-          style={{ cursor: "pointer", outline: "none" }}
+          style={{ cursor: "pointer" }}
           onClick={() => onOpenPaper(n)}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPaper(n); } }}
           onMouseEnter={() => setHoverN(n)} onMouseLeave={() => setHoverN(null)}
@@ -8798,7 +8798,7 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
   );
   return (
     <div style={{
-      position: "sticky", top: isMobile ? 56 : 64, zIndex: 30, background: P.bg,
+      position: "sticky", top: isMobile ? 56 : 64, zIndex: Z.dropdown, background: P.bg,
       marginTop: 22, borderBottom: `1px solid ${P.line}`,
     }}>
       <div role="navigation" aria-label="Answer sections" className="cb-jumpnav"
@@ -8824,7 +8824,7 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
                 /* Right-anchored: the More button sits at the rail's right
                    edge, so a left-anchored menu runs off the viewport on a
                    phone. Right-anchoring keeps the whole panel on screen. */
-                position: "absolute", right: 0, left: "auto", top: "calc(100% + 6px)", minWidth: 200, zIndex: 70,
+                position: "absolute", right: 0, left: "auto", top: "calc(100% + 6px)", minWidth: 200, zIndex: Z.menu,
                 background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
                 border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
                 boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
@@ -8905,7 +8905,7 @@ function ToolbarOverflow({ P, accent, items }) {
       {open && (
         <div role="menu" aria-label="More answer actions" className="cb-fade" onKeyDown={menuArrowKeys}
           style={{
-            position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 224, zIndex: 70,
+            position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 224, zIndex: Z.menu,
             background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
             border: `1px solid ${P.line}`, borderRadius: 12, padding: 6,
             boxShadow: "0 16px 48px rgba(0,0,0,0.28)",
@@ -9284,13 +9284,13 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   const panel = (
     <aside role="dialog" aria-label={`Evidence index, ${sources.length} sources`} className="cb-ev-rail"
       style={isMobile ? {
-        position: "fixed", left: 0, right: 0, bottom: 0, maxHeight: "84dvh", zIndex: 210,
+        position: "fixed", left: 0, right: 0, bottom: 0, maxHeight: "84dvh", zIndex: Z.drawer,
         background: P.surface, borderTop: `1px solid ${P.line}`, borderRadius: "16px 16px 0 0",
         boxShadow: "0 -24px 64px rgba(0,0,0,0.4)",
         display: "flex", flexDirection: "column",
         animation: "cbSheetIn .3s cubic-bezier(0.16,1,0.3,1) both",
       } : {
-        position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: 210,
+        position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: Z.drawer,
         background: P.surface, borderLeft: `1px solid ${P.line}`,
         boxShadow: "-24px 0 64px rgba(0,0,0,0.35)",
         display: "flex", flexDirection: "column",
@@ -9325,7 +9325,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
       {isMobile && (
         <div aria-hidden="true" onClick={onClose}
           style={{
-            position: "fixed", inset: 0, zIndex: 205, background: "rgba(0,0,0,0.5)",
+            position: "fixed", inset: 0, zIndex: Z.dialogScrim, background: "rgba(0,0,0,0.5)",
             animation: "cbFade .2s ease both",
           }} />
       )}
@@ -9386,7 +9386,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>This video's identifier couldn't be read, so it can't be embedded here.</div>
             </div>
           )}
-          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 8, right: 8, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", zIndex: 2, padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
+          <button onClick={close} aria-label="Close" style={{ position: "absolute", top: 8, right: 8, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", zIndex: Z.raised, padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
         </div>
         <div style={{ padding: "16px 22px 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div style={{ minWidth: 0 }}>
@@ -11164,7 +11164,7 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
   const [sortKey, setSortKey] = useState("cited");
   const rows = useMemo(() => buildEvidenceRows(sources), [sources]);
   const sorted = useMemo(() => sortEvidenceRows(rows, sortKey), [rows, sortKey]);
-  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.panel, zIndex: 1, whiteSpace: "nowrap" };
+  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.panel, zIndex: Z.content, whiteSpace: "nowrap" };
   const td = { padding: "12px", borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.small, color: P.ink, verticalAlign: "top" };
   return (
     <div className="cb-fade">
@@ -13142,7 +13142,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={`Incoming call from ${call.fromName}`}
       style={{
-        position: "fixed", zIndex: 320,
+        position: "fixed", zIndex: Z.modalTop,
         // Phone-like placement: top sheet on mobile (where a call banner
         // belongs), bottom-right card on desktop (where it doesn't cover
         // what someone is reading).
@@ -13717,7 +13717,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
   const bubbleSize = isMobile ? { width: 148, height: 108 } : { width: 220, height: 150 };
   const wrapStyle = minimized
     ? {
-        position: "fixed", zIndex: 300, cursor: "pointer",
+        position: "fixed", zIndex: Z.modal, cursor: "pointer",
         // Mobile: sits above the back-to-top circle (bottom 88px + 44px tall
         // when a search has started), so the two never overlap.
         bottom: isMobile ? 156 : 24, right: 20,
@@ -13725,10 +13725,13 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         borderRadius: 12, overflow: "hidden", background: "#0b0b0d",
         border: "1px solid rgba(255,255,255,0.16)", boxShadow: "0 14px 40px rgba(0,0,0,0.5)",
       }
-    : { position: "fixed", inset: 0, zIndex: 300, background: "#0b0b0d" };
+    : { position: "fixed", inset: 0, zIndex: Z.modal, background: "#0b0b0d" };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Call with ${name}`} style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
+    <div role={minimized ? "button" : "dialog"} aria-modal={!minimized} aria-label={minimized ? `Call with ${name} (minimized). Activate to restore.` : `Call with ${name}`}
+      tabIndex={minimized ? 0 : undefined}
+      onKeyDown={minimized ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMinimized(false); } } : undefined}
+      style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
       {/* Main stage — a plain <video> now instead of a Jitsi iframe mount;
           which stream (self or remote) plays here vs. in the PiP slot below
           is decided by mainIsSelf/assignVideos, not by which JSX slot this
@@ -13831,7 +13834,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           so the rest of the app is usable mid-call (see the block comment
           above this component for the FaceTime/Messenger-style rationale). */}
       {status === "ready" && (
-        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 36, height: 36, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: Z.raised }}>
           <Icon name="minimize2" size={16} />
         </button>
       )}
@@ -13841,7 +13844,8 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           (self or remote) actually plays here is decided by
           mainIsSelf/assignVideos, matching the main-stage slot above. */}
       {status === "ready" && (
-        <div onClick={(e) => { e.stopPropagation(); toggleView(); }} title="Switch view" style={{
+        <div onClick={(e) => { e.stopPropagation(); toggleView(); }} title="Switch view" role="button" tabIndex={0} aria-label="Switch view"
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggleView(); } }} style={{
           position: "absolute", top: isMobile ? 60 : 76, right: isMobile ? 14 : 28, width: isMobile ? 96 : 140, height: isMobile ? 128 : 104,
           borderRadius: 12, overflow: "hidden", background: "#18181c", cursor: "pointer",
           border: "1px solid rgba(255,255,255,0.22)", boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
@@ -14059,6 +14063,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [blockBusy, setBlockBusy] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [hoverMsgId, setHoverMsgId] = useState(null);
+  // Group creation — name input, people search with multi-select, create.
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupQuery, setGroupQuery] = useState("");
+  const [groupResults, setGroupResults] = useState([]);
+  const [groupSearching, setGroupSearching] = useState(false);
+  const [groupMembers, setGroupMembers] = useState([]);
+  const [groupCreating, setGroupCreating] = useState(false);
   // E2EE Phase 1.4 — per-thread encryption UI. `upgradeInfo` is null when
   // the banner doesn't apply, { checking } while probing, or
   // { ready } once we know whether the peer can upgrade. `safetyChanged`
@@ -14248,6 +14260,50 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     return () => { cancelled = true; clearInterval(pollId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Group creation — debounced people search, reusing the same
+  // search-users endpoint as Find People (2+ chars, excludes blocked).
+  useEffect(() => {
+    const q = groupQuery.trim();
+    if (!groupModalOpen || q.length < 2) { setGroupResults([]); setGroupSearching(false); return; }
+    setGroupSearching(true);
+    const t = setTimeout(() => {
+      apiDataGet("search-users", { q }).then((d) => {
+        const items = (d && d.items) || [];
+        // Don't show people already added.
+        setGroupResults(items.filter((r) => !groupMembers.some((m) => m.id === r.id)));
+        setGroupSearching(false);
+      }).catch(() => setGroupSearching(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [groupQuery, groupModalOpen, groupMembers]);
+
+  const createGroup = async () => {
+    const name = groupName.trim();
+    if (!name || groupMembers.length < 2 || groupCreating) return;
+    setGroupCreating(true);
+    try {
+      const res = await apiDataAction("start-group-thread", {
+        name,
+        member_ids: groupMembers.map((m) => m.id),
+      });
+      // Seed the new thread into the list and open it immediately.
+      const newThread = {
+        id: res.thread_id, kind: "group", name: res.name || name,
+        otherId: null, unread: false, encrypted: false,
+        lastMessage: null,
+      };
+      setThreads((prev) => [newThread, ...prev.filter((t) => t.id !== res.thread_id)]);
+      setActiveId(res.thread_id);
+      setGroupModalOpen(false);
+      setGroupName(""); setGroupQuery(""); setGroupResults([]); setGroupMembers([]);
+      toast(`Group "${name}" created.`);
+    } catch (e) {
+      toast(e.message || "Couldn't create that group.", { tone: "error" });
+    } finally {
+      setGroupCreating(false);
+    }
+  };
 
   // A thread just created by "Message" in Find People / an institution hub
   // arrives here as initialThreadId — seeded once, then immediately
@@ -14556,14 +14612,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   };
 
   const subtitle = activeThread
-    ? (// Only "dm" threads exist — group creation was never built, so no
-      // group subtitle branch.
-      // Commit 100 — was [otherEmail, otherAffiliation]. The email is no
+    ? (activeThread.kind === "group"
+      // Group subtitle: member names, truncated. The full roster is one
+      // tap away in the header (member count → member list popover).
+      ? ((activeThread.members || []).filter((m) => !m.mine).map((m) => m.name).slice(0, 4).join(", ") +
+        ((activeThread.members || []).length > 5 ? ` +${(activeThread.members || []).length - 5} more` : ""))
+      : (// Commit 100 — was [otherEmail, otherAffiliation]. The email is no
       // longer sent by the server at all, and the affiliation now arrives
       // already filtered by that person's show_affiliation setting. The
       // handle is what belongs here: public, stable, and the thing that
       // tells two people with the same name apart.
-      [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · "))
+      [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · ")))
     : "";
 
   // Read receipts — DMs only (see the otherLastReadAt comment in
@@ -14611,9 +14670,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`, display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: "22px 22px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Inbox</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon name="network" size={16} />
+            </button>
             <button onClick={onCompose} aria-label="New message" title="New message" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="edit" size={15} />
             </button>
+            </div>
           </div>
           {threads.length > 0 && (
             <div style={{ padding: "0 22px 12px" }}>
@@ -14753,9 +14817,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       <Icon name="moreVertical" size={17} />
                     </UIButton>
                     {menuOpen && (<>
-                      <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 30 }} />
+                      <div onClick={() => setMenuOpen(false)} aria-hidden="true" style={{ position: "fixed", inset: 0, zIndex: Z.dropdown }} />
                       <div style={{
-                        position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 31, minWidth: 200,
+                        position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: Z.dropdownMenu, minWidth: 200,
                         background: P.dark ? "rgba(22,24,34,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
                         boxShadow: "0 12px 32px rgba(0,0,0,0.22)", padding: 6, display: "flex", flexDirection: "column",
                       }}>
@@ -14881,7 +14945,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                 >
-                  {/* Only "dm" threads exist — no group sender labels. */}
+                  {/* Group threads show who said what — DMs don't need it, you
+                      already know who you're talking to. */}
+                  {activeThread?.kind === "group" && !m.mine && m.who && (
+                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", letterSpacing: "0.01em", marginBottom: 3, paddingLeft: 2 }}>{m.who}</div>
+                  )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
                       {bubbleText && (
@@ -14902,6 +14970,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           src={m.attachmentData}
                           alt={m.attachmentTitle || "Attached image"}
                           onClick={() => setLightbox(m.attachmentData)}
+                          role="button" tabIndex={0} aria-label={(m.attachmentTitle || "Attached image") + ". Activate to view full size."}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightbox(m.attachmentData); } }}
                           style={{
                             marginTop: m.text ? 8 : 0, display: "block", maxWidth: "100%", maxHeight: 340,
                             borderRadius: 12, cursor: "zoom-in", border: `1px solid ${P.line}`, objectFit: "cover",
@@ -15101,7 +15171,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         scrimStyle={{ background: "rgba(0,0,0,0.9)", padding: 28 }}
         panelStyle={{ background: "transparent", border: "none", boxShadow: "none", borderRadius: 0, overflow: "visible", alignItems: "center", justifyContent: "center", cursor: "zoom-out", maxHeight: "92dvh", width: "auto" }}
       >
-        <img src={lightbox} alt="Attached" style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, objectFit: "contain" }} onClick={() => setLightbox(null)} />
+        <img src={lightbox} alt="Attached" role="button" tabIndex={0} aria-label="Attached image. Activate to close."
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightbox(null); } }}
+          style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, objectFit: "contain" }} onClick={() => setLightbox(null)} />
       </Dialog>
     )}
     {reportModal && activeThread && (
@@ -15599,7 +15671,7 @@ function SuggestInput({ value, onChange, placeholder, ariaLabel, matches, P, acc
       />
       {show && (
         <div id={listId.current} role="listbox" aria-label={ariaLabel + " suggestions"} style={{
-          position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: 5, textAlign: "left",
+          position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: Z.float, textAlign: "left",
           background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
           overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
         }}>
@@ -16049,7 +16121,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
       {tip && (
         <div style={{
           position: "fixed", left: Math.min(Math.max(tip.x - 110, 8), window.innerWidth - 228), top: Math.max(tip.y - 66, 8),
-          width: 220, zIndex: 60, pointerEvents: "none",
+          width: 220, zIndex: Z.tooltip, pointerEvents: "none",
           background: P.dark ? "rgba(16,18,26,0.97)" : "rgba(255,255,255,0.97)",
           border: `1px solid ${P.line2}`, borderRadius: 8, padding: "8px 12px",
           boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
@@ -16337,7 +16409,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             outer wrapper is sticky with zero height when hidden (no layout
             gap); the inner bar slides down when the hero leaves. */}
         <div aria-hidden={!heroGone} style={{
-          position: "sticky", top: 0, zIndex: 40,
+          position: "sticky", top: 0, zIndex: Z.popover,
           height: heroGone ? "auto" : 0, overflow: "visible",
           margin: isMobile ? "0 -18px" : "0 -28px",
         }}>
@@ -16376,7 +16448,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           <ProfileConstellation P={P} accent={accent} papers={saved} pinnedIds={pinnedIds} shelfNameOf={shelfName} height={isMobile ? 200 : 240} />
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginTop: -34, position: "relative", zIndex: 2 }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginTop: -34, position: "relative", zIndex: Z.raised }}>
           <div style={{ position: "relative", width: 88, height: 88, flexShrink: 0 }}>
             {!profile.avatar_base64 || avatarFailed ? (
               <div style={{
@@ -16691,7 +16763,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             the bar pins so they stay reachable while scrolling. */}
         <div ref={tabSentinelRef} aria-hidden="true" style={{ height: 0 }} />
         <nav aria-label="Profile sections" style={{
-          position: "sticky", top: 0, zIndex: 30, background: P.bg,
+          position: "sticky", top: 0, zIndex: Z.dropdown, background: P.bg,
           margin: isMobile ? "30px -18px 0" : "34px -28px 0",
           padding: isMobile ? "0 18px" : "0 28px",
           /* The mobile hamburger is fixed at top:14 left:14 (38px). When
@@ -19496,7 +19568,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <div data-hl-action
                 style={{
                 position: "fixed", left: Math.min(Math.max(pendingHL.x - 70, 8), (typeof window !== "undefined" ? window.innerWidth : 400) - 148),
-                top: pendingHL.y, zIndex: 60,
+                top: pendingHL.y, zIndex: Z.tooltip,
               }}>
                 <UIButton P={P} variant="ghost" onClick={addPendingHighlight}
                   style={{ minHeight: 44, padding: "12px 24px", borderRadius: 9999, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,0.28)" }}>
@@ -19917,7 +19989,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             minHeight: "100svh",
             background: P.bg, overflow: "clip",
           }
-        : { position: "fixed", inset: 0, zIndex: 300, background: P.bg, display: "flex", flexDirection: "column" }}>
+        : { position: "fixed", inset: 0, zIndex: Z.modal, background: P.bg, display: "flex", flexDirection: "column" }}>
       {/* 2026-10-05: Document Mode's own film is gone with the workspace
           reel — the whole app is quiet now, cinema lives at the door only.
           Solid theme surface, no footage, no scrim needed. */}
@@ -19928,7 +20000,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             the way out on a long read — and carries safe-area padding at
             the top edge. ── */
         <div style={{
-          position: "relative", zIndex: 1, display: "flex", alignItems: "center",
+          position: "relative", zIndex: Z.content, display: "flex", alignItems: "center",
           justifyContent: "space-between", gap: 12, flexShrink: 0,
           padding: isMobile ? "14px 16px" : "18px 24px",
           paddingTop: `max(${isMobile ? 14 : 18}px, env(safe-area-inset-top))`,
@@ -19965,7 +20037,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             on mobile, two columns on desktop — all in normal flow, so the
             page scrolls instead of trapping scroll inside panes. ── */
         <div style={{
-          position: "relative", zIndex: 1, flex: 1, width: "100%", maxWidth: 1280,
+          position: "relative", zIndex: Z.content, flex: 1, width: "100%", maxWidth: 1280,
           margin: "0 auto", padding: isMobile ? "20px 16px" : "28px 24px",
           paddingBottom: `max(${isMobile ? 40 : 64}px, env(safe-area-inset-bottom))`,
           display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 5fr) minmax(0, 7fr)",
@@ -20602,7 +20674,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // (makeStyles) for why a plain static box never wins a stacking fight
     // against LivingBackground's absolutely-positioned canvas, opaque
     // background or not, past the first screenful of scroll.
-    <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: P.bg, display: "flex", flexDirection: "column", overflowY: "auto", position: "relative", zIndex: 1 }}>
+    <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: P.bg, display: "flex", flexDirection: "column", overflowY: "auto", position: "relative", zIndex: Z.content }}>
       {/* 62px of top padding on mobile clears the fixed menu button — see
           pageViewInner's comment; Settings sets its own padding and so
           needed the same correction independently. */}
@@ -20643,7 +20715,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               />
               {query.trim().length >= 2 && (
                 <div className="cb-fade" style={{
-                  position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 20,
+                  position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: Z.header,
                   background: P.bg, border: `1px solid ${P.line2}`, borderRadius: 12,
                   boxShadow: "0 18px 48px rgba(0,0,0,0.35)", overflow: "hidden",
                 }}>
@@ -21338,7 +21410,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     /* RESTORED 2026-09-17: the film grain overlay — the texture of the
        ambient stack. A fixed noise layer at the palette's grain opacity;
        it sits over the film and under the interface. */
-    grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: 100, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
+    grain: { position: "fixed", inset: 0, pointerEvents: "none", opacity: P.grain, zIndex: Z.grain, backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" },
 
     /* Pass 1 (2026-09-17): the grain overlay and the ambient wash are
        deleted with the reel — the product shell is opaque now, and a
@@ -21373,10 +21445,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        reasoning. */
     header: {
       flexShrink: 0,
-      position: "sticky", top: 0, zIndex: 20,
+      position: "sticky", top: 0, zIndex: Z.header,
     },
     headerGlass: {
-      position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none",
+      position: "absolute", inset: 0, zIndex: Z.behind, pointerEvents: "none",
       borderBottom: glassBorder,
       /* Pass 1 (2026-09-17): solid. The blur existed to frost the ambient
          reel behind the bar, and the reel is gone — a backdrop filter with
@@ -21427,7 +21499,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        becomes a slide-in drawer (see `sidebarMobile*` below) and `appMain`
        stays full-width, opened with a hamburger button in the header. */
     sidebar: {
-      position: "fixed", top: 0, left: 0, bottom: 0, width: 216, zIndex: 30,
+      position: "fixed", top: 0, left: 0, bottom: 0, width: 216, zIndex: Z.dropdown,
       /* Pass 1 (2026-09-17): solid. The smoked-glass treatment existed to
          sit over the ambient reel; the reel is gone, so the rail is an
          opaque surface with a 1px hairline — no blur, no translucency. */
@@ -21480,7 +21552,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // zIndex:1. Giving appMain the identical treatment covers every view it
     // wraps (the search hero included) with the same one fix, rather than
     // relying on each view to separately remember to opt in.
-    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 216, position: "relative", zIndex: 1 },
+    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 216, position: "relative", zIndex: Z.content },
 
     /* ── Full-page views (Profile / Settings / Trending) ──
        Replace what used to be centered modal dialogs — no backdrop, no
@@ -21521,7 +21593,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        100%) guarantees the backdrop reaches the viewport bottom even when
        the content is short. Document Mode overrides this back to
        transparent at its mount: it runs its own film by design. */
-    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100dvh", position: "relative", zIndex: 1 },
+    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100dvh", position: "relative", zIndex: Z.content },
     /* Reading panels: stable surfaces for profiles, bibliography, inbox,
        and long answers. The footage stays visible around them; the text
        sits on a surface that doesn't compete with it.
@@ -21866,7 +21938,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       padding: "24px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
-    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: 30, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
+    panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: Z.dropdown, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" },
     srcCount: { fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 8, fontFamily: "var(--cb-font)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
@@ -21927,7 +21999,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // wide screen it still lands at the opposite end of the row from the
     // badge, and on a narrow one it simply wraps to its own line instead of
     // stacking on top of anything.
-    toolbar: { display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: 2 },
+    toolbar: { display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: 3, background: "transparent", border: "none", boxShadow: "none", zIndex: Z.raised },
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "24px 0 24px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
@@ -21947,7 +22019,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       width: 52, height: 52, borderRadius: "50%",
       background: accent, color: at, border: "none", cursor: "pointer",
       boxShadow: `0 8px 28px ${withAlpha(accent, 0.45)}, 0 2px 8px rgba(0,0,0,0.25)`,
-      zIndex: 20, fontFamily: "var(--cb-font)",
+      zIndex: Z.header, fontFamily: "var(--cb-font)",
       display: "flex", alignItems: "center", justifyContent: "center",
       transition: "transform 260ms var(--cb-ease), opacity 200ms ease",
     },
@@ -22087,7 +22159,7 @@ function ToastHost({ P, accent }) {
     // failures) updated only visually — a screen-reader user got zero
     // announcement for any of them. role="status" + aria-live="polite"
     // makes assistive tech announce new toasts as they appear.
-    <div role="status" aria-live="polite" style={{ position: "fixed", bottom: "max(24px, env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
+    <div role="status" aria-live="polite" style={{ position: "fixed", bottom: "max(24px, env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: Z.toast, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
       {toasts.map((t) => (
         <div key={t.id} className="cb-toast-pop" style={{
           background: "rgba(18,20,32,0.96)", color: "#fff", padding: "12px 16px", borderRadius: 8,
@@ -22306,7 +22378,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
           onClick={onCloseMobile}
           aria-label="Close menu"
           style={{
-            position: "absolute", top: 8, right: 8, zIndex: 5,
+            position: "absolute", top: 8, right: 8, zIndex: Z.float,
             width: 44, height: 44, borderRadius: "50%",
             background: "transparent", border: `1px solid ${P.line}`,
             color: P.ink, cursor: "pointer",
@@ -22476,7 +22548,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   );
   return (
     <>
-      {mobileOpen && <div aria-hidden="true" onClick={onCloseMobile} className="cb-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 29 }} />}
+      {mobileOpen && <div aria-hidden="true" onClick={onCloseMobile} className="cb-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: Z.backdrop }} />}
       {body}
       {acctOpen && (
         <AccountMenu P={P} accent={accent} at={at} user={user} proStatus={proStatus}
@@ -22660,7 +22732,7 @@ function VersionBanner({ P, accent, onRefresh, onDismiss }) {
   return (
     <div style={{
       position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
-      zIndex: 150, display: "flex", alignItems: "center", gap: 10,
+      zIndex: Z.banner, display: "flex", alignItems: "center", gap: 10,
       background: P.bg, border: `1px solid ${withAlpha(accent, 0.4)}`,
       borderRadius: 9999, padding: "8px 8px 8px 16px",
       boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
@@ -25392,7 +25464,7 @@ function App() {
           animationMode={animationMode}
         />
       ) : (
-        <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", filter: "brightness(0.72) saturate(0.85)" }} aria-hidden="true">
+        <div style={{ position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none", filter: "brightness(0.72) saturate(0.85)" }} aria-hidden="true">
           <CinematicFilm
             ref={wsFilmRef}
             animationMode={animationMode}
@@ -25428,7 +25500,7 @@ function App() {
           aria-label="Play background video"
           style={{
             position: "fixed", bottom: "max(18px, env(safe-area-inset-bottom))", right: 18,
-            zIndex: 50, width: 44, height: 44, borderRadius: 9999,
+            zIndex: Z.fabPrimary, width: 44, height: 44, borderRadius: 9999,
             border: "1px solid rgba(255,255,255,0.18)",
             background: "rgba(10,12,14,0.62)", color: "#f2f4f2",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -25460,7 +25532,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "calc(24px + env(safe-area-inset-bottom, 0px))") /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? "max(16px, env(safe-area-inset-right, 0px))" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
+      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "calc(24px + env(safe-area-inset-bottom, 0px))") /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? "max(16px, env(safe-area-inset-right, 0px))" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -25495,7 +25567,7 @@ function App() {
            content. It can no longer cover article titles or the profile
            cover. */
         <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, height: 56, zIndex: 21,
+          position: "fixed", top: 0, left: 0, right: 0, height: 56, zIndex: Z.headerBar,
           display: "flex", alignItems: "center", padding: "0 12px",
           /* Opaque fill, no backdrop blur: a full-width fixed bar over
              scrolling content is per-frame compositor work on a phone for
@@ -26290,7 +26362,7 @@ function App() {
                                       >⋯</UIButton>
                                       {historyMenuId === h.id && (
                                         <div style={{
-                                          position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
+                                          position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: Z.sticky,
                                           background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
                                           border: `1px solid ${P.line}`, borderRadius: 12,
                                           boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 140,
@@ -26706,7 +26778,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 /* Skip link: invisible until keyboard focus lands on it, then a clear
    pill in the top-left. The one class every keyboard user needs. */
 .cb-skip-link {
-  position: fixed; top: 12px; left: 16px; z-index: 10000;
+  position: fixed; top: 12px; left: 16px; z-index: ${Z.max};
   padding: 10px 18px; border-radius: 6px;
   background: var(--cb-accent, #34d399); color: #0b0f0d;
   font-size: 14px; font-weight: 600; text-decoration: none;
@@ -26864,7 +26936,7 @@ summary::-webkit-details-marker { display: none; }
   to   { clip-path: circle(142% at 50% 44%); }
 }
 .cb-iris-veil {
-  position: fixed; inset: 0; z-index: 300; pointer-events: none;
+  position: fixed; inset: 0; z-index: ${Z.modal}; pointer-events: none;
   background: #05070a;
   animation: cbIrisOpen 1.1s var(--cb-ease) .05s both;
 }
@@ -26876,7 +26948,7 @@ summary::-webkit-details-marker { display: none; }
    glow at the origin dissolves into the same near-black the veil ends
    on, so it reads as stepping through light, not a loading screen. */
 .cb-threshold-veil {
-  position: fixed; inset: 0; z-index: 300; pointer-events: none;
+  position: fixed; inset: 0; z-index: ${Z.modal}; pointer-events: none;
   background:
     radial-gradient(42vmax 42vmax at var(--cb-tx, 50%) var(--cb-ty, 62%),
       rgba(163,184,153,0.30) 0%, rgba(163,184,153,0.08) 34%,
@@ -27007,7 +27079,7 @@ summary::-webkit-details-marker { display: none; }
   100% { opacity: 0; }
 }
 .cb-title-veil {
-  position: fixed; inset: 0; z-index: 3; pointer-events: none;
+  position: fixed; inset: 0; z-index: ${Z.overlay}; pointer-events: none;
   background: #06080a;
   animation: cbVeilLift 2.4s var(--cb-ease-out) 0.2s both;
 }
@@ -27023,7 +27095,7 @@ summary::-webkit-details-marker { display: none; }
    (Separate class from .cb-iris-veil above: the two features merged into
    one class name and the cascade stacked z-300 under z-9999.) */
 .cb-iris-door {
-  position: fixed; inset: 0; z-index: 9999;
+  position: fixed; inset: 0; z-index: ${Z.toast};
   background: #0a0a0a;
   pointer-events: none;
   will-change: clip-path;
@@ -27031,7 +27103,7 @@ summary::-webkit-details-marker { display: none; }
 }
 /* App-side veil for the iris open phase. Starts at full coverage. */
 .cb-iris-veil-app {
-  position: fixed; inset: 0; z-index: 9999;
+  position: fixed; inset: 0; z-index: ${Z.toast};
   background: #0a0a0a;
   pointer-events: none;
   will-change: clip-path;
@@ -27057,7 +27129,7 @@ summary::-webkit-details-marker { display: none; }
    animating it would cost a repaint per frame for texture nobody can see
    move. No blend mode — a plain low-opacity tile is the cheap version. */
 .cb-intro-grain {
-  position: fixed; inset: -100px; z-index: 2; pointer-events: none; opacity: 0.07;
+  position: fixed; inset: -100px; z-index: ${Z.raised}; pointer-events: none; opacity: 0.07;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
   background-size: 300px 300px;
   mix-blend-mode: overlay;
@@ -27249,7 +27321,7 @@ summary::-webkit-details-marker { display: none; }
 
 /* ── Recent questions, docked to the field ── */
 .cb-ask-recent {
-  position: absolute; top: calc(100% + 8px); left: -1px; right: -1px; z-index: 60;
+  position: absolute; top: calc(100% + 8px); left: -1px; right: -1px; z-index: ${Z.tooltip};
   border: 1px solid var(--cb-line2); border-radius: 14px;
   background: var(--cb-bg);
   box-shadow: 0 18px 44px rgba(0,0,0,0.30);
@@ -27363,7 +27435,7 @@ summary::-webkit-details-marker { display: none; }
   /* The room's instruments paint above the flight atmosphere (a fixed
      z-index:0 layer): without a position here the canvas would cover
      the text it serves. */
-  position: relative; z-index: 1;
+  position: relative; z-index: ${Z.content};
 }
 .cb-room-kicker {
   /* Pass 3 (2026-09-17): mono label, not a tracked-out eyebrow. */
@@ -27383,7 +27455,7 @@ summary::-webkit-details-marker { display: none; }
    (z-index 0, later in the DOM) and below the room's instruments. When
    the answer arrives the room unmounts and takes the sky with it. */
 .cb-dive-atmosphere {
-  position: fixed; inset: 0; z-index: 0;
+  position: fixed; inset: 0; z-index: ${Z.base};
   pointer-events: none;
   overflow: hidden;
 }
@@ -27532,7 +27604,7 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
 :root[data-cb-light] .cb-specimen { --cb-tick: rgba(10,12,16,0.45); }
 .cb-specimen::after {
   content: ""; position: absolute; inset: -1px; border-radius: inherit;
-  pointer-events: none; z-index: 5;
+  pointer-events: none; z-index: ${Z.float};
   /* Ticks need to read as deliberate, not as dust: 0.5 alpha at 0.8
      opacity lands them clearly above the hairline borders they frame.
      White ticks vanish on light cards, so the light theme gets dark ticks. */
@@ -27792,7 +27864,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    clip as a graded frame, dissolving over the workspace while the new
    reel buffers on the same clip. */
 .cb-enter-frame {
-  position: fixed; inset: 0; z-index: 240; pointer-events: none;
+  position: fixed; inset: 0; z-index: ${Z.overlayFixed}; pointer-events: none;
   background-size: cover; background-position: center; background-repeat: no-repeat;
   animation: cbEnterFrameOut 0.85s ease 0.1s both;
 }
@@ -27803,7 +27875,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .cb-film {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: ${Z.base};
   overflow: hidden;
   pointer-events: none;
   /* Its own stacking and paint context, so a repaint anywhere in the
@@ -28024,7 +28096,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
    per spec — this bar was rendering at zero width regardless of scrollProg.
    Explicit width fixes it. */
 .cb-scroll-progress {
-  position: fixed; top: 0; left: 0; width: 100%; height: 2px; z-index: 100;
+  position: fixed; top: 0; left: 0; width: 100%; height: 2px; z-index: ${Z.grain};
   background: var(--cb-accent, #34d399);
   transform-origin: left;
   /* No transition: the value already updates at most once per frame via the
@@ -28123,7 +28195,7 @@ html { scroll-behavior: smooth; }
     display: block !important; background: #fff !important;
   }
   .cb-paper-page {
-    position: relative; z-index: 1; max-width: 7in; margin: 0 auto; padding: 0.6in 0 1in;
+    position: relative; z-index: ${Z.content}; max-width: 7in; margin: 0 auto; padding: 0.6in 0 1in;
     font-family: "Times New Roman", Times, serif; color: #000 !important;
     /* Commit 51: this is what actually put the watermark "above the text
        and a little too visible." The blanket "body, div { background:
@@ -28164,7 +28236,7 @@ html { scroll-behavior: smooth; }
      Commit 49's comment called out. */
   .cb-paper-watermark {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
-    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.06) !important; z-index: 0;
+    font-size: 90pt; font-weight: 800; color: rgba(0,0,0,0.06) !important; z-index: ${Z.base};
     white-space: nowrap; font-family: "Helvetica Neue", Arial, sans-serif; pointer-events: none;
   }
 }
@@ -28445,7 +28517,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .cb-grain {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: ${Z.toast};
   pointer-events: none;
   opacity: 0.03;
   contain: strict;
@@ -28456,7 +28528,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .cb-vignette {
   position: fixed;
   inset: 0;
-  z-index: 9998;
+  z-index: ${Z.toast};
   pointer-events: none;
   contain: strict;
   /* Commit 82 — was 0.28, which crushed the corners hard enough that the
@@ -28550,7 +28622,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .cb-jumpnav { overflow: visible; }
 /* The "More" anchor keeps its own stacking level so the dropdown always
    paints above the tab buttons beside it. */
-.cb-jumpmore { position: relative; z-index: 40; }
+.cb-jumpmore { position: relative; z-index: ${Z.popover}; }
 /* Usage tiers: desktop gets the comparison table; the stacked card list
    only appears inside the 480px query below. */
 .cb-usage-cards { display: none; }

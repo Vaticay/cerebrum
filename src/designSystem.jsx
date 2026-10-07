@@ -176,7 +176,7 @@ export function Icon({ name, size = 17, className, style }) {
   }
 }
 
-export function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 0.15s ease, color 0.15s ease" }; }
+export function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 0.15s ease, color 0.15s ease" }; }
 
 export const TYPE = {
   display: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15 },
@@ -187,6 +187,44 @@ export const TYPE = {
 };
 
 export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
+
+/* Z-index scale: every stacking layer in the app, named.
+   Rules: use Z.* instead of raw numbers. Layers are ordered;
+   within a layer, DOM order decides. Never invent a new number —
+   if nothing fits, add a named slot here with a comment. */
+export const Z = {
+  behind: -1,       // decorative layers behind content
+  base: 0,          // backgrounds, canvases
+  content: 1,       // main content stacking contexts (load-bearing)
+  raised: 2,        // raised in-flow elements (toolbars, close buttons)
+  overlay: 3,       // in-flow overlays, hint badges
+  float: 5,         // floating tooltips, small popovers in content
+  sticky: 10,       // sticky elements inside scroll content
+  fab: 15,          // small floating buttons (back-to-top)
+  header: 20,       // sticky app headers and bars
+  headerBar: 21,    // fixed mobile header bar
+  backdrop: 29,     // mobile drawer backdrop (sits under the drawer)
+  dropdown: 30,     // dropdown menus, popovers, sidebars
+  dropdownMenu: 31, // dropdown panels above their trigger's layer
+  popover: 40,      // popovers that must clear dropdowns
+  popoverMenu: 41,  // popover panels
+  fabPrimary: 50,   // primary floating action buttons
+  tooltip: 60,      // tooltips, highlight menus
+  menu: 70,         // floating menus above content
+  badge: 90,        // inline badges above media
+  grain: 100,       // film grain overlay
+  banner: 150,      // fixed banners
+  dialogScrim: 205, // dialog/drawer scrims (under the dialog)
+  drawer: 210,      // drawers and bottom sheets
+  dialog: 220,      // dialogs
+  overlayFixed: 240,// fixed full-screen overlays
+  sheet: 260,       // bottom sheets (scrim is sheetScrim)
+  sheetScrim: 258,  // bottom-sheet scrims (under the sheet)
+  modal: 300,       // full-screen modals
+  modalTop: 320,    // modals that must clear other modals
+  toast: 9999,      // toasts and critical overlays
+  max: 10000,       // absolute top (dev overlays only)
+};
 
 export function UIButton({
   children, onClick, variant = "secondary", size = "md",
@@ -242,6 +280,10 @@ export function UICard({ children, P, pad = true, className = "", style, onClick
   return (
     <div
       onClick={onClick}
+      // Clickable cards are keyboard-operable: role + tabIndex + Enter/Space.
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
       className={"cb-card cb-material-panel " + (specimen ? "cb-specimen " : "") + className}
       style={{
         borderRadius: RADIUS.lg,

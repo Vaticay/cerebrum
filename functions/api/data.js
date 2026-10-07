@@ -948,6 +948,15 @@ export async function onRequest(context) {
           kind: threadRow.kind,
           name: name || "Conversation",
           memberCount: participants.length,
+          // Group member roster — the client renders the member list and
+          // per-message sender labels from this. DMs don't need it (the
+          // peer is identified by otherId/otherUsername already).
+          members: participants.map((p) => ({
+            id: p.id,
+            name: displayNameFor(p),
+            username: p.username || null,
+            mine: p.id === user.id,
+          })),
           otherId,
           otherUsername,
           otherAffiliation,
@@ -2473,6 +2482,39 @@ export async function onRequest(context) {
         encrypted = true;
       }
       return okRes({ thread_id: threadId, created: true, encrypted }, 200, cors);
+    }
+
+    // Group messaging — creation. Groups are plaintext (no E2EE: multiparty
+    // Olm sessions are a separate project). The creator is always a member.
+    // Every invited member must be a real, discoverable account with no
+    // block in either direction with the creator — a group is not a way
+    // around someone's block.
+    if (action === "start-group-thread") {
+      const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
+      const rawIds = Array.isArray(body.member_ids) ? body.member_ids : [];
+      const memberIds = [...new Set(rawIds.map((x) => safeId(x)).filter(Boolean))].filter((id) => id !== user.id);
+      if (!name) return errRes("Give the group a name.", 400, "missing_name", cors);
+      if (memberIds.length < 2) return errRes("Add at least 2 people to start a group.", 400, "too_few_members", cors);
+      if (memberIds.length > 49) return errRes("Groups are capped at 50 people.", 400, "too_many_members", cors);
+      // Validate every invitee before creating anything.
+      for (const mid of memberIds) {
+        const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(mid).first();
+        if (!target || target.discoverable === 0) {
+          return errRes("One of the people you added isn't available.", 404, "not_available", cors);
+        }
+        if (await isBlockedPair(env, user.id, mid)) {
+          return errRes("One of the people you added can't be messaged.", 403, "forbidden", cors);
+        }
+      }
+      const threadId = newId("thr");
+      const now = Date.now();
+      await env.DB.prepare("INSERT INTO threads (id, kind, name, created_at) VALUES (?, 'group', ?, ?)").bind(threadId, name, now).run();
+      const stmts = [env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, user.id, now)];
+      for (const mid of memberIds) {
+        stmts.push(env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, mid, now));
+      }
+      await env.DB.batch(stmts);
+      return okRes({ thread_id: threadId, created: true, kind: "group", name }, 200, cors);
     }
 
     // Commit 48: block/unblock the other person in a DM. Storage is
