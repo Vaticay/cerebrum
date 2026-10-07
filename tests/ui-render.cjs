@@ -17,7 +17,7 @@ const dsFunctions = dsAst.program.body
   .filter(n=>n && n.type==='FunctionDeclaration' && dsNames.includes(n.id.name));
 assert.equal(functions.length + dsFunctions.length,4);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
-const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},STATUS:{bad:'#b44'},withAlpha:(c)=>c});
+const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c});
 vm.runInContext(js,context);
 const P0={dark:true,ink:'#eee',ink2:'#bbb',line:'#444',line2:'#555'};
 // Markers render as inline text, not a badge wall: no pill containers,
