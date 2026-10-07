@@ -52,7 +52,10 @@ function group(name) {
 // ══════════════════════════════════════════════════════════════════════════
 group("The specimens — real claims, real papers");
 
-const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+const src = await readFile(join(root, "src/intro.jsx"), "utf8");
+// Intro CSS keyframes live in the app's global CSS block (CerebrumApp.jsx).
+const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+const cssSrc = src + "\n" + appSrc;
 
 await test("SPECIMENS holds at least three specimens", () => {
   const m = src.match(/const SPECIMENS = \[([\s\S]*?)\n\];/);
@@ -113,8 +116,8 @@ await test("dots select specimens directly", () => {
 });
 
 await test("specimen change has its own entrance animation", () => {
-  assert.ok(src.includes("@keyframes cbSpecimenIn"), "specimen keyframes missing");
-  assert.ok(src.includes("cb-specimen-in"), "specimen entrance class missing");
+  assert.ok(cssSrc.includes("@keyframes cbSpecimenIn"), "specimen keyframes missing");
+  assert.ok(cssSrc.includes("cb-specimen-in"), "specimen entrance class missing");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -141,15 +144,15 @@ await test("the old worked-example section is gone — the specimen is the examp
 group("Playback truth — labels follow the video element, not intent flags");
 
 await test("CinematicFilm listens to real media events", () => {
-  assert.ok(src.includes('addEventListener("playing"'), "no playing listener");
-  assert.ok(src.includes('addEventListener("pause"'), "no pause listener");
-  assert.ok(src.includes('addEventListener("play"'), "no play listener");
+  assert.ok(appSrc.includes('addEventListener("playing"'), "no playing listener");
+  assert.ok(appSrc.includes('addEventListener("pause"'), "no pause listener");
+  assert.ok(appSrc.includes('addEventListener("play"'), "no play listener");
 });
 
 await test("playback state is reported to the parent via onPlaybackChange", () => {
-  assert.ok(src.includes("onPlaybackChange"), "onPlaybackChange not wired");
+  assert.ok(appSrc.includes("onPlaybackChange"), "onPlaybackChange not wired");
   assert.ok(src.includes("onPlaybackChange={setFilmPlaying}"), "parent not receiving playback state");
-  assert.ok(src.includes("reportPlaying"), "no element-state reporter in the reel");
+  assert.ok(appSrc.includes("reportPlaying"), "no element-state reporter in the reel");
 });
 
 await test("no inferred autoplay-blocked flag survives", () => {
@@ -178,8 +181,8 @@ await test("intro reel dwells longer than the old 11s cut", () => {
 group("Quiet sci-fi — focus-pull entrance, small type, whisper CTA");
 
 await test("focus-pull keyframes exist and resolve blur to sharp", () => {
-  assert.ok(src.includes("@keyframes cbFocusIn"), "cbFocusIn not defined");
-  const kf = src.slice(src.indexOf("@keyframes cbFocusIn"), src.indexOf("@keyframes cbFocusIn") + 200);
+  assert.ok(cssSrc.includes("@keyframes cbFocusIn"), "cbFocusIn not defined");
+  const kf = cssSrc.slice(cssSrc.indexOf("@keyframes cbFocusIn"), cssSrc.indexOf("@keyframes cbFocusIn") + 200);
   assert.ok(kf.includes("blur("), "focus-pull does not use blur");
   assert.ok(!kf.includes("translate"), "focus-pull must not move the type");
 });
@@ -207,7 +210,7 @@ await test("CTA is a whisper outline, not a chunky pill", () => {
 });
 
 await test("reduced motion kills the focus-pull", () => {
-  assert.ok(src.includes(".cb-focus-in { animation: none; }"), "reduced-motion override missing");
+  assert.ok(cssSrc.includes(".cb-focus-in { animation: none; }"), "reduced-motion override missing");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

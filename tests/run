@@ -522,20 +522,22 @@ await test("a11y: skip link, main landmark, input names, SVG roles, abort", asyn
   assert.match(appSrc, /cbMotionCacheBust/, "motion-preference cookie reads are not cached");
 });
 await test("film survives iOS autoplay policies (Low Power Mode)", async () => {
-  const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  const fs = await import("node:fs/promises");
+  const appSrc = await fs.readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const introSrc = await fs.readFile(join(root, "src/intro.jsx"), "utf8");
   // The Play control must issue play() synchronously inside the tap's gesture
   // window — a play() from the post-setState effect is vetoed by iOS Low
   // Power Mode, which is exactly the "clips aren't playing" report.
   assert.match(appSrc, /forwardRef\(function CinematicFilm/, "CinematicFilm does not forward a ref");
-  assert.match(appSrc, /playNow: \(\) =>/, "no gesture-context playNow exposed");
-  assert.match(appSrc, /filmRef\.current\?\.playNow\(\)/, "Play control does not call playNow in the gesture");
+  assert.match(introSrc, /playNow: \(\) =>/, "no gesture-context playNow exposed");
+  assert.match(introSrc, /filmRef\.current\?\.playNow\(\)/, "Play control does not call playNow in the gesture");
   // First interaction retries the reel: a phone that vetoed programmatic
   // autoplay gets footage on first tap instead of a still poster all visit.
-  assert.match(appSrc, /window\.addEventListener\("pointerdown", tryResume\)/, "first-gesture film resume missing");
-  assert.match(appSrc, /window\.removeEventListener\("pointerdown", tryResume\)/, "gesture resume listener leaks");
+  assert.match(introSrc, /window\.addEventListener\("pointerdown", tryResume\)/, "first-gesture film resume missing");
+  assert.match(introSrc, /window\.removeEventListener\("pointerdown", tryResume\)/, "gesture resume listener leaks");
   // A vetoed play surfaces a tap-to-play affordance instead of silence.
-  assert.match(appSrc, /onAutoplayBlocked/, "autoplay-blocked notification missing");
-  assert.match(appSrc, /Background film paused — tap to play/, "tap-to-play pill missing");
+  assert.match(introSrc, /onAutoplayBlocked/, "autoplay-blocked notification missing");
+  assert.match(introSrc, /Background film paused — tap to play/, "tap-to-play pill missing");
 });
 await test("search loader: descent instrument, honest clock, no fake progress", async () => {
   const fs = await import("node:fs/promises");
@@ -583,11 +585,13 @@ await test("search errors carry a diagnostic caption and the request is bounded"
 });
 await test("modal scroll lock is keyed on the overlay boolean, not each overlay", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
-  // The pin/restore effect must run once per open-session: keying it on the
-  // individual overlay states re-pinned on every nested open/close and read
-  // a stale scrollY on iOS, sending the page rogue.
+  // The lock must run once per open-session: keying it on the individual
+  // overlay states re-pinned on every nested open/close and read a stale
+  // scrollY on iOS, sending the page rogue. Since Oct 7 the lock is the
+  // unified ref-counted lock from src/scrollLock.js, driven by the single
+  // anyOverlayOpen boolean via useScrollLock.
   assert.match(appSrc, /const anyOverlayOpen = cmdOpen \|\| mobilePanel/, "anyOverlayOpen boolean missing");
-  assert.match(appSrc, /\}, \[anyOverlayOpen\]\);/, "scroll-lock effect is not keyed on the single overlay boolean");
+  assert.match(appSrc, /useScrollLock\(anyOverlayOpen\)/, "scroll lock is not driven by the single overlay boolean via useScrollLock");
   assert.ok(!/}, \[cmdOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource\]\);/.test(appSrc),
     "scroll-lock effect still re-runs per overlay");
 });
