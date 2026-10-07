@@ -11,6 +11,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { createPortal } from "react-dom";
 import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING } from "./designSystem.jsx";
 import { getCookie, __cbMotionCache, cbMotionCacheSet, download } from "./appUtils.js";
+import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
 
 export function cbMotionOff() {
   // Cached ~1s: this runs in hot paths (pointer handlers, count-up hooks)
@@ -30,32 +31,8 @@ export function cbMotionOff() {
 }
 
 const cbDialogStack = [];
-let cbDialogLockDepth = 0;
-let cbDialogSavedOverflow = "";
-let cbDialogSavedPaddingRight = "";
-
-function cbDialogLockScroll() {
-  if (cbDialogLockDepth === 0) {
-    try {
-      cbDialogSavedOverflow = document.body.style.overflow;
-      cbDialogSavedPaddingRight = document.body.style.paddingRight;
-      const sw = window.innerWidth - document.documentElement.clientWidth;
-      document.body.style.overflow = "hidden";
-      if (sw > 0) document.body.style.paddingRight = `calc(${cbDialogSavedPaddingRight || "0px"} + ${sw}px)`;
-    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbDialogLockScroll:", cbErr); }
-  }
-  cbDialogLockDepth += 1;
-}
-function cbDialogUnlockScroll() {
-  if (cbDialogLockDepth <= 0) return;
-  cbDialogLockDepth -= 1;
-  if (cbDialogLockDepth === 0) {
-    try {
-      document.body.style.overflow = cbDialogSavedOverflow;
-      document.body.style.paddingRight = cbDialogSavedPaddingRight;
-    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbDialogUnlockScroll:", cbErr); }
-  }
-}
+// Scroll locking is owned by src/scrollLock.js (the single ref-counted
+// lock); the dialog stack here only tracks topmost/Escape/focus order.
 
 const CB_FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +

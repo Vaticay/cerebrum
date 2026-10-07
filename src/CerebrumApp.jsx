@@ -94,6 +94,9 @@ import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, api
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
 
+/* Unified scroll lock (replaces the three competing implementations). */
+import { cbDialogLockScroll, cbDialogUnlockScroll, useScrollLock } from "./scrollLock.js";
+
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 
@@ -8747,15 +8750,13 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   }, [open, activeCite ]);
   /* Escape closes. The desktop drawer is deliberately non-modal so the
      answer stays readable behind it; only the mobile sheet locks body
-     scroll. The lock uses the shared ref-counted dialog lock
-     (cbDialogLockScroll / cbDialogUnlockScroll), NOT a hand-rolled
+     scroll. The lock uses the single unified scroll lock from
+     src/scrollLock.js (cbDialogLockScroll / cbDialogUnlockScroll are
+     aliases for its ref-counted lock/unlock) — NOT a hand-rolled
      body.style.overflow toggle. The old naive toggle fought the
-     anyOverlayOpen pin effect: it saved/restored only `overflow` while
-     the pin effect owns overflow+position+top+width, so closing the rail
-     could strand the body (overflow restored to "" while the pin was
-     still active, or "hidden" restored after the pin cleaned up) — the
-     "scroll broken" class of bug. The ref-counted lock composes safely
-     with the pin effect and with Dialog instances. */
+     anyOverlayOpen pin effect; now both go through the same ref-counted
+     lock, so overlapping overlays nest correctly and the body can never
+     be stranded. */
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => { if (e.key === "Escape" && onClose) onClose(); };
@@ -13608,35 +13609,9 @@ function AnswerSection({ eyebrow, title, right, children, P, accent, style, quie
    Enter/exit motion is transform/opacity only and is skipped under
    cbMotionOff() (OS reduced-motion or the in-app motion toggle).
    ============================================================ */
-const cbDialogStack = [];
-let cbDialogLockDepth = 0;
-let cbDialogSavedOverflow = "";
-let cbDialogSavedPaddingRight = "";
-
-function cbDialogLockScroll() {
-  if (cbDialogLockDepth === 0) {
-    try {
-      cbDialogSavedOverflow = document.body.style.overflow;
-      cbDialogSavedPaddingRight = document.body.style.paddingRight;
-      // The removed scrollbar's width gets added back as padding so the
-      // page behind the dialog doesn't jump sideways on desktop.
-      const sw = window.innerWidth - document.documentElement.clientWidth;
-      document.body.style.overflow = "hidden";
-      if (sw > 0) document.body.style.paddingRight = `calc(${cbDialogSavedPaddingRight || "0px"} + ${sw}px)`;
-    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: cbDialogSavedOverflow = document.body.style.overflow;:", cbErr); }
-  }
-  cbDialogLockDepth += 1;
-}
-function cbDialogUnlockScroll() {
-  if (cbDialogLockDepth <= 0) return; // Unbalanced unlock: never held a lock, leave styles alone.
-  cbDialogLockDepth -= 1;
-  if (cbDialogLockDepth === 0) {
-    try {
-      document.body.style.overflow = cbDialogSavedOverflow;
-      document.body.style.paddingRight = cbDialogSavedPaddingRight;
-    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: document.body.style.overflow = cbDialogSavedOverflow;:", cbErr); }
-  }
-}
+// Scroll locking is owned by src/scrollLock.js — the single ref-counted
+// lock for the whole app (this file's old local copy and the pin effect
+// below were two of the three competing implementations it replaces).
 
 const CB_FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
@@ -20713,27 +20688,12 @@ function App() {
     // locked): flowchart studio, Pro modal, profile viewer, provenance
     // panel, film credits, and incoming/active call overlays.
     || flowchartOpen || proModalOpen || !!viewingProfileId || provenanceOpen || filmCreditsOpen || !!incomingCall || !!activeHuddle;
-  useEffect(() => {
-    if (!anyOverlayOpen) return;
-    const scrollY = window.scrollY;
-    const body = document.body;
-    const prev = { overflow: body.style.overflow, position: body.style.position, top: body.style.top, width: body.style.width };
-    body.style.overflow = "hidden";
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.width = "100%";
-    return () => {
-      body.style.overflow = prev.overflow;
-      body.style.position = prev.position;
-      body.style.top = prev.top;
-      body.style.width = prev.width;
-      // Same CSS smooth-scroll gotcha as the auto-follow effect above: this
-      // is a silent technical restore (putting the page back exactly where
-      // it was before a modal locked it), not a user-facing glide — it
-      // should be invisible, not animated.
-      window.scrollTo({ top: scrollY, left: 0, behavior: "instant" });
-    };
-  }, [anyOverlayOpen]);
+  // Body scroll lock: one call, one system. useScrollLock is the unified
+  // ref-counted lock from src/scrollLock.js — it pins the body at the exact
+  // scroll offset (iOS-safe) and nests correctly with Dialog instances via
+  // the shared depth counter. Keyed on the single anyOverlayOpen boolean,
+  // NOT on individual overlay states (see the nesting note above).
+  useScrollLock(anyOverlayOpen);
   useEffect(() => { setCookie("cb_snd", soundMode); }, [soundMode]);
   useEffect(() => { setCookie("cb_len", answerLength); }, [answerLength]);
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);

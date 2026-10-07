@@ -583,11 +583,13 @@ await test("search errors carry a diagnostic caption and the request is bounded"
 });
 await test("modal scroll lock is keyed on the overlay boolean, not each overlay", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
-  // The pin/restore effect must run once per open-session: keying it on the
-  // individual overlay states re-pinned on every nested open/close and read
-  // a stale scrollY on iOS, sending the page rogue.
+  // The lock must run once per open-session: keying it on the individual
+  // overlay states re-pinned on every nested open/close and read a stale
+  // scrollY on iOS, sending the page rogue. Since Oct 7 the lock is the
+  // unified ref-counted lock from src/scrollLock.js, driven by the single
+  // anyOverlayOpen boolean via useScrollLock.
   assert.match(appSrc, /const anyOverlayOpen = cmdOpen \|\| mobilePanel/, "anyOverlayOpen boolean missing");
-  assert.match(appSrc, /\}, \[anyOverlayOpen\]\);/, "scroll-lock effect is not keyed on the single overlay boolean");
+  assert.match(appSrc, /useScrollLock\(anyOverlayOpen\)/, "scroll lock is not driven by the single overlay boolean via useScrollLock");
   assert.ok(!/}, \[cmdOpen, mobilePanel, authOpen, collectionsOpen, compareOpen, networkGraphSources, timelineSources, evidenceTableSources, importPrompt, drawerSource\]\);/.test(appSrc),
     "scroll-lock effect still re-runs per overlay");
 });
