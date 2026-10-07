@@ -4092,11 +4092,12 @@ const FILM_CLIPS_LANDSCAPE = [
 ];
 
 /* Portrait. Used when the window is taller than it is wide — a phone held
-   upright, and nothing else. */
+   upright, and nothing else. 2026-10-07: science-* portrait clips were 404,
+   so portrait now uses the working ambient clips (cropped, but they play). */
 const FILM_CLIPS_PORTRAIT = [
-  videoUrl("/assets/cinematic/science-24.mp4"),
-  videoUrl("/assets/cinematic/science-25.mp4"),
-  videoUrl("/assets/cinematic/science-28.mp4"), // Butterfly feeding on a flower — Hao Le
+  videoUrl("/assets/cinematic/ambient-01.mp4"),
+  videoUrl("/assets/cinematic/ambient-03.mp4"),
+  videoUrl("/assets/cinematic/ambient-07.mp4"),
 ];
 
 /* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two
@@ -4132,7 +4133,9 @@ const FILM_CLIPS_PRO_PORTRAIT = [
 function filmReel(pro) {
   if (typeof window === "undefined") return FILM_CLIPS_LANDSCAPE;
   const portrait = window.innerHeight > window.innerWidth;
-  if (pro) return portrait && FILM_CLIPS_PRO_PORTRAIT.length ? FILM_CLIPS_PRO_PORTRAIT : FILM_CLIPS_PRO_LANDSCAPE;
+  // 2026-10-07: Pro clips (science-*) are 404 on the CDN — they were never
+  // uploaded. Pro users get the working ambient reel until the Pro clips
+  // actually exist. Selling a broken reel is worse than no Pro reel.
   return portrait && FILM_CLIPS_PORTRAIT.length ? FILM_CLIPS_PORTRAIT : FILM_CLIPS_LANDSCAPE;
 }
 /* Video CDN base. Build-time VITE_VIDEO_CDN_BASE is baked into

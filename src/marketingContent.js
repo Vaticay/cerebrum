@@ -91,7 +91,7 @@ export const MARKETING_PAGES = {
         list: [
           "$20 per month or $144 per year, auto-renewing until you cancel.",
           "Unlimited AI answers, document reads, and flowcharts.",
-          "The Pro badge, four exclusive Pro themes, deeper Pro search, and the members' cinematic reels.",
+          "The Pro badge, four exclusive Pro themes, deeper Pro search, and priority rendering.",
           "Pro-only investigation templates, priority search queue, and API access with personal keys.",
           "Cancel anytime from the billing portal. 7-day money-back guarantee on the first charge of a new subscription — email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
         ],
