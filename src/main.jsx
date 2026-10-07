@@ -216,3 +216,20 @@ createRoot(document.getElementById("root")).render(
     <Root />
   </ErrorBoundary>
 );
+
+/**
+ * Service worker registration — push notifications for closed tabs.
+ *
+ * The in-app poll and cbNotify only fire while a tab is open; public/sw.js
+ * is what reaches someone with no tab open at all. Registered on window
+ * load (never blocking first paint), and only where the browser actually
+ * supports service workers. A failed registration is not fatal — the app
+ * keeps working with background-tab notifications only.
+ */
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    try {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    } catch { /* unsupported environment */ }
+  });
+}

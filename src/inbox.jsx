@@ -8,7 +8,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad } from "./appUtils.js";
-import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, Z, Icon, UIButton } from "./designSystem.jsx";
+import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, Icon, UIButton } from "./designSystem.jsx";
 import { ensureE2EEDevice, decryptThreadMessages, getSafetyNumber, getRecoveryPhrase, isPeerEncryptionReady, upgradeThread, markSafetyNumberVerified, clearSafetyNumberVerified, encryptMessage } from "./e2ee/messaging.js";
 import { safeHref } from "./textUtils.js";
 import { Dialog, ModalChrome } from "./flowcharts.jsx";
@@ -65,7 +65,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
         ) : (
           <form onSubmit={submit}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)" }}>{title}</div>
+              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)" }}>{title}</div>
               <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
             </div>
             <div style={{ marginBottom: 14 }}>
@@ -151,6 +151,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [groupSearching, setGroupSearching] = useState(false);
   const [groupMembers, setGroupMembers] = useState([]);
   const [groupCreating, setGroupCreating] = useState(false);
+  // Group info panel — roster, add/remove people, rename, leave. The Add
+  // people search reuses the same search-users endpoint as creation.
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [settingsName, setSettingsName] = useState("");
+  const [settingsQuery, setSettingsQuery] = useState("");
+  const [settingsResults, setSettingsResults] = useState([]);
+  const [settingsSearching, setSettingsSearching] = useState(false);
+  // settingsBusy: "" | "add" | "rename" | "leave" | "remove:<memberId>"
+  const [settingsBusy, setSettingsBusy] = useState("");
   // E2EE Phase 1.4 — per-thread encryption UI. `upgradeInfo` is null when
   // the banner doesn't apply, { checking } while probing, or
   // { ready } once we know whether the peer can upgrade. `safetyChanged`
@@ -388,6 +397,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     return () => clearTimeout(t);
   }, [groupQuery, groupModalOpen, groupMembers]);
 
+  // Group info panel — debounced people search, same endpoint and 2-char
+  // floor as creation. Filters out people already in the group so a tap is
+  // always a real add.
+  useEffect(() => {
+    const q = settingsQuery.trim();
+    if (!groupInfoOpen || q.length < 2) { setSettingsResults([]); setSettingsSearching(false); return; }
+    setSettingsSearching(true);
+    const t = setTimeout(() => {
+      apiDataGet("search-users", { q }).then((d) => {
+        const items = (d && d.items) || [];
+        const memberIds = new Set((activeThread?.members || []).map((m) => m.id));
+        setSettingsResults(items.filter((r) => !memberIds.has(r.id)));
+        setSettingsSearching(false);
+      }).catch(() => setSettingsSearching(false));
+    }, 250);
+    return () => clearTimeout(t);
+    // activeThread.members changes as people are added/removed — refilter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsQuery, groupInfoOpen, activeThread?.members]);
+
   const createGroup = async () => {
     const name = groupName.trim();
     if (!name || groupMembers.length < 2 || groupCreating) return;
@@ -412,6 +441,91 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       toast(e.message || "Couldn't create that group.", { tone: "error" });
     } finally {
       setGroupCreating(false);
+    }
+  };
+
+  // Group member management. Every action below re-checks the membership
+  // guard server-side; these handlers just keep the list, header, and
+  // subtitle in sync after the server confirms.
+  const openGroupInfo = () => {
+    if (activeThread?.kind !== "group") return;
+    setSettingsName(activeThread.name || "");
+    setSettingsQuery("");
+    setSettingsResults([]);
+    setGroupInfoOpen(true);
+  };
+
+  // Re-pull the open thread after roster edits. Groups never carry
+  // ciphertext (plaintext-only, no multiparty E2EE), so the thread object
+  // can go straight into state without the decrypt pipeline.
+  const refreshGroupThread = async () => {
+    try {
+      const data = await apiDataGet("thread", { thread_id: activeId });
+      if (data && !data.error && data.id === activeId) setActiveThread(data);
+    } catch {
+      // Keep the stale roster rather than blanking the thread.
+    }
+  };
+
+  const addGroupMembers = async (ids) => {
+    if (!activeId || settingsBusy || !ids.length) return;
+    setSettingsBusy("add");
+    try {
+      await apiDataAction("add-group-members", { thread_id: activeId, member_ids: ids });
+      await refreshGroupThread();
+      setSettingsQuery("");
+      toast(ids.length === 1 ? "Added to the group." : `${ids.length} people added.`);
+    } catch (e) {
+      toast(e.message || "Couldn't add them to the group.", { tone: "error" });
+    } finally {
+      setSettingsBusy("");
+    }
+  };
+
+  const removeGroupMember = async (member) => {
+    if (!activeId || settingsBusy) return;
+    setSettingsBusy("remove:" + member.id);
+    try {
+      await apiDataAction("remove-group-member", { thread_id: activeId, member_id: member.id });
+      await refreshGroupThread();
+      toast(`Removed ${member.name || member.username || "them"} from the group.`);
+    } catch (e) {
+      toast(e.message || "Couldn't remove them.", { tone: "error" });
+    } finally {
+      setSettingsBusy("");
+    }
+  };
+
+  const leaveGroup = async () => {
+    if (!activeId || settingsBusy) return;
+    setSettingsBusy("leave");
+    try {
+      // No member_id: the server removes the caller (see remove-group-member).
+      await apiDataAction("remove-group-member", { thread_id: activeId });
+      setGroupInfoOpen(false);
+      setThreads((prev) => prev.filter((t) => t.id !== activeId));
+      setActiveId(null);
+      toast("You left the group.");
+    } catch (e) {
+      toast(e.message || "Couldn't leave the group.", { tone: "error" });
+    } finally {
+      setSettingsBusy("");
+    }
+  };
+
+  const renameGroup = async () => {
+    const name = settingsName.trim().slice(0, 80);
+    if (!activeId || !name || settingsBusy || name === activeThread?.name) return;
+    setSettingsBusy("rename");
+    try {
+      await apiDataAction("rename-group", { thread_id: activeId, name });
+      setActiveThread((t) => (t ? { ...t, name } : t));
+      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, name } : t)));
+      toast("Group renamed.");
+    } catch (e) {
+      toast(e.message || "Couldn't rename the group.", { tone: "error" });
+    } finally {
+      setSettingsBusy("");
     }
   };
 
@@ -735,11 +849,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · ")))
     : "";
 
-  // Read receipts — DMs only (see the otherLastReadAt comment in
-  // functions/api/data.js for why groups don't get this). "Seen" only ever
-  // marks the single most recent message *you* sent, the same place every
-  // real DM app (iMessage, WhatsApp) puts it — not a per-message checkmark
-  // on everything you've ever sent.
+  // Read receipts — DMs show "Seen"/"Delivered" on your last message;
+  // groups show "Seen by N" (count of other members whose lastReadAt is
+  // at or past your last message). Same placement as every real messaging
+  // app: only the single most recent message *you* sent.
   let lastMineMessage = null;
   if (activeThread?.messages) {
     for (let i = activeThread.messages.length - 1; i >= 0; i--) {
@@ -750,6 +863,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     lastMineMessage && activeThread?.kind === "dm" &&
     activeThread.otherLastReadAt && activeThread.otherLastReadAt >= lastMineMessage.createdAt
   );
+  // Group read receipts: how many other members have read my last message.
+  let groupSeenCount = 0;
+  let groupSeenNames = [];
+  if (lastMineMessage && activeThread?.kind === "group" && Array.isArray(activeThread.members)) {
+    const seen = activeThread.members.filter((m) => !m.mine && m.lastReadAt && m.lastReadAt >= lastMineMessage.createdAt);
+    groupSeenCount = seen.length;
+    groupSeenNames = seen.map((m) => m.name || m.username || "Someone");
+  }
 
   // Mobile: show one pane at a time (list, or the open thread with a way
   // back) instead of squeezing both into one narrow column.
@@ -877,18 +998,27 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 )}
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</div>
+                    {activeThread.kind === "group" ? (
+                      // The name + member count are the way in: tapping them
+                      // opens the group info panel (roster, add/remove,
+                      // rename, leave). DMs keep the plain text name.
+                      <button onClick={openGroupInfo} aria-label={`Group info for ${activeThread.name}`} style={{ background: "none", border: "none", padding: 0, margin: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0, fontFamily: "var(--cb-font)", color: P.ink, textAlign: "left" }}>
+                        <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</span>
+                        {activeThread.memberCount ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)" }}>
+                            <Icon name="network" size={11} /> {activeThread.memberCount}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : (
+                      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</div>
+                    )}
                     {/* E2EE Phase 1.4 — the badge renders ONLY when the server
                         says this thread is encrypted. No badge on plaintext
                         threads, ever: a badge is a promise. */}
                     {activeThread.encrypted && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
                         <Icon name="lock" size={11} /> Encrypted
-                      </span>
-                    )}
-                    {activeThread.kind === "group" && activeThread.memberCount && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)" }}>
-                        <Icon name="network" size={11} /> {activeThread.memberCount}
                       </span>
                     )}
                   </div>
@@ -1174,8 +1304,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     {/* A message with no time on it is a message you can't
                         place in a conversation. */}
                     {timeLabel && <span style={{ fontFamily: "var(--cb-font)" }}>{timeLabel}</span>}
-                    {m.mine && m.id && lastMineMessage?.id === m.id && (
+                    {m.mine && m.id && lastMineMessage?.id === m.id && activeThread?.kind === "dm" && (
                       <span>· {seenLastMine ? "Seen" : "Delivered"}</span>
+                    )}
+                    {m.mine && m.id && lastMineMessage?.id === m.id && activeThread?.kind === "group" && (
+                      <span title={groupSeenNames.length > 0 ? `Seen by ${groupSeenNames.join(", ")}` : "No one has seen this yet"}>
+                        · {groupSeenCount > 0 ? `Seen by ${groupSeenCount}` : "Sent"}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1261,7 +1396,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     width: 46, height: 46, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                     background: withAlpha(accent, 0.1), color: accent, marginBottom: 2,
                   }}><Icon name="mail" size={20} /></div>
-                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>Your conversations live here</div>
+                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Your conversations live here</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
                     Messages, shared papers, and calls with other researchers. Nothing you say here is used to train anything or shown on your profile.
                   </div>
@@ -1455,6 +1590,118 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             style={{ minHeight: 48, opacity: (!groupName.trim() || groupMembers.length < 2 || groupCreating) ? 0.5 : 1 }}
           >
             {groupCreating ? "Creating…" : `Create group${groupMembers.length >= 2 ? ` (${groupMembers.length + 1} people)` : ""}`}
+          </UIButton>
+        </div>
+      </ModalChrome>
+    )}
+    {/* Group info panel — the full roster, rename, add people, remove
+        people, leave. The plaintext + no-admins-yet lines stay honest:
+        groups aren't encrypted and anyone in one can rename or remove. */}
+    {groupInfoOpen && activeThread?.kind === "group" && (
+      <ModalChrome
+        label="Group info" eyebrow="Inbox"
+        title="Group info"
+        onClose={() => setGroupInfoOpen(false)}
+        accent={accent} P={P} drawer={isMobile} width={520}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={settingsName}
+                onChange={(e) => setSettingsName(e.target.value.slice(0, 80))}
+                aria-label="Group name"
+                style={{
+                  flex: 1, minWidth: 0, padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                  border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
+                }}
+              />
+              <UIButton
+                P={P} variant="primary"
+                onClick={renameGroup}
+                disabled={!settingsName.trim() || settingsBusy === "rename"}
+                style={{ minHeight: 48, padding: "0 18px", opacity: (!settingsName.trim() || settingsBusy === "rename") ? 0.5 : 1 }}
+              >
+                {settingsBusy === "rename" ? "Saving…" : "Save"}
+              </UIButton>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>MEMBERS ({(activeThread.members || []).length})</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 260, overflowY: "auto" }}>
+              {(activeThread.members || []).map((m) => (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", minHeight: 44 }}>
+                  <span style={{ width: 32, height: 32, borderRadius: "50%", background: withAlpha(accent, 0.14), color: accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 700, flexShrink: 0 }}>
+                    {(m.name || m.username || "?").charAt(0).toUpperCase()}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {m.name || m.username}{m.mine ? " (you)" : ""}
+                    </span>
+                    {m.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{m.username}</span>}
+                  </span>
+                  {!m.mine && (
+                    <UIButton
+                      P={P} variant="ghost"
+                      onClick={() => removeGroupMember(m)}
+                      disabled={settingsBusy === "remove:" + m.id}
+                      aria-label={`Remove ${m.name || m.username}`}
+                      title={`Remove ${m.name || m.username}`}
+                      style={{ width: 44, height: 44, borderRadius: 8, border: "none", background: "transparent", color: P.faint, cursor: settingsBusy === "remove:" + m.id ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                    >
+                      {settingsBusy === "remove:" + m.id ? <span style={{ fontSize: FONT_SIZES.micro }}>…</span> : <Icon name="close" size={13} />}
+                    </UIButton>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE</div>
+            <input
+              value={settingsQuery}
+              onChange={(e) => setSettingsQuery(e.target.value)}
+              placeholder="Search a name or @username"
+              aria-label="Search people to add"
+              style={{
+                width: "100%", padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
+              }}
+            />
+            {settingsSearching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
+            {!settingsSearching && settingsQuery.trim().length >= 2 && settingsResults.length === 0 && (
+              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Nobody matches that.</div>
+            )}
+            {settingsResults.length > 0 && (
+              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+                {settingsResults.map((r) => (
+                  <button key={r.id} onClick={() => addGroupMembers([r.id])} disabled={settingsBusy === "add"} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent", cursor: settingsBusy === "add" ? "default" : "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44, opacity: settingsBusy === "add" ? 0.5 : 1 }}>
+                    <span style={{ width: 32, height: 32, borderRadius: "50%", background: withAlpha(accent, 0.14), color: accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 700, flexShrink: 0 }}>
+                      {(r.name || r.username || "?").charAt(0).toUpperCase()}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
+                      {r.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{r.username}</span>}
+                    </span>
+                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, flexShrink: 0 }}>{settingsBusy === "add" ? "Adding…" : "Add"}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+            Group messages aren't end-to-end encrypted yet. There are no admins — any member can rename the group or remove people.
+          </div>
+          <UIButton
+            P={P} variant="ghost"
+            onClick={leaveGroup}
+            disabled={settingsBusy === "leave"}
+            style={{ minHeight: 48, color: statusBad(P), border: `1px solid ${withAlpha(statusBad(P), 0.35)}`, opacity: settingsBusy === "leave" ? 0.5 : 1 }}
+          >
+            {settingsBusy === "leave" ? "Leaving…" : "Leave group"}
           </UIButton>
         </div>
       </ModalChrome>

@@ -855,8 +855,8 @@ export async function onRequest(context) {
         if (!threadRow) return errRes("That conversation no longer exists.", 404, "not_found", cors);
         // last_read_at rides along per participant so a DM can report
         // "Seen" on the read side's own last message — see otherLastReadAt
-        // below. Not attempted for groups (kind !== "dm"): "seen by which
-        // of N people" is a genuinely different feature nobody asked for.
+        // below. Groups get per-member lastReadAt on the members array
+        // instead, so the client can render "Seen by N".
         /* Commit 100 — `u.email` and a raw `u.affiliation` used to be
            selected here and sent to the other participant's browser, where
            the Inbox printed them under the conversation title:
@@ -956,6 +956,10 @@ export async function onRequest(context) {
             name: displayNameFor(p),
             username: p.username || null,
             mine: p.id === user.id,
+            // Group read receipts: each member's last_read_at lets the
+            // client compute "Seen by N" on your messages. DMs use
+            // otherLastReadAt instead (single peer, simpler contract).
+            lastReadAt: toEpochMs(p.last_read_at),
           })),
           otherId,
           otherUsername,
@@ -1114,6 +1118,34 @@ export async function onRequest(context) {
           return { id: r.id, title: r.title, turns: blob.turns || [], allSources: blob.allSources || [], createdAt: r.created_at, updatedAt: r.updated_at };
         });
         return okRes({ items }, 200, cors);
+      }
+      // Investigation search. Searches the user's own investigation history
+      // by title and turn content. The turns_json blob holds { turns,
+      // allSources }, so a LIKE on the blob covers questions, answers, and
+      // paper titles in one pass. Scoped to the requesting user — nobody
+      // else's investigations are ever visible. `q` needs 2+ characters.
+      if (resource === "history" && action === "search") {
+        const q = typeof body.q === "string" ? body.q.trim().slice(0, 100) : "";
+        if (q.length < 2) return errRes("Search needs at least 2 characters.", 400, "query_too_short", cors);
+        const like = `%${q.replace(/[%_\\]/g, "\\$&")}%`;
+        const rows = await env.DB.prepare(
+          "SELECT id, title, turns_json, created_at, updated_at FROM user_history WHERE user_id = ? AND (title LIKE ? ESCAPE '\\' OR turns_json LIKE ? ESCAPE '\\') ORDER BY updated_at DESC LIMIT 50"
+        ).bind(user.id, like, like).all();
+        const items = (rows.results || []).map((r) => {
+          let blob = { turns: [], allSources: [] };
+          try { blob = JSON.parse(r.turns_json); } catch (cbErr) { console.error("[Cerebrum] data.js history search: blob parse:", cbErr); }
+          // Return a snippet: the first turn question that matches, or the title.
+          let snippet = r.title || "";
+          try {
+            const turns = blob.turns || [];
+            for (const t of turns) {
+              const qq = t.q || t.question || "";
+              if (qq && qq.toLowerCase().includes(q.toLowerCase())) { snippet = qq.slice(0, 160); break; }
+            }
+          } catch (cbErr) { console.error("[Cerebrum] data.js history search: snippet:", cbErr); }
+          return { id: r.id, title: r.title, snippet, turnCount: (blob.turns || []).length, createdAt: r.created_at, updatedAt: r.updated_at };
+        });
+        return okRes({ items, query: q }, 200, cors);
       }
       // Evidence maps (Flowchart Studio). Same shape the client keeps in
       // localStorage: { id, title, nodes, edges, updatedAt }. The blob
@@ -2515,6 +2547,108 @@ export async function onRequest(context) {
       }
       await env.DB.batch(stmts);
       return okRes({ thread_id: threadId, created: true, kind: "group", name }, 200, cors);
+    }
+
+    // Group member management — add-group-members, remove-group-member,
+    // rename-group. Every one of these starts with the same guard: the
+    // thread must exist, must be kind='group', and the caller must be a
+    // member. There are no admin roles yet, so any member can rename the
+    // group and any member can remove any other member — the Inbox UI says
+    // both of those plainly so nobody is surprised. Groups are plaintext
+    // (no multiparty E2EE): nothing here changes that, it just edits the
+    // roster and the name.
+    //
+    // The guard is inlined in each action (three small copies) rather than
+    // a helper, matching this file's style: each action's auth check sits
+    // right next to the SQL it gates so a reader can audit one action at
+    // a time.
+    if (action === "add-group-members") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      const thread = await env.DB.prepare("SELECT kind FROM threads WHERE id = ?").bind(threadId).first();
+      if (!thread || thread.kind !== "group") return errRes("That's not a group.", 404, "not_group", cors);
+      const callerMember = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!callerMember) return errRes("You're not part of that group.", 403, "not_member", cors);
+      const rawIds = Array.isArray(body.member_ids) ? body.member_ids : [];
+      const memberIds = [...new Set(rawIds.map((x) => safeId(x)).filter(Boolean))].filter((id) => id !== user.id);
+      if (memberIds.length === 0) return errRes("Pick at least one person to add.", 400, "missing_ids", cors);
+      // Validate every invitee before adding anyone: same rules as
+      // start-group-thread — real account, discoverable, no block in
+      // either direction with the adder, and not already in the group.
+      // A block with the *adder* (not just the creator) blocks the add:
+      // an existing member can't pull in someone who blocked them, or
+      // someone they blocked, as a way around that block.
+      for (const mid of memberIds) {
+        const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(mid).first();
+        if (!target || target.discoverable === 0) {
+          return errRes("One of the people you added isn't available.", 404, "not_available", cors);
+        }
+        if (await isBlockedPair(env, user.id, mid)) {
+          return errRes("One of the people you added can't be messaged.", 403, "forbidden", cors);
+        }
+        const already = await env.DB.prepare(
+          "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+        ).bind(threadId, mid).first();
+        if (already) return errRes("One of those people is already in the group.", 409, "already_member", cors);
+      }
+      // Same 50-person cap as creation.
+      const countRow = await env.DB.prepare("SELECT COUNT(*) AS cnt FROM thread_participants WHERE thread_id = ?").bind(threadId).first();
+      const currentCount = countRow?.cnt || 0;
+      if (currentCount + memberIds.length > 50) {
+        return errRes("Groups are capped at 50 people.", 400, "too_many_members", cors);
+      }
+      const now = Date.now();
+      await env.DB.batch(memberIds.map((mid) =>
+        env.DB.prepare("INSERT INTO thread_participants (thread_id, user_id, joined_at) VALUES (?, ?, ?)").bind(threadId, mid, now)
+      ));
+      return okRes({ thread_id: threadId, added: memberIds, member_count: currentCount + memberIds.length }, 200, cors);
+    }
+
+    // remove-group-member — `member_id` is the person being removed. When
+    // it's the caller's own id this is "Leave group"; anyone can leave on
+    // their own. Removing someone else is allowed for any member (no admin
+    // roles yet — the UI says this plainly). The membership guard runs
+    // first so a non-member can neither kick nor evict themselves from a
+    // group they aren't in.
+    if (action === "remove-group-member") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      const thread = await env.DB.prepare("SELECT kind FROM threads WHERE id = ?").bind(threadId).first();
+      if (!thread || thread.kind !== "group") return errRes("That's not a group.", 404, "not_group", cors);
+      const callerMember = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!callerMember) return errRes("You're not part of that group.", 403, "not_member", cors);
+      // No member_id means "me" — this is how "Leave group" works without
+      // the client needing to know its own id.
+      const memberId = safeId(body.member_id) || user.id;
+      const targetMember = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, memberId).first();
+      if (!targetMember) return errRes("They're not in this group.", 404, "target_not_member", cors);
+      await env.DB.prepare(
+        "DELETE FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, memberId).run();
+      const countRow = await env.DB.prepare("SELECT COUNT(*) AS cnt FROM thread_participants WHERE thread_id = ?").bind(threadId).first();
+      return okRes({ thread_id: threadId, removed: memberId, left: memberId === user.id, member_count: countRow?.cnt || 0 }, 200, cors);
+    }
+
+    // rename-group — any member can rename. 80-char cap, same as creation.
+    if (action === "rename-group") {
+      const threadId = safeId(body.thread_id);
+      const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      if (!name) return errRes("Give the group a name.", 400, "missing_name", cors);
+      const thread = await env.DB.prepare("SELECT kind FROM threads WHERE id = ?").bind(threadId).first();
+      if (!thread || thread.kind !== "group") return errRes("That's not a group.", 404, "not_group", cors);
+      const callerMember = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!callerMember) return errRes("You're not part of that group.", 403, "not_member", cors);
+      await env.DB.prepare("UPDATE threads SET name = ? WHERE id = ?").bind(name, threadId).run();
+      return okRes({ thread_id: threadId, name }, 200, cors);
     }
 
     // Commit 48: block/unblock the other person in a DM. Storage is
