@@ -7189,7 +7189,8 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
    Cerebrum Pro (2026-09-15).
 
    The membership tier: unlimited AI-synthesized answers, the PRO badge,
-   the exclusive Pro palette, and the members-only cinematic reel. Billing
+   four exclusive Pro palettes, deeper Pro search, and the members-only
+   cinematic reel. Billing
    runs through Stripe (Checkout + Customer Portal); the backend
    (functions/api/pro.js) is the authority on who is Pro — the frontend
    only renders what /api/pro and /api/auth report. Dusty alone can grant
@@ -7478,7 +7479,8 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 ["Read as many documents as you want", "Free: 3 every 5 days"],
                 ["Save as many flowcharts as you want", "Free: 1 every 5 days"],
                 ["A Pro badge on your profile", "Shows wherever your name appears"],
-                ["The Pro theme", "A dark bronze-and-gold look, members only"],
+                ["Four Pro themes", "Pro, Pro Violet, Pro Abyss, Pro Ember — members only"],
+                ["Deeper Pro search", "2x semantic rerank pool, 50 papers, stronger models, no cheap-first"],
                 ["Members-only background films", "Aurora, nebula, eclipse and DNA reels"],
                 ["Answer PDF export", "Clean PDFs with citations for your thesis"],
               ]).map(([t, d]) => (
@@ -20850,7 +20852,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               {!(user && user.isPro) && (
                 <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 }}>
                   <ProBadge />
-                  <span>Members also get the Pro theme. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: P.dark ? "#34d399" : "#047857", fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
+                  <span>Members also get four Pro themes and deeper search. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: P.dark ? "#34d399" : "#047857", fontSize: FONT_SIZES.caption, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
                 </div>
               )}
             </Section>
