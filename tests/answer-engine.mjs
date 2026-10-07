@@ -82,6 +82,9 @@ function group(name) {
 const searchSrc = await readFile(join(root, "functions/api/search.js"), "utf8");
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const apiSrc = await readFile(join(root, "functions/api/search.js"), "utf8");
+// sourceKeys was extracted to src/textUtils.js in the monolith split (2e45fa4);
+// the accumulator behavior in CerebrumApp.jsx is unchanged.
+const textUtilsSrc = await readFile(join(root, "src/textUtils.js"), "utf8").catch(() => "");
 
 // ══════════════════════════════════════════════════════════════════════════
 group("dedupePapers — multi-key identity (the [1]/[2] duplicate)");
@@ -312,7 +315,8 @@ test("turns carry the withheld count and the bibliography states it", () => {
 });
 
 test("frontend accumulator dedupes on intersecting multi-keys", () => {
-  assert.ok(appSrc.includes("function sourceKeys(s)"), "sourceKeys missing");
+  const hasSourceKeys = appSrc.includes("function sourceKeys(s)") || textUtilsSrc.includes("function sourceKeys(s)");
+  assert.ok(hasSourceKeys, "sourceKeys missing");
   assert.ok(appSrc.includes("keys.some((k) => seenKeys.has(k))"), "accumulator not multi-key");
 });
 
