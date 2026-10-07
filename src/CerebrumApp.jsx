@@ -76,7 +76,7 @@ import {
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
-import {FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
+import {FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
@@ -89,7 +89,7 @@ import { SettingsView } from "./settings.jsx";
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
-import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, selectChrome, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
+import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
 
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
@@ -479,16 +479,9 @@ async function saveToZotero(sources, apiKey, userId) {
 // hue and are left alone.
 /* Moved to src/appUtils.js: statusBad */
 
-// Shared "de-chromed" <select> treatment — Settings' own Picker already
-// suppressed the native OS dropdown arrow in favor of a custom SVG chevron
-// that matches the rest of the glass/editorial aesthetic, but every OTHER
-// <select> in the app (voice picker, citation style, move-to-collection,
-// Compare's thread pickers) kept the browser's default chrome, which on
-// most platforms renders as a plain gray system-font triangle sitting
-// inside an otherwise fully custom dark-glass control. Spread this into
-// any <select>'s style object (after its own border/background/padding)
-// to give it the same chevron everywhere, themed to the current palette
-// instead of one hardcoded gray.
+// UISelect (src/designSystem.jsx) replaced the last native <select>s —
+// citation style, move-to-collection, Compare's thread pickers. The old
+// selectChrome de-chroming helper is retired with them.
 /* Moved to src/appUtils.js: selectChrome */
 
 /* ════════════════════════════════════════════════════════════════
@@ -6694,10 +6687,9 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
   const controls = (
     <>
     <span className="cb-cite-controls" style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value)} aria-label="Citation style"
-        style={{ ...ctlBtn, paddingRight: 30, appearance: "none", ...selectChrome(P) }}>
-        {styleOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-      </select>
+      <UISelect P={P} accent={accent} value={citationStyle} onChange={setCitationStyle}
+        options={styleOptions.map((o) => ({ value: o.key, label: o.label }))}
+        ariaLabel="Citation style" style={{ fontSize: FONT_SIZES.caption }} />
       <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "✓ Copied" : "Copy references"}</button>
       <span style={{ position: "relative", display: "inline-flex" }}>
         <UIButton P={P} variant="ghost" onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} style={ctlBtn}>
@@ -16037,6 +16029,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [summary, setSummary] = useState(null); // { raw, model, mode: "summary", executiveSummary, methodology, keyFindings, limitations, media: { image|null, video|null, resolvedAt } }
   const [error, setError] = useState("");
   const [qaQuery, setQaQuery] = useState("");
+  /* Premium pass: the composer input lights its border on focus. */
+  const [qaFocus, setQaFocus] = useState(false);
   const [qaBusy, setQaBusy] = useState(false);
   const [qaHistory, setQaHistory] = useState([]); // [{ query, answer, errorMsg }]
   const [hoverCite, setHoverCite] = useState(null);
@@ -16650,8 +16644,6 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {recentDocs.slice(0, 5).map((d) => (
                 <div key={d.fp}
-                  /* Premium pass: shelf rows lift on hover — border and a
-                     whisper of accent, eased on the shared curve. */
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.background = withAlpha(accent, 0.05); }}
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.background = "transparent"; }}
                   style={{ minHeight: 44, display: "flex", alignItems: "center", gap: SP.sm, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "6px 6px 6px 12px", width: "100%", transition: "border-color 180ms var(--cb-ease), background 180ms var(--cb-ease)" }}>
@@ -16688,10 +16680,24 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
              continuous text node, so selection maps 1:1 onto character
              offsets for highlights. */
           <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
-              <div style={{ ...docEyebrow, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{docTitleOf(documentText)}</div>
+            {/* Premium pass: the reading surface gets a real masthead —
+                eyebrow, title in the heading treatment, meta line —
+                instead of one small uppercase line doing all three jobs. */}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: SP.lg }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ ...docEyebrow, marginBottom: 6 }}>Reading</div>
+                <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>{docTitleOf(documentText)}</h2>
+                {docStats && (
+                  <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                    <span style={{ ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{docStats.words.toLocaleString()} words</span>
+                    {" · "}~{docStats.mins} min read
+                  </div>
+                )}
+              </div>
               <button onClick={() => openDocument("")}
-                style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", cursor: "pointer", padding: "12px 4px", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                onMouseEnter={(e) => { e.currentTarget.style.color = P.ink2; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
+                style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", cursor: "pointer", padding: "12px 4px", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", transition: "color 150ms ease" }}>
                 Clear
               </button>
             </div>
@@ -16703,7 +16709,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                  URLs, chemical names) that extracted text is full of, so a
                  single token can never force the text over the card below.
                  pre-wrap preserves the document's own line breaks. */
-              style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.75, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "0", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
+              style={{ ...TYPE.body, fontSize: FONT_SIZES.body, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
               {renderMarkedText(documentText)}
             </div>
             <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
@@ -16737,7 +16743,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       onChange={(e) => setHighlights((prev) => prev.map((x) => (x.id === h.id ? { ...x, note: e.target.value.slice(0, 500) } : x)))}
                       placeholder="Add a note about this passage…"
                       aria-label="Note on highlighted passage"
-                      style={{ width: "100%", marginTop: 8, padding: 10, fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.5, minHeight: 44, resize: "vertical" }}
+                      style={{ ...TYPE.body, width: "100%", marginTop: 8, padding: 10, fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, minHeight: 44, resize: "vertical" }}
                     />
                     <button onClick={() => setHighlights((prev) => prev.filter((x) => x.id !== h.id))}
                       style={{ minHeight: 44, marginTop: 4, background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", padding: "12px 0" }}>
@@ -16766,15 +16772,15 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   :focus-within can light it (see .cb-doc-intake in the CSS);
                   the textarea itself is borderless inside it. */}
               <div className="cb-doc-intake" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: inputBg, overflow: "hidden" }}>
+              {/* Premium pass: the field's border lives on the wrapper so
+                 :focus-within can light it (see .cb-doc-intake in the CSS);
+                 the textarea itself is borderless inside it. */}
               <textarea
                 value={documentText}
                 onChange={(e) => setDocumentText(e.target.value)}
                 aria-label="Document: DOI, PMID, arXiv ID, URL, or the full text of a paper, report, or document"
                 placeholder="DOI, PMID, arXiv ID, or URL — or paste the full text"
                 rows={docIdentMode ? 2 : 8}
-                /* Premium pass: the field's border lives on the wrapper so
-                   :focus-within can light it (see .cb-doc-intake in the CSS);
-                   the textarea itself is borderless inside it. */
                 style={{ ...textareaStyle, border: "none", background: "transparent", borderRadius: 0, outline: "none", ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
               />
             </div>
@@ -16790,7 +16796,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 its five rows routinely read "—". Only the identifier — the
                 one thing the analysis can't derive — is shown. */}
             {docMeta && docMeta.ident && (
-              <div style={{ marginTop: 12, border: `1px solid ${P.line}`, borderRadius: 6, background: P.surface, overflow: "hidden" }}>
+              <div style={{ marginTop: 12, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: P.surface, overflow: "hidden", boxShadow: SHADOW.xs(P) }}>
                 <div className="cb-kicker" style={{ padding: "12px 16px 0" }}>Document</div>
                 <div style={{ padding: "2px 16px 8px" }}>
                   <div style={{ display: "flex", gap: 12, padding: "7px 0", fontSize: FONT_SIZES.small, alignItems: "center" }}>
@@ -16893,7 +16899,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ marginTop: 16, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
               {!showDocB && !docB.trim() ? (
                 <button onClick={() => setShowDocB(true)}
-                  style={{ minHeight: 44, background: "none", border: `1px dashed ${P.line2}`, borderRadius: 6, padding: "12px 16px", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.faint; e.currentTarget.style.color = P.ink; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}
+                  style={{ minHeight: 44, background: "none", border: `1px dashed ${P.line2}`, borderRadius: RADIUS.md, padding: "12px 16px", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", transition: "border-color 180ms var(--cb-ease), color 180ms var(--cb-ease)" }}>
                   Compare with a second document
                 </button>
               ) : (
@@ -16929,12 +16937,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
 
   const renderDocReader = () => {
     const cardStyle = {
-      /* Sep 2026: opaque, not 0.94 — the near-opaque veil let bright
-         footage ghost through behind text. Roomier padding now: the
-         analysis is a reading surface, not a dense panel. */
+      /* Premium pass (2026-10-07): the analysis is a large intentional
+         surface — XL radius and card-at-rest depth from the RADIUS and
+         SHADOW scales. */
       background: P.surface,
-      borderRadius: 12, padding: isMobile ? 20 : 32, border: `1px solid ${P.line}`,
-      };
+      borderRadius: RADIUS.xl, padding: isMobile ? SP.xl : SP.xxl, border: `1px solid ${P.line}`,
+      boxShadow: SHADOW.sm(P),
+    };
     return (
       <>
         {!summary && !analyzing && (
@@ -16973,6 +16982,24 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         )}
         {summary && (
           <div style={cardStyle} className="cb-doc-analysis-card">
+            {/* Premium pass: the analysis gets a real masthead — eyebrow,
+                the document's title in the heading treatment, and a meta
+                line — so the tabs read as sections of a report instead of
+                an orphaned control at the top of a box. */}
+            <div style={{ marginBottom: SP.lg }}>
+              <div style={{ ...docEyebrow, marginBottom: SP.sm }}>Document analysis</div>
+              <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                {docTitleOf(documentText)}
+              </h2>
+              {docStats && (
+                <div style={{ marginTop: SP.sm, display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                  <span style={{ ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{docStats.words.toLocaleString()} words</span>
+                  <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
+                  <span>~{docStats.mins} min read</span>
+                  {summary.model ? (<><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>Analyzed by {summary.model}</span></>) : null}
+                </div>
+              )}
+            </div>
             <div className="cb-doc-tabs" style={{ marginBottom: 14, }}>
               <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
                 options={allTabOptions} />
@@ -16999,7 +17026,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
               );
             })()}
-            <div className="cb-doc-reader">
+            {/* Premium pass: keyed by the active tab so the content
+                re-mounts and rises in on every switch (see
+                .cb-doc-tabbody in the CSS). */}
+            <div className="cb-doc-reader cb-doc-tabbody" key={rightTab}>
               {rightTab === "compare" ? (
                 <>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 14 }}>
@@ -17058,11 +17088,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   return (
                     <>
                       {hasFindings && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginBottom: 12 }}>Key Findings</div>
+                        <div style={{ ...docEyebrow, marginBottom: 12 }}>Key Findings</div>
                         {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                       {hasLimitations && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginTop: hasFindings ? 28 : 0, marginBottom: 12 }}>Limitations</div>
+                        <div style={{ ...docEyebrow, marginTop: hasFindings ? 28 : 0, marginBottom: 12 }}>Limitations</div>
                         {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                     </>
@@ -17095,16 +17125,17 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 placeholder="Ask a question about this document…"
                 aria-label="Ask a question about this document"
                 disabled={qaBusy}
-                style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "12px 13px", fontSize: 16, borderRadius: 8, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)" }}
+                onFocus={() => setQaFocus(true)} onBlur={() => setQaFocus(false)}
+                style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "12px 13px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${qaFocus ? accent : P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", outline: "none", boxShadow: qaFocus ? `0 0 0 3px ${withAlpha(accent, 0.16)}` : "none", transition: "border-color 180ms var(--cb-ease), box-shadow 180ms var(--cb-ease)" }}
               />
               {qaBusy ? (
                 <button onClick={cancelQa} aria-label="Stop" title="Stop"
-                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "border-color 180ms var(--cb-ease), color 180ms var(--cb-ease)" }}>
                   <Icon name="close" size={15} />
                 </button>
               ) : (
                 <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask"
-                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0 }}>
+                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0, transition: "background 180ms var(--cb-ease), opacity 180ms ease" }}>
                   <Icon name="send" size={15} />
                 </button>
               )}

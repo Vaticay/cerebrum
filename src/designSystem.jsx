@@ -9,8 +9,11 @@
  * Contents: type scale (TYPE, FONT_SIZES), spacing (SP), radius (RADIUS),
  * color helpers (STATUS, accentText, relLuminance, withAlpha), Icon,
  * and the primitive components (UIButton, UICard, UIRow, UIField,
- * S_toolbarBtnBase, VerifiedCheck, FounderFrame, BADGE_*).
+ * UISelect, S_toolbarBtnBase, VerifiedCheck, FounderFrame, BADGE_*).
  */
+
+import { useState, useRef, useEffect, useId } from "react";
+import { createPortal } from "react-dom";
 
 export const FONT_SIZES = {
   // The 6-role editorial scale (DESIGN_RESEARCH.md §7.1): every size in
@@ -234,6 +237,7 @@ export const Z = {
   sheetScrim: 258,  // bottom-sheet scrims (under the sheet)
   modal: 300,       // full-screen modals
   modalTop: 320,    // modals that must clear other modals
+  selectMenu: 400,  // UISelect's portaled menu — must clear dialogs/modals
   toast: 9999,      // toasts and critical overlays
   max: 10000,       // absolute top (dev overlays only)
 };
@@ -487,3 +491,199 @@ function TierBadge({ tier, style } = {}) {
 }
 
 export { ProBadge, TierBadge };
+
+/* UISelect — the premium replacement for the native <select>.
+   The design audit scored Settings 600/1000 and called the native select
+   "the cheapest control in the app": even de-chromed with a custom chevron
+   it still opened the browser's own dropdown. UISelect is a fully custom
+   listbox. The trigger wears the UIButton secondary skin (lit top edge,
+   moulded border, shared cb-glass-action hover lift) with a chevronDown
+   Icon that rotates open; the menu speaks the same depth language
+   (SHADOW.md, RADIUS.lg, 6px padding, RADIUS.md options) with an accent
+   hover wash and a selected checkmark.
+   The menu portals to document.body with fixed positioning so it is never
+   clipped by an overflow:hidden ancestor (dialogs, scroll regions) — the
+   native dropdown's one real advantage. It closes on scroll, resize,
+   outside mousedown, Escape, or Tab, and flips upward when there is no
+   room below. Keyboard: arrows/Home/End move, Enter/Space chooses,
+   Escape closes. ARIA: trigger has listbox popup semantics with
+   aria-activedescendant; the menu is role=listbox, options role=option.
+   Options accept [{ value, label }] or [[value, label]] pairs. */
+export function UISelect({
+  P, accent, value, onChange, options = [], ariaLabel,
+  disabled = false, size = "md", style, menuStyle, className = "",
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const [pos, setPos] = useState(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const listId = `cb-uiselect-${uid}`;
+
+  const opts = (options || []).map((o) => (Array.isArray(o) ? { value: o[0], label: o[1] } : o));
+  const selIdx = opts.findIndex((o) => String(o.value) === String(value));
+  const selected = selIdx >= 0 ? opts[selIdx] : null;
+
+  const close = (refocus) => {
+    setOpen(false);
+    setActive(-1);
+    setPos(null);
+    if (refocus && triggerRef.current) triggerRef.current.focus();
+  };
+  const openMenu = (atIdx) => {
+    if (disabled || opts.length === 0) return;
+    const r = triggerRef.current ? triggerRef.current.getBoundingClientRect() : null;
+    if (r) {
+      const need = Math.min(280, opts.length * 44 + 12) + 12;
+      const up = r.bottom + need > window.innerHeight && r.top > need;
+      const width = Math.max(r.width, 180);
+      setPos({
+        left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+        width,
+        ...(up ? { bottom: Math.max(8, window.innerHeight - r.top + 6) } : { top: r.bottom + 6 }),
+      });
+    }
+    setActive(typeof atIdx === "number" ? atIdx : (selIdx >= 0 ? selIdx : 0));
+    setOpen(true);
+  };
+  const choose = (i) => {
+    const o = opts[i];
+    close(true);
+    if (o && String(o.value) !== String(value) && onChange) onChange(o.value);
+  };
+  const onKeyDown = (e) => {
+    if (disabled) return;
+    if (!open) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openMenu(e.key === "ArrowUp" ? opts.length - 1 : undefined);
+      }
+      return;
+    }
+    if (e.key === "Escape") { e.preventDefault(); close(true); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => (a + 1) % opts.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => (a - 1 + opts.length) % opts.length); }
+    else if (e.key === "Home") { e.preventDefault(); setActive(0); }
+    else if (e.key === "End") { e.preventDefault(); setActive(opts.length - 1); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(active >= 0 ? active : 0); }
+    else if (e.key === "Tab") { close(false); }
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (triggerRef.current && triggerRef.current.contains(e.target)) return;
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      close(false);
+    };
+    const onScroll = () => close(false);
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [open ]);
+
+  useEffect(() => {
+    if (!open || active < 0 || !menuRef.current) return;
+    const el = menuRef.current.querySelector(`[data-idx="${active}"]`);
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [open, active ]);
+
+  const triggerFs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.label;
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        aria-activedescendant={open && active >= 0 ? `${listId}-opt-${active}` : undefined}
+        onClick={() => { if (open) close(false); else openMenu(); }}
+        onKeyDown={onKeyDown}
+        className={("cb-press cb-glass-action " + className).trim()}
+        style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "space-between",
+          gap: SP.sm, minHeight: size === "sm" ? 36 : 44,
+          padding: size === "sm" ? "6px 10px" : "9px 12px",
+          borderRadius: RADIUS.md,
+          /* UIButton secondary skin — the select reads as family, not as
+             a browser control. */
+          background: P.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
+          color: P.ink, border: `1px solid ${P.line2}`,
+          boxShadow: P.dark
+            ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"
+            : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px -2px rgba(15,23,42,0.12)",
+          fontSize: triggerFs, fontWeight: 600, letterSpacing: "-0.005em",
+          fontFamily: "var(--cb-font)", textAlign: "left",
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.5 : 1, minWidth: 0,
+          ...style,
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {selected ? selected.label : ""}
+        </span>
+        <Icon name="chevronDown" size={14} style={{
+          flexShrink: 0, color: P.faint,
+          transform: open ? "rotate(180deg)" : "none",
+          transition: "transform 0.2s var(--cb-ease)",
+        }} />
+      </button>
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          role="listbox"
+          id={listId}
+          aria-label={ariaLabel}
+          style={{
+            position: "fixed", zIndex: Z.selectMenu,
+            left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width,
+            maxHeight: 280, overflowY: "auto",
+            background: P.dark ? "rgba(20,22,28,0.98)" : "#ffffff",
+            border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
+            boxShadow: SHADOW.md(P),
+            ...menuStyle,
+          }}
+        >
+          {opts.map((o, i) => {
+            const isSel = i === selIdx;
+            const isActive = i === active;
+            return (
+              <div
+                key={`${o.value}:${i}`}
+                id={`${listId}-opt-${i}`}
+                data-idx={i}
+                role="option"
+                aria-selected={isSel}
+                onClick={() => choose(i)}
+                onMouseEnter={() => setActive(i)}
+                style={{
+                  minHeight: 40, display: "flex", alignItems: "center", gap: SP.sm,
+                  padding: "8px 10px", borderRadius: RADIUS.md, cursor: "pointer",
+                  background: isActive
+                    ? (accent ? withAlpha(accent, 0.12) : P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)")
+                    : "transparent",
+                  color: P.ink, fontSize: FONT_SIZES.label, fontWeight: isSel ? 700 : 500,
+                  fontFamily: "var(--cb-font)",
+                }}
+              >
+                <span style={{ width: 16, flexShrink: 0, display: "inline-flex", justifyContent: "center", color: accent || P.ink }}>
+                  {isSel ? <Icon name="check" size={14} /> : null}
+                </span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+              </div>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}

@@ -6,8 +6,8 @@
  * privacy, encryption, TTS, system/config status).
  */
 
-import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, kbdLabel, notifyPref, relativeTime, selectChrome, setNotifyPref, statusBad, toast, useIsMobile } from "./appUtils.js";
-import { FONT_SIZES, Icon, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBadge, UIButton, UIRow, Z, withAlpha } from "./designSystem.jsx";
+import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, kbdLabel, notifyPref, relativeTime, setNotifyPref, statusBad, toast, useIsMobile } from "./appUtils.js";
+import { FONT_SIZES, Icon, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBadge, UIButton, UISelect, UIRow, Z, withAlpha } from "./designSystem.jsx";
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
 import { Dialog } from "./flowcharts.jsx";
@@ -353,17 +353,15 @@ function ProGrantPanel({ P, accent, at, Section, Row, onProChanged }) {
   );
 }
 
-function RestorePhrasePanel({ P, backups, restoreDeviceId, setRestoreDeviceId, restorePhrase, setRestorePhrase, doRestore, busy, pillBtn, sfx }) {
+function RestorePhrasePanel({ P, accent, backups, restoreDeviceId, setRestoreDeviceId, restorePhrase, setRestorePhrase, doRestore, busy, pillBtn, sfx }) {
   return (
     <div style={{ padding: "16px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
       {backups.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
-          <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 30px 9px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, outline: "none", cursor: "pointer", ...selectChrome(P) }}>
-            {backups.map((b) => (
-              <option key={b.deviceId} value={b.deviceId}>{b.label} — backed up {relativeTime(b.updatedAt)}</option>
-            ))}
-          </select>
+          <UISelect P={P} accent={accent} value={restoreDeviceId} onChange={(v) => { sfx(); setRestoreDeviceId(v); }}
+            options={backups.map((b) => ({ value: b.deviceId, label: `${b.label} — backed up ${relativeTime(b.updatedAt)}` }))}
+            ariaLabel="Which device's backup is this for" style={{ width: "100%", fontSize: 16 }} />
         </div>
       )}
       <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24-word recovery phrase</div>
@@ -689,7 +687,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
           last={!showRestore}
         />
         {showRestore && (
-          <RestorePhrasePanel P={P} backups={backups} restoreDeviceId={restoreDeviceId} setRestoreDeviceId={setRestoreDeviceId} restorePhrase={restorePhrase} setRestorePhrase={setRestorePhrase} doRestore={doRestore} busy={busy} pillBtn={pillBtn} sfx={sfx} />
+          <RestorePhrasePanel P={P} accent={accent} backups={backups} restoreDeviceId={restoreDeviceId} setRestoreDeviceId={setRestoreDeviceId} restorePhrase={restorePhrase} setRestorePhrase={setRestorePhrase} doRestore={doRestore} busy={busy} pillBtn={pillBtn} sfx={sfx} />
         )}
       </>) : (<>
         <Row
@@ -728,7 +726,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
           last={!showRestore}
         />
         {showRestore && (
-          <RestorePhrasePanel P={P} backups={backups} restoreDeviceId={restoreDeviceId} setRestoreDeviceId={setRestoreDeviceId} restorePhrase={restorePhrase} setRestorePhrase={setRestorePhrase} doRestore={doRestore} busy={busy} pillBtn={pillBtn} sfx={sfx} />
+          <RestorePhrasePanel P={P} accent={accent} backups={backups} restoreDeviceId={restoreDeviceId} setRestoreDeviceId={setRestoreDeviceId} restorePhrase={restorePhrase} setRestorePhrase={setRestorePhrase} doRestore={doRestore} busy={busy} pillBtn={pillBtn} sfx={sfx} />
         )}
       </>)}
     </Section>
@@ -1397,6 +1395,7 @@ function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker, use
             value={state.dmPolicy}
             options={[["following", "People I follow"], ["anyone", "Anyone"]]}
             onChange={(v) => write({ dmPolicy: v }, "dm")}
+            ariaLabel="Who can start a conversation with you"
           />
         }
         last
@@ -1972,11 +1971,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     </button>
   );
 
-  const Picker = ({ value, options, onChange }) => (
-    <select value={value} onChange={(e) => { sfx(); onChange(e.target.value); }}
-      style={{ padding: "8px 30px 8px 12px", minHeight: 44, fontSize: 16, fontWeight: 600, background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.28)}`, borderRadius: 8, color: accentInk(P, accent), cursor: "pointer", fontFamily: "var(--cb-font)", outline: "none", ...selectChrome(P) }}>
-      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-    </select>
+  const Picker = ({ value, options, onChange, ariaLabel }) => (
+    <UISelect P={P} accent={accent} value={value} options={options}
+      onChange={(v) => { sfx(); onChange(v); }} ariaLabel={ariaLabel} style={{ fontSize: 16 }} />
   );
 
   return (
@@ -2215,7 +2212,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           {tab === "answers" && (<>
             <Section title="Responses">
               <Row label="Answer length" control={
-                <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} />
+                <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} ariaLabel="Answer length" />
               } />
               <Row label="Check answers against their sources" desc="Before showing an answer, go back through it and confirm each claim really appears in the papers it cites. Adds a few seconds." control={<Switch on={factCheck} onChange={(v) => { sfx(); setFactCheck(v); }} label="Fact check pass" />} />
               {/* RESTORED 2026-09-17: animated typing — the answer reveals
@@ -2285,11 +2282,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 theme. */}
             <Section title="Typography" footer="All changes apply immediately and persist across sessions.">
               <Row label="Text size" control={
-                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={(v) => { sfx(); setFontSize(v); }} />
+                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={(v) => { sfx(); setFontSize(v); }} ariaLabel="Text size" />
               } />
               <Row label="Dyslexia friendly font" desc="OpenDyslexic, designed for easier reading with dyslexia" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); if (v) ensureDyslexicFont(); setDyslexicFont(v); }} label="Dyslexic font" />} />
               <Row label="Line spacing" desc="Increases space between lines of text" control={
-                <Picker value={lineSpacing} options={[["normal", "Normal"], ["relaxed", "Relaxed"], ["loose", "Loose"]]} onChange={(v) => { sfx(); setLineSpacing(v); }} />
+                <Picker value={lineSpacing} options={[["normal", "Normal"], ["relaxed", "Relaxed"], ["loose", "Loose"]]} onChange={(v) => { sfx(); setLineSpacing(v); }} ariaLabel="Line spacing" />
               } last />
             </Section>
 
@@ -2300,7 +2297,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
             <Section title="Layout density" footer="Tighter spacing. Good for long source lists.">
               <Row label="Data density" control={
-                <Picker value={dataDensity} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} onChange={(v) => { sfx(); setDataDensity(v); }} />
+                <Picker value={dataDensity} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} onChange={(v) => { sfx(); setDataDensity(v); }} ariaLabel="Data density" />
               } last />
             </Section>
           </>)}
@@ -2413,7 +2410,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             <Section title="Sounds">
               <Row label="Sound effects" desc="Click sounds and ambient tones while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
               <Row label="Search ambience" desc="Background tone while a search runs" control={
-                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Sfx.preview(v); }} />
+                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Sfx.preview(v); }} ariaLabel="Search ambience" />
               } last />
             </Section>
 
@@ -2424,7 +2421,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 control, one place, no crash. */}
             <Section title="Motion" footer="Off quiets every animated surface: backgrounds, the search instrument, video crossfades, entrance effects. Your device's Reduce Motion setting is honored automatically either way.">
               <Row label="Motion" desc="Backgrounds, the search instrument, and entrance effects" control={
-                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} />
+                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} ariaLabel="Motion" />
               } last={animationMode === "off" && !(user && user.isPro)} />
               {/* 2026-10-05: the members-only footage toggle lived here. The
                   workspace no longer plays film behind it (cinema lives at

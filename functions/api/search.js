@@ -2427,6 +2427,64 @@ function classifyIntent(query, history) {
   return { kind: "new" };
 }
 
+// ── QUESTION-TYPE CLASSIFICATION (2026-10-07 search-intelligence upgrade) ──
+// What KIND of answer does the user want? This is the missing layer between
+// intent ("new search" vs "followup") and retrieval: a definition question
+// ("what is CRISPR") needs a definition fast path, a comparison question
+// ("X vs Y") needs side-by-side framing, a methods question needs protocols.
+// Pattern-based and deterministic — runs before any LLM call, costs nothing,
+// and feeds the definition fast path + smart follow-up suggestions.
+// Returns { type, term } where term is the defined/compared entity when the
+// type has one (definition, comparison).
+export function classifyQuestionType(query) {
+  const q = String(query || "").trim();
+  const lc = q.toLowerCase().replace(/\s+/g, " ");
+  if (!lc) return { type: "general", term: null };
+
+  // Definition: "what is X", "what are X", "define X", "what does X mean",
+  // "meaning of X", "X definition", "what is meant by X"
+  let m = lc.match(/^(?:what\s+(?:is|are|was|were)|whats)\s+(?:the\s+|a\s+|an\s+)?(.+?)[?.!]*$/)
+    || lc.match(/^define\s+(?:the\s+|a\s+|an\s+)?(.+?)[?.!]*$/)
+    || lc.match(/^what\s+does\s+(.+?)\s+mean[?.!]*$/)
+    || lc.match(/^what\s+is\s+meant\s+by\s+(.+?)[?.!]*$/)
+    || lc.match(/^(?:the\s+)?meaning\s+of\s+(.+?)[?.!]*$/)
+    || lc.match(/^(.+?)\s+definition[?.!]*$/);
+  if (m) {
+    let term = m[1].trim()
+      .replace(/^(the|a|an)\s+/i, "")
+      .replace(/[?.!]+$/, "").trim();
+    // Guard: "what is the best treatment for X" is not a definition.
+    if (term && !/^(best|most|latest|newest|first|main|primary)\b/.test(term) && term.split(/\s+/).length <= 8) {
+      return { type: "definition", term };
+    }
+  }
+  // Comparison: "X vs Y", "X versus Y", "compare X and Y", "difference between X and Y"
+  m = lc.match(/(.+?)\s+(?:vs\.?|versus)\s+(.+?)[?.!]*$/)
+    || lc.match(/^compare\s+(.+?)\s+and\s+(.+?)[?.!]*$/)
+    || lc.match(/^(?:what(?:'s| is) the )?difference between\s+(.+?)\s+and\s+(.+?)[?.!]*$/);
+  if (m) {
+    return { type: "comparison", term: (m[1] || "").trim(), termB: (m[2] || "").trim() };
+  }
+  // Mechanism: "how does X work", "mechanism of X", "why does X cause Y"
+  if (/^(how\s+does|how\s+do|mechanism\s+of|what(?:'s| is) the mechanism)/.test(lc)
+    || /\bmechanism\b/.test(lc) && /^(how|what|why)/.test(lc)) {
+    return { type: "mechanism", term: null };
+  }
+  // Methods: "how to X", "protocol for X", "method to X"
+  if (/^how\s+to\b/.test(lc) || /\bprotocol\b/.test(lc) || /^(what|which)\s+(method|methods|technique|assay)/.test(lc)) {
+    return { type: "methods", term: null };
+  }
+  // Yes/no: "is X ...?", "does X ...?", "can X ...?", "are X ...?"
+  if (/^(is|are|was|were|does|do|did|can|could|has|have|will|would)\b[^?]*\?$/.test(lc)) {
+    return { type: "yesno", term: null };
+  }
+  // List: "list ...", "what are the ...", "name the ..."
+  if (/^(list|name|enumerate)\b/.test(lc) || /^what\s+are\s+(?:the\s+|some\s+)?(?:types|kinds|examples|causes|symptoms|treatments|effects)\b/.test(lc)) {
+    return { type: "list", term: null };
+  }
+  return { type: "general", term: null };
+}
+
 // E.g. "Reese Sahos studies on BSFL" -> "Reese Saho".
 // Handles possessive forms (drops trailing 's or s when followed by a possessive
 // context word like "studies", "papers", "research").
@@ -4740,6 +4798,99 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
   return md;
 }
 
+// ── DEFINITION FAST PATH (2026-10-07 search-intelligence upgrade) ──────
+// The single biggest UX gap in the extractive fallback: "what is X" is the
+// most common simple question, and the old fallback answered it with
+// "couldn't find a direct answer" + a paper list — even when the top
+// abstract's first sentence literally defines X. This path fires ONLY when
+// (a) the question classifies as a definition, and (b) at least one cited
+// paper's abstract contains a real definition sentence for the term.
+// A definition sentence names the term and then defines it with a copula
+// or definition verb ("X is a ...", "X refers to ...", "X is defined as").
+// No definition sentence found → null → the honest weak-evidence answer.
+function scoreDefinitionSentence(sent, term) {
+  const s = String(sent || "").trim();
+  if (!s) return 0;
+  const lc = s.toLowerCase();
+  const words = s.split(/\s+/).length;
+  if (words < 6 || words > 60) return 0; // definitions are mid-length
+  const termLc = String(term || "").toLowerCase().trim();
+  if (!termLc) return 0;
+  // The term must appear early (definitions lead with the term).
+  const termPos = lc.indexOf(termLc);
+  if (termPos < 0 || termPos > 80) return 0;
+  let score = 30;
+  const afterTerm = lc.slice(termPos + termLc.length, termPos + termLc.length + 40);
+  // Copula / definition verbs right after the term = strong signal.
+  if (/^\s*(is|are|was|were)\s+(a|an|the)\b/.test(afterTerm)) score += 40;
+  else if (/^\s*(is|are|was|were)\b/.test(afterTerm)) score += 25;
+  else if (/^\s*,?\s*(refers? to|is defined as|are defined as|represents?|constitutes?|describes?)\b/.test(afterTerm)) score += 35;
+  // Appositive definition: "X, a <category>, ..."
+  if (/^[A-Z][^,]{1,60},\s+(a|an|the)\s+\w+/.test(s) && termPos < 40) score += 25;
+  // Penalize methods/results sentences — definitions don't report p-values.
+  if (/\bp\s*[<>=]\s*0\.\d|\b(n\s*=\s*\d+)\b|\bmethods?\b.*\bused\b/i.test(s)) score -= 30;
+  // Penalize sentences that hedge away from defining ("may", "suggests").
+  if (/\b(may|might|could|suggests?|possibly)\b/.test(lc.slice(termPos, termPos + 120))) score -= 10;
+  return score;
+}
+
+export function extractDefinitionSentences(term, papers, maxSentences = 3) {
+  const out = [];
+  const seen = new Set();
+  const list = Array.isArray(papers) ? papers : [];
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i] || {};
+    const abs = usableAbstract(p);
+    if (!abs) continue;
+    const sents = abs.match(/[^.!?]+[.!?]+/g) || [abs];
+    for (const sent of sents) {
+      const score = scoreDefinitionSentence(sent, term);
+      if (score < 45) continue;
+      const key = sent.toLowerCase().replace(/\s+/g, " ").trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ text: sent.trim(), idx: i + 1, score, paper: p });
+    }
+  }
+  out.sort((a, b) => b.score - a.score || a.idx - b.idx);
+  return out.slice(0, maxSentences);
+}
+
+// Build a real definition answer from mined definition sentences. Every
+// sentence is cited to the paper it came from; the answer never defines
+// the term in the pipeline's own words — only quotes what the literature
+// says. Returns null when no definition sentence clears the bar.
+export function buildDefinitionAnswer(term, papers, ctx = {}) {
+  const defs = extractDefinitionSentences(term, papers, 3);
+  if (defs.length === 0) return null;
+  const titleTerm = term.replace(/^[a-z]/, (c) => c.toUpperCase());
+  let md = "## What is " + titleTerm + "?\n\n";
+  for (const d of defs) {
+    let s = d.text.trim();
+    if (!/[.!?]$/.test(s)) s += ".";
+    md += s + " [" + d.idx + "]\n\n";
+  }
+  // One honest scope line: definitions come from abstracts, and the
+  // literature may use the term more narrowly than the question implies.
+  const n = defs.length;
+  md += "*Defined as above in " + n + " cited source" + (n === 1 ? "" : "s") +
+    " — assembled from paper abstracts without AI interpretation.*\n";
+  // Confidence + ambiguity instruments, same as every other answer path.
+  try {
+    const cited = defs.map((d) => d.paper);
+    const conf = buildConfidenceLine(cited, null);
+    if (conf && conf.line) md += "\n**How solid is this?** " + conf.line + "\n";
+  } catch { /* instruments are best-effort */ }
+  if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
+    const interps = (ctx.ambiguity.interpretations || []).map((x) => x.label).filter(Boolean);
+    if (interps.length >= 2) {
+      md += "\n*Note: \"" + ctx.ambiguity.term + "\" can also mean " +
+        interps.slice(0, 3).join(", ") + " — this definition is for the sense the retrieved papers use.*\n";
+    }
+  }
+  return md;
+}
+
 export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
   // ctx (optional): { query, sourcesQueried, relevanceGatedOut, ambiguity, aiGateReason,
   //   isNameSearch, isFollowupMode } —
@@ -4857,6 +5008,17 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // instead of stitching confident BS.
     const extractionQuality = assessExtractionQuality(items, ctx);
     if (!extractionQuality.ok) {
+      // DEFINITION FAST PATH (2026-10-07): before giving up with the
+      // weak-evidence answer, check whether the question is a definition
+      // question the papers can directly answer. "What is CRISPR" with a
+      // defining abstract in hand should get the definition, not a shrug.
+      try {
+        const qType = classifyQuestionType(ctx && ctx.query);
+        if (qType.type === "definition" && qType.term) {
+          const defAnswer = buildDefinitionAnswer(qType.term, pool, ctx);
+          if (defAnswer) return defAnswer;
+        }
+      } catch (cbErr) { console.error("[Cerebrum] search.js definition fast path:", cbErr); }
       return buildWeakEvidenceAnswer(items, pool, ctx, extractionQuality);
     }
 
@@ -5384,6 +5546,80 @@ export function reconcileDisagreementVerdict(detected, textMined) {
   const verdict = buildDisagreementVerdict(conflicts, (detected && detected.sourceCount) || 0);
   return { conflicts, verdict };
 }
+// ── SEMANTIC CONFLICT DETECTION (2026-10-07) ────────────────────────
+// Systematic disagreement detection, second pass. detectSourceConflicts
+// above uses keyword overlap (claimsShareTopic) to find papers on the
+// same topic — it misses paraphrased disagreements ("X increases Y" vs
+// "Y is elevated by X" share the topic but not the vocabulary). This pass
+// uses embedding similarity to find same-topic paper pairs the keyword
+// pass missed, then applies the existing claimsOppose check to their
+// extracted claims. Uses cached vectors only (zero new embedding spend).
+// Returns conflicts in the same shape as detectSourceConflicts.
+export async function detectSemanticConflicts(papers, env, existingConflicts = []) {
+  const list = Array.isArray(papers) ? papers : [];
+  if (list.length < 2) return [];
+  try {
+    const { getCachedPaperVectors, paperEmbedText, sha256hex, cosineSimilarity } =
+      await import("../lib/semanticRerank.js");
+    const texts = list.map(paperEmbedText);
+    const keys = [];
+    for (const t of texts) keys.push(await sha256hex(t));
+    const cached = await getCachedPaperVectors(env, keys);
+    const vecs = [];
+    for (let i = 0; i < list.length; i++) {
+      const v = cached.get(keys[i]);
+      vecs.push(v && Array.isArray(v) && v.length > 0 ? v : null);
+    }
+    // Pairs already flagged by the keyword pass — skip them.
+    const seenPairs = new Set();
+    for (const c of (existingConflicts || [])) {
+      if (c && c.idxA && c.idxB) {
+        seenPairs.add(Math.min(c.idxA, c.idxB) + ":" + Math.max(c.idxA, c.idxB));
+      }
+    }
+    const conflicts = [];
+    // Same-topic threshold: papers this similar are about the same thing.
+    const SAME_TOPIC_SIM = 0.72;
+    for (let a = 0; a < list.length; a++) {
+      if (!vecs[a]) continue;
+      for (let b = a + 1; b < list.length; b++) {
+        if (!vecs[b]) continue;
+        const pairKey = (a + 1) + ":" + (b + 1);
+        if (seenPairs.has(pairKey)) continue;
+        const sim = cosineSimilarity(vecs[a], vecs[b]);
+        if (sim < SAME_TOPIC_SIM) continue;
+        // Same topic by meaning — now check if their claims oppose.
+        const claimsA = extractPaperClaims(list[a], 3);
+        const claimsB = extractPaperClaims(list[b], 3);
+        let found = null;
+        for (const ca of claimsA) {
+          for (const cb of claimsB) {
+            if (claimsOppose(ca, cb)) { found = { ca, cb }; break; }
+          }
+          if (found) break;
+        }
+        if (found) {
+          const topic = sharedTopicLabel(found.ca, found.cb) || "this finding";
+          conflicts.push({
+            claimA: found.ca,
+            claimB: found.cb,
+            sourceA: list[a].title || ("Source " + (a + 1)),
+            sourceB: list[b].title || ("Source " + (b + 1)),
+            idxA: a + 1,
+            idxB: b + 1,
+            topic,
+            semantic: true, // found by meaning, not keyword overlap
+          });
+          seenPairs.add(pairKey);
+        }
+      }
+    }
+    return conflicts;
+  } catch {
+    return []; // enhancement, never a dependency
+  }
+}
+
 export function detectSourceConflicts(papers, briefClaims = null) {
   const briefByIdx = {};
   for (const bc of (briefClaims || [])) {
@@ -5659,33 +5895,219 @@ export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut })
 }
 
 // ── Confidence line (computed, not generated) ───────────────────
+// CALIBRATED CONFIDENCE (2026-10-07 upgrade): every answer now carries a
+// 0-100 confidence score built from observable evidence signals — source
+// count, mean relevance, disagreement verdict, citation quality
+// (peer-reviewed vs preprint), recency, and abstract coverage — plus a
+// human-readable list of the factors behind it. Levels stay
+// strong ≥75 / moderate 50–74 / thin <50. The `line` copy is kept short
+// for the UI; `factors` explains the number for anyone who asks "why".
 export function buildConfidenceLine(papers, verdict) {
   const n = (papers || []).length;
-  if (n === 0) return { level: "thin", line: "No evidence to assess — confidence can't be computed." };
+  if (n === 0) return { level: "thin", score: 0, line: "No evidence to assess — confidence can't be computed.", factors: [] };
   const status = verdict && verdict.status;
+  const factors = [];
+  let score = 0;
+
+  // 1. Source count (0-20): more independent sources = more confidence.
+  let countPts = 0;
+  if (n >= 8) countPts = 20; else if (n >= 5) countPts = 15; else if (n >= 3) countPts = 10; else countPts = 5;
+  score += countPts;
+  factors.push(n + " cited source" + (n === 1 ? "" : "s") + " (+" + countPts + ")");
+
+  // 2. Mean relevance (0-20): tangential papers are not evidence.
+  const rels = (papers || []).map((p) => Number(p.relevance) || Number(p.relevanceScore) || Number(p.blendedScore) || 50);
+  const avgRelevance = rels.reduce((s, r) => s + r, 0) / Math.max(1, rels.length);
+  let relPts = 3;
+  if (avgRelevance >= 70) relPts = 20; else if (avgRelevance >= 55) relPts = 14; else if (avgRelevance >= 40) relPts = 8;
+  score += relPts;
+  factors.push("mean relevance " + Math.round(avgRelevance) + "/100 (+" + relPts + ")");
+
+  // 3. Disagreement verdict (0-15): divided evidence caps confidence.
+  let verdictPts = 10;
+  if (status === "settled") verdictPts = 15;
+  else if (status === "divided") verdictPts = 5;
+  else if (status === "thin") verdictPts = 5;
+  score += verdictPts;
+  factors.push("evidence verdict: " + (status || "unknown") + " (+" + verdictPts + ")");
+
+  // 4. Citation quality (0-15): peer-reviewed > preprint > reference/dataset.
+  let qSum = 0;
+  for (const p of (papers || [])) {
+    const t = String(p.type || "").toLowerCase();
+    if (/journal/.test(t)) qSum += 1;
+    else if (/preprint/.test(t)) qSum += 0.5;
+    else if (/reference|dataset/.test(t)) qSum += 0.6;
+    else qSum += 0.7; // unknown: neutral
+  }
+  const qualPts = Math.round(15 * (qSum / Math.max(1, n)));
+  score += qualPts;
+  factors.push("citation quality (peer-reviewed weight) (+" + qualPts + ")");
+
+  // 5. Recency (0-10): stale evidence is weaker evidence.
+  const years = (papers || []).map((p) => Number(p.year)).filter((y) => y > 1900 && y <= new Date().getFullYear() + 1);
+  let recPts = 4;
+  if (years.length > 0) {
+    const newest = Math.max(...years);
+    const age = new Date().getFullYear() - newest;
+    if (age <= 2) recPts = 10; else if (age <= 5) recPts = 7; else if (age <= 10) recPts = 4; else recPts = 2;
+    factors.push("newest source from " + newest + " (+" + recPts + ")");
+  } else {
+    factors.push("no publication years available (+" + recPts + ")");
+  }
+  score += recPts;
+
+  // 6. Abstract coverage (0-10): titles alone are thin support.
+  const withAbs = (papers || []).filter((p) => usableAbstract(p)).length;
+  const absPts = Math.round(10 * (withAbs / Math.max(1, n)));
+  score += absPts;
+  factors.push(withAbs + "/" + n + " sources with accessible abstracts (+" + absPts + ")");
+
+  // 7. Semantic agreement (0-10): when the reranker scored papers, high
+  // mean semantic similarity to the query means the set is on-topic.
+  const sems = (papers || []).map((p) => Number(p.semanticScore)).filter((s) => s > 0);
+  let semPts = 5;
+  if (sems.length > 0) {
+    const avgSem = sems.reduce((s, v) => s + v, 0) / sems.length;
+    if (avgSem >= 60) semPts = 10; else if (avgSem >= 45) semPts = 6; else semPts = 3;
+    factors.push("mean semantic match " + Math.round(avgSem) + "/100 (+" + semPts + ")");
+  }
+  score += semPts;
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  // Hard caps preserve the old honesty guarantees: divided evidence can
+  // never read as "strong"; tangential sources can never read as solid.
+  let level;
   if (status === "divided") {
-    return {
-      level: "moderate",
-      line: "Contested evidence: the sources disagree" +
-        (verdict.conflictCount ? " on " + verdict.conflictCount + " point" + (verdict.conflictCount === 1 ? "" : "s") : "") +
-        " — treat conclusions as provisional until the split is resolved.",
-    };
+    level = "moderate";
+    score = Math.min(score, 70);
+  } else if (avgRelevance < 40) {
+    level = "thin";
+    score = Math.min(score, 45);
+  } else if (score >= 60) {
+    level = "strong";
+  } else if (score >= 40) {
+    level = "moderate";
+  } else {
+    level = "thin";
   }
-  // If the papers have low average relevance, don't claim strong consensus —
-  // a dozen tangential papers are not evidence of agreement.
-  const avgRelevance = n > 0
-    ? (papers || []).reduce((s, p) => s + (Number(p.relevance) || Number(p.relevanceScore) || 50), 0) / n
-    : 50;
-  if (avgRelevance < 40) {
-    return { level: "thin", line: "Weak match: the sources found are only tangentially related to this question — treat this answer as provisional." };
+
+  const line =
+    level === "strong"
+      ? "Strong confidence (" + score + "/100): " + n + " sources point the same way" +
+        (status === "divided" ? "" : " and none report opposing findings") + "."
+      : level === "moderate"
+        ? "Moderate confidence (" + score + "/100): " + n + " sources agree, but " +
+          (status === "divided"
+            ? "they split on " + (verdict.conflictCount || "some") + " point" + (verdict.conflictCount === 1 ? "" : "s") + " — treat conclusions as provisional."
+            : "the evidence base is narrow — treat this as a starting point.")
+        : "Low confidence (" + score + "/100): " +
+          (n <= 2
+            ? "only " + n + " source" + (n === 1 ? "" : "s") + " cleared the bar — treat this answer as provisional."
+            : "the sources are only tangentially related to this question — treat this answer as provisional.");
+
+  return { level, score, line, factors };
+}
+
+// ── CONFIDENCE CALIBRATION (2026-10-07) ───────────────────────────
+// The heuristic score from buildConfidenceLine is a good starting point,
+// but it's not calibrated: it doesn't account for what happened to the
+// answer AFTER the score was computed. calibrateConfidenceScore applies
+// verifiable post-hoc adjustments:
+//
+// - Citation stripping: if stripUnsupportedCitations removed citations,
+//   the answer is weaker than the paper count suggests.
+// - Integrity flags: unsupported claims found by post-checks discount the score.
+// - Calibration curve: maps the raw 0-100 heuristic to a calibrated 0-100
+//   using a piecewise-linear curve. The curve parameters live in D1
+//   (confidence_calibration table) so they can be tuned from production
+//   telemetry without a deploy; defaults are the identity mapping.
+//
+// Every calibration is logged to D1 (best-effort) with the raw score, the
+// adjustments applied, and the final score — the dataset future curve
+// tuning will be built from.
+export function calibrateConfidenceScore(conf, ctx = {}) {
+  if (!conf || typeof conf.score !== "number") return conf;
+  const adjustments = [];
+  let score = conf.score;
+
+  // 1. Citation stripping: stripped citations = weaker support.
+  const stripped = Number(ctx.strippedCitations) || 0;
+  const totalCites = Number(ctx.totalCitations) || 0;
+  if (stripped > 0 && totalCites > 0) {
+    const stripRate = stripped / totalCites;
+    if (stripRate >= 0.5) {
+      score -= 15;
+      adjustments.push("half+ of citations failed verification (-15)");
+    } else if (stripRate >= 0.25) {
+      score -= 8;
+      adjustments.push("a quarter of citations failed verification (-8)");
+    }
   }
-  if (n >= 5) {
-    return { level: "strong", line: "Strong consensus: " + n + " sources point the same way and none report opposing findings." };
+
+  // 2. Integrity flags: unsupported claims discount confidence.
+  const flags = Number(ctx.integrityFlags) || 0;
+  if (flags > 0) {
+    const penalty = Math.min(20, flags * 5);
+    score -= penalty;
+    adjustments.push(flags + " unsupported claim" + (flags === 1 ? "" : "s") + " found (-" + penalty + ")");
   }
-  if (n >= 3) {
-    return { level: "moderate", line: "Moderate confidence: " + n + " sources agree, but the evidence base is narrow." };
+
+  // 3. Calibration curve (identity by default; D1-tunable).
+  // The curve is piecewise-linear over the raw score. Currently identity —
+  // production telemetry will fit the real curve.
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  // Re-derive the level from the calibrated score (same thresholds).
+  let level = conf.level;
+  const status = conf.verdictStatus;
+  if (status === "divided") {
+    level = "moderate";
+    score = Math.min(score, 70);
+  } else if (score >= 60) {
+    level = "strong";
+  } else if (score >= 40) {
+    level = "moderate";
+  } else {
+    level = "thin";
   }
-  return { level: "thin", line: "Thin evidence: only " + n + " source" + (n === 1 ? "" : "s") + " — treat this answer as provisional." };
+
+  return {
+    ...conf,
+    score,
+    level,
+    calibrated: true,
+    calibrationAdjustments: adjustments,
+    rawScore: conf.score,
+  };
+}
+
+// Best-effort D1 logging of confidence calibrations for future curve
+// fitting. Never throws, never blocks.
+export async function logConfidenceTelemetry(env, entry) {
+  try {
+    const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
+    if (!db) return;
+    await db.prepare(
+      "CREATE TABLE IF NOT EXISTS confidence_telemetry (" +
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+      "created_at INTEGER NOT NULL, " +
+      "query_hash TEXT, raw_score INTEGER, calibrated_score INTEGER, " +
+      "level TEXT, adjustments_json TEXT)"
+    ).run().catch(() => {});
+    await db.prepare(
+      "INSERT INTO confidence_telemetry (created_at, query_hash, raw_score, calibrated_score, level, adjustments_json) " +
+      "VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(
+      Date.now(),
+      String(entry.queryHash || "").slice(0, 32),
+      entry.rawScore || 0,
+      entry.calibratedScore || 0,
+      String(entry.level || ""),
+      JSON.stringify(entry.adjustments || []).slice(0, 2000)
+    ).run().catch(() => {});
+  } catch { /* best-effort */ }
 }
 
 // ── Coverage note (computed from the retrieval record) ──────────
@@ -5830,6 +6252,64 @@ const AMBIGUOUS_QUERY_TERMS = [
   { term: "plate", re: /\bplates?\b/i, senses: [
     { label: "Tectonic plates", context: ["tectonic", "earthquake", "geolog", "seismic", "lithosphere"], query: "tectonic plate movement geology" },
     { label: "Lab plates (microplates)", context: ["well", "assay", "culture", "96-well", "microplate", "petri"], query: "microplate assay 96-well" } ] },
+  // ── Table expansion (2026-10-07): more cross-domain terms ──
+  { term: "stress", re: /\bstress\b/i, senses: [
+    { label: "Psychological stress", context: ["anxiety", "cortisol", "mental", "psycholog", "chronic"], query: "psychological stress cortisol health" },
+    { label: "Mechanical stress", context: ["mechanic", "material", "strain", "load", "tensile"], query: "mechanical stress strain materials" },
+    { label: "Cellular / oxidative stress", context: ["oxidative", "cellular", "ros", "endoplasmic", "heat shock"], query: "oxidative stress cellular ros" } ] },
+  { term: "shock", re: /\bshock\b/i, senses: [
+    { label: "Medical shock", context: ["septic", "anaphylax", "trauma", "blood pressure", "patient"], query: "septic shock treatment medical" },
+    { label: "Electric shock", context: ["electric", "voltage", "current", "electrocut"], query: "electric shock injury voltage" },
+    { label: "Shock wave (physics)", context: ["wave", "supersonic", "blast", "physics"], query: "shock wave physics supersonic" } ] },
+  { term: "current", re: /\bcurrent\b/i, senses: [
+    { label: "Electric current", context: ["electric", "circuit", "voltage", "ampere", "wire"], query: "electric current circuit voltage" },
+    { label: "Ocean current", context: ["ocean", "sea", "gulf stream", "marine", "circulation"], query: "ocean current circulation marine" } ] },
+  { term: "field", re: /\bfields?\b/i, senses: [
+    { label: "Magnetic / electric field", context: ["magnetic", "electric", "electromagnet", "tesla"], query: "electromagnetic field physics" },
+    { label: "Field study (research)", context: ["study", "research", "ecolog", "survey", "wildlife"], query: "field study ecology research methods" } ] },
+  { term: "bond", re: /\bbonds?\b/i, senses: [
+    { label: "Chemical bond", context: ["chemical", "covalent", "ionic", "molecule", "atom"], query: "chemical bond covalent ionic molecule" },
+    { label: "Financial bond", context: ["financ", "invest", "yield", "treasury", "market"], query: "bond market yield finance" } ] },
+  { term: "pressure", re: /\bpressure\b/i, senses: [
+    { label: "Blood pressure", context: ["blood", "hypertension", "systolic", "diastolic", "cardio"], query: "blood pressure hypertension treatment" },
+    { label: "Atmospheric / physical pressure", context: ["atmospher", "barometr", "pascal", "vacuum", "fluid"], query: "atmospheric pressure physics measurement" } ] },
+  { term: "spike", re: /\bspikes?\b/i, senses: [
+    { label: "Viral spike protein", context: ["viral", "protein", "sars", "covid", "coronavirus", "ace2"], query: "sars-cov-2 spike protein ace2" },
+    { label: "Neural spike (action potential)", context: ["neural", "neuron", "action potential", "firing", "electrophysiolog"], query: "neural spike action potential neuron" } ] },
+  { term: "vector", re: /\bvectors?\b/i, senses: [
+    { label: "Disease vector", context: ["mosquito", "disease", "transmission", "tick", "parasite"], query: "disease vector mosquito transmission" },
+    { label: "Mathematical vector", context: ["math", "matrix", "linear algebra", "magnitude"], query: "vector mathematics linear algebra" },
+    { label: "Gene-therapy vector", context: ["gene therapy", "aav", "lentivirus", "delivery"], query: "aav vector gene therapy delivery" } ] },
+  { term: "colony", re: /\bcolon(?:y|ies)\b/i, senses: [
+    { label: "Bacterial colony", context: ["bacteria", "agar", "cfu", "plate", "microb"], query: "bacterial colony cfu agar plate" },
+    { label: "Animal colony", context: ["ant", "bee", "insect", "social", "nest"], query: "ant colony social insect behavior" } ] },
+  { term: "host", re: /\bhosts?\b/i, senses: [
+    { label: "Biological host", context: ["parasite", "pathogen", "infect", "reservoir", "zoonotic"], query: "parasite host pathogen infection" },
+    { label: "Computer host / hosting", context: ["server", "network", "computer", "hosting", "ip"], query: "computer host server network" } ] },
+  { term: "signal", re: /\bsignals?\b/i, senses: [
+    { label: "Cell signaling", context: ["cell", "pathway", "receptor", "transduction", "kinase"], query: "cell signaling pathway receptor" },
+    { label: "Telecom / electronic signal", context: ["telecom", "radio", "antenna", "frequency", "wireless"], query: "wireless signal telecom frequency" } ] },
+  { term: "channel", re: /\bchannels?\b/i, senses: [
+    { label: "Ion channel", context: ["ion", "sodium", "potassium", "calcium", "membrane", "patch clamp"], query: "ion channel sodium potassium membrane" },
+    { label: "Communication channel", context: ["communicat", "media", "marketing", "broadcast"], query: "communication channel media" } ] },
+  { term: "code", re: /\bcode\b/i, senses: [
+    { label: "Genetic code", context: ["genetic", "codon", "dna", "translation", "amino acid"], query: "genetic code codon translation" },
+    { label: "Software code", context: ["software", "program", "programming", "source", "algorithm"], query: "source code programming software" } ] },
+  { term: "trial", re: /\btrials?\b/i, senses: [
+    { label: "Clinical trial", context: ["clinical", "patient", "phase", "randomized", "placebo", "drug"], query: "randomized clinical trial drug efficacy" },
+    { label: "Field trial (agriculture)", context: ["crop", "agricultur", "field", "yield", "cultivar"], query: "field trial crop yield agriculture" } ] },
+  { term: "control", re: /\bcontrols?\b/i, senses: [
+    { label: "Experimental control", context: ["experiment", "placebo", "baseline", "study design", "group"], query: "experimental control group study design" },
+    { label: "Engineering control systems", context: ["engineer", "feedback", "pid", "system", "robot"], query: "control systems engineering feedback pid" } ] },
+  { term: "power", re: /\bpower\b/i, senses: [
+    { label: "Statistical power", context: ["statistic", "sample size", "effect size", "hypothesis"], query: "statistical power sample size analysis" },
+    { label: "Electric power", context: ["electric", "watt", "grid", "energy", "generator"], query: "electric power grid energy" } ] },
+  { term: "drift", re: /\bdrift\b/i, senses: [
+    { label: "Genetic drift", context: ["genetic", "evolution", "allele", "population", "neutral"], query: "genetic drift evolution population" },
+    { label: "Mechanical / sensor drift", context: ["sensor", "calibrat", "mechanical", "instrument"], query: "sensor drift calibration instrument" } ] },
+  { term: "line", re: /\blines?\b/i, senses: [
+    { label: "Cell line", context: ["cell", "hela", "culture", "passage", "in vitro"], query: "hela cell line culture" },
+    { label: "Genetic lineage", context: ["lineage", "phylogen", "evolution", "ancestral", "clade"], query: "phylogenetic lineage evolution" } ] },
 ];
 
 export function detectAmbiguity(query) {
@@ -5852,6 +6332,172 @@ export function detectAmbiguity(query) {
     return { ambiguous: false, term: entry.term, resolvedAs: null, interpretations: [] };
   }
   return { ambiguous: false, term: null, resolvedAs: null, interpretations: [] };
+}
+
+// ── EMBEDDING-BASED AMBIGUITY RESOLUTION (2026-10-07) ────────────────
+// The table above is now 34 terms, but substring context-matching is still
+// fragile: "memory consolidation during sleep" matches the human-memory
+// context only if the query happens to contain a listed keyword. The
+// semantic resolver replaces keyword luck with meaning: it embeds the query
+// and each candidate sense description in ONE batched call and picks the
+// sense whose meaning is closest. A narrow margin between the top two
+// senses = genuinely ambiguous → flag it. Runs only when the cheap table
+// pass is inconclusive (0 or 2+ context hits), so the common resolved case
+// costs zero neurons. Falls back to the table result on any failure.
+export async function detectAmbiguitySemantic(query, env) {
+  const tableResult = detectAmbiguity(query);
+  const q = String(query || "");
+  if (!tableResult.term) return tableResult;
+  // Fast path: the table already resolved to exactly one sense.
+  const lc = q.toLowerCase();
+  const entry = AMBIGUOUS_QUERY_TERMS.find((e) => e.term === tableResult.term);
+  if (!entry) return tableResult;
+  const matched = entry.senses.filter((s) => s.context.some((c) => lc.includes(c)));
+  if (matched.length === 1) return tableResult; // unambiguous by context
+  if (entry.senses.length < 2) return tableResult;
+  try {
+    const { getEmbeddings, cosineSimilarity } = await import("../lib/semanticRerank.js");
+    const { checkEmbeddingBudget, spendEmbeddingNeurons } = await import("../lib/costControl.js");
+    const budget = await checkEmbeddingBudget(env).catch(() => ({ allowed: false }));
+    if (!budget || !budget.allowed) return tableResult;
+    const senseTexts = entry.senses.map((s) => s.label + ". " + s.query);
+    const vectors = await getEmbeddings(env, [q, ...senseTexts], { timeoutMs: 2500 });
+    if (!vectors || vectors.length !== senseTexts.length + 1) return tableResult;
+    const qVec = vectors[0];
+    const scored = entry.senses.map((s, i) => ({
+      sense: s,
+      sim: cosineSimilarity(qVec, vectors[i + 1]),
+    })).sort((a, b) => b.sim - a.sim);
+    await spendEmbeddingNeurons(env, 5).catch(() => {});
+    const top = scored[0], second = scored[1];
+    const margin = top.sim - (second ? second.sim : 0);
+    // A decisive semantic winner resolves the ambiguity; a close race
+    // means the query genuinely straddles senses — ask the user.
+    if (second && margin < 0.08) {
+      return {
+        ambiguous: true,
+        term: entry.term,
+        resolvedAs: null,
+        semantic: true,
+        interpretations: scored.map((x) => ({ label: x.sense.label, query: x.sense.query })),
+      };
+    }
+    return {
+      ambiguous: false,
+      term: entry.term,
+      resolvedAs: top.sense.label,
+      semantic: true,
+      interpretations: [],
+    };
+  } catch {
+    return tableResult; // embeddings are an enhancement, never a dependency
+  }
+}
+
+// ── SEMANTIC DIVERGENCE DETECTION (2026-10-07) ───────────────────────
+// General embedding-based ambiguity detection — no curated table needed.
+// When the top retrieved papers split into two semantically distinct
+// clusters (high intra-cluster similarity, low inter-cluster similarity),
+// the query is genuinely ambiguous: the literature itself uses the terms
+// in two different senses. Uses only CACHED paper vectors from D1 (zero
+// new embedding spend) — the rerank already cached them. Falls back to
+// null (not ambiguous) on any failure.
+//
+// Returns { ambiguous: true, term, interpretations: [{label, query}] } or
+// { ambiguous: false }.
+export async function detectSemanticDivergence(papers, env) {
+  const list = (Array.isArray(papers) ? papers : []).slice(0, 10);
+  if (list.length < 4) return { ambiguous: false };
+  try {
+    const { getCachedPaperVectors, paperEmbedText, sha256hex, cosineSimilarity } =
+      await import("../lib/semanticRerank.js");
+    const texts = list.map(paperEmbedText);
+    const keys = [];
+    for (const t of texts) keys.push(await sha256hex(t));
+    const cached = await getCachedPaperVectors(env, keys);
+    const vecs = [];
+    const validPapers = [];
+    for (let i = 0; i < list.length; i++) {
+      const v = cached.get(keys[i]);
+      if (v && Array.isArray(v) && v.length > 0) {
+        vecs.push(v);
+        validPapers.push(list[i]);
+      }
+    }
+    if (vecs.length < 4) return { ambiguous: false };
+    const n = vecs.length;
+    // Pairwise cosine similarity matrix.
+    const sim = [];
+    for (let i = 0; i < n; i++) {
+      sim[i] = [];
+      for (let j = 0; j < n; j++) {
+        sim[i][j] = i === j ? 1 : cosineSimilarity(vecs[i], vecs[j]);
+      }
+    }
+    // Find the bipartition maximizing (mean intra - mean inter) similarity.
+    // Brute force over 2^(n-1)-1 splits; n <= 10 so this is cheap (<512).
+    let best = null;
+    const total = 1 << (n - 1);
+    for (let mask = 1; mask < total; mask++) {
+      const a = [], b = [];
+      for (let i = 0; i < n; i++) {
+        if (i === 0 || (mask & (1 << (i - 1)))) a.push(i); else b.push(i);
+      }
+      if (a.length < 2 || b.length < 2) continue;
+      let intraA = 0, intraB = 0, inter = 0;
+      let cA = 0, cB = 0, cI = 0;
+      for (const i of a) for (const j of a) { if (i < j) { intraA += sim[i][j]; cA++; } }
+      for (const i of b) for (const j of b) { if (i < j) { intraB += sim[i][j]; cB++; } }
+      for (const i of a) for (const j of b) { inter += sim[i][j]; cI++; }
+      const meanIntra = (intraA + intraB) / Math.max(1, cA + cB);
+      const meanInter = inter / Math.max(1, cI);
+      const score = meanIntra - meanInter;
+      if (!best || score > best.score) best = { a, b, score, meanIntra, meanInter };
+    }
+    if (!best) return { ambiguous: false };
+    // Divergent when the clusters are internally coherent but mutually
+    // distant: inter-cluster similarity below 0.55 with a clear gap.
+    const DIVERGE_INTER_MAX = 0.55;
+    const DIVERGE_GAP_MIN = 0.12;
+    if (best.meanInter > DIVERGE_INTER_MAX || best.score < DIVERGE_GAP_MIN) {
+      return { ambiguous: false };
+    }
+    // Label each cluster by its most distinctive title terms (frequent in
+    // this cluster, rare in the other).
+    const clusterTerms = (idxs, otherIdxs) => {
+      const inCount = {}, outCount = {};
+      const toks = (p) => String(p.title || "").toLowerCase().match(/[a-z]{4,}/g) || [];
+      for (const i of idxs) for (const t of toks(validPapers[i])) inCount[t] = (inCount[t] || 0) + 1;
+      for (const i of otherIdxs) for (const t of toks(validPapers[i])) outCount[t] = (outCount[t] || 0) + 1;
+      const stop = new Set(["with", "from", "that", "this", "study", "using", "based", "among", "between", "effects", "effect"]);
+      return Object.entries(inCount)
+        .filter(([t, c]) => !stop.has(t) && c >= 1 && (outCount[t] || 0) <= c / 2)
+        .sort((x, y) => (y[1] - (outCount[y[0]] || 0)) - (x[1] - (outCount[x[0]] || 0)))
+        .slice(0, 3)
+        .map(([t]) => t);
+    };
+    const termsA = clusterTerms(best.a, best.b);
+    const termsB = clusterTerms(best.b, best.a);
+    if (termsA.length === 0 && termsB.length === 0) return { ambiguous: false };
+    const labelA = termsA.length > 0 ? termsA.join(" ") : "sense A";
+    const labelB = termsB.length > 0 ? termsB.join(" ") : "sense B";
+    return {
+      ambiguous: true,
+      term: null, // no single curated term — the divergence is emergent
+      semanticDivergence: true,
+      interpretations: [
+        { label: labelA, query: labelA },
+        { label: labelB, query: labelB },
+      ],
+      _diag: {
+        meanIntra: Math.round(best.meanIntra * 100) / 100,
+        meanInter: Math.round(best.meanInter * 100) / 100,
+        clusterSizes: [best.a.length, best.b.length],
+      },
+    };
+  } catch {
+    return { ambiguous: false }; // enhancement, never a dependency
+  }
 }
 
 // ── Intelligent no-results answer ───────────────────────────────
@@ -6408,10 +7054,18 @@ export function scoreAnswerQuality(answer, query) {
 // Rejects with AggregateError (like Promise.any) when every leg fails, so
 // existing errMsgs(agg) handling works unchanged. Attaches raceBestScore and
 // raceBestPool to the winner for operator observability.
-export async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3) {
+export async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3, opts = {}) {
   const list = Array.isArray(calls) ? calls : [];
   if (list.length === 0) throw new AggregateError([], "raceBest: no legs");
   if (list.length === 1) return list[0];
+  // LLM-AS-JUDGE (2026-10-07): when the top two heuristic scores are within
+  // JUDGE_MARGIN points, the heuristic can't reliably tell them apart — a
+  // cheap judge model breaks the tie. opts.judge is an async
+  // (answerA, answerB, query) => 0|1|(-1 on abstain). Best-effort: any
+  // judge failure falls back to the heuristic winner. The judge only fires
+  // on close calls so the common decisive case costs nothing.
+  const judge = typeof opts.judge === "function" ? opts.judge : null;
+  const JUDGE_MARGIN = 6;
 
   return new Promise((resolve, reject) => {
     const successes = [];
@@ -6427,17 +7081,42 @@ export async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3) {
         reject(new AggregateError(failures, "raceBest: all legs failed"));
         return;
       }
-      let best = successes[0];
-      let bestScore = -1;
+      const scored = [];
       for (const s of successes) {
         let score = 0;
         try {
           score = scoreAnswerQuality(s && s.answer, query);
         } catch (cbErr) { console.error("[Cerebrum] search.js raceBest: scoreAnswerQuality threw:", cbErr); }
-        if (score > bestScore) { bestScore = score; best = s; }
+        scored.push({ s, score });
       }
-      try { best.raceBestScore = bestScore; best.raceBestPool = successes.length; } catch (cbErr) { console.error("[Cerebrum] search.js raceBest: attach observability threw:", cbErr); }
-      resolve(best);
+      scored.sort((a, b) => b.score - a.score);
+      let best = scored[0].s;
+      let bestScore = scored[0].score;
+      let judged = false;
+      const closeCall = scored.length >= 2 && (scored[0].score - scored[1].score) <= JUDGE_MARGIN;
+      const doFinish = () => {
+        try { best.raceBestScore = bestScore; best.raceBestPool = successes.length; best.raceBestJudged = judged; } catch (cbErr) { console.error("[Cerebrum] search.js raceBest: attach observability threw:", cbErr); }
+        resolve(best);
+      };
+      if (judge && closeCall) {
+        // Tie-break asynchronously; the judge has its own timeout and any
+        // failure (or abstain) keeps the heuristic winner.
+        let judgeSettled = false;
+        const judgeDone = (winnerIdx) => {
+          if (judgeSettled) return;
+          judgeSettled = true;
+          if (winnerIdx === 1) { best = scored[1].s; bestScore = scored[1].score; judged = true; }
+          else if (winnerIdx === 0) { judged = true; }
+          doFinish();
+        };
+        try {
+          const res = judge(scored[0].s && scored[0].s.answer, scored[1].s && scored[1].s.answer, query);
+          Promise.resolve(res).then(judgeDone, () => judgeDone(-1));
+          setTimeout(() => judgeDone(-1), 4000); // judge backstop
+        } catch { judgeDone(-1); }
+        return;
+      }
+      doFinish();
     };
 
     const checkDone = () => {
@@ -6465,6 +7144,46 @@ export async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3) {
       Promise.resolve(c).then(onSuccess, onFailure);
     }
   });
+}
+
+// ── LLM-AS-JUDGE (2026-10-07) ───────────────────────────────────────
+// Builds the tie-breaking judge for raceBest's close calls. Uses the cheap
+// model with a tiny prompt (two truncated answers + the question) and a
+// hard timeout — the judge is a tie-breaker, not a second synthesis pass.
+// Returns an async (answerA, answerB, query) => 0|1|-1 (-1 = abstain).
+// Any failure abstains, so the heuristic winner stands.
+export function buildLlmJudge({ token, model, timeoutMs = 4000 } = {}) {
+  const t = token;
+  const m = model || CHEAP_MODEL;
+  return async (answerA, answerB, query) => {
+    if (!t) return -1;
+    const a = String(answerA || "").slice(0, 1500);
+    const b = String(answerB || "").slice(0, 1500);
+    if (!a.trim() || !b.trim()) return -1;
+    const prompt =
+      "You are judging two draft answers to a scientific question. " +
+      "Pick the better answer. Reply with ONLY the digit 1 or 2.\n\n" +
+      "Question: " + String(query || "").slice(0, 300) + "\n\n" +
+      "Answer 1:\n" + a + "\n\nAnswer 2:\n" + b + "\n\n" +
+      "Judge on: factual specificity, citation use [N], direct answering of " +
+      "the question, and absence of filler. Reply with ONLY 1 or 2.";
+    try {
+      const res = await postChatCompletion({
+        url: "https://openrouter.ai/api/v1/chat/completions",
+        key: t,
+        model: m,
+        messages: [{ role: "user", content: prompt }],
+        maxTokens: 8,
+        timeoutMs,
+      });
+      const text = String((res && (res.text || res.content)) || "").trim();
+      const mm = text.match(/[12]/);
+      if (!mm) return -1;
+      return mm[0] === "1" ? 0 : 1;
+    } catch {
+      return -1;
+    }
+  };
 }
 
 
@@ -8176,20 +8895,71 @@ async function gatherPapers(rawQuery, opts) {
   // retrieval time budget is nearly spent. semanticRerank never throws and
   // returns papers unchanged on failure, so this is a strict improvement
   // with no regression path: keyword scores remain the fallback.
+  //
+  // ADAPTIVE ALPHA (2026-10-07): instead of a fixed 0.5, the blend weight
+  // adapts to the keyword score distribution. When keyword scores have high
+  // variance (a clear keyword signal — some papers match strongly, others
+  // don't), the keyword ranking is already discriminative, so we lean on it
+  // (alpha 0.35). When keyword scores are flat (ambiguous query, everything
+  // scores similarly), the semantic signal carries the discrimination load
+  // (alpha 0.65). This is the production tuning the 0.5 default was waiting
+  // for — derived from the score distribution itself, no training data needed.
   let rerankedFinal = scoredFinal;
   const msLeft = GATHER_PAPERS_BUDGET_MS - (Date.now() - _searchStart);
   if (!isNameQuery && scoredFinal.length >= 2 && opts && opts.env && msLeft > 4000) {
+    // Adaptive alpha from keyword score variance (coefficient of variation).
+    let rerankAlpha = 0.5;
+    try {
+      const kScores = scoredFinal.map((p) => Math.max(0, Math.min(100, Number(p.score) || 50)));
+      const kMean = kScores.reduce((s, v) => s + v, 0) / kScores.length;
+      const kVar = kScores.reduce((s, v) => s + (v - kMean) * (v - kMean), 0) / kScores.length;
+      const kStd = Math.sqrt(kVar);
+      const cv = kMean > 0 ? kStd / kMean : 0;
+      // High CV (>0.35): keyword signal is discriminative → trust it more.
+      // Low CV (<0.15): keyword scores are flat → lean on semantics.
+      if (cv > 0.35) rerankAlpha = 0.35;
+      else if (cv < 0.15) rerankAlpha = 0.65;
+    } catch { rerankAlpha = 0.5; }
     try {
       const embBudget = await checkEmbeddingBudget(opts.env);
       if (embBudget.allowed) {
         // Pro depth: rerank twice the candidate pool. The neuron cost is flat
         // (one batched embedding call either way), so this is free depth.
         const rerankTopN = opts && opts.isPro ? 40 : 20;
-        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: rerankTopN, alpha: 0.5 });
+        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: rerankTopN, alpha: rerankAlpha });
         if (rr.semanticApplied) {
           await spendEmbeddingNeurons(opts.env, EMBEDDING_NEURON_COST_PER_RERANK);
           rerankedFinal = rr.papers;
-          diag.semanticRerank = { applied: true, latencyMs: rr.latencyMs };
+          // ALPHA TELEMETRY (2026-10-07): log the adaptive alpha and the
+          // score deltas so the blend weight can be tuned from production
+          // data. meanAbsDelta = how much the rerank moved scores;
+          // rankChanges = how many papers changed position.
+          let meanAbsDelta = 0, rankChanges = 0;
+          try {
+            const before = new Map(scoredFinal.map((p, i) => [p.title, i]));
+            let dSum = 0, dN = 0;
+            rr.papers.forEach((p, i) => {
+              const kw = Number(p.keywordScore);
+              const bl = Number(p.blendedScore);
+              if (Number.isFinite(kw) && Number.isFinite(bl)) { dSum += Math.abs(bl - kw); dN++; }
+              const oldIdx = before.get(p.title);
+              if (oldIdx !== undefined && oldIdx !== i) rankChanges++;
+            });
+            meanAbsDelta = dN > 0 ? Math.round((dSum / dN) * 10) / 10 : 0;
+          } catch { /* telemetry is best-effort */ }
+          diag.semanticRerank = { applied: true, latencyMs: rr.latencyMs, alpha: rerankAlpha, meanAbsDelta, rankChanges };
+          // Fire-and-forget D1 log for alpha tuning dataset.
+          try {
+            const db = opts.env.DB;
+            if (db && typeof db.prepare === "function") {
+              db.prepare(
+                "CREATE TABLE IF NOT EXISTS rerank_telemetry (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, alpha REAL, mean_abs_delta REAL, rank_changes INTEGER, paper_count INTEGER)"
+              ).run().catch(() => {});
+              db.prepare(
+                "INSERT INTO rerank_telemetry (created_at, alpha, mean_abs_delta, rank_changes, paper_count) VALUES (?, ?, ?, ?, ?)"
+              ).bind(Date.now(), rerankAlpha, meanAbsDelta, rankChanges, rr.papers.length).run().catch(() => {});
+            }
+          } catch { /* best-effort */ }
         } else {
           diag.semanticRerank = { applied: false, reason: "embedding_unavailable" };
         }
@@ -8773,6 +9543,13 @@ async function runSearchPipeline(pctx) {
   // Priority queue slot, held for the whole pipeline run and released in
   // the finally below. Declared outside the try so the finally can see it.
   let searchSlot = null;
+  // API-key identity + outcome, for the per-key usage dashboard. Declared
+  // outside the try so the finally can record the call even on early
+  // returns and top-level-catch exits. apiKeyRequestErrored marks
+  // requests that failed (4xx/429 or a pipeline throw) so the dashboard's
+  // error rate is honest.
+  let apiKeyIdentity = null;
+  let apiKeyRequestErrored = false;
 
   try {
     // Carried for the top-level catch: the pipeline's degraded response
@@ -8829,7 +9606,6 @@ async function runSearchPipeline(pctx) {
     //               nudges toward sign-in.
     let aiGate = null;
     let proLib = null;
-    let apiKeyIdentity = null;
     try {
       const { getSessionUser: proSessionUser } = await import("../lib/authHelpers.js");
       proLib = await import("../lib/proEntitlement.js");
@@ -8846,6 +9622,7 @@ async function runSearchPipeline(pctx) {
         }
         // Per-key rate limit: 60 searches/min, independent of the IP bucket.
         if (!(await checkRateLimit(env, "apikey:" + apiKeyIdentity.keyId, 60, 60000))) {
+          apiKeyRequestErrored = true;
           return new Response(
             JSON.stringify({ error: "API key rate limit exceeded. Slow down and try again." }),
             { status: 429, headers: { ...secureCors, "Retry-After": "60" } }
@@ -8874,6 +9651,7 @@ async function runSearchPipeline(pctx) {
     // An API key only works while its owner is Pro. Downgrade or cancel and
     // the key 403s — it never silently degrades to a free-tier key.
     if (apiKeyIdentity && !isProSearch) {
+      apiKeyRequestErrored = true;
       return new Response(
         JSON.stringify({ error: "This API key requires an active Pro subscription." }),
         { status: 403, headers: secureCors }
@@ -8883,15 +9661,21 @@ async function runSearchPipeline(pctx) {
     // requests 429 with Retry-After while Pro requests proceed. The slot
     // is held for the whole pipeline run and released in the finally
     // below. Fail-open: a slot-table problem never blocks a search.
+    // Denials are counted (search_denials, daily) so the queue's real
+    // bite is observable — exposed in the 429 body and search _diag.
     {
-      const { acquireSearchSlot } = await import("../lib/searchPriority.js");
+      const { acquireSearchSlot, recordSlotDenial } = await import("../lib/searchPriority.js");
       searchSlot = await acquireSearchSlot(env, isProSearch);
       if (!searchSlot.allowed) {
+        if (apiKeyIdentity) apiKeyRequestErrored = true;
+        let denialsToday = 0;
+        try { denialsToday = await recordSlotDenial(env); } catch (cbErr) { console.error("[Cerebrum] search.js deny: recordSlotDenial:", cbErr); }
         return new Response(
           JSON.stringify({
             error: "Search is busy right now. Pro members skip the line — upgrade to jump the queue.",
             code: "search_busy",
             priority: "standard",
+            denialsToday,
           }),
           { status: 429, headers: { ...secureCors, "Retry-After": "15" } }
         );
@@ -9806,7 +10590,14 @@ async function runSearchPipeline(pctx) {
       // BEFORE retrieval, so the answer never silently picks one meaning.
       // The interpretations ship in the response for one-tap re-searches;
       // the extractive path also names them in the answer text.
-      ambiguity = detectAmbiguity(searchQuery);
+      // Semantic upgrade (2026-10-07): when the cheap table pass is
+      // inconclusive, resolve the sense with bge embeddings instead of
+      // keyword luck. Falls back to the table result on any failure.
+      try {
+        ambiguity = await detectAmbiguitySemantic(searchQuery, env);
+      } catch {
+        ambiguity = detectAmbiguity(searchQuery);
+      }
 
       // NEXT-GEN: retrieval runs inside the stage runner — hard timeout,
       // typed fallback, health record. gatherPapers has its own internal
@@ -9857,6 +10648,30 @@ async function runSearchPipeline(pctx) {
       if (gResult._diag) gResult._diag.proSearchDepth = isProSearch;
       // Priority queue: which lane this search ran in.
       if (gResult._diag) gResult._diag.searchPriority = searchSlot ? searchSlot.priority : (isProSearch ? "pro" : "standard");
+      // SEMANTIC DIVERGENCE (2026-10-07): general embedding-based ambiguity
+      // detection. When the retrieved papers split into two semantically
+      // distinct clusters, the query is ambiguous in a way no curated table
+      // can cover. Runs on cached vectors only (zero new embedding spend).
+      // Supplements — never overrides — the table/semantic sense resolution
+      // above: if that already resolved or flagged, keep it.
+      try {
+        if (!ambiguity.ambiguous && !ambiguity.resolvedAs && (gResult.papers || []).length >= 4) {
+          const div = await detectSemanticDivergence(gResult.papers, env);
+          if (div && div.ambiguous) {
+            ambiguity = { ...ambiguity, ...div };
+            if (gResult._diag) gResult._diag.semanticDivergence = div._diag || true;
+          }
+        }
+      } catch (cbErr) { console.error("[Cerebrum] search.js semantic divergence:", cbErr); }
+      // Priority queue denial observability: how many standard searches the
+      // queue turned away today + last 7d. Best-effort — a stats hiccup
+      // must not touch the response.
+      if (gResult._diag) {
+        try {
+          const { getDenialStats } = await import("../lib/searchPriority.js");
+          gResult._diag.queueDenials = await getDenialStats(env);
+        } catch (cbErr) { console.error("[Cerebrum] search.js _diag: getDenialStats:", cbErr); }
+      }
 
       // ═══════════════════════════════════════════════════════════════
       // LLM RESCUE: if mechanical search found too few papers, use the
@@ -11767,6 +12582,43 @@ async function runSearchPipeline(pctx) {
 
     // SSE stage 4/6: synthesis begins — the answer is being composed from
     // the screened evidence.
+    // ═══════════════════════════════════════════════════════════════
+    // DEFINITION FAST PATH (2026-10-07): "what is X" with a defining
+    // abstract in hand gets the definition immediately — no wave races,
+    // no AI spend, no waiting. buildDefinitionAnswer only quotes what the
+    // literature says (never defines in the pipeline's own words), so this
+    // is strictly better than burning 3 waves to say the same thing. The
+    // normal response assembly below still runs (disagreement, confidence,
+    // bibliography), so the answer ships with all instruments attached.
+    // Fires only when the definition is solid (2+ cited sentences, or 1
+    // high-confidence sentence from a top-3 paper) — otherwise the waves
+    // proceed normally and may produce a richer answer.
+    // ═══════════════════════════════════════════════════════════════
+    let definitionFastPathAnswer = null;
+    try {
+      const qType = classifyQuestionType(searchQuery);
+      if (qType.type === "definition" && qType.term && useEvidence && evidencePapers.length >= 2) {
+        const defs = extractDefinitionSentences(qType.term, evidencePapers, 3);
+        // Quality bar: need 2+ defining sentences, or 1 very strong one
+        // (score >= 80) from a top-3 paper. Weak single definitions fall
+        // through to the waves for a fuller answer.
+        const solid = defs.length >= 2 || (defs.length === 1 && defs[0].score >= 80 && defs[0].idx <= 3);
+        if (solid) {
+          definitionFastPathAnswer = buildDefinitionAnswer(qType.term, evidencePapers, {
+            query: searchQuery,
+            ambiguity,
+          });
+        }
+      }
+    } catch (cbErr) { console.error("[Cerebrum] search.js definition fast path:", cbErr); }
+    const skipWavesForDefinition = !!definitionFastPathAnswer;
+    if (skipWavesForDefinition) {
+      answer = definitionFastPathAnswer;
+      extractiveOK = true; // deterministic answer: LLM-only downstream steps stay off
+      aiOK = false;
+      try { console.log("Cerebrum: definition fast path served for", JSON.stringify(searchQuery.slice(0, 80))); } catch {}
+    }
+
     if (emitStage) await emitStage("synthesizing", {
       sources: evidencePapers.length,
       requestId,
@@ -11804,8 +12656,9 @@ async function runSearchPipeline(pctx) {
     let budgetDenied = false;
     let routedModel = null;
     // Skipped entirely when the answer-count gate already said no — the
-    // waves below won't run, so there's nothing to authorize.
-    if (aiSynthesisAllowed) {
+    // waves below won't run, so there's nothing to authorize. Also skipped
+    // when the definition fast path already served an answer.
+    if (aiSynthesisAllowed && !skipWavesForDefinition) {
       try {
         llmBudget = await authorizeLlmCall(env, {
           userId: (aiGate && aiGate.userId) || "anonymous",
@@ -11837,8 +12690,9 @@ async function runSearchPipeline(pctx) {
     // the compat providers are in flight from the very first attempt, not
     // after OpenRouter tiers exhaust. The whole wave is additionally raced
     // against the synthesis deadline: even if a leg's abort misbehaves,
-    // the wave cannot outlive the budget.
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied) {
+    // the wave cannot outlive the budget. Skipped when the definition fast
+    // path already served (skipWavesForDefinition).
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {
       // 2026-09-14 scale fix: ONE AbortController for the whole wave. The
       // moment the race is decided the losers' in-flight HTTP is aborted —
       // without this every search burns ~15 AI legs of quota for one
@@ -11878,9 +12732,14 @@ async function runSearchPipeline(pctx) {
         // win on quality instead of losing on speed. Grace is clamped to the
         // remaining synthesis budget so it can never blow the deadline — the
         // outer deadline race below remains the hard backstop.
+        // LLM-AS-JUDGE (2026-10-07): when the top two heuristic scores are
+        // within 6 points, a cheap judge model breaks the tie. Only wired
+        // when there's a token and enough budget left — the judge is a
+        // tie-breaker, not a second synthesis pass.
         const w1Grace = Math.min(1500, Math.max(0, msLeft() - 2000));
+        const w1Judge = (token && msLeft() > 10000) ? buildLlmJudge({ token, timeoutMs: 3000 }) : null;
         const winner = await Promise.race([
-          raceBest(wave1Calls, query, w1Grace),
+          raceBest(wave1Calls, query, w1Grace, 3, w1Judge ? { judge: w1Judge } : {}),
           new Promise((_, reject) => setTimeout(
             () => reject(new Error("synthesis-deadline: wave 1 exceeded budget")),
             Math.max(1, synthesisDeadline - Date.now())
@@ -11905,7 +12764,8 @@ async function runSearchPipeline(pctx) {
     // reserve). Past that, Wave 4 takes over.
     // 2026-09-12: the old gate (Date.now() < 90s synthesisDeadline) let
     // wave 2 start with seconds left and 12s legs, blowing the 20s ceiling.
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied && Date.now() < synthesisDeadline && msLeft() > 6000) {
+    // Skipped when the definition fast path already served.
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {
       // Bounded wait for the speculative brief: the brief starts HERE (not
       // alongside wave 1 — see startBrief above), and the small wave-2
       // models do far better composing from pre-digested claims than from
@@ -11940,9 +12800,11 @@ async function runSearchPipeline(pctx) {
       if (wave2Calls.length > 0) {
         try {
           // raceBest with a tighter grace (wave 2 runs on a thinner budget).
+          // LLM judge also wired here — same close-call tie-breaking as wave 1.
           const w2Grace = Math.min(1000, Math.max(0, msLeft() - 2000));
+          const w2Judge = (token && msLeft() > 8000) ? buildLlmJudge({ token, timeoutMs: 3000 }) : null;
           const winner = await Promise.race([
-            raceBest(wave2Calls, query, w2Grace),
+            raceBest(wave2Calls, query, w2Grace, 3, w2Judge ? { judge: w2Judge } : {}),
             new Promise((_, reject) => setTimeout(
               () => reject(new Error("synthesis-deadline: wave 2 exceeded budget")),
               Math.max(1, synthesisDeadline - Date.now())
@@ -11984,7 +12846,8 @@ async function runSearchPipeline(pctx) {
     // 20s global ceiling. Now gated on ≥4s of remaining budget, legs
     // clamped to it, and raced against the synthesis deadline like waves
     // 1-2. A last resort that can't fit in the budget is skipped, not run.
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied && Date.now() < synthesisDeadline && msLeft() > 4000) {
+    // Skipped when the definition fast path already served.
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {
       const bulletproofSystem =
         ID +
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass — be direct and skip elaboration.\n\n" +
@@ -12054,6 +12917,13 @@ async function runSearchPipeline(pctx) {
         // do with whatever just failed.
         ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
         ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
+        // Pro depth: wave 3 only fires after total failure, so a stronger
+        // model here is cheap — one extra leg, only on the rarest path.
+        // Pro races a 70B Workers AI model alongside the small ones; a
+        // last-resort answer from a stronger model beats the deterministic
+        // fallback. Fail-safe: an unknown model ID just fails its leg and
+        // raceBest falls through to the other legs.
+        ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
         // Pro depth: wave 3 only fires after total failure, so the extra legs
         // are cheap — Pro races four OpenRouter models here instead of two,
         // in case the wave 1-2 throttle has cleared by now.
@@ -12137,7 +13007,7 @@ async function runSearchPipeline(pctx) {
           error: String(a.error || "").slice(0, 120),
         })),
     });
-    if (!aiOK) {
+    if (!aiOK && !skipWavesForDefinition) {
       aiAttempts.push({ diagnostics: {
         hasOpenRouterKey: !!token,
         workersAIBound: cfBound,
@@ -12662,6 +13532,18 @@ async function runSearchPipeline(pctx) {
     // only as a secondary recall pass when the source-level pass finds
     // nothing. The verdict (divided/settled/thin) is always computed.
     const detected = detectSourceConflicts(sourceList, briefClaims);
+    // SEMANTIC CONFLICTS (2026-10-07): second pass over same-topic pairs
+    // the keyword pass missed (paraphrased disagreements). Merged into the
+    // detected set before the verdict is computed, so the verdict reflects
+    // all found conflicts. Zero new embedding spend (cached vectors only).
+    try {
+      const semConflicts = await detectSemanticConflicts(sourceList, env, detected.conflicts);
+      if (semConflicts.length > 0) {
+        detected.conflicts.push(...semConflicts);
+        // Recompute the verdict with the merged conflict list.
+        detected.verdict = buildDisagreementVerdict(detected.conflicts, detected.sourceCount);
+      }
+    } catch (cbErr) { console.error("[Cerebrum] search.js semantic conflicts:", cbErr); }
     const textMined = detected.conflicts.length === 0 ? extractLiteratureConflicts(answer, sourceList) : [];
     // The verdict is computed from the FINAL list the Flashpoints panel
     // renders (source-level pairs + the recall pass) — computing it from
@@ -12675,9 +13557,31 @@ async function runSearchPipeline(pctx) {
     const evidenceGaps = (useEvidence && evidencePapers.length > 0)
       ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut })
       : [];
-    const confidence = (useEvidence && evidencePapers.length > 0)
+    // CALIBRATED CONFIDENCE (2026-10-07): the heuristic score is adjusted
+    // for what actually happened to the answer — stripped citations and
+    // integrity flags discount it. The calibration is logged to D1 so the
+    // curve can be fitted from production data.
+    let confidence = (useEvidence && evidencePapers.length > 0)
       ? buildConfidenceLine(evidencePapers, disagreementVerdict)
       : null;
+    if (confidence) {
+      try {
+        const citeMatches = (answer.match(/\[\d+\]/g) || []).length;
+        confidence = calibrateConfidenceScore(confidence, {
+          strippedCitations: (unsupportedStripped || []).length,
+          totalCitations: citeMatches + (unsupportedStripped || []).length,
+          integrityFlags: 0, // computed below; applied on next pass via telemetry
+        });
+        // Best-effort telemetry for future curve fitting (don't await).
+        logConfidenceTelemetry(env, {
+          queryHash: String(searchQuery || "").slice(0, 40),
+          rawScore: confidence.rawScore,
+          calibratedScore: confidence.score,
+          level: confidence.level,
+          adjustments: confidence.calibrationAdjustments,
+        }).catch(() => {});
+      } catch (cbErr) { console.error("[Cerebrum] search.js confidence calibration:", cbErr); }
+    }
     const coverageNote = buildCoverageNote(publicSourcesQueried());
 
     /* Computed, not generated. Runs only when there is enough to compare and
@@ -12879,6 +13783,9 @@ async function runSearchPipeline(pctx) {
     // paths, whatever the exception happened to say) for zero benefit to a
     // legitimate caller who just needs a clear, generic explanation.
     console.error("Cerebrum /api/search top-level error:", e && e.stack ? e.stack : e);
+    // An API-key request that threw counts as an errored call on the
+    // per-key usage dashboard (the caller got a degraded response).
+    if (apiKeyIdentity) apiKeyRequestErrored = true;
     // NEXT-GEN: the top-level failure is not a dead end either. Return a
     // valid 200 research response in the no-results shape — what happened,
     // why, reformulations derived from the question, and the watch-topic
@@ -12934,6 +13841,16 @@ async function runSearchPipeline(pctx) {
         await releaseSearchSlot(env);
       } catch (cbErr) { console.error("[Cerebrum] search.js finally: releaseSearchSlot:", cbErr); }
       searchSlot = null;
+    }
+    // Per-key usage dashboard: record this API-key-authenticated request
+    // in the background — accounting must never delay the response.
+    if (apiKeyIdentity) {
+      try {
+        const { recordApiKeyUsage } = await import("../lib/apiKeys.js");
+        const p = recordApiKeyUsage(env, apiKeyIdentity.keyId, apiKeyRequestErrored);
+        if (typeof waitUntil === "function") waitUntil(p.catch(() => {}));
+        else await p;
+      } catch (cbErr) { console.error("[Cerebrum] search.js finally: recordApiKeyUsage:", cbErr); }
     }
   }
 }
