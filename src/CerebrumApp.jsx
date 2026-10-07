@@ -78,6 +78,9 @@ import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
 import { FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, UIButton, UICard, UIRow, UIField, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame } from "./designSystem.jsx";
 
+/* Text utilities (extracted 2026-10-07, monolith split). */
+import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
+
 import { createPortal } from "react-dom";
 import gsap from "gsap";
 
@@ -454,314 +457,7 @@ async function saveToZotero(sources, apiKey, userId) {
   if (!res.ok) throw new Error(`Zotero ${res.status}`);
   return res.json();
 }
-/* Pass 6: Zotero failures reach the user as plain sentences, never a raw
-   fetch/HTTP error string. Shared by the evidence view's inline form and
-   the conversation-level send. */
-function zoteroErrorMessage(e) {
-  const raw = String(e && e.message || "");
-  if (/401|403|forbidden|unauthorized/i.test(raw)) return "That API key or user ID looks wrong: double-check them in your Zotero account settings.";
-  if (/network|fetch|failed to fetch/i.test(raw)) return "Couldn't reach Zotero. Check your connection and try again.";
-  return "Couldn't save to Zotero right now. Try again in a moment.";
-}
-// Paper metadata (title, authors, journal) comes from external scholarly APIs
-// — several of which (Zenodo, DOAJ, CORE, BASE, OpenAIRE) index self-deposited
-// records with no HTML sanitization on the backend. Any of those fields can
-// contain raw markup. This MUST be applied before anything derived from them
-// is passed to dangerouslySetInnerHTML, or a maliciously-titled "paper" could
-// run arbitrary script in every visitor's browser on this origin.
-function escapeHtml(str) {
-  return String(str == null ? "" : str).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
-
-// Upstream entities can still reach the answer body itself: the model copies
-// strings like "&#x2009;" verbatim out of source abstracts into its prose.
-// Decoded at render so readers never see raw entities. Rendered as React
-// text children (never innerHTML), so decoding cannot introduce markup.
-const HTML_NAMED_ENTITIES = {
-  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
-  nbsp: " ", thinsp: " ", ensp: " ", emsp: " ",
-  ndash: "–", mdash: "—", hellip: "…",
-  lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”",
-  trade: "™", reg: "®", copy: "©", deg: "°",
-};
-function decodeHtmlEntities(s) {
-  return String(s == null ? "" : s).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, ent) => {
-    if (ent[0] === "#") {
-      const code = ent[1] === "x" || ent[1] === "X" ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
-      if (Number.isFinite(code) && code > 0 && code < 0x110000) {
-        try { return String.fromCodePoint(code); } catch { return m; }
-      }
-      return m;
-    }
-    const named = HTML_NAMED_ENTITIES[ent.toLowerCase()];
-    return named !== undefined ? named : m;
-  });
-}
-
-// v33: some upstream scholarly metadata (Crossref/PubMed/OpenAlex title
-// fields, in particular) carries basic HTML formatting for chemical
-// formulas and species/genus names — "CO<sub>2</sub> capture", "<i>E.
-// coli</i> biofilms". Every title in this app rendered as a plain React
-// text child, which is safe (React auto-escapes string children) but shows
-// the literal tag characters to the reader instead of the subscript/italic
-// they're meant to convey — the "<sub>0.5</sub>" bug this fixes. The fix is
-// deliberately NOT dangerouslySetInnerHTML on raw title text — that would
-// hand an upstream API this app doesn't control a way to run arbitrary
-// HTML/script in every visitor's browser. Instead this parses ONLY four
-// whitelisted, well-known-safe formatting tags into real React elements;
-// everything else in the string — including any other tag-like substring —
-// is emitted as a plain string segment, which React renders as an inert
-// text node exactly like before, never as markup.
-const TITLE_SAFE_TAG_RE = /<(sub|sup|i|b)>([^<]*)<\/\1>/gi;
-function renderCleanTitle(raw) {
-  const title = raw || "";
-  if (!/<(sub|sup|i|b)>/i.test(title)) return title;
-  const parts = [];
-  let last = 0, m, key = 0;
-  TITLE_SAFE_TAG_RE.lastIndex = 0;
-  while ((m = TITLE_SAFE_TAG_RE.exec(title))) {
-    if (m.index > last) parts.push(title.slice(last, m.index));
-    parts.push(React.createElement(m[1].toLowerCase(), { key: key++ }, m[2]));
-    last = TITLE_SAFE_TAG_RE.lastIndex;
-  }
-  if (last < title.length) parts.push(title.slice(last));
-  return parts;
-}
-
-/* Plain-text twin of renderCleanTitle: for aria-labels and other string
-   contexts. renderCleanTitle returns an ARRAY of React nodes when safe
-   tags are present, which stringifies to "[object Object]" inside a
-   template literal — this strips the tags instead. */
-function cleanTitleText(raw) {
-  return String(raw || "").replace(/<\/?(sub|sup|i|b)>/gi, "");
-}
-
-/* Investigation titles are the user's own raw questions — "tempretures",
-   "explain the phyla in BSFL gut". Display tidies them: trim, collapse
-   whitespace, capitalise the first letter. The stored value is untouched
-   (rename edits the real thing), so this is presentation only, applied
-   everywhere an investigation title is shown. */
-function tidyQuestionTitle(raw) {
-  const t = String(raw == null ? "" : raw).trim().replace(/\s+/g, " ");
-  return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
-}
-
-// Identity key for a source used across dedup / save / pin state. Was
-// `(s.title || "").toLowerCase()` in half a dozen places — when two distinct
-// sources both lack a title (not uncommon: some Zenodo/CORE/BASE records
-// have no title field), they collapse to the same key "". That meant the
-// second untitled source silently disappeared from dedup (bug), and toggling
-// save/pin on one untitled source affected every other untitled source's
-// state (bug). Falling back to `url` before giving up keeps two different
-// untitled papers distinct in the overwhelmingly common case where they at
-// least have different URLs.
-function sourceKey(s) {
-  // DOI first when present: the backend dedupes on DOI-vs-title key
-  // intersection, so the frontend key must agree or the same paper (one
-  // record with a DOI, one without) accumulates as two entries in the
-  // cumulative source list. Title is normalized the same way the backend
-  // does (case/punctuation/whitespace-insensitive) so both ends collapse
-  // the same pairs.
-  if (!s) return "";
-  const doi = String(s.doi || s.DOI || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase().replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
-  if (/^10\.\d{4,9}\//.test(doi)) return "doi:" + doi;
-  const t = String(s.title || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
-  if (t) return "title:" + t;
-  return "url:" + String(s.url || "").toLowerCase().trim();
-}
-
-/* Every key a source record carries, strongest first — the frontend mirror
- * of the backend\u2019s paperDedupeKeys(). Two records are the same source
- * when ANY key intersects, which is what catches \u201cseen with DOI on one
- * turn, seen without on the next\u201d. Used by the cumulative source
- * accumulator; sourceKey() (single strongest key) remains for save/pin
- * identity. */
-function sourceKeys(s) {
-  const keys = [];
-  const push = (k) => { if (k && !keys.includes(k)) keys.push(k); };
-  if (s) {
-    const doi = String(s.doi || s.DOI || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase().replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
-    if (/^10\.\d{4,9}\//.test(doi)) push("doi:" + doi);
-    const t = String(s.title || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
-    if (t) push("title:" + t);
-    const u = String(s.url || "").toLowerCase().trim();
-    if (u) push("url:" + u);
-  }
-  return keys.length ? keys : [""];
-}
-
-// Only allow http(s) URLs into href/target=_blank. Paper URLs come from
-// external, self-deposited scholarly metadata (Zenodo, DOAJ, CORE, BASE,
-// OpenAIRE) with no guarantee they're sane — a "javascript:" or "data:" URL
-// in that field would execute when clicked. Defense in depth alongside the
-// HTML-escaping fix in BibEntry.
-function safeHref(url) {
-  const u = (url || "").trim();
-  return /^https?:\/\//i.test(u) ? u : "#";
-}
-
-/* Pass 4 — plain-text export helper. Answers are stored as markdown; the
-   TXT export needs readable prose, not fences and hashes. This strips the
-   common constructs (fences, headings, emphasis, links, list markers) and
-   leaves everything else verbatim — it never invents or reorders content. */
-function stripMarkdown(md) {
-  return String(md || "")
-    .replace(/```[\s\S]*?```/g, (m) => m.replace(/```/g, ""))
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/(\*\*|__)(.*?)\1/g, "$2")
-    .replace(/(\*|_)(.*?)\1/g, "$2")
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/^\s*[-*+]\s+/gm, "")
-    .replace(/^\s*\d+\.\s+/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-// Every video object search.js/videos.js hands back already carries a
-// pre-validated 11-character id (see videos.js's YT_ID_RE check on the
-// piped/invidious path) — prefer that directly and only fall back to
-// parsing it out of the stored watch/shorts/youtu.be URL for anything
-// older or from a path that didn't set `id`. Returns null rather than a
-// guess when nothing usable is found, so a caller never embeds garbage.
-const YT_ID_RE = /^[\w-]{11}$/;
-function getYouTubeId(v) {
-  if (v && v.id && YT_ID_RE.test(v.id)) return v.id;
-  const url = (v && v.url) || "";
-  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|shorts\/|embed\/))([\w-]{11})/);
-  return m ? m[1] : null;
-}
-
-/* Journal-name display casing.
-   Venue names arrive from a dozen APIs with a dozen casings — "Frontiers
-   in Genome Editing" from one, "frontiers in genome editing" from
-   another. An all-lowercase venue in a citation list reads as a data bug
-   even when the paper is real, so normalize the unambiguous cases:
-   all-lowercase (or all-uppercase) names get title-cased with small words
-   kept low. Anything already mixed-case ("Nature", "eLife", "PLOS ONE")
-   is trusted as-is — the API knew better than we do. A short dictionary
-   pins the stylings title-casing would mangle. */
-const JOURNAL_STYLE = {
-  "plos one": "PLOS ONE", "pnas": "PNAS", "jama": "JAMA", "bmj": "BMJ",
-  "elife": "eLife", "peerj": "PeerJ", "biorxiv": "bioRxiv",
-  "medrxiv": "medRxiv", "arxiv": "arXiv", "f1000research": "F1000Research",
-  "ssrn": "SSRN",
-};
-const JOURNAL_SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "per", "the", "to", "v", "v.", "via", "vs", "vs."]);
-/* Names that are indexes, aggregators, or repositories — not publication
-   venues. They arrive in the journal slot when an API has no real venue
-   (a `publisher` of "eScholarship, University of California", a bare
-   "CORE"), and rendering them as the venue misleads. Drop them; every
-   display site already handles an empty venue gracefully. */
-const JOURNAL_DENYLIST = new Set([
-  "core", "base", "openaire", "openalex", "semantic scholar", "crossref",
-  "europe pmc", "europepmc", "pubmed", "pmc", "doaj", "web",
-  "escholarship", "escholarship, university of california",
-]);
-function formatJournalName(raw) {
-  const j = String(raw || "").trim();
-  if (!j) return j;
-  const low = j.toLowerCase().replace(/\s+/g, " ");
-  if (JOURNAL_DENYLIST.has(low)) return "";
-  if (/[a-z]/.test(j) && /[A-Z]/.test(j)) return j; // already cased: trust it
-  if (JOURNAL_STYLE[low]) return JOURNAL_STYLE[low];
-  if (low.startsWith("plos ")) return "PLOS " + low.slice(5).replace(/\b\w/g, (c) => c.toUpperCase());
-  if (low.startsWith("ieee ")) return "IEEE " + formatJournalName(low.slice(5));
-  return low.split(/\s+/).map((w, i) =>
-    (i > 0 && JOURNAL_SMALL_WORDS.has(w)) ? w : w.charAt(0).toUpperCase() + w.slice(1)
-  ).join(" ");
-}
-/* Citation counts are a quality signal with a shelf life. "0 citations"
-   on a paper published this year is expected, not informative — but on a
-   ten-year-old paper it is a genuine red flag, and distinct from a count
-   the APIs never returned. So: positive counts always show; an honest
-   zero shows only when the paper is old enough that zero means something;
-   otherwise nothing renders, and unknown stays unknown. */
-function formatCitationCount(citations, year, noun) {
-  if (typeof citations !== "number" || citations < 0) return "";
-  if (citations > 0) return `${citations.toLocaleString()} ${noun}${citations === 1 ? "" : "s"}`;
-  const y = parseInt(year, 10);
-  if (y && y <= new Date().getFullYear() - 2) return `0 ${noun}s`;
-  return "";
-}
-function formatCitation(source, style, index) {
-  const s = source || {};
-  const authors = s.authors || "";
-  const title = s.title || "Untitled";
-  const journal = formatJournalName(s.journal || "");
-  const year = s.year || "n.d.";
-  const url = s.url || "";
-  // v28 fix: every style below used to unconditionally append ". " after
-  // `authors` — fine when authors is a plain name list ("Smith J, Doe A"),
-  // but the backend's own authors string sometimes already ends in "et
-  // al." (already period-terminated), so blindly appending another "."
-  // produced "et al.." — a real, visible double-period, not a one-off.
-  // Trim first, then only add a period if one isn't already there.
-  const authorsPart = (() => {
-    const a = authors.trim();
-    if (!a) return "";
-    return (a.endsWith(".") ? a : a + ".") + " ";
-  })();
-  /* Commit 95 — the same double period, one field over.
-     v28 fixed it for the author string and stopped there. Titles have
-     exactly the same problem and it is far more visible: PubMed ships a
-     great many titles already terminated with a full stop ("...Gut
-     Microbiome Functions."), and every style below appends its own, so
-     real bibliographies were rendering "Functions.." on most entries.
-     Same treatment, applied to the two fields that can arrive
-     pre-terminated. */
-  const endPunct = (v) => {
-    const t = String(v || "").trim();
-    if (!t) return t;
-    return /[.!?]$/.test(t) ? t : t + ".";
-  };
-  const titleDot = endPunct(title);
-  const journalDot = endPunct(journal);
-  switch (style) {
-    case "vancouver": {
-      const parts = [`${index}. ${authorsPart}${titleDot}`];
-      if (journal) parts.push(` ${journalDot}`);
-      parts.push(` ${year}.`);
-      return parts.join("");
-    }
-    case "apa": {
-      return `${authorsPart}(${year}). ${titleDot} ${journal ? "*" + journal + "*." : ""}`.trim();
-    }
-    case "mla": {
-      return `${authorsPart}"${titleDot}" *${journal || "n.p."}*, ${year}${url ? ", " + url : ""}.`;
-    }
-    case "chicago": {
-      return `${authorsPart}${year}. "${titleDot}" *${journal || "n.p."}*.`;
-    }
-    case "bibtex": {
-      // Bug: this built the key from `year`, which defaults to the literal
-      // string "n.d." above, producing a malformed key like "cerebrumn.d._1"
-      // (periods aren't valid in a BibTeX citekey). The OTHER BibTeX
-      // generator in this file, toBibTeX() above, already gets this right —
-      // `cerebrum${s.year || ""}_${i+1}` — so the two exports disagreed for
-      // any undated source. Match that convention here.
-      const key = "cerebrum" + (s.year || "") + "_" + index;
-      const fields = [];
-      if (authors) fields.push(`  author = {${authors}}`);
-      if (title) fields.push(`  title = {${title}}`);
-      if (journal) fields.push(`  journal = {${journal}}`);
-      if (year && year !== "n.d.") fields.push(`  year = {${year}}`);
-      if (url) fields.push(`  url = {${url}}`);
-      return `@article{${key},\n${fields.join(",\n")}\n}`;
-    }
-    default:
-      return `${index}. ${authors} ${titleDot} ${journal} ${year}.`;
-  }
-}
-
-function formatBibliography(sources, style) {
-  return sources
-    .map((s, i) => formatCitation(s, style, i + 1))
-    .join(style === "bibtex" ? "\n\n" : "\n\n");
-}
+/* Text/citation utilities moved to src/textUtils.js (monolith split). */
 
 const Sfx = (() => {
   let ctx = null, ambient = null, lfoTimer = null;
@@ -2008,7 +1704,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             <div style={{
               fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
               fontWeight: 600, color: P.ink, lineHeight: 1.28,
-              letterSpacing: "-0.02em", fontFamily: "var(--cb-font)",
+              letterSpacing: "-0.015em", fontFamily: "var(--cb-font)",
               marginBottom: 16, display: "-webkit-box", WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>{lastQ}</div>
@@ -2259,7 +1955,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
                   aria-pressed={on}
                   style={{ minHeight: 44,
                     fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", fontWeight: 600,
-                    letterSpacing: "0.005em", flexShrink: 0, whiteSpace: "nowrap",
+                    letterSpacing: "0", flexShrink: 0, whiteSpace: "nowrap",
                     padding: "6px 14px", borderRadius: RADIUS.pill, cursor: "pointer",
                     transition: "background-color 0.2s ease, color 0.2s ease",
                     background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
@@ -3990,7 +3686,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       && boldHeaderText.length <= 60
       && !boldHeaderText.includes("\n")
       && !/[.!?;,]$/.test(boldHeaderText);
-    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
+    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: "-0.015em", fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
 
     /* Commit 79 — a section heading that arrived on the same line-break as
        its body.
@@ -4531,7 +4227,7 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
   return (
     <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
       <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.22em", textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
-      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
+      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
       <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
       {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
       <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
@@ -4825,7 +4521,7 @@ function FilmCreditsDialog({ onClose, accent }) {
       }}
     >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.02em", flex: 1 }}>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.015em", flex: 1 }}>
             Background film credits
           </h2>
           <button onClick={onClose} aria-label="Close credits" style={{
@@ -5752,7 +5448,7 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
       }}
     >
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.02em", flex: 1, lineHeight: 1.25 }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.015em", flex: 1, lineHeight: 1.25 }}>{title}</h2>
           <button onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
             border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
             color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 9999,
@@ -6212,7 +5908,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             }}>
               <p style={{
                 fontSize: isMobile ? "clamp(24px, 7vw, 34px)" : "clamp(30px, 3.8vw, 48px)",
-                fontWeight: 650, letterSpacing: "-0.02em", lineHeight: 1.22,
+                fontWeight: 650, letterSpacing: "-0.015em", lineHeight: 1.22,
                 color: "#ffffff", margin: "26px auto 0", maxWidth: "24ch",
                 textAlign: "center", textWrap: "balance",
                 textShadow: "0 2px 44px rgba(0,0,0,0.55)",
@@ -6332,7 +6028,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             Why Cerebrum
           </div>
           <h2 style={{
-            fontSize: isMobile ? 24 : 30, fontWeight: 600, letterSpacing: "-0.02em",
+            fontSize: isMobile ? 24 : 30, fontWeight: 600, letterSpacing: "-0.015em",
             lineHeight: 1.25, color: "#ffffff", margin: "0 0 16px",
             textShadow: "0 2px 30px rgba(0,0,0,0.5)",
           }}>
@@ -7052,7 +6748,7 @@ function InfoPage({ page }) {
         @media (hover: none) { .cb-info-block .cb-anchor { opacity: 1; } }
         .cb-toc-link:hover { color: ${accent}; }
         .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: 30; transform-origin: left; }
-        .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-font); }
+        .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-font); }
         .cb-info-block p { font-size: 16px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
         .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
         .cb-info-block li { font-size: 15px; line-height: 1.65; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
@@ -7076,12 +6772,12 @@ function InfoPage({ page }) {
             with the hairline border. */}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, pointerEvents: "none", background: P.bg, borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.02em", padding: 0 }}>
+          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
           </button>
           <nav style={{ display: "flex", gap: 6 }}>
             {NAV.map(([slug, label]) => (
-              <a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.body, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "6px 10px", fontWeight: page === slug ? 700 : 500, letterSpacing: "-0.01em" }}>{label}</a>
+              <a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.body, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "6px 10px", fontWeight: page === slug ? 700 : 500, letterSpacing: "-0.015em" }}>{label}</a>
             ))}
           </nav>
         </div>
@@ -7092,7 +6788,7 @@ function InfoPage({ page }) {
         <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "72px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)" }}>{data.eyebrow}</span>
-            <h1 style={{ fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.15, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-font)" }}>{data.title}</h1>
+            <h1 style={{ fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero, fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-font)" }}>{data.title}</h1>
             <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
             {data.updated && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-font)" }}>{data.updated}</div>}
           </div>
@@ -7133,7 +6829,7 @@ function InfoPage({ page }) {
                       <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 10px", borderRadius: 9999, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.06em", fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
                     )}
                     <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, fontFamily: "var(--cb-font)" }}>{tier.persona}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
                     <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 2 }}>{tier.price}</div>
                     <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "10px 0 0" }}>{tier.line}</p>
                     <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 700, color: tier.recommended ? accent : P.ink, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
@@ -7167,7 +6863,7 @@ function InfoPage({ page }) {
                cannot drift. The id matches the #frequently-asked-questions
                anchor published in public/llms.txt. */
             <div id="frequently-asked-questions" className="cb-fadein" style={{ marginTop: 56, scrollMarginTop: 90 }}>
-              <h2 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 8px", color: P.ink, fontFamily: "var(--cb-font)" }}>Frequently asked questions</h2>
+              <h2 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.015em", margin: "0 0 8px", color: P.ink, fontFamily: "var(--cb-font)" }}>Frequently asked questions</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 28, marginTop: 20 }}>
                 {data.faq.map((item, i) => (
                   <div key={i} className="cb-info-block">
@@ -7484,7 +7180,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
               style={{
                 display: "block", width: "100%", background: "none", border: "none", padding: 0,
                 cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700,
-                color: accent, fontFamily: "var(--cb-font)", lineHeight: 1.45, letterSpacing: "-0.01em",
+                color: accent, fontFamily: "var(--cb-font)", lineHeight: 1.45, letterSpacing: "-0.015em",
               }}>
               {source.title ? renderCleanTitle(source.title) : (domain || "Untitled paper")}
             </button>
@@ -7694,7 +7390,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
     >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: FONT_SIZES.heading, fontWeight: 800, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum Pro</span>
+            <span style={{ fontSize: FONT_SIZES.heading, fontWeight: 800, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum Pro</span>
             <ProBadge />
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
@@ -8218,7 +7914,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
         ) : (
           <form onSubmit={submit}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)" }}>Report data issue</div>
+              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)" }}>Report data issue</div>
               <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -9040,7 +8736,7 @@ function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", 
       <div className="cb-kicker" style={{ color: toneColor, marginBottom: 8 }}>
         {kicker}
       </div>
-      <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 650, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em", marginBottom: body ? 8 : 0, lineHeight: 1.35 }}>
+      <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 650, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", marginBottom: body ? 8 : 0, lineHeight: 1.35 }}>
         {title}
       </div>
       {body && <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, maxWidth: 600 }}>{body}</div>}
@@ -9133,7 +8829,7 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
         padding: "10px 12px", background: "none", border: "none",
         cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
         fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600,
-        letterSpacing: "-0.01em", color: it.status === "empty" ? P.faint : P.ink2,
+        letterSpacing: "-0.015em", color: it.status === "empty" ? P.faint : P.ink2,
       }}
     >
       {it.label}
@@ -9159,7 +8855,7 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
               padding: "10px 12px", background: "none", border: "none",
               cursor: "pointer", whiteSpace: "nowrap",
               fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600,
-              letterSpacing: "-0.01em", color: P.ink2,
+              letterSpacing: "-0.015em", color: P.ink2,
             }}>
             More
             <span style={{ display: "inline-flex", transform: moreOpen ? "rotate(180deg)" : "none", transition: "transform 150ms ease" }}>
@@ -10815,7 +10511,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
             ) : visible.map((s, i) => (
               <div key={sourceKey(s)} style={{ padding: "12px 4px", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>{s.title}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)" }}>{s.title}</span>
                   <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>
                     {[s.authors, formatJournalName(s.journal), s.year].filter(Boolean).join(" · ")}
                   </span>
@@ -11139,7 +10835,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
           {/* The TL;DR is the lede — set larger, in the display face, before
               the abstract. */}
           {source.tldr && (
-            <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.5, color: P.ink, fontFamily: "var(--cb-font)", margin: "0 0 14px", letterSpacing: "-0.01em" }}>
+            <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.5, color: P.ink, fontFamily: "var(--cb-font)", margin: "0 0 14px", letterSpacing: "-0.015em" }}>
               {source.tldr}
             </p>
           )}
@@ -11430,7 +11126,7 @@ function EvidenceTableModal({ P, accent, at, sources, close }) {
     >
         <div style={{ padding: "18px 22px 16px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>The evidence, side by side</div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>The evidence, side by side</div>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, lineHeight: 1.5 }}>
               {rows.length} source{rows.length === 1 ? "" : "s"} behind this answer
               {withDesign.length > 0 && ` · design read for ${withDesign.length}`}
@@ -12286,7 +11982,7 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <h1 style={{
               margin: 0, fontSize: isMobile ? 28 : 34, fontWeight: 600,
-              letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1,
+              letterSpacing: "-0.025em", color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1,
             }}>{title}</h1>
             {count != null && count > 0 && (
               <span style={{
@@ -12333,7 +12029,7 @@ function WorkspaceEmpty({ P, accent, icon, title, body, action, isMobile = false
         color: accent, background: withAlpha(accent, 0.1),
         border: `1px solid ${withAlpha(accent, 0.22)}`,
       }}><Icon name={icon} size={20} /></span>
-      <div style={{ position: "relative", fontSize: isMobile ? 17 : 19, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>{title}</div>
+      <div style={{ position: "relative", fontSize: isMobile ? 17 : 19, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>{title}</div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 8, maxWidth: 400, fontFamily: "var(--cb-font)" }}>{body}</div>
       {action && <div style={{ marginTop: 18 }}>{action}</div>}
     </div>
@@ -12405,7 +12101,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   if (!user) {
     return (
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Usage</div>
+        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>Usage</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
           Sign in to see your meters — AI answers, document reads, and flowcharts, with exact refill times.
         </div>
@@ -12444,7 +12140,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       <div style={{ padding: "18px 0", borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, fontFamily: "var(--cb-font)" }}>{label}</span>
-          <span style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>
+          <span style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", fontVariantNumeric: "tabular-nums" }}>
             {unlimited ? "Unlimited" : <>{used}<span style={{ color: P.faint, fontWeight: 500 }}> / {cap}</span></>}
           </span>
         </div>
@@ -12493,7 +12189,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px 64px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Usage</h1>
+        <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>Usage</h1>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
           {isPro && <ProBadge style={{ fontSize: 10 }} />}
           {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
@@ -12517,7 +12213,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
           upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"} />
       </div>
 
-      <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>Compare plans</h2>
+      <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>Compare plans</h2>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>
         Pro Lite raises your limits. Pro removes them completely.
       </div>
@@ -12587,7 +12283,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       {!isPro && (
         <div style={{ marginTop: 32, border: "1px solid rgba(212,175,55,0.35)", borderRadius: 12, padding: "24px 22px", background: P.dark ? "rgba(212,175,55,0.05)" : "rgba(212,175,55,0.08)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>Pro</span>
+            <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>Pro</span>
             <ProBadge />
           </div>
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
@@ -12694,7 +12390,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             badge — the feed refreshes hourly and says so in words.
             ══════════════════════════════════════════════════════ */}
         <div style={{ marginBottom: 26, borderBottom: `2px solid ${P.ink}`, paddingBottom: 18 }}>
-          <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Trending in Science</h1>
+          <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Trending in Science</h1>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: "0.02em" }}>
               {dateline}{dateline ? "  ·  " : ""}Refreshed hourly from real science press
@@ -12723,7 +12419,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   aria-pressed={on}
                   style={{
                     minHeight: 44, padding: "9px 14px", borderRadius: 9999, cursor: "pointer",
-                    fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "-0.005em",
+                    fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "0",
                     fontWeight: on ? 700 : 500,
                     background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
                     color: on ? P.ink : P.ink2,
@@ -13760,7 +13456,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                       )}
                       {lines.map((ln, i) => (
                         <text key={i} x={n.w / 2} y={labelTop + i * lh} textAnchor="middle" fontSize={15}
-                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: "-0.01em" }}>
+                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: "-0.015em" }}>
                           {ln}
                         </text>
                       ))}
@@ -13790,7 +13486,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                     <path d="M60 43 h14" stroke={P.faint} strokeWidth="1.5" /><path d="M71 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                     <path d="M146 43 h10" stroke={P.faint} strokeWidth="1.5" strokeDasharray="3 3" /><path d="M153 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                   </svg>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>A blank bench</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
                     Add nodes from the rail, or lift this answer's reasoning into a starting chart.
                   </div>
@@ -13912,7 +13608,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
             )}
             {selEdge && (
               <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: 12, padding: 12 }}>
-                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(e.g. yes / no)</span></label>
+                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
                 <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
@@ -14668,7 +14364,7 @@ function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           <StudioMark size={22} accent={accent} />
         </span>
         <div style={{ minWidth: 0, flexShrink: 0 }}>
-          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.small, color: P.ink, letterSpacing: "-0.01em", lineHeight: 1.25 }}>Diagram Studio</div>
+          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.small, color: P.ink, letterSpacing: "-0.015em", lineHeight: 1.25 }}>Diagram Studio</div>
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
@@ -16000,7 +15696,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
         ) : (
           <form onSubmit={submit}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)" }}>{title}</div>
+              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)" }}>{title}</div>
               <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
             </div>
             <div style={{ marginBottom: 14 }}>
@@ -17094,7 +16790,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     width: 46, height: 46, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                     background: withAlpha(accent, 0.1), color: accent, marginBottom: 2,
                   }}><Icon name="mail" size={20} /></div>
-                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>Your conversations live here</div>
+                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>Your conversations live here</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
                     Messages, shared papers, and calls with other researchers. Nothing you say here is used to train anything or shown on your profile.
                   </div>
@@ -17337,7 +17033,7 @@ function AnswerSection({ eyebrow, title, right, children, P, accent, style, quie
         <Eyebrow P={P} right={right}>{eyebrow}</Eyebrow>
       )}
       {title && (
-        <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: "-6px 0 12px", letterSpacing: "-0.01em", fontFamily: "var(--cb-font)", lineHeight: 1.35 }}>{title}</div>
+        <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, margin: "-6px 0 12px", letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", lineHeight: 1.35 }}>{title}</div>
       )}
       {children}
     </section>
@@ -17365,7 +17061,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
         {title ? (
         <div style={{
           fontSize: 17, fontWeight: 650, color: ink,
-          letterSpacing: "-0.01em", lineHeight: 1.3, fontFamily: "var(--cb-font)",
+          letterSpacing: "-0.015em", lineHeight: 1.3, fontFamily: "var(--cb-font)",
         }}>{title}</div>
         ) : null}
       </div>
@@ -17683,7 +17379,7 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
               color: on ? P.ink : P.faint,
               fontSize: small ? FONT_SIZES.caption : FONT_SIZES.small,
               fontWeight: on ? 700 : 500, fontFamily: "var(--cb-font)",
-              letterSpacing: "-0.01em", whiteSpace: "nowrap", flexShrink: 0,
+              letterSpacing: "-0.015em", whiteSpace: "nowrap", flexShrink: 0,
               transition: "color 180ms ease",
             }}
           >{lab}</button>
@@ -18580,13 +18276,13 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
                 placeholder={displayName}
                 aria-label="Your name"
-                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: 30, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.03em", outline: "none" }}
+                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: 30, fontWeight: 800, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.025em", outline: "none" }}
               />
             ) : (
               <h1 style={{
                 margin: 0, fontSize: isMobile ? 30 : 36, fontWeight: 800,
                 color: P.ink, fontFamily: "var(--cb-font)",
-                letterSpacing: "-0.03em", lineHeight: 1.02,
+                letterSpacing: "-0.025em", lineHeight: 1.02,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
               }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={18} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
             )}
@@ -18639,7 +18335,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 margin: "6px 0 0", padding: "0 0 0 18px", maxWidth: 640,
                 borderLeft: `2px solid ${accent}`,
                 fontSize: isMobile ? 17 : 19, fontWeight: 500, color: P.ink,
-                fontFamily: "var(--cb-font)", lineHeight: 1.55, letterSpacing: "-0.01em",
+                fontFamily: "var(--cb-font)", lineHeight: 1.55, letterSpacing: "-0.015em",
                 whiteSpace: "pre-wrap",
               }}>{profile.bio}</blockquote>
             ) : (
@@ -20616,7 +20312,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <h2 style={{ fontSize: 26, fontWeight: 800, color: P.ink, margin: 0, letterSpacing: "-0.03em", lineHeight: 1.05, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
+                      <h2 style={{ fontSize: 26, fontWeight: 800, color: P.ink, margin: 0, letterSpacing: "-0.025em", lineHeight: 1.05, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
                       {(isFounder || isVerified) && <VerifiedCheck size={16} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
                       {u.isPro && <ProBadge style={{ fontSize: 10 }} />}
                     </div>
@@ -20648,7 +20344,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                     margin: "16px 0 0", padding: "0 0 0 16px",
                     borderLeft: `2px solid ${accent}`,
                     fontSize: 16, fontWeight: 500, color: P.ink,
-                    fontFamily: "var(--cb-font)", lineHeight: 1.6, letterSpacing: "-0.01em",
+                    fontFamily: "var(--cb-font)", lineHeight: 1.6, letterSpacing: "-0.015em",
                     whiteSpace: "pre-wrap",
                   }}>{u.bio}</blockquote>
                 )}
@@ -21643,7 +21339,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                  URLs, chemical names) that extracted text is full of, so a
                  single token can never force the text over the card below.
                  pre-wrap preserves the document's own line breaks. */
-              style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.75, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "0.002em", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
+              style={{ whiteSpace: "pre-wrap", fontSize: 17, lineHeight: 1.75, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "0", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
               {renderMarkedText(documentText)}
             </div>
             <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
@@ -22094,7 +21790,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             <Icon name="bookOpen" size={18} style={{ color: accent, flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
-              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", margin: 0, letterSpacing: "-0.01em" }}>Document Mode</h1>
+              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", margin: 0, letterSpacing: "-0.015em" }}>Document Mode</h1>
               {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
             </div>
           </div>
@@ -22109,7 +21805,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Icon name="bookOpen" size={18} style={{ color: accent }} />
             <div>
-              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", margin: 0, letterSpacing: "-0.01em" }}>Document Mode</h1>
+              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", margin: 0, letterSpacing: "-0.015em" }}>Document Mode</h1>
               {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
             </div>
           </div>
@@ -22776,7 +22472,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             where width really is scarce, keeps the strip. */}
         <div style={{ flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
-            <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, letterSpacing: "-0.02em", fontFamily: "var(--cb-font)" }}>Settings</div>
+            <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)" }}>Settings</div>
 
             {/* Commit 67 — search. See SETTINGS_INDEX. */}
             <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 1 320px", minWidth: 200 }}>
@@ -22827,7 +22523,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             <div className="cb-scroll-x" style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}`, marginBottom: 18, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               {TABS.map(([id, label]) => (
                 <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
-                  style={{ minHeight: 44, flexShrink: 0, padding: "8px 10px 10px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.01em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
+                  style={{ minHeight: 44, flexShrink: 0, padding: "8px 10px 10px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
               ))}
               <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 0, width: 1, height: 2, background: accent, borderRadius: 8, transformOrigin: "0 50%", transform: "translateX(" + tabUnderline.left + "px) scaleX(" + tabUnderline.width + ")", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
             </div>
@@ -22859,7 +22555,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     padding: "10px 12px", borderRadius: 8, border: "none", cursor: "pointer",
                     textAlign: "left", fontFamily: "var(--cb-font)",
                     fontSize: FONT_SIZES.small, fontWeight: tab === id ? 700 : 500,
-                    letterSpacing: "-0.01em",
+                    letterSpacing: "-0.015em",
                     background: tab === id ? withAlpha(accent, 0.11) : "transparent",
                     color: tab === id ? P.ink : P.ink2,
                   }}>
@@ -23552,7 +23248,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // to feeling like a toolbar instead of a squeeze; brandRow's own
     // padding keeps it from crowding the search pill immediately next to it.
     brandRow: { display: "flex", alignItems: "center", gap: 12, paddingRight: 8, cursor: "pointer" },
-    brand: { fontWeight: 700, fontSize: FONT_SIZES.heading, letterSpacing: "-0.03em", color: P.ink, fontFamily: "var(--cb-font)" },
+    brand: { fontWeight: 700, fontSize: FONT_SIZES.heading, letterSpacing: "-0.025em", color: P.ink, fontFamily: "var(--cb-font)" },
     // Nudged from 7 toward more breathing room, but not all the way to a flat
     // 24px: the header now carries eight icon buttons (Document Mode joined
     // this row too), and 24px of gap between each would push the row past
@@ -23567,7 +23263,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // the `Ctrl+K` shortcut chip both set the body face; the chip keeps
     // its key-cap border and padding, which is what makes it read as a
     // key, not the typeface.
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: "-0.01em", boxShadow: P.shadowSm, marginRight: 4 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 10px 7px 14px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: "-0.015em", boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: 8, padding: "2px 6px", fontWeight: 500 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: font },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: 8, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", position: "relative" },
@@ -23699,7 +23395,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        jammed into the corner, while the home screen gives its content a
        third of the viewport — the two did not read as the same product. */
     pageViewInner: { maxWidth: 820, width: "100%", margin: "0 auto", padding: isMobile ? "76px 20px 72px" : "56px 32px 80px" },
-    pageViewTitle: { fontSize: isMobile ? 28 : 34, fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1.1, color: P.ink, fontFamily: "var(--cb-font)" },
+    pageViewTitle: { fontSize: isMobile ? 28 : 34, fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.1, color: P.ink, fontFamily: "var(--cb-font)" },
 
     /* ── Scroll area ── */
     // No longer a scroll container itself (see `page` note above) — the
@@ -23820,7 +23516,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     heroSub: {
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading, color: P.ink2,
       maxWidth: 560, lineHeight: 1.65, marginBottom: 28,
-      letterSpacing: "-0.01em", position: "relative", fontWeight: 500,
+      letterSpacing: "-0.015em", position: "relative", fontWeight: 500,
       // v30: "Darknode" round retired — mono in the subheadline was that
       // round's signature move, and this round's explicit target
       // (Perplexity-style editorial) wants maximum legibility over
@@ -23849,7 +23545,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     searchInput: {
       flex: 1, border: "none", outline: "none", background: "transparent",
       fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.body, color: P.ink,
-      minWidth: 0, letterSpacing: "-0.01em"
+      minWidth: 0, letterSpacing: "-0.015em"
     },
     searchBtn: {
       display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -23879,7 +23575,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       borderRadius: 9999, padding: "10px 18px",
       cursor: "pointer",
       transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
-      fontFamily: "var(--cb-font)", letterSpacing: "-0.01em",
+      fontFamily: "var(--cb-font)", letterSpacing: "-0.015em",
       outline: "none",
       WebkitTapHighlightColor: "transparent",
       boxSizing: "border-box",
@@ -23945,7 +23641,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          display/title so the question introduces without competing. */
       fontWeight: 650, fontSize: isMobile ? FONT_SIZES.title : FONT_SIZES.display,
       lineHeight: 1.3, marginBottom: isMobile ? 24 : 32,
-      color: P.ink, letterSpacing: "-0.02em",
+      color: P.ink, letterSpacing: "-0.015em",
       fontFamily: "var(--cb-font)",
     },
 
@@ -23990,7 +23686,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, color: P.ink2,
       border: glassBorder, borderRadius: 8,
       cursor: "pointer", fontFamily: font,
-      transition: "background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease", letterSpacing: "-0.01em",
+      transition: "background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease", letterSpacing: "-0.015em",
       lineHeight: 1.45,
     },
 
@@ -24053,7 +23749,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // change there. srcMeta was the one actually set to mono; switched to
     // body, since long author lists/journal names in a monospace face read
     // cramped and harder to scan than the same text in the body sans-serif.
-    srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.01em", overflowWrap: "anywhere", wordBreak: "break-word" },
+    srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: "-0.015em", overflowWrap: "anywhere", wordBreak: "break-word" },
     srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
     chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 10px", border: "1px solid", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, background: "transparent", transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease" },
@@ -24342,7 +24038,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
         }}>{(user?.email || "?")[0].toUpperCase()}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</span>
+            <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</span>
             <TierBadge tier={rank} />
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -24727,12 +24423,12 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
     >
         <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18 }}>
           <span className="cb-consent-mark"><Mark size={26} accent={accent} glow={P.dark} /></span>
-          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "-0.02em" }}>Cerebrum</span>
+          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>Cerebrum</span>
         </div>
 
         {declined ? (
           <>
-            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 12px", fontFamily: "var(--cb-font)" }}>
+            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.015em", margin: "0 0 12px", fontFamily: "var(--cb-font)" }}>
               That's completely fine
             </h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 20px" }}>
@@ -24746,7 +24442,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
           </>
         ) : (
           <>
-            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 8px", fontFamily: "var(--cb-font)", lineHeight: 1.2 }}>
+            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: "-0.015em", margin: "0 0 8px", fontFamily: "var(--cb-font)", lineHeight: 1.2 }}>
               {hasAcceptedBefore ? "We've updated our terms" : "Before you start"}
             </h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 4px" }}>
@@ -27769,7 +27465,7 @@ function App() {
                 <h2 style={{
                   margin: isMobile ? "0 0 20px" : "0 0 28px",
                   fontSize: isMobile ? 24 : 32, fontWeight: 600,
-                  letterSpacing: "-0.03em", lineHeight: 1.1, textAlign: "center",
+                  letterSpacing: "-0.025em", lineHeight: 1.1, textAlign: "center",
                   color: P.ink, fontFamily: "var(--cb-font)",
                   textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
                 }}>{composerPrompt}</h2>
@@ -28138,7 +27834,7 @@ function App() {
                               style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0, marginTop: isMobile ? 2 : 0 }} />
                             <span style={{ flex: 1, minWidth: 0 }}>
                               <a href={safeHref(sv.url)} target="_blank" rel="noreferrer"
-                                style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, textDecoration: "none", lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)" }}>
+                                style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, textDecoration: "none", lineHeight: 1.4, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)" }}>
                                 {sv.title ? renderCleanTitle(sv.title) : sv.url}
                               </a>
                               <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
@@ -28390,7 +28086,7 @@ function App() {
                                 )}
                                 <span style={{ flex: 1, minWidth: 0 }}>
                                   <button onClick={() => { openHistoryItem(h); setView("search"); }} className="cb-textbtn"
-                                    style={{ display: "block", width: "100%", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.01em", fontFamily: "var(--cb-font)", padding: 0 }}>
+                                    style={{ display: "block", width: "100%", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, lineHeight: 1.4, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)", padding: 0 }}>
                                     <span style={{ display: "-webkit-box", WebkitLineClamp: isMobile ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{tidyQuestionTitle(invTitle)}</span>
                                   </button>
                                   <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
@@ -29293,7 +28989,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-mast-mark { display: inline-flex; }
 .cb-mast-name {
   font-family: var(--cb-font); font-size: 19px; font-weight: 600;
-  letter-spacing: -0.01em; color: var(--cb-ink); margin-top: 10px;
+  letter-spacing: -0.015em; color: var(--cb-ink); margin-top: 10px;
   text-shadow: 0 2px 18px rgba(0,0,0,0.55);
 }
 /* Light theme: a hard black shadow reads as dirt on light backgrounds —
@@ -29530,7 +29226,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-room-q {
   font-family: var(--cb-font); font-weight: 600;
-  letter-spacing: -0.02em; line-height: 1.28;
+  letter-spacing: -0.015em; line-height: 1.28;
   font-size: clamp(20px, 4.2vw, 30px);
   color: #f2f4f2;
   max-width: 720px; margin: 0;
@@ -29614,7 +29310,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-dive-clock {
   font-family: var(--cb-font); font-weight: 600;
-  font-size: 40px; letter-spacing: -0.02em; line-height: 1;
+  font-size: 40px; letter-spacing: -0.015em; line-height: 1;
   color: #f5f7f5;
   font-variant-numeric: tabular-nums;
 }
@@ -30202,7 +29898,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 .cb-answer-enter em { font-style: italic; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {
   font-family: var(--cb-font);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
   margin: 1.5em 0 0.5em;
   line-height: 1.3;
 }
