@@ -607,9 +607,66 @@ export async function onRequest(context) {
     case "revoke": return handleRevoke(request, env, cors, parsed.body);
     case "list-lifetime": return handleListLifetime(request, env, cors);
     case "flowchart-allow": return handleFlowchartAllow(request, env, cors);
+    case "api-key-create": return handleApiKeyCreate(request, env, cors, parsed.body);
+    case "api-key-list": return handleApiKeyList(request, env, cors);
+    case "api-key-revoke": return handleApiKeyRevoke(request, env, cors, parsed.body);
     default:
       return errorResponse(400, "unknown_action", "Unknown action.", cors);
   }
+}
+
+// ── Pro API keys (Pro members only) ───────────────────────────────────────
+// Minimal viable API access: mint bearer keys (cbk_…) that authenticate
+// /api/search via `Authorization: Bearer`. Keys work only while the owner
+// is Pro; the raw key is returned exactly once at creation.
+
+/** Resolve the caller and require an active Pro subscription. */
+async function requireProUser(request, env, cors) {
+  let user = null;
+  try { user = await getSessionUser(request, env); } catch { user = null; }
+  if (!user) {
+    return { response: errorResponse(401, "auth_required", "Sign in to manage API keys.", cors) };
+  }
+  const gate = await resolveAiGate(env, user);
+  if (!gate || gate.kind !== "pro") {
+    return { response: errorResponse(403, "pro_required", "API access is a Pro feature.", cors) };
+  }
+  return { user };
+}
+
+async function handleApiKeyCreate(request, env, cors, body) {
+  const checked = await requireProUser(request, env, cors);
+  if (checked.response) return checked.response;
+  const { createApiKey, MAX_KEYS_PER_USER } = await import("../../lib/apiKeys.js");
+  try {
+    const created = await createApiKey(env, checked.user.id, body && body.name);
+    return json({ ok: true, key: created }, 200, cors);
+  } catch (e) {
+    if (e && e.code === "key_limit") {
+      return errorResponse(400, "key_limit", `You can have at most ${MAX_KEYS_PER_USER} active API keys. Revoke one first.`, cors);
+    }
+    console.error("[Cerebrum] pro api-key-create:", e);
+    return errorResponse(500, "key_create_failed", "Couldn't create the API key. Try again.", cors);
+  }
+}
+
+async function handleApiKeyList(request, env, cors) {
+  const checked = await requireProUser(request, env, cors);
+  if (checked.response) return checked.response;
+  const { listApiKeys } = await import("../../lib/apiKeys.js");
+  const keys = await listApiKeys(env, checked.user.id);
+  return json({ ok: true, keys }, 200, cors);
+}
+
+async function handleApiKeyRevoke(request, env, cors, body) {
+  const checked = await requireProUser(request, env, cors);
+  if (checked.response) return checked.response;
+  const id = body && typeof body.id === "string" ? body.id : "";
+  if (!id) return errorResponse(400, "missing_id", "Key id is required.", cors);
+  const { revokeApiKey } = await import("../../lib/apiKeys.js");
+  const revoked = await revokeApiKey(env, checked.user.id, id);
+  if (!revoked) return errorResponse(404, "key_not_found", "Key not found or already revoked.", cors);
+  return json({ ok: true, revoked: true }, 200, cors);
 }
 
 // ── POST: flowchart-allow (signed in) ─────────────────────────────────────

@@ -6329,7 +6329,7 @@ export function extractLiteratureConflicts(answer, sources) {
 }
 
 // Score the overall quality of an answer (0-100, higher = better)
-function scoreAnswerQuality(answer, query) {
+export function scoreAnswerQuality(answer, query) {
   if (!answer) return 0;
   let score = 50; // Start at neutral
 
@@ -6408,7 +6408,7 @@ function scoreAnswerQuality(answer, query) {
 // Rejects with AggregateError (like Promise.any) when every leg fails, so
 // existing errMsgs(agg) handling works unchanged. Attaches raceBestScore and
 // raceBestPool to the winner for operator observability.
-async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3) {
+export async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3) {
   const list = Array.isArray(calls) ? calls : [];
   if (list.length === 0) throw new AggregateError([], "raceBest: no legs");
   if (list.length === 1) return list[0];
@@ -8770,6 +8770,10 @@ async function runSearchPipeline(pctx) {
   const emitStage = hooks.onStage || null;
   const requestId = contextRequestId(pctx && pctx.context);
 
+  // Priority queue slot, held for the whole pipeline run and released in
+  // the finally below. Declared outside the try so the finally can see it.
+  let searchSlot = null;
+
   try {
     // Carried for the top-level catch: the pipeline's degraded response
     // needs the query even when the throw happened before/around parsing.
@@ -8825,10 +8829,31 @@ async function runSearchPipeline(pctx) {
     //               nudges toward sign-in.
     let aiGate = null;
     let proLib = null;
+    let apiKeyIdentity = null;
     try {
       const { getSessionUser: proSessionUser } = await import("../lib/authHelpers.js");
       proLib = await import("../lib/proEntitlement.js");
-      aiGate = await proLib.resolveAiGate(env, await proSessionUser(request, env));
+      // PRO API KEYS — `Authorization: Bearer cbk_…` authenticates as the
+      // key owner. The key only works while its owner is Pro (checked below).
+      const authz = request.headers.get("Authorization") || "";
+      if (/^Bearer\s+cbk_/i.test(authz.trim())) {
+        const { resolveApiKey } = await import("../lib/apiKeys.js");
+        apiKeyIdentity = await resolveApiKey(request, env);
+        if (!apiKeyIdentity) {
+          return new Response(JSON.stringify({ error: "Invalid API key." }), {
+            status: 401, headers: secureCors,
+          });
+        }
+        // Per-key rate limit: 60 searches/min, independent of the IP bucket.
+        if (!(await checkRateLimit(env, "apikey:" + apiKeyIdentity.keyId, 60, 60000))) {
+          return new Response(
+            JSON.stringify({ error: "API key rate limit exceeded. Slow down and try again." }),
+            { status: 429, headers: { ...secureCors, "Retry-After": "60" } }
+          );
+        }
+      }
+      const sessionUser = apiKeyIdentity ? { id: apiKeyIdentity.userId } : await proSessionUser(request, env);
+      aiGate = await proLib.resolveAiGate(env, sessionUser);
     } catch {
       proLib = null;
     }
@@ -8846,6 +8871,32 @@ async function runSearchPipeline(pctx) {
     // strongest models can finish, no cheap-first routing, and a richer
     // wave-3 last resort. See the wave section below for the full branch.
     const isProSearch = !!(aiGate && aiGate.kind === "pro");
+    // An API key only works while its owner is Pro. Downgrade or cancel and
+    // the key 403s — it never silently degrades to a free-tier key.
+    if (apiKeyIdentity && !isProSearch) {
+      return new Response(
+        JSON.stringify({ error: "This API key requires an active Pro subscription." }),
+        { status: 403, headers: secureCors }
+      );
+    }
+    // PRIORITY SEARCH QUEUE — when the system is saturated, non-Pro
+    // requests 429 with Retry-After while Pro requests proceed. The slot
+    // is held for the whole pipeline run and released in the finally
+    // below. Fail-open: a slot-table problem never blocks a search.
+    {
+      const { acquireSearchSlot } = await import("../lib/searchPriority.js");
+      searchSlot = await acquireSearchSlot(env, isProSearch);
+      if (!searchSlot.allowed) {
+        return new Response(
+          JSON.stringify({
+            error: "Search is busy right now. Pro members skip the line — upgrade to jump the queue.",
+            code: "search_busy",
+            priority: "standard",
+          }),
+          { status: 429, headers: { ...secureCors, "Retry-After": "15" } }
+        );
+      }
+    }
     // Consume one AI answer from a metered account's bucket (free or Lite).
     // The cap check and the increment are ONE atomic statement
     // (consumeAiAnswer): concurrent requests can never overshoot the cap or
@@ -9804,6 +9855,8 @@ async function runSearchPipeline(pctx) {
       gResult = retrievalStage.value || { papers: [], _diag: {} };
       // Operator-visible flag: this request ran the Pro depth pipeline.
       if (gResult._diag) gResult._diag.proSearchDepth = isProSearch;
+      // Priority queue: which lane this search ran in.
+      if (gResult._diag) gResult._diag.searchPriority = searchSlot ? searchSlot.priority : (isProSearch ? "pro" : "standard");
 
       // ═══════════════════════════════════════════════════════════════
       // LLM RESCUE: if mechanical search found too few papers, use the
@@ -11820,8 +11873,14 @@ async function runSearchPipeline(pctx) {
         ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, messages, maxTokens, wave1Timeout))) : []),
       ];
       try {
+        // raceBest (not Promise.any): wait for the first success, then give
+        // other legs a short grace window so a slower-but-better model can
+        // win on quality instead of losing on speed. Grace is clamped to the
+        // remaining synthesis budget so it can never blow the deadline — the
+        // outer deadline race below remains the hard backstop.
+        const w1Grace = Math.min(1500, Math.max(0, msLeft() - 2000));
         const winner = await Promise.race([
-          Promise.any(wave1Calls),
+          raceBest(wave1Calls, query, w1Grace),
           new Promise((_, reject) => setTimeout(
             () => reject(new Error("synthesis-deadline: wave 1 exceeded budget")),
             Math.max(1, synthesisDeadline - Date.now())
@@ -11852,10 +11911,15 @@ async function runSearchPipeline(pctx) {
       // models do far better composing from pre-digested claims than from
       // raw abstracts. 4s max — if the brief isn't ready by then, wave 2
       // goes with the full evidence block rather than stalling the user.
+      // Budget-aware: the wait is clamped so wave 2 always keeps ≥6s for
+      // its legs after the wait (legs are clamped to the remaining budget
+      // below, but legs with <2s are near-guaranteed failures — skip the
+      // wait instead of burning it).
       try {
+        const briefWaitMs = Math.min(4000, Math.max(0, msLeft() - 6000));
         const r = await Promise.race([
           startBrief(),
-          new Promise((res) => setTimeout(() => res(null), 4000)),
+          new Promise((res) => setTimeout(() => res(null), briefWaitMs)),
         ]);
         if (r && r.text) { briefText = r.text; briefClaims = r.claims || []; }
       } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.race([:", cbErr); }
@@ -11875,8 +11939,10 @@ async function runSearchPipeline(pctx) {
       ];
       if (wave2Calls.length > 0) {
         try {
+          // raceBest with a tighter grace (wave 2 runs on a thinner budget).
+          const w2Grace = Math.min(1000, Math.max(0, msLeft() - 2000));
           const winner = await Promise.race([
-            Promise.any(wave2Calls),
+            raceBest(wave2Calls, query, w2Grace),
             new Promise((_, reject) => setTimeout(
               () => reject(new Error("synthesis-deadline: wave 2 exceeded budget")),
               Math.max(1, synthesisDeadline - Date.now())
@@ -11994,8 +12060,12 @@ async function runSearchPipeline(pctx) {
         ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]] : [OR_FREE_MODELS[4], OR_FREE_MODELS[5]]).map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
       ];
       try {
+        // raceBest with a short grace: this is the last-resort tier so speed
+        // matters, but a low-quality answer here is worse than falling
+        // through to Wave 4's honest extractive fallback — quality still wins.
+        const w3Grace = Math.min(800, Math.max(0, msLeft() - 2000));
         const winner = await Promise.race([
-          Promise.any(bulletproofLegs),
+          raceBest(bulletproofLegs, query, w3Grace),
           new Promise((_, reject) => setTimeout(
             () => reject(new Error("synthesis-deadline: wave 3 exceeded budget")),
             Math.max(1, synthesisDeadline - Date.now())
@@ -12855,5 +12925,15 @@ async function runSearchPipeline(pctx) {
       }),
       { status: 200, headers: secureCors }
     );
+  } finally {
+    // Release the priority-queue slot on every exit path (returns inside
+    // the try still run finally). A null slot means we never acquired one.
+    if (searchSlot) {
+      try {
+        const { releaseSearchSlot } = await import("../lib/searchPriority.js");
+        await releaseSearchSlot(env);
+      } catch (cbErr) { console.error("[Cerebrum] search.js finally: releaseSearchSlot:", cbErr); }
+      searchSlot = null;
+    }
   }
 }

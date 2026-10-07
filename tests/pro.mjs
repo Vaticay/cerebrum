@@ -917,7 +917,12 @@ await test("answer footnote nudges gated users toward Pro or sign-in", async () 
 });
 
 await test("Pro palette exists and is gated to Pro members", async () => {
-  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // PALETTES was extracted to src/palettes.js in the monolith split — check
+  // both locations so the test survives the extraction.
+  const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  let palSrc = "";
+  try { palSrc = await readFile(join(root, "src/palettes.js"), "utf8"); } catch {}
+  const src = appSrc + "\n" + palSrc;
   assert.match(src, /Pro:\s+\{ dark: true/, "Pro palette missing from PALETTES");
   assert.match(src, /"Pro Violet":\s+\{ dark: true/, "Pro Violet palette missing from PALETTES");
   assert.match(src, /"Pro Abyss":\s+\{ dark: true/, "Pro Abyss palette missing from PALETTES");

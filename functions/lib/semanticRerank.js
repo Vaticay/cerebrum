@@ -40,6 +40,96 @@ export const EMBED_TIMEOUT_MS = 3000;
 /** Max characters of title+abstract sent to the embedding model. */
 export const MAX_EMBED_CHARS = 1200;
 
+/** Embedding cache TTL: 30 days. Paper embeddings are stable per text. */
+export const EMBEDDING_CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
+
+/**
+ * sha256 hex of a string via Web Crypto. Pure async helper for cache keys.
+ * Falls back to a non-crypto hash if subtle is unavailable (never throws —
+ * a weak key is better than no cache).
+ */
+export async function sha256hex(text) {
+  const s = String(text || "");
+  try {
+    if (typeof crypto !== "undefined" && crypto.subtle) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+      return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+  } catch { /* fall through to FNV */ }
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < s.length; i++) {
+    h1 = Math.imul(h1 ^ s.charCodeAt(i), 0x01000193) >>> 0;
+    h2 = Math.imul(h2 + s.charCodeAt(i), 0x811c9dc5) >>> 0;
+  }
+  return "fnv" + h1.toString(16) + h2.toString(16);
+}
+
+/** Self-healing DDL for the embedding cache (production DBs may predate schema.sql). */
+async function ensureEmbeddingCacheTable(db) {
+  await db.prepare(
+    "CREATE TABLE IF NOT EXISTS embedding_cache (" +
+    "key TEXT PRIMARY KEY, vector_json TEXT NOT NULL, created_at INTEGER NOT NULL)"
+  ).run();
+  await db.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_embedding_cache_created ON embedding_cache(created_at)"
+  ).run();
+}
+
+/**
+ * Batch-lookup cached paper vectors. Returns Map(key -> vector).
+ * Entries older than the TTL are treated as misses (and pruned lazily).
+ */
+export async function getCachedPaperVectors(env, keys) {
+  const out = new Map();
+  try {
+    const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
+    if (!db || !keys || keys.length === 0) return out;
+    await ensureEmbeddingCacheTable(db);
+    const cutoff = Date.now() - EMBEDDING_CACHE_TTL_MS;
+    // D1 limits bound variables; chunk at 50.
+    for (let i = 0; i < keys.length; i += 50) {
+      const chunk = keys.slice(i, i + 50);
+      const placeholders = chunk.map(() => "?").join(",");
+      const rows = await db.prepare(
+        "SELECT key, vector_json FROM embedding_cache WHERE key IN (" + placeholders + ") AND created_at > ?"
+      ).bind(...chunk, cutoff).all();
+      for (const r of (rows && rows.results) || []) {
+        try {
+          const v = JSON.parse(r.vector_json);
+          if (Array.isArray(v) && v.length > 0) out.set(r.key, v);
+        } catch { /* corrupt entry: treat as miss */ }
+      }
+    }
+  } catch { /* cache is best-effort: miss on any error */ }
+  return out;
+}
+
+/**
+ * Batch-store paper vectors. Best-effort: never throws.
+ * Also prunes entries older than the TTL (one cheap DELETE per call).
+ */
+export async function setCachedPaperVectors(env, entries) {
+  try {
+    const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
+    if (!db || !entries || entries.length === 0) return;
+    await ensureEmbeddingCacheTable(db);
+    const now = Date.now();
+    const stmts = entries
+      .filter((e) => e && e.key && Array.isArray(e.vector) && e.vector.length > 0)
+      .map((e) => db.prepare(
+        "INSERT OR REPLACE INTO embedding_cache (key, vector_json, created_at) VALUES (?, ?, ?)"
+      ).bind(e.key, JSON.stringify(e.vector), now));
+    // Chunked batches: D1 batch() handles arrays fine, but keep it modest.
+    for (let i = 0; i < stmts.length; i += 50) {
+      await db.batch(stmts.slice(i, i + 50));
+    }
+    // Lazy prune: one DELETE of expired rows per store call.
+    await db.prepare(
+      "DELETE FROM embedding_cache WHERE created_at < ?"
+    ).bind(now - EMBEDDING_CACHE_TTL_MS).run().catch(() => {});
+  } catch { /* best-effort */ }
+}
+
 /**
  * Cosine similarity between two equal-length vectors. Pure function.
  * Returns 0-1 for normalized embeddings (bge outputs are ~unit norm, but we
@@ -123,11 +213,39 @@ export async function semanticRerank(env, query, papers, opts = {}) {
   const q = String(query || "").trim();
   if (!q || list.length === 0) return fail("empty query or papers");
 
-  // One batched call: [query, ...paperTexts].
-  const vectors = await getEmbeddings(env, [q, ...list.map(paperEmbedText)], opts);
-  if (!vectors) return fail("embedding unavailable");
+  // EMBEDDING CACHE: paper vectors are stable per (title+abstract). Look up
+  // D1 first; only embed the query + cache misses. Repeat searches and
+  // overlapping result sets then cost ~1 embedding instead of ~21.
+  const paperTexts = list.map(paperEmbedText);
+  const paperKeys = await Promise.all(paperTexts.map((t) => sha256hex(t)));
+  const cached = await getCachedPaperVectors(env, paperKeys);
+  const missIdx = [];
+  for (let i = 0; i < list.length; i++) {
+    if (!cached.has(paperKeys[i])) missIdx.push(i);
+  }
 
-  const [qVec, ...pVecs] = vectors;
+  let qVec = null;
+  const freshVectors = new Map(); // paper index -> vector
+  // One batched call: [query, ...missed paper texts].
+  const embedInputs = [q, ...missIdx.map((i) => paperTexts[i])];
+  const vectors = await getEmbeddings(env, embedInputs, opts);
+  if (!vectors) return fail("embedding unavailable");
+  qVec = vectors[0];
+  const missVecs = vectors.slice(1);
+  if (missVecs.length !== missIdx.length) return fail("embedding count mismatch");
+  const toStore = [];
+  for (let j = 0; j < missIdx.length; j++) {
+    freshVectors.set(missIdx[j], missVecs[j]);
+    toStore.push({ key: paperKeys[missIdx[j]], vector: missVecs[j] });
+  }
+  // Store misses for future searches (best-effort, don't block).
+  if (toStore.length > 0) {
+    setCachedPaperVectors(env, toStore).catch(() => {});
+  }
+
+  const pVecs = list.map((_, i) => cached.get(paperKeys[i]) || freshVectors.get(i));
+  if (pVecs.some((v) => !v)) return fail("missing paper vector");
+
   const reranked = list.map((p, i) => {
     const sim = cosineSimilarity(qVec, pVecs[i]); // 0..1
     const semanticScore = Math.max(0, Math.min(100, Math.round(sim * 100)));

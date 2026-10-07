@@ -86,6 +86,10 @@ import { FlowchartStudio, MermaidStudio, Dialog, cbMotionOff } from "./flowchart
 
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
+import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
+
+/* Pro-only investigation templates. */
+import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
 
 import { createPortal } from "react-dom";
 import gsap from "gsap";
@@ -486,78 +490,7 @@ async function saveToZotero(sources, apiKey, userId) {
    dark mode" framing.
    ════════════════════════════════════════════════════════════════ */
 
-const PALETTES = {
-  // Commit 46: REVERSED the "lift off pure black" direction from the two
-  // rounds above, for Dark and Sage specifically — explicit follow-up
-  // request for "razor-sharp, readable contrast" after the warm-charcoal
-  // versions still read as low-contrast / muddy in practice, on top of
-  // being the direct cause of the Commit 45 fog bug (a scrim tinted from
-  // an accidentally-light `bg`). Back to a true near-black surface with
-  // pure/near-pure white ink — Mid and Light are unaffected, this was
-  // reported against Dark and Sage specifically.
-  //
-  // Older reasoning, kept for context now that it's been reversed: this
-  // used to be lifted off pure black per explicit direction (Strike 5) on
-  // the theory that near-black surfaces with stark white text read as
-  // "cyberpunk terminal" rather than "premium research software," tuned to
-  // sit at the lightness Apple/Linear/Notion's own dark surfaces use. That
-  // reasoning didn't survive contact with actual use — hence this reversal.
-  Dark:  { dark: true,  bg: "#09090b", surface: "#131316", raised: "#1c1c21", ink: "#ffffff", ink2: "#d4d4d8", faint: "#a1a1aa", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.15)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #131316 25%, #1c1c21 50%, #131316 75%)" },
-  // Slate: a cooler, blue-leaning dark surface (the Discord/Linear
-  // register) for anyone who wants dark without Dark's neutral-grey cast —
-  // kept deliberately cool rather than folded into the warm pair above, so
-  // it stays a real alternative and not a fourth near-duplicate. Ink
-  // softened off pure white to match the other three's restraint.
-  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#aaabaf", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
-  /* Light — designed as its own material, not as dark mode inverted.
-     Archival paper rather than white: a warm, slightly cool-shadowed stock
-     at #f1f0ec, the colour of a journal offprint. Ink is graphite (#22252a)
-     with a blue-grey cast rather than the old warm brown, because printed
-     scientific text is cool and warm ink at this size reads as sepia.
-     Borders are silver — a real hairline you can see — instead of a 7%
-     wash that vanished on any screen not at full brightness. The shadows
-     are wider and weaker than dark mode's: paper on a desk has a diffuse
-     shadow, not a drop shadow. Grain stays, and slightly stronger, because
-     it is what keeps large pale surfaces from looking like a blank div. */
-  Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#5f656d", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "0 1px 2px rgba(34,37,42,0.04), 0 10px 30px rgba(34,37,42,0.07)", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
-  // Sage — "Modern Organic": near-black stone instead of neutral charcoal,
-  // paired by default with the muted sage-green accent (ACCENTS.Sage)
-  // instead of a neon hue. The fresh-browser default (restored Sep 2026
-  // per Dusty: "bring back the default green").
-  // Commit 46: lifted back toward near-black alongside Dark, same
-  // "razor-sharp contrast" request and same fog-bug root cause — see the
-  // comment on Dark above. `ink`/`line` keep Sage's own warm-green
-  // undertone rather than going fully neutral, so it stays visibly a
-  // different palette from Dark, not a re-skinned duplicate.
-  Sage:  { dark: true, bg: "#0d0f0e", surface: "#151816", raised: "#1e221f", ink: "#f4f7f4", ink2: "#cbd5cd", faint: "#94a397", line: "rgba(139,168,136,0.12)", line2: "rgba(139,168,136,0.2)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #151816 25%, #1e221f 50%, #151816 75%)" },
-  // Pro — the members' palette (2026-09-15). Deep black-bronze with a
-  // restrained gold register: premium without going "finance app". Gated:
-  // the theme picker only offers it when user.isPro is true (see
-  // SettingsView), and the P resolution below falls back to Dark for anyone
-  // else holding the cookie — so the palette can never leak to free.
-  Pro:   { dark: true, bg: "#0b0a07", surface: "#14110b", raised: "#1e1a11", ink: "#faf3e0", ink2: "#e6d6a8", faint: "#a2936b", line: "rgba(212,175,55,0.13)", line2: "rgba(212,175,55,0.24)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #14110b 25%, #1e1a11 50%, #14110b 75%)" },
-  // Pro Violet — members' palette. Deep black-violet with a restrained
-  // violet register: the same premium-dark grammar as Pro, cooler mood.
-  "Pro Violet": { dark: true, bg: "#0c0a11", surface: "#14101c", raised: "#1d1626", ink: "#f5f0ff", ink2: "#d5c8f0", faint: "#9a8fb5", line: "rgba(167,139,250,0.13)", line2: "rgba(167,139,250,0.24)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #14101c 25%, #1d1626 50%, #14101c 75%)" },
-  // Pro Abyss — members' palette. Deep ocean black-blue with a cyan
-  // register: cold, deep, technical.
-  "Pro Abyss": { dark: true, bg: "#070b10", surface: "#0e141b", raised: "#16202a", ink: "#eef7ff", ink2: "#c2dcee", faint: "#7e9ab0", line: "rgba(103,232,249,0.12)", line2: "rgba(103,232,249,0.22)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #0e141b 25%, #16202a 50%, #0e141b 75%)" },
-  // Pro Ember — members' palette. Deep charcoal-red with an ember-orange
-  // register: warm, intense, the hot counterpart to Abyss.
-  "Pro Ember": { dark: true, bg: "#0f0a08", surface: "#17100c", raised: "#211712", ink: "#fff4ec", ink2: "#eed3b8", faint: "#a88a6b", line: "rgba(251,146,60,0.13)", line2: "rgba(251,146,60,0.24)", shadow: "none", shadowSm: "none", grain: 0.012, skel: "linear-gradient(90deg, #17100c 25%, #211712 50%, #17100c 75%)" },
-};
-// Pro-exclusive palettes — the theme picker only offers these when
-// user.isPro is true, and P resolution falls back to Dark for anyone else
-// holding the cookie, so member-only chrome can never leak to free.
-const PRO_PALETTE_NAMES = ["Pro", "Pro Violet", "Pro Abyss", "Pro Ember"];
-const isProPalette = (pn) => PRO_PALETTE_NAMES.indexOf(pn) !== -1;
-// Cyberpunk-leaning neon set — the two hues the blueprint calls out by name
-// (Matrix Green, Cyberpunk Cyan) moved to the front and pushed slightly
-// more saturated/electric; the rest of the wheel (Violet, Sky/Indigo,
-// Amber, Rose) kept for real per-user customization but tuned a shade
-// cooler/harder so none of them reads as a pastel accent next to the new
-// obsidian base.
-const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888" };
+// Palettes moved to src/palettes.js (monolith split, 2026-10-07).
 
 // v6.9: type sizing used to be ~228 separately hand-typed pixel literals —
 // 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5 all meaning "small metadata text" to
@@ -4192,7 +4125,7 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
           </UIButton>
         )}
         {actions.includes("simplify") && canSimplify && (
-          <button onClick={onSimplify} style={ghostBtn}>Simplify the question</button>
+          <UIButton P={P} variant="ghost" onClick={onSimplify} style={ghostBtn}>Simplify the question</UIButton>
         )}
         {actions.includes("document") && (
           <UIButton P={P} variant="ghost" onClick={onDocumentMode} style={ghostBtn}>Try Document Mode</UIButton>
@@ -6931,10 +6864,10 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
       </select>
       <button onClick={copyAll} style={quietBtn} onMouseEnter={(e) => hoverQuiet(e, true)} onMouseLeave={(e) => hoverQuiet(e, false)}>{copied ? "✓ Copied" : "Copy references"}</button>
       <span style={{ position: "relative", display: "inline-flex" }}>
-        <button onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} style={ctlBtn}>
+        <UIButton P={P} variant="ghost" onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} style={ctlBtn}>
           Export
           <span aria-hidden="true" style={{ marginLeft: 6, fontSize: 10, color: P.faint }}>▾</span>
-        </button>
+        </UIButton>
         {exportOpen && (
           <>
             <span onClick={() => setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: Z.popover }} aria-hidden="true" />
@@ -6971,7 +6904,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
           style={{ minHeight: 44, padding: "8px 12px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 160px" }} />
         <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
           style={{ minHeight: 44, padding: "8px 12px", borderRadius: 6, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 120px" }} />
-        <button type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</button>
+        <UIButton P={P} variant="ghost" type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</UIButton>
         <button type="button" className="cb-textbtn" style={{ padding: "6px 4px" }} onClick={() => { setZoteroOpen(false); setZMsg(""); }}>Cancel</button>
         {zMsg && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)" }}>{zMsg}</span>}
       </div>
@@ -7726,7 +7659,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
             desc={capacityLine}
             control={canManage ? quietBtn(portalBusy ? "Opening…" : "Manage subscription", openPortal, portalBusy) : null}
           />
-          {!isPro && meterRow("AI answers", q?.used || 0, q?.cap || (isLite ? 150 : 15), false)}
+          {!isPro && meterRow("AI answers", q?.used || 0, q?.cap || (isLite ? 500 : 50), false)}
           {!isPro && meterRow("Document reads", dq?.used || 0, dq?.cap || (isLite ? 30 : 3), false)}
           {!isPro && meterRow("Flowcharts", fq?.used || 0, fq?.cap || (isLite ? 10 : 1), rank === "free")}
           {rank === "free" && (
@@ -7739,13 +7672,132 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           {rank !== "pro" && (
             <Row
               label="Pro"
-              desc="The meter goes away: unlimited AI answers, document reads and flowcharts, plus the badge, the exclusive theme and the members' reels. $20/month or $144/year."
+              desc="The meter goes away: unlimited AI answers, document reads and flowcharts, deeper Pro search, investigation templates, API access, plus the badge, four exclusive themes and the members' reels. $20/month or $144/year."
               control={rank === "free" ? goldBtn("Go Pro", onOpenPro) : quietBtn("Go Pro", onOpenPro)}
               last
             />
           )}
         </>
       )}
+    </Section>
+  );
+}
+
+// Pro API keys: mint bearer keys (cbk_…) that authenticate /api/search
+// with `Authorization: Bearer`. Keys work only while the owner is Pro.
+// The raw key is shown exactly once, at creation — it is never stored.
+function ApiKeyPanel({ P, accent, at, Section, Row }) {
+  const [keys, setKeys] = useState(null);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [newKey, setNewKey] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const r = await apiProPost("api-key-list", {});
+      setKeys(r.keys || []);
+    } catch (e) {
+      setKeys([]);
+      setMsg({ tone: "bad", text: e.message || "Couldn't load API keys." });
+    }
+  };
+  useEffect(() => { refresh(); }, []);
+
+  const create = async () => {
+    if (busy) return;
+    setBusy(true); setMsg(null); setCopied(false);
+    try {
+      const r = await apiProPost("api-key-create", { name: name.trim() });
+      setNewKey(r.key);
+      setName("");
+      await refresh();
+    } catch (e) {
+      setMsg({ tone: "bad", text: e.message || "Couldn't create the key." });
+    }
+    setBusy(false);
+  };
+
+  const revoke = async (id) => {
+    if (busy) return;
+    if (!window.confirm("Revoke this API key? Anything using it stops working immediately.")) return;
+    setBusy(true); setMsg(null);
+    try {
+      await apiProPost("api-key-revoke", { id });
+      await refresh();
+    } catch (e) {
+      setMsg({ tone: "bad", text: e.message || "Couldn't revoke the key." });
+    }
+    setBusy(false);
+  };
+
+  const copyKey = async () => {
+    try {
+      await navigator.clipboard.writeText(newKey.key);
+      setCopied(true);
+    } catch {
+      setMsg({ tone: "bad", text: "Copy failed — select the key text manually." });
+    }
+  };
+
+  const fmtDate = (ts) => ts ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+
+  return (
+    <Section title="API access" footer="Pro members can call /api/search with an API key instead of a browser session. Keys inherit your Pro quota (unlimited) and stop working if Pro lapses. Never share a key — it acts as you.">
+      {newKey && (
+        <div style={{ margin: "0 0 12px", padding: 14, borderRadius: 12, border: `1px solid ${STATUS.good}`, background: withAlpha(STATUS.good, 0.07) }}>
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
+            Your new key — copy it now, it won't be shown again
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <code style={{ flex: 1, fontSize: FONT_SIZES.small, color: P.ink, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, padding: "8px 12px", overflowX: "auto", whiteSpace: "nowrap", fontFamily: "ui-monospace, monospace" }}>
+              {newKey.key}
+            </code>
+            <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={copyKey} style={{ minHeight: 40, flexShrink: 0 }}>
+              {copied ? "Copied" : "Copy"}
+            </UIButton>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <UIButton P={P} variant="ghost" onClick={() => setNewKey(null)} style={{ minHeight: 36, fontSize: FONT_SIZES.small }}>
+              Done
+            </UIButton>
+          </div>
+        </div>
+      )}
+      <Row
+        label="New API key"
+        desc="Up to 5 active keys. 60 requests per minute per key."
+        control={
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") create(); }}
+              placeholder="Key name, e.g. my script" autoComplete="off"
+              style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, fontFamily: "var(--cb-font)", width: 170 }} />
+            <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={create} disabled={busy || (keys && keys.length >= 5)} style={{ minHeight: 40, flexShrink: 0 }}>
+              {busy ? "…" : "Create key"}
+            </UIButton>
+          </div>
+        }
+        last={!(keys && keys.length)} />
+      {msg && (
+        <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.small, color: msg.tone === "good" ? "#3fb96c" : "#e5484d", fontFamily: "var(--cb-font)" }}>{msg.text}</div>
+      )}
+      {keys == null ? (
+        <Row label="Loading…" desc="" control={null} last />
+      ) : keys.length === 0 ? (
+        <Row label="No API keys yet" desc="Create one above to call the search API from your own scripts." control={null} last />
+      ) : keys.map((k, i) => (
+        <Row key={k.id}
+          label={<span style={{ fontFamily: "ui-monospace, monospace", fontSize: FONT_SIZES.small }}>{k.keyPrefix}…</span>}
+          desc={`${k.name} · created ${fmtDate(k.createdAt)} · last used ${fmtDate(k.lastUsedAt)}`}
+          control={
+            <UIButton P={P} variant="ghost" onClick={() => revoke(k.id)} disabled={busy}
+              style={{ minHeight: 40, padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              Revoke
+            </UIButton>
+          }
+          last={i === keys.length - 1} />
+      ))}
     </Section>
   );
 }
@@ -14250,9 +14302,39 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // conversation; it also keeps the Sidebar unread badge honest.
   useEffect(() => {
     let cancelled = false;
+    // Last-seen message id per thread, so a background tab can notify on
+    // new arrivals. Seeded on the first poll, never notified for.
+    const lastSeenIds = new Map();
+    let seeded = false;
     const refresh = () => {
       apiDataGet("inbox").then((data) => {
-        if (!cancelled && data?.items) setThreads(data.items);
+        if (cancelled || !data?.items) return;
+        // Background-tab notifications: a message that lands in a thread
+        // you're not looking at should reach you even when this tab is
+        // hidden. The open-thread poll covers the active conversation;
+        // this covers everything else. cbNotify itself refuses to fire
+        // while the tab is visible, and notifiedMsgIds dedupes against the
+        // open-thread path.
+        if (seeded) {
+          for (const t of data.items) {
+            const lm = t.lastMessage;
+            const lid = lm && (lm.id || (lm.senderId + ":" + lm.createdAt));
+            if (!lid || lm.mine) { if (lid) lastSeenIds.set(t.id, lid); continue; }
+            if (lastSeenIds.get(t.id) && lastSeenIds.get(t.id) !== lid && !notifiedMsgIds.current.has(lid)) {
+              notifiedMsgIds.current.add(lid);
+              cbNotify(t.name || "Cerebrum", "New message.", "cb-inbox-" + t.id, "message");
+            }
+            lastSeenIds.set(t.id, lid);
+          }
+        } else {
+          for (const t of data.items) {
+            const lm = t.lastMessage;
+            const lid = lm && (lm.id || (lm.senderId + ":" + lm.createdAt));
+            if (lid) lastSeenIds.set(t.id, lid);
+          }
+          seeded = true;
+        }
+        setThreads(data.items);
       });
     };
     refresh();
@@ -14742,6 +14824,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         {/* E2EE Phase 1.4 — list badge ONLY when the server
                             says encrypted. Same promise as the header badge. */}
                         {t.encrypted && <Icon name="lock" size={11} style={{ color: STATUS.good, flexShrink: 0 }} title="Encrypted" />}
+                        {t.kind === "group" && <Icon name="network" size={12} style={{ color: P.faint, flexShrink: 0 }} title="Group" />}
                       </span>
                       <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                     </span>
@@ -14773,6 +14856,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     {activeThread.encrypted && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>
                         <Icon name="lock" size={11} /> Encrypted
+                      </span>
+                    )}
+                    {activeThread.kind === "group" && activeThread.memberCount && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)" }}>
+                        <Icon name="network" size={11} /> {activeThread.memberCount}
                       </span>
                     )}
                   </div>
@@ -15257,6 +15345,90 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           </>);
         })()}
+      </ModalChrome>
+    )}
+    {/* Group creation — name the group, search for people, add 2+. Groups
+        are plaintext (no multiparty E2EE yet); the modal says so plainly. */}
+    {groupModalOpen && (
+      <ModalChrome
+        label="New group" eyebrow="Inbox"
+        title="New group"
+        onClose={() => { setGroupModalOpen(false); setGroupName(""); setGroupQuery(""); setGroupResults([]); setGroupMembers([]); }}
+        accent={accent} P={P} drawer={isMobile} width={520}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.06em", marginBottom: 6 }}>GROUP NAME</div>
+            <input
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value.slice(0, 80))}
+              placeholder="e.g. Lab journal club"
+              aria-label="Group name"
+              autoFocus={!isMobile}
+              style={{
+                width: "100%", padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.06em", marginBottom: 6 }}>ADD PEOPLE ({groupMembers.length})</div>
+            {groupMembers.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {groupMembers.map((m) => (
+                  <span key={m.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 6px 6px 12px", borderRadius: 9999, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>
+                    {m.name || m.username}
+                    <button onClick={() => setGroupMembers((prev) => prev.filter((x) => x.id !== m.id))} aria-label={`Remove ${m.name || m.username}`} style={{ width: 24, height: 24, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.15)", color: P.ink, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                      <Icon name="close" size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <input
+              value={groupQuery}
+              onChange={(e) => setGroupQuery(e.target.value)}
+              placeholder="Search a name or @username"
+              aria-label="Search people to add"
+              style={{
+                width: "100%", padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
+              }}
+            />
+            {groupSearching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
+            {!groupSearching && groupQuery.trim().length >= 2 && groupResults.length === 0 && (
+              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Nobody matches that.</div>
+            )}
+            {groupResults.length > 0 && (
+              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+                {groupResults.map((r) => (
+                  <button key={r.id} onClick={() => { setGroupMembers((prev) => [...prev, r]); setGroupQuery(""); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+                    <span style={{ width: 32, height: 32, borderRadius: "50%", background: withAlpha(accent, 0.14), color: accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 700, flexShrink: 0 }}>
+                      {(r.name || r.username || "?").charAt(0).toUpperCase()}
+                    </span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
+                      {r.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{r.username}</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+            Group messages aren't end-to-end encrypted yet.
+          </div>
+          <UIButton
+            P={P} variant="primary"
+            onClick={createGroup}
+            disabled={!groupName.trim() || groupMembers.length < 2 || groupCreating}
+            style={{ minHeight: 48, opacity: (!groupName.trim() || groupMembers.length < 2 || groupCreating) ? 0.5 : 1 }}
+          >
+            {groupCreating ? "Creating…" : `Create group${groupMembers.length >= 2 ? ` (${groupMembers.length + 1} people)` : ""}`}
+          </UIButton>
+        </div>
       </ModalChrome>
     )}
     </>
@@ -16005,6 +16177,90 @@ function SaveIndicator({ state, P, accent }) {
   );
 }
 
+/* ── TemplateGallery ──────────────────────────────────────────────────
+   Pro-only investigation templates: pre-built research arcs (Literature
+   Review, Drug Mechanism, Clinical Trial Analysis, Methods Comparison).
+   Pro members tap Start to open the first question; everyone else sees
+   the PRO badge and gets the Pro upsell modal.
+*/
+function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro }) {
+  const eyebrowLocal = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const [topicFor, setTopicFor] = useState(null);
+  const [topicValue, setTopicValue] = useState("");
+  const begin = (t) => {
+    if (!isPro) { onOpenPro && onOpenPro(); return; }
+    setTopicFor(t.id);
+    setTopicValue("");
+  };
+  const go = (t) => {
+    const topic = topicValue.trim();
+    if (!topic) return;
+    setTopicFor(null);
+    onStart && onStart(t, topic);
+  };
+  return (
+    <section aria-label="Investigation templates" style={{ marginTop: 18 }}>
+      <div style={{ ...eyebrowLocal, margin: "0 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
+        Start from a template
+        {!isPro && (
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#06281c", background: "#34d399", borderRadius: 9999, padding: "2px 8px" }}>PRO</span>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+        {INVESTIGATION_TEMPLATES.map((t) => (
+          <div key={t.id} style={{
+            border: `1px solid ${P.line}`, borderRadius: 12, padding: 16,
+            background: P.raised, display: "flex", flexDirection: "column", gap: 8,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{
+                width: 36, height: 36, borderRadius: 9999, flexShrink: 0,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                background: accent + "1a", color: accent,
+              }}>
+                <Icon name={t.icon} size={18} />
+              </span>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
+                {t.title}
+              </div>
+            </div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+              {t.description}
+            </div>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>
+              {t.starterQuestions.length} guided questions
+            </div>
+            <div style={{ marginTop: "auto", paddingTop: 8 }}>
+              {topicFor === t.id ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <UIField
+                    P={P} accent={accent} value={topicValue}
+                    onChange={setTopicValue}
+                    placeholder="What topic? e.g. GLP-1 agonists"
+                    onKeyDown={(e) => { if (e.key === "Enter") go(t); if (e.key === "Escape") setTopicFor(null); }}
+                    style={{ flex: 1 }}
+                  />
+                  <UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => go(t)} style={{ minHeight: 40, flexShrink: 0 }}>
+                    Go
+                  </UIButton>
+                </div>
+              ) : (
+                <UIButton
+                  P={P} accent={accent} at={at} variant={isPro ? "primary" : "ghost"}
+                  onClick={() => begin(t)}
+                  style={{ width: "100%", minHeight: 40 }}
+                >
+                  {isPro ? "Start investigation" : "Unlock with Pro"}
+                </UIButton>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /* ── ProfileConstellation ─────────────────────────────────────────────
    The profile's one visual idea, made of the user's actual data: every
    saved paper is a star, clustered by collection, sized by the reader's
@@ -16134,7 +16390,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
   );
 }
 
-function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode, onGoSearch }) {
+function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode, onGoSearch, onStartTemplate }) {
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
   // A signed-in account always has a real username by the time this page
@@ -16882,6 +17138,14 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
         {tab === "investigations" && (
         <section aria-label="Investigations" style={{ marginTop: 6 }}>
+          {/* Pro investigation templates — pre-built research arcs. Pro
+              members start one in a tap; everyone else sees the PRO badge
+              and gets the upsell. */}
+          <TemplateGallery
+            P={P} accent={accent} at={at} isMobile={isMobile}
+            isPro={proStatus?.tier === "pro" || !!user?.isPro}
+            onStart={onStartTemplate} onOpenPro={onOpenPro}
+          />
           {ledger.length === 0 ? (
             <div style={{ marginTop: 18 }}>
               <WorkspaceEmpty P={P} accent={accent} icon="search"
@@ -18166,7 +18430,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
               <button onClick={doEnable} disabled={!typedPhrase.trim() || busy === "enable"} style={{ ...pillBtn, opacity: !typedPhrase.trim() ? 0.45 : 1 }}>
                 {busy === "enable" ? "Working…" : "Make my library private"}
               </button>
-              <button onClick={() => { sfx(); setEnableStep("warnings"); setTypedPhrase(""); }} style={ghostBtn}>Back</button>
+              <UIButton P={P} variant="ghost" onClick={() => { sfx(); setEnableStep("warnings"); setTypedPhrase(""); }} style={ghostBtn}>Back</UIButton>
             </div>
           </div>
         )}
@@ -18194,7 +18458,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         <Row
           label="Unlock with recovery phrase"
           desc="Type your 24-word recovery phrase to unlock the vault on this device and resume syncing."
-          control={<button onClick={() => { sfx(); setShowUnlock((v) => !v); }} style={ghostBtn}>{showUnlock ? "Close" : "Unlock"}</button>}
+          control={<UIButton P={P} variant="ghost" onClick={() => { sfx(); setShowUnlock((v) => !v); }} style={ghostBtn}>{showUnlock ? "Close" : "Unlock"}</UIButton>}
           last={!showUnlock}
         />
         {showUnlock && (
@@ -18265,7 +18529,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
               <button onClick={doDisable} disabled={busy === "disable"} style={dangerBtn}>
                 {busy === "disable" ? "Turning off…" : "Turn off Private Vault"}
               </button>
-              <button onClick={() => { sfx(); setDisableStep(false); setDisableConsent(false); }} style={ghostBtn}>Keep it on</button>
+              <UIButton P={P} variant="ghost" onClick={() => { sfx(); setDisableStep(false); setDisableConsent(false); }} style={ghostBtn}>Keep it on</UIButton>
             </div>
           </div>
         )}
@@ -20806,6 +21070,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               </Section>
               {/* Pro membership: status, usage meter, upgrade/manage. */}
               <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
+              {/* Pro API keys. Rendered for Pro members; the server re-checks
+                  the Pro gate on every key action, so this is courtesy. */}
+              {(proStatus?.tier === "pro" || !!user?.isPro) && (
+                <ApiKeyPanel P={P} accent={accent} at={at} Section={Section} Row={Row} />
+              )}
               {/* Founder-only: permanent Pro grants. Rendered only for the
                   founder; the server re-checks FOUNDER_EMAIL on every call. */}
               {user.isFounder && (
@@ -25886,6 +26155,7 @@ function App() {
             vaultMode={vaultMode}
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onGoSearch={() => setView("search")}
+            onStartTemplate={(t, topic) => { setView("search"); ask(templateQuestions(t, topic)[0]); }}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
             proStatus={proStatus} onOpenPro={() => setProModalOpen(true)}
           />

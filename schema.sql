@@ -444,6 +444,17 @@ CREATE TABLE IF NOT EXISTS user_flowcharts (
 );
 CREATE INDEX IF NOT EXISTS idx_flowcharts_user ON user_flowcharts(user_id);
 
+-- Embedding cache for semantic rerank. Paper embeddings are stable per
+-- (title+abstract), so we cache vectors keyed by sha256 of the exact text
+-- sent to the model. 30-day TTL; repeat searches and overlapping result
+-- sets then cost ~1 embedding (the query) instead of ~21.
+CREATE TABLE IF NOT EXISTS embedding_cache (
+  key         TEXT PRIMARY KEY,  -- sha256 hex of paperEmbedText(p)
+  vector_json TEXT NOT NULL,     -- JSON array of floats
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_embedding_cache_created ON embedding_cache(created_at);
+
 -- ============================================================
 -- NEW: one-time passcode (OTP) sign-in. This is now the ONLY sign-in
 -- method the frontend exposes — no password is ever collected on this
@@ -549,4 +560,37 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   k          TEXT NOT NULL PRIMARY KEY, -- rl:<scope>:<window bucket>
   count      INTEGER NOT NULL,
   expires_at INTEGER NOT NULL           -- ms epoch; pruned probabilistically
+);
+
+-- ============================================================
+-- 2026-10-07 — Pro API keys. Pro members can mint bearer keys
+-- (cbk_…) that authenticate /api/search like a session. Only the
+-- sha256 hash is stored; the raw key is shown once at creation.
+-- A key works only while its owner is Pro (checked at request time).
+-- Table is also created on first use by ensureApiKeyTable in
+-- functions/lib/apiKeys.js, so deploys self-heal.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS api_keys (
+  id          TEXT NOT NULL PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  key_hash    TEXT NOT NULL UNIQUE,
+  key_prefix  TEXT NOT NULL,  -- first 11 chars, for display only
+  name        TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at  INTEGER          -- set on revoke; rows kept for audit
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
+-- ============================================================
+-- 2026-10-07 — Priority search queue. D1-backed concurrency
+-- semaphore for /api/search: every run holds one slot; when slots
+-- are exhausted, non-Pro requests 429 while Pro proceeds. Created
+-- on first use by ensureSlotTable in functions/lib/searchPriority.js.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS search_slots (
+  k          TEXT NOT NULL PRIMARY KEY, -- always 'active'
+  n          INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL DEFAULT 0  -- ms epoch; stale ⇒ self-heal
 );

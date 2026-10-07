@@ -838,6 +838,7 @@ export async function onRequest(context) {
         ["user_collections",   "DELETE FROM user_collections WHERE user_id = ?"],
         ["user_history",       "DELETE FROM user_history WHERE user_id = ?"],
         ["user_flowcharts",    "DELETE FROM user_flowcharts WHERE user_id = ?"],
+        ["api_keys",           "DELETE FROM api_keys WHERE user_id = ?"],
         ["sessions",           "DELETE FROM sessions WHERE user_id = ?"],
       ];
       const failed = [];
