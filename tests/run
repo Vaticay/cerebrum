@@ -528,13 +528,14 @@ await test("film survives iOS autoplay policies (Low Power Mode)", async () => {
   // The Play control must issue play() synchronously inside the tap's gesture
   // window — a play() from the post-setState effect is vetoed by iOS Low
   // Power Mode, which is exactly the "clips aren't playing" report.
+  // CinematicFilm lives in CerebrumApp.jsx; the Intro (in intro.jsx) uses it.
   assert.match(appSrc, /forwardRef\(function CinematicFilm/, "CinematicFilm does not forward a ref");
-  assert.match(introSrc, /playNow: \(\) =>/, "no gesture-context playNow exposed");
+  assert.match(appSrc, /playNow: \(\) =>/, "no gesture-context playNow exposed");
   assert.match(introSrc, /filmRef\.current\?\.playNow\(\)/, "Play control does not call playNow in the gesture");
   // First interaction retries the reel: a phone that vetoed programmatic
   // autoplay gets footage on first tap instead of a still poster all visit.
-  assert.match(introSrc, /window\.addEventListener\("pointerdown", tryResume\)/, "first-gesture film resume missing");
-  assert.match(introSrc, /window\.removeEventListener\("pointerdown", tryResume\)/, "gesture resume listener leaks");
+  assert.match(appSrc, /window\.addEventListener\("pointerdown", tryResume\)/, "first-gesture film resume missing");
+  assert.match(appSrc, /window\.removeEventListener\("pointerdown", tryResume\)/, "gesture resume listener leaks");
   // A vetoed play surfaces a tap-to-play affordance instead of silence.
   assert.match(introSrc, /onAutoplayBlocked/, "autoplay-blocked notification missing");
   assert.match(introSrc, /Background film paused — tap to play/, "tap-to-play pill missing");

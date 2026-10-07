@@ -39,13 +39,14 @@ function group(name) {
 }
 
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+const introSrc = await readFile(join(root, "src/intro.jsx"), "utf8");
 const diveSrc = await readFile(join(root, "src/DiveParticles.jsx"), "utf8");
 const settingsSrc = await readFile(join(root, "src/settings.jsx"), "utf8");
 const designSrc = await readFile(join(root, "src/designSystem.jsx"), "utf8");
 
 group("Workspace ambient reel (revised)");
 await test("workspace CinematicFilm mount exists, darker than before", () => {
-  const mounts = appSrc.match(/<CinematicFilm/g) || [];
+  const mounts = (appSrc.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
   assert.strictEqual(mounts.length, 2, `expected intro + workspace mounts, found ${mounts.length}`);
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
   assert.match(appSrc, /brightness\(0\.72\)/, "extra CSS grade missing on the workspace reel wrapper");
@@ -121,7 +122,7 @@ await test("slogan is byte-identical", () => {
   // 2026-10-05: the specimen door rethink removed the marketing slogan.
   // The promise now lives in the specimen verdict and the paper links.
   assert.ok(
-    appSrc.includes("Traced to a direct finding"),
+    introSrc.includes("Traced to a direct finding"),
     "specimen verdict missing"
   );
 });

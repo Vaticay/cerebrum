@@ -948,10 +948,12 @@ await test("Pro badge renders on profile and in the account menu", async () => {
 
 await test("workspace film is back without the Pro reel toggle", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const introSrc = await readFile(join(root, "src/intro.jsx"), "utf8");
   // 2026-10-05 (revised): the workspace reel is back, executed darker — but
   // the Pro reel toggle (members-only footage) stays retired.
   assert.ok(!/Pro cinematic reel/.test(src), "Pro reel setting still present in Settings");
-  const filmMounts = src.match(/<CinematicFilm/g) || [];
+  assert.ok(!/Pro cinematic reel/.test(introSrc), "Pro reel setting still present in intro");
+  const filmMounts = (src.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
   assert.strictEqual(filmMounts.length, 2, `expected two CinematicFilm mounts (intro + workspace), found ${filmMounts.length}`);
 });
 
