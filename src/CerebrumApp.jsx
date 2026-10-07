@@ -89,7 +89,7 @@ import { SettingsView } from "./settings.jsx";
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
-import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, selectChrome, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast } from "./appUtils.js";
+import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, selectChrome, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
 
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
@@ -13622,7 +13622,8 @@ function cbDialogLockScroll() {
   cbDialogLockDepth += 1;
 }
 function cbDialogUnlockScroll() {
-  cbDialogLockDepth = Math.max(0, cbDialogLockDepth - 1);
+  if (cbDialogLockDepth <= 0) return; // Unbalanced unlock: never held a lock, leave styles alone.
+  cbDialogLockDepth -= 1;
   if (cbDialogLockDepth === 0) {
     try {
       document.body.style.overflow = cbDialogSavedOverflow;

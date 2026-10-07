@@ -66,6 +66,18 @@ import { webhookRequestFor } from "../functions/api/pro/webhook.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+// Monolith split: UI code lives across several files now. This reads all of
+// them so static assertions survive extractions.
+async function readUiSrc() {
+  const files = ["src/CerebrumApp.jsx", "src/designSystem.jsx", "src/settings.jsx",
+                 "src/inbox.jsx", "src/palettes.js", "src/appUtils.js"];
+  let out = "";
+  for (const f of files) {
+    try { out += "\n" + await readFile(join(root, f), "utf8"); } catch {}
+  }
+  return out;
+}
+
 let passed = 0;
 const failures = [];
 async function test(name, fn) {
@@ -917,12 +929,7 @@ await test("answer footnote nudges gated users toward Pro or sign-in", async () 
 });
 
 await test("Pro palette exists and is gated to Pro members", async () => {
-  // PALETTES was extracted to src/palettes.js in the monolith split — check
-  // both locations so the test survives the extraction.
-  const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  let palSrc = "";
-  try { palSrc = await readFile(join(root, "src/palettes.js"), "utf8"); } catch {}
-  const src = appSrc + "\n" + palSrc;
+  const src = await readUiSrc();
   assert.match(src, /Pro:\s+\{ dark: true/, "Pro palette missing from PALETTES");
   assert.match(src, /"Pro Violet":\s+\{ dark: true/, "Pro Violet palette missing from PALETTES");
   assert.match(src, /"Pro Abyss":\s+\{ dark: true/, "Pro Abyss palette missing from PALETTES");
@@ -933,7 +940,7 @@ await test("Pro palette exists and is gated to Pro members", async () => {
 });
 
 await test("Pro badge renders on profile and in the account menu", async () => {
-  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const src = await readUiSrc();
   assert.match(src, /function ProBadge/, "ProBadge component missing");
   assert.match(src, /\{user\?\.isPro && <ProBadge/, "profile badge wiring missing");
   assert.match(src, /\{user\.isPro && <ProBadge/, "account menu badge wiring missing");
@@ -949,7 +956,7 @@ await test("workspace film is back without the Pro reel toggle", async () => {
 });
 
 await test("settings account tab hosts the Pro section and founder grant panel", async () => {
-  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const src = await readUiSrc();
   assert.match(src, /<ProAccountSection/, "ProAccountSection not rendered in settings");
   assert.match(src, /user\.isFounder && \(/, "founder grant panel not gated on isFounder");
   assert.match(src, /<ProGrantPanel/, "ProGrantPanel not rendered");
@@ -970,7 +977,7 @@ await test("checkout return is verified server-side, never trusted", async () =>
 });
 
 await test("frontend grant panel reads the backend's { ok, email } shape", async () => {
-  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const src = await readUiSrc();
   assert.ok(!src.includes("${r.user.email}"), "grant panel must not interpolate r.user.email (backend returns r.email)");
   assert.match(src, /Permanent Pro granted to \$\{r\.email\}/, "grant success message must use r.email");
 });
@@ -1022,7 +1029,7 @@ await test("founder is Pro by definition via a one-time self-grant", async () =>
 });
 
 await test("Pro surfaces stay inside 320px: no fixed-width traps", async () => {
-  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const src = await readUiSrc();
   // Grant panel input: fluid, wraps with its button.
   assert.ok(!src.includes('fontFamily: "var(--cb-body)", width: 200'), "grant email input must not be a fixed 200px");
   assert.match(src, /flex: "1 1 160px"[\s\S]{0,80}maxWidth: 260/, "grant input must flex within a max width");

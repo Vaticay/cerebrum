@@ -1840,3 +1840,90 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   );
 }
 
+
+
+function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, P = null }) {
+  // P provided (drawers) → theme-aware ink; otherwise the dark
+  // instrument-glass treatment of centered modals.
+  const ink = P ? P.ink : "#f2f4f2";
+  const subInk = P ? P.ink2 : "rgba(242,244,242,0.75)";
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 8,
+      ...(drawer ? { borderLeft: `2px solid ${withAlpha(accent, 0.55)}`, paddingLeft: 14 } : null),
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {eyebrow && (
+          <div style={{
+            fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700,
+            letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
+            color: withAlpha(accent, 0.9), marginBottom: 5,
+          }}>{eyebrow}</div>
+        )}
+        {title ? (
+        <div style={{
+          fontSize: 17, fontWeight: 650, color: ink,
+          letterSpacing: "-0.015em", lineHeight: 1.3, fontFamily: "var(--cb-font)",
+        }}>{title}</div>
+        ) : null}
+      </div>
+      <UIButton P={P} variant="ghost"
+        onClick={onClose}
+        aria-label={label || title ? "Close " + (label || title) : "Close"}
+        /* 44px hit area; the visible 30px circle is drawn by the inner
+           span so the touch target meets the minimum without changing
+           the chrome's look. */
+        style={{
+          border: "none", background: "transparent",
+          color: subInk, cursor: "pointer", borderRadius: 6,
+          width: 44, height: 44, display: "inline-flex", alignItems: "center",
+          justifyContent: "center", flexShrink: 0, padding: 0,
+        }}
+      >
+        <span
+          style={{
+            border: `1px solid ${P ? P.line : "rgba(255,255,255,0.12)"}`,
+            background: P ? "transparent" : "rgba(255,255,255,0.05)",
+            borderRadius: 6, width: 30, height: 30, display: "inline-flex",
+            alignItems: "center", justifyContent: "center", fontSize: 16,
+            lineHeight: 1, fontFamily: "var(--cb-font)",
+            transition: "background 0.15s ease",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = P ? withAlpha(accent, 0.1) : "rgba(255,255,255,0.12)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = P ? "transparent" : "rgba(255,255,255,0.05)"; }}
+        >×</span>
+      </UIButton>
+    </div>
+  );
+}
+
+function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex = 220, width = 640, ticks = false, tall = false, drawer = false, P = null, children }) {
+  // Drawers are theme-aware (they read like a document); centered modals
+  // keep the dark instrument-glass treatment.
+  const panelBg = drawer && P ? P.bg : "rgba(15,17,21,0.97)";
+  const panelInk = drawer && P ? P.ink : "#f2f4f2";
+  const panelBorder = drawer && P ? P.line : "rgba(255,255,255,0.10)";
+  return (
+    <Dialog
+      label={label || title} onClose={onClose} zIndex={zIndex} drawer={drawer}
+      width={width} panelClassName={ticks ? "cb-modal cb-specimen" : "cb-modal"}
+      panelStyle={drawer ? {
+        background: panelBg, borderLeft: `1px solid ${panelBorder}`,
+        boxShadow: "-24px 0 80px rgba(0,0,0,0.5)",
+        padding: "24px 26px 48px", color: panelInk, fontFamily: "var(--cb-font)",
+      } : {
+        ...(tall ? { height: "min(760px, 86dvh)" } : {}),
+        background: panelBg,
+        border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
+        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
+        padding: "24px 22px 22px", color: panelInk, fontFamily: "var(--cb-font)",
+      }}
+    >
+      <ChromeHeader eyebrow={eyebrow} title={title} onClose={onClose} accent={accent} label={label || title} drawer={drawer} P={drawer ? P : null} />
+      {actions && <div style={{ margin: "6px 0 14px" }}>{actions}</div>}
+      <div style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>{children}</div>
+    </Dialog>
+  );
+}
+
+export { ChromeHeader, ModalChrome };

@@ -17,6 +17,11 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dataJs = await readFile(join(root, "functions/api/data.js"), "utf8");
 const appJsx = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+// InboxView was extracted to src/inbox.jsx in the monolith split — the
+// group UI lives there now. Check both locations.
+let inboxJsx = "";
+try { inboxJsx = await readFile(join(root, "src/inbox.jsx"), "utf8"); } catch {}
+const uiSrc = appJsx + "\n" + inboxJsx;
 
 let passed = 0;
 const failures = [];
@@ -82,49 +87,49 @@ await test("thread GET returns member roster", async () => {
 // ── Frontend: group creation UI ─────────────────────────────────────────
 
 await test("inbox has a New Group button", async () => {
-  srcHas(appJsx, 'aria-label="New group"', "New group button");
+  srcHas(uiSrc, 'aria-label="New group"', "New group button");
 });
 
 await test("group creation modal exists", async () => {
-  srcHas(appJsx, "groupModalOpen", "group modal state");
-  srcHas(appJsx, 'label="New group"', "group modal chrome");
+  srcHas(uiSrc, "groupModalOpen", "group modal state");
+  srcHas(uiSrc, 'label="New group"', "group modal chrome");
 });
 
 await test("group modal has name input", async () => {
-  srcHas(appJsx, 'aria-label="Group name"', "group name input");
+  srcHas(uiSrc, 'aria-label="Group name"', "group name input");
 });
 
 await test("group modal searches people", async () => {
-  srcHas(appJsx, "start-group-thread", "start-group-thread API call");
+  srcHas(uiSrc, "start-group-thread", "start-group-thread API call");
 });
 
 await test("group modal warns about no E2EE", async () => {
-  srcHas(appJsx, "Group messages aren't end-to-end encrypted yet", "E2EE disclaimer");
+  srcHas(uiSrc, "Group messages aren't end-to-end encrypted yet", "E2EE disclaimer");
 });
 
 // ── Frontend: group thread rendering ────────────────────────────────────
 
 await test("group subtitle shows member names", async () => {
-  srcHas(appJsx, 'activeThread.kind === "group"', "group kind check in subtitle");
+  srcHas(uiSrc, 'activeThread.kind === "group"', "group kind check in subtitle");
 });
 
 await test("group messages show sender labels", async () => {
-  srcHas(appJsx, "Group threads show who said what", "sender label comment");
+  srcHas(uiSrc, "Group threads show who said what", "sender label comment");
 });
 
 await test("group threads show member count badge", async () => {
-  srcHas(appJsx, "activeThread.memberCount", "member count in header");
+  srcHas(uiSrc, "activeThread.memberCount", "member count in header");
 });
 
 await test("thread list shows group icon", async () => {
-  srcHas(appJsx, 't.kind === "group"', "group icon in thread list");
+  srcHas(uiSrc, 't.kind === "group"', "group icon in thread list");
 });
 
 // ── Background-tab notifications ────────────────────────────────────────
 
 await test("inbox poll notifies on new messages", async () => {
-  srcHas(appJsx, "cb-inbox-", "inbox notification tag");
-  srcHas(appJsx, "Background-tab notifications", "background notification comment");
+  srcHas(uiSrc, "cb-inbox-", "inbox notification tag");
+  srcHas(uiSrc, "Background-tab notifications", "background notification comment");
 });
 
 // ── Summary ─────────────────────────────────────────────────────────────

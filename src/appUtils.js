@@ -257,4 +257,4 @@ function toast(message, opts = {}) {
     }));
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
-export { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, selectChrome, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
+export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, selectChrome, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
