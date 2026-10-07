@@ -10974,7 +10974,7 @@ function NetworkGraphBody({ P, accent, sources, compact = false }) {
               onBlur={() => setHoverIdx(null)}
               style={{ cursor: "pointer" }}
             >
-              <circle cx={node.x} cy={node.y} r={sizeFor(node.s)} fill={hoverIdx === i ? accent : withAlpha(accent, 0.55)} stroke={P.bg} strokeWidth={2} style={{ outline: "none" }} />
+              <circle cx={node.x} cy={node.y} r={sizeFor(node.s)} fill={hoverIdx === i ? accent : withAlpha(accent, 0.55)} stroke={P.bg} strokeWidth={2} />
               {hoverIdx === i && (
                 <circle cx={node.x} cy={node.y} r={sizeFor(node.s) + 4} fill="none" stroke={accent} strokeWidth={1.5} opacity={0.6} />
               )}
