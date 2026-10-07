@@ -373,12 +373,13 @@ const ABSTRACT_PAPERS = [
     abstract: "We report evidence of quantum coherence at room temperature. The observed transfer efficiency reached 97%." },
 ];
 
-await test("title-only papers produce a labeled synthesis, not the dead-end fallback", () => {
-  const out = buildExtractiveSynthesis(NO_ABSTRACT_PAPERS);
-  assert.ok(out && out.length > 200, "no synthesis produced");
+await test("title-only papers get the honest weak-evidence answer (honesty gate 2026-10-07)", () => {
+  const out = buildExtractiveSynthesis(NO_ABSTRACT_PAPERS, [], { query: "inbreeding avoidance in wild insect populations" });
+  assert.ok(out && out.length > 200, "no answer produced");
   assert.ok(!/Unable To Synthesize/i.test(out), "dead-end fallback text leaked through");
-  assert.ok(/^## The short answer/m.test(out), "missing overview heading");
-  assert.ok(/Drafted directly from the sources/i.test(out), "missing honesty label");
+  assert.ok(/Couldn't find a direct answer/.test(out), "not the honest weak-evidence answer");
+  assert.ok(!/^## The short answer/m.test(out), "stitched a short answer from title-only papers");
+  assert.ok(/Why this isn't a summary/.test(out), "missing reasons section");
   for (let n = 1; n <= 4; n++) assert.ok(out.includes("[" + n + "]"), `missing citation [${n}]`);
   assert.ok(out.includes("Molecular Ecology, 2011"), "venue metadata missing");
 });
