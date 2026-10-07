@@ -37,6 +37,7 @@ function group(name) {
 group("Venn premium redesign");
 
 const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+const utilsSrc = await readFile(join(root, "src/appUtils.js"), "utf8");
 
 await test("no creature naming remains", () => {
   assert.ok(!/VennCreature/.test(src), "VennCreature still referenced");
@@ -61,7 +62,8 @@ await test("neon middle purple is gone; muted clay defined", () => {
   assert.ok(!src.includes("#a78bfa"), "neon #a78bfa still present");
   assert.ok(!/VENN_MIDDLE/.test(src), "VENN_MIDDLE still referenced");
   assert.ok(/VENN_CLAY\s*=\s*"#9e7350"/.test(src), "VENN_CLAY constant missing");
-  assert.ok(/function mixHex/.test(src), "mixHex helper missing");
+  assert.ok(/function mixHex/.test(utilsSrc), "mixHex helper missing from appUtils.js");
+  assert.ok(/mixHex/.test(src), "mixHex not used by the app");
 });
 
 await test("lobes are static hairline circles", () => {

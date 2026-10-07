@@ -40,6 +40,8 @@ function group(name) {
 
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const diveSrc = await readFile(join(root, "src/DiveParticles.jsx"), "utf8");
+const settingsSrc = await readFile(join(root, "src/settings.jsx"), "utf8");
+const designSrc = await readFile(join(root, "src/designSystem.jsx"), "utf8");
 
 group("Workspace ambient reel (revised)");
 await test("workspace CinematicFilm mount exists, darker than before", () => {
@@ -85,8 +87,9 @@ await test("new turns are marked fresh so typing runs once", () => {
   assert.match(appSrc, /const nt = \{ id: turnId, fresh: true,/, "fresh flag missing on new turns");
 });
 await test("Settings exposes the Animated typing row", () => {
-  assert.match(appSrc, /label="Animated typing"/, "Animated typing settings row missing");
-  assert.match(appSrc, /\["Animated typing", "answers", "typewriter reveal progressive"\]/, "settings-search index entry missing");
+  // Settings UI lives in src/settings.jsx after the monolith split.
+  assert.match(settingsSrc, /label="Animated typing"/, "Animated typing settings row missing");
+  assert.match(settingsSrc, /\["Animated typing", "answers", "typewriter reveal progressive"\]/, "settings-search index entry missing");
 });
 
 group("Particle atmosphere");
@@ -98,8 +101,13 @@ await test("DiveParticles keeps the 190-particle three-layer field", () => {
 });
 await test("the field becomes the full-viewport flight atmosphere", () => {
   assert.match(appSrc, /cb-dive-atmosphere/, "atmosphere layer missing");
-  assert.match(appSrc, /\.cb-dive-atmosphere \{\s*position: fixed; inset: 0; z-index: 0;/, "atmosphere is not a fixed full-viewport layer");
-  assert.match(appSrc, /position: relative; z-index: 1;\n\}/, "room content does not stack above the atmosphere");
+  // Z-index scale (Z.base=0, Z.content=1) replaced the literal z-index values;
+  // the stacking contract is unchanged.
+  assert.match(designSrc, /base: 0,/, "Z.base is not 0");
+  assert.match(designSrc, /content: 1,/, "Z.content is not 1");
+  assert.match(appSrc, /from "\.\/designSystem\.jsx"/, "Z scale not imported");
+  assert.match(appSrc, /\.cb-dive-atmosphere \{\s*position: fixed; inset: 0; z-index: \$\{Z\.base\};/, "atmosphere is not a fixed full-viewport layer");
+  assert.match(appSrc, /position: relative; z-index: \$\{Z\.content\};/, "room content does not stack above the atmosphere");
 });
 
 group("Document Mode is quiet");

@@ -42,6 +42,7 @@ function group(name) {
 }
 
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+const settingsSrc = await readFile(join(root, "src/settings.jsx"), "utf8");
 
 // Extract the pure stripFallbackChrome for real unit tests.
 const ast = parse(appSrc, { sourceType: "module", plugins: ["jsx"] });
@@ -401,7 +402,8 @@ await test("animated typing is the typewriter, not the old stagger", () => {
   // fresh answers only, cookie-persisted, reduced-motion safe. It must be
   // the useTypewriter wiring, not a revived stagger.
   const code = appSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-  assert.ok(/label="Animated typing"/.test(code), "Animated typing settings row missing");
+  // Settings UI lives in src/settings.jsx after the monolith split.
+  assert.ok(/label="Animated typing"/.test(settingsSrc), "Animated typing settings row missing");
   assert.match(code, /const shown = useTypewriter\(t\.answer, typewriter && t\.fresh\)/, "typewriter not gated on fresh turns");
 });
 
