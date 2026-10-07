@@ -188,6 +188,18 @@ export const TYPE = {
 
 export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 
+/* TRACKING scale: semantic letter-spacing for uppercase/label treatments.
+   Use TRACKING.* instead of raw em values. The negative trackings live in
+   TYPE (display/heading/body/label); these are the positive ones for
+   eyebrows, badges, and small caps labels. */
+export const TRACKING = {
+  eyebrow: "0.12em",      // uppercase section headers, eyebrows
+  eyebrowWide: "0.2em",   // large/wide uppercase treatments
+  label: "0.06em",        // small labels, badges, pill text
+  labelTight: "0.04em",   // tighter small labels
+  tight: "0.01em",        // minimal positive (matches TYPE.label)
+};
+
 /* Z-index scale: every stacking layer in the app, named.
    Rules: use Z.* instead of raw numbers. Layers are ordered;
    within a layer, DOM order decides. Never invent a new number —

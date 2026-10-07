@@ -76,7 +76,7 @@ import {
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
-import { FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, UIButton, UICard, UIRow, UIField, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z } from "./designSystem.jsx";
+import { FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, UIButton, UICard, UIRow, UIField, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
@@ -1932,7 +1932,7 @@ function SearchNameplate({ P, accent, askMode, focused, compact }) {
       {/* The concrete subhead: one promise above the fold, in numbers.
          States what the product does, not how it feels. */}
       {!compact && (
-        <p className="cb-mast-sub" style={{ margin: "10px 0 0", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>
+        <p className="cb-mast-sub" style={{ margin: "10px 0 0", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
           Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
         </p>
       )}
@@ -4015,7 +4015,7 @@ function Skeleton({ P, accent, label = "Working" }) {
         <div className="cb-readhead" style={{ background: P.line }}>
           <span className="cb-readhead-marker" style={{ background: accent }} />
         </div>
-        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint }}>
+        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint }}>
           {label}
         </div>
       </div>
@@ -4055,7 +4055,7 @@ function AnswerSkeleton({ P, accent }) {
         <div className="cb-readhead" style={{ background: P.line }}>
           <span className="cb-readhead-marker" style={{ background: accent }} />
         </div>
-        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint }}>
+        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint }}>
           Composing answer
         </div>
       </div>
@@ -4113,7 +4113,7 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
   };
   return (
     <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.22em", textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
       <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
       <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
       {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
@@ -5336,11 +5336,11 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
     >
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.015em", flex: 1, lineHeight: 1.25 }}>{title}</h2>
-          <UIButton P={P} variant="ghost" onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
+          <button onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
             border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
             color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 9999,
             padding: "7px 15px", fontSize: 13, fontFamily: "var(--cb-font)", flexShrink: 0,
-          }}>Close</UIButton>
+          }}>Close</button>
         </div>
         {children}
     </Dialog>
@@ -5804,7 +5804,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               </p>
               <div style={{
                 marginTop: 22, display: "flex", alignItems: "center", gap: 8,
-                fontSize: 13, fontWeight: 600, letterSpacing: "0.08em",
+                fontSize: 13, fontWeight: 600, letterSpacing: TRACKING.eyebrow,
                 textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
                 textShadow: "0 2px 18px rgba(0,0,0,0.55)",
               }}>
@@ -5908,7 +5908,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           paddingTop: isMobile ? 44 : 60, paddingBottom: isMobile ? 48 : 68,
         }}>
           <div style={{
-            fontSize: 11, letterSpacing: "0.26em", textTransform: "uppercase",
+            fontSize: 11, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
             color: withAlpha(introAccent, 0.85), marginBottom: 18, fontWeight: 600,
             fontVariantNumeric: "tabular-nums",
           }}>
@@ -6047,7 +6047,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         <div style={{
           ...container, paddingTop: 10,
           fontSize: 12, fontWeight: 500, color: "rgba(242,244,242,0.42)",
-          fontFamily: "var(--cb-font)", letterSpacing: "0.02em",
+          fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight,
         }}>
           © {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}
         </div>
@@ -6457,7 +6457,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   }
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-      <UIButton P={P} variant="ghost" onClick={onClick} style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: active ? accent : "transparent", color: active ? accentText(accent) : P.ink2, border: `1px solid ${active ? accent : P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: "0.01em" }}>
+      <UIButton P={P} variant="ghost" onClick={onClick} style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: active ? accent : "transparent", color: active ? accentText(accent) : P.ink2, border: `1px solid ${active ? accent : P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6, letterSpacing: TRACKING.tight }}>
         {playIcon}
         {label}
       </UIButton>
@@ -6674,7 +6674,7 @@ function InfoPage({ page }) {
       <main style={{ flex: 1, position: "relative", zIndex: Z.content }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "72px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
-            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)" }}>{data.eyebrow}</span>
+            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: accent, fontFamily: "var(--cb-font)" }}>{data.eyebrow}</span>
             <h1 style={{ fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero, fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-font)" }}>{data.title}</h1>
             <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
             {data.updated && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-font)" }}>{data.updated}</div>}
@@ -6685,7 +6685,7 @@ function InfoPage({ page }) {
               background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
               border: `1px solid ${P.line}`,
             }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Contents</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: accent, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Contents</div>
               <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "2px 22px" }}>
                 {toc.map((t) => (
                   <li key={t.id}>
@@ -6713,7 +6713,7 @@ function InfoPage({ page }) {
                     background: P.surface,
                   }}>
                     {tier.recommended && (
-                      <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 12px", borderRadius: 9999, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.06em", fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
+                      <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 12px", borderRadius: 9999, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.label, fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
                     )}
                     <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, fontFamily: "var(--cb-font)" }}>{tier.persona}</div>
                     <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
@@ -7143,7 +7143,7 @@ function ProBadge({ style } = {}) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
+      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#06281c",
       background: "#34d399",
       borderRadius: 9999, padding: "2px 8px 2px 9px",
@@ -7162,7 +7162,7 @@ function TierBadge({ tier, style } = {}) {
   if (tier === "lite") return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
+      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#c99a2e",
       border: "1px solid rgba(212,164,55,0.55)",
       borderRadius: 9999, padding: "1px 8px 1px 9px",
@@ -7172,7 +7172,7 @@ function TierBadge({ tier, style } = {}) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
+      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#9aa3a8",
       border: "1px solid rgba(150,160,165,0.4)",
       borderRadius: 9999, padding: "1px 8px 1px 9px",
@@ -8279,7 +8279,7 @@ const AUTOPSY_ENTITY_LABELS = { doi: "DOI", phrase: "Exact phrase", organism: "O
 function AutopsySection({ P, accent, kicker, children }) {
   return (
     <section style={{ marginTop: 26 }}>
-      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: "0.22em", textTransform: "uppercase", color: accent, marginBottom: 12 }}>{kicker}</div>
+      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: accent, marginBottom: 12 }}>{kicker}</div>
       {children}
     </section>
   );
@@ -8317,7 +8317,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
                   return (
                     <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <div style={{ width: 118, flexShrink: 0, textAlign: "right" }}>
-                        <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: last ? accent : P.ink2 }}>{s.label}</div>
+                        <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: last ? accent : P.ink2 }}>{s.label}</div>
                         <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2 }}>{s.note.toLowerCase()}</div>
                       </div>
                       <div style={{ flex: 1, minWidth: 0, height: 34, display: "flex", alignItems: "center" }}>
@@ -8338,7 +8338,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
             </div>
             {totalDb > 0 && (
               <>
-                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>PER-DATABASE CONTRIBUTIONS · {responded.length}/{totalDb} ANSWERED</div>
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>PER-DATABASE CONTRIBUTIONS · {responded.length}/{totalDb} ANSWERED</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px" }}>
                   {t.sourcesQueried.map((s) => (
                     <span key={s.source} style={{
@@ -8361,7 +8361,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
 
         {/* ── 02 · Query reading ── */}
         <AutopsySection P={P} accent={accent} kicker="02 · Query reading">
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>STRUCTURED ENTITIES</div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>STRUCTURED ENTITIES</div>
           {entities.length ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
               {entities.map((e, i) => (
@@ -8373,7 +8373,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
           ) : (
             <div style={{ ...monoLine, marginBottom: 16, color: P.faint, fontStyle: "italic" }}>No structured entities detected. Treated as a plain research question.</div>
           )}
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>QUERY RESOLVER</div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>QUERY RESOLVER</div>
           {resolver ? (
             <div style={{ ...monoLine, marginBottom: 16 }}>
               {resolver.intent && <div>intent · <span style={{ color: P.ink }}>{resolver.intent}</span></div>}
@@ -8384,7 +8384,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
           ) : (
             <div style={{ marginBottom: 16 }}>{notRecorded}</div>
           )}
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>SELF-REASONING</div>
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>SELF-REASONING</div>
           {reasoning ? (
             <div style={{ ...monoLine }}>
               {reasoning.complexity && <div>complexity · <span style={{ color: P.ink }}>{reasoning.complexity}</span></div>}
@@ -8496,7 +8496,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
             )}
             {Array.isArray(t.evidenceGaps) && t.evidenceGaps.length > 0 && (
               <div style={{ marginTop: 4 }}>
-                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 6, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>EVIDENCE GAPS</div>
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 6, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>EVIDENCE GAPS</div>
                 {t.evidenceGaps.map((g, i) => (
                   <div key={i} style={{ ...monoLine, marginBottom: 4 }}>· {g}</div>
                 ))}
@@ -8593,7 +8593,7 @@ function AnswerArc({ turn, P, accent }) {
       </div>
       {convergence && (
         <div style={{ marginTop: 6, padding: "12px 16px", borderRadius: 8, border: `1px solid ${withAlpha(accent, 0.3)}`, background: withAlpha(accent, 0.06), fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-          <span style={{ color: accent, fontWeight: 700, marginRight: 8, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: "0.08em" }}>CONVERGENCE</span>
+          <span style={{ color: accent, fontWeight: 700, marginRight: 8, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.eyebrow }}>CONVERGENCE</span>
           {convergence}
         </div>
       )}
@@ -8641,7 +8641,7 @@ function OpenQuestions({ cards, P, accent }) {
             <div key={i} style={{ paddingTop: i ? SP.md : 0, borderTop: i ? `1px solid ${P.line}` : "none" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span style={{
-                  fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "0.06em",
+                  fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: TRACKING.label,
                   color: c.kind === "fragile" ? STATUS.warn : accent,
                   background: withAlpha(c.kind === "fragile" ? STATUS.warn : accent, 0.1),
                   border: `1px solid ${withAlpha(c.kind === "fragile" ? STATUS.warn : accent, 0.3)}`,
@@ -8652,17 +8652,17 @@ function OpenQuestions({ cards, P, accent }) {
               <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.5, marginBottom: 8 }}>“{c.question}”</div>
               <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
                 <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-                  <span style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", display: "block", marginBottom: 2 }}>WHY IT'S STILL OPEN</span>
+                  <span style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.label, display: "block", marginBottom: 2 }}>WHY IT'S STILL OPEN</span>
                   {c.whyOpen}
                 </div>
                 <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-                  <span style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", display: "block", marginBottom: 2 }}>WHAT WOULD CLOSE IT</span>
+                  <span style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.label, display: "block", marginBottom: 2 }}>WHAT WOULD CLOSE IT</span>
                   {c.whatWouldCloseIt}
                 </div>
               </div>
               {c.startWith.length > 0 && (
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: "0.06em", marginBottom: 6 }}>START WITH</div>
+                  <div style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.label, marginBottom: 6 }}>START WITH</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {c.startWith.map((e) => (
                       <div key={e.n} style={{ fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", gap: 8, alignItems: "baseline" }}>
@@ -8712,7 +8712,7 @@ function ReadHead({ label, P, accent }) {
       <div className="cb-readhead" style={{ background: P.line }}>
         <span className="cb-readhead-marker" style={{ background: accent }} />
       </div>
-      <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint }}>
+      <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint }}>
         {label}
       </div>
     </div>
@@ -9434,7 +9434,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
             />
           ) : (
             <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
-              <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.18em", color: P.faint }}>UNPLAYABLE</div>
+              <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, color: P.faint }}>UNPLAYABLE</div>
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>This video's identifier couldn't be read, so it can't be embedded here.</div>
             </div>
           )}
@@ -9477,7 +9477,7 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
   };
   return (
     <div style={{ marginTop: 20 }} className="cb-fade">
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Try this instead
       </div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 12, maxWidth: 620 }}>
@@ -9506,7 +9506,7 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
       )}
       {t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
             “{t.ambiguity.term}” could mean
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -9539,7 +9539,7 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
   return (
     <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${P.line}` }} className="cb-fade">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
           Sources · {sources.length}
         </div>
         <button type="button" onClick={onVerify}
@@ -9593,7 +9593,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
   if (!chips.length) return null;
   return (
     <div style={{ marginTop: 20 }} className="cb-fade">
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Keep going
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -10195,7 +10195,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         <details style={{ marginTop: 16 }} className="cb-fade">
           <summary style={{
             cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro,
-            fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint,
+            fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint,
           }}>
             Flashpoints · {t.literatureConflicts.length} conflicting claim pair{t.literatureConflicts.length === 1 ? "" : "s"}
           </summary>
@@ -10479,7 +10479,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
         <div style={narrow
           ? { width: "100%", flexShrink: 0, borderBottom: `1px solid ${P.line}`, padding: 16 }
           : { width: 210, flexShrink: 0, borderRight: `1px solid ${P.line}`, padding: 16, overflowY: "auto" }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Collections</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Collections</div>
           {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
               {renamingId === c.id ? (
@@ -10852,7 +10852,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               {source.journal && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.journal}</span>}
               {source.year && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.year}</span>}
-              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 8, fontFamily: "var(--cb-font)" }}>{source.type}</span>}
+              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.label, textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 8, fontFamily: "var(--cb-font)" }}>{source.type}</span>}
               {typeof source.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.relevance}% match</span>}
               {source.citations > 0 && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{formatCitationCount(source.citations, source.year, "citation")}</span>}
             </div>
@@ -10862,7 +10862,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
               {plates.map((pl) => (
                 <div key={pl.k} style={{ border: `1px solid ${P.line}`, borderRadius: 12, padding: "12px 12px", background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)" }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>{pl.k}</div>
+                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>{pl.k}</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.45 }}>{pl.v}</div>
                 </div>
               ))}
@@ -10870,14 +10870,14 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
           )}
 
           <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Abstract</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Abstract</div>
             <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.75, fontFamily: "var(--cb-font)" }}>
               {source.abstract || "No abstract available for this paper."}
             </div>
           </div>
 
           <div style={{ borderTop: `1px solid ${P.line}`, paddingTop: 20 }}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Ask about this paper</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Ask about this paper</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={scopedInput}
@@ -10903,14 +10903,14 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
       )}
       {drawerTab === "methodology" && (
         <div className="cb-fade">
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 16 }}>Methodology Matrix</div>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 16 }}>Methodology Matrix</div>
           {methodology.length > 0 && methodology[0].design !== "Not specified" ? (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
                 <thead>
                   <tr>
                     {["Study Design", "Sample Size", "Key Metrics", "P-Value / Significance"].map((h) => (
-                      <th key={h} style={{ padding: "12px 12px", textAlign: "left", borderBottom: `2px solid ${P.line}`, color: P.ink, fontWeight: 600, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: "0.01em", whiteSpace: "nowrap" }}>{h}</th>
+                      <th key={h} style={{ padding: "12px 12px", textAlign: "left", borderBottom: `2px solid ${P.line}`, color: P.ink, fontWeight: 600, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: TRACKING.tight, whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -11216,7 +11216,7 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
   const [sortKey, setSortKey] = useState("cited");
   const rows = useMemo(() => buildEvidenceRows(sources), [sources]);
   const sorted = useMemo(() => sortEvidenceRows(rows, sortKey), [rows, sortKey]);
-  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.panel, zIndex: Z.content, whiteSpace: "nowrap" };
+  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.panel, zIndex: Z.content, whiteSpace: "nowrap" };
   const td = { padding: "12px", borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.small, color: P.ink, verticalAlign: "top" };
   return (
     <div className="cb-fade">
@@ -11389,7 +11389,7 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
               </div>
             </div>
           )}
-          <span style={{ position: "absolute", top: 8, left: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: "rgba(255,255,255,0.65)", letterSpacing: "0.1em" }}>
+          <span style={{ position: "absolute", top: 8, left: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: "rgba(255,255,255,0.65)", letterSpacing: TRACKING.eyebrow }}>
             {String(n).padStart(2, "0")}
           </span>
         </div>
@@ -11764,7 +11764,7 @@ function TrendingHero({ P, accent, item, onExpand, generatedAt }) {
           <MediaFigure P={P} media={media} title={item.title} still linkCredit={false} />
         </div>
       )}
-      <div className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Lead story · {trendKind(item)}
       </div>
       <div className="cb-serif" style={{ fontSize: "clamp(24px, 3.2vw, 38px)", fontWeight: 600, color: P.ink, lineHeight: 1.14, letterSpacing: "-0.015em", maxWidth: 820 }}>
@@ -11855,7 +11855,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: 26 }}>
           {item.source && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
               {item.source}
             </span>
@@ -11888,7 +11888,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
 
           {videos.length > 0 && (
             <div style={{ marginTop: 28 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Watch</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Watch</div>
               {videos.map((v) => {
                 const id = getYouTubeId(v);
                 if (!id) return null;
@@ -11913,7 +11913,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
 
           {upNext.length > 0 && (
             <div style={{ marginTop: 26 }}>
-              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>Up next</div>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>Up next</div>
               {upNext.map((nx, i) => (
                 <button key={nx.url || i} onClick={() => onOpenItem && onOpenItem(nx)}
                   style={{ minHeight: 44,
@@ -12147,7 +12147,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
     return (
       <div style={{ padding: "16px 0", borderBottom: `1px solid ${P.line}` }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, fontFamily: "var(--cb-font)" }}>{label}</span>
+          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)" }}>{label}</span>
           <span style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", fontVariantNumeric: "tabular-nums" }}>
             {unlimited ? "Unlimited" : <>{used}<span style={{ color: P.faint, fontWeight: 500 }}> / {cap}</span></>}
           </span>
@@ -12229,7 +12229,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--cb-font)" }}>
           <thead>
             <tr>
-              <th style={{ textAlign: "left", padding: "12px 16px", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.08em", color: P.faint, borderBottom: `1px solid ${P.line}` }}></th>
+              <th style={{ textAlign: "left", padding: "12px 16px", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow, color: P.faint, borderBottom: `1px solid ${P.line}` }}></th>
               {tiers.map((t) => (
                 <th key={t.id} style={{ textAlign: "center", padding: "12px 8px", fontSize: FONT_SIZES.small, fontWeight: 800, color: t.id === tier ? P.ink : P.ink2, borderBottom: `1px solid ${P.line}`, background: t.id === tier ? withAlpha("#d4af37", 0.06) : "transparent" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t.id === "pro" && <ProBadge style={{ fontSize: 9 }} />}{t.name}</span>
@@ -12400,7 +12400,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         <div style={{ marginBottom: 26, borderBottom: `2px solid ${P.ink}`, paddingBottom: 18 }}>
           <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Trending in Science</h1>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: "0.02em" }}>
+            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
               {dateline}{dateline ? "  ·  " : ""}Refreshed hourly from real science press
             </span>
           </div>
@@ -13218,7 +13218,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
           animation: "cbHuddleRing 1.6s ease-in-out infinite",
         }}>{initial}</span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>Incoming call</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Incoming call</div>
           <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{call.fromName}</div>
         </div>
       </div>
@@ -14854,7 +14854,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         says this thread is encrypted. No badge on plaintext
                         threads, ever: a badge is a promise. */}
                     {activeThread.encrypted && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
                         <Icon name="lock" size={11} /> Encrypted
                       </span>
                     )}
@@ -15022,13 +15022,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 return (
                 <React.Fragment key={key}>
                 {showLegacyDivider && (
-                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.02em", border: `1px solid ${P.line}`, borderRadius: 9999, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: 9999, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
                     Messages before encryption — these were readable by the server
                   </div>
                 )}
                 {showDay && (
-                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>{dayLabel}</div>
+                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
                 <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
@@ -15036,7 +15036,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {/* Group threads show who said what — DMs don't need it, you
                       already know who you're talking to. */}
                   {activeThread?.kind === "group" && !m.mine && m.who && (
-                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", letterSpacing: "0.01em", marginBottom: 3, paddingLeft: 2 }}>{m.who}</div>
+                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, marginBottom: 3, paddingLeft: 2 }}>{m.who}</div>
                   )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
@@ -15100,7 +15100,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                             <Icon name="bookOpen" size={13} style={{ color: accent, flexShrink: 0 }} />
-                            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>Paper</span>
+                            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Paper</span>
                           </div>
                           <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{m.attachmentTitle}</div>
                           {m.attachmentMeta && (m.attachmentMeta.journal || m.attachmentMeta.year) && (
@@ -15317,7 +15317,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <div key={i} style={{
                   textAlign: "center", padding: "8px 4px", borderRadius: 8,
                   background: isMobile && !P.dark ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)",
-                  fontSize: FONT_SIZES.body, fontWeight: 700, letterSpacing: "0.08em",
+                  fontSize: FONT_SIZES.body, fontWeight: 700, letterSpacing: TRACKING.eyebrow,
                   color: mInk, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums",
                   userSelect: "all",
                 }}>{g}</div>
@@ -15358,7 +15358,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.06em", marginBottom: 6 }}>GROUP NAME</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
             <input
               value={groupName}
               onChange={(e) => setGroupName(e.target.value.slice(0, 80))}
@@ -15373,7 +15373,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             />
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.06em", marginBottom: 6 }}>ADD PEOPLE ({groupMembers.length})</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE ({groupMembers.length})</div>
             {groupMembers.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                 {groupMembers.map((m) => (
@@ -15539,7 +15539,7 @@ function Eyebrow({ children, P, right, style }) {
     <div className="cb-eyebrow" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, ...style }}>
       <span style={{
         fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700,
-        letterSpacing: "0.18em", textTransform: "uppercase", color: P.faint, whiteSpace: "nowrap",
+        letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint, whiteSpace: "nowrap",
       }}>{children}</span>
       <span aria-hidden="true" style={{ flex: 1, height: 1, background: P.line, minWidth: 24 }} />
       {right && <span className="cb-eyebrow-right" style={{ flexShrink: 0 }}>{right}</span>}
@@ -15583,7 +15583,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
         {eyebrow && (
           <div style={{
             fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700,
-            letterSpacing: "0.22em", textTransform: "uppercase",
+            letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
             color: withAlpha(accent, 0.9), marginBottom: 5,
           }}>{eyebrow}</div>
         )}
@@ -15715,7 +15715,7 @@ function ToolChip({ icon, label, count, onClick, accent, P, active = false, titl
         background: active ? withAlpha(accent, 0.12) : "transparent",
         color: active ? accent : P.ink2,
         fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
-        letterSpacing: "0.04em", cursor: "pointer", whiteSpace: "nowrap",
+        letterSpacing: TRACKING.labelTight, cursor: "pointer", whiteSpace: "nowrap",
         transition: "border-color 0.15s ease, color 0.15s ease, background 0.15s ease",
         ...style,
       }}
@@ -16145,7 +16145,7 @@ function ProfileMarkers({ P, accent, markers }) {
           <span
             title={m.title}
             style={{
-              fontSize: 12, fontWeight: 600, letterSpacing: "0.05em",
+              fontSize: 12, fontWeight: 600, letterSpacing: TRACKING.label,
               fontFamily: "var(--cb-font)", cursor: "default",
               color: m.key === "founder" || m.key === "verified" ? accent : P.faint,
             }}
@@ -16184,7 +16184,7 @@ function SaveIndicator({ state, P, accent }) {
    the PRO badge and gets the Pro upsell modal.
 */
 function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro }) {
-  const eyebrowLocal = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const eyebrowLocal = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
   const [topicFor, setTopicFor] = useState(null);
   const [topicValue, setTopicValue] = useState("");
   const begin = (t) => {
@@ -16203,7 +16203,7 @@ function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro })
       <div style={{ ...eyebrowLocal, margin: "0 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
         Start from a template
         {!isPro && (
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#06281c", background: "#34d399", borderRadius: 9999, padding: "2px 8px" }}>PRO</span>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: "#06281c", background: "#34d399", borderRadius: 9999, padding: "2px 8px" }}>PRO</span>
         )}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
@@ -16371,7 +16371,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
           </g>
         ))}
       </svg>
-      <div style={{ position: "absolute", left: 14, bottom: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 600 }}>
+      <div style={{ position: "absolute", left: 14, bottom: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", fontWeight: 600 }}>
         {layout.nodes.length} {layout.nodes.length === 1 ? "paper" : "papers"} · your sky
       </div>
       {tip && (
@@ -16630,7 +16630,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     return d.toLocaleDateString(undefined, opts);
   };
 
-  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
 
   // Membership rank for the identity-level membership row below: derived
   // the same way as the account menu and the Settings card, from
@@ -16984,7 +16984,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   background: sv ? (P.dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.018)") : "transparent",
                   display: "flex", flexDirection: "column",
                 }}>
-                  <span aria-hidden="true" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: sv ? accent : P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.08em" }}>{slot + 1}</span>
+                  <span aria-hidden="true" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: sv ? accent : P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>{slot + 1}</span>
                   {sv ? (
                     <>
                       <div style={{ flex: 1, minWidth: 0, marginTop: 6 }}>
@@ -17096,7 +17096,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       style={{ minHeight: 44,
                         flexShrink: 0, background: "none", border: "none", cursor: "pointer",
                         fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
-                        letterSpacing: "0.06em", textTransform: "uppercase",
+                        letterSpacing: TRACKING.label, textTransform: "uppercase",
                         color: isPinned ? accentInk(P, accent) : P.faint,
                         opacity: pinSaving ? 0.5 : 1, padding: "4px 2px",
                       }}
@@ -17350,7 +17350,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           <div style={{ padding: "16px 24px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${P.line}` }}>
             <div>
               <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>Find people</div>
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-font)", letterSpacing: "0.01em" }}>Search Cerebrum researchers</div>
+              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Search Cerebrum researchers</div>
             </div>
             <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
           </div>
@@ -17623,7 +17623,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   };
   const statusPill = (text, color) => (
     <span style={{
-      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
+      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
       padding: "4px 12px", borderRadius: 9999, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
@@ -18003,7 +18003,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const ghostBtn = { ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 };
   const statusPill = (text, color) => (
     <span style={{
-      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
+      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
       padding: "4px 12px", borderRadius: 9999, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
@@ -18813,7 +18813,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                 </div>
 
                 {(data.badges || []).filter((b) => b !== "founder").length > 0 && (
-                  <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                  <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
                     {(data.badges || []).filter((b) => b !== "founder").map((b) => String(b).replace(/[_-]+/g, " ")).join(" · ")}
                   </div>
                 )}
@@ -19191,7 +19191,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // and must not commit state once it has moved on — otherwise the old
   // document's result (or its abort error) lands on the new document.
   const docGen = useRef(0);
-  const docEyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const docEyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
   /* Sep 2026: the source (intake) pane sits over Document Mode's own film.
      Bare content on the page scrim let video texture ghost through behind
      dimmed text — so the intake pane gets the same opaque card treatment
@@ -20170,11 +20170,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   return (
                     <>
                       {hasFindings && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginBottom: 12 }}>Key Findings</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginBottom: 12 }}>Key Findings</div>
                         {renderAnswer(summary.keyFindings, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                       {hasLimitations && (<>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "0.01em", color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginTop: hasFindings ? 28 : 0, marginBottom: 12 }}>Limitations</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginTop: hasFindings ? 28 : 0, marginBottom: 12 }}>Limitations</div>
                         {renderAnswer(summary.limitations, [], P, accent, hoverCite, setHoverCite)}
                       </>)}
                     </>
@@ -20881,7 +20881,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     <div style={{ marginBottom: 28 }}>
       {/* Section headers are small caps captions — they name the table
           that follows rather than competing with it. */}
-      {title && <div style={{ fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.09em", fontFamily: "var(--cb-font)" }}>{title}</div>}
+      {title && <div style={{ fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 4, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow, fontFamily: "var(--cb-font)" }}>{title}</div>}
       <div>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
@@ -20994,7 +20994,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       textAlign: "left", fontFamily: "var(--cb-font)",
                     }}>
                       <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 600 }}>{h.label}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>{tabLabel(h.tabId)}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, whiteSpace: "nowrap" }}>{tabLabel(h.tabId)}</span>
                     </button>
                   ))}
                 </div>
@@ -21116,7 +21116,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     desc={founderStatus.configured ? `Set to ${founderStatus.configuredValue}` : "Not set on the server"}
                     control={
                       <span style={{
-                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
+                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
                         padding: "4px 12px", borderRadius: 9999,
                         color: founderStatus.configured ? (P.dark ? STATUS.good : "#047857") : statusBad(P, paletteName),
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
@@ -21129,7 +21129,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     desc={founderStatus.matchedUser ? `Resolves to @${founderStatus.matchedUser}` : "No account matches that address"}
                     control={
                       <span style={{
-                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
+                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
                         padding: "4px 12px", borderRadius: 9999,
                         color: founderStatus.youAreFounder ? (P.dark ? STATUS.good : "#047857") : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
@@ -21286,7 +21286,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     </button>
                   ) : (
                     <span style={{
-                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
+                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
                       padding: "4px 12px", borderRadius: 9999,
                       color: notifPerm === "granted" ? (P.dark ? STATUS.good : "#047857") : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
@@ -21781,7 +21781,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "0 0 40px rgba(0,0,0,0.4)" },
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 24px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
-    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
+    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       /* Pass 3 (2026-09-17): quiet rail — 38px rows, no rounded pill
@@ -22079,7 +22079,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        its content, so on a narrow window the wrapped second line sat off
        the page's centre line while the first line did not. */
     trustRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 20px", justifyContent: "center", width: "100%", marginTop: 40, opacity: 0.8 },
-    trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" },
+    trustItem: { fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
 
     /* ── Workspace: single-column editorial flow ──
        v6.4: widened from 760 to give the answer more room to breathe —
@@ -22159,14 +22159,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: FONT_SIZES.micro, color: P.faint, 
       paddingTop: 16, marginTop: 20, 
       fontFamily: "var(--cb-font)", display: "flex",
-      letterSpacing: "0.01em",
+      letterSpacing: TRACKING.tight,
     },
-    aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" },
+    aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: FONT_SIZES.body, padding: "16px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
     followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
-    relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: P.faint, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
+    relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
     relatedBtn: {
       display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -22208,14 +22208,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: Z.dropdown, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
-    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: "0.01em", fontFamily: "var(--cb-font)" },
+    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
     srcCount: { fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: 8, fontFamily: "var(--cb-font)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: 8, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: 8, marginBottom: 14, border: `1px solid ${P.line}` },
     sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 0.2s ease, color 0.2s ease" },
     sortTabActive: { background: P.line, color: P.ink, boxShadow: "none", fontWeight: 600 },
-    srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "0.01em", color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-font)" },
+    srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-font)" },
     sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600 },
     sBtnP: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.ink, color: P.bg, border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-font)" },
     savedNote: { fontSize: FONT_SIZES.caption, color: accent, marginBottom: 12, fontFamily: "var(--cb-font)" },
@@ -22272,7 +22272,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
 
     /* ── Footer ── */
     foot: { marginTop: "auto", padding: "24px 0 24px", textAlign: "center", borderTop: `1px solid ${P.line}`, marginLeft: isMobile ? 0 : -pad, marginRight: isMobile ? 0 : -pad, paddingLeft: pad, paddingRight: pad },
-    footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: "0.01em", color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-font)" },
+    footDbs: { fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.tight, color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-font)" },
 
     /* ── Mobile sources FAB ──
        Was a wide "Sources 12" pill docked bottom-right: it sat directly on
@@ -22380,7 +22380,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, suggestions
       </div>
       <div style={{ maxHeight: 340, overflowY: "auto", padding: "6px 0" }}>
         {suggestions.length > 0 && (
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>Ask</div>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>Ask</div>
         )}
         {suggestions.map((s, i) => (
           <UIButton P={P} variant="ghost" key={s + "::" + i} onClick={() => onAsk(s)} onMouseEnter={() => setActive(i)}
@@ -22389,7 +22389,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, suggestions
           </UIButton>
         ))}
         {commands.length > 0 && (
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>Commands</div>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>Commands</div>
         )}
         {commands.map((c, i) => {
           const flatIdx = suggestions.length + i;
@@ -22982,7 +22982,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
               }}>Decline</button>
             </div>
 
-            <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, letterSpacing: "0.02em", fontFamily: "var(--cb-font)", marginTop: 14, textAlign: "center" }}>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)", marginTop: 14, textAlign: "center" }}>
               Version {LEGAL_VERSION} · You must be 13 or older (16 in the EEA and UK)
             </div>
           </>
@@ -26300,11 +26300,11 @@ function App() {
                             checked={visibleSaved.length > 0 && selectedSavedKeys.size === visibleSaved.length}
                             onChange={() => { setSelectedSavedKeys(selectedSavedKeys.size === visibleSaved.length ? new Set() : new Set(visibleSaved.map((s) => sourceKey(s)))); }}
                             style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0 }} />
-                          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>TITLE</span>
-                          <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>TYPE</span>
-                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>SOURCE / JOURNAL</span>
-                          <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>SAVED</span>
-                          <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>USED IN</span>
+                          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TITLE</span>
+                          <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TYPE</span>
+                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>SOURCE / JOURNAL</span>
+                          <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>SAVED</span>
+                          <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>USED IN</span>
                           <span style={{ width: 76, flexShrink: 0 }} />
                         </div>
                       )}
@@ -26449,9 +26449,9 @@ function App() {
                 <div role="list" aria-label="Export history" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
                   {!isMobile && (
                     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 560 }}>
-                      <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>FORMAT</span>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>FILE</span>
-                      <span style={{ width: 160, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>EXPORTED</span>
+                      <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>FORMAT</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>FILE</span>
+                      <span style={{ width: 160, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>EXPORTED</span>
                     </div>
                   )}
                   {exportLog.map((r, i) => (
@@ -26519,12 +26519,12 @@ function App() {
                   <div role="list" aria-label="Investigations" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
                     {!isMobile && (
                       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 880 }}>
-                        <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>ID</span>
-                        <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>TITLE</span>
-                        <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>DATE</span>
-                        <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>COUNTS</span>
-                        <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>STATUS</span>
-                        <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>LAST OPENED</span>
+                        <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>ID</span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TITLE</span>
+                        <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>DATE</span>
+                        <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>COUNTS</span>
+                        <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>STATUS</span>
+                        <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>LAST OPENED</span>
                         <span style={{ width: 44, flexShrink: 0 }} />
                       </div>
                     )}
