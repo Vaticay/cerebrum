@@ -9,6 +9,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING } from "./designSystem.jsx";
+import { getCookie, __cbMotionCache, cbMotionCacheSet } from "./appUtils.js";
 
 export function cbMotionOff() {
   // Cached ~1s: this runs in hot paths (pointer handlers, count-up hooks)
@@ -23,7 +24,7 @@ export function cbMotionOff() {
     if (getCookie("cb_anim2") === "off") v = true;
     else v = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbMotionOff: if (getCookie('cb_anim2') === 'off') v = true;:", cbErr); }
-  __cbMotionCache = { v, t: now };
+  try { cbMotionCacheSet({ v, t: now }); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbMotionOff: cache set:", cbErr); }
   return v;
 }
 
