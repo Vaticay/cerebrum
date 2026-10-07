@@ -5583,7 +5583,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
      listener writing inline styles onto a playing video is a repaint
      nobody asked for. */
   const narrow = typeof window !== "undefined" && window.matchMedia
-    ? window.matchMedia("(max-width: 760px)").matches : false;
+    ? window.matchMedia("(max-width: 900px)").matches : false;
   const framePos = (src) => {
     const scene = FILM_SCENES[src];
     if (!scene) return "50% 50%";
@@ -9664,7 +9664,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
 function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, onOpenPaper, open, onClose }) {
   const sources = t.sources || [];
   const closeRef = useRef(null);
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+  const isMobile = useIsMobile();
   const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
   const claimsOf = (n) => (claimSink || []).filter((c) => c.cites.includes(n)).map((c) => c.claim);
   const doiOf = (s) => String(s.doi || s.DOI || "")
@@ -25340,12 +25340,14 @@ function App() {
   // its existing dialog; only its trigger moved into the Sidebar.
   const [view, setView] = useState("search"); // "search" | "profile" | "settings" | "trending" | "inbox"
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
-  /* Scroll lock: when the mobile drawer is open, the background must not
-     scroll. Focus trap: Tab cycles within the drawer. */
+  /* Focus trap for the mobile drawer: Tab cycles within it, Escape closes.
+     Scroll locking is owned by the anyOverlayOpen pin effect
+     (sidebarMobileOpen is in its overlay list). The old hand-rolled
+     body.style.overflow toggle here fought that effect the same way
+     EvidenceRail's did — naive save/restore of `overflow` alone could
+     strand the body when the two systems interleaved. */
   useEffect(() => {
     if (!sidebarMobileOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const onKey = (e) => {
       if (e.key === "Escape") { setSidebarMobileOpen(false); return; }
       if (e.key !== "Tab") return;
@@ -25360,7 +25362,6 @@ function App() {
     };
     document.addEventListener("keydown", onKey);
     return () => {
-      document.body.style.overflow = prev;
       document.removeEventListener("keydown", onKey);
     };
   }, [sidebarMobileOpen]);
@@ -27087,7 +27088,7 @@ function App() {
   // from the outside as the scroll position going rogue. Now the pin
   // happens once when the first overlay opens and the restore happens once
   // when the last one closes, with the scroll offset from the first open.
-  const anyOverlayOpen = cmdOpen || mobilePanel
+  const anyOverlayOpen = cmdOpen || mobilePanel || sidebarMobileOpen
     || authOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource
     // The consent gate must lock body scroll too — otherwise a first-time
     // visitor (or anyone whose legal cookie expired) gets a fixed overlay
