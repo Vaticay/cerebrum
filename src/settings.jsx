@@ -7,7 +7,7 @@
  */
 
 import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, kbdLabel, notifyPref, relativeTime, selectChrome, setNotifyPref, statusBad, toast, useIsMobile } from "./appUtils.js";
-import { FONT_SIZES, Icon, ProBadge, RADIUS, STATUS, TRACKING, TierBadge, UIButton, UIRow, Z, withAlpha } from "./designSystem.jsx";
+import { FONT_SIZES, Icon, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBadge, UIButton, UIRow, Z, withAlpha } from "./designSystem.jsx";
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
 import { Dialog } from "./flowcharts.jsx";
@@ -160,6 +160,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
 
 function ApiKeyPanel({ P, accent, at, Section, Row }) {
   const [keys, setKeys] = useState(null);
+  const [usage, setUsage] = useState(null); // per-key usage dashboard
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState(null);
@@ -170,6 +171,14 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
     try {
       const r = await apiProPost("api-key-list", {});
       setKeys(r.keys || []);
+      // Usage is best-effort: the key list is the source of truth and a
+      // usage-table hiccup must not hide it.
+      try {
+        const u = await apiProPost("api-key-usage", {});
+        const byId = {};
+        for (const x of (u.usage || [])) byId[x.id] = x;
+        setUsage(byId);
+      } catch { setUsage({}); }
     } catch (e) {
       setKeys([]);
       setMsg({ tone: "bad", text: e.message || "Couldn't load API keys." });
@@ -258,10 +267,20 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
         <Row label="Loading…" desc="" control={null} last />
       ) : keys.length === 0 ? (
         <Row label="No API keys yet" desc="Create one above to call the search API from your own scripts." control={null} last />
-      ) : keys.map((k, i) => (
+      ) : keys.map((k, i) => {
+        const u = usage && usage[k.id];
+        // Usage line: today + 7d + lifetime, error rate when nonzero.
+        // Compact one-liner under the key name — the panel is a list, not
+        // a dashboard page.
+        let usageLine = `${k.name} · created ${fmtDate(k.createdAt)} · last used ${fmtDate(k.lastUsedAt)}`;
+        if (u) {
+          const errBit = u.totalErrors > 0 ? ` · ${u.totalErrors} error${u.totalErrors === 1 ? "" : "s"}` : "";
+          usageLine = `${k.name} · ${u.callsToday} today · ${u.calls7d} last 7d · ${u.totalCalls} total${errBit}`;
+        }
+        return (
         <Row key={k.id}
           label={<span style={{ fontFamily: "ui-monospace, monospace", fontSize: FONT_SIZES.small }}>{k.keyPrefix}…</span>}
-          desc={`${k.name} · created ${fmtDate(k.createdAt)} · last used ${fmtDate(k.lastUsedAt)}`}
+          desc={usageLine}
           control={
             <UIButton P={P} variant="ghost" onClick={() => revoke(k.id)} disabled={busy}
               style={{ minHeight: 40, padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: 8, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -269,7 +288,8 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
             </UIButton>
           }
           last={i === keys.length - 1} />
-      ))}
+        );
+      })}
     </Section>
   );
 }
@@ -339,7 +359,7 @@ function RestorePhrasePanel({ P, backups, restoreDeviceId, setRestoreDeviceId, r
       {backups.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
-          <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8, outline: "none" }}>
+          <select value={restoreDeviceId} onChange={(e) => { sfx(); setRestoreDeviceId(e.target.value); }} style={{ width: "100%", padding: "9px 30px 9px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, outline: "none", cursor: "pointer", ...selectChrome(P) }}>
             {backups.map((b) => (
               <option key={b.deviceId} value={b.deviceId}>{b.label} — backed up {relativeTime(b.updatedAt)}</option>
             ))}
@@ -1612,7 +1632,7 @@ function ConfigStatus({ P, accent }) {
 
       {groups.map((g) => (
         <div key={g.name}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 6 }}>{g.name}</div>
+          <div style={{ fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: SP.sm }}>{g.name}</div>
           {g.items.map((v, i) => (
             <div key={v.name} style={{
               display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 0",
@@ -1907,7 +1927,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     <div style={{ marginBottom: 28 }}>
       {/* Section headers are small caps captions — they name the table
           that follows rather than competing with it. */}
-      {title && <div style={{ fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 4, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow, fontFamily: "var(--cb-font)" }}>{title}</div>}
+      {title && <div style={{ fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 700, color: P.faint, marginBottom: SP.sm, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow, fontFamily: "var(--cb-font)" }}>{title}</div>}
       <div>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
@@ -1981,7 +2001,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             where width really is scarce, keeps the strip. */}
         <div style={{ flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
-            <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, letterSpacing: "-0.015em", fontFamily: "var(--cb-font)" }}>Settings</div>
+            <div style={{ fontSize: FONT_SIZES.display, ...TYPE.heading, color: P.ink, fontFamily: "var(--cb-font)" }}>Settings</div>
 
             {/* Commit 67 — search. See SETTINGS_INDEX. */}
             <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 1 320px", minWidth: 200 }}>
@@ -2032,7 +2052,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             <div className="cb-scroll-x" style={{ position: "relative", display: "flex", borderBottom: `1px solid ${P.line}`, marginBottom: 18, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
               {TABS.map(([id, label]) => (
                 <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
-                  style={{ minHeight: 44, flexShrink: 0, padding: "8px 12px 12px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: "-0.015em", whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
+                  style={{ minHeight: 44, flexShrink: 0, padding: "8px 12px 12px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
               ))}
               <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 0, width: 1, height: 2, background: accent, borderRadius: 8, transformOrigin: "0 50%", transform: "translateX(" + tabUnderline.left + "px) scaleX(" + tabUnderline.width + ")", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
             </div>
@@ -2064,7 +2084,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     padding: "12px 12px", borderRadius: 8, border: "none", cursor: "pointer",
                     textAlign: "left", fontFamily: "var(--cb-font)",
                     fontSize: FONT_SIZES.small, fontWeight: tab === id ? 700 : 500,
-                    letterSpacing: "-0.015em",
+                    letterSpacing: TYPE.heading.letterSpacing,
                     background: tab === id ? withAlpha(accent, 0.11) : "transparent",
                     color: tab === id ? P.ink : P.ink2,
                   }}>
@@ -2100,6 +2120,20 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   the Pro gate on every key action, so this is courtesy. */}
               {(proStatus?.tier === "pro" || !!user?.isPro) && (
                 <ApiKeyPanel P={P} accent={accent} at={at} Section={Section} Row={Row} />
+              )}
+              {/* Lite upsell nudge: Lite members see what full Pro unlocks
+                  beyond their tier — API keys, investigation templates, and
+                  the priority search queue. One row, honest, no dark pattern. */}
+              {(proStatus?.tier === "lite" || !!proStatus?.isLite) && !(proStatus?.tier === "pro" || !!user?.isPro) && (
+                <Section title="Pro unlocks more" footer="You're on Pro Lite. Full Pro adds the power features below.">
+                  <Row label="API access, templates & priority queue"
+                    desc="API keys with usage dashboards, 4 investigation templates, and skip-the-line search when it's busy."
+                    control={
+                      <UIButton P={P} accent={accent} at={at} variant="primary" onClick={onOpenPro} style={{ minHeight: 40, flexShrink: 0 }}>
+                        See Pro
+                      </UIButton>
+                    } last />
+                </Section>
               )}
               {/* Founder-only: permanent Pro grants. Rendered only for the
                   founder; the server re-checks FOUNDER_EMAIL on every call. */}

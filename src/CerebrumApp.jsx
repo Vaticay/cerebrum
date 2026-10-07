@@ -16095,8 +16095,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      dimmed text — so the intake pane gets the same opaque card treatment
      as the reader pane, not another veil. */
   const docPanelCard = {
+    /* Premium pass: the source pane is a large intentional surface —
+       XL radius from the RADIUS scale, card depth from the SHADOW scale. */
     background: P.surface,
-    borderRadius: RADIUS.lg, padding: isMobile ? SP.lg : SP.xl, border: `1px solid ${P.line}`,
+    borderRadius: RADIUS.xl, padding: isMobile ? SP.lg : SP.xl, border: `1px solid ${P.line}`,
     boxShadow: SHADOW.md(P),
   };
 
@@ -16672,13 +16674,18 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ ...docEyebrow, marginBottom: 8 }}>Recent documents</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {recentDocs.slice(0, 5).map((d) => (
-                <div key={d.fp} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: SP.sm, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "6px 6px 6px 12px", width: "100%" }}>
+                <div key={d.fp}
+                  /* Premium pass: shelf rows lift on hover — border and a
+                     whisper of accent, eased on the shared curve. */
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.background = withAlpha(accent, 0.05); }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.background = "transparent"; }}
+                  style={{ minHeight: 44, display: "flex", alignItems: "center", gap: SP.sm, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "6px 6px 6px 12px", width: "100%", transition: "border-color 180ms var(--cb-ease), background 180ms var(--cb-ease)" }}>
                   <button onClick={() => openRecent(d.fp)}
                     style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}
                     aria-label={`Open ${d.title}`}>
                     <Icon name="document" size={15} style={{ color: P.faint, flexShrink: 0 }} />
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{d.title}</span>
-                    {d.words > 0 && <span style={{ flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{d.words.toLocaleString()} words</span>}
+                    {d.words > 0 && <span style={{ flexShrink: 0, ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{d.words.toLocaleString()} words</span>}
                   </button>
                   <UIButton P={P} variant="ghost" onClick={() => deleteRecent(d.fp, d.title)} aria-label={`Delete ${d.title}`}
                     title="Delete this document from this browser"
@@ -16780,13 +16787,20 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               style={dragActive ? { outline: `2px dashed ${accent}`, outlineOffset: 4, borderRadius: 8 } : undefined}
             >
               <input ref={fileInputRef} type="file" accept=".txt,.md,.pdf,.html,.htm,text/plain,text/markdown,application/pdf,text/html" style={{ display: "none" }} onChange={(e) => readFile(e.target.files && e.target.files[0])} />
+              {/* Premium pass: the field's border lives on this wrapper so
+                  :focus-within can light it (see .cb-doc-intake in the CSS);
+                  the textarea itself is borderless inside it. */}
+              <div className="cb-doc-intake" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: inputBg, overflow: "hidden" }}>
               <textarea
                 value={documentText}
                 onChange={(e) => setDocumentText(e.target.value)}
                 aria-label="Document: DOI, PMID, arXiv ID, URL, or the full text of a paper, report, or document"
                 placeholder="DOI, PMID, arXiv ID, or URL — or paste the full text"
                 rows={docIdentMode ? 2 : 8}
-                style={{ ...textareaStyle, borderRadius: 8, ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
+                /* Premium pass: the field's border lives on the wrapper so
+                   :focus-within can light it (see .cb-doc-intake in the CSS);
+                   the textarea itself is borderless inside it. */
+                style={{ ...textareaStyle, border: "none", background: "transparent", borderRadius: 0, outline: "none", ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
               />
             </div>
             {extractingPdf && (
@@ -21822,7 +21836,11 @@ function App() {
             vaultMode={vaultMode}
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onGoSearch={() => setView("search")}
-            onStartTemplate={(t, topic) => { setView("search"); ask(templateQuestions(t, topic)[0]); }}
+            onStartTemplate={(t, topic) => {
+              // Template telemetry: fire-and-forget, never blocks the start.
+              try { apiProPost("template-track", { templateId: t.id }).catch(() => {}); } catch {}
+              setView("search"); ask(templateQuestions(t, topic)[0]);
+            }}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
             proStatus={proStatus} onOpenPro={() => setProModalOpen(true)}
           />
@@ -23063,6 +23081,26 @@ summary::-webkit-details-marker { display: none; }
    Reflowed reading surface: media can never force horizontal scroll,
    long tokens (DOIs, URLs) wrap instead of overflowing their column. */
 .cb-doc-reader { min-width: 0; overflow-wrap: break-word; }
+/* ── Document Mode premium pass (2026-10-07) ──
+   Tab-body transition: the reader content re-mounts per tab (keyed by
+   the active tab id) and rises in. The "to" frame lands on `filter: none`
+   (v43 lesson: `blur(0)` would make the element a containing block for
+   fixed/absolute descendants once the animation settles). */
+@keyframes cbDocTabIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+.cb-doc-tabbody { animation: cbDocTabIn 260ms var(--cb-ease); }
+@media (prefers-reduced-motion: reduce) { .cb-doc-tabbody { animation: none; } }
+/* Intake focus ring: the field's border lives on this wrapper so
+   :focus-within can light it without !important fighting the textarea's
+   inline styles. --cb-accent is set on the app shell (see S.page). */
+.cb-doc-intake { transition: border-color 180ms var(--cb-ease), box-shadow 180ms var(--cb-ease); }
+.cb-doc-intake:focus-within {
+  border-color: var(--cb-accent, #8ba888) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #8ba888) 16%, transparent);
+}
+@media (prefers-reduced-motion: reduce) { .cb-doc-intake { transition: none; } }
 /* Document Mode analysis: a roomier reading surface than the answer
    thread. The analysis card's prose sets at 1.75 leading with generous
    section rhythm — the document deserves the air. (!important: the

@@ -182,8 +182,8 @@ export const TYPE = {
   display: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15 },
   heading: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.015em", lineHeight: 1.25 },
   body:    { fontFamily: "var(--cb-font)", fontWeight: 450, letterSpacing: "0", lineHeight: 1.6 },
-  label:   { fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: "0.01em", lineHeight: 1.35 },
-  mono:    { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: "0.01em", lineHeight: 1.4 },
+  label:   { fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: TRACKING.tight, lineHeight: 1.35 },
+  mono:    { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: TRACKING.tight, lineHeight: 1.4 },
 };
 
 export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
@@ -249,7 +249,10 @@ export function UIButton({
      Primary is a rich gradient, not a flat block — the gradient runs from
      a lifted highlight at the top to the true accent at the bottom, with
      an inset hairline for the moulded edge and a tinted drop shadow that
-     ties it to the palette. */
+     ties it to the palette. Ghost and destructive got the same depth
+     language (2026-10-07): ghost lifts on hover via the shared shadow
+     scale, destructive carries a red-tinted moulded edge so danger reads
+     as crafted, not as an afterthought. */
   const skins = {
     primary: {
       background: `linear-gradient(180deg, ${withAlpha(accent, 0.92)} 0%, ${accent} 55%, ${withAlpha(accent, 0.88)} 100%)`,
@@ -264,8 +267,19 @@ export function UIButton({
         ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"
         : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px -2px rgba(15,23,42,0.12)",
     },
-    ghost:       { background: "transparent", color: P.ink2, border: "1px solid transparent" },
-    destructive: { background: "transparent", color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}` },
+    ghost: {
+      background: "transparent", color: P.ink2, border: "1px solid transparent",
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+    },
+    destructive: {
+      background: P.dark
+        ? `linear-gradient(180deg, ${withAlpha(STATUS.bad, 0.16)} 0%, ${withAlpha(STATUS.bad, 0.10)} 100%)`
+        : `linear-gradient(180deg, ${withAlpha(STATUS.bad, 0.08)} 0%, ${withAlpha(STATUS.bad, 0.04)} 100%)`,
+      color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
+      boxShadow: P.dark
+        ? `inset 0 1px 0 ${withAlpha(STATUS.bad, 0.18)}, 0 2px 8px -2px ${withAlpha(STATUS.bad, 0.25)}`
+        : `inset 0 1px 0 rgba(255,255,255,0.5), 0 2px 8px -2px ${withAlpha(STATUS.bad, 0.18)}`,
+    },
   };
   return (
     <button
@@ -302,12 +316,11 @@ export function UICard({ children, P, pad = true, className = "", style, onClick
       style={{
         borderRadius: RADIUS.lg,
         /* Solid surface with a whisper of depth: one soft shadow lifts the
-           card off the page. Clickable cards get a gentle hover lift. */
+           card off the page. Clickable cards get a gentle hover lift.
+           Uses the SHADOW scale (md) — theme-aware. */
         background: P.surface,
         border: P.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${P.line2}`,
-        boxShadow: P.dark
-          ? "0 10px 30px -12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)"
-          : "0 10px 30px -14px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.6)",
+        boxShadow: SHADOW.md(P),
         transition: onClick ? "transform 0.25s var(--cb-ease), box-shadow 0.25s var(--cb-ease)" : undefined,
         padding: pad ? SP.lg : 0,
         overflow: "hidden", minWidth: 0,
@@ -346,22 +359,55 @@ export function UIRow({ label, desc, control, onClick, P, accent, last, tone, st
   );
 }
 
-export function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3, ariaLabel, maxLength, style, onKeyDown }) {
+export function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3, ariaLabel, maxLength, style, onKeyDown, className = "" }) {
   const base = {
-    width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: 8,
+    width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: RADIUS.md,
     background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
     border: `1px solid ${P.line}`, color: P.ink, outline: "none",
     /* 16px floor: iOS Safari zooms the viewport on focus for anything
        smaller, so every text input holds 16px on all viewports. */
     fontSize: 16, ...TYPE.body, minWidth: 0, ...style,
   };
-  const common = { value, onChange, placeholder, "aria-label": ariaLabel || placeholder, maxLength, onKeyDown, style: base };
+  const common = { value, onChange, placeholder, "aria-label": ariaLabel || placeholder, maxLength, onKeyDown, className: ("cb-field " + className).trim(), style: base };
   return multiline
     ? <textarea rows={rows} {...common} style={{ ...base, resize: "vertical" }} />
     : <input {...common} />;
 }
 
-export const RADIUS = { sm: 6, md: 6, lg: 12, pill: 100 };
+export const RADIUS = {
+  // The de facto radius set (2026-10-07): every radius in the product maps
+  // to one of these. sm/md were both 6 (legacy duplicate); md is now 8,
+  // the most-used control radius (164 usages), and xl: 16 covers the hero
+  // surfaces from the polish pass. The lone radius-18 was migrated to 16.
+  sm: 6, md: 8, lg: 12, xl: 16, pill: 100,
+};
+
+/* SHADOW scale: theme-aware depth tokens. Pass the palette P.
+   The polish pass added ~12 ad-hoc shadow patterns; these five roles
+   collapse them. Every new shadow should use one of these — never a raw
+   boxShadow string on a primitive.
+   xs:  tiny controls — buttons, chips, small popovers
+   sm:  cards at rest, related-question buttons, small panels
+   md:  cards on hover, composer at rest, dropdowns, drawers
+   lg:  answer card, large panels, composer on focus
+   xl:  dialogs, modals, bottom sheets — the top of the stack */
+export const SHADOW = {
+  xs: (P) => P.dark
+    ? "0 1px 3px rgba(0,0,0,0.3)"
+    : "0 1px 3px rgba(15,23,42,0.12)",
+  sm: (P) => P.dark
+    ? "0 4px 14px -6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)"
+    : "0 4px 14px -8px rgba(15,23,42,0.15), inset 0 1px 0 rgba(255,255,255,0.6)",
+  md: (P) => P.dark
+    ? "0 10px 30px -12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)"
+    : "0 10px 30px -14px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.6)",
+  lg: (P) => P.dark
+    ? "0 24px 64px -16px rgba(0,0,0,0.5), 0 4px 16px -4px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)"
+    : "0 24px 64px -20px rgba(15,23,42,0.25), 0 4px 16px -6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.7)",
+  xl: (P) => P.dark
+    ? "0 40px 100px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4)"
+    : "0 40px 100px -20px rgba(15,23,42,0.3), 0 0 0 1px rgba(15,23,42,0.08)",
+};
 
 export const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "award", tint: "#c9a227" },
