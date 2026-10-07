@@ -115,3 +115,100 @@ export async function resolveApiKey(request, env) {
     return null;
   }
 }
+
+// ── Per-key usage dashboard ─────────────────────────────────────────────
+// Daily aggregate counters per key: calls and errors (non-2xx / degraded
+// pipeline outcomes). No query content is stored — counts only.
+
+let usageTableReady = null;
+export function ensureUsageTable(env) {
+  if (!env || !env.DB) return Promise.resolve(false);
+  if (!usageTableReady) {
+    usageTableReady = env.DB.exec(
+      "CREATE TABLE IF NOT EXISTS api_key_usage (" +
+        "key_id TEXT NOT NULL, " +
+        "day TEXT NOT NULL, " +
+        "calls INTEGER NOT NULL DEFAULT 0, " +
+        "errors INTEGER NOT NULL DEFAULT 0, " +
+        "PRIMARY KEY (key_id, day)" +
+        "); " +
+        "CREATE INDEX IF NOT EXISTS idx_api_key_usage_day ON api_key_usage(day);"
+    ).then(
+      () => true,
+      (e) => { usageTableReady = null; throw e; }
+    );
+  }
+  return usageTableReady;
+}
+
+function utcDay(ts) {
+  return new Date(ts).toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+/**
+ * Record one API-key-authenticated request. Never throws — usage
+ * accounting must never fail the request it measures. Callers should
+ * run this via waitUntil so it never delays the response.
+ */
+export async function recordApiKeyUsage(env, keyId, isError) {
+  try {
+    if (!env || !env.DB || !keyId) return;
+    await ensureUsageTable(env);
+    const day = utcDay(Date.now());
+    await env.DB.prepare(
+      "INSERT INTO api_key_usage (key_id, day, calls, errors) VALUES (?, ?, 1, ?) " +
+      "ON CONFLICT(key_id, day) DO UPDATE SET calls = calls + 1, errors = errors + ?"
+    ).bind(keyId, day, isError ? 1 : 0, isError ? 1 : 0).run();
+  } catch (cbErr) {
+    console.error("[Cerebrum] apiKeys.js recordApiKeyUsage:", cbErr);
+  }
+}
+
+/**
+ * Per-key usage stats for one user's keys: totals plus a 7-day window.
+ * Ownership is enforced by joining api_keys on user_id — a user can only
+ * ever see their own keys' numbers.
+ */
+export async function getApiKeyUsage(env, userId) {
+  try {
+    if (!env || !env.DB || !userId) return [];
+    await ensureUsageTable(env);
+    await ensureApiKeyTable(env);
+    const weekAgo = utcDay(Date.now() - 6 * 86400000);
+    const keys = await listApiKeys(env, userId);
+    const out = [];
+    for (const k of keys) {
+      let total = null;
+      let recent = [];
+      try {
+        total = await env.DB.prepare(
+          "SELECT COALESCE(SUM(calls), 0) AS calls, COALESCE(SUM(errors), 0) AS errors " +
+          "FROM api_key_usage WHERE key_id = ?"
+        ).bind(k.id).first();
+        const r = await env.DB.prepare(
+          "SELECT day, calls, errors FROM api_key_usage WHERE key_id = ? AND day >= ? ORDER BY day DESC"
+        ).bind(k.id, weekAgo).all();
+        recent = (r && r.results) || [];
+      } catch (cbErr) { console.error("[Cerebrum] apiKeys.js getApiKeyUsage:", cbErr); }
+      const today = utcDay(Date.now());
+      const todayRow = recent.find((x) => x.day === today);
+      out.push({
+        id: k.id,
+        name: k.name,
+        keyPrefix: k.keyPrefix,
+        createdAt: k.createdAt,
+        lastUsedAt: k.lastUsedAt,
+        totalCalls: (total && total.calls) || 0,
+        totalErrors: (total && total.errors) || 0,
+        calls7d: recent.reduce((s, x) => s + (x.calls || 0), 0),
+        errors7d: recent.reduce((s, x) => s + (x.errors || 0), 0),
+        callsToday: (todayRow && todayRow.calls) || 0,
+        daily: recent.map((x) => ({ day: x.day, calls: x.calls || 0, errors: x.errors || 0 })),
+      });
+    }
+    return out;
+  } catch (cbErr) {
+    console.error("[Cerebrum] apiKeys.js getApiKeyUsage:", cbErr);
+    return [];
+  }
+}

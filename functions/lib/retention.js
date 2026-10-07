@@ -41,6 +41,12 @@ export const RETENTION = {
   sessionsMs: 0, // deleted on their own expires_at
   /** Rate-limit counters. */
   rateLimitMs: 0, // deleted on their own expires_at
+  /** Per-key API usage daily counters. Counts only, no content. */
+  apiKeyUsageMs: 90 * 24 * 60 * 60 * 1000,
+  /** Priority-queue denial daily counters. */
+  searchDenialsMs: 90 * 24 * 60 * 60 * 1000,
+  /** Investigation template start daily counters. */
+  templateUsageMs: 90 * 24 * 60 * 60 * 1000,
 };
 
 /**
@@ -53,6 +59,11 @@ const SWEEP_PROBABILITY = 0.01;
 
 export function shouldSweep() {
   return Math.random() < SWEEP_PROBABILITY;
+}
+
+/** Epoch ms → YYYY-MM-DD for day-string tables (api_key_usage etc). */
+function dayCutoff(ts) {
+  return new Date(ts).toISOString().slice(0, 10);
 }
 
 /**
@@ -76,6 +87,10 @@ export async function sweepExpiredData(env) {
     ["magic_links",        "DELETE FROM magic_links WHERE expires_at < ?",        now - RETENTION.magicLinkMs],
     ["sessions",           "DELETE FROM sessions WHERE expires_at < ?",           now],
     ["rate_limits",        "DELETE FROM rate_limits WHERE expires_at < ?",        now],
+    // Telemetry tables use YYYY-MM-DD day strings, not epoch ms.
+    ["api_key_usage",      "DELETE FROM api_key_usage WHERE day < ?",      dayCutoff(now - RETENTION.apiKeyUsageMs)],
+    ["search_denials",     "DELETE FROM search_denials WHERE day < ?",     dayCutoff(now - RETENTION.searchDenialsMs)],
+    ["template_usage",     "DELETE FROM template_usage WHERE day < ?",     dayCutoff(now - RETENTION.templateUsageMs)],
   ];
 
   /* Historical raw_query rows are NOT cleared automatically.

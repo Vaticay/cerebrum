@@ -83,3 +83,68 @@ export async function releaseSearchSlot(env) {
     console.error("[Cerebrum] searchPriority.js releaseSearchSlot:", cbErr);
   }
 }
+
+// ── Denial observability ────────────────────────────────────────────────
+// Daily counters of how often the queue actually denied a standard search.
+// Exposed in the 429 body (denialsToday) and search _diag so the priority
+// feature's real-world bite is measurable instead of assumed.
+
+let denialTableReady = null;
+export function ensureDenialTable(env) {
+  if (!env || !env.DB) return Promise.resolve(false);
+  if (!denialTableReady) {
+    denialTableReady = env.DB.exec(
+      "CREATE TABLE IF NOT EXISTS search_denials (" +
+        "day TEXT PRIMARY KEY, " +
+        "denials INTEGER NOT NULL DEFAULT 0)"
+    ).then(
+      () => true,
+      (e) => { denialTableReady = null; throw e; }
+    );
+  }
+  return denialTableReady;
+}
+
+function utcDay(ts) {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+/** Record one queue denial. Never throws. Returns today's denial count. */
+export async function recordSlotDenial(env) {
+  try {
+    if (!env || !env.DB) return 0;
+    await ensureDenialTable(env);
+    const day = utcDay(Date.now());
+    await env.DB.prepare(
+      "INSERT INTO search_denials (day, denials) VALUES (?, 1) " +
+      "ON CONFLICT(day) DO UPDATE SET denials = denials + 1"
+    ).bind(day).run();
+    const row = await env.DB.prepare("SELECT denials FROM search_denials WHERE day = ?").bind(day).first();
+    return (row && row.denials) || 1;
+  } catch (cbErr) {
+    console.error("[Cerebrum] searchPriority.js recordSlotDenial:", cbErr);
+    return 0;
+  }
+}
+
+/** Today's + last-7-days denial counts. Never throws. */
+export async function getDenialStats(env) {
+  const fallback = { today: 0, last7d: 0 };
+  try {
+    if (!env || !env.DB) return fallback;
+    await ensureDenialTable(env);
+    const weekAgo = utcDay(Date.now() - 6 * 86400000);
+    const r = await env.DB.prepare(
+      "SELECT day, denials FROM search_denials WHERE day >= ? ORDER BY day DESC"
+    ).bind(weekAgo).all();
+    const rows = (r && r.results) || [];
+    const today = utcDay(Date.now());
+    return {
+      today: (rows.find((x) => x.day === today) || { denials: 0 }).denials || 0,
+      last7d: rows.reduce((s, x) => s + (x.denials || 0), 0),
+    };
+  } catch (cbErr) {
+    console.error("[Cerebrum] searchPriority.js getDenialStats:", cbErr);
+    return fallback;
+  }
+}

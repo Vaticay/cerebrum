@@ -610,6 +610,9 @@ export async function onRequest(context) {
     case "api-key-create": return handleApiKeyCreate(request, env, cors, parsed.body);
     case "api-key-list": return handleApiKeyList(request, env, cors);
     case "api-key-revoke": return handleApiKeyRevoke(request, env, cors, parsed.body);
+    case "api-key-usage": return handleApiKeyUsage(request, env, cors);
+    case "template-track": return handleTemplateTrack(request, env, cors, parsed.body);
+    case "template-stats": return handleTemplateStats(request, env, cors);
     default:
       return errorResponse(400, "unknown_action", "Unknown action.", cors);
   }
@@ -667,6 +670,41 @@ async function handleApiKeyRevoke(request, env, cors, body) {
   const revoked = await revokeApiKey(env, checked.user.id, id);
   if (!revoked) return errorResponse(404, "key_not_found", "Key not found or already revoked.", cors);
   return json({ ok: true, revoked: true }, 200, cors);
+}
+
+// Per-key usage dashboard: totals + 7-day window per key, ownership
+// enforced inside getApiKeyUsage (joins api_keys on user_id).
+async function handleApiKeyUsage(request, env, cors) {
+  const checked = await requireProUser(request, env, cors);
+  if (checked.response) return checked.response;
+  const { getApiKeyUsage } = await import("../../lib/apiKeys.js");
+  const usage = await getApiKeyUsage(env, checked.user.id);
+  return json({ ok: true, usage }, 200, cors);
+}
+
+// ── Template telemetry (Pro members only) ─────────────────────────────────
+// template-track: fire-and-forget from the client when a Pro investigation
+// template is started. template-stats: per-template totals + 30-day window.
+async function handleTemplateTrack(request, env, cors, body) {
+  const checked = await requireProUser(request, env, cors);
+  if (checked.response) return checked.response;
+  const ip = clientIp(request);
+  if (!(await checkRateLimit(env, "tmpltrack:" + privacyKey(ip), 60, 60000))) {
+    return tooManyRequests(cors);
+  }
+  const templateId = body && typeof body.templateId === "string" ? body.templateId : "";
+  const { recordTemplateStart, isKnownTemplate } = await import("../../lib/templateTelemetry.js");
+  if (!isKnownTemplate(templateId)) return json({ ok: true, tracked: false }, 200, cors);
+  await recordTemplateStart(env, templateId);
+  return json({ ok: true, tracked: true }, 200, cors);
+}
+
+async function handleTemplateStats(request, env, cors) {
+  const checked = await requireProUser(request, env, cors);
+  if (checked.response) return checked.response;
+  const { getTemplateStats } = await import("../../lib/templateTelemetry.js");
+  const stats = await getTemplateStats(env);
+  return json({ ok: true, stats }, 200, cors);
 }
 
 // ── POST: flowchart-allow (signed in) ─────────────────────────────────────
