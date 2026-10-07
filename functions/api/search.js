@@ -1528,6 +1528,19 @@ const SYNONYMS = {
   gwas: ["genome wide association study", "genome-wide association"],
   qtl: ["quantitative trait loci", "quantitative trait locus"],
   snp: ["single nucleotide polymorphism"],
+  // 2026-10-07: Drug brand/generic mappings. "Ozempic" must match papers
+  // about "semaglutide" or "GLP-1 receptor agonists" — otherwise the
+  // relevance gate rejects on-topic papers and users get "couldn't find
+  // a direct answer" for questions with perfect matches.
+  ozempic: ["semaglutide", "glp1", "glp-1", "glp-1 receptor agonist"],
+  wegovy: ["semaglutide", "glp1", "glp-1", "glp-1 receptor agonist"],
+  rybelsus: ["semaglutide", "glp1", "glp-1"],
+  mounjaro: ["tirzepatide", "glp1", "glp-1", "gip"],
+  zepbound: ["tirzepatide", "glp1", "glp-1"],
+  semaglutide: ["ozempic", "wegovy", "glp1", "glp-1 receptor agonist"],
+  tirzepatide: ["mounjaro", "zepbound", "glp1"],
+  "glp1": ["glp-1", "glucagon-like peptide-1", "glp-1 receptor agonist"],
+  "glp-1": ["glp1", "glucagon-like peptide-1"],
   // Cell biology
   ros: ["reactive oxygen species", "oxidative stress", "free radicals"],
   er: ["endoplasmic reticulum"],
@@ -4724,6 +4737,17 @@ export function assessExtractionQuality(items, ctx = {}) {
     const rel = paperRelevance(it && it.p);
     if (rel >= 0) stats.scored++;
     if (rel >= EXTRACT_STRONG_RELEVANCE) stats.strong++;
+    // 2026-10-07: Title-match fallback. If the numeric relevance score is low
+    // but the paper's TITLE directly contains 2+ significant query terms (e.g.
+    // "GLP1" and "heart" for "Do GLP-1 drugs protect the heart?"), it's
+    // clearly on-topic. The relevance scorer can miss these due to hyphen
+    // variants, brand/generic names, etc. This prevents the "couldn't find a
+    // direct answer" false negative when perfect matches exist.
+    if (rel < EXTRACT_STRONG_RELEVANCE && it && it.p && it.p.title && qTerms.length >= 2) {
+      const titleLower = it.p.title.toLowerCase();
+      const titleHits = qTerms.filter((t) => titleLower.indexOf(t) >= 0).length;
+      if (titleHits >= 2) stats.strong++;
+    }
     if (it && it.hasFindings) stats.withFindings++;
     const text = ((it && it.findings) || []).join(" ") + " " + ((it && it.titleClaim) || "");
     if (qTerms.length > 0 && qTerms.some((t) => text.toLowerCase().indexOf(t) >= 0)) stats.queryHit++;
@@ -5987,7 +6011,7 @@ export function buildConfidenceLine(papers, verdict) {
     score = Math.min(score, 45);
   } else if (score >= 60) {
     level = "strong";
-  } else if (score >= 40) {
+  } else if (score >= 50) {
     level = "moderate";
   } else {
     level = "thin";
@@ -6067,7 +6091,7 @@ export function calibrateConfidenceScore(conf, ctx = {}) {
     score = Math.min(score, 70);
   } else if (score >= 60) {
     level = "strong";
-  } else if (score >= 40) {
+  } else if (score >= 50) {
     level = "moderate";
   } else {
     level = "thin";
@@ -8415,8 +8439,13 @@ async function gatherPapers(rawQuery, opts) {
   // papers for a mobile-genetic-elements query.
   const terms = query
     .toLowerCase()
-    .split(/[\s-]+/)
+    // 2026-10-07: Don't split hyphens between letters and digits — "GLP-1"
+    // must stay as one token (or "glp1"), not split into "glp" + "1" (which
+    // gets filtered). This was causing "GLP-1 drugs" to never match papers
+    // titled "GLP1 receptor agonists".
+    .split(/\s+/)
     .map((t) => t.replace(/[^a-z0-9\-]/g, ""))
+    .map((t) => t.replace(/([a-z])-(\d)/g, "$1$2"))
     .filter((t) => t.length > 2 && !STOPWORDS.has(t));
   const expansions = expansionsFor(terms);
 
