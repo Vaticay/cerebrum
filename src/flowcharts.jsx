@@ -756,8 +756,23 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
   };
 
   /* Canvas background interactions */
+  const pinchRef = useRef(null);
   const onCanvasPointerDown = (e) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    /* Two-finger pinch zoom on touch. */
+    if (e.pointerType !== "mouse") {
+      const pins = pinchRef.current?.pts || {};
+      pins[e.pointerId] = { x: e.clientX, y: e.clientY };
+      const ids = Object.keys(pins);
+      if (ids.length === 2) {
+        const [a, b] = ids.map((id) => pins[id]);
+        pinchRef.current = { pts: pins, dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: viewport.zoom, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+        panRef.current = null;
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        return;
+      }
+      pinchRef.current = { pts: pins };
+    }
     setSelection(null);
     setPendingFrom(null);
     setExportOpen(false);
@@ -765,13 +780,41 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const onCanvasPointerMove = (e) => {
+    /* Pinch zoom */
+    const pinch = pinchRef.current;
+    if (pinch?.pts?.[e.pointerId]) {
+      pinch.pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      const ids = Object.keys(pinch.pts);
+      if (ids.length === 2 && pinch.dist) {
+        const [a, b] = ids.map((id) => pinch.pts[id]);
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist > 0) {
+          const svg = svgRef.current;
+          const r = svg.getBoundingClientRect();
+          const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+          setViewport((v) => {
+            const z2 = Math.min(2.5, Math.max(0.3, pinch.zoom * (dist / pinch.dist)));
+            const wx = (mx - v.x) / v.zoom, wy = (my - v.y) / v.zoom;
+            return { zoom: z2, x: mx - wx * z2, y: my - wy * z2 };
+          });
+        }
+        return;
+      }
+    }
     const p = panRef.current;
     if (!p) return;
     const dx = e.clientX - p.sx, dy = e.clientY - p.sy;
     if (Math.abs(dx) + Math.abs(dy) > 3) p.moved = true;
     setViewport((v) => ({ ...v, x: p.ox + dx, y: p.oy + dy }));
   };
-  const onCanvasPointerUp = () => { panRef.current = null; };
+  const onCanvasPointerUp = (e) => {
+    panRef.current = null;
+    if (pinchRef.current?.pts) {
+      delete pinchRef.current.pts[e.pointerId];
+      if (Object.keys(pinchRef.current.pts).length < 2) pinchRef.current = null;
+    }
+  };
+  const onCanvasPointerCancel = (e) => onCanvasPointerUp(e);
 
   const onNodePointerDown = (e, n) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -801,11 +844,24 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
     if (Math.abs(nx - d.ox) + Math.abs(ny - d.oy) > 2) d.moved = true;
     setNodes((prev) => prev.map((m) => (m.id === n.id ? { ...m, x: Math.round(nx), y: Math.round(ny) } : m)));
   };
+  const lastTapRef = useRef({ id: null, t: 0 });
   const onNodePointerUp = (e, n) => {
     const d = dragRef.current;
     if (d && d.id === n.id) {
       dragRef.current = null;
       if (d.moved) pushHistory();
+    }
+    /* Double-tap to edit on touch (no double-click event on mobile). */
+    if (e.pointerType !== "mouse" && !d?.moved) {
+      const now = Date.now();
+      const lt = lastTapRef.current;
+      if (lt.id === n.id && now - lt.t < 350) {
+        lastTapRef.current = { id: null, t: 0 };
+        setSelection({ kind: "node", id: n.id });
+        setTimeout(() => document.getElementById("fc-label-edit")?.focus(), 50);
+      } else {
+        lastTapRef.current = { id: n.id, t: now };
+      }
     }
   };
 
@@ -1022,7 +1078,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 : "radial-gradient(120% 120% at 50% 40%, transparent 60%, rgba(30,40,30,0.10) 100%)",
             }} />
             <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", cursor: tool === "connect" ? "crosshair" : "grab", touchAction: "none" }}
-              onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp}>
+              onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp} onPointerCancel={onCanvasPointerCancel}>
               <defs>
                 <pattern id="fcGrid" width="28" height="28" patternUnits="userSpaceOnUse">
                   <circle cx="1.2" cy="1.2" r="1.1" fill={P.dark ? "rgba(255,255,255,0.055)" : "rgba(20,30,20,0.07)"} />
