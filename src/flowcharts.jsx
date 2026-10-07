@@ -8,8 +8,9 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING } from "./designSystem.jsx";
-import { getCookie, __cbMotionCache, cbMotionCacheSet } from "./appUtils.js";
+import { getCookie, __cbMotionCache, cbMotionCacheSet, download } from "./appUtils.js";
 
 export function cbMotionOff() {
   // Cached ~1s: this runs in hot paths (pointer handlers, count-up hooks)
@@ -27,6 +28,38 @@ export function cbMotionOff() {
   try { cbMotionCacheSet({ v, t: now }); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbMotionOff: cache set:", cbErr); }
   return v;
 }
+
+const cbDialogStack = [];
+let cbDialogLockDepth = 0;
+let cbDialogSavedOverflow = "";
+let cbDialogSavedPaddingRight = "";
+
+function cbDialogLockScroll() {
+  if (cbDialogLockDepth === 0) {
+    try {
+      cbDialogSavedOverflow = document.body.style.overflow;
+      cbDialogSavedPaddingRight = document.body.style.paddingRight;
+      const sw = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.overflow = "hidden";
+      if (sw > 0) document.body.style.paddingRight = `calc(${cbDialogSavedPaddingRight || "0px"} + ${sw}px)`;
+    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbDialogLockScroll:", cbErr); }
+  }
+  cbDialogLockDepth += 1;
+}
+function cbDialogUnlockScroll() {
+  if (cbDialogLockDepth <= 0) return;
+  cbDialogLockDepth -= 1;
+  if (cbDialogLockDepth === 0) {
+    try {
+      document.body.style.overflow = cbDialogSavedOverflow;
+      document.body.style.paddingRight = cbDialogSavedPaddingRight;
+    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbDialogUnlockScroll:", cbErr); }
+  }
+}
+
+const CB_FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Dialog({
   label, labelledBy, onClose, children,
@@ -165,6 +198,374 @@ export function Dialog({
       </div>
     </div>,
     document.body
+  );
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Flowchart Studio
+
+   A real diagram instrument: typed nodes (start / process / decision /
+   input-output / evidence / end), connectable labeled edges,
+   auto-layout, undo/redo, pan/zoom, and honest exports (SVG, PNG,
+   Markdown outline). "Draft from answer" turns the current answer's
+   steps into a starting graph — always labelled a draft, always
+   reviewable, because a flowchart that invents structure is worse
+   than no flowchart. Charts persist to localStorage (cb_flowcharts) as the
+   offline cache and sync to the account (user_flowcharts) when signed in,
+   and surface in the Library.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Node geometry, redesigned for terse labels: wider, taller, more air —
+   a 52-char label sets in two calm lines at 15px with a mono step kicker
+   above it, instead of four cramped lines at 13.5px. */
+const FC_NODE_TYPES = {
+  start:    { name: "Start",          w: 148, h: 58  },
+  process:  { name: "Process",        w: 200, h: 92  },
+  decision: { name: "Decision",       w: 200, h: 132 },
+  io:       { name: "Input / Output", w: 200, h: 80  },
+  evidence: { name: "Evidence",       w: 208, h: 104 },
+  end:      { name: "End",            w: 148, h: 58  },
+};
+const FC_ORDER = ["start", "process", "decision", "io", "evidence", "end"];
+const FC_GAP_Y = 104;
+
+let fcSeq = 0;
+function fcId(p) { fcSeq += 1; return `fc-${p}-${Date.now().toString(36)}-${fcSeq.toString(36)}`; }
+
+// Sign-in merge for evidence maps: the account's copy wins on id conflicts,
+// charts that exist only in this browser are kept (never silently dropped),
+// and the result is most-recent-first. Pure so the sync tests can cover it.
+function mergeFlowcharts(serverCharts, localCharts) {
+  const server = Array.isArray(serverCharts) ? serverCharts : [];
+  const local = Array.isArray(localCharts) ? localCharts : [];
+  const serverIds = new Set(server.map((c) => c && c.id));
+  const merged = [...server, ...local.filter((c) => c && !serverIds.has(c.id))];
+  merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return merged;
+}
+
+function fcNewNode(type, x, y, label, extra = {}) {
+  const t = FC_NODE_TYPES[type] || FC_NODE_TYPES.process;
+  return { id: fcId("n"), type, x: Math.round(x), y: Math.round(y), w: t.w, h: t.h, label: label || t.name, ...extra };
+}
+function fcNewEdge(from, to, label = "") { return { id: fcId("e"), from, to, label }; }
+function fcNodeById(nodes, id) { return nodes.find((n) => n.id === id); }
+function fcSlug(s) { return (s || "flowchart").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 60) || "flowchart"; }
+
+/* Word-wrap a label into lines that fit ~maxChars each. */
+function fcWrap(label, maxChars) {
+  const words = String(label || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? cur + " " + w : w;
+    if (next.length > maxChars && cur) { lines.push(cur); cur = w; }
+    else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [""];
+}
+
+/* ── Edge geometry: pick the closest port pair, route a bezier ── */
+function fcPorts(n) {
+  const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+  return [
+    { x: cx, y: n.y, side: "t" },
+    { x: n.x + n.w, y: cy, side: "r" },
+    { x: cx, y: n.y + n.h, side: "b" },
+    { x: n.x, y: cy, side: "l" },
+  ];
+}
+function fcEdgeGeom(a, b) {
+  const pa = fcPorts(a), pb = fcPorts(b);
+  let best = null;
+  for (const p of pa) for (const q of pb) {
+    const d = (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y);
+    if (!best || d < best.d) best = { p, q, d };
+  }
+  const { p, q } = best;
+  const dir = (pt) => (pt.side === "t" ? [0, -1] : pt.side === "b" ? [0, 1] : pt.side === "l" ? [-1, 0] : [1, 0]);
+  const [dx1, dy1] = dir(p), [dx2, dy2] = dir(q);
+  const dist = Math.sqrt(best.d) || 1;
+  const k = Math.min(90, Math.max(30, dist * 0.35));
+  return {
+    d: `M ${p.x} ${p.y} C ${p.x + dx1 * k} ${p.y + dy1 * k}, ${q.x + dx2 * k} ${q.y + dy2 * k}, ${q.x} ${q.y}`,
+    mx: (p.x + q.x) / 2, my: (p.y + q.y) / 2,
+  };
+}
+
+/* ── Layered auto-layout: topological layers, centered ── */
+function fcAutoLayout(nodes, edges) {
+  if (!nodes.length) return nodes;
+  const result = nodes.map((n) => ({ ...n }));
+  /* No connections yet: a single centered column reads better than a
+     1200px-wide row that pushes nodes off-screen. */
+  if (!edges.length) {
+    let y = 60;
+    const cx = 600;
+    [...result].sort((a, b) => a.y - b.y || a.x - b.x).forEach((n) => {
+      n.x = Math.round(cx - n.w / 2);
+      n.y = Math.round(y);
+      y += n.h + FC_GAP_Y;
+    });
+    return result;
+  }
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const incoming = new Map(nodes.map((n) => [n.id, 0]));
+  const out = new Map(nodes.map((n) => [n.id, []]));
+  for (const e of edges) {
+    if (e.from !== e.to && byId.has(e.from) && byId.has(e.to)) {
+      out.get(e.from).push(e.to);
+      incoming.set(e.to, incoming.get(e.to) + 1);
+    }
+  }
+  const order = [...nodes].sort((a, b) => a.x - b.x);
+  const layer = new Map();
+  const queue = order.filter((n) => incoming.get(n.id) === 0);
+  queue.forEach((n) => layer.set(n.id, 0));
+  const q = [...queue];
+  const inQueue = new Set(q.map((n) => n.id));
+  while (q.length) {
+    const n = q.shift();
+    for (const t of out.get(n.id)) {
+      const nl = layer.get(n.id) + 1;
+      if (!layer.has(t) || layer.get(t) < nl) layer.set(t, nl);
+      if (!inQueue.has(t)) { inQueue.add(t); q.push(byId.get(t)); }
+    }
+  }
+  let maxL = 0;
+  for (const v of layer.values()) maxL = Math.max(maxL, v);
+  for (const n of nodes) if (!layer.has(n.id)) layer.set(n.id, maxL + 1);
+  const layers = new Map();
+  for (const n of order) {
+    const l = layer.get(n.id);
+    if (!layers.has(l)) layers.set(l, []);
+    layers.get(l).push(n);
+  }
+  const rById = new Map(result.map((n) => [n.id, n]));
+  const totalW = 1200;
+  [...layers.keys()].sort((a, b) => a - b).forEach((l, li) => {
+    const arr = layers.get(l);
+    const y = 60 + li * 172;
+    arr.forEach((n, i) => {
+      const c = rById.get(n.id);
+      const slotW = totalW / arr.length;
+      c.x = Math.round(slotW * i + slotW / 2 - c.w / 2);
+      c.y = Math.round(y + (104 - Math.min(c.h, 104)) / 2);
+    });
+  });
+  return result;
+}
+
+/* ── Draft from answer: extract steps, never invent them ──
+   Labels go through fcCompressStep (src/fcLabel.js): a few words per node,
+   compressed by deleting filler — never a 96-char slice with "…". Steps
+   that carried citations in the answer become evidence nodes grounded to
+   the real paper (sourceIdx into `sources`); the full source sentence is
+   kept on node.detail so the inspector can show what the label compressed. */
+function fcDraftFromAnswer(text, sources) {
+  const rawSteps = fcExtractSteps(text, 7);
+  if (!rawSteps.length) return null;
+  const srcCount = Array.isArray(sources) ? sources.length : 0;
+  const nodes = [];
+  const edges = [];
+  const cx = 600;
+  let y = 60;
+  const addStep = (type, label, extra = {}) => {
+    const t = FC_NODE_TYPES[type];
+    const n = fcNewNode(type, cx - t.w / 2, y, label, extra);
+    nodes.push(n);
+    y += t.h + FC_GAP_Y;
+    return n;
+  };
+  const start = addStep("start", "Start");
+  let prev = start;
+  rawSteps.forEach((st, i) => {
+    const label = fcCompressStep(st.text);
+    const isDecision = /^(if|when|whether)\b/i.test(st.text) || /\bdepends on\b/i.test(st.text);
+    // A step that cited a paper is evidence, not prose: ground the node to
+    // the real source. Citation indices are 1-based; anything out of range
+    // is ignored rather than guessed at.
+    const citeIdx = st.cites.find((n) => n >= 1 && n <= srcCount);
+    const type = typeof citeIdx === "number" ? "evidence" : isDecision ? "decision" : "process";
+    const n = addStep(type, label, {
+      step: i + 1,
+      ...(st.text !== label ? { detail: st.text } : {}),
+      ...(typeof citeIdx === "number" ? { sourceIdx: citeIdx - 1 } : {}),
+    });
+    edges.push(fcNewEdge(prev.id, n.id, prev.type === "decision" ? "yes" : ""));
+    prev = n;
+  });
+  const end = addStep("end", "End");
+  edges.push(fcNewEdge(prev.id, end.id, prev.type === "decision" ? "yes" : ""));
+  return { nodes: fcAutoLayout(nodes, edges), edges, isDraft: true };
+}
+
+/* ── Export helpers ── */
+function fcEsc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function fcBounds(nodes, pad = 60) {
+  if (!nodes.length) return { x: 0, y: 0, w: 800, h: 600 };
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) {
+    x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y);
+    x1 = Math.max(x1, n.x + n.w); y1 = Math.max(y1, n.y + n.h);
+  }
+  return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
+}
+const FC_EXPORT_COLORS = {
+  bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
+  accent: "#2e7d52", accentText: "#ffffff", edge: "#5b625b", decisionFill: "#eef4ef",
+};
+function fcNodeSvg(n) {
+  const C = FC_EXPORT_COLORS;
+  const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
+  const lh = 16;
+  const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
+  const isAccent = n.type === "start" || n.type === "end";
+  const textFill = isAccent ? C.accentText : C.text;
+  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
+  let shape = "";
+  if (n.type === "start" || n.type === "end") {
+    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${C.accent}"/>`;
+  } else if (n.type === "decision") {
+    shape = `<polygon points="${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}" fill="${C.decisionFill}" stroke="${C.accent}" stroke-width="1.6"/>`;
+  } else if (n.type === "io") {
+    const s = 22;
+    shape = `<polygon points="${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
+  } else if (n.type === "evidence") {
+    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.accent}" stroke-width="1.6"/><rect x="${n.x}" y="${n.y}" width="5" height="${n.h}" rx="2.5" fill="${C.accent}"/>`;
+  } else {
+    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
+  }
+  return `<g>${shape}${text}</g>`;
+}
+function fcSvgString(nodes, edges, title) {
+  const C = FC_EXPORT_COLORS;
+  const b = fcBounds(nodes);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const edgeSvg = edges.map((e) => {
+    const a = byId.get(e.from), bb = byId.get(e.to);
+    if (!a || !bb) return "";
+    const g = fcEdgeGeom(a, bb);
+    const lbl = e.label ? `<text x="${g.mx}" y="${(g.my - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-style="italic" fill="${C.edge}">${fcEsc(e.label)}</text>` : "";
+    return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
+  }).join("");
+  const nodeSvg = nodes.map(fcNodeSvg).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Flowchart")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
+}
+function fcToMarkdown(nodes, edges, title) {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out = new Map(nodes.map((n) => [n.id, []]));
+  const incoming = new Map(nodes.map((n) => [n.id, 0]));
+  for (const e of edges) {
+    if (e.from !== e.to && byId.has(e.from) && byId.has(e.to)) {
+      out.get(e.from).push(e);
+      incoming.set(e.to, incoming.get(e.to) + 1);
+    }
+  }
+  const roots = nodes.filter((n) => incoming.get(n.id) === 0);
+  const startNodes = roots.length ? roots : nodes.slice(0, 1);
+  const lines = [`# ${title || "Flowchart"}`, ""];
+  const seen = new Set();
+  const tag = { start: "Start", end: "End", decision: "Decision", io: "Input/Output", evidence: "Evidence", process: "Step" };
+  const walk = (n, depth, viaLabel) => {
+    if (!n) return;
+    if (seen.has(n.id)) { lines.push(`${"  ".repeat(depth)}- ↺ *${n.label}* (see above)`); return; }
+    seen.add(n.id);
+    lines.push(`${"  ".repeat(depth)}- ${viaLabel ? `*${viaLabel}* → ` : ""}**${tag[n.type] || "Step"}:** ${n.label}`);
+    for (const e of out.get(n.id)) walk(byId.get(e.to), depth + 1, e.label);
+  };
+  startNodes.forEach((n) => walk(n, 0, ""));
+  return lines.join("\n");
+}
+
+/* Mini static preview for Library cards. */
+function FcThumb({ chart, accent }) {
+  const nodes = chart.nodes || [];
+  if (!nodes.length) return null;
+  const b = fcBounds(nodes, 30);
+  const scale = Math.min(1, 280 / b.w, 120 / b.h);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return (
+    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: "rgba(127,140,127,0.06)", borderRadius: 8 }}>
+      {(chart.edges || []).map((e) => {
+        const a = byId.get(e.from), bb = byId.get(e.to);
+        if (!a || !bb) return null;
+        const g = fcEdgeGeom(a, bb);
+        return <path key={e.id} d={g.d} fill="none" stroke={accent} strokeWidth={3} opacity={0.45} />;
+      })}
+      {nodes.map((n) => {
+        const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+        const fill = n.type === "start" || n.type === "end" ? accent : n.type === "decision" ? withAlpha(accent, 0.35) : withAlpha(accent, 0.14);
+        if (n.type === "decision") return <polygon key={n.id} points={`${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}`} fill={fill} />;
+        if (n.type === "io") { const s = 22; return <polygon key={n.id} points={`${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}`} fill={fill} />; }
+        return <rect key={n.id} x={n.x} y={n.y} width={n.w} height={n.h} rx={n.type === "start" || n.type === "end" ? n.h / 2 : 10} fill={fill} />;
+      })}
+    </svg>
+  );
+}
+
+/* Small palette button showing the node shape. */
+function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
+  const t = FC_NODE_TYPES[type];
+  const isAccent = type === "start" || type === "end";
+  const shape = (() => {
+    if (type === "decision") return <polygon points="20,2 38,12 20,22 2,12" fill={isAccent ? accent : withAlpha(accent, 0.16)} stroke={accent} strokeWidth={1.4} />;
+    if (type === "io") return <polygon points="8,3 34,3 30,21 4,21" fill={withAlpha(accent, 0.12)} stroke={P.faint} strokeWidth={1.4} />;
+    if (type === "evidence") return (<g><rect x="3" y="3" width="34" height="18" rx="4" fill={withAlpha(accent, 0.10)} stroke={accent} strokeWidth={1.4} /><rect x="3" y="3" width="4" height="18" rx="2" fill={accent} /></g>);
+    return <rect x="3" y="4" width="34" height="16" rx={isAccent ? 8 : 4} fill={isAccent ? accent : withAlpha(accent, 0.10)} stroke={isAccent ? accent : P.faint} strokeWidth={1.4} />;
+  })();
+  return (
+    <button type="button" onClick={onClick} title={`Add ${t.name}: click to drop it on the canvas`}
+      aria-label={`Add ${t.name} node`}
+      style={{
+        display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: "center", gap: isMobile ? 7 : 5,
+        padding: isMobile ? "8px 12px 8px 8px" : "10px 4px", borderRadius: 12, cursor: "pointer",
+        background: selected ? withAlpha(accent, 0.12) : "transparent",
+        border: `1px solid ${selected ? accent : "transparent"}`,
+        transition: "background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease", flexShrink: 0,
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.borderColor = withAlpha(accent, 0.35); e.currentTarget.style.transform = "translateY(-1px)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = selected ? withAlpha(accent, 0.12) : "transparent"; e.currentTarget.style.borderColor = selected ? accent : "transparent"; e.currentTarget.style.transform = "none"; }}>
+      <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true" style={{ filter: `drop-shadow(0 2px 4px ${withAlpha(accent, 0.25)})` }}>{shape}</svg>
+      <span style={{ fontSize: 10, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 600 }}>{t.name}</span>
+    </button>
+  );
+}
+
+/* In-canvas node shape (JSX). Layered: base fill, top-light gradient sheen,
+   soft drop shadow. Selected nodes get an accent glow ring.
+   Redesigned pass: softer, deeper shadow; hairline 1.5px strokes; larger
+   corner radii — the chrome gets out of the way of the terse labels. */
+function FcNodeShape({ n, P, accent, selected, pending }) {
+  const cx = n.w / 2, cy = n.h / 2;
+  const isAccent = n.type === "start" || n.type === "end";
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.85)");
+  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.20)" : "rgba(20,30,20,0.24)");
+  const sw = selected || pending ? 2.6 : 1.5;
+  const shape = (() => {
+    if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} />;
+    if (n.type === "io") { const s = 20; return <polygon points={`${s},0 ${n.w},0 ${n.w - s},${n.h} 0,${n.h}`} />; }
+    if (n.type === "evidence") return <rect x={0} y={0} width={n.w} height={n.h} rx={14} />;
+    return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : 14} />;
+  })();
+  return (
+    <g filter="url(#fcNodeShadow)">
+      {selected && (
+        <g opacity={0.55}>
+          {n.type === "decision"
+            ? <polygon points={`${cx},-7 ${n.w + 7},${cy} ${cx},${n.h + 7} -7,${cy}`} fill="none" stroke={accent} strokeWidth={2.4} />
+            : <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={(isAccent ? n.h / 2 : 14) + 7} fill="none" stroke={accent} strokeWidth={2.4} />}
+        </g>
+      )}
+      {React.cloneElement(shape, { fill, stroke, strokeWidth: sw })}
+      {React.cloneElement(shape, { fill: "url(#fcNodeGrad)", stroke: "none", pointerEvents: "none" })}
+      {n.type === "evidence" && <rect x={0} y={0} width={5} height={n.h} rx={2.5} fill={accent} stroke="none" pointerEvents="none" />}
+    </g>
   );
 }
 
@@ -356,7 +757,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
 
   /* Canvas background interactions */
   const onCanvasPointerDown = (e) => {
-    if (e.button !== 0) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     setSelection(null);
     setPendingFrom(null);
     setExportOpen(false);
@@ -373,7 +774,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
   const onCanvasPointerUp = () => { panRef.current = null; };
 
   const onNodePointerDown = (e, n) => {
-    if (e.button !== 0) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.stopPropagation();
     if (tool === "connect") {
       if (!pendingFrom) { setPendingFrom(n.id); setSelection({ kind: "node", id: n.id }); }
@@ -1928,3 +2329,4 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
 }
 
 export { ChromeHeader, ModalChrome };
+export { fcId, mergeFlowcharts, fcSlug, fcSvgString };

@@ -3836,9 +3836,10 @@ function FactCheck({ fc, P, accent }) {
 
 function Skeleton({ P, accent, label = "Working" }) {
   const bar = (w, h = 12) => (
-    <div aria-hidden="true" style={{
+    <div aria-hidden="true" className="cb-skelbar" style={{
       height: h, width: w, borderRadius: 8,
       background: P.skel,
+      "--cb-skel": P.skel,
     }} />
   );
   return (
@@ -3884,9 +3885,10 @@ function Skeleton({ P, accent, label = "Working" }) {
    only on the streaming path, under the ReadingRoom's stage rail. */
 function AnswerSkeleton({ P, accent }) {
   const bar = (w, h, radius = 6) => (
-    <div aria-hidden="true" style={{
+    <div aria-hidden="true" className="cb-skelbar" style={{
       height: h, width: w, borderRadius: radius, flexShrink: 0,
       background: P.skel,
+      "--cb-skel": P.skel,
     }} />
   );
   return (
@@ -9382,6 +9384,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           lives in a drawer (below), secondary and closed by default. */}
       <div className="cb-answer-wrap">
         <article style={S.answerCard} className="cb-answer-enter cb-article">
+        <div style={S.answerCardEdge} aria-hidden="true" />
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -9791,7 +9794,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <div style={S.relatedLabel}>Continue the investigation</div>
           <div style={S.relatedList}>
             {t.related.map((r, i) => (
-              <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)} onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
+              <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)} onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = P.dark ? "0 10px 24px -8px rgba(0,0,0,0.5)" : "0 10px 24px -10px rgba(15,23,42,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
                 <span>{r}</span><span style={{ color: accent, fontFamily: "var(--cb-font)" }}>→</span>
               </button>
             ))}
@@ -17758,13 +17761,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        question now opens as a serif document title with a mono metadata
        line, no decorative eyebrow. */
     headline: {
-      /* The question is the document title, not the hero — the answer body
-         below it is the hero of the page. Steps down from hero/display to
-         display/title so the question introduces without competing. */
-      fontWeight: 650, fontSize: isMobile ? FONT_SIZES.title : FONT_SIZES.display,
-      lineHeight: 1.3, marginBottom: isMobile ? 24 : 32,
-      color: P.ink, letterSpacing: "-0.015em",
+      /* The question is the document title — it carries real presence:
+         larger, tighter tracking, more weight, balanced line breaks so it
+         reads as the hero statement of the page. */
+      fontWeight: 700, fontSize: isMobile ? 22 : 30,
+      lineHeight: 1.25, marginBottom: isMobile ? 24 : 32,
+      color: P.ink, letterSpacing: "-0.02em",
       fontFamily: "var(--cb-font)",
+      textWrap: "balance",
     },
 
     /* ── Answer paper: MATTE DOCUMENT SURFACE ──
@@ -17784,10 +17788,24 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          far more than it hurts light text. */
       background: P.dark ? withAlpha(P.surface, 0.94) : P.surface,
       border: `1px solid ${P.line}`,
-      borderRadius: 6,
-      padding: isCompact ? (isMobile ? "18px 16px" : "24px 32px") : (isMobile ? "22px 18px" : "32px 40px"),
+      borderRadius: 16,
+      /* Premium depth: layered soft shadow lifts the answer off the page,
+         inset hairline gives the top edge a lit feel. Theme-aware. */
+      boxShadow: P.dark
+        ? "0 24px 64px -16px rgba(0,0,0,0.55), 0 4px 16px -4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)"
+        : "0 24px 64px -24px rgba(15,23,42,0.22), 0 4px 16px -6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.7)",
+      padding: isCompact ? (isMobile ? "20px 18px" : "28px 36px") : (isMobile ? "26px 20px" : "40px 48px"),
       lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
+      overflow: "hidden",
+    },
+    /* Accent edge: a 3px gradient hairline across the top of the answer
+       card, marking it as the hero surface. Absolutely positioned so it
+       never affects layout. */
+    answerCardEdge: {
+      position: "absolute", top: 0, left: 0, right: 0, height: 3,
+      background: `linear-gradient(90deg, transparent 0%, ${withAlpha(accent, 0.55)} 18%, ${withAlpha(accent, 0.9)} 50%, ${withAlpha(accent, 0.55)} 82%, transparent 100%)`,
+      pointerEvents: "none",
     },
     byline: {
       fontSize: FONT_SIZES.micro, color: P.faint, 
@@ -17804,12 +17822,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
     relatedBtn: {
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      gap: 12, textAlign: "left", padding: "16px 16px",
+      gap: 12, textAlign: "left", padding: "16px 18px",
       fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, color: P.ink2,
-      border: glassBorder, borderRadius: 8,
+      border: glassBorder, borderRadius: 12,
       cursor: "pointer", fontFamily: font,
-      transition: "background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease", letterSpacing: "-0.015em",
+      transition: "background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s var(--cb-ease)", letterSpacing: "-0.015em",
       lineHeight: 1.45,
+      boxShadow: P.dark ? "0 4px 14px -6px rgba(0,0,0,0.4)" : "0 4px 14px -8px rgba(15,23,42,0.12)",
     },
 
     /* ── Sources panel: dark glass sidebar ──
@@ -23129,11 +23148,17 @@ summary::-webkit-details-marker { display: none; }
 .cb-ask-field {
   position: relative;
   display: flex; align-items: center;
-  border: 1px solid var(--cb-line2); border-radius: 14px;
-  transition: border-color 0.25s ease;
+  border: 1px solid var(--cb-line2); border-radius: 16px;
+  background: color-mix(in srgb, var(--cb-bg) 82%, transparent);
+  box-shadow: 0 8px 28px -12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06);
+  transition: border-color 0.25s ease, box-shadow 0.3s ease, transform 0.3s var(--cb-ease);
 }
 .cb-ask-field:focus-within {
   border-color: color-mix(in srgb, var(--cb-acc) 65%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cb-acc) 16%, transparent),
+              0 12px 36px -12px rgba(0,0,0,0.35),
+              inset 0 1px 0 rgba(255,255,255,0.08);
+  transform: translateY(-1px);
 }
 .cb-ask-inputwrap { position: relative; flex: 1 1 auto; min-width: 0; }
 /* ── Search console declutter (#17) ──
@@ -23646,6 +23671,25 @@ body.cb-motion-off .cb-row::before { animation: none !important; transition: non
 @media (prefers-reduced-motion: reduce) {
   .cb-readhead-marker { animation: none; left: 0; }
 }
+/* Skeleton shimmer: a slow, soft light sweep across loading bars. Subtle
+   enough to read as "working" rather than "flashing" — 2.2s cycle, low
+   contrast gradient, respects reduced motion. */
+@keyframes cbSkelShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.cb-skelbar {
+  background-image: linear-gradient(100deg,
+    var(--cb-skel, rgba(128,128,128,0.14)) 40%,
+    var(--cb-skel-hi, rgba(255,255,255,0.09)) 50%,
+    var(--cb-skel, rgba(128,128,128,0.14)) 60%) !important;
+  background-size: 200% 100% !important;
+  animation: cbSkelShimmer 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-skelbar { animation: none; }
+}
+body.cb-motion-off .cb-skelbar { animation: none !important; }
 /* Touch: the per-row citation copy button is hover-revealed on desktop;
    touch pointers have no hover, so it stays visible there instead of
    being unreachable. Both conditions are listed: some touch laptops

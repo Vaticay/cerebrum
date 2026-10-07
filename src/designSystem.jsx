@@ -246,21 +246,23 @@ export function UIButton({
   const pad = size === "sm" ? "6px 13px" : size === "lg" ? "12px 22px" : "9px 17px";
   const fs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.small;
   /* Every skin gets a lit top edge and a shadow that belongs to it.
-     A primary button that is a flat block of accent with no highlight and
-     no shadow is the default a framework gives you; the inset hairline and
-     the tinted drop shadow are what make it look moulded from the same
-     material as the panels around it. `secondary` stops being fully
-     transparent so it holds its own shape over moving footage — a
-     transparent outline over a bright frame is just an outline. */
+     Primary is a rich gradient, not a flat block — the gradient runs from
+     a lifted highlight at the top to the true accent at the bottom, with
+     an inset hairline for the moulded edge and a tinted drop shadow that
+     ties it to the palette. */
   const skins = {
     primary: {
-      background: accent, color: at, border: "1px solid transparent",
-      boxShadow: `0 1px 2px rgba(0,0,0,0.18)`,
+      background: `linear-gradient(180deg, ${withAlpha(accent, 0.92)} 0%, ${accent} 55%, ${withAlpha(accent, 0.88)} 100%)`,
+      color: at, border: "1px solid transparent",
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.12), 0 4px 14px -4px ${withAlpha(accent, 0.55)}, 0 1px 3px rgba(0,0,0,0.2)`,
+      textShadow: "0 1px 2px rgba(0,0,0,0.18)",
     },
     secondary: {
       background: P.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
       color: P.ink, border: `1px solid ${P.line2}`,
-      boxShadow: P.dark ? "inset 0 1px 0 rgba(255,255,255,0.06)" : "inset 0 1px 0 rgba(255,255,255,0.8)",
+      boxShadow: P.dark
+        ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"
+        : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px -2px rgba(15,23,42,0.12)",
     },
     ghost:       { background: "transparent", color: P.ink2, border: "1px solid transparent" },
     destructive: { background: "transparent", color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}` },
@@ -299,18 +301,21 @@ export function UICard({ children, P, pad = true, className = "", style, onClick
       className={"cb-card cb-material-panel " + (specimen ? "cb-specimen " : "") + className}
       style={{
         borderRadius: RADIUS.lg,
-        /* Opaque shell (2026-09-17 redesign pass 1): the ambient film is
-           gone, so there is nothing behind these cards to frost. A solid
-           surface, one hairline border, no shadow — the glass recipe's
-           "real panel" comment below described a world with footage
-           playing through the page, which no longer exists. */
+        /* Solid surface with a whisper of depth: one soft shadow lifts the
+           card off the page. Clickable cards get a gentle hover lift. */
         background: P.surface,
         border: P.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${P.line2}`,
+        boxShadow: P.dark
+          ? "0 10px 30px -12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)"
+          : "0 10px 30px -14px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.6)",
+        transition: onClick ? "transform 0.25s var(--cb-ease), box-shadow 0.25s var(--cb-ease)" : undefined,
         padding: pad ? SP.lg : 0,
         overflow: "hidden", minWidth: 0,
         cursor: onClick ? "pointer" : undefined,
         ...style,
       }}
+      onMouseEnter={onClick ? (e) => { e.currentTarget.style.transform = "translateY(-2px)"; } : undefined}
+      onMouseLeave={onClick ? (e) => { e.currentTarget.style.transform = ""; } : undefined}
     >{children}</div>
   );
 }
