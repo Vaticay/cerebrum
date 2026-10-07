@@ -181,16 +181,6 @@ export function Icon({ name, size = 17, className, style }) {
 
 export function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 0.15s ease, color 0.15s ease" }; }
 
-export const TYPE = {
-  display: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15 },
-  heading: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.015em", lineHeight: 1.25 },
-  body:    { fontFamily: "var(--cb-font)", fontWeight: 450, letterSpacing: "0", lineHeight: 1.6 },
-  label:   { fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: TRACKING.tight, lineHeight: 1.35 },
-  mono:    { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: TRACKING.tight, lineHeight: 1.4 },
-};
-
-export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
-
 /* TRACKING scale: semantic letter-spacing for uppercase/label treatments.
    Use TRACKING.* instead of raw em values. The negative trackings live in
    TYPE (display/heading/body/label); these are the positive ones for
@@ -202,6 +192,16 @@ export const TRACKING = {
   labelTight: "0.04em",   // tighter small labels
   tight: "0.01em",        // minimal positive (matches TYPE.label)
 };
+
+export const TYPE = {
+  display: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15 },
+  heading: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.015em", lineHeight: 1.25 },
+  body:    { fontFamily: "var(--cb-font)", fontWeight: 450, letterSpacing: "0", lineHeight: 1.6 },
+  label:   { fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: TRACKING.tight, lineHeight: 1.35 },
+  mono:    { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: TRACKING.tight, lineHeight: 1.4 },
+};
+
+export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 
 /* Z-index scale: every stacking layer in the app, named.
    Rules: use Z.* instead of raw numbers. Layers are ordered;
