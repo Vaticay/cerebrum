@@ -72,7 +72,7 @@ class ErrorBoundary extends React.Component {
         }}
       >
         <div style={{ maxWidth: 460 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 10, fontFamily: "'Inter Tight', 'Inter', system-ui, sans-serif", letterSpacing: "-0.01em" }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 10, fontFamily: "'Inter Tight', 'Inter', system-ui, sans-serif", letterSpacing: "-0.015em" }}>
             Something broke on this screen
           </div>
           <p style={{ fontSize: 15, lineHeight: 1.65, color: "rgba(232,230,225,0.72)", margin: "0 0 22px" }}>
@@ -156,7 +156,7 @@ function NotFound() {
         <div style={{ fontSize: 13, letterSpacing: "0.14em", color: "rgba(232,230,225,0.45)", marginBottom: 14 }}>
           404
         </div>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", margin: "0 0 12px" }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.015em", margin: "0 0 12px" }}>
           That page isn&rsquo;t here
         </h1>
         <p style={{ fontSize: 15, lineHeight: 1.65, color: "rgba(232,230,225,0.72)", margin: "0 0 26px" }}>
