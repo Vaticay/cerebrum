@@ -430,6 +430,20 @@ CREATE TABLE IF NOT EXISTS user_history (
 );
 CREATE INDEX IF NOT EXISTS idx_history_user ON user_history(user_id);
 
+-- Evidence maps (Flowchart Studio). Same whole-array replace-all sync
+-- pattern as user_saved_sources/user_history: the client pushes its full
+-- list and this table is the account's copy. chart_json holds
+-- { nodes, edges } — the title lives in its own column for cheap listing.
+CREATE TABLE IF NOT EXISTS user_flowcharts (
+  id          TEXT NOT NULL PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  title       TEXT,
+  chart_json  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_flowcharts_user ON user_flowcharts(user_id);
+
 -- ============================================================
 -- NEW: one-time passcode (OTP) sign-in. This is now the ONLY sign-in
 -- method the frontend exposes — no password is ever collected on this

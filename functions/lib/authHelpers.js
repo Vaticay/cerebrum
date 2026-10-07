@@ -337,7 +337,7 @@ export async function getSessionUser(request, env) {
   ).bind(tokenHash).first();
   if (!row) return null;
   if (row.expires_at < Date.now()) {
-    try { await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run(); } catch {}
+    try { await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run(); } catch (cbErr) { console.error("[Cerebrum] authHelpers.js: await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind:", cbErr); }
     return null;
   }
   return { id: row.id, email: row.email };

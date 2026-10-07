@@ -132,7 +132,7 @@ export async function onRequest(context) {
           "UPDATE paper_cache SET times_confirmed = MAX(0, times_confirmed + ?) WHERE query_key = ?"
         ).bind(confirmDelta, row.query_key).run();
       }
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] vote.js if: const row = await env.DB.prepare(:", cbErr); }
 
     return json({ ok: true, answerId: v.answerId, vote: v.vote, changed: true }, 200, cors);
   } catch (e) {

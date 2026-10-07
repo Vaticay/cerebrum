@@ -514,7 +514,7 @@ async function handleWebhook(context, cors) {
           "SELECT status FROM stripe_events WHERE event_id = ?"
         ).bind(event.id).first();
         priorStatus = row && row.status;
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] index.js if: const row = await env.DB.prepare(:", cbErr); }
       if (priorStatus !== "failed") {
         return json({ received: true, duplicate: true }, 200, cors);
       }
@@ -522,7 +522,7 @@ async function handleWebhook(context, cors) {
         await env.DB.prepare(
           "UPDATE stripe_events SET status = 'pending', error = NULL WHERE event_id = ?"
         ).bind(event.id).run();
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] index.js if: await env.DB.prepare(:", cbErr); }
     }
     // The background settlement: apply the entitlement AFTER the 200.
     // Stripe's retry clock is the enemy here — the 200 below lands in
@@ -534,7 +534,7 @@ async function handleWebhook(context, cors) {
           await env.DB.prepare(
             "UPDATE stripe_events SET status = 'processed', error = NULL WHERE event_id = ?"
           ).bind(event.id).run();
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] index.js settle: await env.DB.prepare(:", cbErr); }
       } catch (applyErr) {
         // Stripe will NOT retry after the 200 we already sent, so a failure
         // here would be a silent drop without the dead letter below: the

@@ -87,7 +87,7 @@ export async function onRequest(context) {
   // Deepgram's OWN model naming, not the speaker name Workers AI expects:
   // @cf/deepgram/aura-1 takes a BARE voice name (asteria, luna, orion,
   // angus...). An unknown speaker made the call fail, the failure was
-  // swallowed by a bare `catch {}`, and every single request quietly fell
+  // swallowed by a bare `catch (cbErr) { console.error("[Cerebrum] tts.js:", cbErr); }`, and every single request quietly fell
   // through to MeloTTS — which is the flat, synthetic voice actually being
   // heard. Aura was in the code but had never once produced audio.
   //

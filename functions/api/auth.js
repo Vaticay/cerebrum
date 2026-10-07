@@ -376,7 +376,7 @@ async function issueSession(env, user, isSecure, cors, extraSetCookies = []) {
         await env.DB.prepare(
           "UPDATE users SET plan = 'pro', pro_source = 'lifetime', pro_granted_at = COALESCE(pro_granted_at, ?) WHERE id = ? AND (plan IS NULL OR plan != 'pro')"
         ).bind(Date.now(), user.id).run();
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] auth.js if: await env.DB.prepare(:", cbErr); }
     }
     const row = await env.DB.prepare(
       "SELECT plan, pro_source FROM users WHERE id = ?"
@@ -514,7 +514,7 @@ export async function onRequest(context) {
               await env.DB.prepare(
                 "UPDATE users SET plan = 'pro', pro_source = 'lifetime', pro_granted_at = COALESCE(pro_granted_at, ?) WHERE id = ? AND (plan IS NULL OR plan != 'pro')"
               ).bind(Date.now(), user.id).run();
-            } catch {}
+            } catch (cbErr) { console.error("[Cerebrum] auth.js if: await env.DB.prepare(:", cbErr); }
           }
           const row = await env.DB.prepare(
             "SELECT plan, pro_source FROM users WHERE id = ?"
@@ -837,6 +837,7 @@ export async function onRequest(context) {
         ["user_saved_sources", "DELETE FROM user_saved_sources WHERE user_id = ?"],
         ["user_collections",   "DELETE FROM user_collections WHERE user_id = ?"],
         ["user_history",       "DELETE FROM user_history WHERE user_id = ?"],
+        ["user_flowcharts",    "DELETE FROM user_flowcharts WHERE user_id = ?"],
         ["sessions",           "DELETE FROM sessions WHERE user_id = ?"],
       ];
       const failed = [];

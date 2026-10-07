@@ -29,6 +29,7 @@ import {
   RELEVANCE_FLOOR,
   fingerprintClaim,
   buildExtractiveSynthesis,
+  assessExtractionQuality,
   isWellFormedClaim,
   // NEXT-GEN resilience pipeline (v7.0)
   runStage,
@@ -258,6 +259,121 @@ test("citations are 1-based and never exceed the source count", () => {
 test("empty pool returns null (caller falls through to the honest message)", () => {
   assert.equal(buildExtractiveSynthesis([], []), null);
   assert.equal(buildExtractiveSynthesis([{ title: "" }], []), null);
+});
+
+// ── Extraction honesty gate (2026-10-07) ────────────────────────────
+// When the cited papers can't support an honest "short answer", the
+// extractive path must list the papers instead of stitching confident BS.
+group("honesty gate — weak extractions get the honest answer, not stitched BS");
+
+function tangentialPaper(extra = {}) {
+  return {
+    title: "Tsetse fly gut symbiont population dynamics",
+    journal: "J Insect Sci",
+    year: "2020",
+    abstract:
+      "We found that tsetse fly gut symbiont density increased 3-fold after blood meals. " +
+      "Results showed significant variation across 41 sampled flies.",
+    relevance: 38,
+    ...extra,
+  };
+}
+
+test("assessExtractionQuality flags zero strong papers", () => {
+  const items = [
+    { p: tangentialPaper(), findings: ["We found that tsetse fly gut symbiont density increased 3-fold after blood meals."], titleClaim: "Tsetse fly gut symbiont population dynamics", hasFindings: true },
+    { p: tangentialPaper({ relevance: 42 }), findings: ["Results showed significant variation across 41 sampled flies."], titleClaim: "Tsetse fly gut symbiont population dynamics", hasFindings: true },
+  ];
+  const q = assessExtractionQuality(items, { query: "does sleep deprivation impair memory" });
+  assert.equal(q.ok, false, "expected the gate to trip");
+  assert.ok(q.reasons.length >= 2, "expected strength + addressing reasons, got: " + JSON.stringify(q.reasons));
+  assert.equal(q.stats.strong, 0);
+});
+
+test("assessExtractionQuality passes strong on-topic papers", () => {
+  const items = [
+    { p: soilPaper(), findings: ["We found that desiccation crack spacing increased linearly with layer thickness across 34 experiments."], titleClaim: "Desiccation cracking of clay soils", hasFindings: true },
+  ];
+  const q = assessExtractionQuality(items, { query: "desiccation cracking in clay soils" });
+  assert.equal(q.ok, true, "gate tripped on a good extraction: " + JSON.stringify(q.reasons));
+});
+
+test("assessExtractionQuality skips checks with no query and no scores", () => {
+  const items = [
+    { p: { title: "Something" }, findings: ["We found things."], titleClaim: "Something", hasFindings: true },
+  ];
+  const q = assessExtractionQuality(items, {});
+  assert.equal(q.ok, true, "gate tripped without query or scores: " + JSON.stringify(q.reasons));
+});
+
+test("weak papers yield the honest answer, never a stitched short answer", () => {
+  const md = buildExtractiveSynthesis(
+    [tangentialPaper(), tangentialPaper({ title: "Spruce budworm outbreak cycles", relevance: 33 })],
+    [],
+    { query: "does sleep deprivation impair memory" }
+  );
+  assert.ok(md, "expected an answer, got null");
+  assert.match(md, /Couldn't find a direct answer/, "not the honest answer");
+  assert.doesNotMatch(md, /## The short answer/, "stitched a short answer from tangential papers");
+  assert.match(md, /\[1\]/, "closest papers not listed");
+  assert.match(md, /\[2\]/, "second paper not listed");
+});
+
+test("weak extraction still names why and offers reformulations", () => {
+  const md = buildExtractiveSynthesis([tangentialPaper()], [], { query: "does sleep deprivation impair memory" });
+  assert.match(md, /Why this isn't a summary/, "missing reasons section");
+  assert.match(md, /Try asking it this way/, "missing reformulations");
+});
+
+test("weak extraction is honest about the gate reason", () => {
+  const gated = buildExtractiveSynthesis([tangentialPaper()], [], {
+    query: "does sleep deprivation impair memory",
+    aiGateReason: "signin-required",
+  });
+  assert.match(gated, /sign in for AI-synthesized answers/, "wrong closing line for gated users");
+  const failed = buildExtractiveSynthesis([tangentialPaper()], [], {
+    query: "does sleep deprivation impair memory",
+    aiGateReason: null,
+  });
+  assert.match(failed, /providers were temporarily unavailable/, "wrong closing line for provider failure");
+});
+
+test("strong on-topic papers still get the five-section synthesis", () => {
+  const md = buildExtractiveSynthesis([soilPaper()], [], { query: "desiccation cracking in clay soils" });
+  assert.ok(md, "expected a synthesis");
+  assert.match(md, /## The short answer/, "good extraction lost the full synthesis");
+});
+
+test("name search is exempt from the topicality gate", () => {
+  const papers = [{
+    title: "Foraging ecology of black-legged kittiwakes",
+    journal: "Ecology",
+    year: "2020",
+    abstract: "We found that foraging trip duration increased 2-fold during chick rearing. Results were significant.",
+    relevance: 30,
+  }];
+  const md = buildExtractiveSynthesis(papers, [], { query: "Jane Smith", isNameSearch: true });
+  assert.ok(md, "expected a synthesis");
+  assert.match(md, /## The short answer/, "name search wrongly gated");
+});
+
+test("follow-up mode is exempt from the query-addressing check", () => {
+  const md = buildExtractiveSynthesis([soilPaper()], [], { query: "tell me more", isFollowupMode: true });
+  assert.ok(md, "expected a synthesis");
+  assert.match(md, /## The short answer/, "follow-up wrongly gated on phrasing");
+});
+
+test("title-only papers cannot support a short answer", () => {
+  const papers = [{
+    title: "A study of things",
+    journal: "J",
+    year: "2020",
+    abstract: "No abstract available.",
+    relevance: 70,
+  }];
+  const md = buildExtractiveSynthesis(papers, [], { query: "a study of things" });
+  assert.ok(md, "expected an answer");
+  assert.match(md, /Couldn't find a direct answer/, "title-only extraction stitched an answer");
 });
 
 test("fingerprintClaim normalizes case, bold, citations, punctuation", () => {

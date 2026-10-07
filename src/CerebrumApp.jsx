@@ -119,7 +119,7 @@ import gsap from "gsap";
    than UI chrome.
    ════════════════════════════════════════════════════════════════ */
 
-function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch {} if (k === "cb_anim2") { try { cbMotionCacheBust(); } catch {} } }
+function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx setCookie: document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=3153:", cbErr); } if (k === "cb_anim2") { try { cbMotionCacheBust(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: cbMotionCacheBust(); }:", cbErr); } } }
 // Loads OpenDyslexic on demand rather than on every page view — see the
 // dyslexia-font toggle in Settings and loadFonts() further down.
 function ensureDyslexicFont() {
@@ -765,7 +765,7 @@ const CB_EASE = "power3.inOut";
 // ahead instead of extending the animation. The visual cost is a jumpier
 // animation on a struggling device; the thing it buys is that the page is
 // always finished animating when it says it is.
-try { gsap.ticker.lagSmoothing(0); } catch {}
+try { gsap.ticker.lagSmoothing(0); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: gsap.ticker.lagSmoothing(0); }:", cbErr); }
 
 let __cbMotionCache = null; // { v: boolean, t: number } — see cbMotionOff
 /* Moved to src/flowcharts.jsx: cbMotionOff */
@@ -787,7 +787,7 @@ function usePremiumPointer() {
     try {
       fine = window.matchMedia("(pointer: fine)").matches;
       reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx usePremiumPointer: fine = window.matchMedia('(pointer: fine)').matches;:", cbErr); }
     if (!fine || reduced || cbMotionOff()) return undefined;
     let raf = 0;
     let last = null;
@@ -1033,8 +1033,8 @@ function cbBlip(freq, dur = 0.07, gain = 0.05) {
     osc.type = "sine";
     osc.frequency.setValueAtTime(freq, ctx.currentTime);
     osc.connect(g); osc.start(); osc.stop(ctx.currentTime + dur);
-    setTimeout(() => { try { ctx.close(); } catch {} }, (dur + 0.25) * 1000);
-  } catch {}
+    setTimeout(() => { try { ctx.close(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx cbBlip: ctx.close(); }:", cbErr); } }, (dur + 0.25) * 1000);
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx cbBlip: ctx.close(); } catch {} }, (dur + 0.25) * 1000);:", cbErr); }
 }
 
 // Commit 57 — OS-level notifications while Cerebrum is open.
@@ -1088,18 +1088,18 @@ function cbNotify(title, body, tag, kind) {
     const fire = () => {
       try {
         const n = new Notification(title, { body, tag, icon: "/favicon.ico", renotify: false });
-        n.onclick = () => { try { window.focus(); n.close(); } catch {} };
-      } catch {}
+        n.onclick = () => { try { window.focus(); n.close(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx fire: window.focus(); n.close(); }:", cbErr); } };
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx fire: window.focus(); n.close(); } catch {} };:", cbErr); }
     };
     if (Notification.permission === "granted") fire();
     else if (Notification.permission === "default") Notification.requestPermission().then((p) => { if (p === "granted") fire(); });
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx fire: window.focus(); n.close(); } catch {} };:", cbErr); }
 }
 
 function useCallTone(kind, active) {
   useEffect(() => {
     if (!active) return;
-    try { if (getCookie("cb_muted") === "1") return; } catch {}
+    try { if (getCookie("cb_muted") === "1") return; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx useCallTone: if (getCookie('cb_muted') === '1') return; }:", cbErr); }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     let ctx;
@@ -1140,7 +1140,7 @@ function useCallTone(kind, active) {
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
-      try { ctx.close(); } catch {}
+      try { ctx.close(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx ringtone: ctx.close(); }:", cbErr); }
     };
   }, [kind, active]);
 }
@@ -1334,7 +1334,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
     const fresh = items.filter((i) => i.live && i.newCount > 0);
     if (!fresh.length) return;
     let seen = {};
-    try { seen = JSON.parse(localStorage.getItem("cb_watch_notified") || "{}"); } catch {}
+    try { seen = JSON.parse(localStorage.getItem("cb_watch_notified") || "{}"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: seen = JSON.parse(localStorage.getItem('cb_watch_notified') || '{}'); :", cbErr); }
     const today = new Date().toDateString();
     let changed = false;
     for (const i of fresh) {
@@ -1348,7 +1348,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
         "watch"
       );
     }
-    if (changed) { try { localStorage.setItem("cb_watch_notified", JSON.stringify(seen)); } catch {} }
+    if (changed) { try { localStorage.setItem("cb_watch_notified", JSON.stringify(seen)); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: localStorage.setItem('cb_watch_notified', JSON.stringify(seen)); }:", cbErr); } }
   }, [items]);
   // Recheck when the tab regains focus — someone coming back tomorrow
   // should see today's count, not yesterday's render.
@@ -1380,7 +1380,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
         border: `1px solid ${P.line}` };
   const open = async (item) => {
     setBusyTopic(item.topic);
-    try { await apiDataAction("watchlist-seen", { topic: item.topic }); } catch {}
+    try { await apiDataAction("watchlist-seen", { topic: item.topic }); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx open: await apiDataAction('watchlist-seen', { topic: item.topic }); }:", cbErr); }
     setBusyTopic("");
     onAsk(`What's new in ${item.topic}? Summarize the most recent findings.`);
   };
@@ -2057,7 +2057,7 @@ function SignalComposer({
     setTimeout(() => inputRef.current?.focus(), 30);
   };
   const hasText = String(input || "").trim().length > 0;
-  const clickSfx = () => { try { sfx(); } catch {} };
+  const clickSfx = () => { try { sfx(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx clickSfx: sfx(); }:", cbErr); } };
   return (
     <div
       role="search"
@@ -2234,7 +2234,7 @@ async function pumpSearchStream(res, { signal, onEvent }) {
     for (;;) {
       if (signal && signal.aborted) {
         const ae = new Error("aborted"); ae.name = "AbortError";
-        try { await reader.cancel(); } catch {}
+        try { await reader.cancel(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await reader.cancel(); }:", cbErr); }
         throw ae;
       }
       const { done, value } = await reader.read();
@@ -2250,7 +2250,7 @@ async function pumpSearchStream(res, { signal, onEvent }) {
       if (done) break;
     }
   } finally {
-    try { reader.releaseLock(); } catch {}
+    try { reader.releaseLock(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: reader.releaseLock(); }:", cbErr); }
   }
   return lastId;
 }
@@ -2276,7 +2276,7 @@ function stageDetailFor(key, payload) {
         ? "Writing the answer from " + n + (n === 1 ? " source" : " sources")
         : "Verifying claims against " + n + (n === 1 ? " citation" : " citations");
     }
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx:", cbErr); }
   return "";
 }
 
@@ -2296,11 +2296,11 @@ async function runStreamedSearch({ body, signal, onStageEvent, onConnect, resume
   }
   const ctype = res.headers.get("content-type") || "";
   if (!res.ok || !ctype.includes("text/event-stream")) {
-    try { if (res.body) await res.body.cancel(); } catch {}
+    try { if (res.body) await res.body.cancel(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx catch: if (res.body) await res.body.cancel(); }:", cbErr); }
     throw new StreamFallback("bad-response");
   }
   const requestId = res.headers.get("X-Request-ID") || "";
-  try { if (onConnect) onConnect(requestId); } catch {}
+  try { if (onConnect) onConnect(requestId); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx catch: if (onConnect) onConnect(requestId); }:", cbErr); }
   let lastId = resumeFromId;
   let sawStage = false;
   let doneRaw = null;
@@ -2436,7 +2436,7 @@ function logZeroResult(query, info = {}) {
     });
     while (arr.length > 100) arr.shift();
     localStorage.setItem(KEY, JSON.stringify(arr));
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx logZeroResult: const KEY = 'cb_zero_results';:", cbErr); }
 }
 
 /* Normalize a source's DOI to an https://doi.org URL, or "" when absent or
@@ -2904,7 +2904,7 @@ function clearSourceLinked() {
   try {
     if (sourceLinkTimer) { clearTimeout(sourceLinkTimer); sourceLinkTimer = null; }
     document.querySelectorAll(".cb-source-linked").forEach((x) => x.classList.remove("cb-source-linked"));
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (sourceLinkTimer) { clearTimeout(sourceLinkTimer); sourceLinkTimer :", cbErr); }
 }
 function revealSource(n, accent) {
   try {
@@ -2933,9 +2933,9 @@ function revealSource(n, accent) {
     el.style.setProperty("--cb-link-accent", accent || "currentColor");
     sourceLinkTimer = setTimeout(() => {
       sourceLinkTimer = null;
-      try { el.classList.remove("cb-source-linked"); } catch {}
+      try { el.classList.remove("cb-source-linked"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.classList.remove('cb-source-linked'); }:", cbErr); }
     }, 1600);
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.classList.remove('cb-source-linked'); } catch {}:", cbErr); }
 }
 
 
@@ -3271,7 +3271,7 @@ function flyToLibrary(fromEl, accent) {
       target.classList.add("cb-nav-received");
       setTimeout(() => target.classList.remove("cb-nav-received"), 700);
     }, 580);
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx:", cbErr); }
 }
 
 
@@ -4604,7 +4604,7 @@ function filmForcedOn() {
   try { return localStorage.getItem(FILM_OPT_IN_KEY) === "1"; } catch { return false; }
 }
 function setFilmForcedOn(on) {
-  try { on ? localStorage.setItem(FILM_OPT_IN_KEY, "1") : localStorage.removeItem(FILM_OPT_IN_KEY); } catch {}
+  try { on ? localStorage.setItem(FILM_OPT_IN_KEY, "1") : localStorage.removeItem(FILM_OPT_IN_KEY); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx setFilmForcedOn: on ? localStorage.setItem(FILM_OPT_IN_KEY, '1') : localStorage.removeI:", cbErr); }
 }
 
 /* One answer to "may the reel run", shared by the component and by every
@@ -4755,7 +4755,7 @@ const FilmLayer = forwardRef(function FilmLayer({
   const applyVisibility = () => {
     const el = vref.current;
     if (!el) return;
-    try { el.style.opacity = (visibleTargetRef.current && readyRef.current) ? "1" : "0"; } catch {}
+    try { el.style.opacity = (visibleTargetRef.current && readyRef.current) ? "1" : "0"; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx applyVisibility: el.style.opacity = (visibleTargetRef.current && readyRef.current) ? '1:", cbErr); }
   };
 
   /* The muted-inline play sequence (§5). The IDL properties are reinforced
@@ -4774,13 +4774,13 @@ const FilmLayer = forwardRef(function FilmLayer({
            layer — and with no controls attribute, no native play icon. */
         if (!notifiedRef.current) {
           notifiedRef.current = true;
-          try { if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); } catch {}
+          try { if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); }:", cbErr); }
         }
       });
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); }:", cbErr); }
   };
 
-  const pause = () => { try { if (vref.current) vref.current.pause(); } catch {} };
+  const pause = () => { try { if (vref.current) vref.current.pause(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx pause: if (vref.current) vref.current.pause(); }:", cbErr); } };
 
   /* Load a clip and run the full guarded sequence — or, with
      preloadOnly, buffer it into a hidden slot without playing (the
@@ -4791,7 +4791,7 @@ const FilmLayer = forwardRef(function FilmLayer({
     const { objectPosition: pos, preloadOnly = false } = opts;
     const file = filmBestFile(el, clipSrc);
     let sameFile = false;
-    try { sameFile = el.getAttribute("src") === file; } catch {}
+    try { sameFile = el.getAttribute("src") === file; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx loadClip: sameFile = el.getAttribute('src') === file; }:", cbErr); }
     if (sameFile && srcRef.current === clipSrc) {
       /* Already on this clip (a warmed preload promoted to current, or a
          resume re-issuing play): do not tear down the decoder, restart
@@ -4805,15 +4805,15 @@ const FilmLayer = forwardRef(function FilmLayer({
     /* The poster always matches the clip being loaded: a clip that fails
        to decode leaves its own graded still behind, never a gray plane. */
     setPosterUrl(filmPoster(clipSrc));
-    if (pos) { try { el.style.objectPosition = pos; } catch {} }
-    if (preloadOnly) { try { el.preload = "auto"; } catch {} }
-    try { el.src = file; el.load(); } catch {}
+    if (pos) { try { el.style.objectPosition = pos; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.style.objectPosition = pos; }:", cbErr); } }
+    if (preloadOnly) { try { el.preload = "auto"; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.preload = 'auto'; }:", cbErr); } }
+    try { el.src = file; el.load(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.src = file; el.load(); }:", cbErr); }
     stallRef.current = setTimeout(() => {
       /* Stall guard: never playable -> hold the poster. The video stays
          at opacity 0 over its poster layer; the parent may move to
          another source via onStalled. */
       if (!readyRef.current) {
-        try { if (onStalledRef.current) onStalledRef.current(clipSrc); } catch {}
+        try { if (onStalledRef.current) onStalledRef.current(clipSrc); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onStalledRef.current) onStalledRef.current(clipSrc); }:", cbErr); }
       }
     }, stallMs);
     if (!preloadOnly) guardedPlay();
@@ -4828,7 +4828,7 @@ const FilmLayer = forwardRef(function FilmLayer({
     readyRef.current = false;
     srcRef.current = null;
     visibleTargetRef.current = false;
-    try { el.removeAttribute("src"); el.load(); } catch {}
+    try { el.removeAttribute("src"); el.load(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx unload: el.removeAttribute('src'); el.load(); }:", cbErr); }
     applyVisibility();
   };
 
@@ -4841,20 +4841,20 @@ const FilmLayer = forwardRef(function FilmLayer({
       clearTimeout(stallRef.current);
       readyRef.current = true;
       applyVisibility();
-      try { if (onReadyRef.current) onReadyRef.current(); } catch {}
+      try { if (onReadyRef.current) onReadyRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onCanPlay: if (onReadyRef.current) onReadyRef.current(); }:", cbErr); }
     };
-    const onLd = () => { try { if (onLoadedDataRef.current) onLoadedDataRef.current(); } catch {} };
+    const onLd = () => { try { if (onLoadedDataRef.current) onLoadedDataRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onLd: if (onLoadedDataRef.current) onLoadedDataRef.current(); }:", cbErr); } };
     const onErr = () => {
       clearTimeout(stallRef.current);
-      try { if (onErrorRef.current) onErrorRef.current(); } catch {}
+      try { if (onErrorRef.current) onErrorRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onErr: if (onErrorRef.current) onErrorRef.current(); }:", cbErr); }
     };
     const onPS = () => {
-      try { if (onPlayStateRef.current) onPlayStateRef.current(); } catch {}
+      try { if (onPlayStateRef.current) onPlayStateRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onPS: if (onPlayStateRef.current) onPlayStateRef.current(); }:", cbErr); }
       let playing = false;
-      try { playing = !el.paused; } catch {}
+      try { playing = !el.paused; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onPS: playing = !el.paused; }:", cbErr); }
       if (playingRef.current !== playing) {
         playingRef.current = playing;
-        try { if (onPlaybackChangeRef.current) onPlaybackChangeRef.current(playing); } catch {}
+        try { if (onPlaybackChangeRef.current) onPlaybackChangeRef.current(playing); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onPlaybackChangeRef.current) onPlaybackChangeRef.current(playing);:", cbErr); }
       }
     };
     el.addEventListener("canplay", onCanPlay);
@@ -4904,7 +4904,7 @@ const FilmLayer = forwardRef(function FilmLayer({
     const onVis = () => {
       const el = vref.current;
       if (!el) return;
-      if (document.hidden) { try { el.pause(); } catch {} }
+      if (document.hidden) { try { el.pause(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.pause(); }:", cbErr); } }
       else if (activeRef.current && visibleTargetRef.current && srcRef.current) guardedPlay();
     };
     document.addEventListener("visibilitychange", onVis);
@@ -4925,7 +4925,7 @@ const FilmLayer = forwardRef(function FilmLayer({
     setVisible: (v) => { visibleTargetRef.current = !!v; applyVisibility(); },
     /* zIndex staging for the dip-free dissolve: the incoming slot rises
        above the outgoing while it fades in over it. */
-    setZ: (z) => { try { if (layerRef.current) layerRef.current.style.zIndex = String(z); } catch {} },
+    setZ: (z) => { try { if (layerRef.current) layerRef.current.style.zIndex = String(z); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: if (layerRef.current) layerRef.current.style.zIndex = String(z); }:", cbErr); } },
     /* After the crossfade the outgoing slot is fully covered: drop it
        instantly (no second fade) and pause its decoder — this is the
        "pause offscreen video after crossfades" half of the contract. */
@@ -4939,7 +4939,7 @@ const FilmLayer = forwardRef(function FilmLayer({
         el.style.opacity = "0";
         void el.offsetWidth;
         el.style.transition = t;
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: const t = el.style.transition;:", cbErr); }
     },
     isPaused: () => { try { return !vref.current || vref.current.paused; } catch { return true; } },
   }));
@@ -5095,10 +5095,10 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
     const f = playbackCbRef.current;
     if (!f) return;
     let playing = false;
-    try { playing = !slotsOf()[curRef.current].isPaused(); } catch {}
+    try { playing = !slotsOf()[curRef.current].isPaused(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx reportPlaying: playing = !slotsOf()[curRef.current].isPaused(); }:", cbErr); }
     if (playingNotifiedRef.current !== playing) {
       playingNotifiedRef.current = playing;
-      try { f(playing); } catch {}
+      try { f(playing); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: f(playing); }:", cbErr); }
     }
   };
   const onSlotPlayState = () => reportPlaying();
@@ -5106,7 +5106,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
   const stop = () => {
     clearTimeout(timerRef.current);
     clearTimeout(fadeRef.current);
-    for (const slot of slotsOf()) { try { if (slot) slot.pause(); } catch {} }
+    for (const slot of slotsOf()) { try { if (slot) slot.pause(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx stop: if (slot) slot.pause(); }:", cbErr); } }
   };
 
   /* Which slot is buffering the clip after next, if any. */
@@ -5121,7 +5121,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
        A later successful play clears the flag via playNow. */
     if (!autoplayNotifiedRef.current && autoplayCbRef.current) {
       autoplayNotifiedRef.current = true;
-      try { autoplayCbRef.current(err); } catch {}
+      try { autoplayCbRef.current(err); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: autoplayCbRef.current(err); }:", cbErr); }
     }
   };
 
@@ -5200,14 +5200,14 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
        dissolve; pausing immediately would freeze the outgoing frame
        mid-fade. */
     fadeRef.current = setTimeout(() => {
-      try { outgoing.pause(); } catch {}
+      try { outgoing.pause(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: outgoing.pause(); }:", cbErr); }
       /* Fully covered: hide without a transition so there is no second
          fade — then buffer the clip after next so the following dissolve
          starts from a warm decoder. The incoming clip used to begin
          loading at the exact moment its 2.2s fade started — fading up
          over bytes that were still arriving was the visible hitch on
          every transition. */
-      try { outgoing.snapHide(); } catch {}
+      try { outgoing.snapHide(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: outgoing.snapHide(); }:", cbErr); }
       preloadInto(outgoing, orderRef.current[(idxRef.current + 1) % orderRef.current.length]);
     }, 2400);
     timerRef.current = setTimeout(cycle, holdMsRef.current);
@@ -5262,7 +5262,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
     const onVis = () => {
       if (document.hidden) stop();
       else {
-        try { slots[curRef.current].guardedPlay(); } catch {}
+        try { slots[curRef.current].guardedPlay(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onVis: slots[curRef.current].guardedPlay(); }:", cbErr); }
         clearTimeout(timerRef.current);
         timerRef.current = setTimeout(cycle, holdMsRef.current);
       }
@@ -5274,7 +5274,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
        kick the cycle timer so the reel advances instead of sitting on
        its first frame forever. */
     const tryResume = () => {
-      try { slots[curRef.current].guardedPlay(); } catch {}
+      try { slots[curRef.current].guardedPlay(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx tryResume: slots[curRef.current].guardedPlay(); }:", cbErr); }
       reportPlaying();
       if (!timerRef.current) timerRef.current = setTimeout(cycle, holdMsRef.current);
     };
@@ -5283,7 +5283,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
     const begin = () => {
       if (began) return;
       began = true;
-      if (io) { try { io.disconnect(); } catch {} io = null; }
+      if (io) { try { io.disconnect(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: io.disconnect(); }:", cbErr); } io = null; }
       slots[curRef.current].setZ(2);
       slots[1 - curRef.current].setZ(1);
       playSlot(slots[curRef.current], orderRef.current[idxRef.current]);
@@ -5310,16 +5310,16 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
       begin();
     }
     return () => {
-      if (io) { try { io.disconnect(); } catch {} }
+      if (io) { try { io.disconnect(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: io.disconnect(); }:", cbErr); } }
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pointerdown", tryResume);
       window.removeEventListener("touchend", tryResume);
       clearTimeout(timerRef.current);
       clearTimeout(fadeRef.current);
-      for (const slot of slots) { try { if (slot) slot.pause(); } catch {} }
+      for (const slot of slots) { try { if (slot) slot.pause(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx for: if (slot) slot.pause(); }:", cbErr); } }
       /* Mobile Safari keeps decoding a detached <video> in the
          background, burning battery on a backdrop nobody can see. */
-      for (const slot of slots) { try { if (slot) slot.unload(); } catch {} }
+      for (const slot of slots) { try { if (slot) slot.unload(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx for: if (slot) slot.unload(); }:", cbErr); } }
     };
   }, [blocked, proReel]);
 
@@ -5527,7 +5527,7 @@ function playEnterThoom() {
     ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
     noise.connect(bp).connect(ng).connect(ctx.destination);
     noise.start(t);
-    setTimeout(() => { try { ctx.close(); } catch (e) {} }, 2000);
+    setTimeout(() => { try { ctx.close(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx: ctx.close(); }:", e); } }, 2000);
   } catch (e) { /* audio is enhancement, never a blocker */ }
 }
 
@@ -5611,7 +5611,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
      No optimistic state clearing — the element's own playing event flips
      the label. If the veto persists, the pill stays: honest. */
   const resumeFilm = () => {
-    try { filmRef.current?.playNow(); } catch {}
+    try { filmRef.current?.playNow(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx resumeFilm: filmRef.current?.playNow(); }:", cbErr); }
   };
   const toggleFilm = () => {
     if (filmPlaying) { setFilmOff(true); return; }
@@ -6288,7 +6288,7 @@ function MicButton({ onTranscript, accent, P, getInput }) {
   };
   const wantListenRef = useRef(false);
   const finalTextRef = useRef("");
-  const beep = (freq, dur = 0.08, gain = 0.05) => { try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; const ctx = new AC(); const osc = ctx.createOscillator(); const g = ctx.createGain(); osc.type = "sine"; osc.frequency.value = freq; g.gain.value = 0; osc.connect(g); g.connect(ctx.destination); const now = ctx.currentTime; g.gain.linearRampToValueAtTime(gain, now + 0.01); g.gain.linearRampToValueAtTime(0, now + dur); osc.start(now); osc.stop(now + dur + 0.02); setTimeout(() => { try { ctx.close(); } catch {} }, (dur + 0.1) * 1000); } catch {} };
+  const beep = (freq, dur = 0.08, gain = 0.05) => { try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; const ctx = new AC(); const osc = ctx.createOscillator(); const g = ctx.createGain(); osc.type = "sine"; osc.frequency.value = freq; g.gain.value = 0; osc.connect(g); g.connect(ctx.destination); const now = ctx.currentTime; g.gain.linearRampToValueAtTime(gain, now + 0.01); g.gain.linearRampToValueAtTime(0, now + dur); osc.start(now); osc.stop(now + dur + 0.02); setTimeout(() => { try { ctx.close(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx beep: ctx.close(); }:", cbErr); } }, (dur + 0.1) * 1000); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx beep: ctx.close(); } catch {} }, (dur + 0.1) * 1000); }:", cbErr); } };
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setSupported(false); return; }
@@ -6297,12 +6297,12 @@ function MicButton({ onTranscript, accent, P, getInput }) {
     rec.onerror = (e) => { const err = e && e.error; if (err === "no-speech" || err === "aborted") return; if (err === "not-allowed" || err === "service-not-allowed") { wantListenRef.current = false; setListening(false); } };
     rec.onend = () => { if (wantListenRef.current) { try { rec.start(); } catch { wantListenRef.current = false; setListening(false); } } else { setListening(false); } };
     recRef.current = rec;
-    return () => { wantListenRef.current = false; try { rec.abort(); } catch {} };
+    return () => { wantListenRef.current = false; try { rec.abort(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: rec.abort(); }:", cbErr); } };
   }, []);
   if (!supported) return null;
   const toggle = () => {
     if (!recRef.current) return;
-    if (listening) { wantListenRef.current = false; try { recRef.current.stop(); } catch {} setListening(false); emit(finalTextRef.current.trim(), true); beep(660, 0.09); setTimeout(() => beep(440, 0.11), 90); }
+    if (listening) { wantListenRef.current = false; try { recRef.current.stop(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: recRef.current.stop(); }:", cbErr); } setListening(false); emit(finalTextRef.current.trim(), true); beep(660, 0.09); setTimeout(() => beep(440, 0.11), 90); }
     else { finalTextRef.current = ""; try { baseRef.current = getInput ? (getInput() || "") : ""; } catch { baseRef.current = ""; } wantListenRef.current = true; try { recRef.current.start(); setListening(true); beep(523, 0.07); setTimeout(() => beep(784, 0.09), 70); } catch { wantListenRef.current = false; setListening(false); } }
   };
   return (
@@ -6374,7 +6374,7 @@ function SelectionAsk({ onAsk, P, accent, containerRef }) {
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => {
         const q = text;
-        try { window.getSelection().removeAllRanges(); } catch {}
+        try { window.getSelection().removeAllRanges(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: window.getSelection().removeAllRanges(); }:", cbErr); }
         setPos(null); setText("");
         onAsk(q);
       }}
@@ -6408,7 +6408,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   // The object URL used to be revoked only in audio.onended — hitting Stop
   // or unmounting mid-play leaked it. Revoking centrally in stop() covers
   // every path (Stop button, new play, unmount via the effect below).
-  const stop = () => { if (urlRef.current) { try { URL.revokeObjectURL(urlRef.current); } catch {} urlRef.current = null; } if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } try { window.speechSynthesis.cancel(); } catch {} utterRef.current = null; setStatus("idle"); setProgress(0); };
+  const stop = () => { if (urlRef.current) { try { URL.revokeObjectURL(urlRef.current); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: URL.revokeObjectURL(urlRef.current); }:", cbErr); } urlRef.current = null; } if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } try { window.speechSynthesis.cancel(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: window.speechSynthesis.cancel(); }:", cbErr); } utterRef.current = null; setStatus("idle"); setProgress(0); };
   const playBrowser = () => {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
@@ -6425,7 +6425,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     // failed and this browser fallback engaged, the chosen voice
     // was silently dropped for a fixed, gender-blind name guess.
     let voicePref = "";
-    try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {}
+    try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: voicePref = localStorage.getItem('cb_tts_voice') || ''; }:", cbErr); }
 
     /* Commit 85 — the old picker's first choice list included Alex and
        Fred, which are 1990s formant-synthesis voices still shipped by
@@ -6461,7 +6461,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     if (pref) utter.voice = pref;
     utter.onstart = () => setStatus("playing"); utter.onend = () => { setStatus("idle"); setProgress(0); }; utter.onerror = () => { setStatus("idle"); setProgress(0); }; utter.onboundary = (e) => { if (e.charIndex && text.length) setProgress(e.charIndex / text.length); }; utterRef.current = utter; window.speechSynthesis.speak(utter);
   };
-  const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch {} const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); urlRef.current = url; const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); try { URL.revokeObjectURL(url); } catch {} if (urlRef.current === url) urlRef.current = null; audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
+  const playCerebrum = async () => { setStatus("loading"); try { let voicePref = ""; try { voicePref = localStorage.getItem("cb_tts_voice") || ""; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx playCerebrum: voicePref = localStorage.getItem('cb_tts_voice') || ''; }:", cbErr); } const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voicePref }) }); if (!res.ok) throw new Error("TTS " + res.status); const ct = res.headers.get("content-type") || ""; if (!ct.startsWith("audio/")) throw new Error("Non-audio response"); const blob = await res.blob(); const url = URL.createObjectURL(blob); urlRef.current = url; const audio = new Audio(url); audioRef.current = audio; audio.ontimeupdate = () => { if (audio.duration) setProgress(audio.currentTime / audio.duration); }; audio.onended = () => { setStatus("idle"); setProgress(0); try { URL.revokeObjectURL(url); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: URL.revokeObjectURL(url); }:", cbErr); } if (urlRef.current === url) urlRef.current = null; audioRef.current = null; }; audio.onerror = () => { setStatus("idle"); playBrowser(); }; await audio.play(); setStatus("playing"); } catch { playBrowser(); } };
   // Commit 67 — "Auto read answers" was a DEAD SWITCH. The preference
   // existed, defaulted to ON, wrote its cookie, and was read by absolutely
   // nothing: `autoplay` appeared in App's state, in the cookie effect, and
@@ -6479,11 +6479,11 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
     if (!autoPlay || !text || status !== "idle") return;
     if (autoFiredFor.current === text) return;
     autoFiredFor.current = text;
-    try { playCerebrum(); } catch {}
+    try { playCerebrum(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: playCerebrum(); }:", cbErr); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPlay, text]);
 
-  const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch {} return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play()?.catch(() => {}); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch {} return; } playCerebrum(); };
+  const onClick = () => { if (status === "playing") { if (audioRef.current) { audioRef.current.pause(); setStatus("paused"); return; } try { window.speechSynthesis.pause(); setStatus("paused"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: window.speechSynthesis.pause(); setStatus('paused'); }:", cbErr); } return; } if (status === "paused") { if (audioRef.current) { audioRef.current.play()?.catch(() => {}); setStatus("playing"); return; } try { window.speechSynthesis.resume(); setStatus("playing"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: window.speechSynthesis.resume(); setStatus('playing'); }:", cbErr); } return; } playCerebrum(); };
   useEffect(() => () => stop(), []);
   const label = status === "loading" ? "Loading…" : status === "playing" ? "Pause" : status === "paused" ? "Resume" : "Listen";
   const active = status === "playing" || status === "paused";
@@ -6528,7 +6528,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
 
 function TtsVoiceSetting({ P, accent, at, S, sfx }) {
   const [voice, setVoice] = useState(() => { try { return localStorage.getItem("cb_tts_voice") || "female"; } catch { return "female"; } });
-  const set = (v) => { setVoice(v); try { localStorage.setItem("cb_tts_voice", v); } catch {} sfx(); };
+  const set = (v) => { setVoice(v); try { localStorage.setItem("cb_tts_voice", v); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx set: localStorage.setItem('cb_tts_voice', v); }:", cbErr); } sfx(); };
   return (
     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
       {[["female", "Female"], ["male", "Male"]].map(([v, label]) => (
@@ -9167,14 +9167,14 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   /* Focus the close button on open; keep the active row visible. */
   useEffect(() => {
     if (!open) return;
-    if (closeRef.current) { try { closeRef.current.focus({ preventScroll: true }); } catch {} }
+    if (closeRef.current) { try { closeRef.current.focus({ preventScroll: true }); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: closeRef.current.focus({ preventScroll: true }); }:", cbErr); } }
   }, [open ]);
   useEffect(() => {
     if (!open || !activeCite) return;
     try {
       const el = document.getElementById(`evref-${activeCite}`);
       if (el) el.scrollIntoView({ block: "nearest", behavior: cbMotionOff() ? "auto" : "smooth" });
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: const el = document.getElementById(`evref-${activeCite}`);:", cbErr); }
   }, [open, activeCite ]);
   /* Escape closes. The desktop drawer is deliberately non-modal so the
      answer stays readable behind it; only the mobile sheet locks body
@@ -13208,7 +13208,7 @@ async function postCallSignal(threadId, clientId, type, payload) {
     });
     if (res.ok) return true;
     let reason = "";
-    try { reason = (await res.json()).error || ""; } catch {}
+    try { reason = (await res.json()).error || ""; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx postCallSignal: reason = (await res.json()).error || ''; }:", cbErr); }
     if (!reason) {
       reason = res.status === 401 ? "Your session expired: sign in again."
         : res.status === 403 ? "You're not authorized to call in this conversation."
@@ -13323,7 +13323,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     async function flushPendingCandidates() {
       while (pendingRemoteCandidates.length) {
         const c = pendingRemoteCandidates.shift();
-        try { await pc.addIceCandidate(c); } catch {}
+        try { await pc.addIceCandidate(c); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx while: await pc.addIceCandidate(c); }:", cbErr); }
       }
     }
 
@@ -13334,7 +13334,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         await postSignal("offer", offer);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx makeOffer: const offer = await pc.createOffer();:", cbErr); }
     }
 
     async function handleMessage(msg) {
@@ -13381,15 +13381,15 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           await postSignal("answer", answer);
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.setRemoteDescription(msg.payload);:", cbErr); }
       } else if (msg.type === "answer") {
         try {
           await pc.setRemoteDescription(msg.payload);
           remoteDescSet = true;
           await flushPendingCandidates();
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.setRemoteDescription(msg.payload);:", cbErr); }
       } else if (msg.type === "ice") {
-        if (remoteDescSet) { try { await pc.addIceCandidate(msg.payload); } catch {} }
+        if (remoteDescSet) { try { await pc.addIceCandidate(msg.payload); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.addIceCandidate(msg.payload); }:", cbErr); } }
         else pendingRemoteCandidates.push(msg.payload);
       } else if (msg.type === "bye") {
         if (!cancelled) onCloseRef.current && onCloseRef.current();
@@ -13529,7 +13529,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           connected = false;
           if (!iceRestarted) {
             iceRestarted = true;
-            try { pc.restartIce(); } catch {}
+            try { pc.restartIce(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.restartIce(); }:", cbErr); }
           }
         }
         else if (pc.connectionState === "failed") {
@@ -13538,7 +13538,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
             // One ICE restart before giving up — this alone recovers a
             // meaningful share of failures, and costs a couple of seconds.
             iceRestarted = true;
-            try { pc.restartIce(); return; } catch {}
+            try { pc.restartIce(); return; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.restartIce(); return; }:", cbErr); }
           }
           setErrorReason(
             relayKind === "none" || !sawRelay
@@ -13612,9 +13612,9 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       if (pollTimer) clearTimeout(pollTimer);
       if (ringTimer) clearInterval(ringTimer);
       if (didRing && !byeSentRef.current) postSignal("bye", {});
-      if (pc) { try { pc.close(); } catch {} }
+      if (pc) { try { pc.close(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.close(); }:", cbErr); } }
       if (localStream) localStream.getTracks().forEach((t) => t.stop());
-      if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch {} screenTrackRef.current = null; }
+      if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: screenTrackRef.current.stop(); }:", cbErr); } screenTrackRef.current = null; }
       pcRef.current = null;
       localStreamRef.current = null;
       remoteStreamRef.current = null;
@@ -13639,7 +13639,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     const camTrack = localStreamRef.current?.getVideoTracks()[0];
     const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
     if (sender && camTrack) sender.replaceTrack(camTrack).catch(() => {});
-    if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch {} screenTrackRef.current = null; }
+    if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: screenTrackRef.current.stop(); }:", cbErr); } screenTrackRef.current = null; }
     setScreenSharing(false);
   };
   const toggleScreenShare = async () => {
@@ -13654,7 +13654,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       // browser's own native "Stop sharing" bar, not just our own button.
       screenTrack.onended = () => stopScreenShare();
       setScreenSharing(true);
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: const screenStream = await navigator.mediaDevices.getDisplayMedia({ vi:", cbErr); }
   };
   // ~150kbps in Data saver vs ~2.5Mbps normally — real bitrate caps WebRTC's
   // own encoder honors (documented RTCRtpSender.setParameters), not a
@@ -13669,7 +13669,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         if (!params.encodings || !params.encodings.length) params.encodings = [{}];
         params.encodings[0].maxBitrate = next ? 150000 : 2500000;
         await sender.setParameters(params);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: const params = sender.getParameters();:", cbErr); }
     }
   };
 
@@ -14065,7 +14065,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [lightbox, setLightbox] = useState(null);
   // If the user leaves the inbox mid-recording, InboxView unmounts and the
   // mic would stay open with no UI to stop it. Clean up on unmount.
-  useEffect(() => () => { try { stopRecording(); } catch {} }, []);
+  useEffect(() => () => { try { stopRecording(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: stopRecording(); }:", cbErr); } }, []);
 
   // Downscales to fit inside 1400px and re-encodes as JPEG before upload.
   // A phone photo is several MB; a message row in D1 has roughly 1MB to
@@ -14161,12 +14161,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         sr.onerror = () => {};
         sr.start();
       }
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: const SR = window.SpeechRecognition || window.webkitSpeechRecognition;:", cbErr); }
     const startedAt = Date.now();
     rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
     rec.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
-      try { sr && sr.stop(); } catch {}
+      try { sr && sr.stop(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: sr && sr.stop(); }:", cbErr); }
       const durationMs = Date.now() - startedAt;
       if (durationMs < 700) return; // a mis-tap, not a message
       const blob = new Blob(chunks, { type: mime });
@@ -14206,7 +14206,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     try { cur.rec.stop(); } catch {
       // If stop() throws (e.g. iOS InvalidStateError), onstop never fires
       // and the mic tracks would leak — stop them directly.
-      try { cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); } catch {}
+      try { cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); }:", cbErr); }
     }
     recRef.current = null;
     recSecondsRef.current = 0;
@@ -14325,7 +14325,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 cbNotify(fresh.who || next.name || "New message", body, "cb-msg-" + activeId, "message");
               }
             }
-          } catch {}
+          } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx:", cbErr); }
           return next;
         });
         // The backend marks this thread read as part of that same GET (see
@@ -15395,7 +15395,7 @@ function cbDialogLockScroll() {
       const sw = window.innerWidth - document.documentElement.clientWidth;
       document.body.style.overflow = "hidden";
       if (sw > 0) document.body.style.paddingRight = `calc(${cbDialogSavedPaddingRight || "0px"} + ${sw}px)`;
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: cbDialogSavedOverflow = document.body.style.overflow;:", cbErr); }
   }
   cbDialogLockDepth += 1;
 }
@@ -15405,7 +15405,7 @@ function cbDialogUnlockScroll() {
     try {
       document.body.style.overflow = cbDialogSavedOverflow;
       document.body.style.paddingRight = cbDialogSavedPaddingRight;
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: document.body.style.overflow = cbDialogSavedOverflow;:", cbErr); }
   }
 }
 
@@ -17438,7 +17438,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
         const b = await listBackups(apiDataAction).catch(() => []);
         setBackups(b || []);
         if (b && b.length > 0 && !restoreDeviceId) setRestoreDeviceId(b[0].deviceId);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: const b = await listBackups(apiDataAction).catch(() => []);:", cbErr); }
     }
   };
 
@@ -18648,7 +18648,7 @@ async function extractPdfText(file) {
   } finally {
     // Release the worker-side document resources: without this, dropping
     // many PDFs leaks worker/document memory until the tab is closed.
-    try { await pdf.destroy(); } catch {}
+    try { await pdf.destroy(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx for: await pdf.destroy(); }:", cbErr); }
   }
 }
 
@@ -18949,7 +18949,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       setCompareResult(saved.compareResult && !saved.compareResult.streaming ? saved.compareResult : null);
       setCompareError("");
       if (typeof saved.scrollY === "number" && saved.scrollY > 0) {
-        setTimeout(() => { try { window.scrollTo(0, saved.scrollY); } catch (e) {} }, 80);
+        setTimeout(() => { try { window.scrollTo(0, saved.scrollY); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx if: window.scrollTo(0, saved.scrollY); }:", e); } }, 80);
       }
     } else {
       setSummary(null);
@@ -18969,7 +18969,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       const store = loadDocStore();
       const d = store.docs[fp];
       if (d && d.text) openDocument(d.text, d);
-    } catch (e) {}
+    } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx openRecent: const store = loadDocStore();:", e); }
   };
   // Delete a document from the shelf and from durable storage. Confirmed:
   // these can be confidential drafts with no other copy.
@@ -18979,7 +18979,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       setRecentDocs((prev) => prev.filter((d) => d.fp !== fp));
       try {
         if (documentText.trim() && docFingerprint(documentText.trim()) === fp) openDocument("");
-      } catch (e) {}
+      } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx deleteRecent: if (documentText.trim() && docFingerprint(documentText.trim()) === fp):", e); }
     }
   };
 
@@ -18994,7 +18994,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       const d = store.lastOpened && store.docs[store.lastOpened];
       if (d && d.text) openDocument(d.text, d);
-    } catch (e) {}
+    } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx catch: const store = loadDocStore();:", e); }
     setStoreReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -19038,7 +19038,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             .map(([fp2, d]) => ({ fp: fp2, title: d.title || "Untitled document", words: d.text ? d.text.split(/\s+/).length : 0, updatedAt: d.updatedAt || 0 }))
             .sort((a, b) => b.updatedAt - a.updatedAt)
         );
-      } catch (e) {}
+      } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx:", e); }
     }, 800);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult]);
@@ -19278,7 +19278,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       if (body && body.contains(e.target)) return;
       if (e.target && e.target.closest && e.target.closest("[data-hl-action]")) return;
       setPendingHL(null);
-      try { window.getSelection().removeAllRanges(); } catch {}
+      try { window.getSelection().removeAllRanges(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onPointerDown: window.getSelection().removeAllRanges(); }:", cbErr); }
     };
     const onKey = (e) => {
       if (e.key === "Escape") {
@@ -19287,7 +19287,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         // one keystroke doing two things.
         e.stopPropagation();
         setPendingHL(null);
-        try { window.getSelection().removeAllRanges(); } catch {}
+        try { window.getSelection().removeAllRanges(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: window.getSelection().removeAllRanges(); }:", cbErr); }
       }
     };
     document.addEventListener("pointerdown", onPointerDown);
@@ -19326,7 +19326,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const { start, end, quote } = pendingHL;
     if (!canAddHighlight(highlights, start, end)) {
       setPendingHL(null);
-      try { window.getSelection().removeAllRanges(); } catch (e) {}
+      try { window.getSelection().removeAllRanges(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx addPendingHighlight: window.getSelection().removeAllRanges(); }:", e); }
       return;
     }
     setHighlights((prev) => [
@@ -19334,7 +19334,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       { id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), start, end, quote: quote || documentText.slice(start, end).slice(0, 160), note: "", createdAt: Date.now() },
     ]);
     setPendingHL(null);
-    try { window.getSelection().removeAllRanges(); } catch (e) {}
+    try { window.getSelection().removeAllRanges(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx catch: window.getSelection().removeAllRanges(); }:", e); }
   };
   /* Render the document with highlights as marked ranges. Plain text only
      — the passage text is never interpreted as HTML. */
@@ -20100,7 +20100,7 @@ function SystemStatus({ P, accent }) {
           // nobody anything, and this panel is where someone is sent when
           // a call fails.
           let msg = "";
-          try { msg = (await res.json()).error || ""; } catch {}
+          try { msg = (await res.json()).error || ""; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: msg = (await res.json()).error || ''; }:", cbErr); }
           detail = msg ? msg.slice(0, 90) : "HTTP " + res.status;
         }
       } catch { state = "down"; detail = "no response"; }
@@ -20352,7 +20352,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setTypewriter(true);            // cb_tw !== "0"
     const allOn = { call: true, message: true, watch: true };
     setNotify(allOn); setNotifyPref(allOn);
-    try { localStorage.removeItem("cb_tts_voice"); } catch {} // TTS voice lives in localStorage, not a cookie
+    try { localStorage.removeItem("cb_tts_voice"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: localStorage.removeItem('cb_tts_voice'); }:", cbErr); } // TTS voice lives in localStorage, not a cookie
     setResetOpen(false);
     sfx();
     toast("Settings reset to defaults.");
@@ -21094,7 +21094,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Export workspace" desc="Download all your data as JSON" control={
                 <button onClick={() => {
                   let ttsVoice = "";
-                  try { ttsVoice = localStorage.getItem("cb_tts_voice") || ""; } catch {}
+                  try { ttsVoice = localStorage.getItem("cb_tts_voice") || ""; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: ttsVoice = localStorage.getItem('cb_tts_voice') || ''; }:", cbErr); }
                   const workspace = {
                     version: APP_VERSION_LABEL,
                     exported: new Date().toISOString(),
@@ -21155,7 +21155,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                           if (p.focusHighlight === "1" || p.focusHighlight === "0") setFocusHighlight(p.focusHighlight === "1");
                           if (p.typewriter === "1" || p.typewriter === "0") setTypewriter(p.typewriter === "1");
                           if (p.notify && typeof p.notify === "object") { const n = { call: true, message: true, watch: true }; for (const k of ["call", "message", "watch"]) if (typeof p.notify[k] === "boolean") n[k] = p.notify[k]; setNotify(n); setNotifyPref(n); }
-                          if (typeof p.ttsVoice === "string" && p.ttsVoice) { try { localStorage.setItem("cb_tts_voice", p.ttsVoice); } catch {} }
+                          if (typeof p.ttsVoice === "string" && p.ttsVoice) { try { localStorage.setItem("cb_tts_voice", p.ttsVoice); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: localStorage.setItem('cb_tts_voice', p.ttsVoice); }:", cbErr); } }
                         }
                         sfx();
                         toast("Workspace imported.");
@@ -21964,7 +21964,7 @@ function toast(message, opts = {}) {
     window.dispatchEvent(new CustomEvent("cb-toast", {
       detail: { id: ++cbToastId, message, tone: opts.tone || "success" },
     }));
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
 
 // Robust clipboard write with a visible outcome either way. navigator.clipboard
@@ -21996,7 +21996,7 @@ async function copyToClipboard(text, successMessage) {
       ta.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
-      try { if (prevFocus && prevFocus.focus && document.contains(prevFocus)) prevFocus.focus({ preventScroll: true }); } catch {}
+      try { if (prevFocus && prevFocus.focus && document.contains(prevFocus)) prevFocus.focus({ preventScroll: true }); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: if (prevFocus && prevFocus.focus && document.contains(prevFocus)) prev:", cbErr); }
       if (ok) {
         toast(successMessage || "Copied to clipboard");
         return true;
@@ -22523,7 +22523,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
     // and blocking someone out of the app over a failed audit write would
     // be the wrong trade. The next profile load re-syncs it.
     if (user) {
-      try { await apiDataAction("accept-terms", { version: LEGAL_VERSION }); } catch {}
+      try { await apiDataAction("accept-terms", { version: LEGAL_VERSION }); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await apiDataAction('accept-terms', { version: LEGAL_VERSION }); }:", cbErr); }
     }
     setBusy(false);
     onAccepted();
@@ -22800,7 +22800,7 @@ function useDynamicFavicon({ accent, busy, unread }) {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVis);
       // Don't leave the injected live icon in <head> after unmount.
-      try { const el = document.querySelector('link[rel="icon"][data-live="1"]'); if (el) el.remove(); } catch {}
+      try { const el = document.querySelector('link[rel="icon"][data-live="1"]'); if (el) el.remove(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onVis: const el = document.querySelector('link[rel='icon'][data-live='1']'); :", cbErr); }
     };
   }, [accent, busy, unread]);
 }
@@ -22938,7 +22938,7 @@ function App() {
      strip re-expands it as an overlay (content stays put). Desktop only. */
   const [railCollapsed, setRailCollapsed] = useState(() => { try { return localStorage.getItem("cb-rail-collapsed") === "1"; } catch { return false; } });
   const toggleRail = useCallback(() => {
-    setRailCollapsed((c) => { try { localStorage.setItem("cb-rail-collapsed", c ? "0" : "1"); } catch {} return !c; });
+    setRailCollapsed((c) => { try { localStorage.setItem("cb-rail-collapsed", c ? "0" : "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: localStorage.setItem('cb-rail-collapsed', c ? '0' : '1'); }:", cbErr); } return !c; });
   }, []);
   // Set by NetworkSearchModal's/InstitutionModal's "Message" button right
   // before switching to the Inbox view, so the Inbox lands on that
@@ -22966,7 +22966,7 @@ function App() {
   // so nothing here is ever presented as real before an account exists to
   // back it.
   const [profile, setProfile] = useState(() => { try { return JSON.parse(localStorage.getItem("cb_profile") || "{}"); } catch { return {}; } });
-  useEffect(() => { try { localStorage.setItem("cb_profile", JSON.stringify(profile)); } catch {} }, [profile]);
+  useEffect(() => { try { localStorage.setItem("cb_profile", JSON.stringify(profile)); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: localStorage.setItem('cb_profile', JSON.stringify(profile)); }:", cbErr); } }, [profile]);
   /* Premium pointer layer: cursor spotlight, magnetic pull, 3D tilt. One
      delegated listener for the whole app — see the hook above. */
   usePremiumPointer();
@@ -23016,7 +23016,7 @@ function App() {
     const serverCharts = chartsRes?.items || [];
     {
       let localCharts = [];
-      try { const v = JSON.parse(localStorage.getItem("cb_flowcharts") || "[]"); if (Array.isArray(v)) localCharts = v; } catch {}
+      try { const v = JSON.parse(localStorage.getItem("cb_flowcharts") || "[]"); if (Array.isArray(v)) localCharts = v; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: const v = JSON.parse(localStorage.getItem('cb_flowcharts') || '[]'); i:", cbErr); }
       setFlowcharts(mergeFlowcharts(serverCharts, localCharts));
     }
     setCollections(colRes?.items || []);
@@ -23045,7 +23045,7 @@ function App() {
       // reverse (cookie accepted, account not) is handled when the gate
       // itself posts accept-terms.
       if (profileRes.termsVersion === LEGAL_VERSION) {
-        try { writeLegalAccepted(LEGAL_VERSION); } catch {}
+        try { writeLegalAccepted(LEGAL_VERSION); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: writeLegalAccepted(LEGAL_VERSION); }:", cbErr); }
         setLegalOk(true);
       } else {
         // Reconciliation, and it matters more than it looks.
@@ -23143,13 +23143,13 @@ function App() {
       url.searchParams.delete("q");
       const rest = url.searchParams.toString();
       window.history.replaceState({}, "", url.pathname + (rest ? "?" + rest : "") + url.hash);
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: const url = new URL(window.location.href);:", cbErr); }
     setInput(deepQ);
     // The consent gate is the price of admission: a deep link may prefill
     // the question, but it may not spend the visitor's anonymous quota or
     // skip the gate. Without consent the question waits in the box.
     if (!legalOk) return;
-    const t = setTimeout(() => { try { askRef.current?.(deepQ); } catch {} }, 60);
+    const t = setTimeout(() => { try { askRef.current?.(deepQ); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askRef.current?.(deepQ); }:", cbErr); } }, 60);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -23165,7 +23165,7 @@ function App() {
       if (!hash.startsWith("#pro=")) return;
       const params = new URLSearchParams(hash.slice(1));
       const kind = params.get("pro");
-      try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
+      try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: window.history.replaceState(null, '', window.location.pathname + windo:", cbErr); }
       if (kind === "cancelled") {
         toast("Checkout cancelled. Nothing was charged.");
         return;
@@ -23228,7 +23228,7 @@ function App() {
     // The vault's keys live in memory: signing out locks them away. The
     // next sign-in re-checks the vault from scratch in handleAuthed.
     zkLockNow();
-    try { await apiAuth("logout", {}); } catch {}
+    try { await apiAuth("logout", {}); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx signOut: await apiAuth('logout', {}); }:", cbErr); }
     setUser(null); setSyncReady(false); setCollections([]);
     setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
     sfx();
@@ -23246,8 +23246,8 @@ function App() {
     // The deleted account's E2EE device identity must not survive: without
     // this, a new account in the same browser resurrects the old Olm
     // identity and publishes its keys under the new account.
-    try { wipeLocalKeys().catch(() => {}); } catch {}
-    try { clearE2EEMemory(); } catch {}
+    try { wipeLocalKeys().catch(() => {}); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onAccountDeleted: wipeLocalKeys().catch(() => {}); }:", cbErr); }
+    try { clearE2EEMemory(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onAccountDeleted: clearE2EEMemory(); }:", cbErr); }
     setUser(null); setSyncReady(false); setCollections([]); setSaved([]); setHistory([]); setFlowcharts([]);
     setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
   }
@@ -23457,7 +23457,7 @@ function App() {
   const vaultModeRef = useRef("off");
   const setVaultMode = (m) => { vaultModeRef.current = m; setVaultModeState(m); };
   const zkLockNow = () => {
-    try { if (zkSessionRef.current && typeof zkSessionRef.current.lock === "function") zkSessionRef.current.lock(); } catch {}
+    try { if (zkSessionRef.current && typeof zkSessionRef.current.lock === "function") zkSessionRef.current.lock(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx zkLockNow: if (zkSessionRef.current && typeof zkSessionRef.current.lock === 'func:", cbErr); }
     zkSessionRef.current = null;
     zkRevRef.current = new Map();
     zkLastPushedIds.current = { saved: new Set(), history: new Set() };
@@ -23708,8 +23708,8 @@ function App() {
       setSaved([]);
       setHistory([]);
       setCollections([]);
-      try { localStorage.removeItem("cb_saved"); } catch {}
-      try { localStorage.removeItem("cb_history"); } catch {}
+      try { localStorage.removeItem("cb_saved"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx clearForLocked: localStorage.removeItem('cb_saved'); }:", cbErr); }
+      try { localStorage.removeItem("cb_history"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx clearForLocked: localStorage.removeItem('cb_history'); }:", cbErr); }
       setImportPrompt(null);
     };
     try {
@@ -24097,7 +24097,7 @@ function App() {
       // The cookie writes themselves happen in the effect below — never
       // during render (initializers run twice under StrictMode).
       if (getCookie("cb_ap_v") !== "2") return false;
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: // One-time migration: the old default was on; v2 resets it to off.:", cbErr); }
     return getCookie("cb_ap") === "1";
   });
   useEffect(() => {
@@ -24106,7 +24106,7 @@ function App() {
         setCookie("cb_ap", "0");
         setCookie("cb_ap_v", "2");
       }
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: if (getCookie('cb_ap_v') !== '2') {:", cbErr); }
   }, []);
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
@@ -24251,7 +24251,7 @@ function App() {
     // is most of what "it is also automatically playing TTS" is. Narration
     // now requires an ask in THIS session.
     const requestVersion = ++investigationRequest.current;
-    try { askAbortRef.current?.abort(); } catch {}
+    try { askAbortRef.current?.abort(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askAbortRef.current?.abort(); }:", cbErr); }
     const askCtrl = new AbortController();
     askAbortRef.current = askCtrl;
     setAskedThisSession(true);
@@ -24268,7 +24268,7 @@ function App() {
        network then gets an honest error with a Try again button instead
        of an endless transmission. 120s is generous: p99 latency is ~40s. */
     const askStarted = performance.now();
-    const askTimeout = setTimeout(() => { try { askCtrl.abort("timeout"); } catch {} }, 120000);
+    const askTimeout = setTimeout(() => { try { askCtrl.abort("timeout"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askCtrl.abort('timeout'); }:", cbErr); } }, 120000);
     const elapsedS = () => ((performance.now() - askStarted) / 1000).toFixed(1);
     const stamp = () => new Date().toLocaleTimeString();
     /* Named search failure (#16): sets the panel's headline, plain-words
@@ -24339,7 +24339,7 @@ function App() {
         noteRequestId(rid);
         if (!res.ok) {
           let errData = {};
-          try { errData = await res.json(); } catch {}
+          try { errData = await res.json(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: errData = await res.json(); }:", cbErr); }
           if (requestVersion !== investigationRequest.current) return;
           /* Every failure path stamps a diagnostic caption: HTTP status,
              elapsed seconds, wall-clock time, and the abbreviated
@@ -24768,7 +24768,7 @@ function App() {
     try {
       document.body.classList.toggle("cb-motion-off", animationMode === "off");
       window.dispatchEvent(new CustomEvent("cb:anim"));
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: document.body.classList.toggle('cb-motion-off', animationMode === 'off:", cbErr); }
   }, [animationMode]);
   useEffect(() => { const t = setTimeout(() => setCookie("cb_animS", String(animSpeed)), 500); return () => clearTimeout(t); }, [animSpeed]);
   useEffect(() => { setCookie("cb_pal", paletteName); }, [paletteName]);
@@ -24789,7 +24789,7 @@ function App() {
     try {
       if (vaultMode === "off") localStorage.setItem("cb_saved", JSON.stringify(saved));
       else localStorage.removeItem("cb_saved");
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: if (vaultMode === 'off') localStorage.setItem('cb_saved', JSON.stringi:", cbErr); }
   }, [saved, vaultMode]);
   // Pushes the current saved-articles list to the account, debounced so a
   // rapid string of Save clicks doesn't fire one request each. Whole-array
@@ -24842,7 +24842,7 @@ function App() {
     setSaveState("saving");
     try {
       if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
-      else { try { localStorage.removeItem("cb_history"); } catch {} }
+      else { try { localStorage.removeItem("cb_history"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: localStorage.removeItem('cb_history'); }:", cbErr); } }
       setSaveState("saved");
     } catch {
       setSaveState("error");
@@ -24852,7 +24852,7 @@ function App() {
     setSaveState("saving");
     try {
       if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
-      else { try { localStorage.removeItem("cb_history"); } catch {} }
+      else { try { localStorage.removeItem("cb_history"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: localStorage.removeItem('cb_history'); }:", cbErr); } }
       setSaveState("saved");
     } catch {
       setSaveState("error");
@@ -25408,7 +25408,7 @@ function App() {
           reel is still not playing. */}
       {wsFilmVetoed && !wsFilmPlaying && (
         <button type="button"
-          onClick={() => { try { wsFilmRef.current?.playNow(); } catch {} }}
+          onClick={() => { try { wsFilmRef.current?.playNow(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: wsFilmRef.current?.playNow(); }:", cbErr); } }}
           aria-label="Play background video"
           style={{
             position: "fixed", bottom: "max(18px, env(safe-area-inset-bottom))", right: 18,
@@ -25703,7 +25703,7 @@ function App() {
                       sub-200ms answers never flash a loader. */}
                   <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated}
                     stream={streamActive ? streamStage : null}
-                    onCancel={() => { try { askAbortRef.current?.abort("cancelled"); } catch {} }} />
+                    onCancel={() => { try { askAbortRef.current?.abort("cancelled"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askAbortRef.current?.abort('cancelled'); }:", cbErr); } }} />
                   {/* Staged skeleton (#9): while the SSE stages progress,
                       the answer's geometry waits below the stage rail —
                       headline block, claim rows with citation chips, the

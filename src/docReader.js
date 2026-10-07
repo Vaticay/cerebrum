@@ -133,14 +133,14 @@ export async function streamDocumentApi(body, opts = {}) {
   // instead of "took too long" and vice versa.
   const ctrl = new AbortController();
   let timer = null;
-  const forwardAbort = () => { try { ctrl.abort(signal.reason); } catch {} };
+  const forwardAbort = () => { try { ctrl.abort(signal.reason); } catch (cbErr) { console.error("[Cerebrum] docReader.js forwardAbort: ctrl.abort(signal.reason); }:", cbErr); } };
   if (signal) {
     if (signal.aborted) forwardAbort();
     else signal.addEventListener("abort", forwardAbort, { once: true });
   }
   if (timeoutMs > 0) {
     timer = setTimeout(() => {
-      try { ctrl.abort(new DOMException("The request took too long.", "TimeoutError")); } catch {}
+      try { ctrl.abort(new DOMException("The request took too long.", "TimeoutError")); } catch (cbErr) { console.error("[Cerebrum] docReader.js if: ctrl.abort(new DOMException('The request took too long.', 'TimeoutErro:", cbErr); }
     }, timeoutMs);
   }
   const settled = () => {
@@ -222,14 +222,14 @@ export async function streamDocumentApi(body, opts = {}) {
       }
     }
   } catch (e) {
-    try { reader.releaseLock(); } catch {}
+    try { reader.releaseLock(); } catch (cbErr) { console.error("[Cerebrum] docReader.js catch: reader.releaseLock(); }:", cbErr); }
     settled();
     // An abort mid-stream (user cancel or the 60s timeout) surfaces here
     // as the read rejects; backend "error" events rethrow untouched.
     if (ctrl.signal.aborted) throw abortError();
     throw e;
   }
-  try { reader.releaseLock(); } catch {}
+  try { reader.releaseLock(); } catch (cbErr) { console.error("[Cerebrum] docReader.js catch: reader.releaseLock(); }:", cbErr); }
   settled();
   if (!donePayload) {
     const e = new Error(

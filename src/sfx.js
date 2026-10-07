@@ -51,7 +51,7 @@ export const Sfx = (() => {
     if (lfoTimer) { clearInterval(lfoTimer); lfoTimer = null; }
     if (!ambient || !ctx) return;
     const { g, oscs } = ambient;
-    try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(g.gain.value, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch {} }); } catch {}
+    try { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(g.gain.value, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4); oscs.forEach((o) => { try { o.stop(ctx.currentTime + 0.45); } catch (cbErr) { console.error("[Cerebrum] sfx.js if: o.stop(ctx.currentTime + 0.45); }:", cbErr); } }); } catch (cbErr) { console.error("[Cerebrum] sfx.js if: o.stop(ctx.currentTime + 0.45); } catch {} }); }:", cbErr); }
     ambient = null;
   }
   function preview(mode) { startAmbient(mode); setTimeout(stopAmbient, 1400); }

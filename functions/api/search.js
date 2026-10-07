@@ -406,7 +406,7 @@ const POLITE_UA =
 export function linkWaveAbort(internal, waveSignal) {
   if (!waveSignal) return () => {};
   if (waveSignal.aborted) { internal.abort(); return () => {}; }
-  const onWaveAbort = () => { try { internal.abort(); } catch {} };
+  const onWaveAbort = () => { try { internal.abort(); } catch (cbErr) { console.error("[Cerebrum] search.js onWaveAbort: internal.abort(); }:", cbErr); } };
   waveSignal.addEventListener("abort", onWaveAbort, { once: true });
   return () => waveSignal.removeEventListener("abort", onWaveAbort);
 }
@@ -3251,7 +3251,7 @@ async function wikipedia(query, limit = 2) {
             isEncyclopedia: true,
           });
         }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
     }
     return out;
   } catch {
@@ -3480,7 +3480,7 @@ async function fetchVideos(query, maxMs = 3000) {
       try {
         const result = await Promise.any(promises);
         if (result && result.length) return result;
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js for: const result = await Promise.any(promises);:", cbErr); }
     }
     return [];
   };
@@ -3541,7 +3541,7 @@ async function llmGenerateSearchQueries(rawQuery, token) {
       if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === "string") {
         return arr.slice(0, 6).map(s => s.trim()).filter(s => s.length > 3 && s.length < 100);
       }
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] search.js: const arr = JSON.parse(clean);:", cbErr); }
     // Fallback: try to extract lines
     return clean.split("\n").map(l => l.replace(/^[\d\.\-\*\s"]+|"$/g, "").trim()).filter(s => s.length > 3 && s.length < 100).slice(0, 6);
   } catch {
@@ -3933,7 +3933,7 @@ async function llmValidatePapers(rawQuery, papers, token) {
         // If LLM rejected everything but we had survivors, keep top 2
         return survivors.slice(0, 2);
       }
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
     // If LLM returned something unparseable, still try the simple array format
     try {
       const simple = JSON.parse(txt.replace(/```json|```/g, "").trim());
@@ -3942,7 +3942,7 @@ async function llmValidatePapers(rawQuery, papers, token) {
         const filtered = survivors.filter((_, i) => validSet.has(i + 1));
         if (filtered.length > 0) return filtered;
       }
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] search.js: const simple = JSON.parse(txt.replace(/```json|```/g, '').trim());:", cbErr); }
     return survivors;
   } catch {
     return survivors;
@@ -4641,8 +4641,108 @@ export function fingerprintClaim(text) {
     .trim();
 }
 
+// ── Extraction honesty gate (2026-10-07) ─────────────────────────
+// The extractive path has no LLM judgment: it stitches sentences. When
+// the cited papers cannot support an honest "short answer", presenting one
+// anyway is confident BS — the #1 complaint about this path. This gate
+// measures whether an extraction is answer-grade; when it isn't,
+// buildExtractiveSynthesis emits the honest weak-evidence answer (papers
+// listed for the reader, no synthesized claims) instead of the
+// five-section synthesis. Pure and exported for tests.
+const EXTRACT_STRONG_RELEVANCE = 65; // mirrors the "STRONG" bar in evidenceIsThin
+
+function significantQueryTerms(query) {
+  const terms = [];
+  for (const w of String(query || "").toLowerCase().split(/[^a-z0-9]+/)) {
+    if (w.length >= 3 && !EXTRACT_STOPWORDS.has(w) && terms.indexOf(w) < 0) terms.push(w);
+  }
+  return terms;
+}
+
+export function assessExtractionQuality(items, ctx = {}) {
+  const qTerms = significantQueryTerms(ctx && ctx.query);
+  const stats = { cited: (items || []).length, scored: 0, strong: 0, queryHit: 0, withFindings: 0 };
+  for (const it of (items || [])) {
+    const rel = paperRelevance(it && it.p);
+    if (rel >= 0) stats.scored++;
+    if (rel >= EXTRACT_STRONG_RELEVANCE) stats.strong++;
+    if (it && it.hasFindings) stats.withFindings++;
+    const text = ((it && it.findings) || []).join(" ") + " " + ((it && it.titleClaim) || "");
+    if (qTerms.length > 0 && qTerms.some((t) => text.toLowerCase().indexOf(t) >= 0)) stats.queryHit++;
+  }
+  const reasons = [];
+  // Strength: at least one strongly-relevant paper must anchor an answer.
+  // Skipped when papers carry no scores (web fallback) or the mode doesn't
+  // score topicality at all (name search — authorship is the signal there).
+  const skipStrength = !!(ctx && ctx.isNameSearch);
+  if (!skipStrength && stats.scored > 0 && stats.strong === 0) {
+    reasons.push("None of the cited papers were strongly relevant to your question.");
+  }
+  // Query addressing: the extracted findings should mention the question's
+  // key terms. Skipped with no query, or when relevance isn't vocabulary-
+  // based (name search, follow-up — the topic lives in the conversation,
+  // not the follow-up phrasing).
+  const skipQueryHit = skipStrength || !!(ctx && ctx.isFollowupMode) || qTerms.length === 0;
+  if (!skipQueryHit && stats.cited > 0 && stats.queryHit / stats.cited < 0.5) {
+    reasons.push("Most of the extracted passages don't mention the key terms in your question.");
+  }
+  // Findings: titles alone cannot support a "short answer", in any mode.
+  if (stats.withFindings === 0) {
+    reasons.push("None of the papers had usable abstracts to draw findings from.");
+  }
+  return { ok: reasons.length === 0, reasons, stats };
+}
+
+// The honest answer for a failed honesty gate: no synthesized claims, no
+// "short answer" — the closest papers listed for the reader, the reasons
+// stated plainly, and reformulations to try. Section headings deliberately
+// avoid the alignment checker's vocabulary ("The short answer" etc.) so the
+// paper list is never misread as cited claims.
+function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
+  const q = String((ctx && ctx.query) || "").trim().slice(0, 160);
+  const n = (pool || []).length;
+  const unitWord = n === 1 ? "paper" : "papers";
+  let md = "## Couldn't find a direct answer\n\n";
+  md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
+    ", but couldn't build a reliable summary from them — " +
+    "so instead of stitching together sentences that don't actually answer your question, " +
+    "here are the closest papers to read directly.\n";
+  md += "\n### Why this isn't a summary\n\n";
+  md += quality.reasons.map((r) => "- " + r).join("\n") + "\n";
+  if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
+    const interps = (ctx.ambiguity.interpretations || []).map((x) => x.label).filter(Boolean);
+    if (interps.length >= 2) {
+      md += "\n*Note: \"" + ctx.ambiguity.term + "\" is ambiguous — it can mean " +
+        interps.slice(0, 3).join(", ") + ".*\n";
+    }
+  }
+  md += "\n### Closest papers\n\n";
+  for (const it of (items || [])) {
+    const p = (it && it.p) || {};
+    const title = extractTitleClaim(p.title) || "Untitled";
+    const venue = [p.journal, p.year].filter(Boolean).join(", ");
+    md += "- **" + title + "**" + (venue ? " — " + venue : "") + " [" + it.idx + "]\n";
+  }
+  let reforms = [];
+  try { reforms = deriveReformulations(q) || []; } catch { reforms = []; }
+  if (reforms.length > 0) {
+    md += "\n### Try asking it this way\n\n" +
+      reforms.slice(0, 3).map((r, i) => (i + 1) + ". **" + r.label + ":** \"" + r.query + "\"").join("\n") + "\n";
+  }
+  const gateReason = ctx && ctx.aiGateReason;
+  const closing =
+    gateReason === "signin-required"
+      ? "*Assembled without AI — sign in for AI-synthesized answers. The papers above are listed for you to read directly; nothing here interprets their findings.*"
+      : gateReason === "free-cap" || gateReason === "lite-cap"
+        ? "*Assembled without AI — you've used this period's free AI answers. The papers above are listed for you to read directly; nothing here interprets their findings.*"
+        : "*Cerebrum's AI providers were temporarily unavailable, so no summary was assembled — the papers above are the closest matches. Read them directly rather than relying on stitched-together sentences.*";
+  md += "\n" + closing;
+  return md;
+}
+
 export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
-  // ctx (optional): { query, sourcesQueried, relevanceGatedOut, ambiguity, aiGateReason } —
+  // ctx (optional): { query, sourcesQueried, relevanceGatedOut, ambiguity, aiGateReason,
+  //   isNameSearch, isFollowupMode } —
   // feeds the computed "How solid is this?" section and the ambiguity note.
   // `query` powers the substrate-drift demotion (see below).
   // `aiGateReason` ("signin-required" | "free-cap" | "lite-cap" | null) names
@@ -4750,6 +4850,15 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     }
 
     const anyAbstractFindings = items.some((it) => it.hasFindings);
+
+    // HONESTY GATE (2026-10-07): the extractive path has no LLM judgment.
+    // When the cited papers can't support an honest "short answer", emit
+    // the weak-evidence answer (papers listed, no synthesized claims)
+    // instead of stitching confident BS.
+    const extractionQuality = assessExtractionQuality(items, ctx);
+    if (!extractionQuality.ok) {
+      return buildWeakEvidenceAnswer(items, pool, ctx, extractionQuality);
+    }
 
     // GLOBAL CLAIM DEDUPE. Every candidate claim across the whole summary is
     // fingerprinted, and a claim is emitted only the first time its
@@ -5655,7 +5764,7 @@ export function deriveReformulations(query) {
   if (out.length < 2) {
     try {
       for (const m of expandViaMesh(q).slice(0, 2)) push("Use the indexed term", m);
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] search.js if: for (const m of expandViaMesh(q).slice(0, 2)) push('Use the indexed te:", cbErr); }
   }
   return out.slice(0, 3);
 }
@@ -5911,7 +6020,7 @@ export async function postChatCompletion({ url, key, model, messages, maxTokens,
   // exponential backoff, jitter, and Retry-After honoring. Permanent
   // failures (4xx, empty completion) are never retried.
   let providerId = "generic";
-  try { providerId = new URL(url).hostname || providerId; } catch {}
+  try { providerId = new URL(url).hostname || providerId; } catch (cbErr) { console.error("[Cerebrum] search.js if: providerId = new URL(url).hostname || providerId; }:", cbErr); }
   const breaker = getBreaker("llm:" + providerId, { failureThreshold: 5, openTimeoutMs: 60000 });
   return callWithCircuit(
     breaker,
@@ -5938,7 +6047,7 @@ async function postChatCompletionOnce({ url, key, model, messages, maxTokens, ti
       try {
         const ra = r.headers.get("retry-after");
         if (ra) err.retryAfter = ra;
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: const ra = r.headers.get('retry-after');:", cbErr); }
       throw err;
     }
     const j = await r.json().catch(() => null);
@@ -6402,7 +6511,7 @@ async function llmResolveQuery(query, history, prevSources, token) {
       const clean = txt.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
       if (parsed && typeof parsed.intent === "string") return parsed;
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] search.js if: const clean = txt.replace(/```json|```/g, '').trim();:", cbErr); }
     return null;
   } catch {
     return null;
@@ -6562,7 +6671,7 @@ async function selfReason(query, history, token) {
     const txt = (j?.choices?.[0]?.message?.content || "").trim();
     try {
       return JSON.parse(txt.replace(/```json|```/g, "").trim());
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] search.js: return JSON.parse(txt.replace(/```json|```/g, '').trim());:", cbErr); }
     return null;
   } catch {
     return null;
@@ -6657,7 +6766,7 @@ async function checkQueryIntelligence(queryKey, db) {
         confidence: Math.min(row.success_count / 3, 1), // 3+ successes = full confidence
       };
     }
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] search.js if: const row = await db:", cbErr); }
   return null;
 }
 
@@ -6713,7 +6822,7 @@ async function updateTopicMemory(topic, searchTerms, paperCount, db) {
       )
       .bind(topicKey, JSON.stringify([]), JSON.stringify(searchTerms || []), paperCount || 0, Date.now())
       .run();
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
 }
 
 // Read topic_memory to enrich search queries with previously successful terms.
@@ -6742,9 +6851,9 @@ async function recallTopicMemory(topic, db) {
             searchCount: row.search_count || 0,
           };
         }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: const terms = JSON.parse(row.best_search_terms);:", cbErr); }
     }
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] search.js if: const terms = JSON.parse(row.best_search_terms);:", cbErr); }
   return null;
 }
 
@@ -7408,7 +7517,7 @@ async function gatherPapers(rawQuery, opts) {
         results = results.concat(subRes);
         diag["clause:" + sub.join("+")] = subRes.reduce(
           (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js for: const subRes = await Promise.allSettled(fanout(sub, false));:", cbErr); }
     }
   }
 
@@ -7444,7 +7553,7 @@ async function gatherPapers(rawQuery, opts) {
         results = results.concat(secResults);
         diag["secondaryOrganism:" + sciName] = secResults.reduce(
           (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
     }
   }
 
@@ -8322,7 +8431,7 @@ async function resolveDoi(doi, env) {
       const words = [];
       for (const w of Object.keys(idx)) for (const pos of idx[w]) words[pos] = w;
       abstract = words.filter(Boolean).join(" ").slice(0, 2400);
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] search.js if: const idx = oa.abstract_inverted_index;:", cbErr); }
   }
   if (!abstract && c && typeof c.abstract === "string") {
     abstract = stripTags(c.abstract).slice(0, 2400);
@@ -8443,7 +8552,7 @@ async function evidenceStructure(papers) {
             } : null;
           }).filter(Boolean);
         }
-      } catch {} finally { clearTimeout(t2); }
+      } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); } finally { clearTimeout(t2); }
     }
 
     return {
@@ -8554,14 +8663,14 @@ export async function onRequest(context) {
         await sse.emit("done", payload);
       } catch (e) {
         console.error("Cerebrum /api/search stream failed:", e && e.stack ? e.stack : e);
-        try { await sse.emit("error", { code: "stream_failed", message: "The answer stream failed. Retry as a normal search." }); } catch {}
+        try { await sse.emit("error", { code: "stream_failed", message: "The answer stream failed. Retry as a normal search." }); } catch (cbErr) { console.error("[Cerebrum] search.js catch: await sse.emit('error', { code: 'stream_failed', message: 'The answer :", cbErr); }
       } finally {
-        try { await sse.close(); } catch {}
+        try { await sse.close(); } catch (cbErr) { console.error("[Cerebrum] search.js catch: await sse.close(); }:", cbErr); }
       }
     })();
     // Keep the worker alive for the stream even after the Response is
     // returned; the open stream itself also holds the request context.
-    try { if (typeof waitUntil === "function") waitUntil(run); else await run; } catch {}
+    try { if (typeof waitUntil === "function") waitUntil(run); else await run; } catch (cbErr) { console.error("[Cerebrum] search.js catch: if (typeof waitUntil === 'function') waitUntil(run); else await run; }:", cbErr); }
     return new Response(sse.readable, { status: 200, headers: { ...sseHeaders(secureCors), "X-Request-ID": requestId } });
   }
   return runSearchPipeline({ context, shared, hooks: {} });
@@ -8667,7 +8776,7 @@ async function runSearchPipeline(pctx) {
         try {
           const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGate.aiCap);
           if (consumed && typeof consumed.used === "number") aiGate.aiUsed = consumed.used;
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] search.js meterAiAnswer: const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGa:", cbErr); }
       }
     };
     // The quota shape every AI surface returns, so the client's upgrade
@@ -9058,7 +9167,7 @@ async function runSearchPipeline(pctx) {
         // cache hit IS an AI answer, so free callers are metered for it.
         if (earlyHit && earlyHit.answer && aiSynthesisAllowed) {
           let cachedSources = [];
-          try { cachedSources = JSON.parse(earlyHit.sources || "[]"); } catch {}
+          try { cachedSources = JSON.parse(earlyHit.sources || "[]"); } catch (cbErr) { console.error("[Cerebrum] search.js if: cachedSources = JSON.parse(earlyHit.sources || '[]'); }:", cbErr); }
           await meterAiAnswer();
           return new Response(
             JSON.stringify({
@@ -9074,7 +9183,7 @@ async function runSearchPipeline(pctx) {
             { status: 200, headers: cors }
           );
         }
-      } catch {} // Cache read failure just falls through to a live search — never blocks the request
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: cachedSources = JSON.parse(earlyHit.sources || '[]'); } catch {}:", cbErr); } // Cache read failure just falls through to a live search — never blocks the request
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -9790,7 +9899,7 @@ async function runSearchPipeline(pctx) {
             contentHits: 99, contentCoverage: 1, _learned: true,
           }));
         }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
     }
     if (learnedPapers.length) {
       const seenTitles = new Set(papers.map((p) => (p.title || "").toLowerCase().trim()));
@@ -9828,7 +9937,7 @@ async function runSearchPipeline(pctx) {
             }
           }
         }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js for:", cbErr); }
     }
 
     let useEvidence = hasPapers;
@@ -9941,7 +10050,7 @@ async function runSearchPipeline(pctx) {
           .map((p) => p.title)
           .filter((t) => t && !keptTitles.has(String(t).toLowerCase().trim()))
           .slice(0, 3);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: const keptTitles = new Set(applyRelevanceGate(papers).map((p) => Strin:", cbErr); }
     }
     // Whether what survived is actually good enough to answer FROM. "Thin"
     // now means fewer than two STRONG (>=65) papers cleared the floor —
@@ -9990,7 +10099,7 @@ async function runSearchPipeline(pctx) {
     if (evidencePapers.length > 0) {
       try {
         await flagRetractions(evidencePapers, 8);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: await flagRetractions(evidencePapers, 8);:", cbErr); }
     }
 
     // v6.3: FINAL DEDUPE + GATE — the last word before numbering.
@@ -10876,7 +10985,7 @@ async function runSearchPipeline(pctx) {
         if (cached && cached.answer) {
           cachedAnswer = cached;
         }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: const cached = await env.DB.prepare(:", cbErr); }
     }
 
     // If we have a high-confidence cached answer (score >= 2 means multiple
@@ -11010,7 +11119,7 @@ async function runSearchPipeline(pctx) {
         });
         if (!r.ok) {
           let bodyText = "";
-          try { bodyText = (await r.text()).slice(0, 100); } catch {}
+          try { bodyText = (await r.text()).slice(0, 100); } catch (cbErr) { console.error("[Cerebrum] search.js if: bodyText = (await r.text()).slice(0, 100); }:", cbErr); }
           throw new Error(model + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
         }
         const j = await r.json();
@@ -11099,7 +11208,7 @@ async function runSearchPipeline(pctx) {
         });
         if (!r.ok) {
           let bodyText = "";
-          try { bodyText = (await r.text()).slice(0, 100); } catch {}
+          try { bodyText = (await r.text()).slice(0, 100); } catch (cbErr) { console.error("[Cerebrum] search.js if: bodyText = (await r.text()).slice(0, 100); }:", cbErr); }
           throw new Error(tag + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
         }
         const j = await r.json();
@@ -11214,7 +11323,7 @@ async function runSearchPipeline(pctx) {
         clearTimeout(t);
         if (!pRes.ok) {
           let bodyText = "";
-          try { bodyText = (await pRes.text()).slice(0, 100); } catch {}
+          try { bodyText = (await pRes.text()).slice(0, 100); } catch (cbErr) { console.error("[Cerebrum] search.js if: bodyText = (await pRes.text()).slice(0, 100); }:", cbErr); }
           throw new Error(tag + ": HTTP " + pRes.status + (bodyText ? " — " + bodyText : ""));
         }
         const cleaned = cleanAIResponse(await pRes.text());
@@ -11332,7 +11441,7 @@ async function runSearchPipeline(pctx) {
           "SELECT model, wins FROM model_perf WHERE domain = ? ORDER BY wins DESC LIMIT 1"
         ).bind(domainKey).first();
         if (pref && pref.wins >= 3) preferredModel = pref.model;
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: const pref = await env.DB.prepare(:", cbErr); }
     }
 
     // Fast path: known best model for this domain.
@@ -11652,7 +11761,7 @@ async function runSearchPipeline(pctx) {
           new Promise((res) => setTimeout(() => res(null), 4000)),
         ]);
         if (r && r.text) { briefText = r.text; briefClaims = r.claims || []; }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.race([:", cbErr); }
       // If the speculative brief finished while wave 1 raced, compose from
       // pre-digested atomic claims — a much easier task for the smaller
       // models in this tier than the full abstract block.
@@ -11824,7 +11933,7 @@ async function runSearchPipeline(pctx) {
           promptChars: messagesChars(messages),
           completionChars,
         });
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
     }
 
     // Log the full attempt trail so a future total-failure is diagnosable
@@ -11867,7 +11976,7 @@ async function runSearchPipeline(pctx) {
         independentProviders: activeProviders.map((p) => p.id),
         independentProviderCount: activeProviders.length,
       } });
-      try { console.log("Cerebrum: ALL AI PROVIDERS FAILED", JSON.stringify(aiAttempts)); } catch {}
+      try { console.log("Cerebrum: ALL AI PROVIDERS FAILED", JSON.stringify(aiAttempts)); } catch (cbErr) { console.error("[Cerebrum] search.js if: console.log('Cerebrum: ALL AI PROVIDERS FAILED', JSON.stringify(aiAtte:", cbErr); }
       // ════════════════════════════════════════════════════════════════
       // WAVE 4 — DETERMINISTIC EXTRACTIVE SYNTHESIS (last resort)
       // Fires once waves 1–3 have failed on every provider. Pure local
@@ -11887,6 +11996,8 @@ async function runSearchPipeline(pctx) {
         // silently picking one.
         const ext = buildExtractiveSynthesis(extPool, briefClaims, {
           query: searchQuery,
+          isNameSearch,
+          isFollowupMode,
           sourcesQueried: publicSourcesQueried(),
           relevanceGatedOut,
           ambiguity,
@@ -11897,7 +12008,7 @@ async function runSearchPipeline(pctx) {
             : aiGate.kind === "anonymous" ? "signin-required" : aiGate.kind === "lite" ? "lite-cap" : "free-cap",
         });
         if (ext) { answer = ext; extractiveOK = true; }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
       if (!extractiveOK) {
         // INTELLIGENT NO-RESULTS — the terminal state when every provider
         // failed AND nothing citable survived retrieval. A real answer
@@ -11975,7 +12086,7 @@ async function runSearchPipeline(pctx) {
           if (retryScore > qualityScore) {
             answer = retryProcessed;
           }
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
       }
     }
 
@@ -12011,8 +12122,8 @@ async function runSearchPipeline(pctx) {
             if (r.answer.length > answer.length) {
               answer = postProcessAnswer(r.answer);
             }
-          } catch {}
-        } catch {}
+          } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
+        } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
       }
 
       // ============ CITATION SUPPORT STRIP ============
@@ -12080,7 +12191,7 @@ async function runSearchPipeline(pctx) {
               "ON CONFLICT(query_key, title) DO UPDATE SET times_confirmed = times_confirmed + 1"
             ).bind(learnKey, p.title || "", p.url || "", p.journal || "", p.year || "", p.authors || "", (p.abstract || "").slice(0, 500), Date.now()).run().catch(() => {})
           ));
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
       }
     }
 

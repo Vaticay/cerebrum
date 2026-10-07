@@ -107,7 +107,7 @@ export async function withBackoff(fn, opts = {}) {
       if (!transient || last) throw err;
       const after = retryAfterMs(err);
       const delay = after != null ? after : jitteredDelay(attempt, baseMs, capMs, rand);
-      if (onRetry) { try { onRetry({ attempt, delayMs: delay, error: err }); } catch {} }
+      if (onRetry) { try { onRetry({ attempt, delayMs: delay, error: err }); } catch (cbErr) { console.error("[Cerebrum] llmCircuit.js if: onRetry({ attempt, delayMs: delay, error: err }); }:", cbErr); } }
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -261,7 +261,7 @@ export async function runWithFallbacks(steps, { log = null } = {}) {
     } catch (err) {
       const msg = String((err && err.message) || err).slice(0, 200);
       failures.push({ step: step.name, error: msg });
-      if (log) { try { log("warn", "fallback_step_failed", { step: step.name, error: msg }); } catch {} }
+      if (log) { try { log("warn", "fallback_step_failed", { step: step.name, error: msg }); } catch (cbErr) { console.error("[Cerebrum] llmCircuit.js if: log('warn', 'fallback_step_failed', { step: step.name, error: msg }); :", cbErr); } }
     }
   }
   return { ok: false, error: failures.length ? failures[failures.length - 1].error : "no steps", failures };

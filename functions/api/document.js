@@ -267,7 +267,7 @@ const callOR = async (env, model, messages, maxTokens, { timeoutMs = 20000, idle
       if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
       if (!r.ok) {
         let bodyText = "";
-        try { bodyText = (await r.text()).slice(0, 150); } catch {}
+        try { bodyText = (await r.text()).slice(0, 150); } catch (cbErr) { console.error("[Cerebrum] document.js if: bodyText = (await r.text()).slice(0, 150); }:", cbErr); }
         throw new Error(model + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
       }
       const j = await r.json();
@@ -280,7 +280,7 @@ const callOR = async (env, model, messages, maxTokens, { timeoutMs = 20000, idle
     // a stalled one fails over to the next provider within idleTimeoutMs.
     if (!r.ok) {
       let bodyText = "";
-      try { bodyText = (await r.text()).slice(0, 150); } catch {}
+      try { bodyText = (await r.text()).slice(0, 150); } catch (cbErr) { console.error("[Cerebrum] document.js if: bodyText = (await r.text()).slice(0, 150); }:", cbErr); }
       throw new Error(model + ": HTTP " + r.status + (bodyText ? " — " + bodyText : ""));
     }
     const reader = r.body.getReader();
@@ -307,7 +307,7 @@ const callOR = async (env, model, messages, maxTokens, { timeoutMs = 20000, idle
               fullText += token;
               onToken(token);
             }
-          } catch {}
+          } catch (cbErr) { console.error("[Cerebrum] document.js if: const json = JSON.parse(data);:", cbErr); }
         }
       }
     } finally {
@@ -396,7 +396,7 @@ async function generate(env, messages, maxTokens, { timeoutMs = 20000, idleTimeo
         promptChars,
         completionChars,
       });
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] document.js accountSpend: const completionChars = result && typeof result.answer === 'string' ? :", cbErr); }
   };
   const raceController = new AbortController();
   const roster = providers || FULL_PROVIDERS;
@@ -567,7 +567,7 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
     if (onProgress) {
       try {
         onProgress(done, total);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] document.js if: onProgress(done, total);:", cbErr); }
     }
   };
   // Chunks revived from priorSections count as settled immediately, so a
@@ -818,7 +818,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
     if (onPhase) {
       try {
         onPhase("reduce");
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] document.js if: onPhase('reduce');:", cbErr); }
     }
     try {
       const r = await gen(
@@ -872,7 +872,7 @@ export async function runQA(env, documentText, query, historyBlock, { onToken = 
         streamed += t;
         try {
           onToken(t);
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] document.js runQA: onToken(t);:", cbErr); }
       }
     : () => {};
   try {
@@ -890,7 +890,7 @@ export async function runQA(env, documentText, query, historyBlock, { onToken = 
     if (onToken) {
       try {
         onToken(tail);
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] document.js if: onToken(tail);:", cbErr); }
     }
     return { answer: streamed + tail, model: "extractive", partial: true };
   }
@@ -1238,10 +1238,10 @@ export async function onRequest(context) {
       const stream = new ReadableStream({
         async start(controller) {
           const send = (data) => {
-            try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); } catch {}
+            try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`)); } catch (cbErr) { console.error("[Cerebrum] document.js send: controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\\n\\n`):", cbErr); }
           };
           const heartbeat = setInterval(() => {
-            try { controller.enqueue(encoder.encode(": keep-alive\n\n")); } catch {}
+            try { controller.enqueue(encoder.encode(": keep-alive\n\n")); } catch (cbErr) { console.error("[Cerebrum] document.js send: controller.enqueue(encoder.encode(': keep-alive\\n\\n')); }:", cbErr); }
           }, 15000);
           // Send quota info first so UI can show it immediately
           send({ type: "quota", quota: docQuota() });
@@ -1313,7 +1313,7 @@ export async function onRequest(context) {
             }
           } finally {
             clearInterval(heartbeat);
-            try { controller.close(); } catch {}
+            try { controller.close(); } catch (cbErr) { console.error("[Cerebrum] document.js: controller.close(); }:", cbErr); }
           }
         },
       });

@@ -91,7 +91,7 @@ function defaultDeviceLabel() {
     if (/Macintosh|Mac OS/i.test(ua)) return "Mac";
     if (/Windows/i.test(ua)) return "Windows PC";
     if (/Linux/i.test(ua)) return "Linux";
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] messaging.js defaultDeviceLabel: const ua = navigator.userAgent || '';:", cbErr); }
   return "Browser";
 }
 
@@ -632,7 +632,7 @@ function okWithText(m, plaintext, tag) {
   try {
     const parsed = JSON.parse(plaintext);
     if (parsed && typeof parsed.text === "string") text = parsed.text;
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] messaging.js okWithText: const parsed = JSON.parse(plaintext);:", cbErr); }
   if (text == null) {
     return { ...m, e2ee: { ok: false, error: "This message is damaged and can't be opened.", ...tag } };
   }

@@ -6,11 +6,17 @@ const {transformSync} = require('esbuild');
 const React = require('react');
 const {renderToStaticMarkup} = require('react-dom/server');
 const source = fs.readFileSync('src/CerebrumApp.jsx','utf8');
+const dsSource = fs.readFileSync('src/designSystem.jsx','utf8');
 const ast = parse(source,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','UIButton','UICard','ProfileMarkers'];
+const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
+const names = ['AskModePicker','ProfileMarkers'];
+const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
-assert.equal(functions.length,4);
-const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
+const dsFunctions = dsAst.program.body
+  .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
+  .filter(n=>n && n.type==='FunctionDeclaration' && dsNames.includes(n.id.name));
+assert.equal(functions.length + dsFunctions.length,4);
+const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},STATUS:{bad:'#b44'},withAlpha:(c)=>c});
 vm.runInContext(js,context);
 const P0={dark:true,ink:'#eee',ink2:'#bbb',line:'#444',line2:'#555'};

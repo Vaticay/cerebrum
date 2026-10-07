@@ -140,7 +140,7 @@ class ErrorBoundary extends React.Component {
  */
 function NotFound() {
   React.useEffect(() => {
-    try { document.title = "Page not found — Cerebrum"; } catch {}
+    try { document.title = "Page not found — Cerebrum"; } catch (cbErr) { console.error("[Cerebrum] main.jsx NotFound: document.title = 'Page not found — Cerebrum'; }:", cbErr); }
   }, []);
   const link = {
     color: "#e8e6e1", textDecoration: "underline",

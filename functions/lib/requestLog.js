@@ -171,7 +171,7 @@ export async function reportError(env, err, context) {
         contexts: { cerebrum: scrub(context || {}) },
       }) + "\n";
     const ctl = new AbortController();
-    const t = setTimeout(() => { try { ctl.abort(); } catch {} }, 5000);
+    const t = setTimeout(() => { try { ctl.abort(); } catch (cbErr) { console.error("[Cerebrum] requestLog.js if: ctl.abort(); }:", cbErr); } }, 5000);
     try {
       await fetch(`https://${host}/api/${projectId}/envelope/`, {
         method: "POST",

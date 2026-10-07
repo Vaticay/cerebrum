@@ -114,6 +114,23 @@ function normalizeTopic(raw) {
   return (raw || "").toString().replace(/\s+/g, " ").trim().slice(0, MAX_TOPIC_LEN);
 }
 
+// Self-healing for the flowchart table: schema.sql declares it, but
+// production databases created before this endpoint existed don't have it.
+// CREATE TABLE IF NOT EXISTS is a no-op once it exists — same pattern as
+// the rating-column self-heal in the "saved" GET branch below.
+async function ensureFlowchartTable(env) {
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS user_flowcharts (" +
+    "id TEXT NOT NULL PRIMARY KEY, " +
+    "user_id TEXT NOT NULL, " +
+    "title TEXT, " +
+    "chart_json TEXT NOT NULL, " +
+    "created_at INTEGER NOT NULL, " +
+    "updated_at INTEGER NOT NULL)"
+  );
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_flowcharts_user ON user_flowcharts(user_id)");
+}
+
 // How many papers Europe PMC has indexed on a topic since a given moment.
 //
 // Returns a number, or null if the upstream couldn't be reached — null and
@@ -198,8 +215,15 @@ const DATA_RATE_WINDOW_MS = 60000;
 const MAX_SAVED_PER_USER = 2000;
 const MAX_COLLECTIONS_PER_USER = 200;
 const MAX_HISTORY_PER_USER = 500;
+const MAX_FLOWCHARTS_PER_USER = 200;
 const MAX_SOURCE_JSON_LEN = 20000;
 const MAX_TURNS_JSON_LEN = 500000;
+// A chart's { nodes, edges } blob. 250KB is generous — even a dense
+// evidence map with long node labels stays well under it — while keeping
+// one user's full replace-all sync bounded (200 charts x 250KB worst case
+// is still far below D1's per-request limits in practice, and the write
+// path skips oversized charts rather than failing the whole sync).
+const MAX_CHART_JSON_LEN = 250000;
 
 // Commit 74 — the founder's account.
 //
@@ -220,7 +244,7 @@ async function ensureFounderBadges(env, userId, emailLower) {
         "INSERT OR IGNORE INTO accolades (id, user_id, badge_type, granted_at) VALUES (?, ?, ?, ?)"
       ).bind(newId("acc"), userId, badge, Date.now()).run();
     }
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] data.js for: for (const badge of ['founder', 'verified']) {:", cbErr); }
   return true;
 }
 async function founderRow(env) {
@@ -465,7 +489,7 @@ export async function onRequest(context) {
         ).bind(user.id, limit, offset).all();
         const items = (rows.results || []).map((r) => {
           let source = {};
-          try { source = JSON.parse(r.source_json); } catch {}
+          try { source = JSON.parse(r.source_json); } catch (cbErr) { console.error("[Cerebrum] data.js: source = JSON.parse(r.source_json); }:", cbErr); }
           return { id: r.id, savedId: r.id, collectionId: r.collection_id, createdAt: r.created_at, rating: r.rating, ...source, id: source.id || r.id };
         });
         return okRes({ items }, 200, cors);
@@ -607,7 +631,7 @@ export async function onRequest(context) {
             "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
           ).bind(targetId).all();
           badges = (badgeRows.results || []).map((b) => b.badge_type);
-        } catch {}
+        } catch (cbErr) { console.error("[Cerebrum] data.js: const badgeRows = await env.DB.prepare(:", cbErr); }
         return new Response(JSON.stringify({
           ok: true,
           limited: false,
@@ -1077,8 +1101,30 @@ export async function onRequest(context) {
           // original column purpose; kept as-is rather than adding a
           // migration for a rename that doesn't change behavior.
           let blob = { turns: [], allSources: [] };
-          try { blob = JSON.parse(r.turns_json); } catch {}
+          try { blob = JSON.parse(r.turns_json); } catch (cbErr) { console.error("[Cerebrum] data.js if: blob = JSON.parse(r.turns_json); }:", cbErr); }
           return { id: r.id, title: r.title, turns: blob.turns || [], allSources: blob.allSources || [], createdAt: r.created_at, updatedAt: r.updated_at };
+        });
+        return okRes({ items }, 200, cors);
+      }
+      // Evidence maps (Flowchart Studio). Same shape the client keeps in
+      // localStorage: { id, title, nodes, edges, updatedAt }. The blob
+      // holds { nodes, edges }; title is its own column for cheap listing.
+      if (resource === "flowcharts") {
+        await ensureFlowchartTable(env);
+        const rows = await env.DB.prepare(
+          "SELECT id, title, chart_json, created_at, updated_at FROM user_flowcharts WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?"
+        ).bind(user.id, MAX_FLOWCHARTS_PER_USER).all();
+        const items = (rows.results || []).map((r) => {
+          let blob = { nodes: [], edges: [] };
+          try { blob = JSON.parse(r.chart_json); } catch (cbErr) { console.error("[Cerebrum] data.js if: blob = JSON.parse(r.chart_json); }:", cbErr); }
+          return {
+            id: r.id,
+            title: r.title || "Untitled evidence map",
+            nodes: Array.isArray(blob.nodes) ? blob.nodes : [],
+            edges: Array.isArray(blob.edges) ? blob.edges : [],
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          };
         });
         return okRes({ items }, 200, cors);
       }
@@ -1118,7 +1164,7 @@ export async function onRequest(context) {
             // to fall back on if Europe PMC is unreachable.
             try {
               await env.DB.prepare("UPDATE watched_topics SET last_count = ? WHERE id = ? AND user_id = ?").bind(w.live, w.id, user.id).run();
-            } catch {}
+            } catch (cbErr) { console.error("[Cerebrum] data.js if: await env.DB.prepare('UPDATE watched_topics SET last_count = ? WHERE i:", cbErr); }
           }
           out.push({
             id: w.id, topic: w.topic, createdAt: toEpochMs(w.created_at),
@@ -1187,7 +1233,7 @@ export async function onRequest(context) {
             await env.DB.prepare(
               "INSERT OR IGNORE INTO accolades (id, user_id, badge_type, granted_at) VALUES (?, ?, ?, ?)"
             ).bind(newId("acc"), user.id, d.key, Date.now()).run();
-          } catch {}
+          } catch (cbErr) { console.error("[Cerebrum] data.js for: await env.DB.prepare(:", cbErr); }
         }
         const heldRows = await env.DB.prepare(
           "SELECT badge_type, granted_at FROM accolades WHERE user_id = ?"
@@ -1392,6 +1438,37 @@ export async function onRequest(context) {
       // write, so an oversized item still preserves existing history.)
       await batchedWrites(env.DB, stmts);
       return new Response(JSON.stringify({ ok: true, count: items.length }), { status: 200, headers: cors });
+    }
+
+    /* Evidence maps (Flowchart Studio) — whole-array replace-all, the same
+       sync shape as "saved" and "history". The client's debounced push
+       effect sends the full list; the table is the account's copy. Node
+       and edge objects are free-form (positions, labels, styles), so they
+       ride as one opaque chart_json blob — same reasoning as source_json.
+       Oversized charts are skipped (not failed) so one giant map can't
+       break the whole sync; the count reports what actually landed. */
+    if (resource === "flowcharts" && action === "replace-all") {
+      await ensureFlowchartTable(env);
+      const items = Array.isArray(body.items) ? body.items.slice(0, MAX_FLOWCHARTS_PER_USER) : [];
+      const now = Date.now();
+      const stmts = [env.DB.prepare("DELETE FROM user_flowcharts WHERE user_id = ?").bind(user.id)];
+      let written = 0;
+      for (const item of items) {
+        const nodes = Array.isArray(item?.nodes) ? item.nodes : [];
+        const edges = Array.isArray(item?.edges) ? item.edges : [];
+        const chartJson = JSON.stringify({ nodes, edges });
+        if (chartJson.length > MAX_CHART_JSON_LEN) continue;
+        written++;
+        const id = typeof item?.id === "string" && item.id.trim() ? item.id.trim().slice(0, 128) : newId("fc");
+        const title = (item?.title || "Untitled evidence map").toString().slice(0, 200);
+        const updatedAt = Number(item?.updatedAt) || now;
+        stmts.push(env.DB.prepare(
+          "INSERT INTO user_flowcharts (id, user_id, title, chart_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+        ).bind(id, user.id, title, chartJson, now, updatedAt));
+      }
+      // Chunked like saved/history: a full sync is hundreds of statements.
+      await batchedWrites(env.DB, stmts);
+      return new Response(JSON.stringify({ ok: true, count: written, skipped: items.length - written }), { status: 200, headers: cors });
     }
 
     if (resource === "collections" && action === "create") {

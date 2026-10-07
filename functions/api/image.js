@@ -428,7 +428,7 @@ async function ensureCache(env) {
     // before this column existed the ALTER throws "duplicate column name"
     // exactly once, which is swallowed here.
     await env.DB.exec("ALTER TABLE image_cache ADD COLUMN hit INTEGER NOT NULL DEFAULT 0").catch(() => {});
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] image.js ensureCache: await env.DB.exec('CREATE TABLE IF NOT EXISTS image_cache (q TEXT PRIM:", cbErr); }
 }
 
 // Pure: is a cached image_cache row still servable? Verified hits live
@@ -470,10 +470,10 @@ export async function resolveLeadMedia(env, query, category) {
         // expire in hours (see MISS_TTL_MS), so a recovered provider heals
         // without anyone flushing the cache by hand.
         let image = null;
-        try { image = JSON.parse(row.payload).image || null; } catch {}
+        try { image = JSON.parse(row.payload).image || null; } catch (cbErr) { console.error("[Cerebrum] image.js if: image = JSON.parse(row.payload).image || null; }:", cbErr); }
         return { image, diag, cacheHit: true };
       }
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] image.js if: image = JSON.parse(row.payload).image || null; } catch {}:", cbErr); }
   }
 
   // Commit 76 — parallel, not sequential.
@@ -545,7 +545,7 @@ export async function resolveLeadMedia(env, query, category) {
       await env.DB.prepare(
         "INSERT INTO image_cache (q, payload, created_at, hit) VALUES (?, ?, ?, ?) ON CONFLICT(q) DO UPDATE SET payload = excluded.payload, created_at = excluded.created_at, hit = excluded.hit"
       ).bind(key, payload, Date.now(), image ? 1 : 0).run();
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] image.js if: await env.DB.prepare(:", cbErr); }
   }
   return { image, diag, cacheHit: false };
 }

@@ -22,7 +22,7 @@ export function cbMotionOff() {
   try {
     if (getCookie("cb_anim2") === "off") v = true;
     else v = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  } catch {}
+  } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx cbMotionOff: if (getCookie('cb_anim2') === 'off') v = true;:", cbErr); }
   __cbMotionCache = { v, t: now };
   return v;
 }
@@ -64,7 +64,7 @@ export function Dialog({
       (initialFocus && initialFocus.current) ||
       (panel && panel.querySelector(CB_FOCUSABLE)) ||
       panel;
-    try { if (target && target.focus) target.focus({ preventScroll: true }); } catch {}
+    try { if (target && target.focus) target.focus({ preventScroll: true }); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx: if (target && target.focus) target.focus({ preventScroll: true }); }:", cbErr); }
 
     const onKey = (e) => {
       // Only the topmost stacked overlay responds to keys.
@@ -113,7 +113,7 @@ export function Dialog({
         if (prevActive && prevActive.focus && document.contains(prevActive)) {
           prevActive.focus({ preventScroll: true });
         }
-      } catch {}
+      } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx if: if (prevActive && prevActive.focus && document.contains(prevActive)) {:", cbErr); }
     };
     // onClose identity is caller-owned; mount/unmount semantics only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1051,7 +1051,7 @@ export function MMCodeEditor({ P, accent, code, onChange }) {
       const en = ta.selectionEnd;
       const next = code.slice(0, s) + "  " + code.slice(en);
       onChange(next);
-      requestAnimationFrame(() => { try { ta.selectionStart = ta.selectionEnd = s + 2; } catch {} });
+      requestAnimationFrame(() => { try { ta.selectionStart = ta.selectionEnd = s + 2; } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx if: ta.selectionStart = ta.selectionEnd = s + 2; }:", cbErr); } });
     }
   };
   const pad = "14px 16px";
@@ -1091,14 +1091,14 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     try {
       const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
       if (d && typeof d.code === "string" && d.code.trim()) return d.code;
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx MermaidStudio: const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || 'null');:", cbErr); }
     return initialCode || MM_DEFAULT_CODE;
   });
   const [title, setTitle] = useState(() => {
     try {
       const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
       if (d && typeof d.title === "string" && d.title) return d.title;
-    } catch {}
+    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx MermaidStudio: const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || 'null');:", cbErr); }
     return "Untitled diagram";
   });
   const [activeId, setActiveId] = useState(() => {
@@ -1288,7 +1288,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     // kills zoom/Fit button clicks.
     if (e.target && e.target.closest && e.target.closest("button, a, input, select, textarea, [contenteditable='true']")) return;
     dragRef.current = { sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx onPreviewDown: e.currentTarget.setPointerCapture(e.pointerId); }:", cbErr); }
   };
   const onPreviewMove = (e) => {
     const d = dragRef.current;
@@ -1301,12 +1301,12 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   /* Draft autosave + library persistence. */
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(MM_DRAFT_KEY, JSON.stringify({ code, title, activeId, updatedAt: Date.now() })); } catch {}
+      try { localStorage.setItem(MM_DRAFT_KEY, JSON.stringify({ code, title, activeId, updatedAt: Date.now() })); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx onPreviewUp: localStorage.setItem(MM_DRAFT_KEY, JSON.stringify({ code, title, activ:", cbErr); }
     }, 800);
     return () => clearTimeout(t);
   }, [code, title, activeId]);
   useEffect(() => {
-    try { localStorage.setItem(MM_STORE_KEY, JSON.stringify(diagrams)); } catch {}
+    try { localStorage.setItem(MM_STORE_KEY, JSON.stringify(diagrams)); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx onPreviewUp: localStorage.setItem(MM_STORE_KEY, JSON.stringify(diagrams)); }:", cbErr); }
   }, [diagrams]);
 
   const saveDiagram = useCallback(() => {
@@ -1350,7 +1350,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       ta.value = code;
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand("copy"); } catch {}
+      try { document.execCommand("copy"); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx copyCode: document.execCommand('copy'); }:", cbErr); }
       ta.remove();
     }
     setCopied(true);
