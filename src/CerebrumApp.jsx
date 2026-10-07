@@ -94,6 +94,18 @@ import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, api
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
 
+/* Intro + film helpers (extracted 2026-10-07, monolith split). */
+import {
+  InvestigationOpening, usePrefersReducedMotion, useReducedMotion,
+  FILM_CLIPS_LANDSCAPE, FILM_CLIPS_PORTRAIT, FILM_CLIPS_PRO_LANDSCAPE,
+  FILM_CLIPS_PRO_PORTRAIT, videoUrl, filmReel, FILM_POSTER, FILM_HOLD_MS,
+  FILM_CREDITS, FILM_MODIFICATIONS, FilmCreditsDialog, FILM_SCENES,
+  FILM_POSTER_CLIP, DOC_FILM_SRC, FILM_OPT_IN_KEY, filmForcedOn,
+  setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
+  filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog, playEnterThoom,
+  SPECIMENS, Intro, CerebrumFieldCanvas,
+} from "./intro.jsx";
+
 /* Unified scroll lock (replaces the three competing implementations). */
 import { cbDialogLockScroll, cbDialogUnlockScroll, useScrollLock } from "./scrollLock.js";
 
@@ -504,33 +516,7 @@ async function saveToZotero(sources, apiKey, userId) {
    About 900ms, non-blocking (pointer-events: none from the start), and
    skipped entirely under reduced motion — where it would be a flash of
    overlay with no motion to justify it. */
-function InvestigationOpening({ accent, animationMode }) {
-  const [gone, setGone] = useState(false);
-  const skip = animationMode === "off" ||
-    (typeof window !== "undefined" && window.matchMedia &&
-     window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-
-  useEffect(() => {
-    if (skip) { setGone(true); return; }
-    const t = setTimeout(() => setGone(true), 1100);
-    return () => clearTimeout(t);
-  }, [skip]);
-
-  if (skip || gone) return null;
-  return (
-    <div aria-hidden="true" className="cb-open-veil" style={{
-      position: "fixed", inset: 0, zIndex: Z.dialog, pointerEvents: "none",
-      display: "flex", alignItems: "center", justifyContent: "center",
-    }}>
-      <svg width="96" height="96" viewBox="0 0 24 24" fill="none"
-        stroke={accent} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
-        style={{ filter: "drop-shadow(0 0 26px " + withAlpha(accent, 0.55) + ")" }}>
-        <path className="cb-open-stroke" d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
-        <path className="cb-open-stroke cb-open-stroke-b" d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
-      </svg>
-    </div>
-  );
-}
+/* Moved to src/intro.jsx: InvestigationOpening */
 
 function Mark({ size = 26, accent, glow }) {
   return (
@@ -684,23 +670,7 @@ function usePremiumPointer() {
  *
  * Used by the motion system, the field renderer and any component that
  * chooses between an animated and a static presentation. */
-function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(() => {
-    try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
-  });
-  useEffect(() => {
-    let mq;
-    try { mq = window.matchMedia("(prefers-reduced-motion: reduce)"); } catch { return undefined; }
-    const onChange = () => setReduced(mq.matches);
-    if (mq.addEventListener) mq.addEventListener("change", onChange);
-    else if (mq.addListener) mq.addListener(onChange);
-    return () => {
-      if (mq.removeEventListener) mq.removeEventListener("change", onChange);
-      else if (mq.removeListener) mq.removeListener(onChange);
-    };
-  }, []);
-  return reduced;
-}
+/* Moved to src/intro.jsx: usePrefersReducedMotion */
 
 /* The canonical motion gate (DESIGN_RESEARCH.md §6.2): the OS
  * prefers-reduced-motion signal OR the in-product motion toggle
@@ -715,16 +685,7 @@ function usePrefersReducedMotion() {
  * component chooses between an animated and a static presentation, so
  * the toggle actually quiets the search instrument, video crossfades
  * and entrance effects instead of only the OS setting doing it. */
-function useReducedMotion() {
-  const osReduced = usePrefersReducedMotion();
-  const [appOff, setAppOff] = useState(() => cbMotionOff());
-  useEffect(() => {
-    const onChg = () => setAppOff(cbMotionOff());
-    window.addEventListener("cb:anim", onChg);
-    return () => window.removeEventListener("cb:anim", onChg);
-  }, []);
-  return osReduced || appOff;
-}
+/* Moved to src/intro.jsx: useReducedMotion */
 
 /* ════════════════════════════════════════════════════════════════════════
    MOTION LANGUAGE
@@ -4073,396 +4034,7 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
 
    A slot whose file is missing is skipped automatically, so the reel
    survives a partial upload. */
-const FILM_CLIPS_LANDSCAPE = [
-  /* 2026-10-05: the reel is now seven dark, slow ambient loops — real
-     footage (ink, smoke, water, night sky), graded darker in the player.
-     The previous thirty-odd bright nature clips are retired from the reel;
-     their files and credit rows remain in the repo. */
-  videoUrl("/assets/cinematic/ambient-01.mp4"), // Defocused sunset reflection on the sea — Mixkit
-  videoUrl("/assets/cinematic/ambient-02.mp4"), // Metallic liquid, gray tones — Mixkit
-  videoUrl("/assets/cinematic/ambient-03.mp4"), // Black and white ink cloud in water — Mixkit
-  videoUrl("/assets/cinematic/ambient-04.mp4"), // Smoke in motion on black — Mixkit
-  videoUrl("/assets/cinematic/ambient-05.mp4"), // Bubbles rising in water — Mixkit
-  videoUrl("/assets/cinematic/ambient-06.mp4"), // Abstract smoke texture — Mixkit
-  videoUrl("/assets/cinematic/ambient-07.mp4"), // Moonlit clouds timelapse — Mixkit
-];
-
-/* Portrait. Used when the window is taller than it is wide — a phone held
-   upright, and nothing else. 2026-10-07: science-* portrait clips were 404,
-   so portrait now uses the working ambient clips (cropped, but they play). */
-const FILM_CLIPS_PORTRAIT = [
-  videoUrl("/assets/cinematic/ambient-01.mp4"),
-  videoUrl("/assets/cinematic/ambient-03.mp4"),
-  videoUrl("/assets/cinematic/ambient-07.mp4"),
-];
-
-/* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two
-   portrait clips moved OUT of the free lists above, so they play only for
-   Pro members. These are the strongest frames in the set — aurora, nebula,
-   eclipse, DNA, lightning — which is exactly why they're the perk, not the
-   default. The reel switches automatically from user.isPro (2026-10-07);
-   there is no manual toggle. Attribution for every clip still lives in
-   FILM_CREDITS below; moving a clip between lists does not move its credit
-   row. */
-const FILM_CLIPS_PRO_LANDSCAPE = [
-  videoUrl("/assets/cinematic/science-12.mp4"), // Jellyfish — Chris Munnik
-  videoUrl("/assets/cinematic/science-35.mp4"), // Northern lights timelapse — T Honkamies
-  videoUrl("/assets/cinematic/science-37.mp4"), // Nebula field with stars — Adis Resic
-  videoUrl("/assets/cinematic/science-40.mp4"), // Glowing blue DNA strand — Pressmaster
-  videoUrl("/assets/cinematic/science-41.mp4"), // Sun illuminating Earth's surface — Ingrid
-  videoUrl("/assets/cinematic/science-44.mp4"), // Milky Way over mountain lake — Dmitry Varennikov
-  videoUrl("/assets/cinematic/science-64.mp4"), // Aurora borealis, red and green (replaces 46)
-  videoUrl("/assets/cinematic/science-50.mp4"), // Orange lunar eclipse — Kindel Media
-  videoUrl("/assets/cinematic/science-54.mp4"), // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
-  videoUrl("/assets/cinematic/science-67.mp4"), // Lava flow aerial at night (replaces 55)
-];
-const FILM_CLIPS_PRO_PORTRAIT = [
-  videoUrl("/assets/cinematic/science-57.mp4"), // Moon behind clouds — ren lavsad
-  videoUrl("/assets/cinematic/science-58.mp4"), // Ice cave — Nadezhda Moryak
-];
-
-/* What the component actually reads. Landscape is the fallback when the
-   orientation cannot be determined, because a landscape clip cropped on a
-   phone still looks like footage; the reverse does not. `pro` selects the
-   members-only reel (see FILM_CLIPS_PRO_* above) — offered only to Pro
-   members, never to anyone else. */
-function filmReel(pro) {
-  if (typeof window === "undefined") return FILM_CLIPS_LANDSCAPE;
-  const portrait = window.innerHeight > window.innerWidth;
-  // 2026-10-07: Pro clips (science-*) are 404 on the CDN — they were never
-  // uploaded. Pro users get the working ambient reel until the Pro clips
-  // actually exist. Selling a broken reel is worse than no Pro reel.
-  return portrait && FILM_CLIPS_PORTRAIT.length ? FILM_CLIPS_PORTRAIT : FILM_CLIPS_LANDSCAPE;
-}
-/* Video CDN base. Build-time VITE_VIDEO_CDN_BASE is baked into
-   __CB_VIDEO_CDN__ (vite.config.js); window.__CB_VIDEO_CDN__ overrides it at
-   runtime (handy for testing). Empty string = same-origin
-   /assets/cinematic/ as today. See docs/video-cdn.md. */
-function videoUrl(path) {
-  const base =
-    (typeof window !== "undefined" && window.__CB_VIDEO_CDN__) ||
-    (typeof __CB_VIDEO_CDN__ !== "undefined" ? __CB_VIDEO_CDN__ : "") ||
-    "";
-  return base ? String(base).replace(/\/+$/, "") + path : path;
-}
-
-const FILM_POSTER = videoUrl("/assets/cinematic/poster.webp");
-const FILM_HOLD_MS = 11000;
-
-/* Attribution for the reel.
-
-   Three of these clips are CC BY 4.0 and one is NASA material: showing
-   them without naming the creator is a licence breach, so this list and
-   the dialog that renders it are part of shipping the backdrop, not a
-   nice-to-have. The Pexels clips do not require attribution and are
-   credited anyway — the cost is one row each, and a credits page that
-   lists only the clips it is legally forced to list is a strange thing to
-   put in front of researchers. */
-const FILM_CREDITS = [
-  { n: "ambient-01", title: "Defocused sunset reflection on the sea", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
-  { n: "ambient-02", title: "Metallic liquid, gray tones", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
-  { n: "ambient-03", title: "Black and white ink cloud in water", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
-  { n: "ambient-04", title: "Smoke in motion", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
-  { n: "ambient-05", title: "Bubbles rising in water", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
-  { n: "ambient-06", title: "Abstract smoke texture", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
-  { n: "ambient-07", title: "Moonlit clouds timelapse", credit: "Mixkit", license: "Mixkit Free License", licenseUrl: "https://mixkit.co/license/", source: "https://mixkit.co/" },
-  { n: "03", title: "Seedling growth timelapse", credit: "David Roberts", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/time-lapse-of-seedlings-8522207/" },
-  { n: "04", title: "Sunlit green leaves", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/sunlight-filtering-through-green-leaves-in-forest-32208331/" },
-  { n: "07", title: "Laboratory reaction", credit: "cottonbro studio", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/chemistry-laboratorio-6208946/" },
-  { n: "08", title: "Blue ink dispersing in water", credit: "MART PRODUCTION", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/blue-ink-in-water-7565814/" },
-  { n: "09", title: "Splashing volcanic lava", credit: "Martin Sanchez", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-view-of-splashing-lava-during-a-volcano-eruption-13456698/" },
-  { n: "10", title: "Volcanic eruption at sunset", credit: "Gylfi Gylfason", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/red-smoke-coming-from-volcanic-eruption-16128318/" },
-  { n: "11", title: "Greenland icebergs", credit: "Mikhail Nilov", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/drone-footage-of-glaciers-at-greenland-8318618/" },
-  { n: "12", title: "Jellyfish", credit: "Chris Munnik (2)", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-group-of-jellyfish-swimming-underwater-at-display-in-an-aquarium-3297378/" },
-  { n: "13", title: "Coral aquarium", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-fish-tank-with-coral-and-fish-9406677/" },
-  { n: "15", title: "Laboratory sample work", credit: "Pexels contributor; see source page", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/scientists-working-in-a-lab-8852423/" },
-  { n: "16", title: "Plasma globe", credit: "Mathias De Rivo", license: "Pexels", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-footage-of-a-plasma-ball-6738879/" },
-  { n: "20", title: "Earth night lights rotating globe", credit: "NASA Scientific Visualization Studio; NASA Earth Observatory / NASA-NOAA Suomi NPP data", license: "NASA media-use guidelines", licenseUrl: "https://www.nasa.gov/nasa-brand-center/images-and-media/", source: "https://svs.gsfc.nasa.gov/30878/" },
-  { n: "21", title: "Forest mushroom", credit: "Andrei Ignia", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-of-a-mushroom-4938893/" },
-  { n: "22", title: "Droplets on a leaf", credit: "K", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-shot-of-water-droplets-from-a-leaf-5210325/" },
-  { n: "24", title: "Coral reef close-up", credit: "JUN HO LEE", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/close-up-of-coral-reefs-underwater-34127729/" },
-  { n: "25", title: "Yellowstone geyser", credit: "Rec Everywhere", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/spectacular-yellowstone-geyser-eruption-32608305/" },
-  { n: "27", title: "Waterfall and river rapids", credit: "Ryan Klaus", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-river-with-a-waterfall-and-a-boat-24837086/" },
-  { n: "28", title: "Butterfly feeding on a flower", credit: "Hao Le", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/macro-shot-of-butterfly-on-a-flower-38759167/" },
-  { n: "29", title: "Ant colony entrance", credit: "Eclipse Chasers", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ant-colony-26727295/" },
-  { n: "31", title: "Ocean waves at rocks", credit: "Peter Fowler", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ocean-waves-video-1093652/" },
-  { n: "33", title: "Volcanic lava in slow motion", credit: "Anoop A Nair", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/lava-in-volcano-in-slow-motion-13438865/" },
-  { n: "34", title: "Ferrofluid spikes under a magnet", credit: "Film Composite", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/inky-16296848/" },
-  { n: "35", title: "Northern lights timelapse", credit: "T Honkamies", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/northern-lights-timelapse-28492331/" },
-  { n: "36", title: "Soap bubble freezing, macro", credit: "Aaron Burden", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/a-macro-footage-of-a-water-bubble-slowly-freezing-on-a-cold-winter-s-day-2478688/" },
-  { n: "37", title: "Nebula field with stars", credit: "Adis Resic", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/stunning-cosmic-nebula-with-stars-in-deep-space-31084223/" },
-  { n: "38", title: "Ants on a tiny white flower", credit: "Vung Nguyen", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/", source: "https://www.pexels.com/video/ants-on-tiny-white-flower-18275131/" },
-  { n: "59", title: "Planting seedlings by hand", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "60", title: "Deer grazing in a meadow", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "61", title: "Desert mesas at dusk", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "62", title: "Ocean waves at sunset", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "63", title: "Volcano eruption at night", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "64", title: "Aurora borealis, red and green", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "65", title: "Mountain ridge at sunrise", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "66", title: "Volcanic crater lake from the air", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "67", title: "Lava flow aerial at night", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "39", title: "DNA helix animation", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "40", title: "DNA strand of particles", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "41", title: "Earth at night, city lights", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "42", title: "Rotating Earth", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "43", title: "Milky Way over mountains", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "44", title: "Mountain lake under stars", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "45", title: "Starry night sky", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "48", title: "Lightning bolt in storm clouds", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "50", title: "Harvest moon rising", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "51", title: "Total lunar eclipse", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "52", title: "Partial lunar eclipse", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "53", title: "Shark swimming", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "54", title: "Storm clouds, monochrome timelapse", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "56", title: "Ink dispersing in water", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "57", title: "Moon behind clouds", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-  { n: "58", title: "Ice cave interior", credit: "Pexels contributor", license: "Pexels License", licenseUrl: "https://www.pexels.com/license/" },
-];
-
-/* What was done to the footage. Stated once, plainly, because "adapted"
-   with no detail is not an adaptation notice. */
-const FILM_MODIFICATIONS =
-  "Each clip is a silent excerpt of up to 15 seconds, cut from the highest-resolution master " +
-  "its source publishes, at its original speed and frame rate. Every clip ships in two " +
-  "renditions: VP9 (.webm), preferred wherever the browser supports it, and H.264 (.mp4) as " +
-  "the universal fallback: both 720p, because full resolution is invisible behind a grade " +
-  "this dark and costs several times the decode. The cinematic grade (desaturated, contrast " +
-  "raised, brightness reduced) is baked into the files rather than applied as a live filter, " +
-  "so playback never pays a per-frame shader cost. Portrait clips keep their own orientation " +
-  "rather than being stretched. No clip is re-timed or reversed, and no frames are composited " +
-  "between clips.";
-
-function FilmCreditsDialog({ onClose, accent }) {
-  const link = { color: accentInk(P, accent), textDecoration: "none", borderBottom: "1px solid " + withAlpha(accent, 0.4) };
-
-  return (
-    <Dialog
-      label="Background film credits" onClose={onClose} zIndex={400} width={680}
-      panelStyle={{
-        background: "rgba(15, 17, 21, 0.96)",
-        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-        border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
-        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
-        padding: "26px 26px 22px", color: "#f2f4f2", fontFamily: "var(--cb-font)",
-      }}
-    >
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, flex: 1 }}>
-            Background film credits
-          </h2>
-          <button onClick={onClose} aria-label="Close credits" style={{
-            border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.72)", cursor: "pointer", borderRadius: 9999,
-            padding: "16px 16px", fontSize: 13, fontFamily: "var(--cb-font)",
-          }}>Close</button>
-        </div>
-
-        <p style={{ margin: "0 0 18px", fontSize: 13, lineHeight: 1.6, color: "rgba(242,244,242,0.62)" }}>
-          {FILM_MODIFICATIONS}
-        </p>
-
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {FILM_CREDITS.map((c) => (
-            <div key={c.n} style={{
-              display: "grid", gridTemplateColumns: "26px 1fr", gap: 12,
-              padding: "11px 0", borderTop: "1px solid rgba(255,255,255,0.07)",
-            }}>
-              <span style={{
-                fontFamily: "var(--cb-font)", fontSize: 11, color: withAlpha(accent, 0.9),
-                paddingTop: 2, fontVariantNumeric: "tabular-nums",
-              }}>{c.n}</span>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, marginBottom: 3 }}>{c.title}</div>
-                <div style={{ fontSize: 12, color: "rgba(242,244,242,0.62)", lineHeight: 1.55 }}>
-                  {c.credit}
-                  {c.source ? (<>{" · "}<a href={safeHref(c.source)} target="_blank" rel="noopener noreferrer" style={link}>Source</a></>) : null}
-                  {" · "}
-                  {c.licenseUrl
-                    ? <a href={safeHref(c.licenseUrl)} target="_blank" rel="noopener noreferrer" style={link}>{c.license}</a>
-                    : <span>{c.license}</span>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <p style={{ margin: "18px 0 0", fontSize: 12, lineHeight: 1.6, color: "rgba(242,244,242,0.46)" }}>
-          Clips are decorative. They are not data, not results, and not evidence of anything
-          Cerebrum reports.
-        </p>
-    </Dialog>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════════
-   WHAT YOU ARE LOOKING AT
-
-   One broad subject and one real question per clip, so the backdrop can
-   offer a way in rather than just being wallpaper.
-
-   The rules these entries follow, because getting them wrong on a product
-   about evidence would be worse than having no prompt at all:
-
-   - The subject is the FIELD, not a claim about the footage. "Marine
-     biology", never "a moon jellyfish off the Norwegian coast" — these are
-     stock clips and nobody verified the species, the site or the setup.
-   - The question is editorial and deliberately broad enough to be true of
-     whatever the clip actually shows. It is a question a person could ask
-     a librarian, not a caption.
-   - Nothing here asserts a finding. The question is a question; the answer
-     comes from the search, with sources, like every other answer.
-   - A clip with no honest entry simply has none, and the prompt is hidden
-     for that clip rather than filled with something vague.
-
-   `pos` / `posMobile` are object-position values. They only do anything
-   when the clip's aspect ratio differs from the viewport's — a 16:9 clip
-   on a 16:9 window is not cropped, so nothing to position. They exist for
-   the 4:3 and 1.9:1 clips, where the crop is real and the subject can end
-   up behind the headline. */
-const FILM_SCENES = {
-      [videoUrl("/assets/cinematic/science-03.mp4")]: { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "58% 55%", posMobile: "50% 62%" },
-  [videoUrl("/assets/cinematic/science-04.mp4")]: { subject: "Plant science", question: "How efficient is photosynthesis compared with a solar panel?" },
-  [videoUrl("/assets/cinematic/science-07.mp4")]: { subject: "Chemistry", question: "What makes a chemical reaction speed up or stall?", pos: "50% 42%" },
-  [videoUrl("/assets/cinematic/science-08.mp4")]: { subject: "Fluid dynamics", question: "Why does a drop of dye spread through water the way it does?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-09.mp4")]: { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?" },
-  [videoUrl("/assets/cinematic/science-10.mp4")]: { subject: "Volcanology", question: "How far does volcanic ash travel, and what does it do to the atmosphere?" },
-  [videoUrl("/assets/cinematic/science-11.mp4")]: { subject: "Glaciology", question: "How fast is the Greenland ice sheet losing mass?" },
-  [videoUrl("/assets/cinematic/science-12.mp4")]: { subject: "Marine biology", question: "How do jellyfish move without a brain?" },
-  [videoUrl("/assets/cinematic/science-13.mp4")]: { subject: "Marine biology", question: "What makes coral bleach, and can it recover?", pos: "50% 45%" },
-    [videoUrl("/assets/cinematic/science-15.mp4")]: { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
-  [videoUrl("/assets/cinematic/science-16.mp4")]: { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
-  [videoUrl("/assets/cinematic/science-20.mp4")]: { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
-  [videoUrl("/assets/cinematic/science-21.mp4")]: { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
-  [videoUrl("/assets/cinematic/science-22.mp4")]: { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
-  [videoUrl("/assets/cinematic/science-24.mp4")]: { subject: "Marine biology", question: "What lives on a coral reef besides the coral?" },
-  [videoUrl("/assets/cinematic/science-25.mp4")]: { subject: "Geothermal science", question: "What makes a geyser erupt on a schedule?" },
-      [videoUrl("/assets/cinematic/science-27.mp4")]: { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
-  [videoUrl("/assets/cinematic/science-28.mp4")]: { subject: "Entomology", question: "How do pollinators find the flowers they visit?" },
-  [videoUrl("/assets/cinematic/science-29.mp4")]: { subject: "Entomology", question: "How does an ant colony make decisions without a leader?" },
-    [videoUrl("/assets/cinematic/science-31.mp4")]: { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
-    [videoUrl("/assets/cinematic/science-33.mp4")]: { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
-  [videoUrl("/assets/cinematic/science-34.mp4")]: { subject: "Physics", question: "How does a magnetic field sculpt a liquid into spikes?" },
-  [videoUrl("/assets/cinematic/science-35.mp4")]: { subject: "Atmospheric science", question: "What paints the aurora's curtains of light across the sky?" },
-  [videoUrl("/assets/cinematic/science-36.mp4")]: { subject: "Thermodynamics", question: "What decides the exact moment water becomes ice?" },
-  [videoUrl("/assets/cinematic/science-37.mp4")]: { subject: "Astronomy", question: "What is a nebula made of, and how are stars born inside one?" },
-  [videoUrl("/assets/cinematic/science-38.mp4")]: { subject: "Entomology", question: "How do ants coordinate without a leader or words?" },
-  [videoUrl("/assets/cinematic/science-59.mp4")]: { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "50% 55%" },
-  [videoUrl("/assets/cinematic/science-60.mp4")]: { subject: "Zoology", question: "How do grazing animals shape a grassland?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-61.mp4")]: { subject: "Geology", question: "What sculpted these desert mesas?", pos: "50% 40%" },
-  [videoUrl("/assets/cinematic/science-62.mp4")]: { subject: "Oceanography", question: "How do waves carry energy across an ocean?", pos: "50% 50%" },
-  [videoUrl("/assets/cinematic/science-63.mp4")]: { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-64.mp4")]: { subject: "Atmospheric science", question: "What paints the aurora\u2019s curtains of light across the sky?", pos: "50% 40%" },
-  [videoUrl("/assets/cinematic/science-65.mp4")]: { subject: "Earth science", question: "How does elevation reshape climate, light, and life?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-66.mp4")]: { subject: "Volcanology", question: "How does a lake form inside a volcano\u2019s crater?", pos: "50% 50%" },
-  [videoUrl("/assets/cinematic/science-67.mp4")]: { subject: "Volcanology", question: "What drives lava fountains hundreds of meters into the air?", pos: "50% 50%" },
-  [videoUrl("/assets/cinematic/science-39.mp4")]: { subject: "Genetics", question: "How does DNA store the instructions for a cell?" },
-  [videoUrl("/assets/cinematic/science-40.mp4")]: { subject: "Genetics", question: "What does DNA look like at the molecular scale?" },
-  [videoUrl("/assets/cinematic/science-41.mp4")]: { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
-  [videoUrl("/assets/cinematic/science-42.mp4")]: { subject: "Planetary science", question: "How does Earth\u2019s rotation shape its climate?" },
-  [videoUrl("/assets/cinematic/science-43.mp4")]: { subject: "Astronomy", question: "How many stars are in the Milky Way?" },
-  [videoUrl("/assets/cinematic/science-44.mp4")]: { subject: "Astronomy", question: "Why do some mountain lakes mirror the night sky?" },
-  [videoUrl("/assets/cinematic/science-45.mp4")]: { subject: "Astronomy", question: "How dark does the sky get far from city lights?" },
-  [videoUrl("/assets/cinematic/science-48.mp4")]: { subject: "Atmospheric science", question: "What triggers a lightning strike?" },
-  [videoUrl("/assets/cinematic/science-50.mp4")]: { subject: "Astronomy", question: "Why does the Moon look bigger near the horizon?" },
-  [videoUrl("/assets/cinematic/science-51.mp4")]: { subject: "Astronomy", question: "What turns the Moon red during a lunar eclipse?" },
-  [videoUrl("/assets/cinematic/science-52.mp4")]: { subject: "Astronomy", question: "What is happening during a partial lunar eclipse?" },
-  [videoUrl("/assets/cinematic/science-53.mp4")]: { subject: "Marine biology", question: "How do sharks sense prey they cannot see?" },
-  [videoUrl("/assets/cinematic/science-54.mp4")]: { subject: "Atmospheric science", question: "How do storm clouds build into thunderheads?" },
-  [videoUrl("/assets/cinematic/science-56.mp4")]: { subject: "Fluid dynamics", question: "Why does ink bloom into smoke-like tendrils in water?" },
-  [videoUrl("/assets/cinematic/science-57.mp4")]: { subject: "Astronomy", question: "Why does the Moon glow through thin cloud?" },
-  [videoUrl("/assets/cinematic/science-58.mp4")]: { subject: "Glaciology", question: "How do ice caves form inside glaciers?" },
-};
-
-/* The poster is a frame of this clip, so when the reel is blocked and the
-   still is all anyone sees, the prompt on screen is the prompt for the
-   picture on screen. Checked against the file, not assumed. */
-const FILM_POSTER_CLIP = videoUrl("/assets/cinematic/science-61.mp4");
-
-/* RESTORED 2026-09-17: Document Mode's film — the door's opening clip, so
-   stepping from the intro into a document keeps the same frame. The scrim
-   does the legibility work; the clip just has to be calm. */
-const DOC_FILM_SRC = videoUrl("/assets/cinematic/science-66.mp4");
-
-/* Motion on a phone is opt-in, and the choice survives a reload — a
-   preference someone has to set on every visit is not a preference. */
-const FILM_OPT_IN_KEY = "cb_film_motion";
-function filmForcedOn() {
-  try { return localStorage.getItem(FILM_OPT_IN_KEY) === "1"; } catch { return false; }
-}
-function setFilmForcedOn(on) {
-  try { on ? localStorage.setItem(FILM_OPT_IN_KEY, "1") : localStorage.removeItem(FILM_OPT_IN_KEY); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx setFilmForcedOn: on ? localStorage.setItem(FILM_OPT_IN_KEY, '1') : localStorage.removeI:", cbErr); }
-}
-
-/* One answer to "may the reel run", shared by the component and by every
-   call site that needs to know whether to mount the still fallback
-   instead. Two copies of this rule is how a visitor who asked for reduced
-   motion ends up with both backdrops mounted at once. */
-function filmBlocked(animationMode, paused) {
-  if (paused || animationMode === "off") return true;
-  /* Phones get the full film, not the still poster. An earlier revision
-     held motion back on coarse-pointer small screens to save battery and
-     data, but the cinematic backdrop is the product's identity — a phone
-     that shows a black void where desktop shows the reel reads as broken,
-     not thrifty. Modern phone SoCs hardware-decode H.264 (which is what
-     iOS is served — see filmFile) for a fraction of the cost this comment
-     used to fear, and the guards below still protect the cases that truly
-     need stillness: metered connections, very low-memory devices, reduced
-     motion, and anyone who pauses the background. The footer control
-     remembers a manual pause. */
-  /* Genuinely low-end devices, where a full-viewport filtered video makes
-     the whole interface stutter. Deliberately a hard floor rather than a
-     guess at "slow": deviceMemory is only reported by Chromium and only in
-     coarse buckets, so anything cleverer would be inventing a capability
-     signal the browser is not giving us. Everyone else gets the film and
-     the pause control. */
-  if (typeof navigator !== "undefined" && typeof navigator.deviceMemory === "number" &&
-      navigator.deviceMemory > 0 && navigator.deviceMemory <= 2) return true;
-  if (typeof navigator !== "undefined" && navigator.connection && navigator.connection.saveData) return true;
-  /* Reduced motion gets the still poster BY DEFAULT, not permanently.
-     The setting means "do not surprise me with movement", and it is
-     honoured on arrival; it is not a claim that the person can never
-     choose to watch the footage. The Play background control sets an
-     explicit opt-in flag, so a deliberate press wins over the default and
-     survives a reload. */
-  if (typeof window !== "undefined" && window.matchMedia &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
-      !filmForcedOn()) return true;
-  return false;
-}
-
-/* Per-clip poster frames. A sibling pipeline extracts one graded still per
-   clip at public/assets/cinematic/posters/<basename>.jpg (same basename as
-   the .mp4, .jpg extension). The intro never opens onto black: every video
-   element carries its clip's poster, and a poster layer sits behind the
-   reel for first paint. */
-function filmPoster(src) {
-  const base = String(src || "").split("/").pop().replace(/\.(mp4|webm)$/i, "");
-  return base ? videoUrl("/assets/cinematic/posters/" + base + ".jpg") : FILM_POSTER;
-}
-
-/* VP9-first delivery, owned by the one shared video layer (it used to live
-   inside the reel effect). Every clip ships as science-NN.mp4 (H.264 — the
-   universal fallback) and science-NN.webm (VP9 — same baked grade, better
-   quality at roughly half the bytes). The clip lists keep the .mp4 paths
-   because FILM_SCENES is keyed by them; only the element's src is remapped,
-   and only when this browser can actually play VP9.
-
-   iOS gets H.264 unconditionally. Its hardware decoder eats H.264 for
-   breakfast, while canPlayType('video/webm; codecs="vp9"') has claimed VP9
-   support on iOS releases that then fail to decode it — a phone that
-   reports "maybe" and plays nothing. Support is probed once per session. */
-let __filmVp9OK = null;
-let __filmIosH264 = null;
-function filmBestFile(el, mp4) {
-  /* 2026-10-05: VP9 remap disabled. The reel is now the seven ambient
-     clips, which ship as H.264 .mp4 only — no .webm versions exist on the
-     CDN, so the old remap turned every desktop Chrome load into a 404
-     and the reel stalled on the poster with a dead "tap to play" pill.
-     H.264 hardware-decodes everywhere; the bandwidth delta is not worth
-     a second encode pipeline. If .webm versions ever ship, gate the remap
-     on their existence instead of re-enabling it blindly. */
-  return mp4;
-}
+/* Moved to src/intro.jsx: filmBlock */
 
 /* ════════════════════════════════════════════════════════════════
    FilmLayer — the ONE video-layer primitive.
@@ -5163,28 +4735,7 @@ const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animati
    FilmCreditsDialog above predates this and keeps its own copy on purpose —
    it is reached from the workspace too, and rewiring it is not this
    screen's job. */
-function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
-  return (
-    <Dialog label={label} onClose={onClose} zIndex={400} width={width}
-      panelStyle={{
-        background: "rgba(15, 17, 21, 0.96)",
-        border: "1px solid rgba(255,255,255,0.10)", borderRadius: RADIUS.xl,
-        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
-        padding: "22px 22px 24px", color: "#f2f4f2", fontFamily: "var(--cb-font)",
-      }}
-    >
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, flex: 1, lineHeight: 1.25 }}>{title}</h2>
-          <button onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
-            border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 9999,
-            padding: "7px 15px", fontSize: 13, fontFamily: "var(--cb-font)", flexShrink: 0,
-          }}>Close</button>
-        </div>
-        {children}
-    </Dialog>
-  );
-}
+/* Moved to src/intro.jsx: IntroModal */
 
 /* "How it works" without a fabricated result.
 
@@ -5198,124 +4749,17 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
    offer to run a real one. The example question is a question, not a
    claim, and the answer a visitor sees is produced live by the same search
    every other question uses. */
-function HowItWorksDialog({ onClose, accent }) {
-  const steps = [
-    { n: "1", h: "Ask in plain language",
-      b: "A question the way you would ask a colleague. No boolean operators, no field codes, no learning a query syntax first." },
-    { n: "2", h: "Cerebrum searches the literature",
-      b: "The question is run against " + SCHOLARLY_SOURCES.length + " scholarly sources: Europe PMC, PubMed, OpenAlex, Crossref, arXiv and the rest. The results are deduplicated across them." },
-    { n: "3", h: "Every claim carries its source",
-      b: "The answer is written from those papers, and each statement is numbered to the paper it came from. Open a citation to see the passage it rests on." },
-  ];
-  return (
-    <IntroModal label="how Cerebrum works" title="How Cerebrum works" onClose={onClose} accent={accent}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {steps.map((st) => (
-          <div key={st.n} style={{
-            display: "grid", gridTemplateColumns: "26px 1fr", gap: 14,
-            padding: "16px 0", borderTop: "1px solid rgba(255,255,255,0.07)",
-          }}>
-            <span style={{
-              fontFamily: "var(--cb-font)", fontSize: 12, color: withAlpha(accent, 0.9),
-              paddingTop: 2, fontVariantNumeric: "tabular-nums",
-            }}>{st.n}</span>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 5 }}>{st.h}</div>
-              <div style={{ fontSize: 14, color: "rgba(242,244,242,0.68)", lineHeight: 1.6 }}>{st.b}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-    </IntroModal>
-  );
-}
+/* Moved to src/intro.jsx: HowItWorksDialog */
 
 /* The source list, from the array the search handler actually iterates.
    The count is derived, so it cannot drift away from the code the way a
    typed "15 databases" did. */
-function SourcesDialog({ onClose, accent }) {
-  const GROUPS = [
-    ["biomedical", "Biomedical"],
-    ["multi", "Multidisciplinary"],
-    ["open-access", "Open access"],
-    ["preprint", "Preprints"],
-    ["aggregator", "Aggregators"],
-    ["repository", "Repositories"],
-  ];
-  const PEER = { yes: "Peer-reviewed", mostly: "Mostly peer-reviewed", mixed: "Mixed", no: "Not peer-reviewed" };
-  return (
-    <IntroModal label="research sources" title="Research sources" onClose={onClose} accent={accent}>
-      <p style={{ margin: "0 0 16px", fontSize: 14, lineHeight: 1.65, color: "rgba(242,244,242,0.68)" }}>
-        Cerebrum queries these {SCHOLARLY_SOURCES.length} sources and merges the results, removing the
-        same paper when it appears in more than one. Preprints are included and are labelled as
-        preprints — they have not been peer-reviewed.
-      </p>
-      {GROUPS.map(([key, heading]) => {
-        const rows = SCHOLARLY_SOURCES.filter((x) => x.category === key);
-        if (!rows.length) return null;
-        return (
-          <div key={key} style={{ paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 4 }}>
-            <div style={{
-              /* Pass 3 (2026-09-17): mono label, not a tracked-out eyebrow. */
-              fontFamily: "var(--cb-mono)", fontSize: 11,
-              color: "rgba(242,244,242,0.44)", marginBottom: 9,
-            }}>{heading}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
-              {rows.map((r) => (
-                <div key={r.id} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  gap: 14, flexWrap: "wrap",
-                }}>
-                  <span style={{ fontSize: 15, color: "#f2f4f2" }}>{r.name}</span>
-                  <span style={{ fontSize: 12, color: "rgba(242,244,242,0.5)" }}>{PEER[r.peerReviewed] || ""}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </IntroModal>
-  );
-}
+/* Moved to src/intro.jsx: SourcesDialog */
 
 /* Web Audio "thoom": 120Hz -> 38Hz sine drop + bandpassed noise shimmer.
    Synthesized in the click handler = gesture-compliant by construction.
    No audio file needed. */
-function playEnterThoom() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    if (ctx.state === "suspended") ctx.resume();
-    const t = ctx.currentTime;
-    // Low boom
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(120, t);
-    osc.frequency.exponentialRampToValueAtTime(38, t + 0.9);
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.5, t + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(t); osc.stop(t + 1.3);
-    // Airy shimmer
-    const len = Math.floor(ctx.sampleRate * 0.6);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const noise = ctx.createBufferSource(); noise.buffer = buf;
-    const bp = ctx.createBiquadFilter();
-    bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 0.8;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.08, t + 0.05);
-    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-    noise.connect(bp).connect(ng).connect(ctx.destination);
-    noise.start(t);
-    setTimeout(() => { try { ctx.close(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx: ctx.close(); }:", e); } }, 2000);
-  } catch (e) { /* audio is enhancement, never a blocker */ }
-}
+/* Moved to src/intro.jsx: playEnterThoom */
 
 /* ── The specimen door ──
    The intro is not a headline about the product; it IS the product,
@@ -5323,587 +4767,9 @@ function playEnterThoom() {
    specimens — each with its paper attached. A visitor understands
    Cerebrum in one glance: a claim, and the evidence it traces to.
    Every specimen below is a real published finding with a real DOI. */
-const SPECIMENS = [
-  {
-    claim: "Two weeks of six-hour nights impairs your thinking as much as two nights with no sleep at all.",
-    paper: "H. P. A. Van Dongen et al., \u201cThe cumulative cost of additional wakefulness,\u201d Sleep 26(2), 2003.",
-    doi: "https://doi.org/10.1093/sleep/26.2.117",
-  },
-  {
-    claim: "Distant exploding stars are dimmer than they should be, so the expansion of the universe is speeding up.",
-    paper: "A. G. Riess et al., \u201cObservational evidence from supernovae for an accelerating universe,\u201d Astron. J. 116(3), 1998.",
-    doi: "https://doi.org/10.1086/300499",
-  },
-  {
-    claim: "Running grows new neurons in the adult brain, at least in mice.",
-    paper: "H. van Praag et al., \u201cRunning increases cell proliferation and neurogenesis in the adult mouse dentate gyrus,\u201d Nat. Neurosci. 2(3), 1999.",
-    doi: "https://doi.org/10.1038/6368",
-  },
-];
+/* Moved to src/intro.jsx: SPECIMENS */
 
-function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
-  const isMobile = useIsMobile();
-  const reduced = useReducedMotion();
-  const [creditsOpen, setCreditsOpen] = useState(false);
-  const [howOpen, setHowOpen] = useState(false);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
-  /* Stepping through: the chrome fades quickly, the film frame stays
-     behind, and the App dissolves the clip's graded still over the
-     workspace — the same background frame is retained, so the video is
-     never restarted and no blank screen flashes. The no-motion path is
-     untouched: animation off or reduced motion goes straight through. */
-  const [leaving, setLeaving] = useState(false);
-  const leaveTimer = useRef(null);
-  useEffect(() => () => clearTimeout(leaveTimer.current), []);
-
-  /* The intro uses Cerebrum's sage, not the visitor's chosen accent.
-     The default accent is Mono — pure white — so on a fresh phone every
-     button on this screen rendered as a white pill on black: correct code,
-     no brand, and the "Start exploring" button read as a system alert. The
-     accent is a preference for the workspace; the front door is the brand,
-     and it is the same for everyone. A custom accent that is legible here
-     is still honoured. */
-  const introAccent = (accent && relLuminance(accent) >= 0.15 && relLuminance(accent) <= 0.82)
-    ? accent
-    : "#A3B899";
-
-  /* ── Background playback ──
-     Two separate facts, kept separate on purpose.
-
-     `filmOff` is what the visitor pressed on this screen. `forced` is the
-     stored opt-in that overrides the two defaults which withhold motion
-     without being asked (a phone, and a reduced-motion preference). One
-     button writes both, because a person pressing "Play background" on a
-     phone means the same thing as a person pressing it on a laptop, and
-     having it work on one and silently do nothing on the other would be
-     the worse surprise.
-
-     `filmPlaying` is the truth from the <video> element itself
-     (play/pause/playing events, reported by CinematicFilm) — the footer
-     label and the tap-to-play pill derive from this, never from intent
-     flags, so the control can never say "paused" while footage is moving.
-     `vetoed` records that an autoplay policy rejected a programmatic
-     play(); it clears the moment real playback starts. */
-  const [filmOff, setFilmOff] = useState(false);
-  const [forced, setForced] = useState(() => filmForcedOn());
-  const filmRef = useRef(null);
-  const [filmPlaying, setFilmPlaying] = useState(false);
-  const [vetoed, setVetoed] = useState(false);
-  useEffect(() => { if (filmPlaying) setVetoed(false); }, [filmPlaying]);
-  const filmRunning = !filmBlocked(animationMode, filmOff);
-  /* Issued synchronously from the tap: playNow() runs inside the gesture
-     window, which is the one place iOS Low Power Mode honours play().
-     No optimistic state clearing — the element's own playing event flips
-     the label. If the veto persists, the pill stays: honest. */
-  const resumeFilm = () => {
-    try { filmRef.current?.playNow(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx resumeFilm: filmRef.current?.playNow(); }:", cbErr); }
-  };
-  const toggleFilm = () => {
-    if (filmPlaying) { setFilmOff(true); return; }
-    setFilmForcedOn(true);
-    setForced(true);
-    setFilmOff(false);
-    resumeFilm();
-  };
-  /* `forced` is read by filmBlocked through localStorage, not through this
-     variable — it is state purely so pressing the button re-renders. */
-  void forced;
-
-  /* ── Which clip is on screen ──
-     CinematicFilm owns the reel and reports the clip it has just faded in.
-     The handoff into the workspace reads from here, so the same background
-     frame is retained across the door — the video is never restarted and
-     no blank screen flashes. */
-  const [clip, setClip] = useState(null);
-  /* Specimen rotation: advance every 9s, paused while a dialog is open,
-     while the visitor hovers or focuses the specimen, or under reduced
-     motion. Dots select directly. */
-  const [specimenIdx, setSpecimenIdx] = useState(0);
-  const [specimenHeld, setSpecimenHeld] = useState(false);
-  const specimenCount = SPECIMENS.length;
-  useEffect(() => {
-    if (reduced || animationMode === "off") return undefined;
-    if (specimenHeld || howOpen || sourcesOpen || creditsOpen) return undefined;
-    const t = setInterval(() => setSpecimenIdx((i) => (i + 1) % specimenCount), 9000);
-    return () => clearInterval(t);
-  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, creditsOpen, specimenCount]);
-  const specimen = SPECIMENS[specimenIdx];
-
-  /* ── The door rule ──
-     This screen is a threshold, not a search screen: there is no composer
-     here, deliberately. The composer's home is the workspace behind the
-     door; a second box out here looks like the same control and is not.
-     The way through is "Start researching" (go("", false) — the workspace
-     opens with its cursor in the real composer). */
-
-  /* `submit` is the difference between prefilling the composer and actually
-     asking. The worked example asks; every other route
-     in opens the workspace and leaves the cursor in the box.
-
-     Stepping through: the chrome fades (CSS, 320ms), the film frame stays
-     behind, and the handoff fires with the current clip so the App can
-     dissolve the clip's graded still over the workspace — the same
-     background frame is retained, no restart, no blank. The no-motion
-     path is untouched: animation off or reduced motion goes straight
-     through. A second press while leaving is ignored. */
-  const go = (q, submit, evt) => {
-    const payload = typeof q === "string" ? q : "";
-    if (leaving) return;
-    // The boom: synthesized thoom on the user's gesture
-    playEnterThoom();
-    if (animationMode === "off" || reduced) { onEnter(payload, !!submit, clip); return; }
-    setLeaving(true);
-    // Iris disabled (hotfix): veil divs removed due to black screen
-    clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, clip), 380);
-  };
-
-  /* One container, used by the header, the hero and the footer, so the
-     three read as one composition instead of three screens stacked. */
-  const SIDE = isMobile ? 22 : 40;
-  const container = { width: "100%", maxWidth: 1200, margin: "0 auto", paddingLeft: SIDE, paddingRight: SIDE };
-
-  const navLink = {
-    fontSize: 14, color: "rgba(242,244,242,0.74)", textDecoration: "none",
-    fontWeight: 500, padding: "8px 12px", borderRadius: 8,
-  };
-  const footLink = {
-    background: "none", border: "none", padding: "6px 0", cursor: "pointer",
-    color: "rgba(242,244,242,0.66)", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-font)",
-    textDecoration: "none", display: "inline-block",
-  };
-
-  /* The single short fade on arrival (CSS class below). Under reduced
-     motion or with animation off, everything is simply present. */
-  const animate = animationMode !== "off" && !reduced;
-
-
-  return (
-    <div id="cb-intro-wrap" className={[leaving ? "cb-intro-leaving" : "", reduced && !leaving ? "cb-intro-still" : ""].filter(Boolean).join(" ") || undefined} style={{
-      minHeight: "100dvh", position: "relative",
-      /* overflow-x only. `overflow: hidden` here was clipping the page to
-         one viewport, so on a short window — a laptop with the browser
-         chrome open, a phone in landscape — the footer and the prompt were
-         simply unreachable. The page scrolls now; nothing is cut off.
-         `clip` (not `hidden`): hidden creates its own scroll container,
-         which breaks position: sticky descendants and nests scrolling
-         contexts; clip suppresses the paint without doing that. */
-      overflowX: "clip",
-      display: "flex", flexDirection: "column",
-      fontFamily: "var(--cb-font)",
-      background:
-        "radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%)," +
-        "radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%)," +
-        "#0b0d10",
-    }}>
-      {/* A dialog is a request to read something. The reel is paused while one
-          is open and resumes on close with whatever the visitor had chosen —
-          `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
-      <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} holdMs={18000} proReel={!!user?.isPro} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={setClip} onAutoplayBlocked={() => setVetoed(true)} onPlaybackChange={setFilmPlaying} />
-
-      {/* Contrast for the title card: a soft centered hold over the frame,
-          plus top and bottom falls for the header and the footer. One fixed
-          composite, not a repaint per scrolled pixel. */}
-      <div aria-hidden="true" style={{
-        position: "fixed", inset: 0, zIndex: Z.content, pointerEvents: "none",
-        background:
-          "radial-gradient(ellipse 100% 88% at 50% 42%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.55) 42%, rgba(0,0,0,0.78) 72%, rgba(0,0,0,0.88) 100%)," +
-          "linear-gradient(180deg, rgba(8,10,13,0.52) 0%, rgba(8,10,13,0.18) 30%, rgba(8,10,13,0.18) 62%, rgba(8,10,13,0.68) 100%)",
-      }} />
-
-      {/* The film opening: a beat of near-black that lifts to reveal the
-          footage, like a title sequence. Under reduced motion it is never
-          mounted — the graded still is simply there. */}
-      {animate && <div aria-hidden="true" className="cb-title-veil" />}
-
-      {/* Fine grain over the film and the scrim, under the type — texture
-          with no motion cost. */}
-      <div aria-hidden="true" className="cb-intro-grain" />
-
-      {/* ── Header ──
-          Edge to edge, aligned to the same container as everything below,
-          and deliberately not a frosted capsule. backdrop-filter over a
-          playing video is charged per frame: the browser re-blurs the
-          moving picture behind the bar twenty-four times a second, for a
-          bar nobody looks at. A gradient costs one composite and reads the
-          same over footage this dark. Readable logo and links — no
-          miniature telemetry. */}
-      <header className={animate ? "cb-intro-chrome cb-intro-header cb-focus-in" : "cb-intro-chrome cb-intro-header"} style={{
-        position: "relative", zIndex: Z.header,
-        paddingTop: "max(14px, env(safe-area-inset-top))",
-        background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
-        ...(animate ? { animationDelay: "0.45s", animationDuration: "1.8s" } : null),
-      }}>
-        <div style={{
-          ...container,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: 16, paddingBottom: 14,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Mark size={20} accent={introAccent} glow />
-            <span style={{ fontSize: 17, fontWeight: 600, color: "#ffffff", letterSpacing: TYPE.heading.letterSpacing }}>Cerebrum</span>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 4 }}>
-            {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
-              <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
-            ))}
-            {isMobile && (
-              <button type="button" onClick={() => setNavOpen((v) => !v)}
-                aria-expanded={navOpen} aria-controls="cb-intro-navmenu"
-                className="cb-intro-navlink" style={{ ...navLink, background: "none", border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                More
-              </button>
-            )}
-            {/* The header carries no entrance button: "Step inside" below is
-                the single way in. Two buttons doing the same thing read as
-                indecision, not emphasis. */}
-          </div>
-        </div>
-
-        {/* The three legal links do not fit beside the brand and the button
-            at 390px, and the button is the one thing in the bar anyone
-            presses. They live behind More on a phone, and in the footer of
-            this same screen either way — not removed, just not crowding. */}
-        {isMobile && navOpen && (
-          <div id="cb-intro-navmenu" style={{
-            ...container, paddingBottom: 12,
-            display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
-          }}>
-            {["About", "Privacy", "Contact"].map((item) => (
-              <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={{
-                ...navLink, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 9999,
-              }}>{item}</a>
-            ))}
-          </div>
-        )}
-      </header>
-
-      <main className="cb-intro-chrome" style={{
-        position: "relative", zIndex: Z.sticky, flex: 1,
-        display: "flex", flexDirection: "column", justifyContent: "center",
-        minHeight: isMobile ? "94svh" : "100svh",
-        textAlign: "center",
-        paddingTop: 48, paddingBottom: 64,
-      }}>
-        {/* ── The title card ──
-            Quiet sci-fi pacing: a beat of pure footage under the veil, then
-            the type finds focus — tiny tracked kicker, the title resolving
-            like a film card, the slogan, and finally the single way in.
-            Blur-to-sharp, quick and staggered. No pointer motion anywhere on
-            this screen. */}
-        <div style={{
-          ...container, maxWidth: 1040,
-          display: "flex", flexDirection: "column", alignItems: "center",
-          /* Scoped hold behind the title card: neutral black only, never a
-             palette tint (the Commit-45/46 fog lesson). The full-screen
-             vignette above is untouched. */
-          position: "relative",
-        }}>
-          <div aria-hidden="true" style={{
-            position: "absolute", inset: "-12% -30%", zIndex: Z.behind,
-            background: "radial-gradient(ellipse 60% 52% at 50% 46%, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 70%)",
-          }} />
-          {/* ── The specimen ──
-              Not a headline about the product — the product itself, at
-              specimen scale. One verified claim, its paper, its verdict.
-              No card, no glass: museum-label type set directly on the
-              footage, held by the scrim. */}
-          <div
-            onMouseEnter={() => setSpecimenHeld(true)}
-            onMouseLeave={() => setSpecimenHeld(false)}
-            onFocus={() => setSpecimenHeld(true)}
-            onBlur={() => setSpecimenHeld(false)}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}
-          >
-            <div className={animate ? "cb-focus-in" : undefined}
-              style={animate ? { animationDelay: "0.5s" } : undefined}>
-              <span style={{
-                fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "0.42em",
-                textIndent: "0.42em", fontWeight: 600,
-                textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
-                fontVariantNumeric: "tabular-nums",
-                textShadow: "0 2px 18px rgba(0,0,0,0.55)",
-              }}>
-                Specimen {String(specimenIdx + 1).padStart(2, "0")}, a verified claim
-              </span>
-            </div>
-            <div key={specimenIdx} className={animate ? "cb-specimen-in" : undefined} style={{
-              display: "flex", flexDirection: "column", alignItems: "center", width: "100%",
-            }}>
-              <p style={{
-                fontSize: isMobile ? "clamp(24px, 7vw, 34px)" : "clamp(30px, 3.8vw, 48px)",
-                fontWeight: 650, letterSpacing: TYPE.heading.letterSpacing, lineHeight: 1.22,
-                color: "#ffffff", margin: "26px auto 0", maxWidth: "24ch",
-                textAlign: "center", textWrap: "balance",
-                textShadow: "0 2px 44px rgba(0,0,0,0.55)",
-              }}>
-                &ldquo;{specimen.claim}&rdquo;
-              </p>
-              <div style={{
-                marginTop: 22, display: "flex", alignItems: "center", gap: 8,
-                fontSize: 13, fontWeight: 600, letterSpacing: TRACKING.eyebrow,
-                textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
-                textShadow: "0 2px 18px rgba(0,0,0,0.55)",
-              }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                Traced to a direct finding
-              </div>
-              <p style={{
-                margin: "14px 0 0", maxWidth: "58ch",
-                fontSize: isMobile ? 13 : 14, lineHeight: 1.65,
-                color: "rgba(242,244,242,0.72)",
-                textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-              }}>
-                {specimen.paper}{" "}
-                <a href={specimen.doi} target="_blank" rel="noopener noreferrer"
-                  className="cb-intro-sourcelink"
-                  style={{ color: withAlpha(introAccent, 0.95), fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
-                  Open the paper &#8599;
-                </a>
-              </p>
-            </div>
-            {/* Specimen dots — the only chrome on the specimen. */}
-            <div role="tablist" aria-label="Verified claims" style={{
-              marginTop: 26, display: "flex", alignItems: "center", gap: 10,
-            }}>
-              {SPECIMENS.map((sp, i) => (
-                <button key={i} type="button" role="tab" aria-selected={i === specimenIdx}
-                  aria-label={"Claim " + (i + 1) + ": " + sp.claim.slice(0, 60) + "\u2026"}
-                  onClick={() => setSpecimenIdx(i)}
-                  style={{
-                    width: i === specimenIdx ? 26 : 8, height: 8, borderRadius: 9999,
-                    border: "none", cursor: "pointer", padding: 0,
-                    background: i === specimenIdx ? "rgba(242,244,242,0.9)" : "rgba(242,244,242,0.28)",
-                    transition: "width 0.35s ease, background 0.35s ease",
-                  }} />
-              ))}
-            </div>
-          </div>
-          <div className={animate ? "cb-focus-in cb-hero-ctas" : "cb-hero-ctas"} style={{
-            marginTop: 40,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            gap: isMobile ? 16 : 22, flexWrap: "wrap",
-            ...(animate ? { animationDelay: "1.6s" } : null),
-          }}>
-            <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
-              cursor: "pointer",
-              /* Mobile: tighter tracking/size/padding so "START
-                 RESEARCHING" fits 360px on one line — it was wrapping to
-                 two lines. whiteSpace: nowrap is the hard guarantee. */
-              padding: isMobile ? "12px 24px" : "14px 34px",
-              fontSize: isMobile ? 12 : 12.5, fontWeight: 600, fontFamily: "var(--cb-font)",
-              letterSpacing: isMobile ? "0.18em" : "0.24em", textIndent: isMobile ? "0.18em" : "0.24em",
-              textTransform: "uppercase", whiteSpace: "nowrap",
-            }}>Start researching</button>
-            {/* "How it works" stays a whisper — never a second button
-                competing with the single way in. */}
-            <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
-              cursor: "pointer",
-              border: "1px solid rgba(242,244,242,0.18)", borderRadius: 9999,
-              background: "transparent", padding: "12px 24px",
-              fontSize: isMobile ? 14 : 14.5, fontWeight: 600,
-              color: "rgba(242,244,242,0.78)", fontFamily: "var(--cb-font)",
-            }}>How it works</button>
-          </div>
-          {/* Autoplay-policy recovery. Rendered only when the reel wants to
-              run, a veto was observed, and the element is actually still
-              paused — the video's own playing event clears it the moment
-              footage moves, so the label can never lie. */}
-          {filmRunning && vetoed && !filmPlaying && (
-            <div className={animate ? "cb-focus-in" : undefined}
-              style={{ marginTop: 26, ...(animate ? { animationDelay: "0.15s", animationDuration: "1.1s" } : null) }}>
-              <button type="button" onClick={resumeFilm} style={{ minHeight: 44,
-                display: "inline-flex", alignItems: "center", gap: 8,
-                padding: "12px 16px", borderRadius: 9999,
-                border: "1px solid rgba(242,244,242,0.22)",
-                background: "rgba(10,12,14,0.5)", color: "#f2f4f2",
-                fontSize: 14, fontWeight: 500, fontFamily: "var(--cb-font)",
-                cursor: "pointer",
-              }}>
-                <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                Background film paused — tap to play
-              </button>
-            </div>
-          )}
-        </div>
-      </main>
-
-      {/* ── Ethics: why Cerebrum is built this way ──
-          Calm reassurance, not a lecture. No greenwashing, no invented
-          numbers: the energy figure is stated as an approximation and
-          every number on the panel traces to a linked source — the same
-          standard the product's answers are held to. */}
-      <section aria-label="Why Cerebrum" className={animate ? "cb-intro-chrome cb-ethics" : "cb-intro-chrome cb-ethics"} style={{
-        position: "relative", zIndex: Z.sticky,
-        borderTop: `1px solid ${P.line}`,
-        background: "linear-gradient(180deg, rgba(8,10,13,0.80) 0%, rgba(8,10,13,0.94) 100%)",
-      }}>
-        <div style={{
-          ...container, maxWidth: 760,
-          paddingTop: isMobile ? 44 : 60, paddingBottom: isMobile ? 48 : 68,
-        }}>
-          <div style={{
-            fontSize: 11, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
-            color: withAlpha(introAccent, 0.85), marginBottom: 18, fontWeight: 600,
-            fontVariantNumeric: "tabular-nums",
-          }}>
-            Why Cerebrum
-          </div>
-          <h2 style={{
-            fontSize: isMobile ? 24 : 30, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing,
-            lineHeight: 1.25, color: "#ffffff", margin: "0 0 16px",
-            textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-          }}>
-            One search. One honest answer.
-          </h2>
-          <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
-            color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
-          }}>
-            One search returns a fully sourced answer — no ten-query rabbit hole,
-            no twenty tabs open to verify it yourself.
-          </p>
-          <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
-            color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
-          }}>
-            Every claim traces to a paper you can open.
-          </p>
-          <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
-            color: "rgba(242,244,242,0.82)", margin: 0,
-          }}>
-            No ads. No engagement farming. This product has one job: the truth.
-          </p>
-          <div style={{
-            border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
-            padding: isMobile ? "18px" : "20px 22px",
-            background: "rgba(255,255,255,0.03)",
-            marginTop: 26,
-          }}>
-            <p style={{
-              fontSize: isMobile ? 15 : 15.5, lineHeight: 1.65, fontWeight: 500,
-              color: "rgba(242,244,242,0.9)", margin: "0 0 14px",
-            }}>
-              A Cerebrum search uses about the same energy as a single AI chat
-              answer <strong style={{ fontWeight: 650, color: "#ffffff" }}>(roughly 0.3&nbsp;Wh)</strong>,
-              and it&rsquo;s the only one you need.
-            </p>
-            <div style={{
-              display: "flex", flexWrap: "wrap", gap: "6px 18px",
-            }}>
-              <a href="https://epoch.ai/data-insights/how-much-energy-does-chatgpt-use" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
-                Epoch AI · Feb 2025 — 0.3 Wh per GPT-4o query ↗
-              </a>
-              <a href="https://blog.samaltman.com/the-gentle-singularity" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
-                Sam Altman, OpenAI · Jun 2025 — 0.34 Wh average ↗
-              </a>
-              <a href="https://blog.google/technology/ai/google-ai-environmental-impact/" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
-                Google · Aug 2025 — 0.24 Wh for AI Overviews ↗
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Footer ──
-          Credits and legal live here; the header stays clean. */}
-      <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
-        position: "relative", zIndex: Z.sticky,
-        paddingBottom: "max(20px, env(safe-area-inset-bottom))",
-        ...(animate ? { animationDelay: "4.1s", animationDuration: "1.8s" } : null),
-        /* The centered scrim above deliberately falls off toward the bottom
-           of the frame so the footage keeps it — which leaves the footer
-           links sitting on bare film. Measured against every graded clip
-           they came out at 1.5:1, i.e. invisible over the bright ones.
-           The footer carries its own band instead of the whole picture being
-           darkened for it: 6.8:1 at the worst frame in the set. */
-        background: "linear-gradient(0deg, rgba(8,10,13,0.90) 0%, rgba(8,10,13,0.86) 62%, rgba(8,10,13,0.30) 100%)",
-      }}>
-        {/* Two rows on a phone, one on a desktop. As a single wrapping row
-            at 390px the spacer below pushed the legal links onto the same
-            line as the sources link and left "Contact" stranded on a line
-            of its own — a stagger, not a footer. */}
-        <div style={{
-          ...container, paddingTop: 18,
-          display: "flex",
-          flexDirection: isMobile ? "column" : "row",
-          alignItems: isMobile ? "flex-start" : "center",
-          flexWrap: "wrap",
-          gap: isMobile ? "12px" : "10px 22px",
-          borderTop: "1px solid rgba(255,255,255,0.07)",
-        }}>
-          {/* Was fifteen database names set in 10.5px mono at 34% opacity —
-              a texture rather than a list, unreadable on a phone and
-              unreadable to a screen reader in any useful order. One link,
-              and the actual list is one press away. */}
-          <button type="button" onClick={() => setSourcesOpen(true)} className="cb-intro-sourcelink" style={{
-            ...footLink, color: "rgba(242,244,242,0.82)", fontSize: 14, fontWeight: 600,
-          }}>Explore our research sources ↗</button>
-
-          {!isMobile && <span style={{ flex: 1, minWidth: 0 }} />}
-
-          <div className="cb-introfoot-links" style={{
-            display: "flex", alignItems: "center", flexWrap: "wrap",
-            /* Full width on a phone so the wrap happens where the row runs
-               out of room, not where a shrink-to-fit box does. */
-            width: isMobile ? "100%" : "auto",
-            gap: isMobile ? "12px 16px" : "10px 22px",
-          }}>
-            {isMobile
-              ? ["About", "Privacy", "Terms", "Disclosures", "Contact"].map((item) => (
-                  <a key={item} href={"/" + item.toLowerCase()} style={footLink}>{item}</a>
-                ))
-              : (
-                <>
-                  <a href="/privacy" style={footLink}>Privacy</a>
-                  <a href="/terms" style={footLink}>Terms</a>
-                  <a href="/disclosures" style={footLink}>Disclosures</a>
-                  <a href="/contact" style={footLink}>Contact</a>
-                </>
-              )}
-            <button type="button" onClick={() => setCreditsOpen(true)} style={footLink}>Film credits</button>
-            {/* Sits with the credits because that is where the footage is
-                already being talked about. The label reads the video
-                element's actual playback state — never intent flags — so
-                it cannot say "paused" while footage is moving, and it
-                matches the tap-to-play pill above instead of
-                contradicting it. */}
-            <button type="button" onClick={toggleFilm} aria-pressed={filmPlaying} style={footLink}>
-              {filmPlaying ? "Pause background" : "Play background"}
-            </button>
-          </div>
-        </div>
-        {/* Copyright + release line: the answer-page footer already carries
-            this; the cinematic homepage footer was missing it. */}
-        <div style={{
-          ...container, paddingTop: 10,
-          fontSize: 12, fontWeight: 500, color: "rgba(242,244,242,0.42)",
-          fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight,
-        }}>
-          © {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}
-        </div>
-      </footer>
-
-      {creditsOpen && <FilmCreditsDialog accent={introAccent} onClose={() => setCreditsOpen(false)} />}
-      {sourcesOpen && <SourcesDialog accent={introAccent} onClose={() => setSourcesOpen(false)} />}
-      {howOpen && (
-        <HowItWorksDialog
-          accent={introAccent}
-          onClose={() => setHowOpen(false)}
-        />
-      )}
-
-    </div>
-  );
-}
+/* Moved to src/intro.jsx: Intro */
 
 
 /* ════════════════════════════════════════════════════════════════
@@ -5947,90 +4813,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
 /* ── CerebrumFieldCanvas ─────────────────────────────────────────────────
    (restored verbatim from the pre-redesign tree) */
 
-function CerebrumFieldCanvas({
-  accent,
-  P,
-  mode = "ambient",
-  energy = 0,
-  core = 0,
-  corePos = [0, 0],
-  coreScale = 1,
-  animationMode = "cinematic",
-}) {
-  const canvasRef = useRef(null);
-  const fieldRef = useRef(null);
-  const [failed, setFailed] = useState(false);
-
-  /* The field inverts its polarity for light palettes rather than painting a
-     dark sheet behind a pale interface — see the uLight branch in the shader.
-     `deep` is still passed because the CSS fallback needs a ground colour. */
-  const isLight = !!(P && P.dark === false);
-  const deep = isLight ? (P.bg || "#f5f4f1") : ((P && P.bg) || "#0a1020");
-
-  // Create once. Deliberately NOT keyed on accent/mode — those are pushed
-  // through setState below, because tearing down a GPU context to change a
-  // colour is how you end up leaking contexts on a settings screen.
-  useEffect(() => {
-    if (animationMode === "off") return undefined;
-    let disposed = false;
-    let handle = null;
-
-    (async () => {
-      try {
-        const { createField } = await import("./cerebrumField.js");
-        if (disposed || !canvasRef.current) return;
-        handle = await createField(canvasRef.current, {
-          accent, deep, mode, core, corePos, coreScale, light: isLight,
-        });
-        if (disposed) { if (handle) handle.destroy(); return; }
-        if (!handle) { setFailed(true); return; }
-        fieldRef.current = handle;
-      } catch {
-        if (!disposed) setFailed(true);
-      }
-    })();
-
-    return () => {
-      disposed = true;
-      if (fieldRef.current) { fieldRef.current.destroy(); fieldRef.current = null; }
-      else if (handle) handle.destroy();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animationMode]);
-
-  // Push state changes without recreating anything.
-  useEffect(() => {
-    if (fieldRef.current) {
-      fieldRef.current.setState({ accent, deep, mode, energy, core, corePos, coreScale, light: isLight });
-    }
-  }, [accent, deep, mode, energy, core, corePos[0], corePos[1], coreScale, isLight]);
-
-  const fallbackStyle = {
-    position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none",
-    background: staticFieldCss(accent, deep),
-  };
-
-  // Animation off, or WebGL unavailable: the same palette and roughly the
-  // same composition, painted in CSS. The page should look deliberate, not
-  // like something failed to load.
-  if (animationMode === "off" || failed) {
-    return <div aria-hidden="true" style={fallbackStyle} />;
-  }
-
-  return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden="true"
-      style={{
-        position: "fixed", inset: 0, width: "100%", height: "100%",
-        zIndex: Z.base, pointerEvents: "none", display: "block",
-        // Painted underneath while the shader module loads, so there is never
-        // a black rectangle between first paint and first frame.
-        background: staticFieldCss(accent, deep),
-      }}
-    />
-  );
-}
+/* Moved to src/intro.jsx: CerebrumFieldCanvas */
 
 
 /* v7.0 cleanup: two banner comments used to sit here ("Custom blend-mode
@@ -9946,7 +8729,7 @@ function ImportLocalDataPrompt({ P, accent, at, savedCount, historyCount, onImpo
 // groups (signed-in only; server-backed via /api/data's "collections"
 // actions, same as everything else in this file talks to the backend).
 // Deliberately simple: create/rename/delete a collection, and move a saved
-// source in or out of one via a plain <select> rather than drag-and-drop —
+// source in or out of one via a custom dropdown rather than drag-and-drop —
 // drag-and-drop is a lot of extra surface for what's fundamentally a filing
 // operation people do occasionally, not constantly.
 function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollection, onRenameCollection, onDeleteCollection, onMoveSource, close, page = false, narrow = false }) {
@@ -10019,10 +8802,9 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                     {[s.authors, formatJournalName(s.journal), s.year].filter(Boolean).join(" · ")}
                   </span>
                 </span>
-                <select value={s.collectionId || ""} onChange={(e) => onMoveSource(s, e.target.value || null)} aria-label={`Move "${s.title}" to a collection`} style={{ minHeight: 44, fontSize: FONT_SIZES.caption, padding: "5px 6px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0, ...selectChrome(P) }}>
-                  <option value="">Uncategorized</option>
-                  {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <UISelect P={P} accent={accent} value={s.collectionId || ""} onChange={(v) => onMoveSource(s, v || null)}
+                  options={[{ value: "", label: "Uncategorized" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
+                  ariaLabel={`Move "${s.title}" to a collection`} style={{ fontSize: FONT_SIZES.caption, flexShrink: 0 }} />
               </div>
             ))}
           </div>
@@ -10074,10 +8856,9 @@ function CompareModal({ P, accent, at, S, history, close }) {
   const right = history.find((h) => h.id === rightId);
   const noop = () => {};
   const Picker = ({ value, onChange, exclude }) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, borderRadius: 8, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
-      <option value="">Choose an investigation…</option>
-      {history.filter((h) => h.id !== exclude).map((h) => <option key={h.id} value={h.id}>{h.title}</option>)}
-    </select>
+    <UISelect P={P} accent={accent} value={value} onChange={onChange}
+      options={[{ value: "", label: "Choose an investigation…" }, ...history.filter((h) => h.id !== exclude).map((h) => ({ value: h.id, label: h.title }))]}
+      ariaLabel="Choose an investigation to compare" style={{ width: "100%" }} />
   );
   const Column = ({ entry }) => (
     <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18 }}>
@@ -16784,6 +15565,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 style={{ ...textareaStyle, border: "none", background: "transparent", borderRadius: 0, outline: "none", ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
               />
             </div>
+            </div>
             {extractingPdf && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>
                 <div style={{ width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
@@ -17189,29 +15971,56 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           paddingTop: `max(${isMobile ? 14 : 18}px, env(safe-area-inset-top))`,
           borderBottom: `1px solid ${P.line}`,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <Icon name="bookOpen" size={18} style={{ color: accent, flexShrink: 0 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            {/* Premium pass: the product icon sits in a soft accent tile
+                (the WorkspaceEmpty icon treatment), the title uses the
+                heading type treatment, and the subtitle becomes a live
+                document readout once a document is open. */}
+            <span aria-hidden="true" style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
+              color: accent, background: withAlpha(accent, 0.1),
+              border: `1px solid ${withAlpha(accent, 0.22)}`,
+            }}><Icon name="bookOpen" size={18} /></span>
             <div style={{ minWidth: 0 }}>
-              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", margin: 0, letterSpacing: TYPE.heading.letterSpacing }}>Document Mode</h1>
-              {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
+              <h1 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>Document Mode</h1>
+              {!isMobile && (
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {!!docTextTrimmed && !docIdentOnly && docStats
+                    ? (<><span style={{ ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{docStats.words.toLocaleString()} words</span>{" · "}~{docStats.mins} min read</>)
+                    : "Put in one paper and ask questions about it"}
+                </div>
+              )}
             </div>
           </div>
-          <button onClick={close} aria-label="Close Document Mode" style={{
-            width: 44, height: 44, minWidth: 44, borderRadius: "50%", background: "none",
-            border: `1px solid ${P.line}`, color: P.faint, cursor: "pointer",
-            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}><Icon name="close" size={20} /></button>
+          <button onClick={close} aria-label="Close Document Mode"
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.color = P.faint; }}
+            style={{
+              width: 44, height: 44, minWidth: 44, borderRadius: "50%", background: "none",
+              border: `1px solid ${P.line}`, color: P.faint, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              transition: "border-color 150ms ease, color 150ms ease",
+            }}><Icon name="close" size={20} /></button>
         </div>
       ) : (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: isMobile ? "14px 16px" : "16px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Icon name="bookOpen" size={18} style={{ color: accent }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span aria-hidden="true" style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, borderRadius: RADIUS.md, flexShrink: 0,
+              color: accent, background: withAlpha(accent, 0.1),
+              border: `1px solid ${withAlpha(accent, 0.22)}`,
+            }}><Icon name="bookOpen" size={18} /></span>
             <div>
-              <h1 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", margin: 0, letterSpacing: TYPE.heading.letterSpacing }}>Document Mode</h1>
+              <h1 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>Document Mode</h1>
               {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
             </div>
           </div>
-          <button onClick={close} aria-label="Close Document Mode" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex" }}><Icon name="close" size={20} /></button>
+          <button onClick={close} aria-label="Close Document Mode"
+            onMouseEnter={(e) => { e.currentTarget.style.color = P.ink; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
+            style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex", transition: "color 150ms ease" }}><Icon name="close" size={20} /></button>
         </div>
       )}
 
@@ -21958,11 +20767,9 @@ function App() {
                         <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("RIS", "cerebrum-selected.ris", toRIS(sel)); }}>Download RIS</UIButton>
                         <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("BibTeX", "cerebrum-selected.bib", toBibTeX(sel)); }}>Export BibTeX</UIButton>
                         {collections.length > 0 && (
-                          <select value="" onChange={(e) => { if (!e.target.value) return; const cid = e.target.value; setSaved((prev) => prev.map((s) => selectedSavedKeys.has(sourceKey(s)) ? { ...s, collectionId: cid } : s)); setSelectedSavedKeys(new Set()); sfx(); }} aria-label="Move selected to collection"
-                            style={{ minHeight: 44, fontSize: FONT_SIZES.caption, padding: "5px 8px", borderRadius: 8, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P) }}>
-                            <option value="">Move to collection…</option>
-                            {collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
+                          <UISelect P={P} accent={accent} value="" onChange={(cid) => { setSaved((prev) => prev.map((s) => selectedSavedKeys.has(sourceKey(s)) ? { ...s, collectionId: cid } : s)); setSelectedSavedKeys(new Set()); sfx(); }}
+                            options={[{ value: "", label: "Move to collection…" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
+                            ariaLabel="Move selected to collection" style={{ fontSize: FONT_SIZES.caption }} />
                         )}
                         <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { if (window.confirm(`Remove ${selectedSavedKeys.size} saved paper${selectedSavedKeys.size === 1 ? "" : "s"} from your library?`)) { setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); sfx(); } }}>Remove selected</UIButton>
                         <button onClick={() => setSelectedSavedKeys(new Set())} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Clear</button>
@@ -23074,8 +21881,8 @@ summary::-webkit-details-marker { display: none; }
 .cb-doc-reader { min-width: 0; overflow-wrap: break-word; }
 /* ── Document Mode premium pass (2026-10-07) ──
    Tab-body transition: the reader content re-mounts per tab (keyed by
-   the active tab id) and rises in. The "to" frame lands on `filter: none`
-   (v43 lesson: `blur(0)` would make the element a containing block for
+   the active tab id) and rises in. The "to" frame lands on filter: none
+   (v43 lesson: blur(0) would make the element a containing block for
    fixed/absolute descendants once the animation settles). */
 @keyframes cbDocTabIn {
   from { opacity: 0; transform: translateY(8px); }

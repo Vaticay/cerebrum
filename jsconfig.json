@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    // Type-check JavaScript files via JSDoc annotations. This is the
+    // incremental path to type safety: new modules (src/scrollLock.js,
+    // extracted components) carry JSDoc @param/@returns/@typedef, and
+    // `npx tsc --noEmit` surfaces mismatches without a full TS migration.
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": false,
+    // Strict is off during the incremental migration: the 24k-line
+    // CerebrumApp.jsx predates annotations and would drown real signal
+    // in noise. Turn on per-file via // @ts-check as modules are
+    // extracted and annotated.
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "functions/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * scrollLock.js — THE single scroll-lock mechanism for the Cerebrum app.
  *
