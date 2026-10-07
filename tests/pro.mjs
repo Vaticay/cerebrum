@@ -1076,7 +1076,7 @@ await test("20 concurrent consumes against cap 1 → exactly 1 allowed", async (
   assert.equal(allowedCount, 1, `expected exactly 1 allowed, got ${allowedCount}`);
   const gate = await resolveAiGate(env, { id: "u40", email: "race2@x.com" });
   assert.equal(gate.aiUsed, 1, "bucket must hold exactly the one consumed unit");
-  // Note: the gate's tier cap is 15 (free), while this test raced on an
+  // Note: the gate's tier cap is 50 (free), while this test raced on an
   // explicit cap of 1 — the bucket count is what proves atomicity here.
 });
 
@@ -1111,7 +1111,7 @@ await test("hammering all three buckets never drives usage negative or past the 
   assert.ok(f >= 0 && f <= 1, `flowcharts=${f} out of [0,1]`);
 });
 
-await test("lite cap 150 enforced atomically, not just free's 15", async () => {
+await test("lite cap 500 enforced atomically, not just free's 50", async () => {
   const db = mockDB();
   db.addUser({ id: "u43", email: "lite2@x.com", plan: "lite", pro_source: "subscription" });
   const env = envOf(db);

@@ -4985,7 +4985,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       gateReason === "signin-required"
         ? "*Assembled directly from the sources below without AI — sign in for AI-synthesized answers. Verify each claim against its cited source.*"
         : gateReason === "free-cap" || gateReason === "lite-cap"
-          ? "*Assembled directly from the sources below without AI — you've used this month's free AI answers. Verify each claim against its cited source.*"
+          ? "*Assembled directly from the sources below without AI — you've used this period's free AI answers. Verify each claim against its cited source.*"
           : "*Drafted directly from the sources below — Cerebrum's AI providers were " +
             "temporarily unavailable, so this summary was assembled without AI. " +
             "Verify each claim against its cited source.*";
@@ -5701,7 +5701,7 @@ const AMBIGUOUS_QUERY_TERMS = [
     { label: "Python programming", context: ["code", "program", "software", "data", "script", "library", "bioinformatic"], query: "python programming data analysis" },
     { label: "Python (snake)", context: ["snake", "reptile", "constrictor", "herpetolog"], query: "python snake biology behavior" } ] },
   { term: "memory", re: /\bmemory\b/i, senses: [
-    { label: "Human memory", context: ["brain", "cognit", "recall", "hippocampus", "alzheimer", "learn"], query: "human memory formation hippocampus" },
+    { label: "Human memory", context: ["brain", "cognit", "recall", "hippocampus", "alzheimer", "learn", "sleep", "depriv"], query: "human memory formation hippocampus" },
     { label: "Computer memory", context: ["computer", "ram", "storage", "cache", "hardware"], query: "computer memory ram architecture" } ] },
   { term: "expression", re: /\bexpression\b/i, senses: [
     { label: "Gene expression", context: ["gene", "rna", "transcript", "protein", "mrna"], query: "gene expression regulation transcription" },
@@ -8603,7 +8603,7 @@ async function runSearchPipeline(pctx) {
     //   anonymous → no provider-backed AI; the pipeline falls through to the
     //               deterministic Wave-4 extractive answer, and the client
     //               nudges toward sign-in.
-    let aiGate = { kind: "anonymous", userId: null, aiUsed: 0, aiCap: 15, proSource: null };
+    let aiGate = null;
     let proLib = null;
     try {
       const { getSessionUser: proSessionUser } = await import("../lib/authHelpers.js");
@@ -8611,8 +8611,14 @@ async function runSearchPipeline(pctx) {
       aiGate = await proLib.resolveAiGate(env, await proSessionUser(request, env));
     } catch {
       proLib = null;
+    }
+    if (!aiGate) {
       // Fail closed on AI spend: an unresolvable gate keeps the anonymous
       // default, so the extractive fallback answers instead of inference.
+      // aiCap mirrors FREE_AI_ANSWERS_PER_MONTH (functions/lib/proEntitlement.js)
+      // so the quota payload reports a truthful cap; anonymous synthesis
+      // stays disallowed via aiSynthesisAllowed regardless.
+      aiGate = { kind: "anonymous", userId: null, aiUsed: 0, aiCap: 50, proSource: null };
     }
     const aiSynthesisAllowed = proLib ? proLib.aiSynthesisAllowed(aiGate) : false;
     // Consume one AI answer from a metered account's bucket (free or Lite).
@@ -8671,8 +8677,8 @@ async function runSearchPipeline(pctx) {
       if (burnsInference && !aiSynthesisAllowed) {
         return new Response(JSON.stringify({
           answer: aiGate.kind === "anonymous"
-            ? "Sign in to use AI follow-ups — summaries, simplifications, and translations run on the same monthly AI budget as search."
-            : "You've used your 15 free AI answers for this month. Upgrade to Pro for unlimited AI follow-ups — or ask a new question and I'll answer from the papers directly.",
+            ? "Sign in to use AI follow-ups — summaries, simplifications, and translations run on the same 5-day AI budget as search."
+            : `You've used your ${aiGate.aiCap} AI answers for this 5-day period. Upgrade to Pro for unlimited AI follow-ups — or ask a new question and I'll answer from the papers directly.`,
           sources: [], videos: [], related: [], source: "Cerebrum",
           aiQuota: aiQuotaPayload(),
         }), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
@@ -12455,7 +12461,7 @@ async function runSearchPipeline(pctx) {
         // "AI-synthesized") instead of the UI having to guess.
         synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
         /* PRO TIER — what the UI needs to render quota honestly: the
-         * caller's tier, AI answers used this month, the cap (null =
+         * caller's tier, AI answers used this quota period, the cap (null =
          * unlimited on Pro), and why AI synthesis was skipped when it was
          * ("signin-required" for anonymous, "free-cap" when the free bucket
          * is empty — both render as an upgrade nudge, never an error). */

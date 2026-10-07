@@ -58,7 +58,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "Is Cerebrum free?",
-        a: "Yes. The free tier includes 15 AI answers, 3 document reads, and 1 flowchart every 5 days, with no account required. Cerebrum Pro ($20/month or $144/year) removes the limits.",
+        a: "Yes. The free tier includes 50 AI answers, 3 document reads, and 1 flowchart every 5 days, with no account required. Cerebrum Pro ($20/month or $144/year) removes the limits.",
       },
       {
         q: "Where do the answers come from?",
@@ -84,7 +84,7 @@ export const MARKETING_PAGES = {
     blocks: [
       {
         h: "Free, forever",
-        p: "15 AI answers, 3 document reads, and 1 flowchart every 5 days. No account required, no ads, no tracking pixels, no sale of personal information.",
+        p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days. No account required, no ads, no tracking pixels, no sale of personal information.",
       },
       {
         h: "Cerebrum Pro",

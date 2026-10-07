@@ -404,16 +404,18 @@ function cerebrumLogoSvg(accent) {
    bundle never pays for it; the workbook builder lives in
    src/exportExcel.js and caps defensively at 20 rows. */
 async function exportTopPapersExcel(papers, { accent, title, subtitle, filename }) {
+  const total = (papers || []).length;
   const list = (papers || []).slice(0, 20);
-  if (!list.length) return { count: 0 };
+  if (!list.length) return { count: 0, total: 0, capped: false };
   const mod = await import("./exportExcel.js");
-  return mod.exportPapersToExcel(list, {
+  const result = await mod.exportPapersToExcel(list, {
     title: title || "Cerebrum: Top papers",
     subtitle: subtitle || `Exported from Cerebrum · ${new Date().toLocaleDateString()}`,
     filename: filename || "cerebrum-papers.xlsx",
     logoSvg: cerebrumLogoSvg(accent),
     accent,
   });
+  return { ...result, total, capped: total > 20 };
 }
 /* Pro: Answer PDF export. Opens a clean print view of the answer with
    citations; the user saves as PDF from the print dialog. No dependencies,
@@ -1784,7 +1786,7 @@ function WatchTopicButton({ q, P, accent, user, onChanged }) {
         title={on ? `You're watching "${topic}"` : `Get told when new papers on "${topic}" are indexed`}
         style={{ minHeight: 44,
           display: "inline-flex", alignItems: "center", gap: 8,
-          padding: "8px 15px", borderRadius: 100, cursor: state === "saving" ? "default" : "pointer",
+          padding: "8px 15px", borderRadius: 9999, cursor: state === "saving" ? "default" : "pointer",
           fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
           background: on ? withAlpha(accent, 0.12) : "transparent",
           color: on ? accent : P.ink2,
@@ -1927,7 +1929,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
             </button>
             {item.newCount > 0 && (
               <span style={{
-                flexShrink: 0, minWidth: 26, textAlign: "center", padding: "3px 8px", borderRadius: 100,
+                flexShrink: 0, minWidth: 26, textAlign: "center", padding: "3px 8px", borderRadius: 9999,
                 background: withAlpha(accent, 0.14), color: accent,
                 fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)",
               }}>{item.newCount > 99 ? "99+" : item.newCount}</span>
@@ -2164,7 +2166,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
           <DeckCard P={P} accent={accent} label="Saved, still unread"
             labelExtra={stale.length > 1 ? (
               <span style={{
-                padding: "1px 7px", borderRadius: 100, background: withAlpha(accent, 0.14),
+                padding: "1px 7px", borderRadius: 9999, background: withAlpha(accent, 0.14),
                 color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700,
               }}>{stale.length}</span>
             ) : null}
@@ -3550,7 +3552,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
             style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 44, touchAction: "pan-y", cursor: "grab" }}
             aria-hidden="true"
           >
-            <div style={{ width: 40, height: 5, borderRadius: 999, background: P.dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)" }} />
+            <div style={{ width: 40, height: 5, borderRadius: 9999, background: P.dark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{
@@ -3634,12 +3636,12 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
       }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{
-          fontFamily: "var(--cb-font)", fontSize: 10.5, fontWeight: 600, color: accent,
+          fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 600, color: accent,
           background: withAlpha(accent, 0.13), border: "1px solid " + withAlpha(accent, 0.28),
           borderRadius: RADIUS.pill, padding: "1px 8px",
         }}>{n}</span>
         <span style={{
-          fontSize: 9.5, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase",
+          fontSize: 10, fontWeight: 600, letterSpacing: ".07em", textTransform: "uppercase",
           borderRadius: RADIUS.pill, padding: "2px 8px",
           background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
           color: fullText ? accent : P.faint,
@@ -3653,14 +3655,14 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
         )}
       </div>
 
-      <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{src.title}</div>
-      {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: 10.5, color: P.faint, marginBottom: 6 }}>{meta}</div>}
+      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{src.title}</div>
+      {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: 11, color: P.faint, marginBottom: 6 }}>{meta}</div>}
       {/* #18: the tooltip names the paper fully — title, venue/year above,
           and a DOI link when the record carries one. Hover and focus both
           land here (see renderInlineSegments' onMouseEnter/onFocus), so
           keyboard readers get the same provenance. */}
       {doiHref(src) && (
-        <div style={{ fontFamily: "var(--cb-font)", fontSize: 10.5, color: P.faint, marginBottom: 8 }}>
+        <div style={{ fontFamily: "var(--cb-font)", fontSize: 11, color: P.faint, marginBottom: 8 }}>
           DOI&nbsp;
           <a href={doiHref(src)} target="_blank" rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -3672,23 +3674,23 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
 
       {snippet
         ? <div style={{
-            fontSize: 12.5, lineHeight: 1.55, color: P.ink2, marginBottom: 10,
+            fontSize: 13, lineHeight: 1.55, color: P.ink2, marginBottom: 10,
             display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden",
           }}>{snippet}</div>
-        : <div style={{ fontSize: 12.5, lineHeight: 1.55, color: P.faint, marginBottom: 10 }}>
+        : <div style={{ fontSize: 13, lineHeight: 1.55, color: P.faint, marginBottom: 10 }}>
             No abstract was returned for this record.
           </div>}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <button onClick={() => onOpen(n)} style={{ minHeight: 44,
           background: accent, border: "none", color: "#0a0c10", cursor: "pointer",
-          borderRadius: 6, padding: "6px 14px", fontSize: 11.5, fontWeight: 700, fontFamily: "var(--cb-font)",
+          borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: "var(--cb-font)",
           display: "inline-flex", alignItems: "center", gap: 6,
         }}>Deep read <Icon name="arrowRight" size={11} /></button>
         {src.url && (
           <a href={safeHref(src.url)} target="_blank" rel="noopener noreferrer" style={{
             textDecoration: "none", border: "1px solid " + P.line2, color: P.ink2,
-            borderRadius: 6, padding: "5px 12px", fontSize: 11.5,
+            borderRadius: 6, padding: "5px 12px", fontSize: 12,
             display: "inline-flex", alignItems: "center", gap: 5,
           }}>Open paper <Icon name="external" size={11} /></a>
         )}
@@ -3811,7 +3813,7 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
           How independent is this evidence
         </span>
         <span style={{
-          marginLeft: "auto", fontFamily: "var(--cb-font)", fontSize: 9.5,
+          marginLeft: "auto", fontFamily: "var(--cb-font)", fontSize: 10,
           color: P.faint, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "2px 8px",
         }}>counted, not written</span>
       </div>
@@ -4819,11 +4821,12 @@ const FILM_CLIPS_PORTRAIT = [
 
 /* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two
    portrait clips moved OUT of the free lists above, so they play only for
-   Pro members with the "Pro cinematic backgrounds" toggle on. These are the
-   strongest frames in the set — aurora, nebula, eclipse, DNA, lightning —
-   which is exactly why they're the perk, not the default. Attribution for
-   every clip still lives in FILM_CREDITS below; moving a clip between lists
-   does not move its credit row. */
+   Pro members. These are the strongest frames in the set — aurora, nebula,
+   eclipse, DNA, lightning — which is exactly why they're the perk, not the
+   default. The reel switches automatically from user.isPro (2026-10-07);
+   there is no manual toggle. Attribution for every clip still lives in
+   FILM_CREDITS below; moving a clip between lists does not move its credit
+   row. */
 const FILM_CLIPS_PRO_LANDSCAPE = [
   videoUrl("/assets/cinematic/science-12.mp4"), // Jellyfish — Chris Munnik
   videoUrl("/assets/cinematic/science-35.mp4"), // Northern lights timelapse — T Honkamies
@@ -4970,8 +4973,8 @@ function FilmCreditsDialog({ onClose, accent }) {
           </h2>
           <button onClick={onClose} aria-label="Close credits" style={{
             border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.72)", cursor: "pointer", borderRadius: 999,
-            padding: "14px 16px", fontSize: 12.5, fontFamily: "var(--cb-font)",
+            color: "rgba(242,244,242,0.72)", cursor: "pointer", borderRadius: 9999,
+            padding: "14px 16px", fontSize: 13, fontFamily: "var(--cb-font)",
           }}>Close</button>
         </div>
 
@@ -4990,7 +4993,7 @@ function FilmCreditsDialog({ onClose, accent }) {
                 paddingTop: 2, fontVariantNumeric: "tabular-nums",
               }}>{c.n}</span>
               <div>
-                <div style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.4, marginBottom: 3 }}>{c.title}</div>
+                <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, marginBottom: 3 }}>{c.title}</div>
                 <div style={{ fontSize: 12, color: "rgba(242,244,242,0.62)", lineHeight: 1.55 }}>
                   {c.credit}
                   {c.source ? (<>{" · "}<a href={safeHref(c.source)} target="_blank" rel="noopener noreferrer" style={link}>Source</a></>) : null}
@@ -5895,8 +5898,8 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: "-0.02em", flex: 1, lineHeight: 1.25 }}>{title}</h2>
           <button onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
             border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 999,
-            padding: "7px 15px", fontSize: 12.5, fontFamily: "var(--cb-font)", flexShrink: 0,
+            color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 9999,
+            padding: "7px 15px", fontSize: 13, fontFamily: "var(--cb-font)", flexShrink: 0,
           }}>Close</button>
         </div>
         {children}
@@ -5939,7 +5942,7 @@ function HowItWorksDialog({ onClose, accent }) {
             }}>{st.n}</span>
             <div>
               <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 5 }}>{st.h}</div>
-              <div style={{ fontSize: 13.5, color: "rgba(242,244,242,0.68)", lineHeight: 1.6 }}>{st.b}</div>
+              <div style={{ fontSize: 14, color: "rgba(242,244,242,0.68)", lineHeight: 1.6 }}>{st.b}</div>
             </div>
           </div>
         ))}
@@ -5964,7 +5967,7 @@ function SourcesDialog({ onClose, accent }) {
   const PEER = { yes: "Peer-reviewed", mostly: "Mostly peer-reviewed", mixed: "Mixed", no: "Not peer-reviewed" };
   return (
     <IntroModal label="research sources" title="Research sources" onClose={onClose} accent={accent}>
-      <p style={{ margin: "0 0 16px", fontSize: 13.5, lineHeight: 1.65, color: "rgba(242,244,242,0.68)" }}>
+      <p style={{ margin: "0 0 16px", fontSize: 14, lineHeight: 1.65, color: "rgba(242,244,242,0.68)" }}>
         Cerebrum queries these {SCHOLARLY_SOURCES.length} sources and merges the results, removing the
         same paper when it appears in more than one. Preprints are included and are labelled as
         preprints — they have not been peer-reviewed.
@@ -5985,7 +5988,7 @@ function SourcesDialog({ onClose, accent }) {
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   gap: 14, flexWrap: "wrap",
                 }}>
-                  <span style={{ fontSize: 14.5, color: "#f2f4f2" }}>{r.name}</span>
+                  <span style={{ fontSize: 15, color: "#f2f4f2" }}>{r.name}</span>
                   <span style={{ fontSize: 12, color: "rgba(242,244,242,0.5)" }}>{PEER[r.peerReviewed] || ""}</span>
                 </div>
               ))}
@@ -6059,7 +6062,7 @@ const SPECIMENS = [
   },
 ];
 
-function Intro({ accent, P, onEnter, animationMode = "off" }) {
+function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const isMobile = useIsMobile();
   const reduced = useReducedMotion();
   const [creditsOpen, setCreditsOpen] = useState(false);
@@ -6183,12 +6186,12 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
   const container = { width: "100%", maxWidth: 1200, margin: "0 auto", paddingLeft: SIDE, paddingRight: SIDE };
 
   const navLink = {
-    fontSize: 13.5, color: "rgba(242,244,242,0.74)", textDecoration: "none",
+    fontSize: 14, color: "rgba(242,244,242,0.74)", textDecoration: "none",
     fontWeight: 500, padding: "8px 12px", borderRadius: 8,
   };
   const footLink = {
     background: "none", border: "none", padding: "6px 0", cursor: "pointer",
-    color: "rgba(242,244,242,0.66)", fontSize: 12.5, fontWeight: 500, fontFamily: "var(--cb-font)",
+    color: "rgba(242,244,242,0.66)", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-font)",
     textDecoration: "none", display: "inline-block",
   };
 
@@ -6218,7 +6221,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
       {/* A dialog is a request to read something. The reel is paused while one
           is open and resumes on close with whatever the visitor had chosen —
           `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
-      <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} holdMs={18000} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={setClip} onAutoplayBlocked={() => setVetoed(true)} onPlaybackChange={setFilmPlaying} />
+      <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} holdMs={18000} proReel={!!user?.isPro} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={setClip} onAutoplayBlocked={() => setVetoed(true)} onPlaybackChange={setFilmPlaying} />
 
       {/* Contrast for the title card: a soft centered hold over the frame,
           plus top and bottom falls for the header and the footer. One fixed
@@ -6260,7 +6263,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Mark size={20} accent={introAccent} glow />
-            <span style={{ fontSize: 16.5, fontWeight: 600, color: "#ffffff", letterSpacing: "-0.015em" }}>Cerebrum</span>
+            <span style={{ fontSize: 17, fontWeight: 600, color: "#ffffff", letterSpacing: "-0.015em" }}>Cerebrum</span>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 4 }}>
@@ -6291,7 +6294,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
           }}>
             {["About", "Privacy", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={{
-                ...navLink, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 999,
+                ...navLink, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 9999,
               }}>{item}</a>
             ))}
           </div>
@@ -6361,7 +6364,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               </p>
               <div style={{
                 marginTop: 22, display: "flex", alignItems: "center", gap: 8,
-                fontSize: 12.5, fontWeight: 600, letterSpacing: "0.08em",
+                fontSize: 13, fontWeight: 600, letterSpacing: "0.08em",
                 textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
                 textShadow: "0 2px 18px rgba(0,0,0,0.55)",
               }}>
@@ -6393,7 +6396,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                   aria-label={"Claim " + (i + 1) + ": " + sp.claim.slice(0, 60) + "\u2026"}
                   onClick={() => setSpecimenIdx(i)}
                   style={{
-                    width: i === specimenIdx ? 26 : 8, height: 8, borderRadius: 999,
+                    width: i === specimenIdx ? 26 : 8, height: 8, borderRadius: 9999,
                     border: "none", cursor: "pointer", padding: 0,
                     background: i === specimenIdx ? "rgba(242,244,242,0.9)" : "rgba(242,244,242,0.28)",
                     transition: "width 0.35s ease, background 0.35s ease",
@@ -6421,7 +6424,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
                 competing with the single way in. */}
             <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
               cursor: "pointer",
-              border: "1px solid rgba(242,244,242,0.18)", borderRadius: 999,
+              border: "1px solid rgba(242,244,242,0.18)", borderRadius: 9999,
               background: "transparent", padding: "12px 20px",
               fontSize: isMobile ? 14 : 14.5, fontWeight: 600,
               color: "rgba(242,244,242,0.78)", fontFamily: "var(--cb-font)",
@@ -6436,10 +6439,10 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               style={{ marginTop: 26, ...(animate ? { animationDelay: "0.15s", animationDuration: "1.1s" } : null) }}>
               <button type="button" onClick={resumeFilm} style={{ minHeight: 44,
                 display: "inline-flex", alignItems: "center", gap: 8,
-                padding: "10px 18px", borderRadius: 999,
+                padding: "10px 18px", borderRadius: 9999,
                 border: "1px solid rgba(242,244,242,0.22)",
                 background: "rgba(10,12,14,0.5)", color: "#f2f4f2",
-                fontSize: 13.5, fontWeight: 500, fontFamily: "var(--cb-font)",
+                fontSize: 14, fontWeight: 500, fontFamily: "var(--cb-font)",
                 cursor: "pointer",
               }}>
                 <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
@@ -6515,15 +6518,15 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               display: "flex", flexWrap: "wrap", gap: "6px 18px",
             }}>
               <a href="https://epoch.ai/data-insights/how-much-energy-does-chatgpt-use" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12.5, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
                 Epoch AI · Feb 2025 — 0.3 Wh per GPT-4o query ↗
               </a>
               <a href="https://blog.samaltman.com/the-gentle-singularity" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12.5, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
                 Sam Altman, OpenAI · Jun 2025 — 0.34 Wh average ↗
               </a>
               <a href="https://blog.google/technology/ai/google-ai-environmental-impact/" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 12.5, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
+                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
                 Google · Aug 2025 — 0.24 Wh for AI Overviews ↗
               </a>
             </div>
@@ -6563,7 +6566,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
               unreadable to a screen reader in any useful order. One link,
               and the actual list is one press away. */}
           <button type="button" onClick={() => setSourcesOpen(true)} className="cb-intro-sourcelink" style={{
-            ...footLink, color: "rgba(242,244,242,0.82)", fontSize: 13.5, fontWeight: 600,
+            ...footLink, color: "rgba(242,244,242,0.82)", fontSize: 14, fontWeight: 600,
           }}>Explore our research sources ↗</button>
 
           {!isMobile && <span style={{ flex: 1, minWidth: 0 }} />}
@@ -6603,7 +6606,7 @@ function Intro({ accent, P, onEnter, animationMode = "off" }) {
             this; the cinematic homepage footer was missing it. */}
         <div style={{
           ...container, paddingTop: 10,
-          fontSize: 11.5, fontWeight: 500, color: "rgba(242,244,242,0.42)",
+          fontSize: 12, fontWeight: 500, color: "rgba(242,244,242,0.42)",
           fontFamily: "var(--cb-font)", letterSpacing: "0.02em",
         }}>
           © {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}
@@ -6993,9 +6996,10 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
   const active = status === "playing" || status === "paused";
   const playIcon = <svg width={compact ? 11 : 12} height={compact ? 11 : 12} viewBox="0 0 24 24" fill="currentColor">{status === "playing" ? (<><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>) : (<path d="M8 5v14l11-7z" />)}</svg>;
   // v28: docked into the new top-right answer toolbar (see `Turn`) alongside
-  // Copy/Share/PDF/Illustrate, this needs to be the same 28x28 icon-only
-  // shape as its neighbors instead of the wider icon+label pill it used to
-  // render inline below the answer. The full pill (with its progress bar and
+  // Copy/Share/PDF/Illustrate as an icon-only button instead of the wider
+  // icon+label pill it used to render inline below the answer. 2026-10-07:
+  // bumped to 40x40 (was 28x28) for touch targets — 28px was 36% below the
+  // 44px WCAG minimum. The full pill (with its progress bar and
   // separate Stop button) still exists for anywhere else this component gets
   // used — nothing about that path changed.
   if (compact) {
@@ -7192,7 +7196,7 @@ function InfoPage({ page }) {
         .cb-toc-link:hover { color: ${accent}; }
         .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: 30; transform-origin: left; }
         .cb-info-block h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-font); }
-        .cb-info-block p { font-size: 15.5px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
+        .cb-info-block p { font-size: 16px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
         .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
         .cb-info-block li { font-size: 15px; line-height: 1.65; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
         .cb-info-block li:last-child { border-bottom: none; }
@@ -7260,7 +7264,7 @@ function InfoPage({ page }) {
             {page === "pricing" && (
               <div className="cb-fadein" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {[
-                  { persona: "For the curious", name: "Free", price: "$0", line: "15 AI answers, 3 document reads, 1 flowchart every 5 days. No account needed.", recommended: false },
+                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 flowchart every 5 days. No account needed.", recommended: false },
                   { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7-day money-back guarantee — cancel anytime.", recommended: true },
                 ].map((tier) => (
                   <div key={tier.name} style={{
@@ -7269,7 +7273,7 @@ function InfoPage({ page }) {
                     background: P.surface,
                   }}>
                     {tier.recommended && (
-                      <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 10px", borderRadius: 999, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.06em", fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
+                      <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 10px", borderRadius: 9999, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.06em", fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
                     )}
                     <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent, fontFamily: "var(--cb-font)" }}>{tier.persona}</div>
                     <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
@@ -7356,7 +7360,11 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     setExcelBusy(true);
     // 2026-09-14: Surface export failures. The empty catch left the button
     // flipping "Building…"→"Excel" with zero feedback when the export failed.
-    try { await exportTopPapersExcel(sources, { accent }); logExport("Excel", "cerebrum-papers.xlsx"); }
+    try {
+      const excelResult = await exportTopPapersExcel(sources, { accent });
+      logExport("Excel", "cerebrum-papers.xlsx");
+      if (excelResult && excelResult.capped) toast(`Exported the top 20 of ${excelResult.total} papers.`, { tone: "info" });
+    }
     catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
     setExcelBusy(false);
     setExportOpen(false);
@@ -7667,7 +7675,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
 }
 
 
-function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 0.15s ease, color 0.15s ease" }; }
+function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 0.15s ease, color 0.15s ease" }; }
 
 /* ════════════════════════════════════════════════════════════════════
    Cerebrum Pro (2026-09-15).
@@ -7696,7 +7704,7 @@ function ProBadge({ style } = {}) {
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
       fontFamily: "var(--cb-font)", color: "#06281c",
       background: "#34d399",
-      borderRadius: 999, padding: "2px 8px 2px 9px",
+      borderRadius: 9999, padding: "2px 8px 2px 9px",
       whiteSpace: "nowrap", ...style,
     }}>PRO</span>
   );
@@ -7715,7 +7723,7 @@ function TierBadge({ tier, style } = {}) {
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
       fontFamily: "var(--cb-font)", color: "#c99a2e",
       border: "1px solid rgba(212,164,55,0.55)",
-      borderRadius: 999, padding: "1px 8px 1px 9px",
+      borderRadius: 9999, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>LITE</span>
   );
@@ -7725,7 +7733,7 @@ function TierBadge({ tier, style } = {}) {
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: "0.14em",
       fontFamily: "var(--cb-font)", color: "#9aa3a8",
       border: "1px solid rgba(150,160,165,0.4)",
-      borderRadius: 999, padding: "1px 8px 1px 9px",
+      borderRadius: 9999, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>FREE</span>
   );
@@ -7862,7 +7870,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>You're Lite.</div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6, fontFamily: "var(--cb-font)" }}>
-              150 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered — never unlimited.
+              500 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered — never unlimited.
             </div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
               Want the deep end? Pro is unlimited on all three, plus the badge, theme, and members' reels.
@@ -7925,7 +7933,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>10x the free usage, metered</span>
               </div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5, marginBottom: 12 }}>
-                150 AI answers · 30 document reads · 10 flowcharts, every 5 days. None of Pro's badge, theme, or members' reels.
+                500 AI answers · 30 document reads · 10 flowcharts, every 5 days. None of Pro's badge, theme, or members' reels.
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 {[
@@ -7952,13 +7960,13 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             </div>
             <ul style={{ listStyle: "none", margin: "0 0 20px", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {(plan === "lite-monthly" || plan === "lite-annual" ? [
-                ["150 AI answers every 5 days", "Free: 15 every 5 days"],
+                ["500 AI answers every 5 days", "Free: 50 every 5 days"],
                 ["30 document reads every 5 days", "Free: 3 every 5 days"],
                 ["10 flowchart saves every 5 days", "Free: 1 every 5 days"],
                 ["A set allowance, not unlimited", "Pro removes the limit entirely"],
                 ["No Pro badge, theme, or members' films", "Those stay Pro-only"],
               ] : [
-                ["Answer as many questions as you want", "Free: 15 every 5 days"],
+                ["Answer as many questions as you want", "Free: 50 every 5 days"],
                 ["Read as many documents as you want", "Free: 3 every 5 days"],
                 ["Save as many flowcharts as you want", "Free: 1 every 5 days"],
                 ["A Pro badge on your profile", "Shows wherever your name appears"],
@@ -7982,7 +7990,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
               </button>
             ) : !configured ? (
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", textAlign: "center", padding: "12px", border: `1px dashed ${P.line2}`, borderRadius: 10 }}>
-                Checkout opens soon — billing is still being wired up. Your free 15 AI answers every 5 days keep working meanwhile.
+                Checkout opens soon — billing is still being wired up. Your free 50 AI answers every 5 days keep working meanwhile.
               </div>
             ) : plan === "student" ? (
               /* Student checkout is gated behind .edu verification: email →
@@ -8058,7 +8066,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 {[
                   "7-day money-back guarantee: a full refund on your first charge, no questions asked.",
                   "Cancel anytime from the billing portal — you keep Pro until the end of the paid period.",
-                  "Free stays free: 15 AI answers, 3 document reads, 1 flowchart every 5 days, no account needed.",
+                  "Free stays free: 50 AI answers, 3 document reads, 1 flowchart every 5 days, no account needed.",
                   "Secure checkout by Stripe. Your card details never touch Cerebrum's servers.",
                 ].map((line) => (
                   <li key={line} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
@@ -8175,8 +8183,8 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
         label={label}
         desc={`${used} of ${cap} used · ${fmtRefill(refillMs)}`}
         control={
-          <div style={{ width: 92, height: 5, borderRadius: 999, background: P.raised, overflow: "hidden", flexShrink: 0 }} role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`}>
-            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 999, background: pct >= 100 ? STATUS.bad : "#d4a437", transition: "width 300ms ease" }} />
+          <div style={{ width: 92, height: 5, borderRadius: 9999, background: P.raised, overflow: "hidden", flexShrink: 0 }} role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`}>
+            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 9999, background: pct >= 100 ? STATUS.bad : "#d4a437", transition: "width 300ms ease" }} />
           </div>
         }
         last={last}
@@ -8191,8 +8199,8 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
       : "Unlimited AI answers, document reads and flowcharts.")
     : isLite
     ? (proStatus?.billing?.plan === "annual" ? "Annual billing · " : proStatus?.billing?.plan === "monthly" ? "Monthly billing · " : "")
-      + "150 AI answers, 30 document reads and 10 flowcharts every 5 days: 10 times the free plan."
-    : "15 AI answers, 3 document reads and 1 flowchart every 5 days.";
+      + "500 AI answers, 30 document reads and 10 flowcharts every 5 days: 10 times the free plan."
+    : "50 AI answers, 3 document reads and 1 flowchart every 5 days.";
   const tierName = isPro ? "Pro" : isLite ? "Pro Lite" : "Free";
 
   return (
@@ -8214,7 +8222,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           {rank === "free" && (
             <Row
               label="Pro Lite"
-              desc="150 AI answers every 5 days: 10 times your current limit, plus 30 document reads and 10 flowcharts. $3.99/month or $39/year."
+              desc="500 AI answers every 5 days: 10 times your current limit, plus 30 document reads and 10 flowcharts. $3.99/month or $39/year."
               control={goldBtn("See plans", onOpenPro)}
             />
           )}
@@ -9674,8 +9682,17 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
       if (el) el.scrollIntoView({ block: "nearest", behavior: cbMotionOff() ? "auto" : "smooth" });
     } catch {}
   }, [open, activeCite ]);
-  /* Escape closes. The mobile sheet also locks body scroll; the desktop
-     drawer is deliberately non-modal so the answer stays readable. */
+  /* Escape closes. The desktop drawer is deliberately non-modal so the
+     answer stays readable behind it; only the mobile sheet locks body
+     scroll. The lock uses the shared ref-counted dialog lock
+     (cbDialogLockScroll / cbDialogUnlockScroll), NOT a hand-rolled
+     body.style.overflow toggle. The old naive toggle fought the
+     anyOverlayOpen pin effect: it saved/restored only `overflow` while
+     the pin effect owns overflow+position+top+width, so closing the rail
+     could strand the body (overflow restored to "" while the pin was
+     still active, or "hidden" restored after the pin cleaned up) — the
+     "scroll broken" class of bug. The ref-counted lock composes safely
+     with the pin effect and with Dialog instances. */
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => { if (e.key === "Escape" && onClose) onClose(); };
@@ -9684,9 +9701,8 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   }, [open, onClose]);
   useEffect(() => {
     if (!open || !isMobile) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    cbDialogLockScroll();
+    return () => { cbDialogUnlockScroll(); };
   }, [open, isMobile]);
 
   if (!open) return null;
@@ -10486,13 +10502,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 events so this deeply-nested renderer needs no props. */}
             {t.aiQuota && t.aiQuota.gated === "free-cap" && (
               <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: "#06281c", background: "#34d399", border: "none", borderRadius: 999, padding: "3px 10px", cursor: "pointer" }}>
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: "#06281c", background: "#34d399", border: "none", borderRadius: 9999, padding: "3px 10px", cursor: "pointer" }}>
                 Out of free AI answers — Go Pro
               </button>
             )}
             {t.aiQuota && t.aiQuota.gated === "signin-required" && (
               <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-auth"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: P.ink, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 999, padding: "3px 10px", cursor: "pointer" }}>
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: P.ink, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 9999, padding: "3px 10px", cursor: "pointer" }}>
                 Sign in for AI-synthesized answers
               </button>
             )}
@@ -12296,13 +12312,13 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               style={{ minHeight: 44,
                 display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 18px",
                 fontSize: FONT_SIZES.small, fontWeight: 700, color: at, background: accent,
-                borderRadius: 100, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)",
+                borderRadius: 9999, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)",
               }}
             ><Icon name="bookOpen" size={14} /> Explain with papers</button>
             <a href={safeHref(item.url)} target="_blank" rel="noreferrer" style={{
               display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 18px",
               fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, background: "transparent",
-              border: `1px solid ${P.line2}`, borderRadius: 100, textDecoration: "none",
+              border: `1px solid ${P.line2}`, borderRadius: 9999, textDecoration: "none",
             }}>
               Read at source <Icon name="external" size={13} />
             </a>
@@ -12574,12 +12590,12 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             {unlimited ? "Unlimited" : <>{used}<span style={{ color: P.faint, fontWeight: 500 }}> / {cap}</span></>}
           </span>
         </div>
-        <div style={{ position: "relative", marginTop: 12, height: 8, borderRadius: 999, background: P.raised, overflow: "hidden" }} role="progressbar" aria-valuenow={unlimited ? undefined : used} aria-valuemax={unlimited ? undefined : cap} aria-label={`${label} usage`}>
+        <div style={{ position: "relative", marginTop: 12, height: 8, borderRadius: 9999, background: P.raised, overflow: "hidden" }} role="progressbar" aria-valuenow={unlimited ? undefined : used} aria-valuemax={unlimited ? undefined : cap} aria-label={`${label} usage`}>
           {!unlimited && (
-            <div style={{ position: "absolute", inset: 0, width: `${pct}%`, borderRadius: 999, background: fill, transition: motionOff ? "none" : "width 400ms ease" }} />
+            <div style={{ position: "absolute", inset: 0, width: `${pct}%`, borderRadius: 9999, background: fill, transition: motionOff ? "none" : "width 400ms ease" }} />
           )}
           {unlimited && (
-            <div style={{ position: "absolute", inset: 0, borderRadius: 999, background: accent }} />
+            <div style={{ position: "absolute", inset: 0, borderRadius: 9999, background: accent }} />
           )}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
@@ -12600,11 +12616,11 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   };
 
   /* Sacred tier facts — the numbers below are the product's own:
-     Free 15 / 3 / 1, Lite 150 / 30 / 10, Pro unlimited.
+     Free 50 / 3 / 1, Lite 500 / 30 / 10, Pro unlimited.
      Prices: Lite $3.99/mo · $39/yr, Pro $20/mo · $144/yr. */
   const tiers = [
-    { id: "free", name: "Free", ai: "15", docs: "3", flow: "1", price: "$0" },
-    { id: "lite", name: "Lite", ai: "150", docs: "30", flow: "10", price: "$3.99/mo · $39/yr" },
+    { id: "free", name: "Free", ai: "50", docs: "3", flow: "1", price: "$0" },
+    { id: "lite", name: "Lite", ai: "500", docs: "30", flow: "10", price: "$3.99/mo · $39/yr" },
     { id: "pro", name: "Pro", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$20/mo · $144/yr" },
   ];
   const tierAction = (id) => {
@@ -12848,7 +12864,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   onClick={() => setTrendCat(cat)}
                   aria-pressed={on}
                   style={{
-                    minHeight: 44, padding: "9px 14px", borderRadius: 999, cursor: "pointer",
+                    minHeight: 44, padding: "9px 14px", borderRadius: 9999, cursor: "pointer",
                     fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "-0.005em",
                     fontWeight: on ? 700 : 500,
                     background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
@@ -13649,7 +13665,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
             </span>
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
               <span className="cb-kicker">Studio</span>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Evidence map</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Evidence map</span>
             </div>
           </div>
           <div style={{ width: 1, height: 26, background: P.line, flexShrink: 0 }} />
@@ -13780,7 +13796,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
             )}
             {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} isMobile={isMobile} onClick={() => addNode(t)} />)}
             {!isMobile && (
-              <div style={{ marginTop: "auto", padding: "10px 6px 2px", fontSize: 10.5, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+              <div style={{ marginTop: "auto", padding: "10px 6px 2px", fontSize: 11, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
                 <span style={{ color: P.ink2, fontWeight: 650 }}>Tip</span> — double-click a node to rename it.
               </div>
             )}
@@ -13965,7 +13981,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
             )}
             {selNode && (
               <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: 12, padding: 12 }}>
-                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label</label>
+                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label</label>
                 <textarea id="fc-label-edit" value={selNode.label} rows={3}
                   onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
                   onBlur={pushHistory}
@@ -13979,7 +13995,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                     never destroys information — it's one click away. */}
                 {selNode.detail && (
                   <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Source sentence</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Source sentence</div>
                     <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 10px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8 }}>
                       {selNode.detail}
                     </div>
@@ -13987,7 +14003,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
                 )}
                 {selNode.type === "evidence" && sources && sources.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Cites paper</label>
+                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Cites paper</label>
                     <select id="fc-source-pick" value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
                       onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
                       style={{
@@ -14025,7 +14041,7 @@ function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerTex
             )}
             {selEdge && (
               <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: 12, padding: 12 }}>
-                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: 10.5, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(e.g. yes / no)</span></label>
+                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(e.g. yes / no)</span></label>
                 <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
@@ -15914,7 +15930,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
               }}>{(name || "?").trim().charAt(0).toUpperCase()}</div>
               <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: "#fff" }}>Calling {name}…</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)" }}>Ringing on Cerebrum. They'll see it if they're online.</div>
-              <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Back to chat</button>
+              <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 18px", borderRadius: 9999, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Back to chat</button>
             </>) : status === "connecting" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
               <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Connecting…</div>
@@ -15922,8 +15938,8 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
               <Icon name="warning" size={22} style={{ color: "rgba(255,255,255,0.6)" }} />
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff" }}>{errorReason || "Couldn't reach the video call service."}</div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={(e) => { e.stopPropagation(); setRetryTick((n) => n + 1); }} style={{ minHeight: 44, padding: "8px 18px", borderRadius: 100, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Retry</button>
-                <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 18px", borderRadius: 100, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Back to chat</button>
+                <button onClick={(e) => { e.stopPropagation(); setRetryTick((n) => n + 1); }} style={{ minHeight: 44, padding: "8px 18px", borderRadius: 9999, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Retry</button>
+                <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 18px", borderRadius: 9999, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)" }}>Back to chat</button>
               </div>
             </>)}
           </div>
@@ -15937,7 +15953,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         // directly instead of also re-expanding it.
         <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 8, pointerEvents: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "none" }}>
-            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: "#fff", background: "rgba(0,0,0,0.5)", padding: "3px 8px", borderRadius: 100, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: "#fff", background: "rgba(0,0,0,0.5)", padding: "3px 8px", borderRadius: 9999, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, pointerEvents: "auto" }}>
             <button onClick={(e) => { e.stopPropagation(); toggleMic(); }} aria-label={micMuted ? "Unmute microphone" : "Mute microphone"} style={{ width: 30, height: 30, minHeight: 0, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -15953,7 +15969,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         </div>
       ) : (<>
       {/* Top bar: who you're calling, reachable even before the call connects */}
-      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 100, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
+      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 14px 6px 6px", borderRadius: 9999, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
         <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)" }}>{(name || "?")[0]?.toUpperCase()}</span>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
         {dataSaver && <span title="Data saver is on: video quality lowered" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
@@ -15996,7 +16012,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       {status === "ready" && (
         <div style={{
           position: "absolute", bottom: isMobile ? 20 : 32, left: "50%", transform: "translateX(-50%)",
-          display: "flex", alignItems: "center", gap: 14, padding: 10, borderRadius: 100,
+          display: "flex", alignItems: "center", gap: 14, padding: 10, borderRadius: 9999,
           background: "rgba(28,28,32,0.55)",
           backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)",
           border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 14px 40px rgba(0,0,0,0.45)",
@@ -16013,7 +16029,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           }}>
             <Icon name="flag" size={18} />
           </button>
-          <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: 100, border: "none", cursor: "pointer", background: "#d13438", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: 9999, border: "none", cursor: "pointer", background: "#d13438", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="phoneOff" size={20} />
           </button>
         </div>
@@ -16363,9 +16379,21 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   }
 
   // Refreshed every time this view mounts (navigating here from the
-  // Sidebar), in case something arrived since the last visit.
+  // Sidebar), in case something arrived since the last visit — plus light
+  // polling every 15s so new threads and new messages in other threads
+  // show up in the list without navigating away and back. 15s (not the
+  // thread view's 5s) because this is list metadata, not a live
+  // conversation; it also keeps the Sidebar unread badge honest.
   useEffect(() => {
-    apiDataGet("inbox").then((data) => { if (data?.items) setThreads(data.items); });
+    let cancelled = false;
+    const refresh = () => {
+      apiDataGet("inbox").then((data) => {
+        if (!cancelled && data?.items) setThreads(data.items);
+      });
+    };
+    refresh();
+    const pollId = setInterval(refresh, 15000);
+    return () => { cancelled = true; clearInterval(pollId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -16742,7 +16770,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 onChange={(e) => setThreadQuery(e.target.value)}
                 placeholder="Search conversations"
                 aria-label="Search conversations"
-                style={{ width: "100%", padding: "8px 12px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: 9999, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }}
               />
             </div>
           )}
@@ -16827,7 +16855,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         says this thread is encrypted. No badge on plaintext
                         threads, ever: a badge is a promise. */}
                     {activeThread.encrypted && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 100, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 9999, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: "0.04em" }}>
                         <Icon name="lock" size={11} /> Encrypted
                       </span>
                     )}
@@ -16914,7 +16942,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
                   The security numbers changed — {activeThread.name}'s devices changed. Make sure this was them before continuing.
                 </span>
-                <button onClick={openSafetyModal} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(STATUS.bad, 0.14), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+                <button onClick={openSafetyModal} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(STATUS.bad, 0.14), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
                   Check numbers
                 </button>
               </div>
@@ -16929,7 +16957,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
                     Turn on encrypted messaging for this conversation — only you and {activeThread.name} will be able to read new messages.
                   </span>
-                  <button onClick={doUpgradeThread} disabled={upgrading} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100, cursor: upgrading ? "default" : "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", opacity: upgrading ? 0.6 : 1 }}>
+                  <button onClick={doUpgradeThread} disabled={upgrading} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999, cursor: upgrading ? "default" : "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", opacity: upgrading ? 0.6 : 1 }}>
                     {upgrading ? "Turning on…" : "Turn on"}
                   </button>
                 </>) : (
@@ -16990,7 +17018,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 return (
                 <React.Fragment key={key}>
                 {showLegacyDivider && (
-                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 14px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.02em", border: `1px solid ${P.line}`, borderRadius: 100, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 14px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "0.02em", border: `1px solid ${P.line}`, borderRadius: 9999, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
                     Messages before encryption — these were readable by the server
                   </div>
@@ -17131,7 +17159,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       nobody is going to use mid-sentence. */}
                   {recording ? (
                     <div style={{
-                      flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderRadius: 100,
+                      flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderRadius: 9999,
                       background: withAlpha(STATUS.bad, 0.1), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
                     }}>
                       <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%", background: STATUS.bad, animation: "cbMicPulse 1.4s ease-in-out infinite" }} />
@@ -17154,7 +17182,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     placeholder={`Message ${activeThread.name}…`}
                     aria-label="Reply"
                     disabled={sending}
-                    style={{ flex: 1, padding: "10px 14px", borderRadius: 100, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small }}
+                    style={{ flex: 1, padding: "10px 14px", borderRadius: 9999, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small }}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } }}
                   />
                   </>)}
@@ -17291,14 +17319,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               {safetyModal.verified ? (<>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "7px 14px", borderRadius: 100, fontFamily: "var(--cb-font)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "7px 14px", borderRadius: 9999, fontFamily: "var(--cb-font)" }}>
                   <Icon name="check" size={14} /> Verified
                 </span>
-                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                   {safetyBusy === "forget" ? "Clearing…" : "Forget verification"}
                 </button>
               </>) : (
-                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 18px", fontSize: FONT_SIZES.small, fontWeight: 700, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 18px", fontSize: FONT_SIZES.small, fontWeight: 700, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                   {safetyBusy === "verify" ? "Saving…" : safetyModal.changed ? "I checked — it's them" : "The numbers match"}
                 </button>
               )}
@@ -18829,7 +18857,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           <button
             onClick={() => setEditing((v) => !v)}
             style={{
-              flexShrink: 0, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}`, borderRadius: 100, cursor: "pointer",
+              flexShrink: 0, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}`, borderRadius: 9999, cursor: "pointer",
               padding: "12px 20px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700,
               fontFamily: "var(--cb-font)", color: P.ink,
             }}
@@ -19480,11 +19508,11 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               </div>
               <div style={{ alignItems: "center", display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => messageResearcher(founder)} disabled={messageBusy.has(founder.id)} className="cb-press" style={{
-                  padding: "10px 18px", minHeight: 44, borderRadius: 100, border: "none", cursor: "pointer",
+                  padding: "10px 18px", minHeight: 44, borderRadius: 9999, border: "none", cursor: "pointer",
                   background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)",
                 }}>{messageBusy.has(founder.id) ? "Opening…" : "Ask a question"}</button>
                 <button onClick={() => toggleFollow(founder)} disabled={followBusy.has(founder.id)} className="cb-press" style={{
-                  padding: "10px 18px", minHeight: 44, borderRadius: 100, cursor: "pointer",
+                  padding: "10px 18px", minHeight: 44, borderRadius: 9999, cursor: "pointer",
                   background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
                   fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
                 }}>{founder.following ? "Following" : "Follow"}</button>
@@ -19541,7 +19569,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   onClick={(e) => { e.stopPropagation(); toggleFollow(r); }}
                   disabled={isFollowBusy}
                   style={{
-                    fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "10px 16px", minHeight: 44, borderRadius: 100, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
+                    fontSize: FONT_SIZES.caption, fontWeight: 600, padding: "10px 16px", minHeight: 44, borderRadius: 9999, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
                     opacity: isFollowBusy ? 0.6 : 1,
                     color: isFollowing ? P.ink2 : accent,
                     background: isFollowing ? (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)") : withAlpha(accent, 0.1),
@@ -19665,7 +19693,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   const pillBtn = {
     minHeight: 44, padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600,
     background: withAlpha(accent, 0.16), color: accent,
-    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100,
+    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999,
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
   };
   const dangerBtn = {
@@ -19675,7 +19703,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   const statusPill = (text, color) => (
     <span style={{
       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
-      padding: "4px 10px", borderRadius: 100, color, background: withAlpha(color, 0.12),
+      padding: "4px 10px", borderRadius: 9999, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
   );
@@ -20044,7 +20072,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const pillBtn = {
     minHeight: 44, padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600,
     background: withAlpha(accent, 0.16), color: accent,
-    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100,
+    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999,
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
   };
   const dangerBtn = {
@@ -20055,7 +20083,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const statusPill = (text, color) => (
     <span style={{
       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
-      padding: "4px 10px", borderRadius: 100, color, background: withAlpha(color, 0.12),
+      padding: "4px 10px", borderRadius: 9999, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
   );
@@ -20914,7 +20942,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                     disabled={busy}
                     className="cb-press"
                     style={{
-                      flex: 1, padding: "12px 20px", minHeight: 48, borderRadius: 100, cursor: busy ? "default" : "pointer",
+                      flex: 1, padding: "12px 20px", minHeight: 48, borderRadius: 9999, cursor: busy ? "default" : "pointer",
                       fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
                       opacity: busy ? 0.6 : 1,
                       background: data.isFollowing ? "transparent" : accent,
@@ -20928,7 +20956,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                     className="cb-press"
                     title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
                     style={{
-                      padding: "12px 20px", minHeight: 48, borderRadius: 100,
+                      padding: "12px 20px", minHeight: 48, borderRadius: 9999,
                       cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
                       fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
                       background: "transparent", color: data.canMessage ? P.ink : P.faint,
@@ -20942,7 +20970,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                       className="cb-press"
                       title={isVerified ? "Remove verification from this account" : "Verify this account as an institution or renowned researcher"}
                       style={{
-                        padding: "12px 20px", minHeight: 48, borderRadius: 100,
+                        padding: "12px 20px", minHeight: 48, borderRadius: 9999,
                         cursor: verifyBusy ? "default" : "pointer",
                         fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
                         background: isVerified ? withAlpha("#34d399", 0.12) : "transparent",
@@ -21886,7 +21914,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 top: pendingHL.y, zIndex: 60,
               }}>
                 <button onClick={addPendingHighlight}
-                  style={{ minHeight: 44, padding: "10px 20px", borderRadius: 100, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,0.28)" }}>
+                  style={{ minHeight: 44, padding: "10px 20px", borderRadius: 9999, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,0.28)" }}>
                   Highlight
                 </button>
               </div>
@@ -22076,7 +22104,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       Upload file
                     </button>
                     <button onClick={() => { setDocB(""); setShowDocB(false); setCompareResult(null); setCompareError(""); }}
-                      style={{ minHeight: 44, padding: "10px 16px", borderRadius: 100, border: "none", background: "none", color: P.faint, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                      style={{ minHeight: 44, padding: "10px 16px", borderRadius: 9999, border: "none", background: "none", color: P.faint, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                       Remove
                     </button>
                   </div>
@@ -22170,7 +22198,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   </div>
                   {!compareResult && !compareBusy && (
                     <button onClick={runCompare}
-                      style={{ minHeight: 44, padding: "10px 22px", borderRadius: 100, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer" }}>
+                      style={{ minHeight: 44, padding: "10px 22px", borderRadius: 9999, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer" }}>
                       Compare the documents
                     </button>
                   )}
@@ -22179,7 +22207,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Comparing the documents…</div>
                       <Skeleton P={P} accent={accent} label="Comparing documents" />
                       <button onClick={cancelCompare}
-                        style={{ minHeight: 44, marginTop: 10, padding: "10px 16px", borderRadius: 100, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
+                        style={{ minHeight: 44, marginTop: 10, padding: "10px 16px", borderRadius: 9999, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
                         Cancel
                       </button>
                     </>
@@ -22188,7 +22216,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     <>
                       <div style={{ fontSize: FONT_SIZES.small, color: STATUS.bad, lineHeight: 1.6, marginBottom: 10 }}>{compareError}</div>
                       <button onClick={runCompare}
-                        style={{ minHeight: 44, padding: "10px 22px", borderRadius: 100, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer" }}>
+                        style={{ minHeight: 44, padding: "10px 22px", borderRadius: 9999, background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", border: "none", cursor: "pointer" }}>
                         Try again
                       </button>
                     </>
@@ -22199,7 +22227,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       {compareResult.text ? renderAnswer(compareResult.text, [], P, accent, hoverCite, setHoverCite) : null}
                       {!compareResult.streaming && (
                         <button onClick={runCompare}
-                          style={{ minHeight: 44, marginTop: 14, padding: "10px 18px", borderRadius: 100, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
+                          style={{ minHeight: 44, marginTop: 14, padding: "10px 18px", borderRadius: 9999, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
                           Compare again
                         </button>
                       )}
@@ -22526,7 +22554,7 @@ function SystemStatus({ P, accent }) {
       ))}
       {!rows && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "10px 0" }}>Checking…</div>}
       <button onClick={check} style={{ minHeight: 44,
-        marginTop: 14, padding: "8px 16px", borderRadius: 100, cursor: "pointer",
+        marginTop: 14, padding: "8px 16px", borderRadius: 9999, cursor: "pointer",
         background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2,
         fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
       }}>Re-check</button>
@@ -22971,7 +22999,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
       style={{ width: 52, height: 44, background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 100, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 220ms ease" }}>
+      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 9999, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 220ms ease" }}>
         <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 220ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
       </span>
     </button>
@@ -23022,7 +23050,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 placeholder="Search settings"
                 aria-label="Search settings"
                 style={{
-                  width: "100%", padding: "9px 12px 9px 34px", minHeight: 44, borderRadius: 100,
+                  width: "100%", padding: "9px 12px 9px 34px", minHeight: 44, borderRadius: 9999,
                   background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none",
                   fontSize: 16, fontFamily: "var(--cb-font)",
@@ -23163,7 +23191,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     control={
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
-                        padding: "4px 10px", borderRadius: 100,
+                        padding: "4px 10px", borderRadius: 9999,
                         color: founderStatus.configured ? (P.dark ? STATUS.good : "#047857") : statusBad(P, paletteName),
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
                       }}>{founderStatus.configured ? "Configured" : "Missing"}</span>
@@ -23176,7 +23204,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     control={
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
-                        padding: "4px 10px", borderRadius: 100,
+                        padding: "4px 10px", borderRadius: 9999,
                         color: founderStatus.youAreFounder ? (P.dark ? STATUS.good : "#047857") : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
                       }}>{founderStatus.youAreFounder ? "You" : "No"}</span>
@@ -23327,13 +23355,13 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       try {
                         Notification.requestPermission().then((perm) => setNotifPerm(perm));
                       } catch { setNotifPerm("unsupported"); }
-                    }} style={{ minHeight: 44, padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                    }} style={{ minHeight: 44, padding: "7px 14px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                       Allow
                     </button>
                   ) : (
                     <span style={{
                       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "0.07em",
-                      padding: "4px 10px", borderRadius: 100,
+                      padding: "4px 10px", borderRadius: 9999,
                       color: notifPerm === "granted" ? (P.dark ? STATUS.good : "#047857") : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
                     }}>{notifPerm === "granted" ? "On" : notifPerm === "denied" ? "Blocked" : "Unavailable"}</span>
@@ -23482,7 +23510,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                           setWatchlist((prev) => prev.filter((x) => x.id !== w.id));
                           try { await apiDataAction("unwatch-topic", { topic: w.topic }); }
                           catch { loadWatchlist(); }
-                        }} style={{ minHeight: 44, padding: "5px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 100, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        }} style={{ minHeight: 44, padding: "5px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                           Unwatch
                         </button>
                       }
@@ -23843,7 +23871,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       background: "transparent", color: P.ink, fontWeight: 600,
       boxShadow: `inset 2px 0 0 ${ACCENTS.Sage}`,
     },
-    sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 100, fontFamily: "var(--cb-font)" },
+    sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 9999, fontFamily: "var(--cb-font)" },
     sidebarFooter: { flexShrink: 0, padding: "10px 12px 14px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
     // `position: relative` + `zIndex: 1` are load-bearing, not decoration:
     // without them this is a plain static box, which CSS paints in the
@@ -24106,7 +24134,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: FONT_SIZES.small, color: P.ink,
       background: "transparent",
       border: "1px solid " + P.line,
-      borderRadius: 100, padding: "10px 18px",
+      borderRadius: 9999, padding: "10px 18px",
       cursor: "pointer",
       transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
       fontFamily: "var(--cb-font)", letterSpacing: "-0.01em",
@@ -24530,7 +24558,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
     ? "Unlimited AI answers, document reads, flowcharts"
     : q && q.cap != null
       ? `${q.used} of ${q.cap} AI answers · refills every 5 days`
-      : rank === "lite" ? "150 AI answers every 5 days" : "15 AI answers every 5 days";
+      : rank === "lite" ? "500 AI answers every 5 days" : "50 AI answers every 5 days";
   const displayName = user?.name || (user?.email || "").split("@")[0] || "Your profile";
 
   const menuRow = (label, desc, action, tone) => (
@@ -24969,7 +24997,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
               Cerebrum can't be used without agreeing to these terms. That isn't a pressure tactic, it's just what the agreement is for. Nothing has been stored, and you can come back any time. If something in the documents is the reason you said no, {link("mailto:dusty@askcerebrum.org", "tell us which part")}. That's genuinely useful feedback.
             </p>
             <button onClick={() => setDeclined(false)} className="cb-press" style={{
-              width: "100%", padding: "12px 18px", borderRadius: 100, cursor: "pointer",
+              width: "100%", padding: "12px 18px", borderRadius: 9999, cursor: "pointer",
               background: "transparent", color: P.ink, border: `1px solid ${P.line2}`,
               fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
             }}>Back</button>
@@ -25011,7 +25039,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
                 onClick={accept} disabled={!checked || busy}
                 className="cb-press"
                 style={{
-                  flex: 1, minWidth: 180, padding: "14px 20px", borderRadius: 100,
+                  flex: 1, minWidth: 180, padding: "14px 20px", borderRadius: 9999,
                   border: checked ? "1px solid rgba(255,255,255,0.14)" : "1px solid transparent",
                   boxShadow: checked ? "inset 0 1px 0 rgba(255,255,255,0.22)" : "none",
                   cursor: checked && !busy ? "pointer" : "not-allowed",
@@ -25022,7 +25050,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
                 }}
               >{busy ? "Saving…" : "Agree and continue"}</button>
               <button onClick={() => setDeclined(true)} className="cb-press" style={{
-                padding: "13px 18px", borderRadius: 100, cursor: "pointer",
+                padding: "13px 18px", borderRadius: 9999, cursor: "pointer",
                 background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
                 fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
               }}>Decline</button>
@@ -25049,7 +25077,7 @@ function VersionBanner({ P, accent, onRefresh, onDismiss }) {
       position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
       zIndex: 150, display: "flex", alignItems: "center", gap: 10,
       background: P.bg, border: `1px solid ${withAlpha(accent, 0.4)}`,
-      borderRadius: 100, padding: "8px 8px 8px 16px",
+      borderRadius: 9999, padding: "8px 8px 8px 16px",
       boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
       fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.ink,
       maxWidth: "calc(100vw - 32px)",
@@ -25061,7 +25089,7 @@ function VersionBanner({ P, accent, onRefresh, onDismiss }) {
         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>New version ready</span>
       </span>
       <button onClick={onRefresh} className="cb-press" style={{ minHeight: 44,
-        background: accent, color: "#0b0d10", border: "none", borderRadius: 100,
+        background: accent, color: "#0b0d10", border: "none", borderRadius: 9999,
         padding: "6px 14px", fontSize: FONT_SIZES.caption, fontWeight: 700,
         fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0,
       }}>Refresh</button>
@@ -27571,7 +27599,7 @@ function App() {
     // interactive thing anyone sees is the agreement.
     return (
       <>
-        <Intro accent={accent} P={P} animationMode={animationMode}
+        <Intro accent={accent} P={P} animationMode={animationMode} user={user}
           onEnter={(seed, submit, clipSrc) => {
             sfx();
             if (seed) setInput(seed);
@@ -27753,6 +27781,7 @@ function App() {
           <CinematicFilm
             ref={wsFilmRef}
             animationMode={animationMode}
+            proReel={!!user?.isPro}
             onAutoplayBlocked={() => setWsFilmVetoed(true)}
             onPlaybackChange={(playing) => { setWsFilmPlaying(playing); if (playing) setWsFilmVetoed(false); }}
             /* No manual pause control in the workspace — the reel runs while
@@ -27784,7 +27813,7 @@ function App() {
           aria-label="Play background video"
           style={{
             position: "fixed", bottom: "max(18px, env(safe-area-inset-bottom))", right: 18,
-            zIndex: 50, width: 44, height: 44, borderRadius: 999,
+            zIndex: 50, width: 44, height: 44, borderRadius: 9999,
             border: "1px solid rgba(255,255,255,0.18)",
             background: "rgba(10,12,14,0.62)", color: "#f2f4f2",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -28472,7 +28501,7 @@ function App() {
                     <div key={`${r.at ?? r.ts}-${i}`} role="listitem"
                       style={{ display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "12px 16px" : "10px 16px", borderTop: i ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 560 }}>
                       <span style={{ width: 110, flexShrink: 0 }}>
-                        <span className="cb-pill" style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4 }}>{r.kind}</span>
+                        <span className="cb-pill" style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 9999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4 }}>{r.kind}</span>
                       </span>
                       <span className="cb-mono" style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.filename}>{r.filename}</span>
                       <span style={{ width: 160, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
@@ -28623,7 +28652,7 @@ function App() {
                                       {qCount} Q · {pCount} papers · {mCount} map{mCount === 1 ? "" : "s"}
                                     </span>
                                     <span style={{ width: 110, flexShrink: 0 }}>
-                                      <span style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: statusTone, border: `1px solid ${withAlpha(statusTone, 0.45)}`, borderRadius: 999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4, whiteSpace: "nowrap" }}>{status}</span>
+                                      <span style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: statusTone, border: `1px solid ${withAlpha(statusTone, 0.45)}`, borderRadius: 9999, padding: "3px 10px", fontFamily: "var(--cb-font)", lineHeight: 1.4, whiteSpace: "nowrap" }}>{status}</span>
                                     </span>
                                     <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
                                       {h.lastOpened ? new Date(h.lastOpened).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
@@ -29590,7 +29619,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-mode {
   background: none; border: 0; cursor: pointer;
   min-height: 44px; padding: 8px 2px;
-  font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;
+  font-family: var(--cb-font); font-size: 14px; font-weight: 550;
   color: var(--cb-faint);
   transition: color 0.2s ease;
 }
@@ -29657,12 +29686,12 @@ summary::-webkit-details-marker { display: none; }
 }
 /* The editorial section label: mono, faint, no tracking, no caps. */
 .cb-starter-cat {
-  font-family: var(--cb-mono); font-size: 10.5px; font-weight: 500;
+  font-family: var(--cb-mono); font-size: 11px; font-weight: 500;
   letter-spacing: 0.06em; color: var(--cb-faint);
   flex-shrink: 0; transform: translateY(1px); white-space: nowrap;
 }
 .cb-starter-q {
-  font-size: 14.5px; font-weight: 500; line-height: 1.5; color: var(--cb-ink2);
+  font-size: 15px; font-weight: 500; line-height: 1.5; color: var(--cb-ink2);
   transition: color 0.2s ease;
 }
 .cb-starter-item:hover .cb-starter-q { color: var(--cb-ink); }
@@ -29681,7 +29710,7 @@ summary::-webkit-details-marker { display: none; }
 /* ── Small screens: the field compresses, never clips ── */
 @media (max-width: 480px) {
   .cb-mast { margin-bottom: 16px; }
-  .cb-mast-line { font-size: 12.5px; }
+  .cb-mast-line { font-size: 13px; }
   .cb-ask-input, .cb-ask-ph { font-size: 16px; }
   .cb-ask-input { min-height: 56px; padding: 13px 4px 13px 16px; }
   .cb-ask-ph { padding: 0 16px; }

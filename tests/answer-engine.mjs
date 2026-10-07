@@ -425,6 +425,15 @@ test("unambiguous science questions stay unambiguous", () => {
   assert.equal(detectAmbiguity("").ambiguous, false);
 });
 
+test("'sleep deprivation impairs memory' resolves to human memory, not ambiguous", () => {
+  const a = detectAmbiguity("does sleep deprivation impair memory");
+  assert.equal(a.ambiguous, false);
+  assert.equal(a.resolvedAs, "Human memory");
+  const b = detectAmbiguity("how does ram affect computer memory");
+  assert.equal(b.ambiguous, false);
+  assert.equal(b.resolvedAs, "Computer memory");
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 group("NEXT-GEN — disagreement intelligence: computed, not defaulted");
 

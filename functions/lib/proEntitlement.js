@@ -352,8 +352,8 @@ export function intervalToPlan(interval) {
 // The single choke point for "may this caller burn AI inference?".
 // Returns { kind, userId, aiUsed, aiCap, proSource } where kind is one of:
 //   "pro"       — unlimited AI synthesis
-//   "lite"      — AI synthesis until aiUsed >= aiCap this quota period (150)
-//   "free"      — AI synthesis until aiUsed >= aiCap this quota period (15)
+//   "lite"      — AI synthesis until aiUsed >= aiCap this quota period (500)
+//   "free"      — AI synthesis until aiUsed >= aiCap this quota period (50)
 //   "anonymous" — no AI synthesis (no identity to meter)
 export async function resolveAiGate(env, sessionUser) {
   const base = {
