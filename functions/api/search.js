@@ -28,8 +28,9 @@ import { contextRequestId } from "../lib/requestLog.js";
 import { getBreaker, isTransientError, CircuitOpenError, withBackoff, callWithCircuit } from "../lib/llmCircuit.js";
 import { clampMessages, MAX_PROMPT_CHARS, messagesChars, UNTRUSTED_SYSTEM_NOTE } from "../lib/inputGuard.js";
 import { recordCacheLookup } from "../lib/aiCacheStats.js";
-import { authorizeLlmCall, spendTokens, CHEAP_MODEL } from "../lib/costControl.js";
+import { authorizeLlmCall, spendTokens, CHEAP_MODEL, checkEmbeddingBudget, spendEmbeddingNeurons, EMBEDDING_NEURON_COST_PER_RERANK } from "../lib/costControl.js";
 import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
+import { semanticRerank } from "../lib/semanticRerank.js";
 
 // ============ CORE UTILITIES ============
 
@@ -7984,8 +7985,40 @@ async function gatherPapers(rawQuery, opts) {
     else p.type = "Journal";
   }
 
+  // SEMANTIC RERANK: embedding-based topicality blended with the keyword
+  // score above. Skipped for person-name queries (authorship matching, not
+  // topicality — those return early above anyway), when fewer than 2
+  // candidates exist, when the embedding budget is exhausted, or when the
+  // retrieval time budget is nearly spent. semanticRerank never throws and
+  // returns papers unchanged on failure, so this is a strict improvement
+  // with no regression path: keyword scores remain the fallback.
+  let rerankedFinal = scoredFinal;
+  const msLeft = GATHER_PAPERS_BUDGET_MS - (Date.now() - _searchStart);
+  if (!isNameQuery && scoredFinal.length >= 2 && opts && opts.env && msLeft > 4000) {
+    try {
+      const embBudget = await checkEmbeddingBudget(opts.env);
+      if (embBudget.allowed) {
+        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: 20, alpha: 0.5 });
+        if (rr.semanticApplied) {
+          await spendEmbeddingNeurons(opts.env, EMBEDDING_NEURON_COST_PER_RERANK);
+          rerankedFinal = rr.papers;
+          diag.semanticRerank = { applied: true, latencyMs: rr.latencyMs };
+        } else {
+          diag.semanticRerank = { applied: false, reason: "embedding_unavailable" };
+        }
+      } else {
+        diag.semanticRerank = { applied: false, reason: embBudget.reason || "budget" };
+      }
+    } catch (e) {
+      // Never break search for rerank problems.
+      diag.semanticRerank = { applied: false, reason: "error" };
+    }
+  } else if (isNameQuery) {
+    diag.semanticRerank = { applied: false, reason: "name_query" };
+  }
+
   diag.funnel = funnel;
-  return { papers: scoredFinal, _diag: diag };
+  return { papers: rerankedFinal, _diag: diag };
   } catch (e) {
     // Any throw in gatherPapers: log the full detail server-side (Cloudflare
     // Function real-time logs) and return an empty result with a SAFE,
@@ -9437,6 +9470,7 @@ async function runSearchPipeline(pctx) {
             limit: 15,
             resolvedPersonName,
             db: env.DB,
+            env,
           }),
           new Promise((_, reject) => setTimeout(() => reject(new Error("deep search timeout")), 15000)),
         ]);
@@ -9547,6 +9581,7 @@ async function runSearchPipeline(pctx) {
         limit: wantsMorePapers ? 40 : 25,
         resolvedPersonName,
         db: env.DB,
+        env,
       }).catch((e) => {
         // Same rule as gatherPapers' own internal catch: full detail to the
         // server log, nothing stack-trace-shaped to the client — this

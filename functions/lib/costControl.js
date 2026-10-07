@@ -158,6 +158,98 @@ export async function setTenantCap(env, userId, tokenCap) {
   return { userId: String(userId), period, tokenCap };
 }
 
+/* ── embedding-neuron budget (semantic rerank) ────────────────────────── */
+
+/**
+ * Daily neuron budget for Workers AI embeddings used by semantic rerank.
+ * Free tier is 10k neurons/day; one rerank ≈ 20 neurons (query + 20 papers
+ * in ONE batched bge-small-en-v1.5 call). Cap at 9k to leave headroom.
+ * D1 table `embedding_neuron_usage` is the durable ledger, keyed by UTC day.
+ * Conservative: without D1 there is no ledger, so the rerank is skipped
+ * (keyword scores remain as the fallback).
+ */
+export const EMBEDDING_DAILY_CAP = 9000;
+export const EMBEDDING_NEURON_COST_PER_RERANK = 20;
+
+let embedTableReady = null;
+function ensureEmbedTable(db) {
+  if (!embedTableReady) {
+    embedTableReady = db.exec(
+      "CREATE TABLE IF NOT EXISTS embedding_neuron_usage (" +
+        "day_key TEXT PRIMARY KEY, " +
+        "used_neurons INTEGER NOT NULL DEFAULT 0, " +
+        "updated_at INTEGER NOT NULL)"
+    ).then(() => true, (e) => { embedTableReady = null; throw e; });
+  }
+  return embedTableReady;
+}
+
+function embeddingDayKey(nowMs) {
+  const d = new Date(nowMs == null ? Date.now() : nowMs);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+async function readEmbedRow(db, day) {
+  await ensureEmbedTable(db);
+  const row = await db.prepare(
+    "SELECT used_neurons FROM embedding_neuron_usage WHERE day_key = ?"
+  ).bind(day).first();
+  if (row) return row.used_neurons | 0;
+  await db.prepare(
+    "INSERT OR IGNORE INTO embedding_neuron_usage (day_key, used_neurons, updated_at) VALUES (?, 0, ?)"
+  ).bind(day, Date.now()).run();
+  return 0;
+}
+
+/**
+ * Checked BEFORE semantic rerank. Returns { allowed, used, cap, reason }.
+ * Without D1: { allowed: false, reason: "no_ledger" } — conservative, the
+ * keyword pipeline is the fallback so search quality is unchanged.
+ */
+export async function checkEmbeddingBudget(env) {
+  try {
+    const db = d1(env && env.DB);
+    if (!db) return { allowed: false, used: 0, cap: EMBEDDING_DAILY_CAP, reason: "no_ledger" };
+    const day = embeddingDayKey();
+    const used = await readEmbedRow(db, day);
+    const remaining = Math.max(0, EMBEDDING_DAILY_CAP - used);
+    if (EMBEDDING_NEURON_COST_PER_RERANK > remaining) {
+      jsonLog("warn", "embedding_budget_exhausted", { day, used, cap: EMBEDDING_DAILY_CAP });
+      return { allowed: false, used, cap: EMBEDDING_DAILY_CAP, reason: "daily_cap_reached" };
+    }
+    return { allowed: true, used, cap: EMBEDDING_DAILY_CAP, reason: null };
+  } catch (e) {
+    jsonLog("warn", "embedding_budget_check_failed", { error: String((e && e.message) || e).slice(0, 160) });
+    return { allowed: false, used: 0, cap: EMBEDDING_DAILY_CAP, reason: "ledger_error" };
+  }
+}
+
+/**
+ * Atomically consume neurons AFTER a successful rerank. The UPDATE guards on
+ * the cap so concurrent requests can't overspend. Returns new used total.
+ */
+export async function spendEmbeddingNeurons(env, n) {
+  const cost = Math.max(0, Math.ceil(Number(n) || 0));
+  if (cost === 0) return 0;
+  try {
+    const db = d1(env && env.DB);
+    if (!db) return 0;
+    const day = embeddingDayKey();
+    await ensureEmbedTable(db);
+    await db.prepare(
+      "UPDATE embedding_neuron_usage SET used_neurons = used_neurons + ?, updated_at = ? " +
+        "WHERE day_key = ? AND used_neurons + ? <= " + EMBEDDING_DAILY_CAP
+    ).bind(cost, Date.now(), day, cost).run();
+    const row = await db.prepare(
+      "SELECT used_neurons FROM embedding_neuron_usage WHERE day_key = ?"
+    ).bind(day).first();
+    return row ? row.used_neurons | 0 : 0;
+  } catch (e) {
+    jsonLog("warn", "embedding_spend_failed", { error: String((e && e.message) || e).slice(0, 160) });
+    return 0;
+  }
+}
+
 /* ── cheap-model-first routing ───────────────────────────────────────── */
 
 /**
