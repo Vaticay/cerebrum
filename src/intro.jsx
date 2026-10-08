@@ -573,8 +573,8 @@ function SourcesDialog({ onClose, accent }) {
         return (
           <div key={key} style={{ paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 4 }}>
             <div style={{
-              /* Pass 3 (2026-09-17): mono label, not a tracked-out eyebrow. */
-              fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption,
+              /* Pass 3 (2026-09-17): Inter Tight label, not a tracked-out eyebrow. */
+              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption,
               color: "rgba(242,244,242,0.44)", marginBottom: 9,
             }}>{heading}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
@@ -810,7 +810,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     fontVariantNumeric: "tabular-nums",
   };
   const navLink = {
-    fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
+    fontFamily: serif, fontSize: 11, letterSpacing: "0.18em",
     color: "rgba(238,241,238,0.72)", textDecoration: "none",
     fontWeight: 500, padding: "10px 6px", whiteSpace: "nowrap",
   };
@@ -893,7 +893,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
             <Mark size={19} accent={introAccent} glow />
             <span style={{
-              fontFamily: mono, fontSize: 13, fontWeight: 600,
+              fontFamily: serif, fontSize: 13, fontWeight: 600,
               letterSpacing: "0.34em", textIndent: "0.06em", color: "#ffffff",
             }}>CEREBRUM</span>
             {/* Power indicator: the instrument is on. */}
@@ -909,6 +909,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             {!isMobile && <span style={readout}>15 SOURCES</span>}
             <span style={{
               ...readout,
+              fontFamily: serif,
               color: calibrated ? withAlpha(introAccent, 0.9) : "rgba(238,241,238,0.35)",
               transition: "color 400ms ease",
             }}>
@@ -971,7 +972,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               borderBottom: "1px solid " + hairline, paddingBottom: 14,
             }}>
               <span style={{
-                fontFamily: mono, fontSize: 11, letterSpacing: "0.32em",
+                fontFamily: serif, fontSize: 11, letterSpacing: "0.32em",
                 fontWeight: 600, textTransform: "uppercase", color: faint,
               }}>
                 Verified claim
@@ -1005,7 +1006,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                   <Icon name="verdictSupported" size={17} />
                 </span>
                 <span style={{
-                  fontFamily: mono, fontSize: 11, fontWeight: 600,
+                  fontFamily: serif, fontSize: 11, fontWeight: 600,
                   letterSpacing: "0.22em",
                   textTransform: "uppercase", color: introAccent,
                 }}>
@@ -1033,7 +1034,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 onClick={() => setSpecimenIdx((i) => (i - 1 + specimenCount) % specimenCount)}
                 style={{
                   minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
-                  fontFamily: mono, fontSize: 14, fontWeight: 600,
+                  fontFamily: serif, fontSize: 14, fontWeight: 600,
                   color: "rgba(238,241,238,0.6)",
                   background: "transparent",
                   border: "1px solid rgba(255,255,255,0.12)",
@@ -1045,7 +1046,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 onClick={() => setSpecimenIdx((i) => (i + 1) % specimenCount)}
                 style={{
                   minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
-                  fontFamily: mono, fontSize: 14, fontWeight: 600,
+                  fontFamily: serif, fontSize: 14, fontWeight: 600,
                   color: "rgba(238,241,238,0.6)",
                   background: "transparent",
                   border: "1px solid rgba(255,255,255,0.12)",
@@ -1076,7 +1077,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           <div style={{ marginTop: 20 }}>
             <button type="button" onClick={() => setHowOpen(true)} style={{
               background: "none", border: "none", cursor: "pointer",
-              fontFamily: mono, fontSize: 12, letterSpacing: "0.16em",
+              fontFamily: serif, fontSize: 12, letterSpacing: "0.16em",
               color: faint, textDecoration: "underline", textUnderlineOffset: 5,
               textTransform: "uppercase", padding: "10px 8px",
             }}>How it works</button>
@@ -1117,7 +1118,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 ...(isMobile ? {} : ri > 0 ? { borderLeft: "1px solid " + hairline, paddingLeft: 34 } : null),
               }}>
                 <span style={{
-                  fontFamily: mono, fontSize: 10, fontWeight: 600,
+                  fontFamily: serif, fontSize: 10, fontWeight: 600,
                   letterSpacing: "0.28em", color: withAlpha(introAccent, 0.8),
                   ...(isMobile ? { minWidth: 86 } : null),
                 }}>{k}</span>
@@ -1144,12 +1145,12 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           maxWidth: 1440, margin: "0 auto", padding: "16px 26px 0",
           display: "flex", alignItems: "center", flexWrap: "wrap",
           gap: "10px 22px",
-          fontFamily: mono, fontSize: 10.5, letterSpacing: "0.14em",
+          fontFamily: serif, fontSize: 10.5, letterSpacing: "0.14em",
           color: "rgba(238,241,238,0.42)",
         }}>
           <button type="button" onClick={() => setSourcesOpen(true)} style={{
             background: "none", border: "none", padding: "10px 0", cursor: "pointer",
-            fontFamily: mono, fontSize: 10.5, letterSpacing: "0.14em",
+            fontFamily: serif, fontSize: 10.5, letterSpacing: "0.14em",
             color: "rgba(238,241,238,0.66)", fontWeight: 600,
           }}>RESEARCH SOURCES &#8599;</button>
           <span style={{ flex: 1 }} />
