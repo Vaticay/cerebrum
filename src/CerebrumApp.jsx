@@ -2683,7 +2683,7 @@ function DiveInline({ P, accent, label = "Working" }) {
         <span className="cb-readhead-marker" style={{ background: accent }} />
       </div>
       <div style={{
-        marginTop: 10, fontFamily: "var(--cb-mono)", fontSize: 11, fontWeight: 500,
+        marginTop: 10, fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 500,
         letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint,
       }}>
         {label}
@@ -2940,13 +2940,13 @@ function splitGluedHeading(line) {
 function h2Block(text, key, P, accent) {
   return (
     <div key={key} className="cb-sect" aria-hidden="false">
-      <span className="cb-mono cb-sect-label" style={{ color: P.ink }}>{text}</span>
+      <span className="cb-sect-label" style={{ color: P.ink }}>{text}</span>
     </div>
   );
 }
 
 function h3Block(text, key, P) {
-  return <div key={key} className="cb-mono cb-sect-sub" style={{ color: P.ink2 }}>{text}</div>;
+  return <div key={key} className="cb-sect-sub" style={{ color: P.ink2 }}>{text}</div>;
 }
 
 /* Bring a source into view without moving the reader.
@@ -4400,7 +4400,7 @@ function VerdictReadout({ t, P }) {
         <Icon name={glyph} size={54} />
       </div>
       <div className="cb-verdict-body">
-        <div className="cb-mono cb-verdict-eyebrow">Verdict</div>
+        <div className="cb-verdict-eyebrow">Verdict</div>
         <div className="cb-verdict-word" style={{ color: P.ink }}>{word}</div>
         <div className="cb-verdict-sub" style={{ color: P.ink2 }}>{sub}</div>
         <div className="cb-mono cb-verdict-readout" style={{ color: P.faint }}>{readout}</div>
@@ -5325,7 +5325,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     return seen.length > 1 ? seen.sort() : null;
   }, [sources]);
   /* Pass 6: a plain quiet text action — never a letterspaced caps button. */
-  const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint };
+  const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
   const ctlBtn = {
     minHeight: 44, display: "inline-flex", alignItems: "center", padding: "12px 16px",
@@ -5405,7 +5405,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
       {jumpLetters && (
         <div role="group" style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 6, paddingTop: 8 }} aria-label="Jump to author">
           {jumpLetters.map((L) => (
-            <a key={L} href={`#ref-alpha-${L}`} style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, textDecoration: "none", padding: "3px 7px", borderRadius: 6 }}
+            <a key={L} href={`#ref-alpha-${L}`} style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, textDecoration: "none", padding: "3px 7px", borderRadius: 6 }}
               onMouseEnter={(e) => { e.currentTarget.style.color = accent; e.currentTarget.style.background = withAlpha(accent, 0.08); }}
               onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; e.currentTarget.style.background = "transparent"; }}>{L}</a>
           ))}
@@ -8155,7 +8155,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           metadata line. No film, no gradient, no rounded card — the
           instrument is still and precise. */}
       <div className="cb-query">
-        <div className="cb-mono cb-query-label">Query</div>
+        <div className="cb-query-label">Query</div>
         <h2 className="cb-query-text" style={{ color: P.ink }}>{t.hasImage && <Icon name="image" size={20} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
         <div className="cb-mono cb-query-meta" style={{ color: P.faint }}>
           <span>{new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
@@ -8169,7 +8169,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             {saveState === "saving" && <span>Saving…</span>}
             {saveState === "saved" && <span>Saved</span>}
             {saveState === "error" && (
-              <button onClick={retrySave || (() => {})} className="cb-mono" style={{ fontSize: 12, color: statusBad(P), background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline", minHeight: 44 }}>
+              <button onClick={retrySave || (() => {})} style={{ fontSize: 12, color: statusBad(P), background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline", minHeight: 44 }}>
                 Couldn't save · Retry
               </button>
             )}</>
@@ -8215,7 +8215,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     and pipeline honesty now live in the Answer diagnostics
                     disclosure below the toolbar; they are no longer a badge
                     row. */}
-                <span className="cb-mono cb-readout-label">Readout{minRead > 0 ? ` · ${minRead} min` : ""} · {t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}</span>
+                <span className="cb-readout-label">Readout{minRead > 0 ? ` · ${minRead} min` : ""} · {t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}</span>
               </div>
             ) : <span />}
             {/* Pass 2: the toolbar is a quiet strip of text actions — Copy
@@ -8377,7 +8377,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   color: simplified ? accent : P.faint, background: "transparent",
                   border: "none", cursor: "pointer", padding: "3px 8px",
                 }}>
-                <span style={{ fontFamily: "var(--cb-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                <span style={{ fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                   Reading level: {readingLevel}
                 </span>
               </button>
@@ -8390,13 +8390,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 not filled pills. No em dash in the copy. */}
             {t.aiQuota && t.aiQuota.gated === "free-cap" && (
               <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase", color: accent, background: "transparent", border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", color: accent, background: "transparent", border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
                 Free AI answers used up. Go Pro
               </button>
             )}
             {t.aiQuota && t.aiQuota.gated === "signin-required" && (
               <UIButton P={P} variant="ghost" onClick={() => window.dispatchEvent(new CustomEvent("cb:open-auth"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase", color: P.ink2, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", color: P.ink2, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
                 Sign in for AI answers
               </UIButton>
             )}
@@ -10069,7 +10069,7 @@ function TrendingHero({ P, accent, item, onExpand, generatedAt }) {
           <MediaFigure P={P} media={media} title={item.title} still linkCredit={false} />
         </div>
       )}
-      <div className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Lead story · {trendKind(item)}
       </div>
       <div style={{ fontSize: "clamp(24px, 3.2vw, 38px)", fontWeight: 650, color: P.ink, lineHeight: 1.14, letterSpacing: "-0.02em", maxWidth: 820 }}>
@@ -16379,7 +16379,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "0 0 40px rgba(0,0,0,0.4)" },
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 24px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
-    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-mono)", padding: "16px 12px 6px" },
+    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       /* 44px min-height for touch targets (was 38px, which defeated the
@@ -17214,125 +17214,25 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      Workspace holds Investigations, Library and the other working
      surfaces; People stays for signed-in users. No destination was
      removed — only regrouped. */
-  const NAV_GROUPS = [
-    { label: null, items: [
-      ["search", "Search", "search"],
-    ] },
-    { label: "Tools", items: [
-      ["document", "Document Mode", "bookOpen"],
-      ["studio", "Diagram Studio", "flowchart"],
-    ] },
-    { label: "Discover", items: [
-      ["trending", "Trending", "chart"],
-    ] },
-    { label: "Workspace", items: [
-      ["investigations", "Investigations", "history"],
-      /* Always-visible fresh start, adjacent to the ledger it belongs to.
-         "new" is an action, not a view — handleSidebarNavigate runs
-         newSession() and lands on Search. */
-      ["new", "New investigation", "plus"],
-      ["library", "Library", "bookmark"],
-      ...(user ? [["collections", "Collections", "folder"]] : []),
-      ...(user ? [["usage", "Usage", "gauge"]] : []),
-    ] },
-    ...(user ? [{ label: "People", items: [
-      ["inbox", "Inbox", "mail"],
-      ["people", "Find people", "network"],
-    ] }] : []),
+  /* Flat nav: no section labels, no groups. The sidebar is a toolbelt,
+     not a dashboard. Items are ordered by use: search first, then the
+     instruments, then the working surfaces. */
+  const NAV_ITEMS = [
+    ["search", "Search", "search"],
+    ["document", "Document Mode", "bookOpen"],
+    ["studio", "Diagram Studio", "flowchart"],
+    ["trending", "Trending", "chart"],
+    ["investigations", "Investigations", "history"],
+    ["library", "Library", "bookmark"],
+    ...(user ? [["collections", "Collections", "folder"]] : []),
+    ...(user ? [["usage", "Usage", "gauge"]] : []),
+    ...(user ? [["inbox", "Inbox", "mail"]] : []),
+    ...(user ? [["people", "Find people", "network"]] : []),
   ];
-
-  /* Workstream E (2026-10-08): living badges. A badge answers "why should
-     I tap this", not "how many things exist". Investigations shows active
-     work (opened in the last 7 days), Library shows fresh saves, Inbox
-     shows who wrote (avatar stack, not a number), Usage shows a fuel bar
-     with answers left and refill timing. Nothing here invents data: every
-     badge reads state the app already tracks. */
-  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-  const navBadge = (key) => {
-    const nowTs = Date.now();
-    if (key === "investigations") {
-      const active = (history || []).filter((h) => (h.lastOpened || h.ts || 0) > nowTs - WEEK_MS).length;
-      if (!active) return null;
-      return <span style={S.sidebarItemBadge}>{active} active</span>;
-    }
-    if (key === "library") {
-      const fresh = (saved || []).filter((s) => (s.savedAt || 0) > nowTs - WEEK_MS).length;
-      if (!fresh) return null;
-      return <span style={S.sidebarItemBadge}>{fresh} new</span>;
-    }
-    if (key === "inbox") {
-      const unread = (threads || []).filter((t) => t.unread);
-      if (!unread.length) return null;
-      return (
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center" }} aria-label={`${unread.length} unread conversation${unread.length === 1 ? "" : "s"}`}>
-          {unread.slice(0, 3).map((t, i) => {
-            const nm = t.name || t.otherUsername || "?";
-            const initials = nm.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
-            return (
-              <span key={t.id || i} aria-hidden="true" title={nm} style={{
-                width: 24, height: 24, borderRadius: "50%", fontSize: 10, fontWeight: 700,
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontFamily: "var(--cb-font)", marginLeft: i > 0 ? -8 : 0,
-                border: `2px solid ${P.bg}`, ...avatarSkin(nm),
-              }}>{initials}</span>
-            );
-          })}
-          {unread.length > 3 && <span style={{ ...S.sidebarItemBadge, marginLeft: 6 }}>+{unread.length - 3}</span>}
-        </span>
-      );
-    }
-    if (key === "usage" && user) {
-      const tier = proStatus?.tier;
-      const q = proStatus?.quota;
-      if (tier === "pro" || !q || q.cap == null) return null;
-      const left = Math.max(0, q.cap - (q.used || 0));
-      const pct = q.cap > 0 ? Math.min(100, Math.round((left / q.cap) * 100)) : 0;
-      const days = Math.max(1, Math.ceil((cbQuotaResetsAt(nowTs) - nowTs) / 86400000));
-      return (
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }} aria-label={`${left} answers left. Refills in ${days} day${days === 1 ? "" : "s"}.`}>
-          <span aria-hidden="true" style={{ width: 40, height: 4, borderRadius: 2, background: P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)", overflow: "hidden" }}>
-            <span style={{ display: "block", height: "100%", width: `${pct}%`, borderRadius: 2, background: pct < 20 ? "#e5484d" : accent }} />
-          </span>
-          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>{left} left</span>
-        </span>
-      );
-    }
-    return null;
-  };
 
   const hoverIn = (e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); };
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
   const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
-
-  /* Workstream E (2026-10-08): inline expandable sections. The
-     Investigations and Library rows unfold into a compact timeline of
-     recent work, Arc style, so the rail becomes a research journal
-     instead of a link list. Only in the expanded rail; accordions need
-     labels to make sense. */
-  const [expandedSec, setExpandedSec] = useState(null);
-  const expandableItems = (key) => {
-    if (key === "investigations") {
-      return (history || []).slice(0, 5).map((h) => {
-        const turns = h.turns || [];
-        const papers = h.allSources || [];
-        return {
-          id: h.id,
-          title: h.title || "Untitled investigation",
-          sub: `${turns.length} answer${turns.length === 1 ? "" : "s"} · ${papers.length} paper${papers.length === 1 ? "" : "s"}`,
-          onOpen: () => { if (onOpenInvestigation) onOpenInvestigation(h); if (isMobile) onCloseMobile(); },
-        };
-      });
-    }
-    if (key === "library") {
-      return (saved || []).slice(0, 5).map((s, i) => ({
-        id: s.doi || s.url || s.title || `saved-${i}`,
-        title: s.title || "Untitled paper",
-        sub: [s.venue, s.year].filter(Boolean).join(" · ") || "Saved paper",
-        onOpen: () => onNavigate("library"),
-      }));
-    }
-    return null;
-  };
 
   /* Compact rail: collapsed to a 68px icon strip; hovering re-expands as an
      overlay so the page doesn't reflow. Accordions only make sense with
@@ -17393,79 +17293,18 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         </div>
       )}
       <div style={{ ...S.sidebarNav, ...(expanded ? {} : { padding: "6px 8px", alignItems: "center" }) }}>
-        {NAV_GROUPS.map((group, gi) => {
+        {NAV_ITEMS.map(([key, label, icon]) => {
           return (
-          <React.Fragment key={group.label || `g${gi}`}>
-            {group.label && expanded && (
-              <div style={{ ...S.sidebarSectionLabel, padding: "16px 12px 6px" }}>
-                {group.label}
-              </div>
-            )}
-            {group.label && !expanded && gi > 0 && <div style={{ width: 24, height: 1, background: P.line, margin: "10px 0 6px" }} aria-hidden="true" />}
-            {group.items.map(([key, label, icon]) => {
-              const badgeNode = navBadge(key);
-              const subItems = expanded ? expandableItems(key) : null;
-              const isOpen = expandedSec === key;
-              const rowButton = (
-              /* data-nav: the landing target for the save-to-library flight.
-                 A stable hook on the row itself, so the animation never has
-                 to guess at the rail's structure. */
-              <button key={key} data-nav={key} onClick={() => onNavigate(key)} title={expanded ? undefined : label}
-                /* The "New investigation" action row gets a full 44px target
-                   and a slightly stronger label on mobile — it's the one row
-                   here that starts something, not a destination. */
-                style={{ ...itemStyle(key), ...(subItems ? { paddingRight: 44 } : {}), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
-                aria-current={view === key ? "page" : undefined} aria-label={label} className=""
-                onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
-                <Icon name={icon} size={16} />
-                {expanded && <span style={key === "new" && isMobile ? { fontSize: 16, fontWeight: 600 } : undefined}>{label}</span>}
-                {expanded && badgeNode}
-                {!expanded && badgeNode && <span style={{ position: "absolute", marginLeft: 26, marginTop: -18, width: 8, height: 8, borderRadius: "50%", background: accent }} aria-hidden="true" />}
-              </button>
-              );
-              if (!subItems) return rowButton;
-              return (
-                <div key={key} style={{ position: "relative" }}>
-                  {rowButton}
-                  <button onClick={() => setExpandedSec((v) => (v === key ? null : key))}
-                    aria-label={isOpen ? `Collapse recent ${label.toLowerCase()}` : `Expand recent ${label.toLowerCase()}`}
-                    aria-expanded={isOpen}
-                    style={{
-                      position: "absolute", right: 6, top: 6, width: 32, height: 32,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      background: "transparent", border: "none", borderRadius: "50%",
-                      color: P.faint, cursor: "pointer",
-                    }}>
-                    <span style={{ display: "inline-flex", transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 200ms ease" }}>
-                      <Icon name="chevronDown" size={14} />
-                    </span>
-                  </button>
-                  {isOpen && subItems.length > 0 && (
-                    <div style={{ padding: "2px 4px 8px 40px", display: "flex", flexDirection: "column", gap: 2 }}>
-                      {subItems.map((it) => (
-                        <button key={it.id} onClick={it.onOpen}
-                          style={{
-                            display: "flex", flexDirection: "column", gap: 2, textAlign: "left",
-                            background: "transparent", border: "none", borderRadius: RADIUS.sm,
-                            padding: "8px 10px", minHeight: 44, justifyContent: "center", cursor: "pointer",
-                            fontFamily: "var(--cb-font)",
-                          }}
-                          onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                          <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.title}</span>
-                          <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{it.sub}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {isOpen && subItems.length === 0 && (
-                    <div style={{ padding: "4px 4px 10px 40px", fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                      Nothing here yet.
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </React.Fragment>
+          /* data-nav: the landing target for the save-to-library flight.
+             A stable hook on the row itself, so the animation never has
+             to guess at the rail's structure. */
+          <button key={key} data-nav={key} onClick={() => onNavigate(key)} title={expanded ? undefined : label}
+            style={{ ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
+            aria-current={view === key ? "page" : undefined} aria-label={label} className=""
+            onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
+            <Icon name={icon} size={16} />
+            {expanded && <span>{label}</span>}
+          </button>
           );
         })}
         {/* Settings is deliberately outside the groups and pushed to the
@@ -20707,7 +20546,7 @@ function App() {
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
         {/* Pass 5: badges become mono text metadata — the tint stays as a
             text color (it carries the tier signal), the pill shell goes. */}
-        {s.type && <span className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: typeColor(s.type) }}>{s.type}</span>}
+        {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: typeColor(s.type) }}>{s.type}</span>}
         {/* v5: the "strong/partial/weak" word already existed (relLabel)
             but only ever reached a `title` tooltip — invisible to touch,
             keyboard, and screen-reader users, who only ever saw a bare
@@ -23260,8 +23099,8 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-ask-recent-k {
   padding: 6px 12px 4px;
-  /* Pass 3 (2026-09-17): mono label, not a tracked-out eyebrow. */
-  font-family: var(--cb-mono); font-size: 11px; font-weight: 500;
+  /* Pass 3 (2026-09-17): Inter Tight label, not a tracked-out eyebrow. */
+  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   color: var(--cb-faint);
 }
 .cb-ask-recent-item {
@@ -23286,8 +23125,8 @@ summary::-webkit-details-marker { display: none; }
 .cb-starter { animation: cbConsoleIn 550ms var(--cb-ease) 0.12s both; }
 .cb-starter-k {
   /* Pass 3 (2026-09-17): the letterspaced all-caps eyebrow is retired
-     product-wide in favour of the mono label contract (.cb-kicker). */
-  font-family: var(--cb-mono); font-size: 11px; font-weight: 500;
+     product-wide in favour of the Inter Tight label contract (.cb-kicker). */
+  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   color: var(--cb-faint); margin: 0 0 2px 4px;
 }
 .cb-starter-item {
@@ -23301,9 +23140,9 @@ summary::-webkit-details-marker { display: none; }
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
   color: var(--cb-acc); flex-shrink: 0; transform: translateY(1px);
 }
-/* The editorial section label: mono, faint, no tracking, no caps. */
+/* The editorial section label: Inter Tight, faint, no tracking, no caps. */
 .cb-starter-cat {
-  font-family: var(--cb-mono); font-size: 11px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   letter-spacing: 0.06em; color: var(--cb-faint);
   flex-shrink: 0; transform: translateY(1px); white-space: nowrap;
 }
@@ -23375,7 +23214,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-bench-title {
   display: inline-flex; align-items: center; gap: 10px;
-  font-family: var(--cb-mono); font-size: 12px; font-weight: 600;
+  font-family: var(--cb-font); font-size: 12px; font-weight: 600;
   letter-spacing: 0.12em; color: var(--cb-ink2);
   margin: 0;
 }
@@ -23384,7 +23223,7 @@ summary::-webkit-details-marker { display: none; }
   display: inline-flex; align-items: center; gap: 9px;
   min-height: 44px; padding: 6px 14px;
   background: none; border: 1px solid var(--cb-line); border-radius: 2px;
-  color: var(--cb-faint); font-family: var(--cb-mono); font-size: 11px;
+  color: var(--cb-faint); font-family: var(--cb-font); font-size: 11px;
   letter-spacing: 0.07em; cursor: pointer; white-space: nowrap;
   transition: color 280ms ease, border-color 280ms ease;
 }
@@ -23429,7 +23268,7 @@ summary::-webkit-details-marker { display: none; }
   min-height: 56px; padding: 8px 4px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 4px; line-height: 1.3; text-align: center;
-  font-family: var(--cb-mono); font-size: 11px; letter-spacing: 0.03em;
+  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.03em;
   color: var(--cb-faint); background: transparent;
 }
 .cb-bench .cb-mode:first-child { border-left: 0; }
@@ -23447,13 +23286,13 @@ summary::-webkit-details-marker { display: none; }
 .cb-bench .cb-mode.is-on .cb-mode-idx { color: var(--cb-acc); opacity: 1; }
 .cb-bench .cb-mode.is-on .cb-mode-label { font-weight: 700; }
 
-/* Shapeshifter + paper chip read as instrument readouts: mono, sharp. */
+/* Shapeshifter + paper chip: Inter Tight, sharp. */
 .cb-bench .cb-shape {
   border-radius: 3px;
-  font-family: var(--cb-mono); font-size: 12px; letter-spacing: 0.02em;
+  font-family: var(--cb-font); font-size: 12px; letter-spacing: 0.02em;
 }
 .cb-bench .cb-paperchip { border-radius: 3px; border-style: dashed; }
-.cb-bench .cb-ask-hint { font-family: var(--cb-mono); font-size: 11px; }
+.cb-bench .cb-ask-hint { font-family: var(--cb-font); font-size: 11px; }
 
 /* ── Specimen tray: calibrated examples, not a link list ── */
 .cb-bench-tray {
@@ -23482,7 +23321,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-bench-tray .cb-starter-q { font-size: 14.5px; }
 .cb-bench-tray .cb-starter-act {
   align-self: flex-start;
-  font-family: var(--cb-mono); font-size: 10px; letter-spacing: 0.1em;
+  font-family: var(--cb-font); font-size: 10px; letter-spacing: 0.1em;
   color: var(--cb-faint);
   border: 1px solid var(--cb-line); border-radius: 3px;
   padding: 4px 8px;
@@ -23513,7 +23352,7 @@ summary::-webkit-details-marker { display: none; }
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
   padding: 10px 18px 12px;
   border-top: 1px solid var(--cb-line);
-  font-family: var(--cb-mono); font-size: 11px; line-height: 1.5;
+  font-family: var(--cb-font); font-size: 11px; line-height: 1.5;
   color: var(--cb-faint);
 }
 .cb-bench-foot-mode { display: inline-flex; gap: 10px; align-items: baseline; min-width: 0; }
@@ -23530,11 +23369,11 @@ summary::-webkit-details-marker { display: none; }
   border-bottom: 1px solid var(--cb-line);
 }
 .cb-deck-title {
-  font-family: var(--cb-mono); font-size: 12px; font-weight: 600;
+  font-family: var(--cb-font); font-size: 12px; font-weight: 600;
   letter-spacing: 0.12em; color: var(--cb-ink2); margin: 0;
 }
 .cb-deck-sub {
-  font-family: var(--cb-mono); font-size: 11px; letter-spacing: 0.06em;
+  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.06em;
   color: var(--cb-faint); white-space: nowrap;
 }
 .cb-deck-body { padding: 18px; }
@@ -23586,8 +23425,8 @@ summary::-webkit-details-marker { display: none; }
   to { opacity: 1; transform: translateY(0); }
 }
 .cb-dive-kicker {
-  /* Mono label, not a tracked-out eyebrow. */
-  font-family: var(--cb-mono); font-size: 11px; font-weight: 500;
+  /* Inter Tight label, not a tracked-out eyebrow. */
+  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   color: color-mix(in srgb, var(--cb-acc) 85%, white);
   margin-bottom: 14px;
   position: relative; z-index: 1;
@@ -25038,7 +24877,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
    unstyled span, which is why evidence weight was invisible. */
 .cb-ev-label {
   display: inline-block; margin-left: 10px; padding: 3px 8px;
-  font-family: var(--cb-mono); font-size: 10px; font-weight: 600;
+  font-family: var(--cb-font); font-size: 10px; font-weight: 600;
   letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
   border: 1px solid currentColor; border-radius: 4px; vertical-align: 2px;
 }
@@ -25089,7 +24928,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
    The More menu trigger keeps its own styling. */
 .cb-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cb-ctlbtn {
-  font-family: var(--cb-mono); font-size: 11px; font-weight: 600;
+  font-family: var(--cb-font); font-size: 11px; font-weight: 600;
   letter-spacing: 0.08em; text-transform: uppercase;
   padding: 0 12px; min-height: 44px;
   border: 1px solid var(--cb-line, rgba(128,128,128,0.3)); border-radius: 4px;
@@ -25163,7 +25002,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
 
 /* Quiet instrument kicker — replaces letterspaced all-caps eyebrows. */
 .cb-kicker {
-  font-family: var(--cb-mono); font-size: 12px; font-weight: 500; letter-spacing: 0;
+  font-family: var(--cb-font); font-size: 12px; font-weight: 500; letter-spacing: 0;
   color: var(--cb-faint, #888); text-transform: none;
 }
 
