@@ -49,7 +49,7 @@ import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalConte
    /diagram-studio /investigations) render from the same MARKETING_PAGES
    object the prerender pipeline uses, so JS-enabled visitors see content
    instead of a blank page. */
-import { MARKETING_PAGES } from "./marketingContent.js";
+import { MARKETING_PAGES, DEMO_QUESTIONS } from "./marketingContent.js";
 import { QuotaCalculator, LiveDemo } from "./marketingWidgets.jsx";
 import { getDeepLinkQuery } from "./deepLink.js";
 import { staticFieldCss } from "./cerebrumField.js";
@@ -104,7 +104,7 @@ import {
   FILM_POSTER_CLIP, DOC_FILM_SRC, FILM_OPT_IN_KEY, filmForcedOn,
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
   filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog, playEnterThoom,
-  SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm, Mark,
+  SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
 } from "./intro.jsx";
 
 /* Unified scroll lock (replaces the three competing implementations). */
@@ -2030,19 +2030,14 @@ function SignalComposer({
                 else doAsk();
                 return;
               }
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) doAsk();
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) { e.preventDefault(); doAsk(); }
             }}
-            placeholder=""
+            placeholder={placeholder}
             aria-label="Ask a research question"
             aria-expanded={showRecents}
             autoComplete="off"
             spellCheck="true"
           />
-          {!hasText && (
-            <div aria-hidden="true" className="cb-ask-ph" key={mode.key}>
-              {placeholder}
-            </div>
-          )}
         </div>
         <div className="cb-ask-tools">
           <button
@@ -2537,6 +2532,12 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
 
       <div className="cb-dive-kicker">Query</div>
       <h2 className="cb-dive-q">{q}</h2>
+
+      {/* The living mark: while the query descends, the two hemispheres
+          breathe out of phase — the instrument is alive, not spinning. */}
+      <div style={{ display: "flex", justifyContent: "center", margin: "18px 0 4px" }}>
+        <MarkBreathe size={44} accent={accent} />
+      </div>
 
       {/* The depth well: the stage rail as a depth cross-section. The rail
           fills behind the traveler as stages complete — the trail of the
@@ -4885,7 +4886,6 @@ function InfoPage({ page }) {
           {(page === "about" || page === "features") && (
             <LiveDemo P={P} accent={accent} isMobile={isMobile} />
           )}
-          </div>
           {isLegal && (
             <nav aria-label="Contents" className="cb-fadein" style={{
               marginTop: 34, padding: "16px 24px", borderRadius: RADIUS.lg,
@@ -5741,23 +5741,57 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
 // every call, so hiding it is courtesy, not the security boundary.
 /* Moved to src/settings.jsx: ProGrantPanel */
 
-function ReportModal({ query, P, accent, at, onClose }) {
+/* ── TAP THE BROKEN CLAIM ──
+   Instead of describing the issue in prose, tap the exact sentence that
+   is wrong. The report arrives pre-scoped to the claim with its citations
+   attached. The textarea shrinks to "What should it say instead?" */
+function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] }) {
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("hallucination");
+  const [category, setCategory] = useState("wrong-citation");
+  const [selectedClaim, setSelectedClaim] = useState(null);
+  const [selecting, setSelecting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
 
+  const paras = useMemo(() => {
+    if (!answer) return [];
+    return answer.split(/\n{2,}/)
+      .map((p) => p.replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "").trim())
+      .filter((p) => p.length > 40 && !/^(the short answer|what the research|where researchers|how solid)/i.test(p))
+      .slice(0, 12);
+  }, [answer]);
+
+  const claimCites = (para) => {
+    const nums = [];
+    const re = /\[(\d+)\]/g;
+    let m;
+    while ((m = re.exec(para)) && nums.length < 8) {
+      const n = parseInt(m[1], 10);
+      if (n > 0 && n <= sources.length && !nums.includes(n)) nums.push(n);
+    }
+    return nums;
+  };
+
   const submit = async (e) => {
     e.preventDefault();
-    if (!description.trim()) return;
+    if (!description.trim() && !selectedClaim) return;
     setSubmitting(true);
     setError("");
     try {
+      const payload = {
+        query,
+        description: description.trim() || "(no description, claim tapped)",
+        category,
+      };
+      if (selectedClaim !== null && paras[selectedClaim]) {
+        payload.claim = paras[selectedClaim].slice(0, 500);
+        payload.claimCitations = claimCites(paras[selectedClaim]);
+      }
       const res = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, description: description.trim(), category }),
+        body: JSON.stringify(payload),
       });
       // 2026-09-14: Check res.ok. A failed/offline/500 request must not show
       // the green "Report received" confirmation — the report was lost.
@@ -5771,10 +5805,12 @@ function ReportModal({ query, P, accent, at, onClose }) {
   };
 
   const categories = [
-    { id: "hallucination", label: "Hallucinated claim" },
     { id: "wrong-citation", label: "Wrong citation" },
+    { id: "misquoted", label: "Misquoted" },
+    { id: "outdated", label: "Outdated" },
+    { id: "missing-context", label: "Missing context" },
+    { id: "hallucination", label: "Hallucinated claim" },
     { id: "broken-source", label: "Broken source link" },
-    { id: "outdated", label: "Outdated information" },
     { id: "other", label: "Other" },
   ];
 
@@ -17644,6 +17680,75 @@ function App() {
   // Shown once (localStorage flag), only when the account has no passkey
   // yet and this browser supports WebAuthn.
   const [passkeyOffer, setPasskeyOffer] = useState(false);
+  const [passkeyRegistering, setPasskeyRegistering] = useState(false);
+
+  // base64url for WebAuthn ceremonies (ArrayBuffer <-> string).
+  const pkB64Encode = (buf) => {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+  const pkB64Decode = (s) => {
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  };
+
+  // Register this device's passkey. Called from the post-signin banner
+  // and from Settings > Account. Requires a live session.
+  async function registerPasskey(label) {
+    if (passkeyRegistering) return false;
+    if (typeof window === "undefined" || !window.PublicKeyCredential) {
+      toast("This browser doesn't support passkeys.");
+      return false;
+    }
+    setPasskeyRegistering(true);
+    try {
+      const begin = await apiAuth("passkey-register-begin", {});
+      if (!begin || !begin.ok) throw new Error("Couldn't start passkey setup.");
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: pkB64Decode(begin.challenge),
+          rp: { name: "Cerebrum", id: begin.rpId },
+          user: {
+            id: new TextEncoder().encode(begin.user.id),
+            name: begin.user.name,
+            displayName: begin.user.displayName,
+          },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+          authenticatorSelection: { userVerification: "preferred", residentKey: "preferred" },
+          attestation: "none",
+          excludeCredentials: (begin.excludeCredentials || []).map((id) => ({ type: "public-key", id: pkB64Decode(id) })),
+        },
+      });
+      if (!cred) throw new Error("cancelled");
+      const finish = await apiAuth("passkey-register-finish", {
+        attestationObject: pkB64Encode(cred.response.attestationObject),
+        clientDataJSON: pkB64Encode(cred.response.clientDataJSON),
+        label: label || null,
+      });
+      if (!finish || !finish.ok) throw new Error((finish && finish.error) || "Couldn't finish passkey setup.");
+      try { localStorage.setItem("cb_pk_offer_dismissed", "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: passkey offer dismiss:", cbErr); }
+      setPasskeyOffer(false);
+      toast("Passkey set up. Next time, one tap signs you in.");
+      return true;
+    } catch (err) {
+      if (err && err.name === "NotAllowedError") toast("Passkey setup was cancelled.");
+      else if (err && err.message === "cancelled") toast("Passkey setup was cancelled.");
+      else toast(err.message || "Couldn't set up the passkey. Try again.");
+      return false;
+    } finally {
+      setPasskeyRegistering(false);
+    }
+  }
+
+  const dismissPasskeyOffer = () => {
+    try { localStorage.setItem("cb_pk_offer_dismissed", "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: passkey offer dismiss:", cbErr); }
+    setPasskeyOffer(false);
+  };
   // ── Cerebrum Pro (2026-09-15) ──
   const [proStatus, setProStatus] = useState(null);
   const [proModalOpen, setProModalOpen] = useState(false);
@@ -17898,6 +18003,26 @@ function App() {
     // tables above. Locked (no phrase on this device) means sync pauses
     // — never a silent fall back to plaintext.
     await initVaultForUser(authedUser, { saved: serverSaved.length, history: serverHist.length });
+    // returnTo intent: the Pro modal's sign-in button opens auth, and the
+    // highest-intent click in the app shouldn't dead-end at the sign-in
+    // wall. Reopen Pro now that the session exists.
+    if (authReturnTo === "pro") {
+      setAuthReturnTo(null);
+      setProModalOpen(true);
+    }
+    // Passkey graduation: one quiet offer after sign-in, only if this
+    // account has no passkey yet, this browser supports WebAuthn, and we
+    // haven't asked before. The offer is a banner, not a modal — it never
+    // blocks.
+    try {
+      const dismissed = localStorage.getItem("cb_pk_offer_dismissed") === "1";
+      const canPasskey = typeof window !== "undefined" && !!window.PublicKeyCredential;
+      if (!dismissed && canPasskey) {
+        apiAuth("passkey-status", {}).then((st) => {
+          if (st && st.ok && (!st.credentials || st.credentials.length === 0)) setPasskeyOffer(true);
+        }).catch(() => {});
+      }
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: passkey offer check:", cbErr); }
   }
 
   // Restores an existing session on load, and completes a magic-link
@@ -20727,7 +20852,18 @@ function App() {
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
               <div style={S.thread}>
-                {turns.map((t, ti) => (<TurnRow key={t.id ?? ti} t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />))}
+                {turns.map((t, ti) => {
+                  /* The Dive: the freshly arrived answer ascends back to
+                     the surface. One play, then the id clears on animation
+                     end. Reduced motion never gets the class. */
+                  const diveAscend = t.id != null && t.id === diveAscendId && !cbMotionOff();
+                  return (
+                    <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
+                      onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                    </div>
+                  );
+                })}
                 {busy && showBusy && (<div style={S.turn}>
                   {/* The Reading Room: the question as a specimen label, the
                       fifteen databases as a labelled constellation the query
@@ -20843,7 +20979,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); } }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -21640,7 +21776,7 @@ function App() {
       {authOpen && (
         <AuthModal
           P={P} accent={accent} at={at}
-          close={() => setAuthOpen(false)}
+          close={() => { setAuthOpen(false); setAuthReturnTo(null); }}
           intent={authInitialTab === "signup" ? "signup" : "login"}
           onAuthed={(u) => handleAuthed(u, { checkImport: true })}
         />
@@ -21650,7 +21786,7 @@ function App() {
         <ProModal
           P={P} accent={accent} at={at} user={user} proStatus={proStatus}
           onClose={() => setProModalOpen(false)}
-          onSignIn={() => { setAuthInitialTab("login"); setAuthOpen(true); }}
+          onSignIn={() => { setAuthInitialTab("login"); setAuthReturnTo("pro"); setAuthOpen(true); }}
         />
       )}
       {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}
@@ -21726,6 +21862,32 @@ function App() {
       {animationMode !== "off" && <div className="cb-grain" aria-hidden="true" />}
       {animationMode !== "off" && <div className="cb-vignette" aria-hidden="true" />}
       <ToastHost P={P} accent={accent} />
+      {/* Passkey graduation: one quiet line after sign-in, never a modal.
+          Dismisses itself on setup or "Not now", and never asks again. */}
+      {passkeyOffer && user && (
+        <div role="status" style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          zIndex: Z.toast, maxWidth: "min(440px, calc(100vw - 32px))",
+          background: P.raised, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg,
+          boxShadow: P.shadow, padding: "14px 16px",
+          display: "flex", alignItems: "center", gap: 12,
+          animation: "cbToastPop 280ms var(--cb-ease-out, ease-out) both",
+        }}>
+          <Icon name="lock" size={18} style={{ color: accent, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>Skip codes next time</div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>Set up a passkey on this device and sign in with one tap.</div>
+          </div>
+          <button onClick={() => registerPasskey()} disabled={passkeyRegistering}
+            style={{ minHeight: 44, padding: "8px 14px", borderRadius: RADIUS.md, background: accent, color: at, border: "none", fontWeight: 700, fontSize: FONT_SIZES.small, cursor: passkeyRegistering ? "default" : "pointer", opacity: passkeyRegistering ? 0.7 : 1, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+            {passkeyRegistering ? "Waiting…" : "Set up"}
+          </button>
+          <button onClick={dismissPasskeyOffer}
+            style={{ minHeight: 44, padding: "8px 10px", borderRadius: RADIUS.md, background: "none", border: "none", color: P.faint, fontSize: FONT_SIZES.small, cursor: "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+            Not now
+          </button>
+        </div>
+      )}
       {/* Commit 69 — rendered last so it sits above every other layer, and
           unconditionally blocking: no query runs, no data loads into view,
           and nothing is written to an account until this is accepted. */}
@@ -21957,6 +22119,16 @@ summary::-webkit-details-marker { display: none; }
 .cb-consent-mark { display: inline-flex; animation: cbConsentBreathe 7s ease-in-out infinite; }
 @keyframes cbConsentBreathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .cb-consent-mark { animation: none; } }
+/* The living mark: search loading breathes instead of spinning. The two
+   hemispheres trade opacity on a 4s cycle, out of phase — calm, never a
+   spinner. Reduced motion: static mark. */
+.cb-mark-breath-a { animation: cbMarkBreatheA 4s ease-in-out infinite; }
+.cb-mark-breath-b { animation: cbMarkBreatheB 4s ease-in-out infinite; }
+@keyframes cbMarkBreatheA { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes cbMarkBreatheB { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .cb-mark-breath-a, .cb-mark-breath-b { animation: none; }
+}
 
 /* ── Venn diagram — a static instrument. The lobes used to breathe via
    drift keyframes and a turbulence wobble filter; both were removed in
@@ -22376,16 +22548,11 @@ summary::-webkit-details-marker { display: none; }
   font-family: var(--cb-font); font-size: 17px; font-weight: 500;
   line-height: 1.5; color: var(--cb-ink);
   caret-color: var(--cb-acc);
+  resize: none; overflow-y: hidden;
 }
-.cb-ask-ph {
-  position: absolute; inset: 0;
-  display: flex; align-items: center;
-  padding: 0 18px;
-  font-family: var(--cb-font); font-size: 17px; font-weight: 500; line-height: 1.5;
+.cb-ask-input::placeholder {
   color: var(--cb-ph);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  pointer-events: none; user-select: none;
-  animation: cbPhIn 280ms ease both;
+  opacity: 1;
 }
 .cb-ask-tools {
   display: flex; align-items: center; gap: 0; flex-shrink: 0;
@@ -22584,9 +22751,8 @@ summary::-webkit-details-marker { display: none; }
 @media (max-width: 480px) {
   .cb-mast { margin-bottom: 16px; }
   .cb-mast-line { font-size: 13px; }
-  .cb-ask-input, .cb-ask-ph { font-size: 16px; }
+  .cb-ask-input { font-size: 16px; }
   .cb-ask-input { min-height: 56px; padding: 13px 4px 13px 16px; }
-  .cb-ask-ph { padding: 0 16px; }
   .cb-modes { gap: 2px 14px; padding-top: 10px; }
   .cb-ask-recent {
     max-height: min(44vh, 320px);
@@ -22596,7 +22762,7 @@ summary::-webkit-details-marker { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cb-ask, .cb-mast, .cb-ask-ph, .cb-ask-recent,
+  .cb-ask, .cb-mast, .cb-ask-recent,
   .cb-starter { animation: none; }
   .cb-ask-spin { animation: none; }
   .cb-mode, .cb-ask-tool, .cb-ask-go,
