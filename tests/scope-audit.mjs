@@ -50,6 +50,8 @@ const GLOBALS = new Set([
   "RegExp", "Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError",
   "Map", "Set", "WeakMap", "WeakSet", "Promise", "Symbol", "BigInt", "Intl",
   "Reflect", "Proxy", "NaN", "Infinity", "undefined", "globalThis", "self",
+  "Uint8Array", "Uint16Array", "Uint32Array", "Int8Array", "Int16Array",
+  "Int32Array", "Float32Array", "Float64Array", "ArrayBuffer", "DataView",
   "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURI", "decodeURI",
   "encodeURIComponent", "decodeURIComponent", "escape", "unescape",
   "structuredClone", "WebSocket", "Worker", "BroadcastChannel", "MessageChannel",

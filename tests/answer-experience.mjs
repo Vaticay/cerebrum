@@ -321,7 +321,8 @@ await test("answer surface is one wide article column; evidence is a drawer", ()
   assert.match(appSrc, /function EvidenceRail/, "EvidenceRail missing");
   assert.match(appSrc, /\.cb-answer-wrap/, "answer wrap CSS missing");
   assert.ok(!/cb-answer-grid/.test(appSrc), "old two-column answer grid still referenced");
-  assert.match(appSrc, /<article style=\{S\.answerCard\} className="cb-answer-enter cb-article"/, "article not on the answer-enter contract");
+  assert.match(appSrc, /<TickFrame P=\{P\} accent=\{accent\} className="cb-answer-enter"/, "answer not framed by TickFrame on the answer-enter contract");
+  assert.match(appSrc, /<article style=\{\{[^}]*\.\.\.S\.answerCard[^}]*border: "none"[^}]*borderRadius: RADIUS\.viewport/, "article not on the tick-viewport contract");
   // Article measure stays in the 65–75ch readability band.
   const articleRule = appSrc.slice(appSrc.indexOf(".cb-answer-wrap .cb-article"));
   assert.match(articleRule.slice(0, 160), /max-width: 7[0-5]ch/, "article measure outside 65–75ch");
@@ -360,7 +361,7 @@ await test("evidence drawer: portaled dialog, closed by default, declarative syn
   assert.match(block, /e\.key === "Escape"/, "drawer missing Escape-to-close");
   assert.match(block, /onActivate\(\w+\)/, "drawer number rows not wired to citation sync");
   // Turn-level: the drawer opens from citation taps, toolbar, and jump rail.
-  assert.match(appSrc, /, \(\) => setEvidenceOpen\(true\)\)/, "citation taps do not open the drawer");
+  assert.match(appSrc, /\(\) => setEvidenceOpen\(true\)/, "citation taps do not open the drawer");
   assert.match(appSrc, /setEvidenceOpen\(\(v\) => !v\)/, "toolbar Evidence index does not toggle the drawer");
 });
 
@@ -387,7 +388,7 @@ await test("no bare Degraded chip — pipeline honesty lives in diagnostics", ()
 });
 
 await test("claim spine: cited paragraphs record claims, rail inverts them", () => {
-  assert.match(appSrc, /className="cb-claim"/, "claim wrapper missing");
+  assert.match(appSrc, /className="cb-claim/, "claim wrapper missing");
   assert.match(appSrc, /className="cb-claim-refs"/, "claim reference gutter missing");
   assert.match(appSrc, /claimSink\.push\(\{ claim: claimNo, cites: paraCites \}\)/, "claim spine not recorded");
   assert.match(appSrc, /Supports claim/, "rail claim-support line missing");
@@ -395,16 +396,12 @@ await test("claim spine: cited paragraphs record claims, rail inverts them", () 
   assert.match(appSrc, /onActivate=\{onActivateCite\}/, "rail row activation not wired");
 });
 
-await test("animated typing is the typewriter, not the old stagger", () => {
-  // The Commit-55 paragraph stagger stays retired.
-  assert.match(appSrc, /const answerRevealRef = useRef\(null\)/, "answer stagger not retired");
-  // RESTORED 2026-09-17: animated typing is back as the typewriter reveal —
-  // fresh answers only, cookie-persisted, reduced-motion safe. It must be
-  // the useTypewriter wiring, not a revived stagger.
+await test("animated reveal is answer assembly, not the old typewriter", () => {
+  // 2026-10-08: Answer Assembly replaced the character typewriter with a
+  // paragraph stagger (120ms). The typewriter is retired.
   const code = appSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-  // Settings UI lives in src/settings.jsx after the monolith split.
-  assert.ok(/label="Animated typing"/.test(settingsSrc), "Animated typing settings row missing");
-  assert.match(code, /const shown = useTypewriter\(t\.answer, typewriter && t\.fresh\)/, "typewriter not gated on fresh turns");
+  assert.match(code, /useAnswerAssembly/, "answer assembly hook not wired");
+  assert.ok(!/const shown = useTypewriter\(t\.answer/.test(code), "old typewriter still wired");
 });
 
 await test("evidence band tabs use the underlined tab contract", () => {

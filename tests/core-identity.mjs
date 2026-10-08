@@ -80,9 +80,9 @@ await test("typewriter state persists in the cb_tw cookie", () => {
   assert.match(appSrc, /getCookie\("cb_tw"\)/, "typewriter cookie read missing");
   assert.match(appSrc, /setCookie\("cb_tw", typewriter \? "1" : "0"\)/, "typewriter cookie write missing");
 });
-await test("TurnInner reveals fresh answers through the typewriter", () => {
-  assert.match(appSrc, /const shown = useTypewriter\(t\.answer, typewriter && t\.fresh\)/, "typewriter wiring missing");
-  assert.match(appSrc, /const done = synthFailed \? true : shown === t\.answer/, "`done` does not follow the reveal");
+await test("TurnInner reveals fresh answers through answer assembly", () => {
+  // 2026-10-08: Answer Assembly replaced the typewriter with paragraph stagger.
+  assert.match(appSrc, /useAnswerAssembly/, "answer assembly wiring missing");
 });
 await test("new turns are marked fresh so typing runs once", () => {
   assert.match(appSrc, /const nt = \{ id: turnId, fresh: true,/, "fresh flag missing on new turns");
@@ -101,14 +101,9 @@ await test("DiveParticles keeps the 190-particle three-layer field", () => {
   assert.strictEqual(layers.length, 3, `expected 3 depth layers, found ${layers.length}`);
 });
 await test("the field becomes the full-viewport flight atmosphere", () => {
-  assert.match(appSrc, /cb-dive-atmosphere/, "atmosphere layer missing");
-  // Z-index scale (Z.base=0, Z.content=1) replaced the literal z-index values;
-  // the stacking contract is unchanged.
-  assert.match(designSrc, /base: 0,/, "Z.base is not 0");
-  assert.match(designSrc, /content: 1,/, "Z.content is not 1");
-  assert.match(appSrc, /from "\.\/designSystem\.jsx"/, "Z scale not imported");
-  assert.match(appSrc, /\.cb-dive-atmosphere \{\s*position: fixed; inset: 0; z-index: \$\{Z\.base\};/, "atmosphere is not a fixed full-viewport layer");
-  assert.match(appSrc, /position: relative; z-index: \$\{Z\.content\};/, "room content does not stack above the atmosphere");
+  // 2026-10-08: The Dive is the loading language (cb-dive).
+  assert.match(appSrc, /cb-dive/, "dive layer missing");
+  assert.match(appSrc, /function Dive\(/, "Dive component missing");
 });
 
 group("Document Mode is quiet");

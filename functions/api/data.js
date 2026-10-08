@@ -510,7 +510,7 @@ export async function onRequest(context) {
       // raise, so it's not being guessed at here.
       if (resource === "profile") {
         const row = await env.DB.prepare(
-          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, pinned, interests, terms_version, terms_accepted_at, discoverable, dm_policy, show_affiliation FROM users WHERE id = ?"
+          "SELECT id, email, email_lower, username, name, affiliation, degree, grad_year, avatar_base64, bio, cover, link_site, link_orcid, link_scholar, pinned, interests, terms_version, terms_accepted_at, discoverable, dm_policy, show_affiliation, reading_profile FROM users WHERE id = ?"
         ).bind(user.id).first();
         if (!row) return errRes("Account not found.", 404, "not_found", cors);
         const followerCount = await env.DB.prepare(
@@ -568,6 +568,9 @@ export async function onRequest(context) {
             showAffiliation: row.show_affiliation === null || row.show_affiliation === undefined ? true : row.show_affiliation === 1,
             dmPolicy: row.dm_policy === "anyone" ? "anyone" : "following",
           },
+          // Reading Profiles — the roaming comfort bundle name. NULL means
+          // never set; the client falls back to its cookie.
+          readingProfile: ["dyslexia", "lowvision", "migraine", "focus", "none"].includes(row.reading_profile) ? row.reading_profile : null,
         }), { status: 200, headers: cors });
       }
 
@@ -1685,6 +1688,12 @@ export async function onRequest(context) {
       }
       if (body.dm_policy === "anyone" || body.dm_policy === "following") {
         sets.push("dm_policy = ?"); binds.push(body.dm_policy);
+      }
+
+      // Reading Profiles — validated against the fixed set, same strict
+      // parsing as dm_policy above. "none" clears the roaming profile.
+      if (typeof body.reading_profile === "string" && ["dyslexia", "lowvision", "migraine", "focus", "none"].includes(body.reading_profile)) {
+        sets.push("reading_profile = ?"); binds.push(body.reading_profile);
       }
 
       if (!sets.length) return errRes("Nothing to update.", 400, "bad_request", cors);

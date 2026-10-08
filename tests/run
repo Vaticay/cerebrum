@@ -507,7 +507,7 @@ await test("Turn is memoized with stabilized per-turn callbacks", async () => {
   const appSrc = (await (await import("node:fs/promises")).readFile(join(root, "src/CerebrumApp.jsx"), "utf8"));
   assert.match(appSrc, /const Turn = React\.memo\(TurnInner\)/, "Turn is not wrapped in React.memo");
   assert.match(appSrc, /askRef\.current/, "per-turn callbacks do not read through a stable ask ref");
-  assert.match(appSrc, /<TurnRow key=\{t\.id \?\? ti\}/, "turn list does not render the stabilized TurnRow");
+  assert.match(appSrc, /<div key=\{t\.id \?\? ti\} className=\{diveAscend \? "cb-turn-ascend" : undefined\}/, "turn list does not render the stabilized TurnRow");
   assert.ok(!/onStress=\{\(o\) => ask\(t\.q, o\)\}/.test(appSrc), "unstable inline onStress still passed per render");
 });
 await test("a11y: skip link, main landmark, input names, SVG roles, abort", async () => {
@@ -541,34 +541,48 @@ await test("film survives iOS autoplay policies (Low Power Mode)", async () => {
   assert.match(introSrc, /onAutoplayBlocked/, "autoplay-blocked notification missing");
   assert.match(introSrc, /Background film paused — tap to play/, "tap-to-play pill missing");
 });
-await test("search loader: descent instrument, honest clock, no fake progress", async () => {
+await test("search loader: The Dive, honest stages, no fake progress", async () => {
   const fs = await import("node:fs/promises");
   const appSrc = await fs.readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  const diveSrc = await fs.readFile(join(root, "src/DiveParticles.jsx"), "utf8");
-  // The descent instrument's moving parts exist and are keyed: the canvas
-  // particle field + the reading-line scan. The scan travels on transform
-  // only.
-  assert.match(diveSrc, /requestAnimationFrame\(render\)/, "particle field has no frame loop");
-  assert.match(appSrc, /@keyframes cbDiveScan/, "reading-line scan keyframes missing");
-  assert.match(appSrc, /transform: translateX\(calc\(100% \+ 14px\)\)/, "scan does not travel the full line on transform");
-  assert.match(appSrc, /cb-dive-scan/, "scan element missing from the loader");
-  assert.match(appSrc, /DiveParticles/, "particle field missing from the loader");
-  assert.match(appSrc, /cb-dive-particles/, "particle canvas class missing");
-  // The old orbital chrome is gone: no comet, no sonar pings, no tick ring.
-  for (const dead of ["cb-tx-comet", "cbTxPing", "cbTxOrbit", "cb-tx-ping-b"]) {
-    assert.ok(!appSrc.includes(dead), `orbital instrument remnant survived: ${dead}`);
-  }
-  assert.ok(!/for \(let i = 0; i < 60; i\+\+\)/.test(appSrc), "60-tick chronometer ring survived");
-  // The one honest number is untouched: real elapsed seconds.
-  assert.match(appSrc, /cb-dive-clock/, "elapsed clock missing from the loader");
-  assert.match(appSrc, /Math\.floor\(elapsed \/ 1000\)/, "clock is not driven by real elapsed time");
-  // Reduced motion parks the whole instrument, new parts included: the
-  // scan's CSS animation is silenced and the canvas renders one still frame.
-  assert.match(appSrc, /\.cb-dive-scan \{ animation: none; \}/,
-    "reduced-motion does not silence the scan");
-  assert.match(diveSrc, /if \(reduced\)/, "particle field ignores reduced motion");
-  // The particle loop parks when the answer arrives — no frame burn after.
-  assert.match(diveSrc, /doneRef\.current/, "particle loop does not park on done");
+  const searchSrc = await fs.readFile(join(root, "functions/api/search.js"), "utf8");
+  // The Dive: five depth strata mapped 1:1 to the pipeline's real SSE
+  // stages. No more, no fewer.
+  assert.match(appSrc, /const DIVE_DEPTHS = \["0m", "200m", "400m", "600m", "800m"\]/, "depth strata missing or wrong");
+  assert.match(appSrc, /function Dive\(\{ P, accent, q,/, "Dive component missing");
+  assert.match(appSrc, /const stages = SEARCH_STREAM_STAGES;/, "strata are not mapped from the real stage list");
+  // The elapsed clock is gone: the only number is the real per-database
+  // count off the finding_papers stream frames.
+  assert.ok(!appSrc.includes("cb-dive-clock"), "anxiety clock survived");
+  assert.ok(!/Math\.floor\(elapsed \/ 1000\)/.test(appSrc), "elapsed timer survived");
+  assert.match(appSrc, /databases answered/, "honest database count missing");
+  assert.match(searchSrc, /onDbProgress/, "backend does not report per-database progress");
+  assert.match(searchSrc, /answered, total/, "progress payload lacks answered/total");
+  // The 190-particle canvas is out of the loading path (it stays with the
+  // intro). The Dive uses a light CSS snow field that densifies with depth.
+  assert.ok(!appSrc.includes("<DiveParticles"), "heavy particle canvas still in the loader");
+  assert.match(appSrc, /@keyframes cbSnowDrift/, "snow drift keyframes missing");
+  assert.match(appSrc, /cb-dive-mote/, "snow motes missing");
+  // No fake geometry: Skeleton and AnswerSkeleton (including its empty
+  // citation chips) are deleted, not deprecated.
+  assert.ok(!appSrc.includes("function Skeleton("), "Skeleton survived");
+  assert.ok(!appSrc.includes("function AnswerSkeleton("), "AnswerSkeleton survived");
+  assert.ok(!appSrc.includes("<AnswerSkeleton"), "AnswerSkeleton usage survived");
+  // The traveler rides the rail; completed waypoints keep their real
+  // backend counts via accumulated history.
+  assert.match(appSrc, /cb-dive-traveler/, "traveler dot missing");
+  assert.match(appSrc, /cb-dive-railfill/, "rail trail missing");
+  assert.match(appSrc, /prev\.history\.slice\(\)/, "stage history is not accumulated");
+  // The answer ascends when it lands: one play, then the id clears.
+  assert.match(appSrc, /cb-turn-ascend/, "answer ascent class missing");
+  assert.match(appSrc, /setDiveAscendId\(turnId\)/, "ascent trigger missing");
+  assert.match(appSrc, /@keyframes cbAscend/, "ascent keyframes missing");
+  // First-run honesty caption, plain words, shown once.
+  assert.match(appSrc, /Real stages\. No fake progress\. If a database is slow, you will see it waiting\./, "honesty caption missing");
+  assert.match(appSrc, /cb_dive_honesty/, "honesty caption is not first-run gated");
+  // Reduced motion: static stage list, no snow, no traveler pulse, no
+  // descent animation. The stage names and the database count carry it.
+  assert.match(appSrc, /\.cb-dive-mote \{ animation: none; \}/, "reduced-motion does not silence the snow");
+  assert.match(appSrc, /\.cb-dive-traveler \{ animation: none; \}/, "reduced-motion does not silence the traveler");
   // The kicker says Query — the lab-jargon "Query / Specimen" is gone.
   assert.ok(!appSrc.includes("Query / Specimen"), "specimen kicker survived");
 });
@@ -621,7 +635,7 @@ await test("auth email sends have hard timeouts", async () => {
 // Worker-owned suites (backend overhaul passes): each is a standalone
 // script with its own assertions; run them as child processes so a
 // failure here fails the whole suite.
-for (const suite of ["auth-security.mjs", "content-endpoints.mjs", "media-resilience.mjs", "lead-media.mjs", "media-contract.mjs", "shared-libs.mjs", "answer-insights.mjs", "css-keyframes.mjs", "fc-label.mjs", "answer-experience.mjs", "scope-audit.mjs", "export-excel.mjs", "favicon.mjs", "answer-engine.mjs", "intro-title-card.mjs", "answer-ship.mjs", "core-identity.mjs", "flashpoint-fix.mjs", "venn-premium.mjs", "openrouter-key-alias.mjs", "scale-hardening.mjs", "pro.mjs", "backend-hardening.mjs", "trending-digest.mjs", "docmode-reader.mjs", "e2ee-crypto.mjs", "e2ee-server.mjs", "e2ee-messaging.mjs", "e2ee-adversarial.mjs", "e2ee-lazy.mjs", "zk-data.mjs", "zk-server.mjs", "extractive-fallback.mjs", "search-pipeline-smoke.mjs", "document-rewrite.mjs", "seo-host-redirect.mjs", "seo-deeplink.mjs", "seo-prerender.mjs", "seo-redirects.mjs", "seo-faq.mjs", "seo-marketing.mjs", "seo-404.mjs", "investigation-history.mjs", "flowchart-sync.mjs", "group-messaging.mjs", "semantic-rerank.mjs", "embedding-budget.mjs", "embedding-cache.mjs", "race-best.mjs", "api-keys.mjs", "search-priority.mjs", "scroll-lock.mjs", "search-intelligence.mjs", "pro-telemetry.mjs", "no-undefined-refs.mjs", "ui-render.cjs"]) {
+for (const suite of ["auth-security.mjs", "content-endpoints.mjs", "media-resilience.mjs", "lead-media.mjs", "media-contract.mjs", "shared-libs.mjs", "answer-insights.mjs", "css-keyframes.mjs", "fc-label.mjs", "answer-experience.mjs", "scope-audit.mjs", "export-excel.mjs", "favicon.mjs", "answer-engine.mjs", "intro-title-card.mjs", "answer-ship.mjs", "core-identity.mjs", "flashpoint-fix.mjs", "venn-premium.mjs", "openrouter-key-alias.mjs", "scale-hardening.mjs", "pro.mjs", "backend-hardening.mjs", "trending-digest.mjs", "docmode-reader.mjs", "e2ee-crypto.mjs", "e2ee-server.mjs", "e2ee-messaging.mjs", "e2ee-adversarial.mjs", "e2ee-lazy.mjs", "webauthn.mjs", "zk-data.mjs", "zk-server.mjs", "extractive-fallback.mjs", "search-pipeline-smoke.mjs", "document-rewrite.mjs", "seo-host-redirect.mjs", "seo-deeplink.mjs", "seo-prerender.mjs", "seo-redirects.mjs", "seo-faq.mjs", "seo-marketing.mjs", "seo-404.mjs", "investigation-history.mjs", "flowchart-sync.mjs", "group-messaging.mjs", "semantic-rerank.mjs", "embedding-budget.mjs", "embedding-cache.mjs", "race-best.mjs", "api-keys.mjs", "search-priority.mjs", "scroll-lock.mjs", "search-intelligence.mjs", "pro-telemetry.mjs", "no-undefined-refs.mjs", "ui-render.cjs"]) {
   await test(`suite ${suite}`, async () => {
     const { execFile } = await import("node:child_process");
     await new Promise((resolve, reject) => {

@@ -8115,6 +8115,20 @@ async function gatherPapers(rawQuery, opts) {
       diag.sourceTotals.set(o.source, prev);
     }
     diag.sourceOutcomes = [...diag.sourceTotals.values()];
+    /* The Dive: report real per-database progress for the loading
+       instrument. After each rung, count sources that answered OK in at
+       least one attempt. The SSE path re-emits finding_papers with this
+       count so the client can show an honest "N of 15 databases answered"
+       instead of a fake progress bar. Fire-and-forget by contract: the
+       callback must never slow retrieval, and a throwing callback must
+       never break the rung loop. */
+    try {
+      if (opts && typeof opts.onDbProgress === "function") {
+        let answered = 0;
+        for (const v of diag.sourceTotals.values()) if (v && v.ok) answered++;
+        opts.onDbProgress({ answered, total: sourceNames.length });
+      }
+    } catch (cbErr) { console.error("[Cerebrum] search.js onDbProgress:", cbErr); }
     // Total accumulated across all rungs so far, not just this rung alone —
     // this is what should gate whether we keep loosening the query.
     const totalAccumulated = accumulated.reduce(
@@ -10647,6 +10661,20 @@ async function runSearchPipeline(pctx) {
         resolvedPersonName,
         db: env.DB,
         env,
+        /* The Dive: real per-database progress. Each rung completion
+           re-emits finding_papers with the answered count; the client maps
+           repeated events for the same stage key onto its depth rail (same
+           index, fresh detail). Never awaited — retrieval must not wait on
+           the stream writer, and a failed emit must not fail the search. */
+        onDbProgress: ({ answered, total }) => {
+          if (emitStage) {
+            Promise.resolve(emitStage("finding_papers", {
+              searchQuery: String(searchQuery).slice(0, 200),
+              answered, total,
+              requestId,
+            })).catch(() => {});
+          }
+        },
       }).catch((e) => {
         // Same rule as gatherPapers' own internal catch: full detail to the
         // server log, nothing stack-trace-shaped to the client — this

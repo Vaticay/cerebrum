@@ -187,6 +187,21 @@ export function Icon({ name, size = 17, className, style }) {
     case "document": return <svg {...common}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6" /></svg>;
     case "upload": return <svg {...common}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path d="M12 3v12" /></svg>;
     case "play": return <svg {...common} fill="currentColor" stroke="none"><path d="M8 5v14l11-7z" /></svg>;
+    case "star": return <svg {...common}><path d="M12 2.8l2.8 5.8 6.4.9-4.7 4.5 1.1 6.3L12 17.3l-5.6 3 1.1-6.3L2.8 9.5l6.4-.9z" /></svg>;
+    case "starFilled": return <svg {...common} fill="currentColor" stroke="none"><path d="M12 2.8l2.8 5.8 6.4.9-4.7 4.5 1.1 6.3L12 17.3l-5.6 3 1.1-6.3L2.8 9.5l6.4-.9z" /></svg>;
+    case "pause": return <svg {...common}><path d="M9 5v14M15 5v14" strokeWidth={2.6} /></svg>;
+    // Panel/sidebar toggle: a frame with its left panel divided off.
+    case "panelLeft": return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9.5 4v16" /></svg>;
+    // Studio brand mark: the two brain hemispheres joined by a link edge
+    // with an arrowhead — the visual builder's "connect" in one glyph.
+    case "studioMark": return <svg {...common}><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" /><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" /><path d="M10.6 12h2.8M12.2 10.6l1.4 1.4-1.4 1.4" /></svg>;
+    // Verdict glyphs: one shared ring geometry (r 8.5), four epistemic
+    // states. Shape carries the meaning so no state depends on color
+    // alone — colorblind-safe by construction.
+    case "verdictSupported": return <svg {...common}><circle cx="12" cy="12" r="8.5" /><path d="M8.4 12.3l2.5 2.5 4.7-5.1" /></svg>;
+    case "verdictMixed": return <svg {...common}><circle cx="12" cy="12" r="8.5" /><path d="M12 3.5a8.5 8.5 0 010 17z" fill="currentColor" stroke="none" /></svg>;
+    case "verdictContradicted": return <svg {...common}><path d="M16.25 4.64A8.5 8.5 0 1 1 7.75 4.64" /></svg>;
+    case "verdictUnverified": return <svg {...common}><circle cx="12" cy="12" r="8.5" strokeDasharray="2.6 3.2" /></svg>;
     default: {
       if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
@@ -409,7 +424,72 @@ export const RADIUS = {
   // the most-used control radius (164 usages), and xl: 16 covers the hero
   // surfaces from the polish pass. The lone radius-18 was migrated to 16.
   sm: 6, md: 8, lg: 12, xl: 16, pill: 100,
+  // Viewports (answer card, composer, evidence drawers, specimen frames)
+  // use near-sharp corners: the corner ticks do the visual work, so the
+  // frame itself stays quiet. See TICKS and TickFrame below.
+  viewport: 2,
 };
+
+/* TICKS — the instrument registration-mark motif.
+   Corner ticks (small L-shaped marks, 8px arms, 1.5px weight) frame
+   viewports the way a microscope viewfinder or NASA targeting reticle
+   does: answer cards, the composer, evidence drawers, specimen
+   viewports. Controls (buttons, chips, inputs) stay rounded pills —
+   controls are friendly, viewports are precise. The contrast between
+   soft controls and ticked viewports is the recognizable grammar.
+   Rule: ticks live on viewports or they mean nothing. Never on
+   marketing buttons, toasts, or menus. */
+export const TICKS = {
+  arm: 8,      // length of each tick arm, px
+  weight: 1.5, // tick stroke weight, px
+  inset: -1,   // tick offset from the frame edge (negative straddles it)
+};
+
+/* TickFrame — a viewport framed by corner registration ticks.
+   Hairline border plus four L-shaped ticks in the accent (or tickColor).
+   Static: no animation, so nothing about it needs a reduced-motion
+   fallback. Pass P for the hairline, accent for the ticks. */
+export function TickFrame({ children, P = null, accent, tickColor, className = "", style, radius = RADIUS.viewport, border = true, ...rest }) {
+  const pal = P || PALETTES.Dark;
+  const tc = tickColor || accent || pal.ink2;
+  const a = TICKS.arm, w = TICKS.weight, ins = TICKS.inset;
+  // One L path (top-left corner); the other three corners reuse it via
+  // rotation. Verified: rotate(90) puts the vertex top-right, 180
+  // bottom-right, 270 bottom-left.
+  const lPath = `M ${a} 0.75 H 0.75 V ${a}`;
+  const corner = (key, pos, rotate) => (
+    <svg key={key} aria-hidden="true" width={a} height={a} viewBox={`0 0 ${a} ${a}`}
+      style={{
+        position: "absolute", overflow: "visible", pointerEvents: "none",
+        color: tc, flexShrink: 0,
+        top: pos[0] === "t" ? ins : "auto",
+        bottom: pos[0] === "b" ? ins : "auto",
+        left: pos[1] === "l" ? ins : "auto",
+        right: pos[1] === "r" ? ins : "auto",
+        transform: rotate ? `rotate(${rotate}deg)` : undefined,
+      }}>
+      <path d={lPath} fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
+    </svg>
+  );
+  return (
+    <div
+      className={("cb-tickframe " + className).trim()}
+      {...rest}
+      style={{
+        position: "relative",
+        borderRadius: radius,
+        border: border ? `1px solid ${pal.line}` : "none",
+        ...style,
+      }}
+    >
+      {corner("tl", ["t", "l"], 0)}
+      {corner("tr", ["t", "r"], 90)}
+      {corner("br", ["b", "r"], 180)}
+      {corner("bl", ["b", "l"], 270)}
+      {children}
+    </div>
+  );
+}
 
 /* SHADOW scale: theme-aware depth tokens. Pass the palette P.
    The polish pass added ~12 ad-hoc shadow patterns; these five roles

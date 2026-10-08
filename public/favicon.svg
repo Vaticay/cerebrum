@@ -1,8 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <!-- Cerebrum mark, flattened: a single solid deep-green two-hemisphere
        brain on transparency. No tile, no gradients, no bloom — the mark
-       stands on its own at any size. -->
-  <g fill="none" stroke="#0e7a4e" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(8 9) scale(2)">
+       stands on its own at any size. Stroke is 3.2 at the 2x scale below,
+       i.e. 1.6 effective: the same weight as the in-app Mark. -->
+  <g fill="none" stroke="#0e7a4e" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" transform="translate(8 9) scale(2)">
     <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/>
     <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/>
   </g>

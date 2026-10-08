@@ -449,6 +449,11 @@ export async function ensureUserProfileColumns(env) {
     // The frontend edited these for a while without a column; they were
     // local-only and lost on refresh.
     "ALTER TABLE users ADD COLUMN interests TEXT",
+    // Reading Profiles — the active comfort bundle name ("dyslexia",
+    // "lowvision", "migraine", "focus", "none"). The underlying settings
+    // stay cookie-local; the profile name roams with the account so the
+    // comfort setup follows the user across devices.
+    "ALTER TABLE users ADD COLUMN reading_profile TEXT",
     /* Commit 100 — privacy controls. Three columns, all nullable, all with a
        defined meaning for NULL so an account that predates them behaves
        sensibly without a backfill:

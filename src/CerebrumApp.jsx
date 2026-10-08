@@ -7738,6 +7738,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
      unmounting clears stragglers too, so a flash can never outlive the
      answer that caused it. */
   const [activeCite, setActiveCite] = useState(0);
+  const [fanN, setFanN] = useState(0);
   useEffect(() => {
     if (!activeCite && !evidenceOpen) return undefined;
     const onKey = (e) => {

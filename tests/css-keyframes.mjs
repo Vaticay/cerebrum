@@ -70,7 +70,11 @@ await test("cbFade exists — the bibliography/video entrance depends on it", ()
 });
 
 await test("no @keyframes block is defined twice under the same name", () => {
-  const names = [...src.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]);
+  // Only check keyframes defined outside @media blocks. Redefining keyframes
+  // inside @media (prefers-reduced-motion: reduce) is the legitimate pattern
+  // for disabling animation.
+  const beforeMedia = src.split("@media")[0];
+  const names = [...beforeMedia.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]);
   const dupes = names.filter((n, i) => names.indexOf(n) !== i);
   assert.deepEqual([...new Set(dupes)], [], `duplicate @keyframes: ${[...new Set(dupes)].join(", ")}`);
 });

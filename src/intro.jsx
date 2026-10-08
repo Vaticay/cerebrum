@@ -36,7 +36,7 @@ function InvestigationOpening({ accent, animationMode }) {
       display: "flex", alignItems: "center", justifyContent: "center",
     }}>
       <svg width="96" height="96" viewBox="0 0 24 24" fill="none"
-        stroke={accent} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
+        stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
         style={{ filter: "drop-shadow(0 0 26px " + withAlpha(accent, 0.55) + ")" }}>
         <path className="cb-open-stroke" d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
         <path className="cb-open-stroke cb-open-stroke-b" d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
@@ -1269,13 +1269,37 @@ function CerebrumFieldCanvas({
 }
 
 
-export function Mark({ size = 26, accent, glow }) {
+export function Mark({ size = 26, accent, glow, className = "", style }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 8px ${withAlpha(accent, 0.35)})` : "none" }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ filter: glow ? `drop-shadow(0 0 8px ${withAlpha(accent, 0.35)})` : "none", ...style }}>
       <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
       <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
     </svg>
   );
+}
+
+/* MarkBreathe — the living mark for search loading. The two hemispheres
+   breathe out of phase on a 4s cycle (opacity only, no transform, so it
+   stays calm and never reads as a spinner). Reduced motion: renders the
+   static mark with no animation. The keyframes live in the app
+   stylesheet next to the other cb-* motion (see cbMarkBreatheA/B). */
+export function MarkBreathe({ size = 40, accent, className = "", style }) {
+  const reduced = useReducedMotion();
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent}
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+      className={("cb-mark-breathe " + className).trim()} style={style} aria-hidden="true">
+      <path className={reduced ? undefined : "cb-mark-breath-a"} d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
+      <path className={reduced ? undefined : "cb-mark-breath-b"} d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
+    </svg>
+  );
+}
+
+/* ProMark — the same brain geometry in the Pro gold register (#d4af37,
+   the Pro palette's restrained gold). Pro surfaces are recognizable by
+   the mark alone, without a badge. */
+export function ProMark({ size = 26, glow = false, className = "", style }) {
+  return <Mark size={size} accent="#d4af37" glow={glow} className={className} style={style} />;
 }
 
 export const FilmLayer = forwardRef(function FilmLayer({

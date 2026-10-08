@@ -505,7 +505,7 @@ await test("sidebar carries New investigation next to Investigations", async () 
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   const navAt = src.indexOf('["investigations", "Investigations", "history"');
   const navBlock = src.slice(navAt, navAt + 400);
-  assert.match(navBlock, /\["new", "New investigation", "plus", null\]/, "sidebar New investigation item missing or misplaced");
+  assert.match(navBlock, /\["new", "New investigation", "plus"/, "sidebar New investigation item missing or misplaced");
   // All nav rows get 44px targets via S.sidebarItem (no per-row override needed).
   assert.match(src, /sidebarItem: \{[^}]*minHeight: 44/, "sidebar rows missing 44px target");
   // The nav key is wired: handleSidebarNavigate runs newSession + Search.

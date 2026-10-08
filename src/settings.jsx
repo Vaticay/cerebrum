@@ -6,7 +6,7 @@
  * privacy, encryption, TTS, system/config status).
  */
 
-import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, kbdLabel, notifyPref, relativeTime, setNotifyPref, statusBad, toast, useIsMobile } from "./appUtils.js";
+import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, ensureDyslexicFont, kbdLabel, notifyPref, relativeTime, setNotifyPref, statusBad, toast, useIsMobile } from "./appUtils.js";
 import { FONT_SIZES, Icon, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBadge, UIButton, UISelect, UIRow, Z, withAlpha } from "./designSystem.jsx";
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
@@ -25,6 +25,134 @@ function TtsVoiceSetting({ P, accent, at, S, sfx }) {
         <UIButton P={P} variant="ghost" key={v} onClick={() => set(v)} style={{ minHeight: 44, flex: 1, padding: "9px 6px", fontSize: FONT_SIZES.small, fontWeight: 600, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>{label}</UIButton>
       ))}
     </div>
+  );
+}
+
+/* ── Reading Profiles ──
+   One-tap comfort bundles. Each profile sets 6 to 8 individual settings
+   coherently, so nobody has to discover and combine eight scattered toggles
+   on their own. Applying a profile is exactly equivalent to flipping each
+   switch by hand: every individual row below stays live, and tweaking any
+   of them after applying a profile marks it "Custom" rather than lying
+   about which profile is active.
+   The profile NAME syncs to the account (reading_profile column); the
+   underlying settings remain cookie-local like every other appearance
+   preference, so a profile applied on desktop follows you to mobile. */
+const READING_PROFILES = {
+  dyslexia: {
+    label: "Dyslexia",
+    desc: "OpenDyslexic typeface, loose spacing, larger text, warm theme",
+    icon: "bookOpen",
+    settings: { dyslexicFont: true, lineSpacing: "loose", fontSize: "large", paletteName: "Sage", dataDensity: "comfortable", focusHighlight: true },
+  },
+  lowvision: {
+    label: "Low vision",
+    desc: "Extra large text, maximum contrast, strong focus rings",
+    icon: "eye",
+    settings: { fontSize: "xlarge", highContrast: true, focusHighlight: true, dataDensity: "comfortable", lineSpacing: "relaxed", reducedTransparency: true },
+  },
+  migraine: {
+    label: "Migraine",
+    desc: "Dark and still. No motion, no transparency, minimal sound",
+    icon: "volumeOff",
+    settings: { paletteName: "Dark", reducedTransparency: true, animationMode: "off", soundMode: "minimal", fontSize: "large", muted: true },
+  },
+  focus: {
+    label: "Focus",
+    desc: "Gentle motion, clear focus rings, answers arrive steadily",
+    icon: "zap",
+    settings: { focusHighlight: true, typewriter: true, animationMode: "subtle", dataDensity: "comfortable", lineSpacing: "relaxed" },
+  },
+};
+const READING_PROFILE_KEYS = Object.keys(READING_PROFILES);
+
+// A short, realistic answer excerpt used for the live preview. The copy is
+// fixed and dash free; only the styling changes per profile.
+const PROFILE_PREVIEW = {
+  kicker: "Answer · 3 min read · 12 cited papers",
+  title: "Does creatine cause hair loss?",
+  body: "The short answer is no. No well designed study has found that creatine supplementation increases hair loss. The concern traces to a single 2009 trial that measured a rise in DHT but never measured hair loss itself, and its findings have not been replicated.",
+};
+
+/* ── Passkeys ──
+   "Skip codes next time." One tap registers this device's platform
+   authenticator (Face ID, Touch ID, Windows Hello, Android) via WebAuthn.
+   Registration and sign-in ceremonies run against /api/auth; the private
+   key never leaves the device. Listed credentials can be removed
+   individually; removing the last one returns the account to email codes. */
+function PasskeyPanel({ P, accent, at, Section, Row, sfx, onRegisterPasskey }) {
+  const [creds, setCreds] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const supported = typeof window !== "undefined" && !!window.PublicKeyCredential;
+
+  const load = useCallback(() => {
+    apiAuth("passkey-status", {}).then((st) => {
+      if (st && st.ok) setCreds(st.credentials || []);
+    }).catch(() => setCreds([]));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const remove = async (id) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await apiAuth("passkey-remove", { credentialId: id });
+      sfx();
+      load();
+      toast("Passkey removed.");
+    } catch (e) {
+      toast(e.message || "Couldn't remove that passkey.", { tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const register = async () => {
+    if (busy || !onRegisterPasskey) return;
+    setBusy(true);
+    try {
+      sfx();
+      const ok = await onRegisterPasskey();
+      if (ok) load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!supported) return null;
+  return (
+    <Section title="Passkeys" footer="A passkey signs you in with one tap. No codes, no email round trip.">
+      {creds === null ? (
+        <Row label="Checking…" last />
+      ) : creds.length === 0 ? (
+        <Row label="No passkeys yet"
+          desc="Set one up on this device and skip the email code next time."
+          control={
+            <button onClick={register} disabled={busy} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: 8, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-font)" }}>
+              {busy ? "Waiting…" : "Set up passkey"}
+            </button>
+          } last />
+      ) : (<>
+        {creds.map((c) => (
+          <Row key={c.id}
+            label={c.label || "Passkey"}
+            desc={c.lastUsedAt ? `Last used ${relativeTime(c.lastUsedAt)}` : "Registered, not used yet"}
+            control={
+              <button onClick={() => remove(c.id)} disabled={busy} aria-label={`Remove ${c.label || "passkey"}`}
+                style={{ minHeight: 44, padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "none", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: busy ? "default" : "pointer", fontFamily: "var(--cb-font)" }}>
+                Remove
+              </button>
+            } />
+        ))}
+        <Row label="Add another device"
+          desc="Register a passkey on this device too."
+          control={
+            <button onClick={register} disabled={busy} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "none", border: `1px solid ${P.line2}`, borderRadius: 8, color: P.ink2, cursor: busy ? "default" : "pointer", fontFamily: "var(--cb-font)" }}>
+              {busy ? "Waiting…" : "Add passkey"}
+            </button>
+          } last />
+      </>)}
+    </Section>
   );
 }
 
@@ -1658,7 +1786,7 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro, onProChanged }) {
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro, onProChanged, onRegisterPasskey }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "answers");
   // Wave 3 — the three destructive confirmations used to be inline
@@ -1743,7 +1871,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setAutoplay(false);             // cb_ap === "1"
     setDyslexicFont(false);         // cb_df !== "1"
     setLineSpacing("normal");       // cb_ls
-    setFocusHighlight(false);       // cb_fh !== "1"
+    setFocusHighlight(false);
+    setReadingProfile("none");       // cb_fh !== "1"
     setCitationStyle("vancouver");  // cb_cite
     setDataDensity("comfortable");  // cb_density
     setTypewriter(true);            // cb_tw !== "0"
@@ -1864,6 +1993,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Line spacing", "appearance", "leading line height readability"],
     ["Focus indicators", "appearance", "keyboard ring outline focus"],
     ["Dyslexia friendly font", "appearance", "opendyslexic typeface reading"],
+    ["Reading profiles", "appearance", "dyslexia low vision migraine focus comfort profiles reading"],
     ["Auto read answers", "sound", "speech tts read aloud voice"],
     ["Sound effects", "sound", "mute clicks sfx sounds"],
     ["Search ambience", "sound", "tone background ambient sound"],
@@ -1975,6 +2105,77 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     <UISelect P={P} accent={accent} value={value} options={options}
       onChange={(v) => { sfx(); onChange(v); }} ariaLabel={ariaLabel} style={{ fontSize: 16 }} />
   );
+
+  /* ── Reading Profiles: apply + match + preview ── */
+  const currentSettingsSnapshot = () => ({ dyslexicFont, lineSpacing, fontSize, paletteName, dataDensity, focusHighlight, highContrast, reducedTransparency, animationMode, soundMode, muted, typewriter });
+  const profileMatches = (key) => {
+    const prof = READING_PROFILES[key];
+    if (!prof) return false;
+    const cur = currentSettingsSnapshot();
+    return Object.entries(prof.settings).every(([k, v]) => cur[k] === v);
+  };
+  // Which profile the current settings actually match, regardless of what
+  // readingProfile claims. If none matches but readingProfile names one,
+  // the user tweaked something after applying: that's "Custom".
+  const matchedProfile = READING_PROFILE_KEYS.find(profileMatches) || null;
+  const effectiveProfile = matchedProfile || (readingProfile && readingProfile !== "none" ? "custom" : "none");
+
+  const applyReadingProfile = (key) => {
+    const prof = READING_PROFILES[key];
+    if (!prof) return;
+    sfx();
+    const s = prof.settings;
+    if (s.dyslexicFont !== undefined) { if (s.dyslexicFont) ensureDyslexicFont(); setDyslexicFont(s.dyslexicFont); }
+    if (s.lineSpacing) setLineSpacing(s.lineSpacing);
+    if (s.fontSize) setFontSize(s.fontSize);
+    if (s.paletteName) setPaletteName(s.paletteName);
+    if (s.dataDensity) setDataDensity(s.dataDensity);
+    if (s.focusHighlight !== undefined) setFocusHighlight(s.focusHighlight);
+    if (s.highContrast !== undefined) setHighContrast(s.highContrast);
+    if (s.reducedTransparency !== undefined) setReducedTransparency(s.reducedTransparency);
+    if (s.animationMode) setAnimationMode(s.animationMode);
+    if (s.soundMode) setSoundMode(s.soundMode);
+    if (s.muted !== undefined) setMuted(s.muted);
+    if (s.typewriter !== undefined) setTypewriter(s.typewriter);
+    setReadingProfile(key);
+    // Sync the profile name to the account so it follows the user across
+    // devices. Fire and forget: the cookies are the source of truth on
+    // this device, the account column is the roaming copy.
+    if (user) apiDataAction("update-profile", { reading_profile: key }).catch(() => {});
+    toast(`${prof.label} reading profile applied.`);
+  };
+
+  const clearReadingProfile = () => {
+    sfx();
+    setReadingProfile("none");
+    if (user) apiDataAction("update-profile", { reading_profile: "none" }).catch(() => {});
+  };
+
+  // Live preview: renders the fixed sample answer with a profile's visual
+  // settings applied, so the choice is felt before it is committed.
+  const [previewKey, setPreviewKey] = useState(null);
+  const previewProfileKey = previewKey || (matchedProfile ? matchedProfile : null);
+  const ProfilePreview = () => {
+    const pk = previewProfileKey;
+    const ps = pk ? READING_PROFILES[pk].settings : {};
+    const pvFontSize = { small: 13, medium: 15, large: 17, xlarge: 19 }[ps.fontSize || fontSize] || 15;
+    const pvLineHeight = { normal: 1.6, relaxed: 1.8, loose: 2.0 }[ps.lineSpacing || lineSpacing] || 1.6;
+    const pvDyslexic = ps.dyslexicFont !== undefined ? ps.dyslexicFont : dyslexicFont;
+    const pvHighContrast = ps.highContrast !== undefined ? ps.highContrast : highContrast;
+    const ink = pvHighContrast ? (P.dark ? "#ffffff" : "#000000") : P.ink;
+    const ink2 = pvHighContrast ? (P.dark ? "#e8e8e8" : "#1a1a1a") : P.ink2;
+    const faint = pvHighContrast ? (P.dark ? "#c9c9c9" : "#333333") : P.faint;
+    return (
+      <div aria-live="polite" style={{ marginTop: 12, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, padding: 16, background: P.surface }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: faint, fontWeight: 600, marginBottom: 8, fontFamily: "var(--cb-font)" }}>
+          Preview{pk ? ` · ${READING_PROFILES[pk].label}` : " · current settings"}
+        </div>
+        <div style={{ fontSize: 12, color: faint, marginBottom: 6, fontFamily: pvDyslexic ? "OpenDyslexic, var(--cb-font)" : "var(--cb-font)" }}>{PROFILE_PREVIEW.kicker}</div>
+        <div style={{ fontSize: pvFontSize + 3, fontWeight: 700, color: ink, marginBottom: 8, lineHeight: 1.25, fontFamily: pvDyslexic ? "OpenDyslexic, var(--cb-font)" : "var(--cb-font)" }}>{PROFILE_PREVIEW.title}</div>
+        <p style={{ fontSize: pvFontSize, lineHeight: pvLineHeight, color: ink2, margin: 0, fontFamily: pvDyslexic ? "OpenDyslexic, var(--cb-font)" : "var(--cb-font)" }}>{PROFILE_PREVIEW.body}</p>
+      </div>
+    );
+  };
 
   return (
     // position/zIndex here are load-bearing — see pageView's own comment
@@ -2111,6 +2312,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Section title="Account">
                 <Row label={user.email} desc="Signed in" last />
               </Section>
+              <PasskeyPanel P={P} accent={accent} at={at} Section={Section} Row={Row} sfx={sfx} onRegisterPasskey={onRegisterPasskey} />
               {/* Pro membership: status, usage meter, upgrade/manage. */}
               <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
               {/* Pro API keys. Rendered for Pro members; the server re-checks
@@ -2232,6 +2434,50 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           </>)}
 
           {tab === "appearance" && (<>
+            <Section title="Reading profiles" footer="One tap sets up comfortable reading. Every switch below stays live, so you can fine tune after.">
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10, padding: "12px 2px 4px" }}>
+                {READING_PROFILE_KEYS.map((key) => {
+                  const prof = READING_PROFILES[key];
+                  const isActive = effectiveProfile === key;
+                  return (
+                    <button key={key} type="button"
+                      onClick={() => applyReadingProfile(key)}
+                      onMouseEnter={() => setPreviewKey(key)}
+                      onMouseLeave={() => setPreviewKey(null)}
+                      onFocus={() => setPreviewKey(key)}
+                      onBlur={() => setPreviewKey(null)}
+                      aria-pressed={isActive}
+                      aria-label={`Apply ${prof.label} reading profile. ${prof.desc}`}
+                      style={{
+                        minHeight: 44, padding: "12px 10px", borderRadius: RADIUS.lg, cursor: "pointer",
+                        border: isActive ? `2px solid ${accent}` : `1px solid ${P.line2}`,
+                        background: isActive ? withAlpha(accent, 0.1) : P.surface,
+                        display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6,
+                        fontFamily: "var(--cb-font)", textAlign: "left",
+                        boxShadow: isActive ? `0 0 0 2px ${withAlpha(accent, 0.25)}` : "none",
+                      }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                        <Icon name={prof.icon} size={18} style={{ color: isActive ? accent : P.ink2, flexShrink: 0 }} />
+                        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink }}>{prof.label}</span>
+                        {isActive && (
+                          <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent }}>Active</span>
+                        )}
+                      </span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.45 }}>{prof.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {effectiveProfile === "custom" && (
+                <div style={{ padding: "8px 2px 0", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>Customized. You tweaked a profile by hand.</span>
+                  <button type="button" onClick={clearReadingProfile} style={{ background: "none", border: "none", padding: 0, color: accent, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, minHeight: 44 }}>Clear profile</button>
+                </div>
+              )}
+              <div style={{ padding: "4px 2px 12px" }}>
+                <ProfilePreview />
+              </div>
+            </Section>
             <Section title="Theme">
               <div style={{ display: "flex", gap: 8, padding: 12, flexWrap: "wrap" }}>
                 {/* The Pro palette is members-only: it is not offered in the
@@ -2513,7 +2759,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     version: APP_VERSION_LABEL,
                     exported: new Date().toISOString(),
                     saved, history,
-                    preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity, animSpeed, highContrast: highContrast ? "1" : "0", fontSize, reducedTransparency: reducedTransparency ? "1" : "0", autoplay: autoplay ? "1" : "0", dyslexicFont: dyslexicFont ? "1" : "0", lineSpacing, focusHighlight: focusHighlight ? "1" : "0", typewriter: typewriter ? "1" : "0", notify, ttsVoice },
+                    preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity, animSpeed, highContrast: highContrast ? "1" : "0", fontSize, reducedTransparency: reducedTransparency ? "1" : "0", autoplay: autoplay ? "1" : "0", dyslexicFont: dyslexicFont ? "1" : "0", lineSpacing, focusHighlight: focusHighlight ? "1" : "0", typewriter: typewriter ? "1" : "0", readingProfile, notify, ttsVoice },
                   };
                   const blob = new Blob([JSON.stringify(workspace, null, 2)], { type: "application/json" });
                   const url = URL.createObjectURL(blob);
@@ -2567,6 +2813,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                           if (p.dyslexicFont === "1" || p.dyslexicFont === "0") setDyslexicFont(p.dyslexicFont === "1");
                           if (inSet(p.lineSpacing, ["normal", "relaxed", "loose"])) setLineSpacing(p.lineSpacing);
                           if (p.focusHighlight === "1" || p.focusHighlight === "0") setFocusHighlight(p.focusHighlight === "1");
+                          if (typeof p.readingProfile === "string" && (p.readingProfile === "none" || READING_PROFILE_KEYS.includes(p.readingProfile))) setReadingProfile(p.readingProfile);
                           if (p.typewriter === "1" || p.typewriter === "0") setTypewriter(p.typewriter === "1");
                           if (p.notify && typeof p.notify === "object") { const n = { call: true, message: true, watch: true }; for (const k of ["call", "message", "watch"]) if (typeof p.notify[k] === "boolean") n[k] = p.notify[k]; setNotify(n); setNotifyPref(n); }
                           if (typeof p.ttsVoice === "string" && p.ttsVoice) { try { localStorage.setItem("cb_tts_voice", p.ttsVoice); } catch (cbErr) { console.error("[Cerebrum] settings.jsx if: localStorage.setItem('cb_tts_voice', p.ttsVoice); }:", cbErr); } }

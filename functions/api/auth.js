@@ -230,6 +230,58 @@ async function ensureOtpTable(env) {
   _otpTableEnsured = true;
 }
 
+// Passkeys (WebAuthn). Two tables, both created idempotently on first use:
+//
+// passkey_credentials — one row per registered authenticator. The public
+// key is stored as a JWK JSON string (only ES256 P-256 is accepted, so the
+// shape is fixed). sign_count tracks the authenticator's counter for
+// clone detection. credential_id is the lookup key and globally unique.
+//
+// passkey_challenges — single-use ceremony challenges. A challenge is
+// bound to either a user_id (registration, which requires a session) or
+// an email_lower (authentication, pre-session). Rows expire after 5
+// minutes and are deleted when consumed; a challenge that never gets used
+// simply rots until the next sweep deletes it.
+let _passkeyTablesEnsured = false;
+async function ensurePasskeyTables(env) {
+  if (_passkeyTablesEnsured) return;
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS passkey_credentials (id TEXT NOT NULL PRIMARY KEY, user_id TEXT NOT NULL, credential_id TEXT NOT NULL UNIQUE, public_key_jwk TEXT NOT NULL, sign_count INTEGER NOT NULL DEFAULT 0, label TEXT, created_at INTEGER NOT NULL, last_used_at INTEGER)"
+  );
+  await env.DB.exec(
+    "CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user ON passkey_credentials (user_id)"
+  );
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS passkey_challenges (challenge TEXT NOT NULL PRIMARY KEY, user_id TEXT, email_lower TEXT, purpose TEXT NOT NULL, rp_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+  );
+  _passkeyTablesEnsured = true;
+}
+
+// The relying party ID is the registrable domain the ceremony runs on.
+// Derived from the request Origin (falling back to the Host header),
+// because the same code serves askcerebrum.org and preview deployments,
+// and a hardcoded RP ID would break passkeys on every preview URL.
+// Localhost is allowed for development; anything else must be a plain
+// hostname (no port, no scheme) or the ceremony is refused.
+function rpIdForRequest(request, corsOrigin) {
+  const fromOrigin = (corsOrigin || "").startsWith("http")
+    ? (() => { try { return new URL(corsOrigin).hostname; } catch { return ""; } })()
+    : "";
+  const host = fromOrigin || (request.headers.get("Host") || "").split(":")[0] || "";
+  if (!/^[a-z0-9]([a-z0-9\-\.]*[a-z0-9])?$/i.test(host)) return null;
+  return host.toLowerCase();
+}
+
+function expectedOriginFor(rpId, request) {
+  if (rpId === "localhost" || rpId === "127.0.0.1" || rpId === "[::1]") return `http://${rpId}`;
+  // Pages serves the real site over https; preview deployments too.
+  // The Origin header on the ceremony request is the source of truth —
+  // but it must match the RP ID's registrable domain, which the caller
+  // verifies before invoking this.
+  const proto = request.headers.get("X-Forwarded-Proto") || "https";
+  return `${proto}://${rpId}`;
+}
+
 // Pending OTP codes live in D1 (otp_codes). There is no secondary store:
 // a code this server cannot verify against durable storage is a code it
 // must not accept.
@@ -759,6 +811,203 @@ export async function onRequest(context) {
      * this account at once. That is deliberately "sign out everywhere" rather
      * than "sign out here" — for a research account reached by email code, the
      * safer default is the broader one. */
+    // ═════════════════════════════════════════════════════════════════
+    // Passkeys (WebAuthn) — "skip codes next time."
+    //
+    // Registration requires a live session (the OTP flow bootstraps the
+    // account; a passkey is then bound to that proven identity). Sign-in
+    // via passkey is pre-session: the challenge is bound to the email
+    // address, and a successful ceremony issues a session through the same
+    // issueSession() path as OTP, so Pro flags and epoch handling are
+    // identical.
+    //
+    // The crypto lives in functions/lib/webauthn.js. This file owns the
+    // ceremony state machine: challenge issuance, single-use consumption,
+    // credential storage, and clone detection via sign_count.
+    // ═════════════════════════════════════════════════════════════════
+
+    if (action === "passkey-status") {
+      const me = await auth.getSessionUser(request, env);
+      if (!me) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
+      await ensurePasskeyTables(env);
+      const rows = await env.DB.prepare(
+        "SELECT credential_id, label, created_at, last_used_at FROM passkey_credentials WHERE user_id = ? ORDER BY created_at ASC"
+      ).bind(me.id).all();
+      return json({ ok: true, credentials: (rows.results || []).map((r) => ({ id: r.credential_id, label: r.label || null, createdAt: r.created_at, lastUsedAt: r.last_used_at || null })) }, 200, cors);
+    }
+
+    if (action === "passkey-register-begin") {
+      const me = await auth.getSessionUser(request, env);
+      if (!me) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
+      const rpId = rpIdForRequest(request, corsOrigin);
+      if (!rpId) return json({ error: "Could not determine this site's domain.", code: "bad_rp_id" }, 400, cors);
+      await ensurePasskeyTables(env);
+      const { randomChallengeB64 } = await import("../lib/webauthn.js");
+      const challenge = randomChallengeB64();
+      const now = Date.now();
+      // Sweep expired challenges opportunistically; a challenge that never
+      // gets used rots here otherwise.
+      await env.DB.prepare("DELETE FROM passkey_challenges WHERE expires_at < ?").bind(now).run().catch(() => {});
+      await env.DB.prepare(
+        "INSERT INTO passkey_challenges (challenge, user_id, email_lower, purpose, rp_id, created_at, expires_at) VALUES (?, ?, NULL, 'register', ?, ?, ?)"
+      ).bind(challenge, me.id, rpId, now, now + 5 * 60 * 1000).run();
+      const existing = await env.DB.prepare(
+        "SELECT credential_id FROM passkey_credentials WHERE user_id = ?"
+      ).bind(me.id).all();
+      return json({
+        ok: true,
+        challenge,
+        rpId,
+        user: { id: me.id, name: me.email, displayName: me.email },
+        excludeCredentials: (existing.results || []).map((r) => r.credential_id),
+      }, 200, cors);
+    }
+
+    if (action === "passkey-register-finish") {
+      const me = await auth.getSessionUser(request, env);
+      if (!me) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
+      const rpId = rpIdForRequest(request, corsOrigin);
+      if (!rpId) return json({ error: "Could not determine this site's domain.", code: "bad_rp_id" }, 400, cors);
+      const { attestationObject, clientDataJSON, label } = body || {};
+      if (typeof attestationObject !== "string" || typeof clientDataJSON !== "string" ||
+          attestationObject.length > 20000 || clientDataJSON.length > 8000) {
+        return json({ error: "That registration didn't look right. Try again.", code: "bad_request" }, 400, cors);
+      }
+      await ensurePasskeyTables(env);
+      const now = Date.now();
+      // Find this session's unconsumed registration challenge. The newest
+      // one wins; older ones are left to expire.
+      const chal = await env.DB.prepare(
+        "SELECT challenge, rp_id FROM passkey_challenges WHERE user_id = ? AND purpose = 'register' AND expires_at > ? ORDER BY created_at DESC LIMIT 1"
+      ).bind(me.id, now).first();
+      if (!chal) return json({ error: "That registration expired. Start again.", code: "challenge_expired" }, 400, cors);
+      if (chal.rp_id !== rpId) return json({ error: "That registration didn't look right. Try again.", code: "rp_mismatch" }, 400, cors);
+      const { verifyRegistration, rpIdHashB64 } = await import("../lib/webauthn.js");
+      let verified;
+      try {
+        verified = verifyRegistration({
+          attestationObjectB64: attestationObject,
+          clientDataJSONB64: clientDataJSON,
+          expectedChallengeB64: chal.challenge,
+          expectedRpId: rpId,
+          expectedOrigin: expectedOriginFor(rpId, request),
+        });
+      } catch (e) {
+        return json({ error: "That registration didn't look right. Try again.", code: "verification_failed" }, 400, cors);
+      }
+      // Verify the rpIdHash the authenticator signed matches this RP.
+      const expectedHash = await rpIdHashB64(rpId);
+      if (verified.rpIdHash !== expectedHash) {
+        return json({ error: "That registration didn't look right. Try again.", code: "rp_mismatch" }, 400, cors);
+      }
+      const cleanLabel = typeof label === "string" ? label.trim().slice(0, 60) : null;
+      try {
+        await env.DB.prepare(
+          "INSERT INTO passkey_credentials (id, user_id, credential_id, public_key_jwk, sign_count, label, created_at, last_used_at) VALUES (?, ?, ?, ?, 0, ?, ?, NULL)"
+        ).bind(auth.newId("pk"), me.id, verified.credentialIdB64url, JSON.stringify(verified.publicKeyJwk), cleanLabel || null, now).run();
+      } catch (e) {
+        if (/UNIQUE constraint failed/i.test(String(e && e.message))) {
+          return json({ error: "This device is already registered.", code: "already_registered" }, 409, cors);
+        }
+        throw e;
+      } finally {
+        // Single-use: the challenge is consumed whether verification
+        // succeeded or not, so a captured challenge can't be replayed.
+        await env.DB.prepare("DELETE FROM passkey_challenges WHERE challenge = ?").bind(chal.challenge).run().catch(() => {});
+      }
+      return json({ ok: true, credentialId: verified.credentialIdB64url }, 200, cors);
+    }
+
+    if (action === "passkey-auth-begin") {
+      const email = (body.email || "").trim().toLowerCase();
+      if (!email || !isValidEmail(email)) return json({ error: "Enter your email first.", code: "bad_request" }, 400, cors);
+      const rpId = rpIdForRequest(request, corsOrigin);
+      if (!rpId) return json({ error: "Could not determine this site's domain.", code: "bad_rp_id" }, 400, cors);
+      await ensurePasskeyTables(env);
+      const user = await env.DB.prepare("SELECT id FROM users WHERE email_lower = ?").bind(email).first();
+      // Unknown email: return the same shape with no credentials rather
+      // than a distinct error, so the existence of an account can't be
+      // probed through this endpoint.
+      const { randomChallengeB64 } = await import("../lib/webauthn.js");
+      const challenge = randomChallengeB64();
+      const now = Date.now();
+      await env.DB.prepare("DELETE FROM passkey_challenges WHERE expires_at < ?").bind(now).run().catch(() => {});
+      await env.DB.prepare(
+        "INSERT INTO passkey_challenges (challenge, user_id, email_lower, purpose, rp_id, created_at, expires_at) VALUES (?, ?, ?, 'auth', ?, ?, ?)"
+      ).bind(challenge, user ? user.id : null, email, rpId, now, now + 5 * 60 * 1000).run();
+      let allowCredentials = [];
+      if (user) {
+        const rows = await env.DB.prepare(
+          "SELECT credential_id FROM passkey_credentials WHERE user_id = ?"
+        ).bind(user.id).all();
+        allowCredentials = (rows.results || []).map((r) => r.credential_id);
+      }
+      return json({ ok: true, challenge, rpId, allowCredentials }, 200, cors);
+    }
+
+    if (action === "passkey-auth-finish") {
+      const email = (body.email || "").trim().toLowerCase();
+      const { credentialId, authenticatorData, clientDataJSON, signature } = body || {};
+      if (!email || !isValidEmail(email) ||
+          typeof credentialId !== "string" || typeof authenticatorData !== "string" ||
+          typeof clientDataJSON !== "string" || typeof signature !== "string" ||
+          credentialId.length > 2000 || authenticatorData.length > 8000 ||
+          clientDataJSON.length > 8000 || signature.length > 2000) {
+        return json({ error: "That sign-in didn't look right. Try again.", code: "bad_request" }, 400, cors);
+      }
+      const rpId = rpIdForRequest(request, corsOrigin);
+      if (!rpId) return json({ error: "Could not determine this site's domain.", code: "bad_rp_id" }, 400, cors);
+      await ensurePasskeyTables(env);
+      const now = Date.now();
+      const user = await env.DB.prepare("SELECT id, email, username, name, affiliation FROM users WHERE email_lower = ?").bind(email).first();
+      if (!user) return json({ error: "That sign-in didn't look right. Try again.", code: "verification_failed" }, 400, cors);
+      const cred = await env.DB.prepare(
+        "SELECT public_key_jwk, sign_count FROM passkey_credentials WHERE user_id = ? AND credential_id = ?"
+      ).bind(user.id, credentialId).first();
+      if (!cred) return json({ error: "That sign-in didn't look right. Try again.", code: "verification_failed" }, 400, cors);
+      const chal = await env.DB.prepare(
+        "SELECT challenge, rp_id FROM passkey_challenges WHERE email_lower = ? AND purpose = 'auth' AND expires_at > ? ORDER BY created_at DESC LIMIT 1"
+      ).bind(email, now).first();
+      if (!chal || chal.rp_id !== rpId) {
+        return json({ error: "That sign-in expired. Start again.", code: "challenge_expired" }, 400, cors);
+      }
+      const { verifyAuthentication, rpIdHashB64 } = await import("../lib/webauthn.js");
+      let newSignCount;
+      try {
+        newSignCount = await verifyAuthentication({
+          publicKeyJwk: JSON.parse(cred.public_key_jwk),
+          authenticatorDataB64: authenticatorData,
+          clientDataJSONB64: clientDataJSON,
+          signatureB64: signature,
+          expectedChallengeB64: chal.challenge,
+          expectedRpIdHashB64: await rpIdHashB64(rpId),
+          storedSignCount: cred.sign_count || 0,
+        });
+      } catch (e) {
+        await env.DB.prepare("DELETE FROM passkey_challenges WHERE challenge = ?").bind(chal.challenge).run().catch(() => {});
+        return json({ error: "That sign-in didn't look right. Try again.", code: "verification_failed" }, 400, cors);
+      }
+      await env.DB.prepare("DELETE FROM passkey_challenges WHERE challenge = ?").bind(chal.challenge).run().catch(() => {});
+      await env.DB.prepare(
+        "UPDATE passkey_credentials SET sign_count = ?, last_used_at = ? WHERE user_id = ? AND credential_id = ?"
+      ).bind(newSignCount, now, user.id, credentialId).run().catch(() => {});
+      await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(now, user.id).run().catch(() => {});
+      return issueSession(env, user, isSecure, cors);
+    }
+
+    if (action === "passkey-remove") {
+      const me = await auth.getSessionUser(request, env);
+      if (!me) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
+      const { credentialId } = body || {};
+      if (typeof credentialId !== "string" || !credentialId) {
+        return json({ error: "Pick a passkey to remove.", code: "bad_request" }, 400, cors);
+      }
+      await ensurePasskeyTables(env);
+      await env.DB.prepare("DELETE FROM passkey_credentials WHERE user_id = ? AND credential_id = ?")
+        .bind(me.id, credentialId).run();
+      return json({ ok: true }, 200, cors);
+    }
+
     if (action === "logout") {
       try {
         const raw = auth.readSessionCookie(request);
@@ -839,6 +1088,8 @@ export async function onRequest(context) {
         ["user_history",       "DELETE FROM user_history WHERE user_id = ?"],
         ["user_flowcharts",    "DELETE FROM user_flowcharts WHERE user_id = ?"],
         ["api_keys",           "DELETE FROM api_keys WHERE user_id = ?"],
+        ["passkey_credentials","DELETE FROM passkey_credentials WHERE user_id = ?"],
+        ["passkey_challenges", "DELETE FROM passkey_challenges WHERE user_id = ?"],
         ["sessions",           "DELETE FROM sessions WHERE user_id = ?"],
       ];
       const failed = [];
