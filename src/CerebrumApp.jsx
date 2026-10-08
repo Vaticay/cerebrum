@@ -20719,7 +20719,7 @@ function App() {
             main page)." Heavily darkened; the composer always wins. */}
         {!cbMotionOff() && animationMode !== "off" && (
           <div aria-hidden="true" style={{
-            position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none",
+            position: "fixed", inset: 0, zIndex: Z.base + 1, pointerEvents: "none",
             filter: "brightness(0.30) saturate(0.60)",
           }}>
             <CinematicFilm
