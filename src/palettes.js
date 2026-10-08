@@ -77,6 +77,6 @@ const isProPalette = (pn) => PRO_PALETTE_NAMES.indexOf(pn) !== -1;
 // Amber, Rose) kept for real per-user customization but tuned a shade
 // cooler/harder so none of them reads as a pastel accent next to the new
 // obsidian base.
-const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888" };
+const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888", Amber: "#d9a441" };
 
 export { PALETTES, PRO_PALETTE_NAMES, isProPalette, ACCENTS };

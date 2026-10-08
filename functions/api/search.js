@@ -10120,6 +10120,28 @@ async function evidenceStructure(papers) {
     }
     const lines = new Set(works.map((_, i) => find(i))).size;
 
+    /* ── citation threads: direct cite edges inside this result set ──
+       For each ordered pair (i, k): if works[i] references works[k]'s
+       OpenAlex ID, paper i cites paper k. This is the 20th innovation:
+       a thread diagram of how the cited papers relate to each other,
+       not just a flat list. Computed from identifiers, never generated. */
+    const idToIdx = new Map(works.map((w, i) => [String(w.id || "").toLowerCase(), i]));
+    const threads = [];
+    for (let i = 0; i < works.length; i++) {
+      const refs = works[i].referenced_works || [];
+      for (const ref of refs) {
+        const k = idToIdx.get(String(ref || "").toLowerCase());
+        if (k !== undefined && k !== i) {
+          threads.push({ from: i, to: k });
+        }
+      }
+    }
+    const threadNodes = works.map((w) => ({
+      title: stripTags(w.title || "").slice(0, 120),
+      year: w.publication_year || null,
+      doi: w.doi || null,
+    }));
+
     /* ── shared references → common ancestors ── */
     const refCount = new Map();
     for (const w of works) {
@@ -10164,6 +10186,8 @@ async function evidenceStructure(papers) {
       lines,
       sharedAuthorPairs,
       ancestors,
+      threads,
+      threadNodes,
       /* Named so the UI cannot accidentally present this as a model's
          judgement. Both facts here come from OpenAlex identifiers. */
       basis: "openalex-identifiers",

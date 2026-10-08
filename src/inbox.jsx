@@ -48,7 +48,6 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
     <Dialog label={title} onClose={onClose} zIndex={310} width={420}
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
-        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.md, padding: "26px", outline: "none", fontFamily: "var(--cb-font)",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",

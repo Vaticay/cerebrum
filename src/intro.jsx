@@ -271,7 +271,6 @@ function FilmCreditsDialog({ onClose, accent }) {
       label="Background film credits" onClose={onClose} zIndex={400} width={680}
       panelStyle={{
         background: "rgba(15, 17, 21, 0.96)",
-        backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
         border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
         boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
         padding: "26px 26px 22px", color: "#f2f4f2", fontFamily: "var(--cb-font)",
@@ -800,7 +799,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     return () => clearTimeout(t);
   }, [animate]);
   const mono = "var(--cb-mono)";
-  const serif = "var(--cb-serif)";
+  const serif = "var(--cb-font)";
   const ink = "#eef1ee";
   const faint = "rgba(238,241,238,0.52)";
   const hairline = "rgba(255,255,255,0.08)";
