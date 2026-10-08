@@ -207,7 +207,11 @@ test("fallback copy is honest about what the summary is", () => {
     [],
     { query: "test", aiGateReason: "signin-required" }
   );
-  assert.match(md, /assembled from the sources below/i, "honest description missing");
+  // 2026-10-08: tier-aware fallback. Thin abstracts now get the "limited"
+  // tier ("Assembled from the sources above without AI interpretation")
+  // instead of the old weak-evidence copy. Both are honest; assert either.
+  assert.match(md, /assembled from the sources (below|above)/i, "honest description missing");
+  assert.match(md, /sign in to use your free ai answers/i, "must name the sign-in gate honestly");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

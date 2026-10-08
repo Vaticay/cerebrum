@@ -1837,3 +1837,215 @@ export function generateSmartFollowUps(papers, gaps, temporal, sampleData) {
   
   return followUps.slice(0, 3);
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// 14. QUESTION DECOMPOSITION (2026-10-08 groundbreaking intelligence)
+//    A "why" or "how" question is really 2-4 sub-questions wearing a
+//    trenchcoat. "Why does soil crack into patterns as it dries?" asks
+//    about (a) the physics of desiccation cracking, (b) the material
+//    properties that enable it, and (c) the pattern formation mechanism.
+//    Searching for all three aspects finds papers that a single query
+//    misses. This decomposes mechanically using concept groups, no LLM.
+// ════════════════════════════════════════════════════════════════════════
+
+const ASPECT_TEMPLATES = {
+  why: [
+    { aspect: "mechanism", label: "the underlying mechanism or process", suffix: "mechanism process" },
+    { aspect: "factors", label: "the key factors or conditions involved", suffix: "factors determinants" },
+    { aspect: "evidence", label: "how this has been observed or measured", suffix: "observation measurement evidence" },
+  ],
+  how: [
+    { aspect: "process", label: "the step-by-step process", suffix: "process steps" },
+    { aspect: "mechanism", label: "the underlying mechanism", suffix: "mechanism" },
+  ],
+};
+
+const PROCESS_WORDS = new Set([
+  "crack", "cracking", "dry", "drying", "form", "forming", "formation",
+  "grow", "growing", "growth", "develop", "developing", "change", "changing",
+  "break", "breaking", "degrade", "degrading", "evolve", "evolving",
+  "spread", "spreading", "shrink", "shrinking", "expand", "expanding",
+  "contract", "contracting", "erode", "eroding", "accumulate", "accumulating",
+  "train", "training", "communicate", "communicating", "signal", "signaling",
+  "regulate", "regulating", "control", "controlling", "produce", "producing",
+  "cause", "causing", "trigger", "triggering", "affect", "affecting",
+  "influence", "influencing", "drive", "driving", "lead", "leading",
+]);
+const MATERIAL_WORDS = new Set([
+  "soil", "clay", "sand", "rock", "mineral", "metal", "polymer", "protein",
+  "cell", "tissue", "bone", "muscle", "plant", "leaf", "root", "water",
+  "air", "blood", "brain", "gut", "skin", "vaccine", "immune", "system",
+  "drug", "hormone", "gene", "bacteria", "virus", "antibody",
+]);
+
+export function decomposeQuestion(rawQuery, rankedTerms = []) {
+  const q = String(rawQuery || "").toLowerCase().trim();
+  if (!q) return { decomposed: false, subQueries: [], aspects: [] };
+
+  const isWhy = /^\s*why\b/.test(q);
+  const isHow = /^\s*how\b/.test(q);
+  if (!isWhy && !isHow) return { decomposed: false, subQueries: [], aspects: [] };
+
+  const templates = ASPECT_TEMPLATES[isWhy ? "why" : "how"];
+  const terms = (rankedTerms || []).filter(Boolean);
+  if (terms.length < 2) return { decomposed: false, subQueries: [], aspects: [] };
+
+  const processTerms = terms.filter((t) => PROCESS_WORDS.has(t.toLowerCase()));
+  const materialTerms = terms.filter((t) => MATERIAL_WORDS.has(t.toLowerCase()));
+  const otherTerms = terms.filter(
+    (t) => !PROCESS_WORDS.has(t.toLowerCase()) && !MATERIAL_WORDS.has(t.toLowerCase())
+  );
+
+  const subQueries = [];
+  const aspects = [];
+
+  for (const tmpl of templates) {
+    let aspectTerms = [];
+    if (tmpl.aspect === "mechanism" || tmpl.aspect === "process") {
+      aspectTerms = [...processTerms, ...materialTerms.slice(0, 1)];
+    } else if (tmpl.aspect === "factors") {
+      aspectTerms = [...materialTerms, ...otherTerms.slice(0, 1)];
+    } else {
+      aspectTerms = [...otherTerms, ...processTerms.slice(0, 1)];
+    }
+    aspectTerms = [...new Set(aspectTerms)].filter(Boolean).slice(0, 4);
+    if (aspectTerms.length >= 2) {
+      const sq = aspectTerms.join(" ") + " " + tmpl.suffix;
+      subQueries.push(sq.trim());
+      aspects.push({ aspect: tmpl.aspect, label: tmpl.label, query: sq.trim(), terms: aspectTerms });
+    }
+  }
+
+  // Fallback: if aspect grouping was too narrow (terms didn't match the
+  // word sets), distribute terms round-robin so we still get coverage.
+  // A "why/how" question with 4+ terms deserves decomposition even when
+  // our vocabulary lists don't recognize the domain.
+  if (subQueries.length < 2 && terms.length >= 4) {
+    subQueries.length = 0;
+    aspects.length = 0;
+    const groups = templates.map(() => []);
+    terms.forEach((t, i) => groups[i % groups.length].push(t));
+    templates.forEach((tmpl, i) => {
+      const gt = [...new Set(groups[i])].slice(0, 4);
+      if (gt.length >= 2) {
+        const sq = gt.join(" ") + " " + tmpl.suffix;
+        subQueries.push(sq.trim());
+        aspects.push({ aspect: tmpl.aspect, label: tmpl.label, query: sq.trim(), terms: gt });
+      }
+    });
+  }
+
+  if (subQueries.length < 2) return { decomposed: false, subQueries: [], aspects: [] };
+  return { decomposed: true, subQueries: subQueries.slice(0, 3), aspects: aspects.slice(0, 3) };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 15. EVIDENCE STRENGTH RANKING (2026-10-08 groundbreaking intelligence)
+//    Not all papers are equal. A meta-analysis of 50 RCTs should outweigh
+//    a single observational study. This computes a single evidence-strength
+//    score per paper from study design tier + journal tier + sample size +
+//    citation velocity, then identifies the strongest 3. Injected into the
+//    synthesis prompt so the model weights better evidence more heavily.
+// ════════════════════════════════════════════════════════════════════════
+
+// Single-paper sample size extraction (per-paper version of extractSampleSizes).
+function extractSingleSampleSize(text) {
+  const t = String(text || "");
+  const sizes = [];
+  let m;
+  SAMPLE_SIZE_RE.lastIndex = 0;
+  while ((m = SAMPLE_SIZE_RE.exec(t)) && sizes.length < 5) {
+    const n = parseInt(m[1], 10);
+    if (n > 0 && n < 10000000) sizes.push(n);
+  }
+  PARTICIPANTS_RE.lastIndex = 0;
+  while ((m = PARTICIPANTS_RE.exec(t)) && sizes.length < 5) {
+    const n = parseInt(m[1], 10);
+    if (n > 0 && n < 10000000) sizes.push(n);
+  }
+  return sizes.length > 0 ? Math.max(...sizes) : 0;
+}
+
+export function rankByEvidenceStrength(papers = []) {
+  const scored = (papers || []).map((p, i) => {
+    let strength = 0;
+    const signals = [];
+
+    const st = classifyStudyType(p.title, p.abstract);
+    if (st) {
+      strength += st.weight * 2;
+      signals.push(st.label + " (+" + st.weight * 2 + ")");
+    }
+
+    const jt = scoreJournalTier(p.journal);
+    if (jt > 0) {
+      strength += jt * 3;
+      signals.push("tier-" + jt + " journal (+" + jt * 3 + ")");
+    }
+    const pred = predatoryPenalty(p.journal, p.url);
+    if (pred < 0) {
+      strength += pred * 2;
+      signals.push("predatory signals (" + pred * 2 + ")");
+    }
+
+    const n = extractSingleSampleSize((p.title || "") + " " + (p.abstract || ""));
+    if (n && n >= 1000) { strength += 8; signals.push("n=" + n.toLocaleString() + " (+8)"); }
+    else if (n && n >= 100) { strength += 4; signals.push("n=" + n.toLocaleString() + " (+4)"); }
+
+    const yr = parseInt(p.year, 10);
+    const nowYear = new Date().getFullYear();
+    if (typeof p.citations === "number" && p.citations > 0 && yr) {
+      const perYear = p.citations / Math.max(1, nowYear - yr);
+      const vel = Math.min(Math.log10(Math.max(1, perYear)) * 4, 8);
+      strength += vel;
+      if (vel >= 4) signals.push(perYear.toFixed(1) + " cites/yr (+" + vel.toFixed(1) + ")");
+    }
+
+    return { idx: i + 1, paper: p, strength: Math.round(strength * 10) / 10, signals };
+  });
+
+  scored.sort((a, b) => b.strength - a.strength);
+  const top = scored.slice(0, 3);
+
+  let summary = null;
+  if (top.length > 0 && top[0].strength > 0) {
+    const desc = top.map((t) => {
+      const title = String(t.paper.title || "Untitled").slice(0, 60);
+      return "[" + t.idx + "] \"" + title + "\" (strength " + t.strength + ": " + t.signals.slice(0, 2).join(", ") + ")";
+    });
+    summary = "Strongest evidence: " + desc.join("; ") + ". Weight these sources most heavily in your synthesis.";
+  }
+  return { ranked: scored, top3: top, summary };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 16. CONTRADICTION-FIRST TARGET QUERIES (2026-10-08 groundbreaking)
+//    When papers disagree, averaging them into mush is the worst response.
+//    Instead, actively seek the strongest paper on EACH side. This builds
+//    targeted search queries for high-tier evidence (systematic reviews,
+//    meta-analyses) on the disputed topic, so the synthesis can adjudicate
+//    instead of hedging.
+// ════════════════════════════════════════════════════════════════════════
+
+export function buildContradictionQueries(conflicts = [], rankedTerms = []) {
+  if (!conflicts || conflicts.length === 0) return [];
+  const baseTerms = (rankedTerms || []).filter(Boolean).slice(0, 3).join(" ");
+  if (!baseTerms) return [];
+
+  const queries = [];
+  for (const c of conflicts.slice(0, 2)) {
+    const topic = String(c.topic || "").trim();
+    const core = topic.length > 3 ? topic : baseTerms;
+    queries.push({
+      query: core + " systematic review meta-analysis",
+      purpose: "adjudicate",
+      dispute: topic || "conflicting findings",
+    });
+    queries.push({
+      query: core + " randomized controlled trial",
+      purpose: "strongest-primary",
+      dispute: topic || "conflicting findings",
+    });
+  }
+  return queries.slice(0, 3);
+}

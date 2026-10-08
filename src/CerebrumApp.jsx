@@ -4254,7 +4254,22 @@ function VerdictReadout({ t, P }) {
   let word = "Unverified";
   let tone = P.faint;
   let sub = "No verification pass ran on this answer. The citations still point at their papers.";
-  if (divided) {
+  // ANSWER TIER (2026-10-08): fallback answers get honest verdicts for what
+  // actually happened, not the vague "Unverified". The tier comes from the
+  // backend's fallback pipeline (background = encyclopedia overviews,
+  // limited = thin paper abstracts, weak = closest-sources list only).
+  const tier = t.answerTier || "research";
+  if (tier === "background") {
+    glyph = "verdictMixed";
+    word = "Background only";
+    tone = STATUS.warn;
+    sub = "Drawn from reference overviews, not primary research. Useful background; follow the citations for the real science.";
+  } else if (tier === "limited") {
+    glyph = "verdictMixed";
+    word = "Limited sources";
+    tone = STATUS.warn;
+    sub = "Built from the few sources found. A starting point, not a conclusion.";
+  } else if (divided) {
     glyph = "verdictContradicted";
     word = "Contested";
     tone = STATUS.bad;
@@ -4274,7 +4289,7 @@ function VerdictReadout({ t, P }) {
   }
   const readout = total > 0
     ? `${total} CLAIMS CHECKED · ${nSup} TRACED${nThin > 0 ? ` · ${nThin} THIN` : ""}${nUns > 0 ? ` · ${nUns} UNSUPPORTED` : ""}${divided ? " · LITERATURE DIVIDED" : ""}`
-    : (divided ? "LITERATURE DIVIDED" : "NO VERIFICATION PASS");
+    : (divided ? "LITERATURE DIVIDED" : tier === "background" ? "REFERENCE OVERVIEWS · NO PRIMARY RESEARCH" : tier === "limited" ? "THIN EVIDENCE BASE" : "NO VERIFICATION PASS");
   return (
     <div className="cb-verdict" style={{ borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}` }}>
       <div className="cb-verdict-glyph" style={{ color: tone }}>
@@ -19616,7 +19631,7 @@ function App() {
         logZeroResult(question, { filtered: effEvidenceFilter !== "all", suggestions: ((data.noResults && data.noResults.reformulations) || []).length });
       }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
+      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -20698,12 +20713,30 @@ function App() {
             branches read. Document Mode stays quiet (no film) — the reading
             space is sacred. */}
       {view !== "document" && (view === "search" ? (
-        /* Search atmosphere (2026-10-08 rev): the cinematic feel returns,
+        <>
+        {/* Calm 4K reel (2026-10-08): slow smoke on black behind the search
+            atmosphere. Dusty's note: "different ones (less eye sore for the
+            main page)." Heavily darkened; the composer always wins. */}
+        {!cbMotionOff() && animationMode !== "off" && (
+          <div aria-hidden="true" style={{
+            position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none",
+            filter: "brightness(0.30) saturate(0.60)",
+          }}>
+            <CinematicFilm
+              reel="calm"
+              animationMode={animationMode}
+              intensity={0.35}
+              onAutoplayBlocked={() => {}}
+              onPlaybackChange={() => {}}
+            />
+          </div>
+        )}
+        {/* Search atmosphere (2026-10-08 rev): the cinematic feel returns,
            calm — Dusty's note was "too distracting", not "kill the mood".
            Deep gradient + two slow blurred glows + grain + focus scrim.
            No footage, nothing bright; the drift is barely perceptible and
            the scrim keeps the composer the focal point. Reduced motion (or
-           animation off) gets the same frame frozen. */
+           animation off) gets the same frame frozen. */}
         <div className="cb-atmo" aria-hidden="true"
           style={{
             zIndex: Z.base,
@@ -20720,6 +20753,7 @@ function App() {
           <div className="cb-atmo-grain" />
           <div className="cb-atmo-scrim" />
         </div>
+        </>
       ) : filmBlocked(animationMode, false) ? (
         <CerebrumFieldCanvas
           accent={accent}
@@ -22782,6 +22816,14 @@ summary::-webkit-details-marker { display: none; }
     radial-gradient(120% 90% at 50% 6%, rgba(163,184,153,0.055), transparent 55%),
     radial-gradient(ellipse 90% 70% at 50% 112%, rgba(0,0,0,0.55), transparent 70%),
     #05070a;
+}
+/* When the 4K film is playing behind the bed, the solid ground goes away
+   so the footage shows through. The grid and vignettes stay on top. */
+.cb-instr-bed-film {
+  background:
+    radial-gradient(120% 90% at 50% 6%, rgba(163,184,153,0.055), transparent 55%),
+    radial-gradient(ellipse 90% 70% at 50% 112%, rgba(0,0,0,0.72), transparent 70%),
+    linear-gradient(180deg, rgba(5,7,10,0.62), rgba(5,7,10,0.78));
 }
 .cb-instr-bed::before {
   content: ""; position: absolute; inset: 0;
