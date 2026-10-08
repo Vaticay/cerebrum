@@ -153,8 +153,9 @@ await test("CinematicFilm keeps its media-event truth for the workspace", () => 
   assert.ok(cssSrc.includes("reportPlaying"), "no element-state reporter in the reel");
 });
 
-await test("intro mounts no CinematicFilm — the door is still", () => {
-  assert.ok(!src.includes("<CinematicFilm"), "intro still mounts the film reel");
+await test("intro mounts the 4K CinematicFilm reel — Dusty wants the cinema back", () => {
+  assert.ok(src.includes("<CinematicFilm"), "intro does not mount the film reel");
+  assert.ok(src.includes('reel="intro"'), "intro film does not use the dramatic intro reel");
   assert.ok(!src.includes("filmPlaying"), "intro still tracks film playback state");
   assert.ok(!src.includes("toggleFilm"), "intro still has a background toggle");
 });
