@@ -10,11 +10,14 @@
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import {
   FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon,
-  TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING,
+  TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING, TickFrame,
 } from "./designSystem.jsx";
 import {
   setCookie, getCookie, APP_VERSION_LABEL, useIsMobile,
 } from "./appUtils.js";
+import { safeHref } from "./textUtils.js";
+import { staticFieldCss } from "./cerebrumField.js";
+import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
 import { cbMotionOff, Dialog } from "./flowcharts.jsx";
 
 function InvestigationOpening({ accent, animationMode }) {
@@ -234,7 +237,7 @@ const FILM_MODIFICATIONS =
   "between clips.";
 
 function FilmCreditsDialog({ onClose, accent }) {
-  const link = { color: accentInk(P, accent), textDecoration: "none", borderBottom: "1px solid " + withAlpha(accent, 0.4) };
+  const link = { color: accent, textDecoration: "none", borderBottom: "1px solid " + withAlpha(accent, 0.4) };
 
   return (
     <Dialog
@@ -619,275 +622,192 @@ const SPECIMENS = [
   },
 ];
 
+/* ════════════════════════════════════════════════════════════════════
+   Intro — the calibration chamber (redesigned 2026-10-08).
+
+   Dusty's verdict on the cinematic door: "looks the same and not good,"
+   and the background film is "too distracting." So the film is gone from
+   this screen entirely — no reel, no scrim, no motion behind the type.
+   What remains is a still precision instrument: a calibration grid bed,
+   corner ticks framing the viewport, a depth rail marking the descent
+   motif, mono readouts as the machine voice, and one specimen slide
+   under glass.
+
+   What survived the redesign, and why:
+   - SPECIMENS (real verified claims): the product demonstrating itself
+     instead of describing itself. The concept was right; the execution
+     (museum label floating on movie footage) was the problem.
+   - 9s rotation with hold/dialog/reduced-motion pauses: calm, tested.
+   - "Traced to a direct finding" + "Start researching": locked copy.
+   - The door rule: no composer here, one way in, ceremonial.
+   - playEnterThoom: the entry cue. A door should sound like a door.
+   ════════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const isMobile = useIsMobile();
   const reduced = useReducedMotion();
-  const [creditsOpen, setCreditsOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  /* Stepping through: the chrome fades quickly, the film frame stays
-     behind, and the App dissolves the clip's graded still over the
-     workspace — the same background frame is retained, so the video is
-     never restarted and no blank screen flashes. The no-motion path is
-     untouched: animation off or reduced motion goes straight through. */
+  /* Stepping through: the whole chamber descends 6vh and fades (CSS,
+     420ms) — the Dive motif in reverse, sinking into the workspace.
+     The no-motion path is untouched: animation off or reduced motion
+     goes straight through. A second press while leaving is ignored. */
   const [leaving, setLeaving] = useState(false);
   const leaveTimer = useRef(null);
   useEffect(() => () => clearTimeout(leaveTimer.current), []);
 
   /* The intro uses Cerebrum's sage, not the visitor's chosen accent.
-     The default accent is Mono — pure white — so on a fresh phone every
-     button on this screen rendered as a white pill on black: correct code,
-     no brand, and the "Start exploring" button read as a system alert. The
-     accent is a preference for the workspace; the front door is the brand,
-     and it is the same for everyone. A custom accent that is legible here
-     is still honoured. */
+     The front door is the brand, and it is the same for everyone. */
   const introAccent = (accent && relLuminance(accent) >= 0.15 && relLuminance(accent) <= 0.82)
     ? accent
     : "#A3B899";
 
-  /* ── Background playback ──
-     Two separate facts, kept separate on purpose.
-
-     `filmOff` is what the visitor pressed on this screen. `forced` is the
-     stored opt-in that overrides the two defaults which withhold motion
-     without being asked (a phone, and a reduced-motion preference). One
-     button writes both, because a person pressing "Play background" on a
-     phone means the same thing as a person pressing it on a laptop, and
-     having it work on one and silently do nothing on the other would be
-     the worse surprise.
-
-     `filmPlaying` is the truth from the <video> element itself
-     (play/pause/playing events, reported by CinematicFilm) — the footer
-     label and the tap-to-play pill derive from this, never from intent
-     flags, so the control can never say "paused" while footage is moving.
-     `vetoed` records that an autoplay policy rejected a programmatic
-     play(); it clears the moment real playback starts. */
-  const [filmOff, setFilmOff] = useState(false);
-  const [forced, setForced] = useState(() => filmForcedOn());
-  const filmRef = useRef(null);
-  const [filmPlaying, setFilmPlaying] = useState(false);
-  const [vetoed, setVetoed] = useState(false);
-  useEffect(() => { if (filmPlaying) setVetoed(false); }, [filmPlaying]);
-  const filmRunning = !filmBlocked(animationMode, filmOff);
-  /* Issued synchronously from the tap: playNow() runs inside the gesture
-     window, which is the one place iOS Low Power Mode honours play().
-     No optimistic state clearing — the element's own playing event flips
-     the label. If the veto persists, the pill stays: honest. */
-  const resumeFilm = () => {
-    try { filmRef.current?.playNow(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx resumeFilm: filmRef.current?.playNow(); }:", cbErr); }
-  };
-  const toggleFilm = () => {
-    if (filmPlaying) { setFilmOff(true); return; }
-    setFilmForcedOn(true);
-    setForced(true);
-    setFilmOff(false);
-    resumeFilm();
-  };
-  /* `forced` is read by filmBlocked through localStorage, not through this
-     variable — it is state purely so pressing the button re-renders. */
-  void forced;
-
-  /* ── Which clip is on screen ──
-     CinematicFilm owns the reel and reports the clip it has just faded in.
-     The handoff into the workspace reads from here, so the same background
-     frame is retained across the door — the video is never restarted and
-     no blank screen flashes. */
-  const [clip, setClip] = useState(null);
   /* Specimen rotation: advance every 9s, paused while a dialog is open,
-     while the visitor hovers or focuses the specimen, or under reduced
-     motion. Dots select directly. */
+     while the visitor holds the specimen, or under reduced motion.
+     Numbered tabs select directly. */
   const [specimenIdx, setSpecimenIdx] = useState(0);
   const [specimenHeld, setSpecimenHeld] = useState(false);
   const specimenCount = SPECIMENS.length;
   useEffect(() => {
     if (reduced || animationMode === "off") return undefined;
-    if (specimenHeld || howOpen || sourcesOpen || creditsOpen) return undefined;
+    if (specimenHeld || howOpen || sourcesOpen) return undefined;
     const t = setInterval(() => setSpecimenIdx((i) => (i + 1) % specimenCount), 9000);
     return () => clearInterval(t);
-  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, creditsOpen, specimenCount]);
+  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, specimenCount]);
   const specimen = SPECIMENS[specimenIdx];
 
   /* ── The door rule ──
      This screen is a threshold, not a search screen: there is no composer
-     here, deliberately. The composer's home is the workspace behind the
-     door; a second box out here looks like the same control and is not.
-     The way through is "Start researching" (go("", false) — the workspace
-     opens with its cursor in the real composer). */
+     here, deliberately. The way through is "Start researching" — the
+     workspace opens with its cursor in the real composer. */
 
-  /* `submit` is the difference between prefilling the composer and actually
-     asking. The worked example asks; every other route
-     in opens the workspace and leaves the cursor in the box.
-
-     Stepping through: the chrome fades (CSS, 320ms), the film frame stays
-     behind, and the handoff fires with the current clip so the App can
-     dissolve the clip's graded still over the workspace — the same
-     background frame is retained, no restart, no blank. The no-motion
-     path is untouched: animation off or reduced motion goes straight
-     through. A second press while leaving is ignored. */
-  const go = (q, submit, evt) => {
+  const go = (q, submit) => {
     const payload = typeof q === "string" ? q : "";
     if (leaving) return;
     // The boom: synthesized thoom on the user's gesture
     playEnterThoom();
-    if (animationMode === "off" || reduced) { onEnter(payload, !!submit, clip); return; }
+    if (animationMode === "off" || reduced) { onEnter(payload, !!submit, null); return; }
     setLeaving(true);
-    // Iris disabled (hotfix): veil divs removed due to black screen
     clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, clip), 380);
+    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, null), 420);
   };
 
-  /* One container, used by the header, the hero and the footer, so the
-     three read as one composition instead of three screens stacked. */
-  const SIDE = isMobile ? 22 : 40;
-  const container = { width: "100%", maxWidth: 1200, margin: "0 auto", paddingLeft: SIDE, paddingRight: SIDE };
-
-  const navLink = {
-    fontSize: 14, color: "rgba(242,244,242,0.74)", textDecoration: "none",
-    fontWeight: 500, padding: "8px 12px", borderRadius: 8,
-  };
-  const footLink = {
-    background: "none", border: "none", padding: "6px 0", cursor: "pointer",
-    color: "rgba(242,244,242,0.66)", fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-font)",
-    textDecoration: "none", display: "inline-block",
-  };
-
-  /* The single short fade on arrival (CSS class below). Under reduced
-     motion or with animation off, everything is simply present. */
   const animate = animationMode !== "off" && !reduced;
+  const mono = "var(--cb-mono)";
+  const serif = "var(--cb-serif)";
+  const ink = "#eef1ee";
+  const faint = "rgba(238,241,238,0.52)";
+  const hairline = "rgba(255,255,255,0.08)";
 
+  const readout = {
+    fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
+    color: faint, fontWeight: 500, whiteSpace: "nowrap",
+    fontVariantNumeric: "tabular-nums",
+  };
+  const navLink = {
+    fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
+    color: "rgba(238,241,238,0.72)", textDecoration: "none",
+    fontWeight: 500, padding: "10px 6px", whiteSpace: "nowrap",
+  };
+
+  const cls = ["cb-intro-chrome"];
+  const wrapCls = [leaving ? "cb-intro-leaving" : "", reduced && !leaving ? "cb-intro-still" : ""]
+    .filter(Boolean).join(" ") || undefined;
 
   return (
-    <div id="cb-intro-wrap" className={[leaving ? "cb-intro-leaving" : "", reduced && !leaving ? "cb-intro-still" : ""].filter(Boolean).join(" ") || undefined} style={{
-      minHeight: "100dvh", position: "relative",
-      /* overflow-x only. `overflow: hidden` here was clipping the page to
-         one viewport, so on a short window — a laptop with the browser
-         chrome open, a phone in landscape — the footer and the prompt were
-         simply unreachable. The page scrolls now; nothing is cut off.
-         `clip` (not `hidden`): hidden creates its own scroll container,
-         which breaks position: sticky descendants and nests scrolling
-         contexts; clip suppresses the paint without doing that. */
-      overflowX: "clip",
+    <div id="cb-intro-wrap" className={wrapCls} style={{
+      minHeight: "100dvh", position: "relative", overflowX: "clip",
       display: "flex", flexDirection: "column",
-      fontFamily: "var(--cb-font)",
-      background:
-        "radial-gradient(120% 90% at 72% 16%, rgba(163,184,153,0.16), transparent 58%)," +
-        "radial-gradient(90% 70% at 16% 92%, rgba(120,150,170,0.10), transparent 60%)," +
-        "#0b0d10",
+      fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
     }}>
-      {/* A dialog is a request to read something. The reel is paused while one
-          is open and resumes on close with whatever the visitor had chosen —
-          `filmOff` is untouched, so the pause is the dialog's, not theirs. */}
-      <CinematicFilm ref={filmRef} animationMode={animationMode} intensity={1} holdMs={18000} proReel={!!user?.isPro} paused={filmOff || howOpen || sourcesOpen || creditsOpen} onClip={setClip} onAutoplayBlocked={() => setVetoed(true)} onPlaybackChange={setFilmPlaying} />
+      {/* The instrument bed: static calibration grid on near-black, held
+          by a vignette. No footage, no motion — still and precise. */}
+      <div aria-hidden="true" className="cb-instr-bed" />
+      {/* Grain without the jitter: texture, not weather. */}
+      <div aria-hidden="true" className="cb-intro-grain" style={{ animation: "none" }} />
+      {/* Corner ticks frame the viewport itself: the whole screen is the
+          instrument, not just the panel. */}
+      <TickFrame P={P} tickColor={withAlpha(introAccent, 0.55)} border={false}
+        className="cb-instr-viewport" aria-hidden="true" />
 
-      {/* Contrast for the title card: a soft centered hold over the frame,
-          plus top and bottom falls for the header and the footer. One fixed
-          composite, not a repaint per scrolled pixel. */}
-      <div aria-hidden="true" style={{
-        position: "fixed", inset: 0, zIndex: Z.content, pointerEvents: "none",
-        background:
-          "radial-gradient(ellipse 100% 88% at 50% 42%, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0.55) 42%, rgba(0,0,0,0.78) 72%, rgba(0,0,0,0.88) 100%)," +
-          "linear-gradient(180deg, rgba(8,10,13,0.52) 0%, rgba(8,10,13,0.18) 30%, rgba(8,10,13,0.18) 62%, rgba(8,10,13,0.68) 100%)",
-      }} />
+      {/* Depth rail: the descent motif as a static scale. The door sits at
+          the surface (000M); the workspace is the descent. */}
+      {!isMobile && (
+        <div aria-hidden="true" className="cb-depth-rail">
+          <div className="cb-depth-mark cb-depth-here"><span>000M</span><i /></div>
+          <div className="cb-depth-mark"><span>200M</span><i /></div>
+          <div className="cb-depth-mark"><span>400M</span><i /></div>
+          <div className="cb-depth-mark"><span>600M</span><i /></div>
+          <div className="cb-depth-mark"><span>800M</span><i /></div>
+          <div className="cb-depth-surface">SURFACE</div>
+        </div>
+      )}
 
-      {/* The film opening: a beat of near-black that lifts to reveal the
-          footage, like a title sequence. Under reduced motion it is never
-          mounted — the graded still is simply there. */}
-      {animate && <div aria-hidden="true" className="cb-title-veil" />}
-
-      {/* Fine grain over the film and the scrim, under the type — texture
-          with no motion cost. */}
-      <div aria-hidden="true" className="cb-intro-grain" />
-
-      {/* ── Header ──
-          Edge to edge, aligned to the same container as everything below,
-          and deliberately not a frosted capsule. backdrop-filter over a
-          playing video is charged per frame: the browser re-blurs the
-          moving picture behind the bar twenty-four times a second, for a
-          bar nobody looks at. A gradient costs one composite and reads the
-          same over footage this dark. Readable logo and links — no
-          miniature telemetry. */}
-      <header className={animate ? "cb-intro-chrome cb-intro-header cb-focus-in" : "cb-intro-chrome cb-intro-header"} style={{
-        position: "relative", zIndex: Z.header,
-        paddingTop: "max(14px, env(safe-area-inset-top))",
-        background: "linear-gradient(180deg, rgba(8,10,13,0.78) 0%, rgba(8,10,13,0.34) 58%, transparent 100%)",
-        ...(animate ? { animationDelay: "0.45s", animationDuration: "1.8s" } : null),
+      {/* ── Instrument header ──
+          Readouts, not navigation chrome. The machine voice is mono. */}
+      <header className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
+        position: "relative", zIndex: 30,
+        borderBottom: "1px solid " + hairline,
+        background: "rgba(5,7,10,0.72)",
+        ...(animate ? { animationDelay: "0.15s" } : null),
       }}>
         <div style={{
-          ...container,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: 16, paddingBottom: 14,
+          maxWidth: 1440, margin: "0 auto", padding: "13px 26px",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Mark size={20} accent={introAccent} glow />
-            <span style={{ fontSize: 17, fontWeight: 600, color: "#ffffff", letterSpacing: TYPE.heading.letterSpacing }}>Cerebrum</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+            <Mark size={19} accent={introAccent} glow />
+            <span style={{
+              fontFamily: mono, fontSize: 13, fontWeight: 600,
+              letterSpacing: "0.34em", textIndent: "0.06em", color: "#ffffff",
+            }}>CEREBRUM</span>
           </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
+            <span style={readout}>SPEC {String(specimenIdx + 1).padStart(2, "0")}/03</span>
+            {!isMobile && <span style={readout}>15 SOURCES</span>}
+            <span style={{ ...readout, color: withAlpha(introAccent, 0.9) }}>CAL · VERIFIED</span>
             {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
             {isMobile && (
               <button type="button" onClick={() => setNavOpen((v) => !v)}
                 aria-expanded={navOpen} aria-controls="cb-intro-navmenu"
-                className="cb-intro-navlink" style={{ ...navLink, background: "none", border: "1px solid rgba(255,255,255,0.12)", cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                More
+                style={{ ...navLink, background: "none", border: "1px solid " + hairline, borderRadius: 3, cursor: "pointer" }}>
+                MORE
               </button>
             )}
-            {/* The header carries no entrance button: "Step inside" below is
-                the single way in. Two buttons doing the same thing read as
-                indecision, not emphasis. */}
           </div>
         </div>
-
-        {/* The three legal links do not fit beside the brand and the button
-            at 390px, and the button is the one thing in the bar anyone
-            presses. They live behind More on a phone, and in the footer of
-            this same screen either way — not removed, just not crowding. */}
         {isMobile && navOpen && (
           <div id="cb-intro-navmenu" style={{
-            ...container, paddingBottom: 12,
-            display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+            maxWidth: 1440, margin: "0 auto", padding: "0 26px 14px",
+            display: "flex", gap: 4, flexWrap: "wrap",
           }}>
             {["About", "Privacy", "Contact"].map((item) => (
-              <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={{
-                ...navLink, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 9999,
-              }}>{item}</a>
+              <a key={item} href={"/" + item.toLowerCase()} style={{ ...navLink, border: "1px solid " + hairline, borderRadius: 3 }}>{item}</a>
             ))}
           </div>
         )}
       </header>
 
+      {/* ── The specimen slide ──
+          One verified claim under glass: the product at specimen scale,
+          framed by instrument ticks. */}
       <main className="cb-intro-chrome" style={{
-        position: "relative", zIndex: Z.sticky, flex: 1,
-        display: "flex", flexDirection: "column", justifyContent: "center",
-        minHeight: isMobile ? "94svh" : "100svh",
+        position: "relative", zIndex: 20, flex: 1,
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        padding: isMobile ? "40px 20px 36px" : "56px 26px 48px",
         textAlign: "center",
-        paddingTop: 48, paddingBottom: 64,
       }}>
-        {/* ── The title card ──
-            Quiet sci-fi pacing: a beat of pure footage under the veil, then
-            the type finds focus — tiny tracked kicker, the title resolving
-            like a film card, the slogan, and finally the single way in.
-            Blur-to-sharp, quick and staggered. No pointer motion anywhere on
-            this screen. */}
-        <div style={{
-          ...container, maxWidth: 1040,
-          display: "flex", flexDirection: "column", alignItems: "center",
-          /* Scoped hold behind the title card: neutral black only, never a
-             palette tint (the Commit-45/46 fog lesson). The full-screen
-             vignette above is untouched. */
-          position: "relative",
-        }}>
-          <div aria-hidden="true" style={{
-            position: "absolute", inset: "-12% -30%", zIndex: Z.behind,
-            background: "radial-gradient(ellipse 60% 52% at 50% 46%, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 70%)",
-          }} />
-          {/* ── The specimen ──
-              Not a headline about the product — the product itself, at
-              specimen scale. One verified claim, its paper, its verdict.
-              No card, no glass: museum-label type set directly on the
-              footage, held by the scrim. */}
+        <TickFrame P={P} accent={introAccent}
+          className={animate ? "cb-focus-in" : undefined}
+          style={{
+            width: "100%", maxWidth: 920,
+            padding: isMobile ? "38px 26px 34px" : "60px 72px 52px",
+            background: "rgba(8,11,14,0.82)",
+            ...(animate ? { animationDelay: "0.35s" } : null),
+          }}>
           <div
             onMouseEnter={() => setSpecimenHeld(true)}
             onMouseLeave={() => setSpecimenHeld(false)}
@@ -895,293 +815,169 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             onBlur={() => setSpecimenHeld(false)}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}
           >
-            <div className={animate ? "cb-focus-in" : undefined}
-              style={animate ? { animationDelay: "0.5s" } : undefined}>
-              <span style={{
-                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: "0.42em",
-                textIndent: "0.42em", fontWeight: 600,
-                textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
-                fontVariantNumeric: "tabular-nums",
-                textShadow: "0 2px 18px rgba(0,0,0,0.55)",
-              }}>
-                Specimen {String(specimenIdx + 1).padStart(2, "0")}, a verified claim
-              </span>
+            <div style={{
+              fontFamily: mono, fontSize: 11, letterSpacing: "0.42em",
+              textIndent: "0.42em", fontWeight: 600,
+              textTransform: "uppercase", color: faint,
+              fontVariantNumeric: "tabular-nums",
+            }}>
+              Specimen {String(specimenIdx + 1).padStart(2, "0")} · Verified claim
             </div>
             <div key={specimenIdx} className={animate ? "cb-specimen-in" : undefined} style={{
               display: "flex", flexDirection: "column", alignItems: "center", width: "100%",
             }}>
               <p style={{
-                fontSize: isMobile ? "clamp(24px, 7vw, 34px)" : "clamp(30px, 3.8vw, 48px)",
-                fontWeight: 650, letterSpacing: TYPE.heading.letterSpacing, lineHeight: 1.22,
-                color: "#ffffff", margin: "26px auto 0", maxWidth: "24ch",
+                fontFamily: serif,
+                fontSize: isMobile ? "clamp(26px, 7vw, 34px)" : "clamp(32px, 4.2vw, 54px)",
+                fontWeight: 560, letterSpacing: "-0.01em", lineHeight: 1.24,
+                color: "#ffffff", margin: "30px auto 0", maxWidth: "22ch",
                 textAlign: "center", textWrap: "balance",
-                textShadow: "0 2px 44px rgba(0,0,0,0.55)",
               }}>
                 &ldquo;{specimen.claim}&rdquo;
               </p>
               <div style={{
-                marginTop: 22, display: "flex", alignItems: "center", gap: 8,
-                fontSize: 13, fontWeight: 600, letterSpacing: TRACKING.eyebrow,
-                textTransform: "uppercase", color: withAlpha(introAccent, 0.9),
-                textShadow: "0 2px 18px rgba(0,0,0,0.55)",
+                marginTop: 28, display: "flex", alignItems: "center", justifyContent: "center", gap: 11,
               }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                Traced to a direct finding
+                <span style={{
+                  color: introAccent, display: "inline-flex", lineHeight: 0,
+                  filter: "drop-shadow(0 0 9px " + withAlpha(introAccent, 0.55) + ")",
+                }}>
+                  <Icon name="verdictSupported" size={19} />
+                </span>
+                <span style={{
+                  fontFamily: mono, fontSize: 12, fontWeight: 600,
+                  letterSpacing: "0.26em", textIndent: "0.26em",
+                  textTransform: "uppercase", color: introAccent,
+                }}>
+                  Traced to a direct finding
+                </span>
               </div>
               <p style={{
-                margin: "14px 0 0", maxWidth: "58ch",
-                fontSize: isMobile ? 13 : 14, lineHeight: 1.65,
-                color: "rgba(242,244,242,0.72)",
-                textShadow: "0 2px 30px rgba(0,0,0,0.5)",
+                margin: "20px auto 0", maxWidth: "62ch",
+                fontSize: isMobile ? 13.5 : 14.5, lineHeight: 1.7,
+                color: "rgba(238,241,238,0.66)",
               }}>
                 {specimen.paper}{" "}
                 <a href={specimen.doi} target="_blank" rel="noopener noreferrer"
-                  className="cb-intro-sourcelink"
-                  style={{ color: withAlpha(introAccent, 0.95), fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
+                  style={{ color: introAccent, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
                   Open the paper &#8599;
                 </a>
               </p>
             </div>
-            {/* Specimen dots — the only chrome on the specimen. */}
+            {/* Specimen selector: numbered instrument tabs, not dots. */}
             <div role="tablist" aria-label="Verified claims" style={{
-              marginTop: 26, display: "flex", alignItems: "center", gap: 10,
+              marginTop: 32, display: "flex", alignItems: "center", gap: 8,
             }}>
-              {SPECIMENS.map((sp, i) => (
-                <button key={i} type="button" role="tab" aria-selected={i === specimenIdx}
-                  aria-label={"Claim " + (i + 1) + ": " + sp.claim.slice(0, 60) + "\u2026"}
-                  onClick={() => setSpecimenIdx(i)}
-                  style={{
-                    width: i === specimenIdx ? 26 : 8, height: 8, borderRadius: 9999,
-                    border: "none", cursor: "pointer", padding: 0,
-                    background: i === specimenIdx ? "rgba(242,244,242,0.9)" : "rgba(242,244,242,0.28)",
-                    transition: "width 0.35s ease, background 0.35s ease",
-                  }} />
-              ))}
+              {SPECIMENS.map((sp, i) => {
+                const activeTab = i === specimenIdx;
+                return (
+                  <button key={i} type="button" role="tab" aria-selected={activeTab}
+                    aria-label={"Claim " + (i + 1) + ": " + sp.claim.slice(0, 60) + "\u2026"}
+                    onClick={() => setSpecimenIdx(i)}
+                    style={{
+                      minWidth: 44, minHeight: 44, padding: "0 12px", cursor: "pointer",
+                      fontFamily: mono, fontSize: 12, fontWeight: 600, letterSpacing: "0.1em",
+                      color: activeTab ? introAccent : "rgba(238,241,238,0.38)",
+                      background: activeTab ? withAlpha(introAccent, 0.08) : "transparent",
+                      border: "1px solid " + (activeTab ? withAlpha(introAccent, 0.55) : "rgba(255,255,255,0.12)"),
+                      borderRadius: 3,
+                    }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </button>
+                );
+              })}
             </div>
           </div>
-          <div className={animate ? "cb-focus-in cb-hero-ctas" : "cb-hero-ctas"} style={{
-            marginTop: 40,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            gap: isMobile ? 16 : 22, flexWrap: "wrap",
-            ...(animate ? { animationDelay: "1.6s" } : null),
-          }}>
-            <button type="button" onClick={(e) => go("", false, e)} className="cb-intro-go" style={{
-              cursor: "pointer",
-              /* Mobile: tighter tracking/size/padding so "START
-                 RESEARCHING" fits 360px on one line — it was wrapping to
-                 two lines. whiteSpace: nowrap is the hard guarantee. */
-              padding: isMobile ? "12px 24px" : "14px 34px",
-              fontSize: isMobile ? 12 : 12.5, fontWeight: 600, fontFamily: "var(--cb-font)",
-              letterSpacing: isMobile ? "0.18em" : "0.24em", textIndent: isMobile ? "0.18em" : "0.24em",
-              textTransform: "uppercase", whiteSpace: "nowrap",
-            }}>Start researching</button>
-            {/* "How it works" stays a whisper — never a second button
-                competing with the single way in. */}
-            <button type="button" onClick={() => setHowOpen(true)} className="cb-intro-chip cb-intro-how" style={{
-              cursor: "pointer",
-              border: "1px solid rgba(242,244,242,0.18)", borderRadius: 9999,
-              background: "transparent", padding: "12px 24px",
-              fontSize: isMobile ? 14 : 14.5, fontWeight: 600,
-              color: "rgba(242,244,242,0.78)", fontFamily: "var(--cb-font)",
+        </TickFrame>
+
+        {/* The single way in. */}
+        <div className={animate ? cls.concat("cb-focus-in").join(" ") : cls.join(" ")}
+          style={animate ? { animationDelay: "0.9s" } : undefined}>
+          <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
+            marginTop: 42, cursor: "pointer", color: "#f2f4f2",
+            padding: isMobile ? "15px 34px" : "16px 52px",
+            fontSize: 12.5, fontWeight: 600, fontFamily: "var(--cb-font)",
+            letterSpacing: "0.24em", textIndent: "0.24em",
+            textTransform: "uppercase", whiteSpace: "nowrap",
+          }}>Start researching</button>
+          <div style={{ marginTop: 20 }}>
+            <button type="button" onClick={() => setHowOpen(true)} style={{
+              background: "none", border: "none", cursor: "pointer",
+              fontFamily: mono, fontSize: 12, letterSpacing: "0.16em",
+              color: faint, textDecoration: "underline", textUnderlineOffset: 5,
+              textTransform: "uppercase", padding: "10px 8px",
             }}>How it works</button>
           </div>
-          {/* Autoplay-policy recovery. Rendered only when the reel wants to
-              run, a veto was observed, and the element is actually still
-              paused — the video's own playing event clears it the moment
-              footage moves, so the label can never lie. */}
-          {filmRunning && vetoed && !filmPlaying && (
-            <div className={animate ? "cb-focus-in" : undefined}
-              style={{ marginTop: 26, ...(animate ? { animationDelay: "0.15s", animationDuration: "1.1s" } : null) }}>
-              <button type="button" onClick={resumeFilm} style={{ minHeight: 44,
-                display: "inline-flex", alignItems: "center", gap: 8,
-                padding: "12px 16px", borderRadius: 9999,
-                border: "1px solid rgba(242,244,242,0.22)",
-                background: "rgba(10,12,14,0.5)", color: "#f2f4f2",
-                fontSize: 14, fontWeight: 500, fontFamily: "var(--cb-font)",
-                cursor: "pointer",
-              }}>
-                <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                Background film paused — tap to play
-              </button>
-            </div>
-          )}
         </div>
       </main>
 
-      {/* ── Ethics: why Cerebrum is built this way ──
-          Calm reassurance, not a lecture. No greenwashing, no invented
-          numbers: the energy figure is stated as an approximation and
-          every number on the panel traces to a linked source — the same
-          standard the product's answers are held to. */}
-      <section aria-label="Why Cerebrum" className={animate ? "cb-intro-chrome cb-ethics" : "cb-intro-chrome cb-ethics"} style={{
-        position: "relative", zIndex: Z.sticky,
-        borderTop: `1px solid ${P.line}`,
-        background: "linear-gradient(180deg, rgba(8,10,13,0.80) 0%, rgba(8,10,13,0.94) 100%)",
+      {/* ── Readout strip ──
+          The honesty content, compressed to instrument readouts. A door
+          does not scroll through marketing sections. */}
+      <section aria-label="How Cerebrum holds itself" className="cb-intro-chrome" style={{
+        position: "relative", zIndex: 20,
+        borderTop: "1px solid " + hairline,
+        background: "rgba(255,255,255,0.014)",
       }}>
         <div style={{
-          ...container, maxWidth: 760,
-          paddingTop: isMobile ? 44 : 60, paddingBottom: isMobile ? 48 : 68,
+          maxWidth: 1200, margin: "0 auto", padding: isMobile ? "22px 24px" : "26px 26px",
+          display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)",
+          gap: isMobile ? 16 : 28, textAlign: "left",
         }}>
-          <div style={{
-            fontSize: FONT_SIZES.caption, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
-            color: withAlpha(introAccent, 0.85), marginBottom: 18, fontWeight: 600,
-            fontVariantNumeric: "tabular-nums",
-          }}>
-            Why Cerebrum
-          </div>
-          <h2 style={{
-            fontSize: isMobile ? 24 : 30, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing,
-            lineHeight: 1.25, color: "#ffffff", margin: "0 0 16px",
-            textShadow: "0 2px 30px rgba(0,0,0,0.5)",
-          }}>
-            One search. One honest answer.
-          </h2>
-          <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
-            color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
-          }}>
-            One search returns a fully sourced answer — no ten-query rabbit hole,
-            no twenty tabs open to verify it yourself.
-          </p>
-          <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
-            color: "rgba(242,244,242,0.82)", margin: "0 0 14px",
-          }}>
-            Every claim traces to a paper you can open.
-          </p>
-          <p style={{
-            fontSize: isMobile ? 15.5 : 17, lineHeight: 1.65, fontWeight: 500,
-            color: "rgba(242,244,242,0.82)", margin: 0,
-          }}>
-            No ads. No engagement farming. This product has one job: the truth.
-          </p>
-          <div style={{
-            border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
-            padding: isMobile ? "18px" : "20px 22px",
-            background: "rgba(255,255,255,0.03)",
-            marginTop: 26,
-          }}>
-            <p style={{
-              fontSize: isMobile ? 15 : 15.5, lineHeight: 1.65, fontWeight: 500,
-              color: "rgba(242,244,242,0.9)", margin: "0 0 14px",
-            }}>
-              A Cerebrum search uses about the same energy as a single AI chat
-              answer <strong style={{ fontWeight: 650, color: "#ffffff" }}>(roughly 0.3&nbsp;Wh)</strong>,
-              and it&rsquo;s the only one you need.
-            </p>
-            <div style={{
-              display: "flex", flexWrap: "wrap", gap: "6px 18px",
-            }}>
-              <a href="https://epoch.ai/data-insights/how-much-energy-does-chatgpt-use" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
-                Epoch AI · Feb 2025 — 0.3 Wh per GPT-4o query ↗
-              </a>
-              <a href="https://blog.samaltman.com/the-gentle-singularity" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
-                Sam Altman, OpenAI · Jun 2025 — 0.34 Wh average ↗
-              </a>
-              <a href="https://blog.google/technology/ai/google-ai-environmental-impact/" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 13, fontWeight: 500, color: "rgba(242,244,242,0.55)", textDecoration: "none", borderBottom: "1px solid rgba(242,244,242,0.25)" }}>
-                Google · Aug 2025 — 0.24 Wh for AI Overviews ↗
-              </a>
+          {[
+            ["METHOD", "One search across 15 scholarly sources. Deduplicated, then synthesized."],
+            ["EVIDENCE", "Every claim traces to a paper you can open."],
+            ["TERMS", "No ads. No engagement farming. The truth is the job."],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{
+                fontFamily: mono, fontSize: 10.5, fontWeight: 600,
+                letterSpacing: "0.3em", color: withAlpha(introAccent, 0.85),
+              }}>{k}</span>
+              <span style={{ fontSize: 14.5, lineHeight: 1.6, color: "rgba(238,241,238,0.78)" }}>{v}</span>
             </div>
-          </div>
+          ))}
         </div>
       </section>
 
-      {/* ── Footer ──
-          Credits and legal live here; the header stays clean. */}
+      {/* ── Footer ── */}
       <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
-        position: "relative", zIndex: Z.sticky,
-        paddingBottom: "max(20px, env(safe-area-inset-bottom))",
-        ...(animate ? { animationDelay: "4.1s", animationDuration: "1.8s" } : null),
-        /* The centered scrim above deliberately falls off toward the bottom
-           of the frame so the footage keeps it — which leaves the footer
-           links sitting on bare film. Measured against every graded clip
-           they came out at 1.5:1, i.e. invisible over the bright ones.
-           The footer carries its own band instead of the whole picture being
-           darkened for it: 6.8:1 at the worst frame in the set. */
-        background: "linear-gradient(0deg, rgba(8,10,13,0.90) 0%, rgba(8,10,13,0.86) 62%, rgba(8,10,13,0.30) 100%)",
+        position: "relative", zIndex: 20,
+        borderTop: "1px solid " + hairline,
+        background: "rgba(5,7,10,0.85)",
+        paddingBottom: "max(16px, env(safe-area-inset-bottom))",
+        ...(animate ? { animationDelay: "1.2s" } : null),
       }}>
-        {/* Two rows on a phone, one on a desktop. As a single wrapping row
-            at 390px the spacer below pushed the legal links onto the same
-            line as the sources link and left "Contact" stranded on a line
-            of its own — a stagger, not a footer. */}
         <div style={{
-          ...container, paddingTop: 18,
-          display: "flex",
-          flexDirection: isMobile ? "column" : "row",
-          alignItems: isMobile ? "flex-start" : "center",
-          flexWrap: "wrap",
-          gap: isMobile ? "12px" : "10px 22px",
-          borderTop: "1px solid rgba(255,255,255,0.07)",
+          maxWidth: 1440, margin: "0 auto", padding: "16px 26px 0",
+          display: "flex", alignItems: "center", flexWrap: "wrap",
+          gap: "10px 22px",
+          fontFamily: mono, fontSize: 10.5, letterSpacing: "0.14em",
+          color: "rgba(238,241,238,0.42)",
         }}>
-          {/* Was fifteen database names set in 10.5px mono at 34% opacity —
-              a texture rather than a list, unreadable on a phone and
-              unreadable to a screen reader in any useful order. One link,
-              and the actual list is one press away. */}
-          <button type="button" onClick={() => setSourcesOpen(true)} className="cb-intro-sourcelink" style={{
-            ...footLink, color: "rgba(242,244,242,0.82)", fontSize: 14, fontWeight: 600,
-          }}>Explore our research sources ↗</button>
-
-          {!isMobile && <span style={{ flex: 1, minWidth: 0 }} />}
-
-          <div className="cb-introfoot-links" style={{
-            display: "flex", alignItems: "center", flexWrap: "wrap",
-            /* Full width on a phone so the wrap happens where the row runs
-               out of room, not where a shrink-to-fit box does. */
-            width: isMobile ? "100%" : "auto",
-            gap: isMobile ? "12px 16px" : "10px 22px",
-          }}>
-            {isMobile
-              ? ["About", "Privacy", "Terms", "Disclosures", "Contact"].map((item) => (
-                  <a key={item} href={"/" + item.toLowerCase()} style={footLink}>{item}</a>
-                ))
-              : (
-                <>
-                  <a href="/privacy" style={footLink}>Privacy</a>
-                  <a href="/terms" style={footLink}>Terms</a>
-                  <a href="/disclosures" style={footLink}>Disclosures</a>
-                  <a href="/contact" style={footLink}>Contact</a>
-                </>
-              )}
-            <button type="button" onClick={() => setCreditsOpen(true)} style={footLink}>Film credits</button>
-            {/* Sits with the credits because that is where the footage is
-                already being talked about. The label reads the video
-                element's actual playback state — never intent flags — so
-                it cannot say "paused" while footage is moving, and it
-                matches the tap-to-play pill above instead of
-                contradicting it. */}
-            <button type="button" onClick={toggleFilm} aria-pressed={filmPlaying} style={footLink}>
-              {filmPlaying ? "Pause background" : "Play background"}
-            </button>
-          </div>
-        </div>
-        {/* Copyright + release line: the answer-page footer already carries
-            this; the cinematic homepage footer was missing it. */}
-        <div style={{
-          ...container, paddingTop: 10,
-          fontSize: 12, fontWeight: 500, color: "rgba(242,244,242,0.42)",
-          fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight,
-        }}>
-          © {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}
+          <button type="button" onClick={() => setSourcesOpen(true)} style={{
+            background: "none", border: "none", padding: "10px 0", cursor: "pointer",
+            fontFamily: mono, fontSize: 10.5, letterSpacing: "0.14em",
+            color: "rgba(238,241,238,0.66)", fontWeight: 600,
+          }}>RESEARCH SOURCES &#8599;</button>
+          <span style={{ flex: 1 }} />
+          {["About", "Privacy", "Terms", "Disclosures", "Contact"].map((item) => (
+            <a key={item} href={"/" + item.toLowerCase()} style={{
+              color: "rgba(238,241,238,0.42)", textDecoration: "none", padding: "10px 0",
+              textTransform: "uppercase",
+            }}>{item}</a>
+          ))}
+          <span>© {new Date().getFullYear()} CEREBRUM · {APP_VERSION_LABEL}</span>
         </div>
       </footer>
 
-      {creditsOpen && <FilmCreditsDialog accent={introAccent} onClose={() => setCreditsOpen(false)} />}
       {sourcesOpen && <SourcesDialog accent={introAccent} onClose={() => setSourcesOpen(false)} />}
-      {howOpen && (
-        <HowItWorksDialog
-          accent={introAccent}
-          onClose={() => setHowOpen(false)}
-        />
-      )}
+      {howOpen && <HowItWorksDialog accent={introAccent} onClose={() => setHowOpen(false)} />}
 
     </div>
   );
 }
+
 
 function CerebrumFieldCanvas({
   accent,

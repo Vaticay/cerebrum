@@ -171,7 +171,14 @@ async function test(name, fn) {
   }
 }
 
-for (const f of ["src/CerebrumApp.jsx", "src/main.jsx", "src/legalContent.js"]) {
+// 2026-10-08: the Privacy tab crashed on "statusBad is not defined" because
+// designSystem.jsx used it without importing. The audit only covered 3 files.
+// Now it covers every source module that ships to the browser.
+const AUDIT_FILES = ["src/CerebrumApp.jsx", "src/main.jsx", "src/legalContent.js",
+  "src/designSystem.jsx", "src/settings.jsx", "src/appUtils.js", "src/intro.jsx",
+  "src/inbox.jsx", "src/palettes.js", "src/sfx.js", "src/flowcharts.jsx"];
+
+for (const f of AUDIT_FILES) {
   await test(`no unbound references in ${f}`, () => {
     const src = readFileSync(join(root, f), "utf8");
     const problems = unboundReferences(src, f);
@@ -180,7 +187,7 @@ for (const f of ["src/CerebrumApp.jsx", "src/main.jsx", "src/legalContent.js"]) 
   });
 }
 
-for (const f of ["src/CerebrumApp.jsx", "src/main.jsx", "src/legalContent.js"]) {
+for (const f of AUDIT_FILES) {
   await test(`no use-before-declaration (TDZ) in ${f}`, () => {
     const src = readFileSync(join(root, f), "utf8");
     const problems = tdzReferences(src, f);

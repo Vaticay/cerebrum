@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { STATUS } from "./designSystem.jsx";
+import { STATUS, relLuminance } from "./designSystem.jsx";
 
 function setCookie(k, v) { try { document.cookie = `${k}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; } catch (cbErr) { console.error("[Cerebrum] appUtils.js setCookie: document.cookie assignment:", cbErr); } if (k === "cb_anim2") { try { cbMotionCacheBust(); } catch (cbErr) { console.error("[Cerebrum] appUtils.js if: cbMotionCacheBust(); }:", cbErr); } } }
 

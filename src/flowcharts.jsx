@@ -10,8 +10,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
-import { getCookie, __cbMotionCache, cbMotionCacheSet, download, selectChrome } from "./appUtils.js";
+import { getCookie, __cbMotionCache, cbMotionCacheSet, download, selectChrome, toast } from "./appUtils.js";
 import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
+import { fcExtractSteps, fcCompressStep } from "./fcLabel.js";
+import { safeHref } from "./textUtils.js";
+
+// 2026-10-08: logExport was called but never defined (crashed export buttons).
+// No-op until export analytics exists.
+function logExport() {}
 
 export function cbMotionOff() {
   // Cached ~1s: this runs in hot paths (pointer handlers, count-up hooks)

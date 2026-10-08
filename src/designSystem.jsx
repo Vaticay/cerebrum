@@ -394,7 +394,7 @@ export function UIRow({ label, desc, control, onClick, P = null, accent, last, t
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? statusBad(pal, paletteName) : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
+        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? (pal.dark ? (paletteName === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31") : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
         {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: pal.faint, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
