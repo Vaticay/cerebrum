@@ -252,9 +252,13 @@ export const Z = {
 
 export function UIButton({
   children, onClick, variant = "secondary", size = "md",
-  P, accent, at, icon, disabled, title, ariaLabel, full, type = "button", style,
+  P = null, accent, at, icon, disabled, title, ariaLabel, full, type = "button", style,
   className = "", ...rest
 }) {
+  // Null-safe palette: components like ModalChrome/ChromeHeader pass P=null
+  // for the dark instrument-glass treatment. Fall back to the dark palette
+  // so variant skins never crash on pal.dark / pal.ink2.
+  const pal = P || PALETTES.Dark;
   const pad = size === "sm" ? "6px 13px" : size === "lg" ? "12px 22px" : "9px 17px";
   const fs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.small;
   /* Every skin gets a lit top edge and a shadow that belongs to it.
@@ -273,22 +277,22 @@ export function UIButton({
       textShadow: "0 1px 2px rgba(0,0,0,0.18)",
     },
     secondary: {
-      background: P.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
-      color: P.ink, border: `1px solid ${P.line2}`,
-      boxShadow: P.dark
+      background: pal.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
+      color: pal.ink, border: `1px solid ${pal.line2}`,
+      boxShadow: pal.dark
         ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"
         : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px -2px rgba(15,23,42,0.12)",
     },
     ghost: {
-      background: "transparent", color: P.ink2, border: "1px solid transparent",
+      background: "transparent", color: pal.ink2, border: "1px solid transparent",
       boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
     },
     destructive: {
-      background: P.dark
+      background: pal.dark
         ? `linear-gradient(180deg, ${withAlpha(STATUS.bad, 0.16)} 0%, ${withAlpha(STATUS.bad, 0.10)} 100%)`
         : `linear-gradient(180deg, ${withAlpha(STATUS.bad, 0.08)} 0%, ${withAlpha(STATUS.bad, 0.04)} 100%)`,
       color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
-      boxShadow: P.dark
+      boxShadow: pal.dark
         ? `inset 0 1px 0 ${withAlpha(STATUS.bad, 0.18)}, 0 2px 8px -2px ${withAlpha(STATUS.bad, 0.25)}`
         : `inset 0 1px 0 rgba(255,255,255,0.5), 0 2px 8px -2px ${withAlpha(STATUS.bad, 0.18)}`,
     },

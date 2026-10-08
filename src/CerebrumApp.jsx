@@ -4417,7 +4417,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
         onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = withAlpha(accent, 0.08); e.currentTarget.style.color = accent; } }}
         onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; } }}
       >
-        {status === "loading" ? <span style={{ width: 10, height: 10, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" }} /> : playIcon}
+        {status === "loading" ? <span style={{ width: 10, height: 10, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.8s linear infinite" }} /> : playIcon}
       </button>
     );
   }
@@ -16002,7 +16002,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: FONT_SIZES.body, padding: "16px 0 0" },
-    spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.7s linear infinite" },
+    spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.8s linear infinite" },
     followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
@@ -21066,7 +21066,7 @@ summary::-webkit-details-marker { display: none; }
 
 /* ── Keyframes: all blur-to-focus, slow, intentional ── */
 @keyframes cbspin { to { transform: rotate(360deg); } }
-.cb-spin { animation: cbspin 0.9s linear infinite; display: inline-flex; }
+.cb-spin { animation: cbspin 0.8s linear infinite; display: inline-flex; }
 /* Indeterminate upload bar: slides across its track while the avatar POST
    is in flight. Pure transform/opacity motion, respects reduced motion. */
 .cb-indeterminate-bar { animation: cbIndeterminate 1.1s ease-in-out infinite; }
@@ -21584,7 +21584,7 @@ summary::-webkit-details-marker { display: none; }
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--cb-acc) 35%, transparent);
   border-top-color: var(--cb-acc);
-  animation: cbspin 0.9s linear infinite;
+  animation: cbspin 0.8s linear infinite;
 }
 .cb-ask-spin--still { animation: none; }
 
@@ -21870,6 +21870,13 @@ body.cb-motion-off .cb-trend-hero,
 body.cb-motion-off .cb-modeplate,
 body.cb-motion-off .cb-row,
 body.cb-motion-off .cb-row::before { animation: none !important; transition: none !important; }
+/* The standard reduced-motion hammer for inline styles: no CSS selector can
+   reach inline transition declarations, so this kills them globally when
+   the user opts out of motion. */
+body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
 
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
