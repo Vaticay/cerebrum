@@ -103,12 +103,12 @@ const FILM_CLIPS_PORTRAIT = [
 /* Intro reel (2026-10-08, refreshed): dramatic cinematic clips for the
    ceremonial door. All clips are Mixkit (free for commercial use, no
    watermark), hotlinked from assets.mixkit.co which allows it. Dark,
-   slow, dramatic — cosmic dark matter, storm clouds, slow-motion dust. */
+   slow, dramatic — cosmic dark matter, storm clouds, slow-motion water. */
 const FILM_CLIPS_INTRO = [
   "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space — Mixkit
   "https://assets.mixkit.co/videos/20231/20231-720.mp4", // Swirling dark clouds — Mixkit
   "https://assets.mixkit.co/videos/52298/52298-1080.mp4", // Dense storm clouds before a storm — Mixkit
-  "https://assets.mixkit.co/videos/51806/51806-1080.mp4", // Purple dust explosion in slow motion on black — Mixkit
+  "https://assets.mixkit.co/videos/182/182-1080.mp4", // Bubbling water in slow motion, B&W — Mixkit
 ];
 
 /* Calm reel (2026-10-08, refreshed): quieter clips for the main search page.
