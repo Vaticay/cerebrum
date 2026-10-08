@@ -23,7 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildExtractiveSynthesis, isWellFormedClaim } = await import(
+const { buildExtractiveSynthesis, isWellFormedClaim, buildEvidenceBrief } = await import(
   join(root, "functions/api/search.js")
 );
 
@@ -136,6 +136,94 @@ await test("true provider failure keeps the outage copy", () => {
   );
   assert.ok(md, "expected markdown output");
   assert.match(md, /temporarily unavailable/i);
+});
+
+// Dusty's 2026-10-08 photo: "THE SHORT ANSWER" opened with
+// "Further, PERMANOVA showed that age and gender..." . a transitional
+// opener on a tangential finding. The lede must strip connective openers
+// and prefer the claim that shares the question's terms.
+await test("short-answer lede strips transitional openers and answers the question", () => {
+  const md = buildExtractiveSynthesis(
+    [
+      PAPER(
+        "Microbial variation across demographics",
+        "Further, PERMANOVA showed that age and gender explained a small yet " +
+          "significant difference in microbial variation with greater variability " +
+          "observed between males and females than across age groups. " +
+          "The gut microbiome influences cardiovascular disease through " +
+          "inflammatory pathways and metabolite signaling."
+      ),
+    ],
+    null,
+    { query: "How does the gut microbiome influence cardiovascular disease?" }
+  );
+  const lede = md.split("## ")[1] || "";
+  assert.doesNotMatch(
+    lede,
+    /^[\s\S]*?further,/i,
+    "transitional opener 'Further,' leaked into the short answer"
+  );
+  assert.match(
+    lede,
+    /gut microbiome influences cardiovascular disease/i,
+    "query-relevant claim did not win the short-answer lede"
+  );
+});
+
+// Same photo: "WASTE · FLY · HERMETIA" shipped as a ### subheader under
+// "WHAT THE RESEARCH SHOWS". Tag-soup headers must never be generated.
+await test("research tier emits no tag-soup subheaders", () => {
+  const md = buildExtractiveSynthesis(
+    [
+      PAPER(
+        "BSFL on waste oil 1",
+        "Waste oil substrates were fed to black soldier fly larvae. Larval " +
+          "growth was unaffected up to 30 percent replacement."
+      ),
+      PAPER(
+        "BSFL on waste oil 2",
+        "Black soldier fly larvae converted waste oil efficiently. The gut " +
+          "microbiome of hermetia illucens shifted with waste oil inclusion."
+      ),
+      PAPER(
+        "BSFL on waste oil 3",
+        "Hermetia illucens larvae showed stable development on waste oil " +
+          "substrates. Waste oil did not compromise protein content."
+      ),
+    ],
+    null,
+    { query: "Studies involving BSFL waste oil substrates" }
+  );
+  assert.ok(md, "expected markdown output");
+  assert.doesNotMatch(
+    md,
+    /^### [A-Z][A-Z\s]*(?:\s*[·•]\s*[A-Z][A-Z\s]*)+\s*$/m,
+    "tag-soup ### header survived in the research tier"
+  );
+  assert.doesNotMatch(
+    md,
+    /^[A-Z][A-Z\s]*(?:\s*[·•]\s*[A-Z][A-Z\s]*)+\s*$/m,
+    "tag-soup keyword line survived anywhere in the answer"
+  );
+});
+
+// The evidence brief is prompt context for the AI: a "[Waste · Fly ·
+// Hermetia]" label teaches the model to emit the same pseudo-headers the
+// NO SUBHEADERS rule bans. Labels stay sentence-case.
+await test("evidence brief labels are sentence-case, not tag soup", () => {
+  const papers = [
+    { title: "BSFL on waste oil", abstract: "Waste oil fed to black soldier fly larvae." },
+  ];
+  const claimLists = [
+    [
+      "Waste oil substrates reshape the fly gut microbiome.",
+      "Fly larvae converted waste oil substrates efficiently.",
+    ],
+  ];
+  const brief = buildEvidenceBrief(papers, claimLists);
+  assert.ok(brief && brief.text, "expected brief output");
+  assert.doesNotMatch(brief.text, /\[Waste ·/);
+  assert.match(brief.text, /\[findings on /);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

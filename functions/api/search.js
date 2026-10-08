@@ -4638,10 +4638,6 @@ function extractTermCounts(text) {
   return counts;
 }
 
-function titleCaseTerm(t) {
-  return t.charAt(0).toUpperCase() + t.slice(1);
-}
-
 // Placeholder abstract text ("No abstract available.") carries no signal .
 // letting it into term counts poisons the topic phrase and clustering.
 function usableAbstract(p) {
@@ -5364,14 +5360,26 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     const leads = [];
     const usedIdx = new Set();
     const claimWords = (s) => String(s || "").split(/\s+/).filter(Boolean).length;
-    // Lede order: on-substrate before drifted, concise before sprawling,
-    // then finding-density. The lede is "the short answer" to the question
-    // asked . a drifted paper's finding must not open it merely because it
+    // Query-term overlap: the lede is "the short answer" to the question
+    // asked, so a claim sharing significant query terms outranks a
+    // higher finding-density claim about something peripheral (the
+    // "Further, PERMANOVA showed that age and gender..." failure).
+    const ledeQTerms = significantQueryTerms(ctx && ctx.query);
+    const ledeQHits = (t) => {
+      const low = String(t || "").toLowerCase();
+      let n = 0;
+      for (const q of ledeQTerms) if (q && low.indexOf(q) >= 0) n++;
+      return n;
+    };
+    // Lede order: on-substrate before drifted, query-relevant before
+    // tangential, concise before sprawling, then finding-density.
+    // A drifted paper's finding must not open the lede merely because it
     // scored higher on raw finding-density, and a 70-word mega-sentence
     // must not open it either. Skipped claims keep their fingerprint
     // unconsumed, so they can still appear in the theme sections below.
     const ledeOrder = [...candidates].sort((a, b) =>
       ((a.drifted ? 1 : 0) - (b.drifted ? 1 : 0)) ||
+      (ledeQHits(b.text) - ledeQHits(a.text)) ||
       ((claimWords(a.text) > 45 ? 1 : 0) - (claimWords(b.text) > 45 ? 1 : 0)) ||
       (b.score - a.score) || (a.idx - b.idx)
     );
@@ -5386,6 +5394,10 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     if (leads.length) {
       const tldr = leads.map((c) => {
         let s = stripClaimTags(c.text);
+        // A lede that opens with "Further," or "However," reads like a
+        // paragraph torn from the middle of a paper, not an answer to the
+        // question. Strip the connective so the claim opens on its content.
+        s = s.replace(/^(?:Further|Additionally|However|Moreover|Nevertheless|Nonetheless|In addition|Also|Overall|In this study|In the present study|In these studies|Here|Herein|Interestingly|Notably|Surprisingly|Importantly|Consistently|Taken together|Together)[,;:]?\s+/i, "");
         if (!/[.!?]$/.test(s)) s += ".";
         s = s.replace(/^[a-z]/, (ch) => ch.toUpperCase());
         return s + " [" + c.idx + "]";
@@ -5451,8 +5463,15 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         const terms = Object.entries(docFreq)
           .sort((a, b) => b[1] - a[1] || (cluster.items[0].termCounts[b[0]] || 0) - (cluster.items[0].termCounts[a[0]] || 0))
           .slice(0, 3)
-          .map(([t]) => titleCaseTerm(t));
-        return terms.length ? terms.join(" · ") : "Further findings";
+          .map(([t]) => String(t).toLowerCase());
+        // Sentence-case lead-in, never an ALL-CAPS tag-soup header and
+        // never an ### subheader: the five H2 sections are the only
+        // headers in the answer. "WASTE · FLY · HERMETIA" as a header is
+        // banned, in prose it never reads as one.
+        if (!terms.length) return "Further findings:";
+        return "Findings on " + (terms.length > 2
+          ? terms.slice(0, -1).join(", ") + " and " + terms[terms.length - 1]
+          : terms.join(" and ")) + ":";
       };
 
       for (const cluster of clusters) {
@@ -5468,12 +5487,12 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         // theme) contributes nothing new . print no heading for it rather
         // than an empty section.
         if (!lines.length) continue;
-        md += "\n### " + labelFor(cluster) + "\n\n" + lines.join("\n") + "\n";
+        md += "\n" + labelFor(cluster) + "\n" + lines.join("\n") + "\n";
       }
     } else {
       // No abstracts anywhere (common for older papers): the titles ARE the
       // findings. List them with their venues rather than fake clustering.
-      md += "\n### Findings reported\n\n";
+      md += "\nFindings reported:\n\n";
       for (const it of items) {
         if (!it.titleClaim) continue;
         const kept = takeClaim(it.titleClaim);
@@ -7099,8 +7118,15 @@ export function buildEvidenceBrief(papers, claimLists) {
     const labelFor = (cluster) => {
       const freq = {};
       for (const cl of cluster.claims) for (const t of cl.terms) freq[t] = (freq[t] || 0) + 1;
-      const top = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => e[0]);
-      return top.length ? top.map((w) => w[0].toUpperCase() + w.slice(1)).join(" · ") : "Findings";
+      const top = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => String(e[0]).toLowerCase());
+      // Sentence-case machine tag, never Title-Case tag soup: the brief is
+      // prompt context for the model, and a "[Waste · Fly · Hermetia]" label
+      // teaches it to emit the same pseudo-headers the NO SUBHEADERS rule
+      // bans. Lowercase reads as an organizer's note, not a headline.
+      if (!top.length) return "[findings]";
+      return "[findings on " + (top.length > 2
+        ? top.slice(0, -1).join(", ") + " and " + top[top.length - 1]
+        : top.join(" and ")) + "]";
     };
 
     let text = "EVIDENCE BRIEF . atomic claims pre-extracted from the source papers below. " +
@@ -7166,6 +7192,16 @@ function postProcessAnswer(rawAnswer) {
       answer = answer.replace(sentenceRe, '');
     }
   }
+
+  // 3b. Strip tag-soup pseudo-headers the model may emit despite the
+  // NO SUBHEADERS ban ("WASTE · FLY · HERMETIA", "KEY FINDINGS", "METHODS").
+  // A line that is ONLY all-caps keywords separated by middots/dots/dashes
+  // is never prose and never one of the five real H2 sections . drop it.
+  // Mirrors the frontend regex so both paths agree.
+  answer = answer
+    .split("\n")
+    .filter((line) => !/^\s*[A-Z][A-Z\s]*(?:\s*[·•\-.–—]\s*[A-Z][A-Z\s]*)+\s*$/.test(line))
+    .join("\n");
 
   // 4. Clean up any artifacts
   answer = answer.replace(/\n{3,}/g, "\n\n").trim();
@@ -7636,7 +7672,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     // src/main.jsx promotes any "## Title" to a heading generically, so
     // the frontend follows automatically.
     "## The short answer\n" +
-    "2-4 sentences. The direct answer to the question, stated plainly, with its strongest supporting citation(s). If the question's own premise is wrong, this is where you say so first (see PREMISE CHECK).\n\n" +
+    "2-4 sentences. The FIRST sentence must directly answer the question asked (yes/no/how/what), never a method detail, a transitional opener, or a random finding. NEVER begin with a connective like \"Further,\" \"Additionally,\" \"However,\" or with a method or statistic (\"PERMANOVA showed...\"). The question \"How does X affect Y?\" opens \"X affects Y by...\" with its strongest supporting citation(s). If the question's own premise is wrong, this is where you say so first (see PREMISE CHECK).\n\n" +
     "## What the research shows\n" +
     "The synthesis itself. RULE 1 (zero prefacing) and RULE 2 (synthesize, never list) apply in full force here. This is normally the longest section.\n\n" +
     "## Where researchers disagree\n" +
