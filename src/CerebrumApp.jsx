@@ -76,7 +76,7 @@ import {
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
-import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
+import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
@@ -1704,6 +1704,46 @@ function parseQueryEntities(text) {
   return found;
 }
 
+/* ── Question shapeshifter: predict the ask mode from the text ──────────
+   As the user types, lightweight signals guess which mode they want. The
+   composer auto switches and shows a one tap badge to undo. Signals are
+   conservative on purpose: only fire on explicit phrasing, never on vibes.
+   "explain" is the default so it never needs a signal. */
+const MODE_SIGNALS = [
+  { key: "compare", label: "a comparison", test: /\b(versus|vs\.?|compared?\b|comparing|difference between|better than|worse than)\b/i },
+  { key: "verify", label: "a claim to check", test: /\b(is it true|is this true|does .{1,40} really|really work|myth|fact ?check|debunk|true or false)\b/i },
+  { key: "map", label: "a field map", test: /\b(overview of|state of the field|map of|who studies|research landscape|what is known about)\b/i },
+  { key: "readinglist", label: "a reading list", test: /\b(papers on|key readings|reading list|what should i read|where to start reading|essential papers)\b/i },
+];
+function predictAskMode(text) {
+  const t = String(text || "");
+  if (t.trim().length < 10) return null;
+  for (const s of MODE_SIGNALS) if (s.test.test(t)) return s;
+  return null;
+}
+
+/* ── Citation aware composer: identifier detection ───────────────────────
+   DOI, PMID (with prefix only, so typing a year never triggers it), arXiv
+   ID, or a paper URL. Returns the cleaned value plus the raw matched text
+   so the composer can strip the identifier and replace it with a chip. */
+function detectPaperIdent(text) {
+  const t = String(text || "");
+  let m = t.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i);
+  if (m) return { kind: "DOI", value: m[0].replace(/[.,;:!?)\]]+$/, ""), raw: m[0] };
+  m = t.match(/\barxiv:\s*(\d{4}\.\d{4,5}(v\d+)?)\b/i);
+  if (m) return { kind: "arXiv ID", value: m[1], raw: m[0] };
+  m = t.match(/\bPMID[:\s]*(\d{1,8})\b/i);
+  if (m) return { kind: "PMID", value: m[1], raw: m[0] };
+  m = t.match(/\bhttps?:\/\/[^\s<>"']+/i);
+  if (m) {
+    const raw = m[0].replace(/[.,;:!?)\]]+$/, "");
+    const doiInUrl = raw.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i);
+    if (doiInUrl) return { kind: "DOI", value: doiInUrl[0].replace(/[.,;:!?)\]]+$/, ""), raw };
+    return { kind: "URL", value: raw, raw };
+  }
+  return null;
+}
+
 /* ── SearchNameplate: a quiet masthead ─────────────────────────────────────────
    Was an engraved instrument plate — ringed mark, tracked-out caps, a mode
    window, a spec line. Four bands of chrome before the question. Now it is
@@ -1745,9 +1785,16 @@ function SearchNameplate({ P, accent, askMode, focused, compact }) {
    request flow changed: same input value, Enter to ask, image attach,
    voice dictation, busy state, recents, mode-aware placeholder.
 
-   The placeholder is an overlay, not the input's placeholder attribute:
-   keyed by mode so it crossfades on every mode switch, pointer-transparent,
-   and gone the moment there is text. The input keeps its own aria-label. */
+   The field is an auto growing textarea (1 to 6 rows) with a native
+   placeholder attribute — the old fake overlay div is gone. Enter asks,
+   Shift+Enter makes a new line; a quiet caption teaches that until the
+   first ask.
+
+   Two behaviours live here now. The question shapeshifter predicts the
+   ask mode from the text ("versus" suggests Compare) and switches to it,
+   showing a one tap badge to undo. The citation aware composer detects a
+   pasted DOI, PMID, arXiv ID or paper URL, resolves it to a paper chip,
+   and reframes the question around that paper on ask. */
 function SignalComposer({
   input, setInput, inputRef, ask, busy,
   askMode, setAskMode, isMobile, accent, P,
@@ -1785,17 +1832,159 @@ function SignalComposer({
   const blurTimer = useRef(null);
   useEffect(() => () => { if (blurTimer.current) clearTimeout(blurTimer.current); }, []);
   const showRecents = recentOpen && !String(input || "").trim() && recents.length > 0;
-  const doAsk = () => { setRecentOpen(false); setRecentActive(-1); ask(); };
+  const doAsk = () => {
+    setRecentOpen(false); setRecentActive(-1);
+    markHintSeen();
+    const t = String(input || "").trim();
+    const chip = paperChipRef.current;
+    if (chip && chip.status === "ready" && chip.meta) {
+      const m = chip.meta;
+      const ref = m.title ? m.title + (m.year ? " (" + m.year + ")" : "") : chip.value;
+      chipKeyRef.current = null;
+      setChip(null);
+      if (!t) ask("What did this paper find? " + ref);
+      else ask(t + " About this paper: " + ref);
+      return;
+    }
+    if (chip) {
+      // Still resolving or failed: keep the identifier in the question so
+      // nothing the user pasted is silently lost.
+      const q = (t ? t + " " : "") + chip.value;
+      chipKeyRef.current = null;
+      setChip(null);
+      ask(q);
+      return;
+    }
+    ask();
+  };
   const pickRecent = (i) => {
     const q = recents[i];
     if (!q) return;
+    chipKeyRef.current = null;
+    setChip(null);
     setInput(q);
+    runShapeshift(q);
     setRecentOpen(false);
     setRecentActive(-1);
     setTimeout(() => inputRef.current?.focus(), 30);
   };
-  const hasText = String(input || "").trim().length > 0;
   const clickSfx = () => { try { sfx(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx clickSfx: sfx(); }:", cbErr); } };
+  const modeLabel = (k) => (ASK_MODES.find((m) => m.key === k) || {}).label || k;
+  /* ── Question shapeshifter state ──
+     shapeActive: the mode key the prediction switched to (null when off).
+     shapePrevRef: the mode the user had before the prediction fired, so
+     one tap on the badge restores it. shapeLockRef: the user overrode or
+     picked a mode by hand, so predictions stay quiet until the input is
+     cleared. */
+  const askModeRef = useRef(askMode);
+  askModeRef.current = askMode;
+  const shapeLockRef = useRef(false);
+  const shapePrevRef = useRef(null);
+  const [shapeActive, setShapeActive] = useState(null);
+  const [shapeSignal, setShapeSignal] = useState(null);
+  const runShapeshift = (v) => {
+    const s = predictAskMode(v);
+    if (!String(v || "").trim()) {
+      shapeLockRef.current = false;
+      shapePrevRef.current = null;
+      setShapeActive(null);
+      setShapeSignal(null);
+      return;
+    }
+    if (shapeLockRef.current) return;
+    if (s && s.key !== askModeRef.current) {
+      if (shapePrevRef.current == null) shapePrevRef.current = askModeRef.current;
+      setAskMode(s.key);
+      setShapeActive(s.key);
+      setShapeSignal(s);
+    } else if (!s && shapeActive) {
+      setAskMode(shapePrevRef.current || "explain");
+      shapePrevRef.current = null;
+      setShapeActive(null);
+      setShapeSignal(null);
+    }
+  };
+  const overrideShape = () => {
+    clickSfx();
+    setAskMode(shapePrevRef.current || "explain");
+    shapePrevRef.current = null;
+    setShapeActive(null);
+    setShapeSignal(null);
+    shapeLockRef.current = true;
+  };
+  /* ── Citation aware composer: the attached paper chip ── */
+  const [paperChip, setPaperChip] = useState(null); // { kind, value, status, meta }
+  const paperChipRef = useRef(null);
+  const chipKeyRef = useRef(null);
+  const setChip = (c) => { paperChipRef.current = c; setPaperChip(c); };
+  const resolvePaperChip = (ident) => {
+    const key = ident.kind + ":" + ident.value;
+    chipKeyRef.current = key;
+    setChip({ kind: ident.kind, value: ident.value, status: "resolving", meta: null });
+    if (ident.kind === "URL") {
+      let host = "";
+      try { host = new URL(ident.value).hostname.replace(/^www\./, ""); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx resolvePaperChip host:", cbErr); }
+      setChip({ kind: "URL", value: ident.value, status: "ready", meta: { title: "", host } });
+      return;
+    }
+    fetch("/api/resolve-identifier", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: ident.kind, value: ident.value }),
+    })
+      .then((r) => r.json().catch(() => ({})))
+      .then((data) => {
+        if (chipKeyRef.current !== key) return;
+        if (data && data.ok && data.title) setChip({ kind: ident.kind, value: ident.value, status: "ready", meta: data });
+        else setChip({ kind: ident.kind, value: ident.value, status: "error", meta: null });
+      })
+      .catch(() => {
+        if (chipKeyRef.current !== key) return;
+        setChip({ kind: ident.kind, value: ident.value, status: "error", meta: null });
+      });
+  };
+  const removeChip = () => {
+    clickSfx();
+    chipKeyRef.current = null;
+    setChip(null);
+    setTimeout(() => inputRef.current?.focus(), 30);
+  };
+  const handleComposerChange = (v) => {
+    if (!paperChipRef.current) {
+      const ident = detectPaperIdent(v);
+      if (ident) {
+        const stripped = v.replace(ident.raw, "").replace(/[ \t]{2,}/g, " ").trim();
+        setInput(stripped);
+        resolvePaperChip(ident);
+        runShapeshift(stripped);
+        return;
+      }
+    }
+    setInput(v);
+    runShapeshift(v);
+  };
+  /* Auto grow the textarea: 1 row, up to 6, then scroll. */
+  const autosizeComposer = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    let lineH = 25.5;
+    try { lineH = parseFloat(getComputedStyle(el).lineHeight) || 25.5; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx autosize lineHeight:", cbErr); }
+    const max = lineH * 6 + 26;
+    el.style.height = Math.min(el.scrollHeight, max) + "px";
+    el.style.overflowY = el.scrollHeight > max + 1 ? "auto" : "hidden";
+  };
+  useEffect(() => { autosizeComposer(); }, [input]);
+  /* First use hint: "Enter to ask, Shift+Enter for a new line", shown
+     until the first ask. */
+  const [hintSeen, setHintSeen] = useState(() => {
+    try { return localStorage.getItem("cb_composer_hint_seen") === "1"; } catch { return true; }
+  });
+  const markHintSeen = () => {
+    if (hintSeen) return;
+    setHintSeen(true);
+    try { localStorage.setItem("cb_composer_hint_seen", "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx hintSeen:", cbErr); }
+  };
   return (
     <div
       role="search"
@@ -1813,14 +2002,15 @@ function SignalComposer({
     >
       <div className="cb-ask-field">
         <div className="cb-ask-inputwrap">
-          <input
+          <textarea
             ref={inputRef}
             className="cb-ask-input"
             role="combobox"
             aria-controls="cb-ask-recents"
             aria-activedescendant={showRecents && recentActive >= 0 ? `cb-ask-recent-opt-${recentActive}` : undefined}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            rows={1}
+            onChange={(e) => handleComposerChange(e.target.value)}
             onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
             onBlur={() => {
               setFocused(false);
@@ -1892,10 +2082,54 @@ function SignalComposer({
           </div>
         )}
       </div>
+      {paperChip && (
+        <div className="cb-paperchip" role="status">
+          {paperChip.status === "resolving" && (
+            <span className="cb-paperchip-meta">Finding that paper…</span>
+          )}
+          {paperChip.status === "error" && (
+            <span className="cb-paperchip-meta">Could not fetch details for {paperChip.value}. Your question will still include it.</span>
+          )}
+          {paperChip.status === "ready" && paperChip.meta && paperChip.meta.title && (
+            <span className="cb-paperchip-meta" title={paperChip.meta.title}>
+              <strong>{paperChip.meta.title}</strong>
+              {paperChip.meta.year ? ` (${paperChip.meta.year})` : ""}
+              {paperChip.meta.journal ? ` · ${paperChip.meta.journal}` : ""}
+            </span>
+          )}
+          {paperChip.status === "ready" && paperChip.kind === "URL" && (
+            <span className="cb-paperchip-meta">Link attached · {paperChip.meta.host || paperChip.value}</span>
+          )}
+          <button
+            type="button"
+            className="cb-paperchip-x"
+            onClick={removeChip}
+            aria-label="Remove attached paper"
+            title="Remove attached paper"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
+      {shapeActive && shapeSignal && (
+        <button
+          type="button"
+          className="cb-shape"
+          onClick={overrideShape}
+          title={"Back to " + modeLabel(shapePrevRef.current || "explain")}
+          aria-label={"Looks like " + shapeSignal.label + ". Using " + modeLabel(shapeActive) + ". Activate to go back to " + modeLabel(shapePrevRef.current || "explain")}
+        >
+          <span className="cb-shape-dot" aria-hidden="true" />
+          Looks like {shapeSignal.label}. Using {modeLabel(shapeActive)}.
+        </button>
+      )}
+      {!hintSeen && (
+        <div className="cb-ask-hint">Enter to ask · Shift+Enter for a new line</div>
+      )}
       <div className="cb-ask-modes">
         <AskModePicker
           mode={askMode}
-          setMode={(k) => { clickSfx(); setAskMode(k); }}
+          setMode={(k) => { clickSfx(); setAskMode(k); setShapeActive(null); setShapeSignal(null); shapePrevRef.current = null; shapeLockRef.current = true; }}
           P={P} accent={accent} isMobile={isMobile}
         />
       </div>
@@ -2053,7 +2287,11 @@ async function runStreamedSearch({ body, signal, onStageEvent, onConnect, resume
       const idx = SEARCH_STREAM_STAGES.findIndex((s) => s.key === event);
       if (idx >= 0) {
         sawStage = true;
-        if (onStageEvent) onStageEvent(event, stageDetailFor(event, safeJsonParse(data)), idx);
+        /* The Dive: pass the parsed payload through so the depth rail can
+           read real per-database progress (answered/total) off the
+           finding_papers frames. Parsed once, shared by both consumers. */
+        const payload = safeJsonParse(data);
+        if (onStageEvent) onStageEvent(event, stageDetailFor(event, payload), idx, payload);
       }
     }});
   } catch (e) {
@@ -2486,6 +2724,36 @@ function useTypewriter(full, on) {
     return () => cancelAnimationFrame(raf);
   }, [full, animate]);
   return out;
+}
+
+/* ── ANSWER ASSEMBLY ──
+   Replaces the typewriter. Instead of revealing characters, paragraphs
+   arrive with a stagger as the answer completes. You watch claims get
+   evidence instead of watching text type.
+
+   Returns the visible portion of the answer (whole paragraphs only).
+   Each paragraph gets the cb-assemble-para class for its entrance;
+   citation chips get cb-cite-enter with a stagger via CSS. */
+const ASSEMBLY_STAGGER_MS = 120;
+const ASSEMBLY_MAX_PARAS = 40;
+function useAnswerAssembly(full, on) {
+  const animate = on && !!full && !cbMotionOff();
+  const paras = useMemo(() => (full || "").split(/\n{2,}/), [full]);
+  const [visible, setVisible] = useState(animate ? 0 : paras.length);
+  useEffect(() => {
+    if (!animate) { setVisible(paras.length); return; }
+    if (paras.length > ASSEMBLY_MAX_PARAS) { setVisible(paras.length); return; }
+    setVisible(0);
+    let i = 0;
+    const timer = setInterval(() => {
+      i += 1;
+      setVisible(i);
+      if (i >= paras.length) clearInterval(timer);
+    }, ASSEMBLY_STAGGER_MS);
+    return () => clearInterval(timer);
+  }, [full, animate, paras.length]);
+  const shown = useMemo(() => paras.slice(0, visible).join("\n\n"), [paras, visible]);
+  return { shown, visibleCount: visible, totalCount: paras.length };
 }
 
 // v32 fix: some free-tier models (WAVE 2/3 in the backend race) comply with
@@ -3233,7 +3501,74 @@ function renderFlashpointClaim(text, P) {
    and because the recording happens inside the render itself — including
    the recursive passes for glued headings — the rail's numbering can
    never drift from the claim spines on the page. */
-function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null) {
+/* ── EVIDENCE WEIGHTED TYPOGRAPHY ──
+   Builds a lookup from paragraph text to evidence status, using the
+   fact check claims the pipeline already computed. Returns a function
+   that takes paragraph text and returns { weight, label, labelTone }.
+
+   Status mapping:
+   - supported (multiple sources agree) → weight 500, full ink. Established.
+   - thin/partly (1-2 sources, or partial match) → weight 450. Supported but thin.
+   - unsupported → weight 450 with "needs source" label. Never presented confidently.
+   - disagreementVerdict present → contested paragraphs get "disputed" label.
+
+   Matching is by citation overlap first (paragraph cites the same papers
+   as the claim), then by text similarity as fallback. The worst status
+   wins for a paragraph. */
+function buildEvidenceMap(factCheck, disagreementVerdict) {
+  const claims = (factCheck && factCheck.claims) || [];
+  if (!claims.length && !disagreementVerdict) return null;
+  const statusRank = { unsupported: 0, thin: 1, partly: 1, supported: 2 };
+  return (paraText, paraCites) => {
+    let best = null;
+    let bestRank = -1;
+    for (const c of claims) {
+      if (!c.claim) continue;
+      let match = false;
+      // Citation overlap: paragraph cites the same papers as the claim's evidence
+      if (paraCites && paraCites.length && c.cites && c.cites.length) {
+        match = paraCites.some((n) => c.cites.includes(n));
+      }
+      // Text similarity fallback: claim text appears in paragraph (or vice versa)
+      if (!match) {
+        const ct = c.claim.toLowerCase().slice(0, 80);
+        const pt = (paraText || "").toLowerCase();
+        match = ct.length > 20 && (pt.includes(ct) || c.claim.toLowerCase().includes(pt.slice(0, 80)));
+      }
+      if (match) {
+        const rank = statusRank[c.status] !== undefined ? statusRank[c.status] : 1;
+        if (rank < bestRank || bestRank === -1) {
+          // Lower rank = weaker evidence = more important to surface
+          if (bestRank === -1 || rank < bestRank) {
+            best = c;
+            bestRank = rank;
+          }
+        } else if (rank === 2 && bestRank === 2) {
+          best = c; // Keep the supported claim for reference
+        }
+      }
+    }
+    // If no claim matched but paragraph has citations, treat as supported
+    if (!best && paraCites && paraCites.length > 0) {
+      return { weight: 500, cls: "cb-ev-established", label: null, labelTone: null };
+    }
+    if (!best) return null;
+    const contested = disagreementVerdict && disagreementVerdict.status && disagreementVerdict.status !== "none";
+    if (best.status === "supported") {
+      return {
+        weight: 500, cls: "cb-ev-established",
+        label: contested ? "disputed" : null,
+        labelTone: contested ? "cb-ev-warn" : null,
+      };
+    }
+    if (best.status === "unsupported") {
+      return { weight: 450, cls: "cb-ev-supported", label: "needs source", labelTone: "cb-ev-bad" };
+    }
+    // thin or partly
+    return { weight: 450, cls: "cb-ev-supported", label: null, labelTone: null };
+  };
+}
+function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null) {
   let clean = stripDanglingAsterisks(normalizeSectionHeaders(decodeHtmlEntities(text || "")))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
@@ -3305,17 +3640,17 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     // whole product's credibility.
     if (h2) {
       const { head, body } = splitGluedHeading(h2[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</div>
+        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</div>
         : h2Block(head, pi, P, accent);
     }
     const h3 = para.match(/^###\s+(.+)$/);
     if (h3) {
       const { head, body } = splitGluedHeading(h3[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</div>
+        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</div>
         : h3Block(head, pi, P);
     }
 
@@ -3339,9 +3674,9 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       const title = split.head;
       const below = [split.body, (markedHead[3] || "").trim()].filter(Boolean).join("\n\n");
       const head = markedHead[1].length <= 2 ? h2Block(title, pi + "-h", P, accent) : h3Block(title, pi + "-h", P);
-      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</React.Fragment> : null;
+      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</React.Fragment> : null;
       return below
-        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}</div>
+        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</div>
         : <React.Fragment key={pi}>{head}</React.Fragment>;
     }
     // Bold-line headers (e.g., "**Mechanism**")
@@ -3402,7 +3737,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
         return (
           <div key={pi}>
             <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
-            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate)}
+            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}
           </div>
         );
       }
@@ -3474,18 +3809,22 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       claimNo = claimSink.length + 1;
       claimSink.push({ claim: claimNo, cites: paraCites });
     }
+    /* Evidence-weighted typography: the paragraph's weight reflects its
+       support level from the fact check. Established claims set heavier,
+       thin claims set lighter, unsupported claims carry a label. */
+    const ev = evidenceMap ? evidenceMap(paraClean, paraCites) : null;
     const pNode = (
-    <p style={{
+    <p className={ev && ev.cls ? ev.cls : undefined} style={{
       /* The reading surface — the body role, ruthlessly (§7.1): 15px,
          1.6 leading, weight 500 (the "thicker text" law, inside the
          450–500 body contract). The lede (first paragraph) sets in the
          title role instead: 18px, 1.55 leading. No negative tracking on
          reading text. Hierarchy comes from measure and rhythm, not a
-         second size. */
+         second size. Evidence weight overrides the default 500. */
       fontSize: isLede ? FONT_SIZES.title : FONT_SIZES.body,
       lineHeight: isLede ? 1.55 : 1.6,
       margin: 0, color: P.ink,
-      letterSpacing: "0", fontFamily: "var(--cb-font)", fontWeight: 500,
+      letterSpacing: "0", fontFamily: "var(--cb-font)", fontWeight: ev ? ev.weight : 500,
       fontOpticalSizing: "auto",
       /* Long unbreakable tokens (DOIs, URLs, chemical names) otherwise
          force horizontal overflow at phone widths. Normal prose still
@@ -3498,6 +3837,9 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
           {li < paraClean.split("\n").length - 1 && <br />}
         </React.Fragment>
       ))}
+      {ev && ev.label && (
+        <span className={"cb-ev-label " + (ev.labelTone || "")}>{ev.label}</span>
+      )}
     </p>
     );
     if (!paraCites.length) return <div key={pi} style={{ margin: "0 0 22px" }}>{pNode}</div>;
@@ -7242,10 +7584,12 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
 function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null,
   /* #10/#15: contextual discovery + zero-result recovery wiring. */
   onSaveInvestigation = null, onOpenDocumentMode = null, evidenceFilter = "all", onClearFilterAndRetry = null }) {
-  /* RESTORED 2026-09-17: animated typing. The answer reveals over ~900ms
-     on fresh turns (see useTypewriter); history turns render complete.
-     `done` follows the reveal — the toolbar lands when the typing does. */
-  const shown = useTypewriter(t.answer, typewriter && t.fresh);
+  /* ANSWER ASSEMBLY: paragraphs arrive with a stagger on fresh turns
+     instead of character-by-character typing. History turns render
+     complete. `done` follows the reveal — the toolbar lands when the
+     assembly does. */
+  const assembly = useAnswerAssembly(t.answer, typewriter && t.fresh);
+  const shown = assembly.shown;
   /* Failure model, derived from the turn's real data — never invented.
      synthesisMode "none" is the backend's explicit "no synthesis produced"
      flag (every model rate-limited/unavailable, no extractive fallback).
@@ -7262,7 +7606,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   // gap finder stays off the fallback boilerplate.
   // RESTORED 2026-09-17: `done` follows the typewriter reveal (a failed
   // synthesis has nothing to reveal, so it is done at once).
-  const done = synthFailed ? true : shown === t.answer;
+  const done = synthFailed ? true : assembly.visibleCount >= assembly.totalCount;
   // Evidence section: the table / network / arc live inline under the
   // answer now (modals demoted). The overflow menu and the jump rail reach
   // them; the band carries its own tabs.
@@ -7289,6 +7633,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const openQuestions = useMemo(
     () => (done && !synthFailed ? extractOpenQuestions(t.answer, t.factCheck, t.sources, t._selfReasoning) : []),
     [done, synthFailed, t.answer, t.factCheck, t.sources, t._selfReasoning]
+  );
+  /* Evidence-weighted typography: build the paragraph-to-status lookup
+     from the fact check once the answer is done. */
+  const evidenceMap = useMemo(
+    () => (done && !synthFailed ? buildEvidenceMap(t.factCheck, t.disagreementVerdict) : null),
+    [done, synthFailed, t.factCheck, t.disagreementVerdict]
   );
   // Venn readiness, computed the same way VennDiagram decides to render —
   // the jump rail's status must match the section, not approximate it.
@@ -7516,7 +7866,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           main focus, not one of two skinny columns. The evidence index
           lives in a drawer (below), secondary and closed by default. */}
       <div className="cb-answer-wrap">
-        <article style={S.answerCard} className="cb-answer-enter cb-article">
+        {/* TickFrame: the answer is an instrument viewport — hairline
+            border plus corner registration ticks in the accent, near-sharp
+            corners instead of the generic rounded card. The entrance
+            animation rides on the frame so the ticks arrive with it. */}
+        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "72ch", marginLeft: "auto", marginRight: "auto" }}>
+        <article style={{ ...S.answerCard, border: "none", borderRadius: RADIUS.viewport }} className="cb-article">
         <div style={S.answerCardEdge} aria-hidden="true" />
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
@@ -7675,11 +8030,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
-                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true))}
+                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
               </div>
             </>
           ) : (
-            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true))
+            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)
           )}
         </div>
         {done && (
@@ -7719,6 +8074,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         ) : null}
         {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
         </article>
+        </TickFrame>
       </div>
       {/* The evidence index drawer: secondary, portaled, closed by default.
           Citation taps, the toolbar, and the jump rail open it. */}
@@ -7756,7 +8112,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             citationStyle={citationStyle} setCitationStyle={setCitationStyle}
             onOpenPaper={(n) => onOpenPaper(t, n)} onOpenVideo={setOpenVideo}
             onRetry={retrySearch} onAdjustQuery={adjustQuery} busyNow={busyNow} done={done}
-            activeCite={activeCite} onActivateCite={onActivateCite} />
+            activeCite={activeCite} onActivateCite={onActivateCite}
+            onHoverRow={(n) => setFanN(n)} onLeaveRow={() => setFanN(0)} />
         </div>
       )}
       {/* Fact-check — always a section, never a silent gap. No result is an
@@ -15617,9 +15974,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     /* Pass 3 (2026-09-17): the active row is signalled by a 2px left sage
        rule and inked text — no pill fill, no inset shadow. One channel,
        full strength, quiet. */
+    /* Workstream E (2026-10-08): the active row now uses the selected
+       accent token (not hardcoded Sage, which broke personalization) and
+       adds a soft background fill so the active item is visible at a
+       glance, including in the 68px collapsed rail. */
     sidebarItemActive: {
-      background: "transparent", color: P.ink, fontWeight: 600,
-      boxShadow: `inset 2px 0 0 ${ACCENTS.Sage}`,
+      background: withAlpha(accent, 0.10), color: P.ink, fontWeight: 600,
+      boxShadow: `inset 2px 0 0 ${accent}`,
     },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: 9999, fontFamily: "var(--cb-font)" },
     sidebarFooter: { flexShrink: 0, padding: "12px 12px 16px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
@@ -16394,7 +16755,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
   );
 }
 
-const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, collections, threads, muted, onToggleMute, onLogoClick, railCollapsed, onToggleRail, proStatus, onOpenPro, onSignOut, onOpenAuth }) {
+const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, collections, threads, muted, onToggleMute, onLogoClick, railCollapsed, onToggleRail, proStatus, onOpenPro, onSignOut, onOpenAuth, onOpenInvestigation, onOpenPalette }) {
   // Wave 3 — the profile chip opens the account menu, not the profile
   // page: identity, membership state and sign-out in one place.
   const [acctOpen, setAcctOpen] = useState(false);
@@ -16425,34 +16786,123 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      removed — only regrouped. */
   const NAV_GROUPS = [
     { label: null, items: [
-      ["search", "Search", "search", null],
+      ["search", "Search", "search"],
     ] },
     { label: "Tools", items: [
-      ["document", "Document Mode", "bookOpen", null],
-      ["studio", "Diagram Studio", "flowchart", null],
+      ["document", "Document Mode", "bookOpen"],
+      ["studio", "Diagram Studio", "flowchart"],
     ] },
     { label: "Discover", items: [
-      ["trending", "Trending", "chart", null],
+      ["trending", "Trending", "chart"],
     ] },
     { label: "Workspace", items: [
-      ["investigations", "Investigations", "history", history.length || null],
+      ["investigations", "Investigations", "history"],
       /* Always-visible fresh start, adjacent to the ledger it belongs to.
          "new" is an action, not a view — handleSidebarNavigate runs
          newSession() and lands on Search. */
-      ["new", "New investigation", "plus", null],
-      ["library", "Library", "bookmark", saved.length || null],
-      ...(user ? [["collections", "Collections", "folder", (collections && collections.length) || null]] : []),
-      ...(user ? [["usage", "Usage", "gauge", null]] : []),
+      ["new", "New investigation", "plus"],
+      ["library", "Library", "bookmark"],
+      ...(user ? [["collections", "Collections", "folder"]] : []),
+      ...(user ? [["usage", "Usage", "gauge"]] : []),
     ] },
     ...(user ? [{ label: "People", items: [
-      ["inbox", "Inbox", "mail", threads.filter((t) => t.unread).length || null],
-      ["people", "Find people", "network", null],
+      ["inbox", "Inbox", "mail"],
+      ["people", "Find people", "network"],
     ] }] : []),
   ];
+
+  /* Workstream E (2026-10-08): living badges. A badge answers "why should
+     I tap this", not "how many things exist". Investigations shows active
+     work (opened in the last 7 days), Library shows fresh saves, Inbox
+     shows who wrote (avatar stack, not a number), Usage shows a fuel bar
+     with answers left and refill timing. Nothing here invents data: every
+     badge reads state the app already tracks. */
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const navBadge = (key) => {
+    const nowTs = Date.now();
+    if (key === "investigations") {
+      const active = (history || []).filter((h) => (h.lastOpened || h.ts || 0) > nowTs - WEEK_MS).length;
+      if (!active) return null;
+      return <span style={S.sidebarItemBadge}>{active} active</span>;
+    }
+    if (key === "library") {
+      const fresh = (saved || []).filter((s) => (s.savedAt || 0) > nowTs - WEEK_MS).length;
+      if (!fresh) return null;
+      return <span style={S.sidebarItemBadge}>{fresh} new</span>;
+    }
+    if (key === "inbox") {
+      const unread = (threads || []).filter((t) => t.unread);
+      if (!unread.length) return null;
+      return (
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center" }} aria-label={`${unread.length} unread conversation${unread.length === 1 ? "" : "s"}`}>
+          {unread.slice(0, 3).map((t, i) => {
+            const nm = t.name || t.otherUsername || "?";
+            const initials = nm.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
+            return (
+              <span key={t.id || i} aria-hidden="true" title={nm} style={{
+                width: 24, height: 24, borderRadius: "50%", fontSize: 10, fontWeight: 700,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontFamily: "var(--cb-font)", marginLeft: i > 0 ? -8 : 0,
+                border: `2px solid ${P.bg}`, ...avatarSkin(nm),
+              }}>{initials}</span>
+            );
+          })}
+          {unread.length > 3 && <span style={{ ...S.sidebarItemBadge, marginLeft: 6 }}>+{unread.length - 3}</span>}
+        </span>
+      );
+    }
+    if (key === "usage" && user) {
+      const tier = proStatus?.tier;
+      const q = proStatus?.quota;
+      if (tier === "pro" || !q || q.cap == null) return null;
+      const left = Math.max(0, q.cap - (q.used || 0));
+      const pct = q.cap > 0 ? Math.min(100, Math.round((left / q.cap) * 100)) : 0;
+      const days = Math.max(1, Math.ceil((cbQuotaResetsAt(nowTs) - nowTs) / 86400000));
+      return (
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }} aria-label={`${left} answers left. Refills in ${days} day${days === 1 ? "" : "s"}.`}>
+          <span aria-hidden="true" style={{ width: 40, height: 4, borderRadius: 2, background: P.dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)", overflow: "hidden" }}>
+            <span style={{ display: "block", height: "100%", width: `${pct}%`, borderRadius: 2, background: pct < 20 ? "#e5484d" : accent }} />
+          </span>
+          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>{left} left</span>
+        </span>
+      );
+    }
+    return null;
+  };
 
   const hoverIn = (e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); };
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
   const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
+
+  /* Workstream E (2026-10-08): inline expandable sections. The
+     Investigations and Library rows unfold into a compact timeline of
+     recent work, Arc style, so the rail becomes a research journal
+     instead of a link list. Only in the expanded rail; accordions need
+     labels to make sense. */
+  const [expandedSec, setExpandedSec] = useState(null);
+  const expandableItems = (key) => {
+    if (key === "investigations") {
+      return (history || []).slice(0, 5).map((h) => {
+        const turns = h.turns || [];
+        const papers = h.allSources || [];
+        return {
+          id: h.id,
+          title: h.title || "Untitled investigation",
+          sub: `${turns.length} answer${turns.length === 1 ? "" : "s"} · ${papers.length} paper${papers.length === 1 ? "" : "s"}`,
+          onOpen: () => { if (onOpenInvestigation) onOpenInvestigation(h); if (isMobile) onCloseMobile(); },
+        };
+      });
+    }
+    if (key === "library") {
+      return (saved || []).slice(0, 5).map((s, i) => ({
+        id: s.doi || s.url || s.title || `saved-${i}`,
+        title: s.title || "Untitled paper",
+        sub: [s.venue, s.year].filter(Boolean).join(" · ") || "Saved paper",
+        onOpen: () => onNavigate("library"),
+      }));
+    }
+    return null;
+  };
 
   /* Compact rail: collapsed to a 68px icon strip; hovering re-expands as an
      overlay so the page doesn't reflow. Accordions only make sense with
@@ -16493,6 +16943,25 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         <Mark size={18} accent={accent} glow={P.dark} />
         {expanded && <span style={{ fontWeight: 700, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum</span>}
       </div>
+      {/* Workstream E (2026-10-08): the command palette gets a visible
+          trigger. A palette nobody can find is a feature nobody has. */}
+      {!isMobile && expanded && onOpenPalette && (
+        <div style={{ padding: "0 12px 8px" }}>
+          <button onClick={onOpenPalette} aria-label="Open command palette"
+            style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%",
+              minHeight: 44, padding: "10px 12px", borderRadius: RADIUS.md,
+              background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+              border: `1px solid ${P.line}`, color: P.faint, cursor: "pointer",
+              fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+            }}
+            onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}>
+            <Icon name="search" size={15} />
+            <span style={{ flex: 1, textAlign: "left" }}>Search or command</span>
+            <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>⌘K</kbd>
+          </button>
+        </div>
+      )}
       <div style={{ ...S.sidebarNav, ...(expanded ? {} : { padding: "6px 8px", alignItems: "center" }) }}>
         {NAV_GROUPS.map((group, gi) => {
           return (
@@ -16503,7 +16972,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               </div>
             )}
             {group.label && !expanded && gi > 0 && <div style={{ width: 24, height: 1, background: P.line, margin: "10px 0 6px" }} aria-hidden="true" />}
-            {group.items.map(([key, label, icon, badge]) => (
+            {group.items.map(([key, label, icon]) => {
+              const badgeNode = navBadge(key);
+              const subItems = expanded ? expandableItems(key) : null;
+              const isOpen = expandedSec === key;
+              const rowButton = (
               /* data-nav: the landing target for the save-to-library flight.
                  A stable hook on the row itself, so the animation never has
                  to guess at the rail's structure. */
@@ -16511,15 +16984,57 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
                 /* The "New investigation" action row gets a full 44px target
                    and a slightly stronger label on mobile — it's the one row
                    here that starts something, not a destination. */
-                style={{ ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
+                style={{ ...itemStyle(key), ...(subItems ? { paddingRight: 44 } : {}), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
                 aria-current={view === key ? "page" : undefined} aria-label={label} className=""
                 onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
                 <Icon name={icon} size={16} />
                 {expanded && <span style={key === "new" && isMobile ? { fontSize: 16, fontWeight: 600 } : undefined}>{label}</span>}
-                {expanded && !!badge && <span style={S.sidebarItemBadge}>{badge}</span>}
-                {!expanded && !!badge && <span style={{ position: "absolute", marginLeft: 26, marginTop: -18, width: 8, height: 8, borderRadius: "50%", background: accent }} aria-hidden="true" />}
+                {expanded && badgeNode}
+                {!expanded && badgeNode && <span style={{ position: "absolute", marginLeft: 26, marginTop: -18, width: 8, height: 8, borderRadius: "50%", background: accent }} aria-hidden="true" />}
               </button>
-            ))}
+              );
+              if (!subItems) return rowButton;
+              return (
+                <div key={key} style={{ position: "relative" }}>
+                  {rowButton}
+                  <button onClick={() => setExpandedSec((v) => (v === key ? null : key))}
+                    aria-label={isOpen ? `Collapse recent ${label.toLowerCase()}` : `Expand recent ${label.toLowerCase()}`}
+                    aria-expanded={isOpen}
+                    style={{
+                      position: "absolute", right: 6, top: 6, width: 32, height: 32,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "transparent", border: "none", borderRadius: "50%",
+                      color: P.faint, cursor: "pointer",
+                    }}>
+                    <span style={{ display: "inline-flex", transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 200ms ease" }}>
+                      <Icon name="chevronDown" size={14} />
+                    </span>
+                  </button>
+                  {isOpen && subItems.length > 0 && (
+                    <div style={{ padding: "2px 4px 8px 40px", display: "flex", flexDirection: "column", gap: 2 }}>
+                      {subItems.map((it) => (
+                        <button key={it.id} onClick={it.onOpen}
+                          style={{
+                            display: "flex", flexDirection: "column", gap: 2, textAlign: "left",
+                            background: "transparent", border: "none", borderRadius: RADIUS.sm,
+                            padding: "8px 10px", minHeight: 44, justifyContent: "center", cursor: "pointer",
+                            fontFamily: "var(--cb-font)",
+                          }}
+                          onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                          <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.title}</span>
+                          <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{it.sub}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {isOpen && subItems.length === 0 && (
+                    <div style={{ padding: "4px 4px 10px 40px", fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                      Nothing here yet.
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </React.Fragment>
           );
         })}
@@ -16529,7 +17044,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             People and the mute toggle as though it were peer to both. */}
         <div style={{ marginTop: "auto", paddingTop: 10 }}>
           <button onClick={() => onNavigate("settings")} title={expanded ? undefined : "Settings"} aria-label="Settings"
-            style={{ minHeight: 38, ...itemStyle("settings"), width: "100%", ...(expanded ? {} : { padding: "11px 0", justifyContent: "center" }) }}
+            style={{ ...itemStyle("settings"), width: "100%", ...(expanded ? {} : { padding: "11px 0", justifyContent: "center" }) }}
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("settings")}>
             <Icon name="settings" size={16} />{expanded && <span>Settings</span>}
           </button>
@@ -16558,7 +17073,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             <UIButton P={P} variant="ghost" onClick={onToggleRail} title={railCollapsed ? "Expand navigation" : "Collapse to icons"} aria-pressed={!!railCollapsed} aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation to icons"}
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
+                width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
                 background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
                 transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
               }}
@@ -16572,7 +17087,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
+              width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
               background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
               transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
             }}>
@@ -17231,6 +17746,17 @@ function App() {
         link_scholar: profileRes.user.link_scholar || "",
       }));
       setProfileMeta({ followers: profileRes.followers || 0, followingCount: profileRes.followingCount || 0, badges: profileRes.badges || [] });
+      // Reading Profiles roam with the account: if the account names a
+      // profile and this device isn't already on it, adopt it. The apply
+      // path lives in Settings (it needs ensureDyslexicFont and the full
+      // setter set), so here we set the cookie + state directly and let
+      // the profile's own settings ride along via the shared applier.
+      if (profileRes.readingProfile && ["dyslexia", "lowvision", "migraine", "focus"].includes(profileRes.readingProfile)) {
+        try {
+          const local = getCookie("cb_rp") || "none";
+          if (local !== profileRes.readingProfile) applyReadingProfileByKey(profileRes.readingProfile);
+        } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: apply roaming reading profile:", cbErr); }
+      }
       // Accepted on another device? Don't ask again here — write the
       // cookie so this browser matches the account's real state. The
       // reverse (cookie accepted, account not) is handled when the gate
@@ -18313,6 +18839,37 @@ function App() {
   const [dyslexicFont, setDyslexicFont] = useState(() => getCookie("cb_df") === "1");
   const [lineSpacing, setLineSpacing] = useState(() => getCookie("cb_ls") || "normal");
   const [focusHighlight, setFocusHighlight] = useState(() => getCookie("cb_fh") === "1");
+  // Reading Profiles: one-tap comfort bundles (dyslexia, lowvision,
+  // migraine, focus). "none" means no profile is active. Persisted in the
+  // cb_rp cookie like every other appearance preference, and synced to
+  // the account's reading_profile column when signed in.
+  const [readingProfile, setReadingProfile] = useState(() => getCookie("cb_rp") || "none");
+  // Shared Reading Profile applier (mirrors the one in SettingsView, which
+  // owns the toast + account sync UX). Used here for the roaming apply on
+  // sign-in, where Settings isn't mounted.
+  const READING_PROFILE_SETTINGS = {
+    dyslexia: { dyslexicFont: true, lineSpacing: "loose", fontSize: "large", paletteName: "Sage", dataDensity: "comfortable", focusHighlight: true },
+    lowvision: { fontSize: "xlarge", highContrast: true, focusHighlight: true, dataDensity: "comfortable", lineSpacing: "relaxed", reducedTransparency: true },
+    migraine: { paletteName: "Dark", reducedTransparency: true, animationMode: "off", soundMode: "minimal", fontSize: "large", muted: true },
+    focus: { focusHighlight: true, typewriter: true, animationMode: "subtle", dataDensity: "comfortable", lineSpacing: "relaxed" },
+  };
+  const applyReadingProfileByKey = (key) => {
+    const s = READING_PROFILE_SETTINGS[key];
+    if (!s) return;
+    if (s.dyslexicFont !== undefined) { if (s.dyslexicFont) ensureDyslexicFont(); setDyslexicFont(s.dyslexicFont); }
+    if (s.lineSpacing) setLineSpacing(s.lineSpacing);
+    if (s.fontSize) setFontSize(s.fontSize);
+    if (s.paletteName) setPaletteName(s.paletteName);
+    if (s.dataDensity) setDataDensity(s.dataDensity);
+    if (s.focusHighlight !== undefined) setFocusHighlight(s.focusHighlight);
+    if (s.highContrast !== undefined) setHighContrast(s.highContrast);
+    if (s.reducedTransparency !== undefined) setReducedTransparency(s.reducedTransparency);
+    if (s.animationMode) setAnimationMode(s.animationMode);
+    if (s.soundMode) setSoundMode(s.soundMode);
+    if (s.muted !== undefined) setMuted(s.muted);
+    if (s.typewriter !== undefined) setTypewriter(s.typewriter);
+    setReadingProfile(key);
+  };
   const [paletteName, setPaletteName] = useState(() => getCookie("cb_pal") || "Sage");
   const [accentName, setAccentName] = useState(() => getCookie("cb_accent") || "Sage");
   const [customAccent, setCustomAccent] = useState(() => getCookie("cb_ca") || "");
@@ -18520,9 +19077,15 @@ function App() {
           body: searchBody,
           signal: askCtrl.signal,
           onConnect: (rid) => { if (requestVersion === investigationRequest.current) { setStreamActive(true); noteRequestId(rid); } },
-          onStageEvent: (key, detail, index) => {
+          onStageEvent: (key, detail, index, payload) => {
             if (requestVersion !== investigationRequest.current) return;
-            pushStage({ index, key, label: (SEARCH_STREAM_STAGES[index] || {}).label || key, detail });
+            /* The Dive: carry the real per-database progress off the
+               finding_papers frames so the depth rail can show an honest
+               "N of 15 databases answered" count. Absent on other stages
+               and on the single-fetch fallback. */
+            pushStage({ index, key, label: (SEARCH_STREAM_STAGES[index] || {}).label || key, detail,
+              dbAnswered: payload && payload.answered != null ? Number(payload.answered) : undefined,
+              dbTotal: payload && payload.total != null ? Number(payload.total) : undefined });
           },
         });
         data = streamed.data;
@@ -19013,6 +19576,16 @@ function App() {
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "d") { e.preventDefault(); setPaletteName(P.dark ? "Light" : "Dark"); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setView((v) => (v === "library" ? "search" : "library")); }
+      /* Workstream E (2026-10-08): numbered navigation. Cmd+1 through
+         Cmd+9 jump to the nine primary destinations. Never hijacks digits
+         typed inside a dialog: the palette itself uses 1-9 for results,
+         and auth OTP fields need their digits. */
+      else if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
+        if (e.target && e.target.closest && e.target.closest('[role="dialog"]')) return;
+        const dests = ["search", "document", "studio", "trending", "investigations", "library", "inbox", "collections", "settings"];
+        const dest = dests[parseInt(e.key, 10) - 1];
+        if (dest) { e.preventDefault(); handleSidebarNavigateRef.current(dest); }
+      }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -19648,6 +20221,8 @@ function App() {
         railCollapsed={railCollapsed} onToggleRail={toggleRail}
         proStatus={proStatus} onOpenPro={() => setProModalOpen(true)} onSignOut={signOut}
         onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }}
+        onOpenInvestigation={openHistoryItem}
+        onOpenPalette={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}
       />
       <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
@@ -20731,8 +21306,8 @@ function App() {
         </Dialog>
       )}
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} P={P} accent={accent}
-        query={cmdQuery} setQuery={setCmdQuery} suggestions={cmdSuggest} commands={filteredCmds}
-        active={cmdActive} setActive={setCmdActive} onKeyDown={onCmdKeyDown} onAsk={ask} inputRef={cmdRef} />
+        query={cmdQuery} setQuery={setCmdQuery} groups={paletteGroups}
+        active={cmdActive} setActive={setCmdActive} onKeyDown={onCmdKeyDown} inputRef={cmdRef} />
       {networkSearchOpen && (
         <NetworkSearchModal
           P={P} accent={accent} at={at}
@@ -21605,6 +22180,64 @@ summary::-webkit-details-marker { display: none; }
   color: var(--cb-ink); font-weight: 650;
   background: color-mix(in srgb, var(--cb-acc) 12%, transparent);
   border-color: color-mix(in srgb, var(--cb-acc) 30%, transparent);
+}
+
+/* ── Question shapeshifter: the mode suggestion badge ──
+   Tiny and quiet. One tap goes back to the mode the user had. */
+.cb-shape {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 6px 16px 6px 14px; margin: 8px 0 0;
+  background: color-mix(in srgb, var(--cb-acc) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cb-acc) 32%, transparent);
+  border-radius: 999px; cursor: pointer;
+  color: var(--cb-ink2); font-family: var(--cb-font);
+  font-size: 13px; font-weight: 550;
+  transition: background 280ms ease, color 280ms ease;
+  animation: cbPhIn 280ms ease both;
+}
+.cb-shape:hover {
+  background: color-mix(in srgb, var(--cb-acc) 17%, transparent);
+  color: var(--cb-ink);
+}
+.cb-shape:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
+.cb-shape-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cb-acc); flex-shrink: 0;
+}
+
+/* ── Citation aware composer: the attached paper chip ── */
+.cb-paperchip {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 44px; margin: 8px 0 0; padding: 4px 4px 4px 14px;
+  border: 1px solid var(--cb-line2); border-radius: 12px;
+  background: color-mix(in srgb, var(--cb-acc) 6%, transparent);
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
+  color: var(--cb-ink2);
+  animation: cbPhIn 280ms ease both;
+}
+.cb-paperchip-meta {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cb-paperchip-meta strong { color: var(--cb-ink); font-weight: 600; }
+.cb-paperchip-x {
+  flex-shrink: 0; min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: 10px; cursor: pointer;
+  color: var(--cb-faint);
+  transition: color 280ms ease, background 280ms ease;
+}
+.cb-paperchip-x:hover {
+  color: var(--cb-ink);
+  background: color-mix(in srgb, var(--cb-ink) 7%, transparent);
+}
+.cb-paperchip-x:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
+
+/* ── First use hint under the composer ── */
+.cb-ask-hint {
+  margin: 8px 0 0; padding: 0 6px;
+  font-family: var(--cb-font); font-size: 12px; font-weight: 500;
+  color: var(--cb-faint);
 }
 
 /* ── Recent questions, docked to the field ── */
