@@ -20585,8 +20585,8 @@ function App() {
             "--cb-atmo-top": P.bg,
             "--cb-atmo-lift": "color-mix(in srgb, " + P.bg + " 86%, white)",
             "--cb-atmo-deep": "color-mix(in srgb, " + P.bg + " 70%, black)",
-            "--cb-atmo-glow-a": withAlpha(accent, P.dark ? 0.10 : 0.07),
-            "--cb-atmo-glow-b": P.dark ? "rgba(96,122,142,0.10)" : "rgba(120,140,160,0.08)",
+            "--cb-atmo-glow-a": withAlpha(accent, P.dark ? 0.20 : 0.12),
+            "--cb-atmo-glow-b": P.dark ? "rgba(96,122,142,0.18)" : "rgba(120,140,160,0.12)",
             "--cb-atmo-edge": P.dark ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.30)",
           }}>
           <div className="cb-atmo-base" />
@@ -23074,7 +23074,7 @@ summary::-webkit-details-marker { display: none; }
   position: absolute; inset: 0;
   background:
     radial-gradient(130% 95% at 50% -10%, var(--cb-atmo-lift), transparent 55%),
-    linear-gradient(180deg, var(--cb-atmo-top), var(--cb-atmo-deep));
+    linear-gradient(180deg, var(--cb-atmo-top), var(--cb-atmo-deep) 60%, #000 130%);
 }
 .cb-atmo-blob {
   position: absolute; border-radius: 50%;
@@ -23100,7 +23100,7 @@ summary::-webkit-details-marker { display: none; }
 }
 /* Film grain: static SVG noise, the cinematic texture without motion. */
 .cb-atmo-grain {
-  position: absolute; inset: 0; opacity: 0.05;
+  position: absolute; inset: 0; opacity: 0.09;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
   background-size: 160px 160px;
 }
