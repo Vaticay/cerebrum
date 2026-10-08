@@ -112,7 +112,8 @@ await test("signed-out fallback names the gate, not an outage", () => {
     { query: "gene drive", aiGateReason: "signin-required" }
   );
   assert.ok(md, "expected markdown output");
-  assert.match(md, /sign in for AI-synthesized answers/i);
+  assert.match(md, /Sign in to use your free AI answers/i);
+  assert.doesNotMatch(md, /sign in for AI-synthesized answers/i, "old paywall tease survived");
   assert.doesNotMatch(md, /temporarily unavailable/i);
 });
 
@@ -123,7 +124,7 @@ await test("free-cap fallback names the cap, not an outage", () => {
     { query: "gene drive", aiGateReason: "free-cap" }
   );
   assert.ok(md, "expected markdown output");
-  assert.match(md, /free AI answers/i);
+  assert.match(md, /used this period's AI answers/i);
   assert.doesNotMatch(md, /temporarily unavailable/i);
 });
 

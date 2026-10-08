@@ -1247,7 +1247,7 @@ function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
    wall of grey locked badges is not. Every number is a row count from
    the database — see resource "milestones" in functions/api/data.js. */
 
-function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "" }) {
+function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false }) {
   const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
     y: 14, stagger: 0.06, duration: 0.85, descend: false,
   });
@@ -1317,7 +1317,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
          above it is the instrument you type into, below it is your own
          work. At 34px the two zones read as one long undifferentiated
          column. */
-      marginTop: deckIsEmpty ? 0 : (isMobile ? 24 : 40),
+      marginTop: (deckIsEmpty || flush) ? 0 : (isMobile ? 24 : 40),
       display: "flex", flexDirection: "column", gap: 14,
     }}>
       {/* The greeting, in its new home: left-aligned, at the size of a
@@ -2651,7 +2651,7 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
         "--cb-faint": P.faint,
       }}
     >
-      {ASK_MODES.map((m) => {
+      {ASK_MODES.map((m, i) => {
         const on = mode === m.key;
         return (
           <button
@@ -2662,7 +2662,8 @@ function AskModePicker({ mode, setMode, P, accent, isMobile }) {
             aria-pressed={on}
             className={"cb-mode" + (on ? " is-on" : "")}
           >
-            {m.label}
+            <span className="cb-mode-idx" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
+            <span className="cb-mode-label">{m.label}</span>
           </button>
         );
       })}
@@ -2873,16 +2874,19 @@ function splitGluedHeading(line) {
    a quiet mono kicker, not a masthead. The answer is a document; its
    sections are labeled the way a journal labels sections. Uncertainty
    lives in the prose under them, not in badges. */
+/* Instrument section plates: the answer's own headings ("The short answer",
+   "What the research shows") set as mono uppercase plates with a hairline
+   rule, not magazine subheads. The answer reads as a measurement readout. */
 function h2Block(text, key, P, accent) {
   return (
-    <div key={key} style={{ margin: "44px 0 14px", fontSize: FONT_SIZES.title, fontWeight: 700, lineHeight: 1.3, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)" }}>
-      {text}
+    <div key={key} className="cb-sect" aria-hidden="false">
+      <span className="cb-mono cb-sect-label" style={{ color: P.ink }}>{text}</span>
     </div>
   );
 }
 
 function h3Block(text, key, P) {
-  return <div key={key} style={{ margin: "30px 0 10px", fontSize: FONT_SIZES.body, fontWeight: 700, lineHeight: 1.4, color: P.ink, fontFamily: "var(--cb-font)" }}>{text}</div>;
+  return <div key={key} className="cb-mono cb-sect-sub" style={{ color: P.ink2 }}>{text}</div>;
 }
 
 /* Bring a source into view without moving the reader.
@@ -3518,7 +3522,10 @@ function renderFlashpointClaim(text, P) {
    - supported (multiple sources agree) → weight 500, full ink. Established.
    - thin/partly (1-2 sources, or partial match) → weight 450. Supported but thin.
    - unsupported → weight 450 with "needs source" label. Never presented confidently.
-   - disagreementVerdict present → contested paragraphs get "disputed" label.
+   - disagreementVerdict present → the verdict's own summary already renders
+     in the diagnostics section with its explanation. Paragraph-level labels
+     NEVER say "disputed" without naming what is disputed and by whom, so no
+     naked dispute label is attached here.
 
    Matching is by citation overlap first (paragraph cites the same papers
    as the claim), then by text similarity as fallback. The worst status
@@ -3558,22 +3565,24 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
     }
     // If no claim matched but paragraph has citations, treat as supported
     if (!best && paraCites && paraCites.length > 0) {
-      return { weight: 500, cls: "cb-ev-established", label: null, labelTone: null };
+      return { weight: 500, cls: "cb-ev-established", label: null, labelTone: null, status: "supported" };
     }
     if (!best) return null;
-    const contested = disagreementVerdict && disagreementVerdict.status && disagreementVerdict.status !== "none";
     if (best.status === "supported") {
+      // Supported stays clean: a naked "disputed" label with no explanation
+      // of what is disputed or by whom is worse than no label. The
+      // disagreement verdict renders separately with its full summary.
       return {
-        weight: 500, cls: "cb-ev-established",
-        label: contested ? "disputed" : null,
-        labelTone: contested ? "cb-ev-warn" : null,
+        weight: 500, cls: "cb-ev-established", status: "supported",
+        label: null,
+        labelTone: null,
       };
     }
     if (best.status === "unsupported") {
-      return { weight: 450, cls: "cb-ev-supported", label: "needs source", labelTone: "cb-ev-bad" };
+      return { weight: 450, cls: "cb-ev-supported", status: "unsupported", label: "needs source", labelTone: "cb-ev-bad" };
     }
     // thin or partly
-    return { weight: 450, cls: "cb-ev-supported", label: null, labelTone: null };
+    return { weight: 450, cls: "cb-ev-supported", status: best.status, label: null, labelTone: null };
   };
 }
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null) {
@@ -3851,10 +3860,28 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     </p>
     );
     if (!paraCites.length) return <div key={pi} className="cb-assemble-para" style={{ margin: "0 0 22px" }}>{pNode}</div>;
+    /* Calibration stamp: every cited paragraph carries its evidence state
+       in the gutter as a verdict glyph, so the reader sees at a glance
+       which claims are traced and which need a closer look. Shape plus
+       color, never color alone. */
+    const stampGlyph = ev && ev.status === "supported" ? "verdictSupported"
+      : ev && (ev.status === "thin" || ev.status === "partly") ? "verdictMixed"
+      : ev && ev.status === "unsupported" ? "verdictContradicted" : null;
+    const stampTone = ev && ev.status === "supported" ? STATUS.good
+      : ev && (ev.status === "thin" || ev.status === "partly") ? STATUS.warn
+      : ev && ev.status === "unsupported" ? STATUS.bad : null;
+    const stampLabel = ev && ev.status === "supported" ? "traced to cited paper"
+      : ev && (ev.status === "thin" || ev.status === "partly") ? "thin evidence"
+      : ev && ev.status === "unsupported" ? "needs source" : null;
     return (
       <div key={pi} className="cb-claim cb-assemble-para" data-claim={claimNo || undefined} style={{ margin: "0 0 22px" }}>
         <div className="cb-claim-refs" role="group" aria-label={`Supported by references ${paraCites.join(", ")}`}>
-          {paraCites.map((n) => `[${n}]`).join(" ")}
+          {stampGlyph && (
+            <span className="cb-stamp" title={stampLabel} aria-label={stampLabel} style={{ color: stampTone }}>
+              <Icon name={stampGlyph} size={15} />
+            </span>
+          )}
+          <span>{paraCites.map((n) => `[${n}]`).join(" ")}</span>
         </div>
         {pNode}
       </div>
@@ -4022,9 +4049,11 @@ function FactCheck({ fc, P, accent }) {
         </button>
 
         {open && (
+          /* Pass 2 (instrument): the explanation is a ruled block, not a
+             card. Hairline on top, plain text. */
           <div style={{
-            marginTop: 10, padding: "16px 16px", borderRadius: RADIUS.md,
-            border: `1px solid ${P.line}`, background: P.surface,
+            marginTop: 10, padding: "12px 4px 4px",
+            borderTop: `1px solid ${P.line}`,
             fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65,
           }}>
             {/* The caveat is the whole point of opening this. A reader who
@@ -4098,10 +4127,13 @@ function FactCheck({ fc, P, accent }) {
     ? "The answer may have reached past its sources here, or attached the wrong citation. Worth opening a source before relying on these."
     : "The quote that should support this either doesn't say it, or says less than the answer claims. Worth reading the source directly.";
 
+  /* Pass 2 (instrument): the flagged panel is a ruled strip, not a tinted
+     box. Top hairline in the tone color, glyph headline, flagged rows
+     already ruled below. No fill, no radius. */
   return (
-    <div style={{ marginTop: 20, border: `1px solid ${withAlpha(oc, 0.4)}`, borderRadius: RADIUS.md, background: withAlpha(oc, 0.04), padding: "16px 24px" }} className="cb-rise">
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
-        <span style={{ color: oc, flexShrink: 0, display: "flex" }}><Icon name={nUns > 0 ? "close" : "partial"} size={14} /></span>
+    <div style={{ marginTop: 20, borderTop: `2px solid ${withAlpha(oc, 0.55)}`, padding: "14px 4px 4px" }} className="cb-rise">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <span style={{ color: oc, flexShrink: 0, display: "flex" }}><Icon name={nUns > 0 ? "verdictContradicted" : "verdictMixed"} size={20} /></span>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: oc, fontFamily: "var(--cb-font)", lineHeight: 1.4, minWidth: 0, overflowWrap: "anywhere" }}>{headline}</span>
       </div>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginBottom: 4 }}>{why}</div>
@@ -4119,16 +4151,78 @@ function FactCheck({ fc, P, accent }) {
 
       {flagged.map((c, i) => {
         const cc = colors[c.status] || P.ink2;
+        /* Verification log: each flagged claim carries its verdict glyph —
+           the same glyph language as the readout above and the calibration
+           stamps in the answer gutter. One visual vocabulary, three places. */
+        const rowGlyph = c.status === "unsupported" ? "verdictContradicted" : "verdictMixed";
         return (
-          <div key={i} style={{ display: "flex", gap: 11, padding: "12px 0 0", marginTop: 12, borderTop: `1px solid ${P.line}` }}>
-            <span style={{ color: cc, flexShrink: 0, width: 18, height: 18, borderRadius: RADIUS.md, background: withAlpha(cc, 0.12), display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}><Icon name={c.status === "thin" ? "partial" : "close"} size={11} /></span>
+          <div key={i} style={{ display: "flex", gap: 12, padding: "12px 0 0", marginTop: 12, borderTop: `1px solid ${P.line}` }}>
+            <span style={{ color: cc, flexShrink: 0, display: "flex", marginTop: 1 }}><Icon name={rowGlyph} size={20} /></span>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5, fontFamily: isTerms ? "var(--cb-font)" : "var(--cb-font)", fontWeight: isTerms ? 600 : 500, overflowWrap: "anywhere" }}>{c.claim}</div>
+              <div className="cb-mono" style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: cc, marginBottom: 4 }}>
+                {c.status === "unsupported" ? "Unsupported" : c.status === "thin" ? "Thin evidence" : "Partly backed"}
+              </div>
+              <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5, fontFamily: "var(--cb-font)", fontWeight: 500, overflowWrap: "anywhere" }}>{c.claim}</div>
               {c.note && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3, lineHeight: 1.55, overflowWrap: "anywhere" }}>{c.note}</div>}
             </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ── VerdictReadout: the answer as a calibrated instrument ────────────────
+   The verdict lands like a measurement reading, not a blog postscript. A
+   hairline-ruled strip: glyph plus verdict word plus a mono machine readout
+   of the claim counts. It reads the same factCheck + disagreementVerdict
+   data the evidence map uses, so the readout can never disagree with the
+   calibration stamps on the paragraphs below. No card, no fill, no
+   gradient: rules and type do the work. */
+function VerdictReadout({ t, P }) {
+  const claims = (t.factCheck && t.factCheck.claims) || [];
+  const dv = t.disagreementVerdict;
+  const divided = !!(dv && dv.status === "divided");
+  const nSup = claims.filter((c) => c.status === "supported").length;
+  const nThin = claims.filter((c) => c.status === "thin" || c.status === "partly").length;
+  const nUns = claims.filter((c) => c.status === "unsupported").length;
+  const total = claims.length;
+  let glyph = "verdictUnverified";
+  let word = "Unverified";
+  let tone = P.faint;
+  let sub = "No verification pass ran on this answer. The citations still point at their papers.";
+  if (divided) {
+    glyph = "verdictContradicted";
+    word = "Contested";
+    tone = STATUS.bad;
+    sub = "The literature splits on this one. Both camps are mapped below.";
+  } else if (total > 0 && nUns === 0 && nThin === 0) {
+    glyph = "verdictSupported";
+    word = "Supported";
+    tone = STATUS.good;
+    sub = total === 1
+      ? "The checked claim traces to a cited paper."
+      : `All ${total} checked claims trace to cited papers.`;
+  } else if (total > 0) {
+    glyph = "verdictMixed";
+    word = "Mixed evidence";
+    tone = STATUS.warn;
+    sub = "Most claims trace. The flagged ones deserve a closer look.";
+  }
+  const readout = total > 0
+    ? `${total} CLAIMS CHECKED · ${nSup} TRACED${nThin > 0 ? ` · ${nThin} THIN` : ""}${nUns > 0 ? ` · ${nUns} UNSUPPORTED` : ""}${divided ? " · LITERATURE DIVIDED" : ""}`
+    : (divided ? "LITERATURE DIVIDED" : "NO VERIFICATION PASS");
+  return (
+    <div className="cb-verdict" style={{ borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}` }}>
+      <div className="cb-verdict-glyph" style={{ color: tone }}>
+        <Icon name={glyph} size={54} />
+      </div>
+      <div className="cb-verdict-body">
+        <div className="cb-mono cb-verdict-eyebrow">Verdict</div>
+        <div className="cb-verdict-word" style={{ color: P.ink }}>{word}</div>
+        <div className="cb-verdict-sub" style={{ color: P.ink2 }}>{sub}</div>
+        <div className="cb-mono cb-verdict-readout" style={{ color: P.faint }}>{readout}</div>
+      </div>
     </div>
   );
 }
@@ -6110,7 +6204,7 @@ const VENN_CLAY = "#9e7350";
 
 function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
   const model = useMemo(
-    () => classifyVennPapers({ answer: turn.answer, sources: turn.sources, factCheck: turn.factCheck }),
+    () => classifyVennPapers({ answer: turn.answer, sources: turn.sources, factCheck: turn.factCheck, conflicts: turn.literatureConflicts }),
     [turn]
   );
   const [hoverN, setHoverN] = useState(null);
@@ -6690,13 +6784,13 @@ function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", 
     fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
     transition: "border-color 150ms ease, background 150ms ease",
   };
+  /* Pass 2 (instrument): state is a ruled strip, not a box. A hairline on
+     top, the kicker in the tone color, title, body, actions. No enclosing
+     border, no fill, no radius — it reads as a gauge reading, not a card. */
   return (
     <div style={{
-      border: `1px solid ${P.line}`, borderRadius: 6, padding: "24px 22px",
-      /* Pass 5: opaque flat card. The frosted fog only existed to sit over
-         the film behind product surfaces — the film is gone, so the glass
-         goes too. */
-      background: P.surface,
+      borderTop: `1px solid ${tone === "neutral" ? P.line : withAlpha(toneColor, 0.45)}`,
+      padding: "18px 4px 4px",
     }} className="cb-fade">
       <div className="cb-kicker" style={{ color: toneColor, marginBottom: 8 }}>
         {kicker}
@@ -6991,15 +7085,35 @@ function claimRowsFromAnswer(answer, sources) {
 }
 function EvidenceMap({ t, P, accent, onOpenPaper }) {
   const rows = useMemo(() => claimRowsFromAnswer(t.answer, t.sources), [t.answer, t.sources]);
+  const [expanded, setExpanded] = useState(null);
   if (!rows.length) return null;
+  // Word-boundary truncation: never cut mid-word. Tap to expand the full claim.
+  const truncateWords = (text, max) => {
+    if (text.length <= max) return text;
+    const cut = text.slice(0, max);
+    const lastSpace = cut.lastIndexOf(" ");
+    return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
+  };
   return (
     <AnswerSection quiet eyebrow={`Evidence map · ${rows.length} key claim${rows.length === 1 ? "" : "s"}`} P={P} accent={accent}>
-      <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: 6, padding: "6px 16px" }}>
-        {rows.map((r, i) => (
-          <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 4px", borderBottom: i === rows.length - 1 ? "none" : `1px solid ${P.line}` }}>
-            <div style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-              {r.text.length > 180 ? r.text.slice(0, 180).trimEnd() + "…" : r.text}
-            </div>
+      {/* Pass 2 (instrument): rows are ruled directly, no enclosing box. */}
+      <div style={{ borderTop: `1px solid ${P.line}` }}>
+        {rows.map((r, i) => {
+          const isOpen = expanded === i;
+          const long = r.text.length > 180;
+          return (
+          <div key={i} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 4px", borderBottom: `1px solid ${P.line}` }}>
+            <button type="button" onClick={() => setExpanded(isOpen ? null : i)}
+              aria-expanded={isOpen}
+              aria-label={isOpen ? "Show less" : "Show full claim"}
+              style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, textAlign: "left", background: "none", border: "none", padding: 0, cursor: long ? "pointer" : "default" }}>
+              {isOpen || !long ? r.text : truncateWords(r.text, 180)}
+              {long && (
+                <span style={{ color: accent, fontWeight: 600, marginLeft: 6 }}>
+                  {isOpen ? "show less" : "more"}
+                </span>
+              )}
+            </button>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, paddingTop: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {r.cites.map((c) => (
                 /* Pass 2: citation identity — the same bracketed mark as in
@@ -7013,7 +7127,8 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
               ))}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
       <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
         Read from the answer's own citations — the claims it leans on hardest, and the papers under each one.
@@ -7033,9 +7148,9 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
      both surfaces so supports/qualifies/conflicts never disagree. */
   const venn = useMemo(() => {
     try {
-      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck });
+      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck, conflicts: t.literatureConflicts });
     } catch { return { agree: [], disagree: [], middle: [], unclear: [] }; }
-  }, [t.answer, t.sources, t.factCheck]);
+  }, [t.answer, t.sources, t.factCheck, t.literatureConflicts]);
   const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
   return (
     <AnswerSection
@@ -7668,9 +7783,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   // — one deterministic source of truth for where each paper stands.
   const venn = useMemo(() => {
     try {
-      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck });
+      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck, conflicts: t.literatureConflicts });
     } catch { return { agree: [], disagree: [], middle: [], unclear: [] }; }
-  }, [t.answer, t.sources, t.factCheck]);
+  }, [t.answer, t.sources, t.factCheck, t.literatureConflicts]);
   const vennReady = done && (venn.agree.length + venn.disagree.length + venn.middle.length) >= 2;
   // Retry is a real re-search through the ask pipeline — the same call the
   // suggestion chips make. Adjust runs a new query the reader typed.
@@ -7854,29 +7969,20 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const onActivateCite = (n) => { setActiveCite(n); setEvidenceOpen(true); };
   return (
     <div style={S.turn} className="cb-rise">
-      {/* Pass 2 — the answer header: the question as a serif title, then one
-          quiet mono metadata line (date · cited papers · databases · save
-          state). No decorative eyebrows. Sep 2026: the title sits over the
-          film, so it gets a localized legibility hold — a soft shadow
-          fading to nothing at the edges, never full-screen glass. */}
-      <div style={{
-        marginBottom: 28, padding: "30px 32px 34px", borderRadius: RADIUS.lg,
-        background: P.dark
-          ? "radial-gradient(ellipse 95% 105% at 50% 42%, rgba(3,5,7,0.82) 0%, rgba(3,5,7,0.42) 58%, rgba(3,5,7,0) 100%)"
-          : "radial-gradient(ellipse 95% 105% at 50% 42%, rgba(250,250,248,0.95) 0%, rgba(250,250,248,0.62) 58%, rgba(250,250,248,0) 100%)",
-      }}>
-        <h2 className="cb-serif" style={{ ...S.headline, fontFamily: "var(--cb-serif)", fontWeight: 600, marginBottom: 0, textShadow: P.dark ? "0 2px 26px rgba(0,0,0,0.65)" : "none" }}>{t.hasImage && <Icon name="image" size={22} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
-        <div className="cb-mono" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: P.faint, marginTop: 12 }}>
+      {/* The query strip: the question as an instrument label, not a magazine
+          headline. Mono QUERY tag, the question in strong sans, one mono
+          metadata line. No film, no gradient, no rounded card — the
+          instrument is still and precise. */}
+      <div className="cb-query">
+        <div className="cb-mono cb-query-label">Query</div>
+        <h2 className="cb-query-text" style={{ color: P.ink }}>{t.hasImage && <Icon name="image" size={20} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
+        <div className="cb-mono cb-query-meta" style={{ color: P.faint }}>
           <span>{new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
           <span>{sources.length} cited paper{sources.length === 1 ? "" : "s"}</span>
           {dbOutcomes && dbOutcomes.length > 0 && (
             <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>{dbOutcomes.filter((x) => x.ok).length}/{dbOutcomes.length} databases</span></>
           )}
-          {/* Save-state: Saving… / Saved / Couldn't save · Retry — in the
-              metadata line so a storage failure is visible now, not
-              tomorrow. Only rendered when the host passes saveState (the
-              live thread); read-only contexts like history detail omit it. */}
           {saveState && (
             <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
             {saveState === "saving" && <span>Saving…</span>}
@@ -7889,6 +7995,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           )}
         </div>
       </div>
+      {/* The verdict instrument: the measurement lands here, before the
+          readout. Glyph plus verdict word plus mono claim counts. Only
+          rendered once the answer has settled — mid-stream there is no
+          measurement yet, and the Dive owns the loading state. */}
+      {done && !synthFailed && <VerdictReadout t={t} P={P} />}
       {/* The answer surface: one wide article column — the answer is the
           main focus, not one of two skinny columns. The evidence index
           lives in a drawer (below), secondary and closed by default. */}
@@ -7923,7 +8034,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     and pipeline honesty now live in the Answer diagnostics
                     disclosure below the toolbar; they are no longer a badge
                     row. */}
-                <span className="cb-kicker">Answer{minRead > 0 ? ` · ${minRead} min read` : ""} · {t.sources.length} cited paper{t.sources.length === 1 ? "" : "s"}</span>
+                <span className="cb-mono cb-readout-label">Readout{minRead > 0 ? ` · ${minRead} min` : ""} · {t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}</span>
               </div>
             ) : <span />}
             {/* Pass 2: the toolbar is a quiet strip of text actions — Copy
@@ -7932,8 +8043,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 / Table / Network live under More. */}
             {done && t.answer && (
               <>
-              <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()} role="toolbar" aria-label="Answer actions">
-                <button type="button" className="cb-textbtn"
+              <div className="cb-controls" onClick={(e) => e.stopPropagation()} role="toolbar" aria-label="Answer actions">
+                <button type="button" className="cb-ctlbtn"
                   title={copiedAnswer ? "Copied!" : "Copy answer"}
                   onClick={() => {
                     copyToClipboard(t.answer, "Answer copied").then((ok) => {
@@ -7944,14 +8055,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   {copiedAnswer ? "Copied" : "Copy answer"}
                 </button>
                 {user?.isPro && (
-                  <button type="button" className="cb-textbtn"
+                  <button type="button" className="cb-ctlbtn"
                     title="Export as PDF"
                     onClick={() => { exportAnswerToPDF(t.answer, t.sources, t.q); logExport("PDF", "cerebrum-answer.pdf"); }}
                   >
                     Export PDF
                   </button>
                 )}
-                <button type="button" className="cb-textbtn"
+                <button type="button" className="cb-ctlbtn"
                   title={linkCopied ? "Link copied!" : "Share"}
                   onClick={async () => {
                     if (!t.q) { toast("Nothing to share yet", { tone: "error" }); return; }
@@ -7994,7 +8105,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 {/* Evidence index: toggles the evidence drawer — the index is
                     a secondary surface now, not a column competing with the
                     answer. */}
-                <button type="button" className="cb-textbtn" title={evidenceOpen ? "Hide the evidence index" : "Show the evidence index"}
+                <button type="button" className="cb-ctlbtn" title={evidenceOpen ? "Hide the evidence index" : "Show the evidence index"}
                   aria-expanded={evidenceOpen}
                   onClick={() => setEvidenceOpen((v) => !v)}
                 >
@@ -8090,16 +8201,18 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 hit, or signed out), the footnote says why and where to go —
                 never a dead end. Opens the Pro modal / auth via window
                 events so this deeply-nested renderer needs no props. */}
+            {/* Pass 2 (instrument): quota nudges are mono instrument buttons,
+                not filled pills. No em dash in the copy. */}
             {t.aiQuota && t.aiQuota.gated === "free-cap" && (
               <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: 9999, padding: "3px 12px", cursor: "pointer" }}>
-                Out of free AI answers — Go Pro
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase", color: accent, background: "transparent", border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
+                Free AI answers used up. Go Pro
               </button>
             )}
             {t.aiQuota && t.aiQuota.gated === "signin-required" && (
               <UIButton P={P} variant="ghost" onClick={() => window.dispatchEvent(new CustomEvent("cb:open-auth"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: P.ink, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 9999, padding: "3px 12px", cursor: "pointer" }}>
-                Sign in for AI-synthesized answers
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-mono)", letterSpacing: "0.08em", textTransform: "uppercase", color: P.ink2, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
+                Sign in for AI answers
               </UIButton>
             )}
           </div>
@@ -8222,6 +8335,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         </div>
       )}
       {done && t.literatureConflicts && t.literatureConflicts.length > 0 && (
+        /* Pass 2 (instrument): conflicts are ruled ledger rows, not soft
+           cards. Hairline dividers, mono position labels, a conflict glyph
+           as the divider instead of "vs" text. No tint, no radius. */
         <details style={{ marginTop: 16 }} className="cb-fade">
           <summary style={{
             cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro,
@@ -8229,17 +8345,19 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           }}>
             Flashpoints · {t.literatureConflicts.length} conflicting claim pair{t.literatureConflicts.length === 1 ? "" : "s"}
           </summary>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12 }}>
+          <div style={{ marginTop: 4, borderTop: `1px solid ${P.line}` }}>
             {t.literatureConflicts.map((c, ci) => (
-              <div key={ci} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "stretch" }}>
-                <div style={{ padding: "12px 16px", background: withAlpha(STATUS.warn, 0.05), borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.warn, 0.14)}` }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-font)", marginBottom: 6 }}>[{c.idxA}]</div>
+              <div key={ci} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 16, alignItems: "start", padding: "16px 4px", borderBottom: `1px solid ${P.line}` }}>
+                <div>
+                  <div className="cb-mono" style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 6 }}>POSITION A · [{c.idxA}]</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{renderFlashpointClaim(c.claimA, P)}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceA ? renderCleanTitle(c.sourceA) : ""}</div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: withAlpha(STATUS.warn, 0.5), fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", fontWeight: 700 }}>vs</div>
-                <div style={{ padding: "12px 16px", background: withAlpha(STATUS.warn, 0.05), borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.warn, 0.14)}` }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: withAlpha(STATUS.warn, 0.7), fontFamily: "var(--cb-font)", marginBottom: 6 }}>[{c.idxB}]</div>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", color: STATUS.warn, paddingTop: 22 }} aria-hidden="true">
+                  <Icon name="verdictContradicted" size={18} />
+                </div>
+                <div>
+                  <div className="cb-mono" style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 6 }}>POSITION B · [{c.idxB}]</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{renderFlashpointClaim(c.claimB || "Not stated", P)}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceB ? renderCleanTitle(c.sourceB) : ""}</div>
                 </div>
@@ -8277,10 +8395,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           multiple scientific meanings, say which one the answer ran with
           (or offer the interpretations when it couldn't decide). */}
       {interactive && done && t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && t.responseKind !== "no-results" && (
-        <div style={{ marginTop: 16, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, background: withAlpha(STATUS.warn, 0.05) }} className="cb-fade">
+        /* Pass 2 (instrument): ambiguity is a ruled notice, not a tinted
+           card. Mono kicker, plain sentence, instrument buttons. */
+        <div style={{ marginTop: 16, padding: "14px 4px 4px", borderTop: `1px solid ${withAlpha(STATUS.warn, 0.45)}` }} className="cb-fade">
+          <div className="cb-mono" style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: STATUS.warn, marginBottom: 8 }}>Ambiguous term</div>
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
-            <span style={{ fontWeight: 700 }}>Heads up:</span> “{t.ambiguity.term}” means different things in different fields
-            {t.ambiguity.resolvedAs ? <> — this answer ran with <span style={{ fontWeight: 600 }}>{t.ambiguity.resolvedAs}</span></> : <> — pick the one you meant</>}.
+            “{t.ambiguity.term}” means different things in different fields.
+            {t.ambiguity.resolvedAs ? <> This answer ran with <span style={{ fontWeight: 600 }}>{t.ambiguity.resolvedAs}</span>.</> : <> Pick the one you meant.</>}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
             {t.ambiguity.interpretations.map((it, i) => (
@@ -16071,7 +16192,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "0 0 40px rgba(0,0,0,0.4)" },
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 24px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
-    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
+    sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-mono)", padding: "16px 12px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       /* 44px min-height for touch targets (was 38px, which defeated the
@@ -16225,6 +16346,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     heroCompact: {
       flex: "0 0 auto",
       padding: isMobile ? "72px 0 12px" : "24px 0 16px",
+    },
+    /* The Query Bench (2026-10-08): the home screen is an instrument
+       panel, not a chat window. Top-anchored at a working height —
+       equipment sits where the hands are, not at the optical middle
+       of the room. */
+    heroBench: {
+      justifyContent: "flex-start",
+      padding: isMobile ? "72px 0 40px" : "52px 0 64px",
     },
     /* The composer's own band.
 
@@ -20443,7 +20572,17 @@ function App() {
             Save-Data, animation off). `filmBlocked` is the single rule both
             branches read. Document Mode stays quiet (no film) — the reading
             space is sacred. */}
-      {view !== "document" && (filmBlocked(animationMode, false) ? (
+      {view !== "document" && (view === "search" ? (
+        /* The Query Bench (2026-10-08): still and precise. No footage
+           behind the instrument — a flat surface with a hairline graph
+           grid. Nothing here moves, so there is no reduced-motion
+           variant to maintain. */
+        <div className="cb-bench-bg" aria-hidden="true"
+          style={{
+            position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none",
+            background: P.bg, "--cb-gridline": P.line,
+          }} />
+      ) : filmBlocked(animationMode, false) ? (
         <CerebrumFieldCanvas
           accent={accent}
           P={P}
@@ -20485,7 +20624,7 @@ function App() {
           This button runs playNow() inside the tap's gesture window — the one
           place iOS honours it. Rendered only when a veto was observed and the
           reel is still not playing. */}
-      {wsFilmVetoed && !wsFilmPlaying && (
+      {wsFilmVetoed && !wsFilmPlaying && view !== "search" && (
         <button type="button"
           onClick={() => { try { wsFilmRef.current?.playNow(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: wsFilmRef.current?.playNow(); }:", cbErr); } }}
           aria-label="Play background video"
@@ -20706,7 +20845,7 @@ function App() {
                know), tighter padding — so the search bar and the first row
                of deck cards land on the first screen together. A visitor
                with nothing on the deck still gets the full curtain-raise. */
-            <Reveal style={{ ...S.hero, ...(deckHasContent ? S.heroCompact : null) }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
+            <Reveal style={{ ...S.hero, ...S.heroBench }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
               <div style={S.heroGlow} data-cb-no-reveal="" />
               {/* ══════════════════════════════════════════════════════
                   Commit 87 — the returning-user hero was still a brand
@@ -20740,11 +20879,34 @@ function App() {
                   so the composer stays the focal point. */}
               {/* The brand as a quiet masthead, not a marketing
                   hero — see SearchNameplate. The mark stays the signature. */}
-              <SearchNameplate
-                P={P} accent={accent} askMode={askMode}
-                focused={composerFocused} compact={deckHasContent}
-              />
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
+              {/* ══════════════════════════════════════════════════════════
+                  The Query Bench (2026-10-08). The home screen is an
+                  instrument panel: one TickFrame viewport holds the
+                  console — a mono header strip with the bench name and a
+                  live source status, the question well, the mode selector
+                  strip, the evidence filter — and the specimen tray below
+                  it. No brand masthead (the sidebar carries it), no
+                  rotating greeting headline, no cinematic backdrop. */}
+              <div className="cb-bench-band">
+                <TickFrame P={P} accent={accent} className="cb-bench"
+                  style={{
+                    width: "100%", maxWidth: 880,
+                    background: P.dark ? "rgba(13,16,18,0.88)" : "rgba(255,255,255,0.92)",
+                    "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
+                    "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
+                  }}>
+                  <div className="cb-bench-head">
+                    <span className="cb-bench-title">
+                      <Mark size={14} accent={accent} glow={false} />
+                      <span>QUERY BENCH</span>
+                    </span>
+                    <button type="button" className="cb-bench-status" onClick={() => setProvenanceOpen(true)}
+                      aria-haspopup="dialog" title="See the sources this bench searches">
+                      {SCHOLARLY_SOURCES.length} INDEXES · READY
+                    </button>
+                  </div>
+                  <div className="cb-bench-body">
               {attachedImage && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
                   <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
@@ -20752,22 +20914,7 @@ function App() {
                   <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
                 </div>
               )}
-              <div style={{ ...S.composerBand, ...(deckHasContent ? null : S.composerBandFlush) }}>
-              {/* Shown only on the returning-user screen. A first-time
-                  visitor already has the wordmark and a line of copy above
-                  this point; a third heading stacked on those two would be
-                  the app introducing itself three times. */}
-              {deckHasContent && (
-                <h2 style={{
-                  margin: isMobile ? "0 0 20px" : "0 0 28px",
-                  fontSize: isMobile ? 24 : 32, fontWeight: 600,
-                  letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.1, textAlign: "center",
-                  color: P.ink, fontFamily: "var(--cb-font)",
-                  textShadow: P.dark ? "0 2px 24px rgba(0,0,0,0.5)" : "none",
-                }}>{composerPrompt}</h2>
-              )}
-              {/* The question field: one hairline box and a line of mode
-                  words beneath it — see SignalComposer. */}
+              {/* The question well — see SignalComposer. */}
               <SignalComposer
                 input={input} setInput={setInput} inputRef={inputRef}
                 ask={ask} busy={busy}
@@ -20799,11 +20946,11 @@ function App() {
                   composer for editing. Hidden while typing. */}
               {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (
                 <div
-                  className="cb-starter"
+                  className="cb-starter cb-bench-tray"
                   key={"starter:" + askMode + (deckHasContent ? ":returning" : ":first")}
-                  style={{ width: "100%", maxWidth: 820, marginTop: 10, "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line, "--cb-acc": accent }}
+                  style={{ "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line, "--cb-acc": accent }}
                 >
-                  <div className="cb-starter-k">{deckHasContent ? "starter questions" : "try a real search"}</div>
+                  <div className="cb-starter-k">{deckHasContent ? "reference specimens" : "calibration specimens"}</div>
                   {(!deckHasContent ? FIRST_RUN_QUESTIONS : (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2)).map((ex, i) => (
                     <button key={ex.q} type="button" className="cb-starter-item"
                       onClick={() => {
@@ -20812,9 +20959,12 @@ function App() {
                       }}
                       title={!deckHasContent ? `Search: ${ex.q}` : `Ask: ${ex.q}`}
                     >
-                      <span className="cb-starter-num" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
-                      <span className="cb-starter-cat" aria-hidden="true">{ex.cat}</span>
+                      <span className="cb-starter-meta" aria-hidden="true">
+                        <span className="cb-starter-num">{String(i + 1).padStart(2, "0")}</span>
+                        <span className="cb-starter-cat">{ex.cat}</span>
+                      </span>
                       <span className="cb-starter-q">{ex.q}</span>
+                      <span className="cb-starter-act" aria-hidden="true">{deckHasContent ? "LOAD" : "RUN"}</span>
                     </button>
                   ))}
                 </div>
@@ -20823,31 +20973,65 @@ function App() {
                   SignalComposer) — one line stating the current setting,
                   opening the chips on demand, announcing itself when it is
                   NOT the default. It no longer holds its own row here. */}
+                  </div>
+                  {/* Bench OSD: the machine summarizing its own configuration
+                      in one mono line — mode blurb on the left, evidence
+                      tier on the right. Redundant for screen readers (the
+                      real controls announce themselves), so hidden there. */}
+                  <div className="cb-bench-foot" aria-hidden="true">
+                    <span className="cb-bench-foot-mode">
+                      <span className="cb-bench-foot-idx">{String(Math.max(1, ASK_MODES.findIndex((m) => m.key === askMode) + 1)).padStart(2, "0")}</span>
+                      {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
+                    </span>
+                    <span className="cb-bench-foot-ev">EVIDENCE · {((EVIDENCE_TIERS.find((t) => t[0] === evidenceFilter) || EVIDENCE_TIERS[0])[1] || "").toUpperCase()}</span>
+                  </div>
+                </TickFrame>
               </div>
 
-              {/* Commit 66 — the Home Deck replaces the loose stack of
-                  cards that used to sit here. See HomeDeck. */}
-              <HomeDeck
-                P={P} accent={accent} at={at} user={user} isMobile={isMobile}
-                greetingName={firstName}
-                history={history} saved={saved} sessions={sessions}
-                watchKey={watchKey}
-                onAsk={(q) => ask(q)}
-                onOpenHistory={() => setView("investigations")}
-                onOpenSaved={() => setView("library")}
-              />
-              {/* Pass 3 (2026-09-17) — the badge wall is one provenance line.
-                  The names stay wired: clicking opens SourcesDialog, the
-                  same full list the search handler iterates, grouped with
-                  peer-review status — so the count on this line can never
-                  drift from the code the way a typed "15 databases" did. */}
-              <div style={{ width: "100%", maxWidth: 640, textAlign: "center", marginTop: deckHasContent ? (isMobile ? 28 : 72) : (isMobile ? 22 : 32), marginBottom: 4, padding: "0 16px" }}>
-                <button type="button" onClick={() => setProvenanceOpen(true)} className="cb-textbtn"
-                  aria-haspopup="dialog"
-                  style={{ fontSize: FONT_SIZES.caption, minHeight: 44, fontFamily: "var(--cb-font)" }}>
-                  Searches {SCHOLARLY_SOURCES.length} public scholarly indexes in parallel
-                </button>
-              </div>
+              {/* The Work Log (2026-10-08): the deck is the bench's second
+                  module — your own work, framed like the console above it,
+                  with a mono header instead of a greeting headline. Only
+                  framed when there is work to show; a first-run visitor
+                  gets the bare deck (which collapses to nothing). */}
+              {deckHasContent ? (
+                <TickFrame P={P} accent={accent} className="cb-deckframe"
+                  style={{
+                    width: "100%", maxWidth: 880,
+                    marginTop: isMobile ? 28 : 44,
+                    background: P.dark ? "rgba(13,16,18,0.88)" : "rgba(255,255,255,0.92)",
+                    "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
+                    "--cb-line": P.line, "--cb-acc": accent,
+                  }}>
+                  <div className="cb-deck-head">
+                    <span className="cb-deck-title">WORK LOG</span>
+                    <span className="cb-deck-sub">{(history || []).length} INVESTIGATIONS · {(saved || []).length} SAVED</span>
+                  </div>
+                  <div className="cb-deck-body">
+                    <HomeDeck
+                      P={P} accent={accent} at={at} user={user} isMobile={isMobile}
+                      greetingName={firstName} flush
+                      history={history} saved={saved} sessions={sessions}
+                      watchKey={watchKey}
+                      onAsk={(q) => ask(q)}
+                      onOpenHistory={() => setView("investigations")}
+                      onOpenSaved={() => setView("library")}
+                    />
+                  </div>
+                </TickFrame>
+              ) : (
+                <HomeDeck
+                  P={P} accent={accent} at={at} user={user} isMobile={isMobile}
+                  greetingName={firstName}
+                  history={history} saved={saved} sessions={sessions}
+                  watchKey={watchKey}
+                  onAsk={(q) => ask(q)}
+                  onOpenHistory={() => setView("investigations")}
+                  onOpenSaved={() => setView("library")}
+                />
+              )}
+              {/* The provenance line moved into the bench header status —
+                  the count still opens SourcesDialog, wired to the same
+                  list the search handler iterates. */}
               {provenanceOpen && <SourcesDialog accent={accent} onClose={() => setProvenanceOpen(false)} />}
             </Reveal>
           ) : (
@@ -22389,11 +22573,13 @@ summary::-webkit-details-marker { display: none; }
   will-change: clip-path;
 }
 /* Primary CTA: a whisper, not a pill — a thin tracked-caps outline that
-   brightens on hover. Monumental through restraint. */
+   brightens on hover. Monumental through restraint. 2026-10-08: sharp
+   3px instrument corners replace the pill radius for the calibration
+   chamber; still an outline, never a glow. */
 .cb-intro-go {
   background: transparent;
   border: 1px solid rgba(242,244,242,0.30);
-  border-radius: 999px;
+  border-radius: 3px;
   color: #f2f4f2;
   /* Material, not luminous: a top inner edge, never an outer glow. */
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
@@ -22444,6 +22630,62 @@ summary::-webkit-details-marker { display: none; }
   transform: none;
 }
 .cb-intro-how:focus-visible { outline: 2px solid rgba(163,184,153,0.75); outline-offset: 4px; border-radius: 999px; }
+
+/* ── Intro: the calibration chamber (2026-10-08) ──
+   The cinematic door is retired — no film, no scrim, no motion behind
+   the type. The instrument bed is static: a calibration grid on
+   near-black held by a vignette, corner ticks framing the viewport
+   itself, and a depth rail marking the descent motif. Still, precise. */
+.cb-instr-bed {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 6%, rgba(163,184,153,0.055), transparent 55%),
+    radial-gradient(ellipse 90% 70% at 50% 112%, rgba(0,0,0,0.55), transparent 70%),
+    #05070a;
+}
+.cb-instr-bed::before {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.034) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.034) 1px, transparent 1px),
+    linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px, 16px 16px, 16px 16px;
+  -webkit-mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
+  mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
+}
+/* Viewport ticks: the whole screen is the instrument, not just the panel. */
+.cb-instr-viewport { position: fixed !important; inset: 14px; z-index: 5; pointer-events: none; }
+/* Depth rail: the descent motif as a static scale. The door sits at the
+   surface; the workspace is the descent. */
+.cb-depth-rail {
+  position: fixed; right: 30px; top: 50%; transform: translateY(-50%);
+  z-index: 6; pointer-events: none;
+  display: flex; flex-direction: column; gap: 30px; align-items: flex-end;
+  font-family: var(--cb-mono); font-size: 10px; letter-spacing: 0.18em;
+  color: rgba(238,241,238,0.30); font-variant-numeric: tabular-nums;
+}
+.cb-depth-rail .cb-depth-mark { display: flex; align-items: center; gap: 9px; }
+.cb-depth-rail .cb-depth-mark i {
+  display: block; width: 16px; height: 1px; background: rgba(238,241,238,0.22);
+}
+.cb-depth-rail .cb-depth-mark.cb-depth-here { color: rgba(163,184,153,0.85); }
+.cb-depth-rail .cb-depth-mark.cb-depth-here i { width: 26px; background: rgba(163,184,153,0.65); }
+.cb-depth-rail .cb-depth-surface {
+  font-size: 9px; letter-spacing: 0.3em; color: rgba(238,241,238,0.22);
+  margin-top: 6px;
+}
+@media (max-width: 900px) { .cb-depth-rail { display: none; } }
+/* Leaving: the chamber descends into the workspace — the Dive motif in
+   reverse, sinking through the door. 420ms to match the handoff timer. */
+#cb-intro-wrap.cb-intro-leaving {
+  transform: translateY(6vh);
+  opacity: 0;
+  transition: transform 420ms var(--cb-ease), opacity 420ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  #cb-intro-wrap.cb-intro-leaving { transform: none; }
+}
 
 /* ── Composer states ──
    (The old pill's scan/dots styles were removed with the query-line
@@ -22747,6 +22989,204 @@ summary::-webkit-details-marker { display: none; }
   outline: 2px solid var(--cb-acc);
   outline-offset: 2px;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   The Query Bench (2026-10-08) — the home screen as an instrument
+   panel. Still and precise: flat surface, hairline graph grid,
+   corner-tick viewport, mono machine voice. No cinematic backdrop,
+   no floating cards, no chatbot chrome. */
+
+/* Static bench background: flat surface + hairline graph grid. A
+   repeating hard-stop pattern, not a color wash — graph paper for
+   the instrument. Nothing moves, so no reduced-motion variant. */
+.cb-bench-bg {
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 47px, color-mix(in srgb, var(--cb-gridline) 55%, transparent) 47px 48px),
+    repeating-linear-gradient(90deg, transparent 0 47px, color-mix(in srgb, var(--cb-gridline) 55%, transparent) 47px 48px),
+    repeating-linear-gradient(0deg, transparent 0 239px, color-mix(in srgb, var(--cb-gridline) 90%, transparent) 239px 240px),
+    repeating-linear-gradient(90deg, transparent 0 239px, color-mix(in srgb, var(--cb-gridline) 90%, transparent) 239px 240px);
+}
+
+/* The bench sits at a working height, top-anchored. */
+.cb-bench-band {
+  width: 100%;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 4px 16px 0;
+}
+
+/* The console viewport: corner ticks frame it (TickFrame), hairline
+   border, near-sharp instrument corners. */
+.cb-bench.cb-tickframe { border-radius: 3px; }
+.cb-bench-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--cb-line);
+}
+.cb-bench-title {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-family: var(--cb-mono); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.12em; color: var(--cb-ink2);
+  margin: 0;
+}
+/* Source status: a live readout, and the provenance control. */
+.cb-bench-status {
+  display: inline-flex; align-items: center; gap: 9px;
+  min-height: 44px; padding: 6px 14px;
+  background: none; border: 1px solid var(--cb-line); border-radius: 999px;
+  color: var(--cb-faint); font-family: var(--cb-mono); font-size: 11px;
+  letter-spacing: 0.07em; cursor: pointer; white-space: nowrap;
+  transition: color 280ms ease, border-color 280ms ease;
+}
+.cb-bench-status::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cb-acc); flex-shrink: 0;
+}
+.cb-bench-status:hover {
+  color: var(--cb-ink);
+  border-color: color-mix(in srgb, var(--cb-acc) 50%, transparent);
+}
+.cb-bench-status:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
+.cb-bench-body { padding: 18px 18px 16px; }
+
+/* The question well: an instrument input, not a floating card.
+   Sharp corners, no lift, no glow — focus is a state change of the
+   border, the way a physical input lights its bezel. */
+.cb-bench .cb-ask-field {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cb-ink) 3%, transparent);
+  box-shadow: none;
+}
+.cb-bench .cb-ask-field:focus-within {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--cb-acc);
+}
+.cb-bench .cb-ask-go { border-radius: 3px; }
+.cb-bench .cb-ask-tool { border-radius: 6px; }
+
+/* Mode selector strip: one segmented instrument control, five detents.
+   Mono index + label per segment; the active detent carries an accent
+   underline tick. */
+.cb-bench .cb-modes {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 0; padding: 0; margin: 14px 0 0;
+  border: 1px solid var(--cb-line2); border-radius: 3px;
+  overflow: hidden;
+}
+.cb-bench .cb-mode {
+  border: 0; border-left: 1px solid var(--cb-line); border-radius: 0;
+  min-height: 56px; padding: 8px 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; line-height: 1.3; text-align: center;
+  font-family: var(--cb-mono); font-size: 11px; letter-spacing: 0.03em;
+  color: var(--cb-faint); background: transparent;
+}
+.cb-bench .cb-mode:first-child { border-left: 0; }
+.cb-bench .cb-mode-idx { font-size: 10px; opacity: 0.7; }
+.cb-bench .cb-mode-label { font-weight: 550; }
+.cb-bench .cb-mode:hover {
+  color: var(--cb-ink);
+  background: color-mix(in srgb, var(--cb-ink) 4%, transparent);
+}
+.cb-bench .cb-mode.is-on {
+  color: var(--cb-ink);
+  background: color-mix(in srgb, var(--cb-acc) 13%, transparent);
+  box-shadow: inset 0 -2px 0 var(--cb-acc);
+}
+.cb-bench .cb-mode.is-on .cb-mode-idx { color: var(--cb-acc); opacity: 1; }
+.cb-bench .cb-mode.is-on .cb-mode-label { font-weight: 700; }
+
+/* Shapeshifter + paper chip read as instrument readouts: mono, sharp. */
+.cb-bench .cb-shape {
+  border-radius: 3px;
+  font-family: var(--cb-mono); font-size: 12px; letter-spacing: 0.02em;
+}
+.cb-bench .cb-paperchip { border-radius: 3px; border-style: dashed; }
+.cb-bench .cb-ask-hint { font-family: var(--cb-mono); font-size: 11px; }
+
+/* ── Specimen tray: calibrated examples, not a link list ── */
+.cb-bench-tray {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  width: 100%; margin-top: 16px;
+}
+.cb-bench-tray .cb-starter-k { grid-column: 1 / -1; margin: 0 0 2px 2px; }
+.cb-bench-tray .cb-starter-item {
+  flex-direction: column; align-items: stretch; gap: 8px;
+  min-height: 0; padding: 14px;
+  border: 1px solid var(--cb-line); border-radius: 3px;
+  background: color-mix(in srgb, var(--cb-ink) 2.5%, transparent);
+  text-align: left;
+}
+.cb-bench-tray .cb-starter-item:last-child { border-bottom: 1px solid var(--cb-line); }
+.cb-bench-tray .cb-starter-item:hover {
+  border-color: color-mix(in srgb, var(--cb-acc) 50%, transparent);
+  background: color-mix(in srgb, var(--cb-acc) 5%, transparent);
+}
+.cb-bench-tray .cb-starter-item:hover .cb-starter-q { color: var(--cb-ink); }
+.cb-bench-tray .cb-starter-meta {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+}
+.cb-bench-tray .cb-starter-num { transform: none; }
+.cb-bench-tray .cb-starter-cat { transform: none; }
+.cb-bench-tray .cb-starter-q { font-size: 14.5px; }
+.cb-bench-tray .cb-starter-act {
+  align-self: flex-start;
+  font-family: var(--cb-mono); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--cb-faint);
+  border: 1px solid var(--cb-line); border-radius: 3px;
+  padding: 4px 8px;
+}
+.cb-bench-tray .cb-starter-item:hover .cb-starter-act {
+  color: var(--cb-acc);
+  border-color: color-mix(in srgb, var(--cb-acc) 50%, transparent);
+}
+
+/* Bench on small screens: the detent strip stays one row, the tray
+   stacks, the frame breathes less. */
+@media (max-width: 560px) {
+  .cb-bench-head { padding: 12px 14px 10px; }
+  .cb-bench-body { padding: 14px 14px 12px; }
+  .cb-bench .cb-mode { font-size: 10px; min-height: 60px; padding: 8px 2px; }
+  .cb-bench .cb-mode-idx { font-size: 9px; }
+  .cb-bench-tray { grid-template-columns: 1fr; }
+  .cb-bench-status { font-size: 10px; padding: 6px 10px; }
+  .cb-bench-foot { padding: 10px 14px 12px; font-size: 10px; }
+  .cb-deck-head { padding: 12px 14px 10px; }
+  .cb-deck-body { padding: 14px; }
+  .cb-deck-sub { font-size: 10px; }
+}
+
+/* Bench OSD footer: the machine's own configuration readout — mode
+   blurb on the left, evidence tier on the right. */
+.cb-bench-foot {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 10px 18px 12px;
+  border-top: 1px solid var(--cb-line);
+  font-family: var(--cb-mono); font-size: 11px; line-height: 1.5;
+  color: var(--cb-faint);
+}
+.cb-bench-foot-mode { display: inline-flex; gap: 10px; align-items: baseline; min-width: 0; }
+.cb-bench-foot-idx { color: var(--cb-acc); font-weight: 700; flex-shrink: 0; }
+.cb-bench-foot-ev { white-space: nowrap; letter-spacing: 0.06em; flex-shrink: 0; }
+
+/* ── Work Log: the deck as the bench's second module ──
+   Same instrument language as the console — tick frame, mono header —
+   so the whole home screen reads as one bench with two modules. */
+.cb-deckframe.cb-tickframe { border-radius: 3px; }
+.cb-deck-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--cb-line);
+}
+.cb-deck-title {
+  font-family: var(--cb-mono); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.12em; color: var(--cb-ink2); margin: 0;
+}
+.cb-deck-sub {
+  font-family: var(--cb-mono); font-size: 11px; letter-spacing: 0.06em;
+  color: var(--cb-faint); white-space: nowrap;
+}
+.cb-deck-body { padding: 18px; }
 
 /* ── Small screens: the field compresses, never clips ── */
 @media (max-width: 480px) {
@@ -24207,6 +24647,121 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   content: ""; position: absolute; inset: -6px -10px;
 }
 button.cb-cite { min-height: 0; min-width: 0; }
+
+/* ── Verdict instrument ──────────────────────────────────────────────────
+   The verdict readout: a hairline-ruled strip, glyph plus word plus mono
+   machine readout. No card, no fill, no gradient. On narrow screens the
+   glyph shrinks and the readout wraps; nothing here depends on hover. */
+.cb-verdict {
+  display: flex; align-items: center; gap: 20px;
+  padding: 20px 4px; margin: 0 auto 8px; max-width: 72ch;
+}
+.cb-verdict-glyph { flex-shrink: 0; line-height: 0; }
+.cb-verdict-body { min-width: 0; }
+.cb-verdict-eyebrow {
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  opacity: 0.85; margin-bottom: 6px;
+}
+.cb-verdict-word {
+  font-family: var(--cb-font); font-weight: 700; font-size: 30px;
+  line-height: 1.1; letter-spacing: -0.01em; margin-bottom: 6px;
+}
+.cb-verdict-sub { font-size: 14px; line-height: 1.5; margin-bottom: 10px; max-width: 52ch; }
+.cb-verdict-readout {
+  font-size: 11px; letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .cb-verdict { gap: 14px; padding: 16px 0; }
+  .cb-verdict-word { font-size: 24px; }
+  .cb-verdict-glyph svg { width: 40px !important; height: 40px !important; }
+}
+
+/* ── Calibration stamp: the gutter mark on each cited paragraph ─────────
+   A verdict glyph plus the paragraph's reference numbers, stacked in the
+   claim rail. The stamp is the visible face of evidence-weighted type. */
+.cb-claim-refs .cb-stamp {
+  display: inline-flex; vertical-align: -2px; margin-right: 8px; line-height: 0;
+}
+.cb-claim-refs { display: flex; align-items: flex-start; justify-content: flex-end; gap: 0; }
+
+/* ── Evidence labels: the words "needs source" and "disputed" ────────────
+   Mono, uppercase, bordered chips in the claim's tone. Previously an
+   unstyled span, which is why evidence weight was invisible. */
+.cb-ev-label {
+  display: inline-block; margin-left: 10px; padding: 3px 8px;
+  font-family: var(--cb-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+  border: 1px solid currentColor; border-radius: 4px; vertical-align: 2px;
+}
+.cb-ev-bad { color: #e5484d; }
+.cb-ev-warn { color: #d9a520; }
+
+/* ── Query strip: the question as an instrument label ────────────────────
+   Replaces the serif hero card and its film legibility gradient. A hairline
+   top rule, a mono QUERY tag, the question in strong sans, one mono
+   metadata line. Still and precise. */
+.cb-query {
+  border-top: 1px solid var(--cb-line, rgba(128,128,128,0.22));
+  padding: 18px 4px 0; margin: 0 auto 4px; max-width: 72ch;
+}
+.cb-query-label {
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  opacity: 0.85; margin-bottom: 10px;
+}
+.cb-query-text {
+  font-family: var(--cb-font); font-size: 21px; font-weight: 650;
+  line-height: 1.35; letter-spacing: -0.01em; margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+.cb-query-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .cb-query-text { font-size: 18px; }
+}
+
+/* ── Instrument section plates: the answer's own headings ────────────────
+   h2/h3 inside the answer set as mono uppercase plates with a hairline
+   rule, not magazine subheads. */
+.cb-sect { display: flex; align-items: baseline; gap: 14px; margin: 42px 0 18px; }
+.cb-sect::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--cb-line, rgba(128,128,128,0.22)); }
+.cb-sect-label {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; white-space: nowrap;
+}
+.cb-sect-sub {
+  margin: 30px 0 12px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+
+/* ── Control strip: the answer toolbar as instrument controls ────────────
+   Compact mono buttons with hairline borders instead of underlined text.
+   The More menu trigger keeps its own styling. */
+.cb-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cb-ctlbtn {
+  font-family: var(--cb-mono); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 0 12px; min-height: 44px;
+  border: 1px solid var(--cb-line, rgba(128,128,128,0.3)); border-radius: 4px;
+  background: transparent; color: var(--cb-ink2, #ccc); cursor: pointer;
+  white-space: nowrap;
+}
+.cb-ctlbtn:hover { border-color: var(--cb-acc, #9fbd9f); color: var(--cb-ink, #fff); }
+.cb-readout-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── Citation chips as calibrated data tags ──────────────────────────────
+   The selected data point inverts: solid ink on paper. The number alone
+   keeps the link to the bibliography row, so the inversion costs nothing
+   in traceability. */
+.cb-cite[data-active="true"] {
+  background: var(--cb-ink, #fff); color: var(--cb-bg, #000);
+  border-color: transparent;
+}
 
 /* Claim spine: each answer paragraph carries its supporting references
    in a slim left rail. The rail is the signature interaction — hover or

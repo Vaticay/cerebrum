@@ -87,7 +87,9 @@ await test("dot sizing is subtle (4.5–8px range)", () => {
 });
 
 await test("classification logic entry point untouched", () => {
-  assert.ok(/classifyVennPapers\(\{ answer: turn\.answer, sources: turn\.sources, factCheck: turn\.factCheck \}\)/.test(src),
+  // 2026-10-08: conflicts param added so literature conflict pairs are
+  // visible in the Venn instead of contradicting it.
+  assert.ok(/classifyVennPapers\(\{ answer: turn\.answer, sources: turn\.sources, factCheck: turn\.factCheck, conflicts: turn\.literatureConflicts \}\)/.test(src),
     "classifyVennPapers call changed");
   assert.ok(/if \(classifiable < 2\) return null;/.test(src), "render guard changed");
 });

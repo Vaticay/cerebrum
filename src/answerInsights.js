@@ -424,7 +424,7 @@ export function extractOpenQuestions(answer, factCheck, sources, selfReasoning) 
 
    Returns 1-based citation indices: { agree, disagree, middle, unclear }.
    ══════════════════════════════════════════════════════════════════ */
-export function classifyVennPapers({ answer, sources, factCheck }) {
+export function classifyVennPapers({ answer, sources, factCheck, conflicts }) {
   const srcArr = Array.isArray(sources) ? sources : [];
   const n = srcArr.length;
   if (n === 0) return { agree: [], disagree: [], middle: [], unclear: [] };
@@ -468,6 +468,23 @@ export function classifyVennPapers({ answer, sources, factCheck }) {
       agree.delete(i);
       disagree.delete(i);
       middle.add(i);
+    }
+  }
+
+  // Literature conflicts (text-mined claim pairs) are a real disagreement
+  // signal. Papers in a conflicting pair cannot sit cleanly in "agree" while
+  // the UI also reports "1 conflicting claim pair" — that contradiction is
+  // exactly what the photo showed. Move them to middle (nuanced/contested).
+  if (Array.isArray(conflicts)) {
+    for (const c of conflicts) {
+      for (const k of ["idxA", "idxB"]) {
+        const i = Number(c && c[k]);
+        if (Number.isFinite(i) && i >= 1 && i <= n) {
+          agree.delete(i);
+          disagree.delete(i);
+          middle.add(i);
+        }
+      }
     }
   }
 

@@ -170,13 +170,14 @@ group("Toolbar — text actions, everything else under More");
 
 await test("toolbar is Copy answer, Share, Evidence index, More — no chips", () => {
   assert.match(appSrc, /<ToolbarOverflow P=\{P\} accent=\{accent\} items=\{overflowItems\} \/>/, "More menu missing from toolbar");
-  // Pass 2: three text actions + the More menu. No ToolChips on the bar.
+  // Visual overhaul: three control actions + the More menu, as instrument
+  // buttons (cb-ctlbtn). No ToolChips on the bar.
   assert.match(appSrc, /title=\{copiedAnswer \? "Copied!" : "Copy answer"\}/, "Copy answer action missing from toolbar");
   assert.match(appSrc, /title=\{linkCopied \? "Link copied!" : "Share"\}/, "Share action missing from toolbar");
   assert.match(appSrc, /Evidence index/, "Evidence index action missing from toolbar");
   const barStart = appSrc.indexOf('aria-label="Answer actions"');
   const barBlock = appSrc.slice(barStart, appSrc.indexOf("</div>", barStart));
-  assert.ok(/cb-textbtn/.test(barBlock), "toolbar not on the text-action contract");
+  assert.ok(/cb-ctlbtn/.test(barBlock), "toolbar not on the control-button contract");
   assert.ok(!/<ToolChip/.test(barBlock), "ToolChip still on the primary toolbar");
   assert.ok(!/generatingPaper \? "Composing…"/.test(barBlock), "Paper chip still on the primary toolbar");
   assert.ok(!/label="Diagram"/.test(barBlock), "Diagram chip still on the primary toolbar");
@@ -365,10 +366,13 @@ await test("evidence drawer: portaled dialog, closed by default, declarative syn
   assert.match(appSrc, /setEvidenceOpen\(\(v\) => !v\)/, "toolbar Evidence index does not toggle the drawer");
 });
 
-await test("question is a serif title with a quiet mono metadata line", () => {
-  assert.match(appSrc, /className="cb-serif"/, "serif title missing");
-  assert.match(appSrc, /className="cb-mono"/, "mono metadata missing");
-  // The decorative "Inquiry" label + dot are retired (comments may mention it).
+await test("question is an instrument query strip, not a serif hero", () => {
+  // Visual overhaul: the serif title card and its film gradient are gone.
+  // The question is a query strip: mono QUERY tag, strong sans question,
+  // one mono metadata line.
+  assert.match(appSrc, /className="cb-query"/, "query strip missing");
+  assert.match(appSrc, /cb-query-text/, "query text missing");
+  assert.match(appSrc, /cb-query-meta/, "query metadata missing");
   const code = appSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   assert.ok(!/>Inquiry</.test(code), "Inquiry label still rendered");
 });

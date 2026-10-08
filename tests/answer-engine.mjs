@@ -330,7 +330,8 @@ test("weak extraction is honest about the gate reason", () => {
     query: "does sleep deprivation impair memory",
     aiGateReason: "signin-required",
   });
-  assert.match(gated, /sign in for AI-synthesized answers/, "wrong closing line for gated users");
+  assert.match(gated, /Sign in to use your free AI answers/, "wrong closing line for gated users");
+  assert.doesNotMatch(gated, /sign in for AI-synthesized answers/, "old paywall tease survived");
   const failed = buildExtractiveSynthesis([tangentialPaper()], [], {
     query: "does sleep deprivation impair memory",
     aiGateReason: null,
@@ -1149,6 +1150,51 @@ test("falsification section has no generic filler; honest when empty", () => {
 test("buildFalsificationBullets never emits the generic replication bullet", () => {
   const bullets = buildFalsificationBullets({ papers: incidentPapers(), verdict: { status: "settled", conflicts: [] }, newestYear: 2023 });
   assert.ok(!bullets.some((b) => /well-powered replication|direct measurement study finding no effect/.test(b)), "generic bullet emitted: " + JSON.stringify(bullets));
+});
+
+// ── 2026-10-08 correctness deep dive regressions ──
+// From Dusty's production photos: first-person plagiarism, fake precision,
+// paywalled copy, and contradictory verdict signals.
+
+group("Correctness deep dive — Dusty's production defects");
+
+test("confidence line never shows a pseudo-precise /100 score", () => {
+  // Standing rule: never claim a precise score without evidence.
+  // "8 sources agree" does not equal 99/100.
+  const many = [INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER];
+  const strong = buildConfidenceLine(many, { status: "settled" });
+  assert.doesNotMatch(strong.line, /\/100/, "confidence line shows pseudo-precise score: " + strong.line);
+  assert.match(strong.line, /Strong confidence/, "level missing");
+  assert.match(strong.line, /8 sources/, "real basis (source count) missing");
+  const thin = buildConfidenceLine([INC_PAPER], { status: "thin" });
+  assert.doesNotMatch(thin.line, /\/100/, "thin line shows pseudo-precise score");
+});
+
+test("extractive closing never teases a paywall on correctness", () => {
+  const md = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY, aiGateReason: "signin-required" });
+  assert.doesNotMatch(md, /sign in for AI-synthesized answers/, "paywall tease survived");
+  const capped = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY, aiGateReason: "free-cap" });
+  assert.doesNotMatch(capped, /you've used this period's free AI answers\. The papers above are listed/, "old paywall copy survived");
+});
+
+test("synthesis prompt bans first-person research claims", async () => {
+  // Dusty's photo: "Our findings on genetic diversity revealed..." — the AI
+  // presenting papers' findings as its own. The prompt must ban this explicitly.
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  assert.match(src, /RULE 8: NEVER CLAIM THE RESEARCH AS YOUR OWN/, "first-person ban rule missing from prompt");
+  assert.match(src, /our findings.*our results.*we found/s, "banned first-person phrases not listed");
+});
+
+test("synthesis prompt requires abbreviation expansion on first use", async () => {
+  // Dusty's photo: "Increased SD concentration..." with SD never defined.
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  assert.match(src, /RULE 9: ABBREVIATIONS EXPANDED ON FIRST USE/, "abbreviation rule missing from prompt");
+});
+
+test("synthesis prompt requires complete headings", async () => {
+  // Dusty's photo: "Microbiome · Gut · Black" cut off mid-phrase.
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  assert.match(src, /RULE 10: HEADINGS ARE COMPLETE PHRASES/, "heading completeness rule missing from prompt");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

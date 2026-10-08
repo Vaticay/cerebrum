@@ -4814,9 +4814,9 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
   const gateReason = ctx && ctx.aiGateReason;
   const closing =
     gateReason === "signin-required"
-      ? "*Assembled without AI — sign in for AI-synthesized answers. The papers above are listed for you to read directly; nothing here interprets their findings.*"
+      ? "*This summary was assembled from the sources below. Sign in to use your free AI answers.*"
       : gateReason === "free-cap" || gateReason === "lite-cap"
-        ? "*Assembled without AI — you've used this period's free AI answers. The papers above are listed for you to read directly; nothing here interprets their findings.*"
+        ? "*This summary was assembled from the sources below. You've used this period's AI answers; they renew next month.*"
         : "*Cerebrum's AI providers were temporarily unavailable, so no summary was assembled — the papers above are the closest matches. Read them directly rather than relying on stitched-together sentences.*";
   md += "\n" + closing;
   return md;
@@ -5279,9 +5279,9 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     const gateReason = ctx && ctx.aiGateReason;
     const closingLine =
       gateReason === "signin-required"
-        ? "*Assembled directly from the sources below without AI — sign in for AI-synthesized answers. Verify each claim against its cited source.*"
+        ? "*This summary was assembled from the sources below. Sign in to use your free AI answers. Verify each claim against its cited source.*"
         : gateReason === "free-cap" || gateReason === "lite-cap"
-          ? "*Assembled directly from the sources below without AI — you've used this period's free AI answers. Verify each claim against its cited source.*"
+          ? "*This summary was assembled from the sources below. You've used this period's AI answers; they renew next month. Verify each claim against its cited source.*"
           : "*Drafted directly from the sources below — Cerebrum's AI providers were " +
             "temporarily unavailable, so this summary was assembled without AI. " +
             "Verify each claim against its cited source.*";
@@ -6017,16 +6017,21 @@ export function buildConfidenceLine(papers, verdict) {
     level = "thin";
   }
 
+  // The user-facing line states the level and the real basis (source count,
+  // agreement) with NO pseudo-precise number. A 0-100 score built from
+  // arbitrary point allocations is not a measurement and must never be
+  // presented as one. The numeric score stays in the return value for
+  // internal calibration only.
   const line =
     level === "strong"
-      ? "Strong confidence (" + score + "/100): " + n + " sources point the same way" +
+      ? "Strong confidence: " + n + " sources point the same way" +
         (status === "divided" ? "" : " and none report opposing findings") + "."
       : level === "moderate"
-        ? "Moderate confidence (" + score + "/100): " + n + " sources agree, but " +
+        ? "Moderate confidence: " + n + " sources agree, but " +
           (status === "divided"
             ? "they split on " + (verdict.conflictCount || "some") + " point" + (verdict.conflictCount === 1 ? "" : "s") + " — treat conclusions as provisional."
             : "the evidence base is narrow — treat this as a starting point.")
-        : "Low confidence (" + score + "/100): " +
+        : "Low confidence: " +
           (n <= 2
             ? "only " + n + " source" + (n === 1 ? "" : "s") + " cleared the bar — treat this answer as provisional."
             : "the sources are only tangentially related to this question — treat this answer as provisional.");
@@ -7006,6 +7011,30 @@ export function scoreAnswerQuality(answer, query) {
   // Length check
   if (answer.length < 100) score -= 20;
   else if (answer.length > 300) score += 10;
+
+  // First-person research claims: the model presenting papers' findings as
+  // its own ("our findings", "we found"). This is plagiarism, not style.
+  // Heavy penalty — a single instance tanks the score toward regeneration.
+  const FIRST_PERSON_RE = /\b(our findings|our results|our data|our study|our research|our analysis|we found|we observed|we show|we demonstrate|we report|we discovered|in our study|in our work|our experiments|we measured|we tested)\b/gi;
+  const fpMatches = answer.match(FIRST_PERSON_RE);
+  if (fpMatches) score -= fpMatches.length * 25;
+
+  // Undefined abbreviations: a bare ABBR used without "Full Term (ABBR)"
+  // appearing first. Build the definition map from the answer itself, then
+  // flag uses that were never defined. Only truly universal abbreviations
+  // (DNA, RNA, PCR) are exempt — domain terms like SD must be expanded.
+  const defined = new Set();
+  for (const m of answer.matchAll(/([A-Za-z][a-z]+(?:\s+[A-Za-z][a-z]+){0,4})\s+\(([A-Z]{2,6})\)/g)) {
+    defined.add(m[2]);
+  }
+  const UNIVERSAL_ABBR = new Set(["DNA", "RNA", "PCR", "ATP", "ADP"]);
+  const abbrUses = answer.match(/\b[A-Z]{2,6}\b/g) || [];
+  let undefinedAbbr = 0;
+  for (const abbr of new Set(abbrUses)) {
+    if (defined.has(abbr) || UNIVERSAL_ABBR.has(abbr)) continue;
+    undefinedAbbr++;
+  }
+  score -= undefinedAbbr * 5;
 
   // Banned phrases penalty
   let bannedCount = 0;
@@ -11364,6 +11393,27 @@ async function runSearchPipeline(pctx) {
       "If papers are tangential, say so in ONE sentence and answer ONLY from what the papers support — " +
       "never present uncited general knowledge as a finding. Mark any background context as such.\n" +
       "Don't pretend irrelevant papers answer the question.\n\n" +
+
+      "═══ RULE 8: NEVER CLAIM THE RESEARCH AS YOUR OWN (HARD-ENFORCED) ═══\n" +
+      "You synthesize OTHER people's research. You did not run any study, collect any data, or make any finding. " +
+      "HARD-BANNED phrases (if detected, your ENTIRE response is deleted and regenerated): " +
+      "'our findings', 'our results', 'our data', 'our study', 'our research', 'our analysis', " +
+      "'we found', 'we observed', 'we show', 'we demonstrate', 'we report', 'we discovered', " +
+      "'in our study', 'in our work', 'our experiments', 'we measured', 'we tested'. " +
+      "Always attribute: 'the authors found', 'the study reports', 'their data show'. " +
+      "You are the instrument that reads the literature, not a lab that produces it.\\n\\n" +
+
+      "═══ RULE 9: ABBREVIATIONS EXPANDED ON FIRST USE (HARD-ENFORCED) ═══\n" +
+      "The first time you use any abbreviation, write the full term followed by the abbreviation in parentheses: " +
+      "'standard deviation (SD)', 'black soldier fly larvae (BSFL)'. After that, the bare abbreviation is fine. " +
+      "NEVER use a bare abbreviation the reader has not been given the expansion for. " +
+      "If the sources do not define an abbreviation, do not use it — describe the thing in plain words instead.\\n\\n" +
+
+      "═══ RULE 10: HEADINGS ARE COMPLETE PHRASES (HARD-ENFORCED) ═══\n" +
+      "Every '### ' subsection heading must be a complete, self-contained phrase. " +
+      "NEVER truncate a heading mid-word or mid-phrase. 'Microbiome · Gut · Black' is a FAILED heading — " +
+      "it cuts off before finishing the thought. Write 'Microbiome · Gut · Black Soldier Fly' or drop the " +
+      "fragment entirely. If a heading does not fit, shorten it from the front, never by amputating the end.\\n\\n" +
 
       "═══ BANNED PHRASES (mechanical detection — using ANY = failed response) ═══\n" +
       "'further research is needed', 'further research is necessary', 'further research is warranted', " +

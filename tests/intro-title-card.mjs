@@ -106,7 +106,7 @@ await test("rotation pauses while held, in dialogs, or under reduced motion", ()
   assert.ok(src.includes("setSpecimenHeld(true)"), "hover/focus hold not wired");
   // The effect bails when held, when any dialog is open, or under reduced motion.
   const eff = src.slice(src.indexOf("const [specimenIdx, setSpecimenIdx]"), src.indexOf("const specimen = SPECIMENS"));
-  assert.ok(eff.includes("specimenHeld || howOpen || sourcesOpen || creditsOpen"), "pause conditions incomplete");
+  assert.ok(eff.includes("specimenHeld || howOpen || sourcesOpen"), "pause conditions incomplete");
   assert.ok(eff.includes("reduced"), "reduced-motion bail missing");
 });
 
@@ -141,40 +141,36 @@ await test("the old worked-example section is gone — the specimen is the examp
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Playback truth — labels follow the video element, not intent flags");
+group("Still instrument — no film on the door (2026-10-08)");
 
-await test("CinematicFilm listens to real media events", () => {
+await test("CinematicFilm keeps its media-event truth for the workspace", () => {
+  // The reel component itself is unchanged (the workspace still uses it);
+  // it is simply no longer mounted on the intro.
   assert.ok(cssSrc.includes('addEventListener("playing"'), "no playing listener");
   assert.ok(cssSrc.includes('addEventListener("pause"'), "no pause listener");
   assert.ok(cssSrc.includes('addEventListener("play"'), "no play listener");
+  assert.ok(cssSrc.includes("onPlaybackChange"), "onPlaybackChange not wired");
+  assert.ok(cssSrc.includes("reportPlaying"), "no element-state reporter in the reel");
 });
 
-await test("playback state is reported to the parent via onPlaybackChange", () => {
-  assert.ok(cssSrc.includes("onPlaybackChange"), "onPlaybackChange not wired");
-  assert.ok(src.includes("onPlaybackChange={setFilmPlaying}"), "parent not receiving playback state");
-  assert.ok(cssSrc.includes("reportPlaying"), "no element-state reporter in the reel");
+await test("intro mounts no CinematicFilm — the door is still", () => {
+  assert.ok(!src.includes("<CinematicFilm"), "intro still mounts the film reel");
+  assert.ok(!src.includes("filmPlaying"), "intro still tracks film playback state");
+  assert.ok(!src.includes("toggleFilm"), "intro still has a background toggle");
 });
 
 await test("no inferred autoplay-blocked flag survives", () => {
   assert.ok(!src.includes("autoplayBlocked"), "inferred autoplay flag still present");
 });
 
-await test("footer label reads actual playback state", () => {
-  assert.ok(
-    src.includes('{filmPlaying ? "Pause background" : "Play background"}'),
-    "footer label not driven by filmPlaying"
-  );
+await test("intro background is the static calibration bed, not footage", () => {
+  assert.ok(src.includes("cb-instr-bed"), "instrument bed missing from intro");
+  assert.ok(cssSrc.includes(".cb-instr-bed"), "instrument bed CSS missing");
 });
 
-await test("tap-to-play pill only renders when the element is actually paused", () => {
-  assert.ok(
-    src.includes("{filmRunning && vetoed && !filmPlaying && ("),
-    "pill condition does not require actual paused state"
-  );
-});
-
-await test("intro reel dwells longer than the old 11s cut", () => {
-  assert.ok(src.includes("holdMs={18000}"), "intro holdMs not set to the slower dwell");
+await test("viewport corner ticks frame the screen", () => {
+  assert.ok(src.includes("cb-instr-viewport"), "viewport tick frame missing from intro");
+  assert.ok(src.includes("TickFrame"), "TickFrame not used on the intro");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

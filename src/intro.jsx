@@ -693,6 +693,15 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   };
 
   const animate = animationMode !== "off" && !reduced;
+  /* Boot sequence: the instrument powers on. Readouts come online in
+     sequence and the calibration flips from CAL··· to CAL · VERIFIED.
+     Under reduced motion (or animation off) everything is simply on. */
+  const [calibrated, setCalibrated] = useState(!animate);
+  useEffect(() => {
+    if (!animate) { setCalibrated(true); return undefined; }
+    const t = setTimeout(() => setCalibrated(true), 1100);
+    return () => clearTimeout(t);
+  }, [animate]);
   const mono = "var(--cb-mono)";
   const serif = "var(--cb-serif)";
   const ink = "#eef1ee";
@@ -731,10 +740,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         className="cb-instr-viewport" aria-hidden="true" />
 
       {/* Depth rail: the descent motif as a static scale. The door sits at
-          the surface (000M); the workspace is the descent. */}
+          the surface (000M); the workspace is the descent. The marker only
+          lights once the instrument has calibrated. */}
       {!isMobile && (
         <div aria-hidden="true" className="cb-depth-rail">
-          <div className="cb-depth-mark cb-depth-here"><span>000M</span><i /></div>
+          <div className={"cb-depth-mark" + (calibrated ? " cb-depth-here" : "")}><span>000M</span><i /></div>
           <div className="cb-depth-mark"><span>200M</span><i /></div>
           <div className="cb-depth-mark"><span>400M</span><i /></div>
           <div className="cb-depth-mark"><span>600M</span><i /></div>
@@ -761,11 +771,24 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               fontFamily: mono, fontSize: 13, fontWeight: 600,
               letterSpacing: "0.34em", textIndent: "0.06em", color: "#ffffff",
             }}>CEREBRUM</span>
+            {/* Power indicator: the instrument is on. */}
+            <span aria-hidden="true" style={{
+              width: 7, height: 7, borderRadius: "50%",
+              background: calibrated ? introAccent : "rgba(238,241,238,0.25)",
+              boxShadow: calibrated ? "0 0 10px " + withAlpha(introAccent, 0.8) : "none",
+              transition: "background 400ms ease, box-shadow 400ms ease",
+            }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
             <span style={readout}>SPEC {String(specimenIdx + 1).padStart(2, "0")}/03</span>
             {!isMobile && <span style={readout}>15 SOURCES</span>}
-            <span style={{ ...readout, color: withAlpha(introAccent, 0.9) }}>CAL · VERIFIED</span>
+            <span style={{
+              ...readout,
+              color: calibrated ? withAlpha(introAccent, 0.9) : "rgba(238,241,238,0.35)",
+              transition: "color 400ms ease",
+            }}>
+              {calibrated ? "CAL · VERIFIED" : "CAL ···"}
+            </span>
             {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
@@ -821,7 +844,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               textTransform: "uppercase", color: faint,
               fontVariantNumeric: "tabular-nums",
             }}>
-              Specimen {String(specimenIdx + 1).padStart(2, "0")} · Verified claim
+              Specimen {String(specimenIdx + 1).padStart(2, "0")} // Verified claim
             </div>
             <div key={specimenIdx} className={animate ? "cb-specimen-in" : undefined} style={{
               display: "flex", flexDirection: "column", alignItems: "center", width: "100%",
@@ -911,32 +934,51 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
       </main>
 
-      {/* ── Readout strip ──
-          The honesty content, compressed to instrument readouts. A door
-          does not scroll through marketing sections. */}
-      <section aria-label="How Cerebrum holds itself" className="cb-intro-chrome" style={{
+      {/* ── Spec plate ──
+          Engraved like the plate on real lab equipment: model, method,
+          evidence terms. The honesty content, compressed to readouts. A
+          door does not scroll through marketing sections. */}
+      <section aria-label="Instrument specification" className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20,
         borderTop: "1px solid " + hairline,
         background: "rgba(255,255,255,0.014)",
       }}>
         <div style={{
-          maxWidth: 1200, margin: "0 auto", padding: isMobile ? "22px 24px" : "26px 26px",
-          display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)",
-          gap: isMobile ? 16 : 28, textAlign: "left",
+          maxWidth: 1200, margin: "0 auto", padding: isMobile ? "24px 24px" : "30px 26px",
+          display: "flex", justifyContent: "center",
         }}>
-          {[
-            ["METHOD", "One search across 15 scholarly sources. Deduplicated, then synthesized."],
-            ["EVIDENCE", "Every claim traces to a paper you can open."],
-            ["TERMS", "No ads. No engagement farming. The truth is the job."],
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <span style={{
-                fontFamily: mono, fontSize: 10.5, fontWeight: 600,
-                letterSpacing: "0.3em", color: withAlpha(introAccent, 0.85),
-              }}>{k}</span>
-              <span style={{ fontSize: 14.5, lineHeight: 1.6, color: "rgba(238,241,238,0.78)" }}>{v}</span>
-            </div>
-          ))}
+          <div style={{
+            border: "1px solid " + hairline, borderRadius: 3,
+            padding: isMobile ? "18px 20px" : "22px 30px",
+            display: "grid", gridTemplateColumns: isMobile ? "auto 1fr" : "repeat(5, auto)",
+            gap: isMobile ? "12px 18px" : "0 34px",
+            background: "rgba(5,7,10,0.5)",
+          }}>
+            {[
+              ["MODEL", "CEREBRUM-1"],
+              ["SOURCES", "15 SCHOLARLY DBS"],
+              ["METHOD", "ONE SEARCH · DEDUPED"],
+              ["EVIDENCE", "EVERY CLAIM TRACED"],
+              ["TERMS", "NO ADS · NO FARMING"],
+            ].map(([k, v], ri) => (
+              <div key={k} style={{
+                display: "flex", flexDirection: isMobile ? "row" : "column", gap: isMobile ? 18 : 7,
+                alignItems: isMobile ? "baseline" : "flex-start",
+                ...(isMobile ? {} : ri > 0 ? { borderLeft: "1px solid " + hairline, paddingLeft: 34 } : null),
+              }}>
+                <span style={{
+                  fontFamily: mono, fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.28em", color: withAlpha(introAccent, 0.8),
+                  ...(isMobile ? { minWidth: 86 } : null),
+                }}>{k}</span>
+                <span style={{
+                  fontFamily: mono, fontSize: 12, fontWeight: 500,
+                  letterSpacing: "0.08em", color: "rgba(238,241,238,0.82)",
+                  whiteSpace: "nowrap",
+                }}>{v}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 

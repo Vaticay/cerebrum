@@ -449,6 +449,20 @@ await test("a paper both supporting a claim and contested moves to the middle", 
   assert.deepEqual(r.disagree, []);
 });
 
+await test("papers in a literature conflict pair move to middle, not agree", () => {
+  // 2026-10-08: Dusty's photo showed "supports 8, contests 0" alongside
+  // "1 conflicting claim pair" — a contradiction. Conflicted papers must
+  // be visible as contested, not cleanly supporting.
+  const r = classifyVennPapers({
+    answer: "Gut diversity drops with dose [1][2].",
+    sources: VENN_SOURCES,
+    factCheck: { claims: [] },
+    conflicts: [{ idxA: 1, idxB: 2, claimA: "X", claimB: "Y" }],
+  });
+  assert.deepEqual(r.middle, [1, 2], "conflicted papers not moved to middle");
+  assert.ok(!r.agree.includes(1) && !r.agree.includes(2), "conflicted papers still in agree");
+});
+
 await test("papers with no signal stay unclear, never placed", () => {
   const r = classifyVennPapers({ answer: "Plain text.", sources: VENN_SOURCES, factCheck: null });
   assert.deepEqual(r.agree, []);
