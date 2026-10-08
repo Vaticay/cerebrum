@@ -100,23 +100,26 @@ const FILM_CLIPS_PORTRAIT = [
   videoUrl("/assets/cinematic/ambient-07.mp4"),
 ];
 
-/* Intro reel (2026-10-08): dramatic 4K slow-motion cinematic clips for the
-   ceremonial door. Ink in water, the full treatment — dark, slow, dramatic.
-   All clips are Pexels (free for commercial use, no watermark) by
-   Dan Cristian Pădureț. Hotlinked from videos.pexels.com which allows it. */
+/* Intro reel (2026-10-08, refreshed): dramatic cinematic clips for the
+   ceremonial door. All clips are Mixkit (free for commercial use, no
+   watermark), hotlinked from assets.mixkit.co which allows it. Dark,
+   slow, dramatic — cosmic dark matter, storm clouds, slow-motion dust. */
 const FILM_CLIPS_INTRO = [
-  "https://videos.pexels.com/video-files/3059861/3059861-uhd_3840_2160_25fps.mp4", // Yellow ink swirling in water, slow motion — Dan Cristian Pădureț
-  "https://videos.pexels.com/video-files/4508064/4508064-uhd_3840_2160_25fps.mp4", // Blue paint drop in water, slow motion — Dan Cristian Pădureț
-  "https://videos.pexels.com/video-files/3051490/3051490-uhd_3840_2160_25fps.mp4", // Black ink flowing in water, dramatic — Dan Cristian Pădureț
+  "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space — Mixkit
+  "https://assets.mixkit.co/videos/20231/20231-720.mp4", // Swirling dark clouds — Mixkit
+  "https://assets.mixkit.co/videos/52298/52298-1080.mp4", // Dense storm clouds before a storm — Mixkit
+  "https://assets.mixkit.co/videos/51806/51806-1080.mp4", // Purple dust explosion in slow motion on black — Mixkit
 ];
 
-/* Calm reel (2026-10-08): quieter clips for the main search page. Dusty's
-   note: "different ones (less eye sore for the main page)." Slow smoke on
-   black, barely moving — atmosphere, not a show. */
+/* Calm reel (2026-10-08, refreshed): quieter clips for the main search page.
+   Dusty's note: "different ones (less eye sore for the main page)." Night
+   skies, slow clouds, barely moving — atmosphere, not a show. All Mixkit
+   (free for commercial use, no watermark). */
 const FILM_CLIPS_CALM = [
-  "https://videos.pexels.com/video-files/9694810/9694810-hd_1920_1080_25fps.mp4", // White smoke on black, slow — Pexels
-  videoUrl("/assets/cinematic/ambient-04.mp4"), // Smoke in motion on black — Mixkit (fallback)
-  videoUrl("/assets/cinematic/ambient-06.mp4"), // Abstract smoke texture — Mixkit (fallback)
+  "https://assets.mixkit.co/videos/15711/15711-720.mp4", // Night clouds drifting — Mixkit
+  "https://assets.mixkit.co/videos/10011/10011-720.mp4", // Stars rotating slowly in the night sky — Mixkit
+  "https://assets.mixkit.co/videos/3147/3147-1080.mp4", // Clouds passing over the moon — Mixkit
+  "https://assets.mixkit.co/videos/35007/35007-720.mp4", // Moon behind a cloudy night sky — Mixkit
 ];
 
 /* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two

@@ -951,12 +951,12 @@ await test("workspace film is back without the Pro reel toggle", async () => {
   const introSrc = await readFile(join(root, "src/intro.jsx"), "utf8");
   // 2026-10-05 (revised): the workspace reel is back, executed darker — but
   // the Pro reel toggle (members-only footage) stays retired.
-  // 2026-10-08: the intro reel is retired too (still instrument door) —
-  // the single remaining mount is the workspace backdrop.
+  // 2026-10-08 (refreshed): Dusty asked for video back on intro + main page.
+  // Three mounts: intro reel, calm reel, workspace backdrop.
   assert.ok(!/Pro cinematic reel/.test(src), "Pro reel setting still present in Settings");
   assert.ok(!/Pro cinematic reel/.test(introSrc), "Pro reel setting still present in intro");
   const filmMounts = (src.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(filmMounts.length, 1, `expected one CinematicFilm mount (workspace), found ${filmMounts.length}`);
+  assert.strictEqual(filmMounts.length, 3, `expected three CinematicFilm mounts (intro+calm+workspace), found ${filmMounts.length}`);
 });
 
 await test("settings account tab hosts the Pro section and founder grant panel", async () => {
