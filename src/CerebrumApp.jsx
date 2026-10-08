@@ -3693,6 +3693,11 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     .replace(/((?:\[\d+\])+)\s+([.,;:!?)\]])/g, "$1$2")
     .replace(/\n[-—]{2,}\s*\n/g, "\n\n")
     .replace(/\n\s*(references|sources|bibliography|citations|works cited)\s*:?\s*\n[\s\S]*$/i, "")
+    // Tag-soup strip (2026-10-08): the model sometimes emits keyword lines
+    // like "WASTE · BLACK · SOLDIER" as pseudo-headers. A line that is only
+    // uppercase words separated by middots/bullets/dashes with no sentence
+    // structure is never a real header — drop it.
+    .replace(/^[A-Z][A-Z\s]*(\s*[·•\-–—]\s*[A-Z][A-Z\s]*)+$/gm, "")
     .trim();
 
   /* The lede: the first real paragraph the synthesis speaks sets in the
@@ -3835,10 +3840,9 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       // header, so any "#" left in it is stray, not a marker.
       const items = para.split("\n").filter(l => /^[•\-]\s+/.test(l)).map(l => stripStrayHashes(l.replace(/^[•\-]\s+/, "")));
       return (
-        <ul key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none" }}>
+        <ul key={pi} style={{ margin: "0 0 24px", paddingLeft: 8, listStyle: "none" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 12, fontFamily: "var(--cb-font)", fontWeight: 500 }}>
-              <span style={{ position: "absolute", left: -12, top: "0.55em", width: 5, height: 5, borderRadius: "50%", background: accent, opacity: 0.7 }} />
+            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.7, color: P.ink, marginBottom: 14, position: "relative", paddingLeft: 20, fontFamily: "var(--cb-font)", fontWeight: 500, borderLeft: `2px solid ${P.line}`, paddingTop: 2, paddingBottom: 2 }}>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate)}
             </li>
           ))}
@@ -24929,8 +24933,8 @@ button.cb-cite { min-height: 0; min-width: 0; }
    machine readout. No card, no fill, no gradient. On narrow screens the
    glyph shrinks and the readout wraps; nothing here depends on hover. */
 .cb-verdict {
-  display: flex; align-items: center; gap: 20px;
-  padding: 20px 4px; margin: 0 auto 8px; max-width: 72ch;
+  display: flex; align-items: flex-start; gap: 24px;
+  padding: 28px 4px; margin: 0 auto 12px; max-width: 72ch;
 }
 .cb-verdict-glyph { flex-shrink: 0; line-height: 0; }
 .cb-verdict-body { min-width: 0; }
@@ -25001,7 +25005,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
 /* ── Instrument section plates: the answer's own headings ────────────────
    h2/h3 inside the answer set as mono uppercase plates with a hairline
    rule, not magazine subheads. */
-.cb-sect { display: flex; align-items: baseline; gap: 14px; margin: 42px 0 18px; }
+.cb-sect { display: flex; align-items: baseline; gap: 14px; margin: 48px 0 20px; }
 .cb-sect::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--cb-line, rgba(128,128,128,0.22)); }
 .cb-sect-label {
   font-size: 12px; font-weight: 700; letter-spacing: 0.12em;
