@@ -15,6 +15,7 @@ import {
 import {
   setCookie, getCookie, APP_VERSION_LABEL, useIsMobile,
 } from "./appUtils.js";
+import { cbMotionOff } from "./flowcharts.jsx";
 
 function InvestigationOpening({ accent, animationMode }) {
   const [gone, setGone] = useState(false);
