@@ -150,9 +150,9 @@ await test("CinematicFilm listens to real media events", () => {
 });
 
 await test("playback state is reported to the parent via onPlaybackChange", () => {
-  assert.ok(appSrc.includes("onPlaybackChange"), "onPlaybackChange not wired");
+  assert.ok(cssSrc.includes("onPlaybackChange"), "onPlaybackChange not wired");
   assert.ok(src.includes("onPlaybackChange={setFilmPlaying}"), "parent not receiving playback state");
-  assert.ok(appSrc.includes("reportPlaying"), "no element-state reporter in the reel");
+  assert.ok(cssSrc.includes("reportPlaying"), "no element-state reporter in the reel");
 });
 
 await test("no inferred autoplay-blocked flag survives", () => {
