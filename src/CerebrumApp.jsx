@@ -20573,15 +20573,28 @@ function App() {
             branches read. Document Mode stays quiet (no film) — the reading
             space is sacred. */}
       {view !== "document" && (view === "search" ? (
-        /* The Query Bench (2026-10-08): still and precise. No footage
-           behind the instrument — a flat surface with a hairline graph
-           grid. Nothing here moves, so there is no reduced-motion
-           variant to maintain. */
-        <div className="cb-bench-bg" aria-hidden="true"
+        /* Search atmosphere (2026-10-08 rev): the cinematic feel returns,
+           calm — Dusty's note was "too distracting", not "kill the mood".
+           Deep gradient + two slow blurred glows + grain + focus scrim.
+           No footage, nothing bright; the drift is barely perceptible and
+           the scrim keeps the composer the focal point. Reduced motion (or
+           animation off) gets the same frame frozen. */
+        <div className="cb-atmo" aria-hidden="true"
           style={{
-            position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none",
-            background: P.bg, "--cb-gridline": P.line,
-          }} />
+            zIndex: Z.base,
+            "--cb-atmo-top": P.bg,
+            "--cb-atmo-lift": "color-mix(in srgb, " + P.bg + " 86%, white)",
+            "--cb-atmo-deep": "color-mix(in srgb, " + P.bg + " 70%, black)",
+            "--cb-atmo-glow-a": withAlpha(accent, P.dark ? 0.10 : 0.07),
+            "--cb-atmo-glow-b": P.dark ? "rgba(96,122,142,0.10)" : "rgba(120,140,160,0.08)",
+            "--cb-atmo-edge": P.dark ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.30)",
+          }}>
+          <div className="cb-atmo-base" />
+          <div className="cb-atmo-blob cb-atmo-blob-a" style={cbMotionOff() ? { animation: "none" } : undefined} />
+          <div className="cb-atmo-blob cb-atmo-blob-b" style={cbMotionOff() ? { animation: "none" } : undefined} />
+          <div className="cb-atmo-grain" />
+          <div className="cb-atmo-scrim" />
+        </div>
       ) : filmBlocked(animationMode, false) ? (
         <CerebrumFieldCanvas
           accent={accent}
@@ -22654,6 +22667,61 @@ summary::-webkit-details-marker { display: none; }
   -webkit-mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
   mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
 }
+/* ── Intro atmosphere: the cinematic feel, calmed (2026-10-08) ──
+   Dusty: the flat sterile grid "looks HORRIBLE," bring the cinema back —
+   but calm. So no footage, no bokeh, nothing recognizable: three vast
+   blurred light fields drifting on 90s+ alternate cycles over the grid
+   bed, plus a slow-breathing light well from above. Very dark (peak
+   alpha 0.10), heavily blurred (60-90vmax radial falloffs), barely
+   perceptible motion (±8vmax drift). The room has air, not a movie.
+   All motion is transform/opacity, ease-in-out alternate so loops never
+   snap. Reduced motion (media query or the cb-intro-still class) freezes
+   every blob at its rest frame: the same atmosphere, one still image. */
+.cb-intro-atmosphere {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
+}
+.cb-intro-atmosphere > div { position: absolute; border-radius: 50%; will-change: transform, opacity; }
+.cb-atmo-a {
+  width: 72vmax; height: 72vmax; left: -18vmax; top: -22vmax;
+  background: radial-gradient(circle, rgba(163,184,153,0.10) 0%, transparent 62%);
+  animation: cbAtmoDriftA 110s ease-in-out infinite alternate;
+}
+.cb-atmo-b {
+  width: 84vmax; height: 84vmax; right: -26vmax; bottom: -30vmax;
+  background: radial-gradient(circle, rgba(122,142,162,0.075) 0%, transparent 64%);
+  animation: cbAtmoDriftB 130s ease-in-out infinite alternate;
+}
+.cb-atmo-c {
+  width: 58vmax; height: 58vmax; left: 24vmax; top: 30vmax;
+  background: radial-gradient(circle, rgba(196,176,142,0.05) 0%, transparent 60%);
+  animation: cbAtmoDriftC 92s ease-in-out infinite alternate;
+}
+.cb-atmo-well {
+  width: 120vmax; height: 70vmax; left: -10vmax; top: -42vmax; border-radius: 0;
+  background: radial-gradient(ellipse 60% 55% at 50% 40%, rgba(210,220,212,0.055) 0%, transparent 70%);
+  animation: cbAtmoWell 64s ease-in-out infinite alternate;
+}
+@keyframes cbAtmoDriftA {
+  from { transform: translate(0, 0); }
+  to { transform: translate(7vmax, 5vmax); }
+}
+@keyframes cbAtmoDriftB {
+  from { transform: translate(0, 0); }
+  to { transform: translate(-8vmax, -6vmax); }
+}
+@keyframes cbAtmoDriftC {
+  from { transform: translate(0, 0) scale(1); opacity: 0.75; }
+  to { transform: translate(-5vmax, 7vmax) scale(1.08); opacity: 1; }
+}
+@keyframes cbAtmoWell {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+/* Still frame: reduced motion gets the same atmosphere with zero movement. */
+.cb-intro-still .cb-intro-atmosphere > div { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-intro-atmosphere > div { animation: none; }
+}
 /* Viewport ticks: the whole screen is the instrument, not just the panel. */
 .cb-instr-viewport { position: fixed !important; inset: 14px; z-index: 5; pointer-events: none; }
 /* Depth rail: the descent motif as a static scale. The door sits at the
@@ -22991,20 +23059,59 @@ summary::-webkit-details-marker { display: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   The Query Bench (2026-10-08) — the home screen as an instrument
-   panel. Still and precise: flat surface, hairline graph grid,
-   corner-tick viewport, mono machine voice. No cinematic backdrop,
-   no floating cards, no chatbot chrome. */
+   The Query Bench (2026-10-08, atmosphere rev) — the home screen as an
+   instrument panel. Calm cinematic atmosphere behind it (deep gradient,
+   slow glows, grain — felt, never seen), corner-tick viewport, mono
+   machine voice. No footage, no floating cards, no chatbot chrome. */
 
-/* Static bench background: flat surface + hairline graph grid. A
-   repeating hard-stop pattern, not a color wash — graph paper for
-   the instrument. Nothing moves, so no reduced-motion variant. */
-.cb-bench-bg {
-  background-image:
-    repeating-linear-gradient(0deg, transparent 0 47px, color-mix(in srgb, var(--cb-gridline) 55%, transparent) 47px 48px),
-    repeating-linear-gradient(90deg, transparent 0 47px, color-mix(in srgb, var(--cb-gridline) 55%, transparent) 47px 48px),
-    repeating-linear-gradient(0deg, transparent 0 239px, color-mix(in srgb, var(--cb-gridline) 90%, transparent) 239px 240px),
-    repeating-linear-gradient(90deg, transparent 0 239px, color-mix(in srgb, var(--cb-gridline) 90%, transparent) 239px 240px);
+/* Search-view atmosphere (2026-10-08 rev) — the cinematic feel returns,
+   calm. Deep gradient + two slow blurred glows + grain + a focus scrim.
+   Felt, never seen: no footage, nothing bright, motion barely
+   perceptible (130-175s drift cycles, a few vmax of travel). Reduced
+   motion freezes the frame via the media query below and the JSX gate. */
+.cb-atmo { position: fixed; inset: 0; pointer-events: none; }
+.cb-atmo-base {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(130% 95% at 50% -10%, var(--cb-atmo-lift), transparent 55%),
+    linear-gradient(180deg, var(--cb-atmo-top), var(--cb-atmo-deep));
+}
+.cb-atmo-blob {
+  position: absolute; border-radius: 50%;
+  filter: blur(90px); will-change: transform;
+}
+.cb-atmo-blob-a {
+  width: 62vmax; height: 62vmax; left: -16vmax; top: -22vmax;
+  background: radial-gradient(circle, var(--cb-atmo-glow-a), transparent 65%);
+  animation: cbAtmoA 130s ease-in-out infinite alternate;
+}
+.cb-atmo-blob-b {
+  width: 56vmax; height: 56vmax; right: -18vmax; bottom: -24vmax;
+  background: radial-gradient(circle, var(--cb-atmo-glow-b), transparent 65%);
+  animation: cbAtmoB 175s ease-in-out infinite alternate-reverse;
+}
+@keyframes cbAtmoA {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(4vmax, 3vmax, 0) scale(1.05); }
+}
+@keyframes cbAtmoB {
+  from { transform: translate3d(0, 0, 0) scale(1.05); }
+  to   { transform: translate3d(-3vmax, -4vmax, 0) scale(1); }
+}
+/* Film grain: static SVG noise, the cinematic texture without motion. */
+.cb-atmo-grain {
+  position: absolute; inset: 0; opacity: 0.05;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+  background-size: 160px 160px;
+}
+/* Focus scrim: darkens the edges so the composer stays the undisputed
+   focal point — the old bokeh's failure was competing with the input. */
+.cb-atmo-scrim {
+  position: absolute; inset: 0;
+  background: radial-gradient(88% 68% at 50% 26%, transparent 42%, var(--cb-atmo-edge) 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-atmo-blob { animation: none !important; }
 }
 
 /* The bench sits at a working height, top-anchored. */

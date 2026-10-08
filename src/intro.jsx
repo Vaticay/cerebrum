@@ -626,12 +626,14 @@ const SPECIMENS = [
    Intro — the calibration chamber (redesigned 2026-10-08).
 
    Dusty's verdict on the cinematic door: "looks the same and not good,"
-   and the background film is "too distracting." So the film is gone from
-   this screen entirely — no reel, no scrim, no motion behind the type.
-   What remains is a still precision instrument: a calibration grid bed,
-   corner ticks framing the viewport, a depth rail marking the descent
-   motif, mono readouts as the machine voice, and one specimen slide
-   under glass.
+   and the background film was "too distracting." The first fix removed
+   all footage — and Dusty's verdict on that was "HORRIBLE," no cinematic
+   feel at all. Lesson recorded: calm the cinema, never strip it.
+   So: no literal footage, no bright bokeh competing with type — but the
+   air is back. Three vast blurred light fields drift on 90s+ cycles over
+   the calibration grid bed: atmospheric, not literal. The instrument
+   details (corner ticks, depth rail, mono readouts, specimen chamber,
+   spec plate) were never the problem and stay exactly as they were.
 
    What survived the redesign, and why:
    - SPECIMENS (real verified claims): the product demonstrating itself
@@ -729,9 +731,20 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
     }}>
-      {/* The instrument bed: static calibration grid on near-black, held
-          by a vignette. No footage, no motion — still and precise. */}
+      {/* The instrument bed: calibration grid on near-black, held by a
+          vignette. The grid is static; the air above it is not. */}
       <div aria-hidden="true" className="cb-instr-bed" />
+      {/* Atmosphere: the cinematic feel, calmed. Three vast, heavily
+          blurred light fields drifting on 90s+ cycles — barely perceptible,
+          very dark, never literal footage. The room has air, not a movie.
+          Under reduced motion (or animation off) this is a single still
+          frame: the blobs sit at rest, no movement. */}
+      <div aria-hidden="true" className="cb-intro-atmosphere">
+        <div className="cb-atmo-a" />
+        <div className="cb-atmo-b" />
+        <div className="cb-atmo-c" />
+        <div className="cb-atmo-well" />
+      </div>
       {/* Grain without the jitter: texture, not weather. */}
       <div aria-hidden="true" className="cb-intro-grain" style={{ animation: "none" }} />
       {/* Corner ticks frame the viewport itself: the whole screen is the
