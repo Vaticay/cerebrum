@@ -1022,7 +1022,7 @@ function WatchTopicButton({ q, P, accent, user, onChanged }) {
           background: on ? withAlpha(accent, 0.12) : "transparent",
           color: on ? accent : P.ink2,
           border: `1px solid ${on ? withAlpha(accent, 0.45) : P.line2}`,
-          transition: "background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, opacity 0.18s ease", opacity: state === "saving" ? 0.6 : 1,
+          transition: "background-color 150ms ease, color 150ms ease, border-color 150ms ease, opacity 150ms ease", opacity: state === "saving" ? 0.6 : 1,
         }}
       >
         <Icon name={on ? "check" : "bell"} size={14} />
@@ -1591,19 +1591,19 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
           color: isDefault ? P.faint : P.ink,
           background: isDefault ? "transparent" : withAlpha(accent, 0.12),
           border: `1px solid ${isDefault ? "transparent" : withAlpha(accent, 0.4)}`,
-          transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
+          transition: "background 280ms ease, border-color 280ms ease, color 280ms ease",
         }}
       >
         <Icon name="filter" size={12} />
         {isDefault ? "Add constraints" : active[1]}
-        <span aria-hidden="true" style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)" }}>
+        <span aria-hidden="true" style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)" }}>
           <Icon name="chevronDown" size={12} />
         </span>
       </UIButton>
       <div style={{
         display: "grid",
         gridTemplateRows: open ? "1fr" : "0fr",
-        transition: "grid-template-rows 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.24s ease, visibility 0.24s",
+        transition: "grid-template-rows 280ms cubic-bezier(0.16, 1, 0.3, 1), opacity 280ms ease, visibility 280ms",
         opacity: open ? 1 : 0,
         // A collapsed panel with opacity 0 still leaves its tier buttons
         // in the Tab order — visibility:hidden removes them from the
@@ -1635,7 +1635,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
                     fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", fontWeight: 600,
                     letterSpacing: "0", flexShrink: 0, whiteSpace: "nowrap",
                     padding: "6px 16px", borderRadius: RADIUS.pill, cursor: "pointer",
-                    transition: "background-color 0.2s ease, color 0.2s ease",
+                    transition: "background-color 280ms ease, color 280ms ease",
                     background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
                     color: on ? P.ink : P.ink2,
                     border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
@@ -4429,7 +4429,7 @@ function AnswerPlayer({ text, accent, P, compact = false, autoPlay = false }) {
       </UIButton>
       {active && (
         <div style={{ width: 80, height: 2, background: P.line, borderRadius: RADIUS.md, overflow: "hidden" }}>
-          <div style={{ width: "100%", height: "100%", background: accent, transformOrigin: "left", transform: `scaleX(${progress})`, transition: "transform 0.15s ease" }} />
+          <div style={{ width: "100%", height: "100%", background: accent, transformOrigin: "left", transform: `scaleX(${progress})`, transition: "transform 150ms ease" }} />
         </div>
       )}
       {active && (
@@ -4690,7 +4690,7 @@ function InfoPage({ page }) {
                     /* A deep link per clause. "See section 15" is useless
                        in an email; a URL that lands on section 15 is not. */
                     <a href={`#${slug(block.h)}`} className="cb-anchor" aria-label={`Link to “${block.h}”`} title="Link to this section"
-                      style={{ marginLeft: 8, color: accent, textDecoration: "none", fontSize: "0.72em", opacity: 0, transition: "opacity 0.2s ease" }}>#</a>
+                      style={{ marginLeft: 8, color: accent, textDecoration: "none", fontSize: "0.72em", opacity: 0, transition: "opacity 280ms ease" }}>#</a>
                   )}
                 </h2>
                 {block.p && <p>{block.p}</p>}
@@ -5554,7 +5554,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
                 {categories.map((c) => (
                   <UIButton P={P} variant="ghost" key={c.id} type="button" onClick={() => setCategory(c.id)} style={{ minHeight: 44,
                     fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: RADIUS.md, cursor: "pointer",
-                    fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease",
+                    fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 150ms ease, color 150ms ease, border-color 150ms ease",
                     background: category === c.id ? withAlpha(accent, 0.16) : "transparent",
                     color: category === c.id ? accent : P.ink2,
                     border: `1px solid ${category === c.id ? withAlpha(accent, 0.3) : P.line}`,
@@ -5812,7 +5812,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
           onFocus={() => setHoverN(n)} onBlur={() => setHoverN(null)}
         />
         <circle r={r} fill={color} stroke={P.bg} strokeWidth={1} opacity={hot ? 1 : 0.92}
-          style={{ transition: "opacity 0.15s ease", pointerEvents: "none" }} />
+          style={{ transition: "opacity 150ms ease", pointerEvents: "none" }} />
         {hot && <circle r={r + 4.5} fill="none" stroke={color} strokeWidth={1} opacity={0.6} style={{ pointerEvents: "none" }} />}
       </g>
     );
@@ -5949,7 +5949,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
                           background: last ? withAlpha(accent, 0.28) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)"),
                           border: `1px solid ${last ? withAlpha(accent, 0.5) : P.line}`,
                           display: "flex", alignItems: "center", paddingLeft: 10,
-                          transition: "width 0.5s ease",
+                          transition: "width 550ms ease",
                         }}>
                           <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 700, color: last ? accent : P.ink, fontVariantNumeric: "tabular-nums" }}>{s.count}</span>
                         </div>
@@ -6354,7 +6354,7 @@ function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", 
     minHeight: 44, display: "inline-flex", alignItems: "center",
     padding: "12px 16px", borderRadius: 6, cursor: "pointer",
     fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
-    transition: "border-color 0.15s ease, background 0.15s ease",
+    transition: "border-color 150ms ease, background 150ms ease",
   };
   return (
     <div style={{
@@ -7049,7 +7049,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
               src={`https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`}
               title={video.title || "Video"}
               onLoad={() => setReady(true)}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", opacity: ready ? 1 : 0, transition: reduced ? "none" : "opacity 0.5s ease" }}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", opacity: ready ? 1 : 0, transition: reduced ? "none" : "opacity 550ms ease" }}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
             />
@@ -7541,7 +7541,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     and pipeline honesty now live in the Answer diagnostics
                     disclosure below the toolbar; they are no longer a badge
                     row. */}
-                <span className="cb-kicker" style={{ fontSize: 11 }}>Answer{minRead > 0 ? ` · ${minRead} min read` : ""} · {t.sources.length} cited paper{t.sources.length === 1 ? "" : "s"}</span>
+                <span className="cb-kicker">Answer{minRead > 0 ? ` · ${minRead} min read` : ""} · {t.sources.length} cited paper{t.sources.length === 1 ? "" : "s"}</span>
               </div>
             ) : <span />}
             {/* Pass 2: the toolbar is a quiet strip of text actions — Copy
@@ -8994,7 +8994,7 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
     <div style={{ flex: "0 0 auto", width: 240, scrollSnapAlign: "start" }}>
       <button type="button" onClick={() => onOpen(v)} aria-label={`Play: ${v.title || "video"}`}
         onMouseEnter={startPreview} onMouseLeave={stopPreview} onFocus={startPreview} onBlur={stopPreview}
-        style={{ display: "block", width: "100%", padding: 0, background: "#0a0c10", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: RADIUS.md, overflow: "hidden", cursor: "pointer", textAlign: "left", transition: still ? "none" : "border-color 0.2s ease, transform 0.2s ease" }}
+        style={{ display: "block", width: "100%", padding: 0, background: "#0a0c10", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: RADIUS.md, overflow: "hidden", cursor: "pointer", textAlign: "left", transition: still ? "none" : "border-color 280ms ease, transform 280ms ease" }}
         onMouseOver={(e) => { e.currentTarget.style.borderColor = withAlpha(accent, 0.6); }}
         onMouseOut={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}>
         <div style={{ position: "relative", width: "100%", aspectRatio: "16/9", background: "#0a0c10", overflow: "hidden" }}>
@@ -9010,7 +9010,7 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
             <iframe src={`https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&controls=0&rel=0&playsinline=1`}
               title="" tabIndex={-1} aria-hidden="true"
               onLoad={() => setLoaded(true)}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", pointerEvents: "none", opacity: loaded ? 1 : 0, transition: still ? "none" : "opacity 0.45s ease" }} />
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", pointerEvents: "none", opacity: loaded ? 1 : 0, transition: still ? "none" : "opacity 280ms ease" }} />
           )}
           {!preview && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.18)" }}>
@@ -9281,7 +9281,7 @@ function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect
             alt={title ? `Illustration related to: ${title}` : "Related illustration"}
             loading="lazy" referrerPolicy="no-referrer"
             onLoad={() => setReady(true)} onError={() => setFailed(true)}
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: ready ? 1 : 0, transition: "opacity 0.4s ease" }} />
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: ready ? 1 : 0, transition: "opacity 280ms ease" }} />
         ) : (
           /* Video with no poster in still mode: an honest play affordance,
              not a fabricated frame. */
@@ -10493,7 +10493,7 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
         padding: isMobile ? "8px 12px 8px 8px" : "10px 4px", borderRadius: RADIUS.lg, cursor: "pointer",
         background: selected ? withAlpha(accent, 0.12) : "transparent",
         border: `1px solid ${selected ? accent : "transparent"}`,
-        transition: "background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease", flexShrink: 0,
+        transition: "background-color 150ms ease, border-color 150ms ease, transform 150ms ease", flexShrink: 0,
       }}
       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.borderColor = withAlpha(accent, 0.35); e.currentTarget.style.transform = "translateY(-1px)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = selected ? withAlpha(accent, 0.12) : "transparent"; e.currentTarget.style.borderColor = selected ? accent : "transparent"; e.currentTarget.style.transform = "none"; }}>
@@ -11348,7 +11348,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       display: "flex", alignItems: "center", justifyContent: "center",
       background: active ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.14)",
       color: active ? "#0b0b0d" : "#fff",
-      transition: "background 0.15s ease, color 0.15s ease",
+      transition: "background 150ms ease, color 150ms ease",
     }}>
       <Icon name={active ? iconOff : iconOn} size={19} />
     </button>
@@ -11507,7 +11507,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
             width: "100%", height: "100%", objectFit: "cover",
             transform: !selfOnMain ? "scaleX(-1)" : "none",
             opacity: !selfOnMain && (!hasCamera || camMuted) ? 0 : 1,
-            transition: "opacity 0.2s ease",
+            transition: "opacity 280ms ease",
           }} />
           {!selfOnMain && (!hasCamera || camMuted) && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -11760,7 +11760,7 @@ function ToolChip({ icon, label, count, onClick, accent, P, active = false, titl
         color: active ? accent : P.ink2,
         fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
         letterSpacing: TRACKING.labelTight, cursor: "pointer", whiteSpace: "nowrap",
-        transition: "border-color 0.15s ease, color 0.15s ease, background 0.15s ease",
+        transition: "border-color 150ms ease, color 150ms ease, background 150ms ease",
         ...style,
       }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = withAlpha(accent, 0.55); e.currentTarget.style.color = accent; }}
@@ -13504,7 +13504,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenProfile(r.id); } }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 8px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background 0.15s ease" }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 8px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background 150ms ease" }}
               >
                 {/* Commit 100 — this was `api.dicebear.com/...?seed=<username>`.
                     Every search sent the username of every person it matched
@@ -15866,7 +15866,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       color: P.ink,
       border: "1px solid " + P.line,
       borderRadius: "50%", cursor: "pointer",
-      transition: "transform 0.15s ease, background 0.2s ease",
+      transition: "transform 150ms ease, background 280ms ease",
       boxShadow: "none",
     },
 
@@ -15886,7 +15886,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       border: "1px solid " + P.line,
       borderRadius: 9999, padding: "12px 16px",
       cursor: "pointer",
-      transition: "color 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
+      transition: "color 280ms ease, background 280ms ease, border-color 280ms ease, box-shadow 280ms ease",
       fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing,
       outline: "none",
       WebkitTapHighlightColor: "transparent",
@@ -16003,7 +16003,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     aiTag: { fontSize: FONT_SIZES.micro, color: P.faint, fontWeight: 500, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: FONT_SIZES.body, padding: "16px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.8s linear infinite" },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 280ms ease, box-shadow 280ms ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.ink2, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
@@ -16013,7 +16013,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, color: P.ink2,
       border: glassBorder, borderRadius: RADIUS.lg,
       cursor: "pointer", fontFamily: font,
-      transition: "background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s var(--cb-ease)", letterSpacing: TYPE.heading.letterSpacing,
+      transition: "background-color 280ms ease, border-color 280ms ease, box-shadow 280ms ease, transform 280ms var(--cb-ease)", letterSpacing: TYPE.heading.letterSpacing,
       lineHeight: 1.45,
       boxShadow: P.dark ? "0 4px 14px -6px rgba(0,0,0,0.4)" : "0 4px 14px -8px rgba(15,23,42,0.12)",
     },
@@ -16053,7 +16053,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: RADIUS.md, marginBottom: 14, border: `1px solid ${P.line}` },
-    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 0.2s ease, color 0.2s ease" },
+    sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 280ms ease, color 280ms ease" },
     sortTabActive: { background: P.line, color: P.ink, boxShadow: "none", fontWeight: 600 },
     srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-font)" },
     sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600 },
@@ -16066,7 +16066,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     empty: { fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
     srcItem: {
       padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: RADIUS.md,
-      transition: "background 0.25s ease, transform 0.2s ease", borderBottom: `1px solid ${P.line}`,
+      transition: "background 280ms ease, transform 280ms ease", borderBottom: `1px solid ${P.line}`,
       /* Pass 5: opaque flat card. The frosted scrim only existed to sit over
          the background film — the film is gone from product surfaces, so
          every source card is a flat matte row now (mobile already was). */
@@ -16077,10 +16077,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // change there. srcMeta was the one actually set to mono; switched to
     // body, since long author lists/journal names in a monospace face read
     // cramped and harder to scan than the same text in the body sans-serif.
-    srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 0.2s ease", letterSpacing: TYPE.heading.letterSpacing, overflowWrap: "anywhere", wordBreak: "break-word" },
+    srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 280ms ease", letterSpacing: TYPE.heading.letterSpacing, overflowWrap: "anywhere", wordBreak: "break-word" },
     srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
-    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 12px", border: "1px solid", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, background: "transparent", transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease" },
+    chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 12px", border: "1px solid", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, background: "transparent", transition: "background-color 280ms ease, color 280ms ease, border-color 280ms ease" },
     // v28: the old row (icon+text-label buttons, `flexWrap: "wrap"`) read as
     // a loose pile that reflowed onto 2-3 ragged lines the moment "Source
     // network"/"Timeline" showed up next to "Print / Save PDF" — six
@@ -16806,7 +16806,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
                   background: checked ? accent : P.line,
                   color: checked ? at : P.faint,
                   fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)",
-                  transition: "background 0.22s ease, color 0.22s ease",
+                  transition: "background 280ms ease, color 280ms ease",
                 }}
               >{busy ? "Saving…" : "Agree and continue"}</button>
               <button onClick={() => setDeclined(true)} className="cb-press" style={{
@@ -20325,7 +20325,7 @@ function App() {
               <label style={{
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 border: `2px dashed ${P.line}`, borderRadius: RADIUS.lg, padding: "48px 24px", cursor: "pointer",
-                background: P.surface, transition: "border-color 0.15s",
+                background: P.surface, transition: "border-color 150ms",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; }}
               onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; }}>
@@ -21348,14 +21348,14 @@ summary::-webkit-details-marker { display: none; }
 .cb-title-veil {
   position: fixed; inset: 0; z-index: ${Z.overlay}; pointer-events: none;
   background: #06080a;
-  animation: cbVeilLift 2.4s var(--cb-ease-out) 0.2s both;
+  animation: cbVeilLift 2.4s var(--cb-ease-out) 280ms both;
 }
 /* Leaving: the chrome fades fast. (The workspace-handoff half of this
    rule — a graded still bridging into the app — retired with the ambient
    stack in the 2026-09-17 pass 1; the intro keeps its own film frame.) */
 .cb-intro-leaving .cb-intro-chrome {
   opacity: 0 !important;
-  transition: opacity 0.32s ease;
+  transition: opacity 280ms ease;
 }
 /* Iris door: the theatrical transition. Fixed circle that opens from the
    click point. WAAPI animates clip-path; this is just the base state.
@@ -21502,7 +21502,7 @@ summary::-webkit-details-marker { display: none; }
   border: 1px solid var(--cb-line2); border-radius: 16px;
   background: color-mix(in srgb, var(--cb-bg) 82%, transparent);
   box-shadow: 0 8px 28px -12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06);
-  transition: border-color 0.25s ease, box-shadow 0.3s ease, transform 0.3s var(--cb-ease);
+  transition: border-color 280ms ease, box-shadow 280ms ease, transform 280ms var(--cb-ease);
 }
 .cb-ask-field:focus-within {
   border-color: color-mix(in srgb, var(--cb-acc) 65%, transparent);
@@ -21516,7 +21516,7 @@ summary::-webkit-details-marker { display: none; }
    accent glow ring on focus. UIField carries .cb-field; the ring is
    theme-aware via --cb-acc. */
 .cb-field {
-  transition: border-color 0.2s ease, box-shadow 0.25s ease;
+  transition: border-color 280ms ease, box-shadow 280ms ease;
 }
 .cb-field:focus {
   border-color: color-mix(in srgb, var(--cb-acc) 60%, transparent) !important;
@@ -21545,7 +21545,7 @@ summary::-webkit-details-marker { display: none; }
   color: var(--cb-ph);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   pointer-events: none; user-select: none;
-  animation: cbPhIn 0.45s ease both;
+  animation: cbPhIn 280ms ease both;
 }
 .cb-ask-tools {
   display: flex; align-items: center; gap: 0; flex-shrink: 0;
@@ -21556,7 +21556,7 @@ summary::-webkit-details-marker { display: none; }
   display: inline-flex; align-items: center; justify-content: center;
   background: none; border: 0; border-radius: 10px; cursor: pointer;
   color: var(--cb-ink2);
-  transition: color 0.2s ease, background 0.2s ease;
+  transition: color 280ms ease, background 280ms ease;
 }
 .cb-ask-tool:hover { color: var(--cb-ink); background: color-mix(in srgb, var(--cb-acc) 8%, transparent); }
 .cb-ask-mic {
@@ -21573,7 +21573,7 @@ summary::-webkit-details-marker { display: none; }
   color: var(--cb-acc);
   font-family: var(--cb-font); font-size: 15px; font-weight: 650;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+  transition: background 280ms ease, border-color 280ms ease, opacity 280ms ease;
 }
 .cb-ask-go:hover:not(:disabled) {
   background: color-mix(in srgb, var(--cb-acc) 22%, transparent);
@@ -21598,7 +21598,7 @@ summary::-webkit-details-marker { display: none; }
   min-height: 44px; padding: 8px 14px; border-radius: 10px;
   font-family: var(--cb-font); font-size: 14px; font-weight: 550;
   color: var(--cb-faint);
-  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  transition: color 280ms ease, background 280ms ease, border-color 280ms ease;
 }
 .cb-mode:hover { color: var(--cb-ink2); background: color-mix(in srgb, var(--cb-acc) 6%, transparent); }
 .cb-mode.is-on {
@@ -21614,7 +21614,7 @@ summary::-webkit-details-marker { display: none; }
   background: var(--cb-bg);
   box-shadow: 0 18px 44px rgba(0,0,0,0.30);
   padding: 8px;
-  animation: cbConsoleIn 0.22s ease both;
+  animation: cbConsoleIn 280ms ease both;
 }
 .cb-ask-recent-k {
   padding: 6px 12px 4px;
@@ -21641,7 +21641,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-ask--recents-open ~ .cb-starter { display: none !important; }
 
 /* ── Starter questions: a curated index, not a casino of pills ── */
-.cb-starter { animation: cbConsoleIn 0.5s var(--cb-ease) 0.12s both; }
+.cb-starter { animation: cbConsoleIn 550ms var(--cb-ease) 0.12s both; }
 .cb-starter-k {
   /* Pass 3 (2026-09-17): the letterspaced all-caps eyebrow is retired
      product-wide in favour of the mono label contract (.cb-kicker). */
@@ -21667,7 +21667,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-starter-q {
   font-size: 15px; font-weight: 500; line-height: 1.5; color: var(--cb-ink2);
-  transition: color 0.2s ease;
+  transition: color 280ms ease;
 }
 .cb-starter-item:hover .cb-starter-q { color: var(--cb-ink); }
 
@@ -22297,7 +22297,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   from { opacity: 0; transform: translateY(10px) scale(0.96); }
   to   { opacity: 1; transform: none; }
 }
-.cb-toast-pop { animation: cbToastPop 0.22s var(--cb-ease-out, ease-out) both; }
+.cb-toast-pop { animation: cbToastPop 280ms var(--cb-ease-out, ease-out) both; }
 
 /* Range sliders */
 input[type="range"] { -webkit-appearance: none; height: 3px; border-radius: 2px; }
@@ -22458,7 +22458,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   vertical-align: super;
   padding: 0 4px;
   margin: 0;
-  transition: transform 0.15s ease;
+  transition: transform 150ms ease;
 }
 .cb-answer-enter a[href^="#ref-"]:hover {
   transform: scale(1.1);
@@ -22563,7 +22563,7 @@ html { scroll-behavior: smooth; }
 
 /* ── Smooth theme transitions ── */
 body {
-  transition: background-color 0.4s ease;
+  transition: background-color 280ms ease;
   font-weight: 450;
 }
 
@@ -22626,21 +22626,21 @@ body {
    physics rule above, so hover lifts/press scales stay consistent — the
    opt-in press classes below still own the actual transform values. */
 button, a {
-  transition: transform 150ms ease, background-color 0.18s ease, border-color 0.18s ease,
-              color 0.18s ease, opacity 0.18s ease, box-shadow 0.22s ease;
+  transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease,
+              color 150ms ease, opacity 150ms ease, box-shadow 280ms ease;
 }
 
 /* Opt-in press feedback. A control that doesn't move when you push it
    reads as a picture of a button. */
 /* A press should ease out and snap back. The rise is slower than the
-   return on purpose: 0.32s lifting, 0.09s dropping, which is roughly how a
+   return on purpose: 280ms lifting, 0.09s dropping, which is roughly how a
    physical key behaves and why it reads as a control rather than a
    transition. Brightening the fill on hover keeps a primary pill from
    needing a second colour defined for its hover state. */
 .cb-press {
-  transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
-              filter 0.32s ease, background-color 0.24s ease,
-              border-color 0.24s ease, color 0.24s ease, box-shadow 0.32s ease;
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+              filter 280ms ease, background-color 280ms ease,
+              border-color 280ms ease, color 280ms ease, box-shadow 280ms ease;
 }
 .cb-press:hover { transform: translateY(-1.5px); filter: brightness(1.06); }
 .cb-press:active {
@@ -22709,7 +22709,7 @@ button, a {
    already-composited layer inside an overflow-hidden box, so it costs
    nothing and it is the difference between a card that reacts and a
    picture sitting in a rectangle. Deliberately small: 6% over 0.9s reads
-   as the card waking up, 20% over 0.2s reads as a slideshow. */
+   as the card waking up, 20% over 280ms reads as a slideshow. */
 /* The Library row's acknowledgement. Deliberately a ring rather than a
    colour change: a colour change on a nav row reads as selection, and this
    is not a navigation event. */
@@ -22787,7 +22787,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   position: relative;
   /* padding-left was listed here but nothing ever changes it — a dead
      entry animating a layout property. Removed. */
-  transition: background-color 0.2s ease;
+  transition: background-color 280ms ease;
 }
 .cb-row::before {
   content: '';
@@ -22870,7 +22870,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 @keyframes cbFounderSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cb-founder-ring { animation: none; } }
 
-.cb-founder-card { transition: border-color 0.3s ease, box-shadow 0.3s ease; }
+.cb-founder-card { transition: border-color 280ms ease, box-shadow 280ms ease; }
 .cb-founder-card:hover {
   border-color: rgba(201,162,39,0.6);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 14px 36px rgba(0,0,0,0.16);

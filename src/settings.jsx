@@ -1965,8 +1965,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
       style={{ width: 52, height: 44, background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 9999, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 220ms ease" }}>
-        <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 220ms cubic-bezier(0.4, 0, 0.2, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 9999, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 280ms ease" }}>
+        <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
       </span>
     </button>
   );
@@ -2051,7 +2051,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <button key={id} ref={(el) => { tabBtnRefs.current[id] = el; }} onClick={() => { sfx(); setTab(id); }}
                   style={{ minHeight: 44, flexShrink: 0, padding: "8px 12px 12px", fontSize: FONT_SIZES.caption, fontWeight: tab === id ? 700 : 500, background: "transparent", color: tab === id ? P.ink : P.faint, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, whiteSpace: "nowrap", transition: "color 200ms ease" }}>{label}</button>
               ))}
-              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 0, width: 1, height: 2, background: accent, borderRadius: 8, transformOrigin: "0 50%", transform: "translateX(" + tabUnderline.left + "px) scaleX(" + tabUnderline.width + ")", transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)" }} />
+              <div aria-hidden="true" style={{ position: "absolute", bottom: -1, left: 0, width: 1, height: 2, background: accent, borderRadius: 8, transformOrigin: "0 50%", transform: "translateX(" + tabUnderline.left + "px) scaleX(" + tabUnderline.width + ")", transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)" }} />
             </div>
           )}
         </div>

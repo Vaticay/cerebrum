@@ -74,7 +74,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
                 {REPORT_REASONS.map((r) => (
                   <UIButton P={P} variant="ghost" key={r.id} type="button" role="radio" aria-checked={reason === r.id} onClick={() => setReason(r.id)} style={{ minHeight: 44,
                     fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: RADIUS.md, cursor: "pointer",
-                    fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease",
+                    fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 150ms ease, color 150ms ease, border-color 150ms ease",
                     background: reason === r.id ? withAlpha(accent, 0.16) : "transparent",
                     color: reason === r.id ? accent : P.ink2,
                     border: `1px solid ${reason === r.id ? withAlpha(accent, 0.3) : P.line}`,
@@ -1288,7 +1288,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         aria-label="Report this message" title="Report this message"
                         className="cb-msg-report"
                         style={{
-                          opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 0.15s ease",
+                          opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 150ms ease",
                           background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, flexShrink: 0,
                         }}
                       >

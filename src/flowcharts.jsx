@@ -513,12 +513,12 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
         padding: isMobile ? "8px 12px 8px 8px" : "10px 4px", borderRadius: RADIUS.lg, cursor: "pointer",
         background: selected ? withAlpha(accent, 0.12) : "transparent",
         border: `1px solid ${selected ? accent : "transparent"}`,
-        transition: "background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease", flexShrink: 0,
+        transition: "background-color 150ms ease, border-color 150ms ease, transform 150ms ease", flexShrink: 0,
       }}
       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.borderColor = withAlpha(accent, 0.35); e.currentTarget.style.transform = "translateY(-1px)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = selected ? withAlpha(accent, 0.12) : "transparent"; e.currentTarget.style.borderColor = selected ? accent : "transparent"; e.currentTarget.style.transform = "none"; }}>
       <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true" style={{ filter: `drop-shadow(0 2px 4px ${withAlpha(accent, 0.25)})` }}>{shape}</svg>
-      <span style={{ fontSize: 10, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 600 }}>{t.name}</span>
+      <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 600 }}>{t.name}</span>
     </button>
   );
 }
@@ -870,7 +870,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
         boxShadow: "none",
         opacity: opts.disabled ? 0.45 : 1,
         display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-        transition: "background-color 0.15s ease, opacity 0.15s ease",
+        transition: "background-color 150ms ease, opacity 150ms ease",
         minHeight: 44,
       }}
       onMouseEnter={(e) => { if (!opts.disabled) e.currentTarget.style.background = opts.primary ? accent : withAlpha(accent, 0.14); }}
@@ -886,7 +886,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
         background: "transparent", color: opts.disabled ? P.faint : P.ink2,
         border: "1px solid transparent", opacity: opts.disabled ? 0.4 : 1,
         display: "inline-flex", alignItems: "center", justifyContent: "center",
-        transition: "background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease",
+        transition: "background-color 150ms ease, color 150ms ease, opacity 150ms ease",
       }}
       onMouseEnter={(e) => { if (!opts.disabled) { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; } }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; }}>
@@ -928,7 +928,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               flex: "1 1 140px", minWidth: 0, background: "transparent",
               border: "none", borderBottom: `1px dashed transparent`, outline: "none",
               color: P.ink, fontSize: 16, fontWeight: 650, fontFamily: "var(--cb-font)",
-              padding: "4px 2px", transition: "border-color 0.15s ease",
+              padding: "4px 2px", transition: "border-color 150ms ease",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.borderBottomColor = withAlpha(accent, 0.45); }}
             onMouseLeave={(e) => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.borderBottomColor = "transparent"; }}
@@ -952,7 +952,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-font)",
                       background: on ? accent : "transparent", color: on ? at : P.ink2,
                       boxShadow: on ? `0 2px 10px ${withAlpha(accent, 0.4)}` : "none",
-                      transition: "background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
+                      transition: "background-color 150ms ease, color 150ms ease, box-shadow 150ms ease",
                     }}>
                     <Icon name={icon} size={13} />
                     {label}
@@ -980,7 +980,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       style={{ minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)" }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                      <span style={{ fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 700, color: accent, width: 74, flexShrink: 0 }}>{fmt}</span>
+                      <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, width: 74, flexShrink: 0 }}>{fmt}</span>
                       <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2 }}>{desc}</span>
                     </button>
                   ))}
@@ -999,7 +999,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 style={{
                   width: 32, height: 32, borderRadius: "50%", display: "inline-flex",
                   alignItems: "center", justifyContent: "center",
-                  transition: "background-color 0.15s ease, color 0.15s ease",
+                  transition: "background-color 150ms ease, color 150ms ease",
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; e.currentTarget.style.color = "#e5484d"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
@@ -1048,7 +1048,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             )}
             {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} isMobile={isMobile} onClick={() => addNode(t)} />)}
             {!isMobile && (
-              <div style={{ marginTop: "auto", padding: "12px 6px 2px", fontSize: 11, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+              <div style={{ marginTop: "auto", padding: "12px 6px 2px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
                 <span style={{ color: P.ink2, fontWeight: 650 }}>Tip</span> — double-click a node to rename it.
               </div>
             )}
@@ -1196,7 +1196,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               ))}
               <UIButton P={P} variant="ghost" type="button" title="Reset view" aria-label="Reset view"
                 onClick={() => setViewport({ x: 40, y: 40, zoom: 1 })}
-                style={{ minWidth: 44, minHeight: 44, height: 30, padding: "0 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}
+                style={{ minWidth: 44, minHeight: 44, height: 30, padding: "0 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
                 {Math.round(viewport.zoom * 100)}%
@@ -1214,7 +1214,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div className="cb-kicker">Inspector</div>
               {(selNode || selEdge) && (
-                <div style={{ fontSize: 10, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 9999, padding: "3px 12px", textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 9999, padding: "3px 12px", textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>
                   {selNode ? FC_NODE_TYPES[selNode.type].name : "Arrow"}
                 </div>
               )}
@@ -1233,7 +1233,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             )}
             {selNode && (
               <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Label</label>
+                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Label</label>
                 <textarea id="fc-label-edit" value={selNode.label} rows={3}
                   onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
                   onBlur={pushHistory}
@@ -1247,7 +1247,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     never destroys information — it's one click away. */}
                 {selNode.detail && (
                   <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Source sentence</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Source sentence</div>
                     <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 12px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8 }}>
                       {selNode.detail}
                     </div>
@@ -1255,7 +1255,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 )}
                 {selNode.type === "evidence" && sources && sources.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Cites paper</label>
+                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Cites paper</label>
                     <select id="fc-source-pick" value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
                       onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
                       style={{
@@ -1293,7 +1293,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             )}
             {selEdge && (
               <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
+                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
                 <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
@@ -1969,7 +1969,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                       {new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {d.code.split("\n").length} lines
                     </span>
                   </span>
-                  {d.id === activeId && <span style={{ color: accent, fontSize: 10, flexShrink: 0 }} aria-label="Open">●</span>}
+                  {d.id === activeId && <span style={{ color: accent, fontSize: FONT_SIZES.caption, flexShrink: 0 }} aria-label="Open">●</span>}
                 </button>
                 <button onClick={() => deleteDiagram(d.id)} aria-label={`Delete ${d.title}`} title="Delete"
                   className="mm-rail-del"
@@ -2004,13 +2004,13 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
         .mm-cm { color: ${P.faint}; font-style: italic; }
         .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 600; }
-        .mm-zoombtn { width: 44px; height: 44px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
+        .mm-zoombtn { width: 44px; height: 44px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
         .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
-        .mm-railitem { transition: background 0.15s ease; }
+        .mm-railitem { transition: background 150ms ease; }
         .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
-        .mm-rail-del { transition: opacity 0.15s ease; }
+        .mm-rail-del { transition: opacity 150ms ease; }
         .mm-railitem:hover .mm-rail-del { opacity: 1 !important; }
-        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 6px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease; }
+        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 6px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
         .mm-topbtn:hover { border-color: ${accent}; background: ${P.dark ? "rgba(255,255,255,0.09)" : "#f4f4f2"}; }
         .mm-topbtn-primary { background: ${accent}; border-color: transparent; color: ${at}; }
         .mm-topbtn-primary:hover { background: ${accent}; border-color: transparent; filter: brightness(1.06); }
@@ -2032,7 +2032,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         @media (prefers-reduced-motion: reduce) { .mm-loadbar { animation: none; opacity: 0.4; } }
         /* Saved-line settle: the span remounts on each save (key), so the
            entrance replays — no timers, no behavior change. */
-        .mm-saved { animation: mmSavedIn 0.3s ease both; }
+        .mm-saved { animation: mmSavedIn 280ms ease both; }
         @keyframes mmSavedIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
       `}</style>
 
@@ -2331,7 +2331,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
             borderRadius: 6, width: 30, height: 30, display: "inline-flex",
             alignItems: "center", justifyContent: "center", fontSize: 16,
             lineHeight: 1, fontFamily: "var(--cb-font)",
-            transition: "background 0.15s ease",
+            transition: "background 150ms ease",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.background = P ? withAlpha(accent, 0.1) : "rgba(255,255,255,0.12)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = P ? "transparent" : "rgba(255,255,255,0.05)"; }}

@@ -269,7 +269,7 @@ function FilmCreditsDialog({ onClose, accent }) {
               padding: "11px 0", borderTop: "1px solid rgba(255,255,255,0.07)",
             }}>
               <span style={{
-                fontFamily: "var(--cb-font)", fontSize: 11, color: withAlpha(accent, 0.9),
+                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: withAlpha(accent, 0.9),
                 paddingTop: 2, fontVariantNumeric: "tabular-nums",
               }}>{c.n}</span>
               <div>
@@ -545,7 +545,7 @@ function SourcesDialog({ onClose, accent }) {
           <div key={key} style={{ paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 4 }}>
             <div style={{
               /* Pass 3 (2026-09-17): mono label, not a tracked-out eyebrow. */
-              fontFamily: "var(--cb-mono)", fontSize: 11,
+              fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption,
               color: "rgba(242,244,242,0.44)", marginBottom: 9,
             }}>{heading}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
@@ -898,7 +898,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             <div className={animate ? "cb-focus-in" : undefined}
               style={animate ? { animationDelay: "0.5s" } : undefined}>
               <span style={{
-                fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "0.42em",
+                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: "0.42em",
                 textIndent: "0.42em", fontWeight: 600,
                 textTransform: "uppercase", color: "rgba(242,244,242,0.55)",
                 fontVariantNumeric: "tabular-nums",
@@ -1025,7 +1025,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           paddingTop: isMobile ? 44 : 60, paddingBottom: isMobile ? 48 : 68,
         }}>
           <div style={{
-            fontSize: 11, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
+            fontSize: FONT_SIZES.caption, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
             color: withAlpha(introAccent, 0.85), marginBottom: 18, fontWeight: 600,
             fontVariantNumeric: "tabular-nums",
           }}>
