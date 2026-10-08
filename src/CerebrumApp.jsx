@@ -3842,9 +3842,9 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       )}
     </p>
     );
-    if (!paraCites.length) return <div key={pi} style={{ margin: "0 0 22px" }}>{pNode}</div>;
+    if (!paraCites.length) return <div key={pi} className="cb-assemble-para" style={{ margin: "0 0 22px" }}>{pNode}</div>;
     return (
-      <div key={pi} className="cb-claim" data-claim={claimNo || undefined} style={{ margin: "0 0 22px" }}>
+      <div key={pi} className="cb-claim cb-assemble-para" data-claim={claimNo || undefined} style={{ margin: "0 0 22px" }}>
         <div className="cb-claim-refs" role="group" aria-label={`Supported by references ${paraCites.join(", ")}`}>
           {paraCites.map((n) => `[${n}]`).join(" ")}
         </div>
@@ -3883,7 +3883,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
       const isActive = activeCite === n;
       return <a key={si} href={`#ref-${n}`} title={src?.title || ""}
         data-cite={n}
-        className="cb-cite"
+        className="cb-cite cb-cite-enter"
         data-active={isActive ? "true" : undefined}
         aria-label={src?.title ? `Source ${n}: ${src.title}` : `Source ${n}`}
         aria-current={isActive ? "true" : undefined}
@@ -3911,7 +3911,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
           }
           if (e.key === "Escape" && setActiveCite) { setActiveCite(0); clearSourceLinked(); }
         }}
-        style={{ color: accentInk(P, accent), textDecoration: "none" }}
+        style={{ color: accentInk(P, accent), textDecoration: "none", animationDelay: `${Math.min(si * 30, 300)}ms` }}
       >[{n}]</a>;
     }
     return <span key={si}>{seg}</span>;
@@ -16560,44 +16560,49 @@ async function copyToClipboard(text, successMessage) {
   }
 }
 
-function CommandPalette({ open, onClose, P, accent, query, setQuery, suggestions, commands, active, setActive, onKeyDown, onAsk, inputRef }) {
+function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, active, setActive, onKeyDown, inputRef }) {
   if (!open) return null;
+  /* Workstream E (2026-10-08): grouped results with number badges. The
+     flat keyboard index (cmdActive) walks groups in render order, so the
+     running counter below must match paletteGroups.flatMap exactly. */
+  let flatIdx = -1;
+  const kbdStyle = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px", flexShrink: 0 };
   return (
     <ModalChrome label="Command palette" P={P} accent={accent} onClose={onClose} zIndex={220} width={640}
       eyebrow="Command" title={null}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "2px 2px 16px", borderBottom: `1px solid ${P.line}`, marginBottom: 6 }}>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg>
+        <Icon name="search" size={17} style={{ color: P.faint, flexShrink: 0 }} />
         <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKeyDown}
-          placeholder="Search or type a command…" aria-label="Command palette"
+          placeholder="Search your work or type a command" aria-label="Command palette"
           style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-font)" }} />
-        <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>esc</kbd>
+        <kbd style={kbdStyle}>esc</kbd>
       </div>
       <div style={{ maxHeight: 340, overflowY: "auto", padding: "6px 0" }}>
-        {suggestions.length > 0 && (
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>Ask</div>
-        )}
-        {suggestions.map((s, i) => (
-          <UIButton P={P} variant="ghost" key={s + "::" + i} onClick={() => onAsk(s)} onMouseEnter={() => setActive(i)}
-            style={{ minHeight: 44, width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 12px", fontSize: FONT_SIZES.small, color: P.ink, background: active === i ? withAlpha(accent, 0.1) : "transparent", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", textAlign: "left" }}>
-            <span style={{ minHeight: 44, color: accent, fontFamily: "var(--cb-font)" }}>→</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s}</span>
-          </UIButton>
+        {groups.map((g, gi) => (
+          <div key={g.title + "::" + gi}>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>{g.title}</div>
+            {g.items.map((item, ii) => {
+              flatIdx++;
+              const idx = flatIdx;
+              return (
+                <UIButton P={P} variant="ghost" key={g.title + "::" + ii} onClick={item.run} onMouseEnter={() => setActive(idx)}
+                  style={{ minHeight: 44, width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 12px", fontSize: FONT_SIZES.small, color: P.ink, background: active === idx ? withAlpha(accent, 0.1) : "transparent", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", textAlign: "left" }}>
+                  {idx < 9
+                    ? <kbd style={kbdStyle} aria-hidden="true">{idx + 1}</kbd>
+                    : <span style={{ color: accent, fontFamily: "var(--cb-font)" }} aria-hidden="true">→</span>}
+                  {item.icon && <span style={{ display: "inline-flex", color: P.faint, flexShrink: 0 }}><Icon name={item.icon} size={15} /></span>}
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+                    {item.sub && <span style={{ display: "block", fontSize: FONT_SIZES.micro, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.sub}</span>}
+                  </span>
+                  {item.hint && <kbd style={kbdStyle}>{item.hint}</kbd>}
+                </UIButton>
+              );
+            })}
+          </div>
         ))}
-        {commands.length > 0 && (
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>Commands</div>
-        )}
-        {commands.map((c, i) => {
-          const flatIdx = suggestions.length + i;
-          return (
-            <UIButton P={P} variant="ghost" key={c.label + "::" + i} onClick={c.run} onMouseEnter={() => setActive(flatIdx)}
-              style={{ minHeight: 44, width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 12px", fontSize: FONT_SIZES.small, color: P.ink, background: active === flatIdx ? withAlpha(accent, 0.1) : "transparent", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", textAlign: "left" }}>
-              {c.icon && <span style={{ minHeight: 44, display: "inline-flex", color: P.faint }}><Icon name={c.icon} size={15} /></span>}
-              <span style={{ flex: 1 }}>{c.label}</span>
-              {c.hint && <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>{c.hint}</kbd>}
-            </UIButton>
-          );
-        })}
-        {suggestions.length === 0 && commands.length === 0 && (
-          <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.small, color: P.faint, textAlign: "center" }}>No matches. Type to search your investigations, or pick a command.</div>
+        {groups.length === 0 && (
+          <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.small, color: P.faint, textAlign: "center", fontFamily: "var(--cb-font)" }}>No matches. Try a different search.</div>
         )}
       </div>
     </ModalChrome>
@@ -18121,7 +18126,16 @@ function App() {
       stageTimerRef.current = null;
       const s = pendingStageRef.current;
       pendingStageRef.current = null;
-      if (s) setStreamStage(s);
+      if (s) setStreamStage((prev) => {
+        /* The Dive: accumulate per-stage details so every completed
+           waypoint keeps its real backend count, not just the live stage.
+           A null prev (fresh search, or cleared after the last one) starts
+           a new trail. Repeated frames for the same stage refresh the live
+           detail without duplicating history. */
+        const h = prev && Array.isArray(prev.history) ? prev.history.slice() : [];
+        if (!h.length || h[h.length - 1].index !== s.index) h.push({ index: s.index, key: s.key, detail: s.detail });
+        return { ...s, history: h };
+      });
     }, 50);
   }, []);
   /* Ref mirror of searchRequestId: the ask() closure needs the id that
@@ -19865,20 +19879,70 @@ function App() {
   ];
   const filteredCmds = commands.filter((c) => c.label.toLowerCase().includes(cmdQuery.toLowerCase()));
   const cmdSuggest = SUGGESTION_POOL.filter((s) => cmdQuery && s.toLowerCase().includes(cmdQuery.toLowerCase())).slice(0, 4);
+  /* Workstream E (2026-10-08): the palette is now primary navigation. It
+     fuzzy-searches your work (investigations, saved papers, collections),
+     not just commands. Empty query shows recent investigations. Every
+     result is reachable by number (1-9). */
+  const fuzzyMatch = (text, q) => {
+    if (!q) return true;
+    const t = (text || "").toLowerCase();
+    const query = q.toLowerCase().trim();
+    if (!query) return true;
+    if (t.includes(query)) return true;
+    let ti = 0;
+    for (let qi = 0; qi < query.length; qi++) {
+      ti = t.indexOf(query[qi], ti);
+      if (ti === -1) return false;
+      ti++;
+    }
+    return true;
+  };
+  const navResults = cmdQuery ? [
+    ...(history || []).filter((h) => fuzzyMatch(h.title, cmdQuery)).slice(0, 3).map((h) => ({
+      type: "inv", icon: "history", label: h.title || "Untitled investigation",
+      sub: `${(h.turns || []).length} answer${(h.turns || []).length === 1 ? "" : "s"}`,
+      run: () => { setCmdOpen(false); openHistoryItem(h); },
+    })),
+    ...(saved || []).filter((s) => fuzzyMatch(s.title, cmdQuery)).slice(0, 3).map((s) => ({
+      type: "paper", icon: "bookOpen", label: s.title || "Untitled paper",
+      sub: [s.venue, s.year].filter(Boolean).join(" · ") || "Saved paper",
+      run: () => { setCmdOpen(false); setView("library"); },
+    })),
+    ...((collections || []).filter((c) => fuzzyMatch(c.name, cmdQuery)).slice(0, 2).map((c) => ({
+      type: "col", icon: "folder", label: c.name || "Untitled collection",
+      sub: "Collection",
+      run: () => { setCmdOpen(false); setView("collections"); },
+    })),
+  ] : [];
+  const paletteRecents = !cmdQuery ? (history || []).slice(0, 3).map((h) => ({
+    type: "inv", icon: "history", label: h.title || "Untitled investigation",
+    sub: "Continue where you left off",
+    run: () => { setCmdOpen(false); openHistoryItem(h); },
+  })) : [];
+  const paletteGroups = [
+    ...(paletteRecents.length ? [{ title: "Recent", items: paletteRecents }] : []),
+    ...(cmdSuggest.length ? [{ title: "Ask", items: cmdSuggest.map((s) => ({ type: "ask", icon: "search", label: s, run: () => ask(s) })) }] : []),
+    ...(navResults.length ? [{ title: "Your work", items: navResults }] : []),
+    ...(filteredCmds.length ? [{ title: "Commands", items: filteredCmds.map((c) => ({ type: "cmd", icon: c.icon, label: c.label, hint: c.hint, run: c.run })) }] : []),
+  ];
   // v5: only Enter was ever wired here, and it always ran whatever sat in
   // slot zero — a palette that visually lists several matches but can only
   // ever reach the first one from the keyboard isn't actually keyboard-
   // navigable, which is the whole point of a command palette. cmdActive
-  // indexes into the same flat order the list below renders (suggestions
-  // first, then commands), so Up/Down actually walks the visible list.
+  // indexes into the same flat order the list below renders, so Up/Down
+  // actually walks the visible list.
   const [cmdActive, setCmdActive] = useState(0);
   useEffect(() => { setCmdActive(0); }, [cmdQuery, cmdOpen]);
-  const cmdFlat = [...cmdSuggest.map((s) => ({ type: "ask", s })), ...filteredCmds.map((c) => ({ type: "cmd", c }))];
-  const runCmdFlat = (item) => { if (!item) return; if (item.type === "ask") ask(item.s); else item.c.run(); };
+  const cmdFlat = paletteGroups.flatMap((g) => g.items);
+  const runCmdFlat = (item) => { if (item && item.run) item.run(); };
   const onCmdKeyDown = (e) => {
     if (e.key === "ArrowDown") { e.preventDefault(); setCmdActive((i) => Math.min(i + 1, Math.max(cmdFlat.length - 1, 0))); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setCmdActive((i) => Math.max(i - 1, 0)); }
     else if (e.key === "Enter") { runCmdFlat(cmdFlat[cmdActive] || cmdFlat[0]); }
+    else if (/^[1-9]$/.test(e.key)) {
+      const idx = parseInt(e.key, 10) - 1;
+      if (cmdFlat[idx]) { e.preventDefault(); runCmdFlat(cmdFlat[idx]); }
+    }
   };
 
   // These four all used to be recomputed on every single render — including
