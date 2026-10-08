@@ -2432,149 +2432,166 @@ function looksLikeMechanismQuestion(q) {
   return /\b(how|why|mechanism|pathway|process|steps?|relationship|interact|compare|versus|vs\.?|difference between|causes?|leads? to|regulat)/i.test(String(q || ""));
 }
 
-/* DiveParticles is lazy: its chunk (the searching-state particle canvas) is
-   only fetched when a search actually begins — never on first paint of the
-   search screen, and the frame loop only exists while searching. */
-const DiveParticles = React.lazy(() => import("./DiveParticles.jsx"));
+/* ── Dive: the descent instrument ───────────────────────────────────────────
+   The Dive is the one loading language. A search descends through five
+   depth strata mapped 1:1 to the pipeline's real SSE stages
+   (SEARCH_STREAM_STAGES): Understanding question, Finding papers,
+   Screening sources, Synthesizing findings, Checking citations.
 
-/* ── ReadingRoom: the descent instrument ──────────────────────────────────
-   The query going down into the literature.
+   Honesty rules, enforced by construction:
+   - No elapsed clock. The only number is the real per-database count off
+     the finding_papers stream frames ("9 of 15 databases answered"), or
+     the real total ("Searching 15 databases in parallel") before the
+     first progress frame lands. Never a guess, never a percentage.
+   - No fake progress. Waypoints light only when their stage frame
+     arrives. The traveler dot parks on the active stage; pending stages
+     stay hollow.
+   - No fake geometry. The retired Skeleton/AnswerSkeleton reserved space
+     for an answer that did not exist yet, including empty citation chips.
+     The Dive shows the process, never a ghost of the result.
+   - Every completed waypoint keeps its real backend count via
+     stageDetailFor ("12 of 40 candidates kept"), accumulated in
+     stream.history by pushStage.
 
-   The previous instrument was an orbital transmission dial: a comet on a
-   6-second orbit, sonar pings, a 60-tick chronometer ring, fifteen database
-   labels riding a circumference. It read as sci-fi chrome — the thing
-   Dusty disliked about the loading screen — so it was rebuilt from the
-   studs. The new instrument is water, not machinery.
+   The marine snow is a light CSS field, not the 190-particle canvas —
+   that stays with the intro. It densifies as the dive goes deeper: more
+   motes in the same water.
 
-   The question hangs as a specimen label. Below it, a field of marine
-   snow drifts upward — the nature-documentary register — while a single
-   reading line scans beneath it: the query reading the literature. The
-   scan is indeterminate by design (it loops and fades; it never fills),
-   because the client genuinely does not know what the server is doing
-   mid-request. The only number is elapsed time, which is real. Below,
-   one honest waiting line driven only by elapsed time.
-
-   Reduced motion: the snow never renders and the scan parks; the elapsed
-   clock and the waiting line carry the feedback (paired, never motion
-   alone). */
-function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contextual = false, videosLocated = false, stream = null, onCancel = null }) {
-  const startRef = useRef(performance.now());
-  const [elapsed, setElapsed] = useState(0);
+   Reduced motion: a static stage list with checkmarks. No descent
+   animation, no snow, no pulsing traveler. The stage names and the
+   database count carry the state, paired, never motion alone. */
+const DIVE_DEPTHS = ["0m", "200m", "400m", "600m", "800m"];
+function Dive({ P, accent, q, contextual = false, videosLocated = false, stream = null, onCancel = null }) {
   const reduced = useReducedMotion();
-
+  const [honestySeen, setHonestySeen] = useState(true);
   useEffect(() => {
-    if (done) return undefined;
-    // 280ms, not 100ms: this is a clock, and re-rendering it ten times a
-    // second to move a digit that changes once a second is wasted work
-    // during the most performance-sensitive moment in the app.
-    const id = setInterval(() => setElapsed(performance.now() - startRef.current), 200);
-    return () => clearInterval(id);
-  }, [done]);
+    try {
+      if (!window.localStorage.getItem("cb_dive_honesty")) {
+        setHonestySeen(false);
+        window.localStorage.setItem("cb_dive_honesty", "1");
+      }
+    } catch (cbErr) { console.error("[Cerebrum] Dive honesty flag:", cbErr); }
+  }, []);
 
-  const seconds = Math.floor(elapsed / 1000);
+  /* Deterministic snow field: seeded so re-renders never reshuffle the
+     water. Built once per mount. */
+  const snow = useMemo(() => {
+    const arr = [];
+    let seed = 20261008;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    for (let i = 0; i < 30; i++) {
+      arr.push({
+        left: rnd() * 100,
+        top: rnd() * 100,
+        size: 1 + rnd() * 2.5,
+        dur: 9 + rnd() * 14,
+        delay: -rnd() * 20,
+        op: 0.12 + rnd() * 0.38,
+      });
+    }
+    return arr;
+  }, []);
 
-  /* One honest line about what is in flight. These describe the shape of
-     the work; which one is shown depends only on how long it has been,
-     which is a fact the client actually has. */
-  const waitingLine = contextual ? "Working with the previous answer. No new literature search." :
-    seconds < 3 ? "Searching the literature"
-    : seconds < 9 ? "Searching the literature. Some databases are slower than others."
-    : "Still searching. A few databases are taking their time.";
+  const stages = SEARCH_STREAM_STAGES;
+  const activeIndex = stream && stream.index != null ? stream.index : -1;
+  const history = (stream && Array.isArray(stream.history)) ? stream.history : [];
+  const histFor = (i) => history.find((h) => h.index === i);
 
-  const responded = Array.isArray(sourcesQueried) ? sourcesQueried.filter((s) => s.ok) : [];
-  const total = Array.isArray(sourcesQueried) ? sourcesQueried.length : 0;
+  /* Snow densifies with depth: a sparse field at the surface, the full
+     column at the deepest stratum. */
+  const snowCount = reduced ? 0 : 8 + Math.max(0, activeIndex) * 5;
 
-  const live = !reduced && !done;
+  /* The honest count. dbAnswered/dbTotal ride the finding_papers stream
+     frames (real per-rung completions from the backend). Before the first
+     progress frame — or on the single-fetch fallback where stream is
+     null — the real total stands in. */
+  const dbTotal = stream && stream.dbTotal != null ? stream.dbTotal : SCHOLARLY_SOURCES.length;
+  const dbAnswered = stream && stream.dbAnswered != null ? stream.dbAnswered : null;
+  const countLine = dbAnswered != null
+    ? `${dbAnswered} of ${dbTotal} databases answered`
+    : `Searching ${dbTotal} databases in parallel`;
+
+  const waitingLine = contextual
+    ? "Working with the previous answer. No new literature search."
+    : "Each stage below lights when its work actually starts.";
+
+  /* Node centers sit at 10/30/50/70/90% of the well: fixed 64px strata,
+     16px nodes centered. The rail fill and the traveler both ride these
+     exact marks. */
+  const markPct = activeIndex < 0 ? 0 : 10 + activeIndex * 20;
 
   return (
-    <div className="cb-room" style={{ "--cb-acc": accent, ...(reduced ? { animation: "none" } : null) }} aria-live="polite" aria-atomic="true">
-      {/* The question, catalogued as a specimen label. */}
-      <div className="cb-room-kicker">Query</div>
-      <h2 className="cb-room-q">{q}</h2>
-
-      {/* The descent field. The scan is a sweep (light travelling), not
-          progress; the particle field is ambient. Neither claims anything
-          about per-database state — the client cannot know it mid-request. */}
-      {/* The flight atmosphere: while a query is in flight the 190-particle
-          field leaves its specimen box and becomes the room — a fixed,
-          full-viewport drift over the dimmed reel and under the reading
-          instruments. It mounts only for the flight and unmounts with the
-          room, so it never competes with an answer. */}
-      <div className="cb-dive-atmosphere" role="img" aria-label={`Query in flight to ${SCHOLARLY_SOURCES.length} databases`}>
-        {/* The particle field: a real-time canvas marine-snow instrument at
-            full field resolution. Lazy — its chunk loads only when a search
-            begins. Reduced motion gets a single still frame; no canvas 2D
-            renders nothing and the reading line carries the state. */}
-        <React.Suspense fallback={null}>
-          <DiveParticles done={done} reduced={reduced} />
-        </React.Suspense>
-      </div>
-      <div className="cb-dive-field" aria-hidden="true">
-        <div className="cb-dive-line">
-          {live
-            ? <div className="cb-dive-scan"><span className="cb-dive-dot" /></div>
-            : <span className="cb-dive-marker" />}
-        </div>
-      </div>
-
-      <div className="cb-dive-scope">Reading across {SCHOLARLY_SOURCES.length} databases</div>
-
-      <div className="cb-dive-center">
-        <div className="cb-dive-elabel">Elapsed</div>
-        {/* The clock ticks every 280ms — it must not live inside the
-            aria-live region or screen readers re-announce the whole room
-            five times a second. aria-live="off" keeps it out of the
-            announcement stream. */}
-        <div className="cb-dive-clock" aria-live="off">{String(seconds).padStart(2, "0")}<span className="cb-dive-s">s</span></div>
-        <div className="cb-dive-state">{done ? "Received" : "Sending"}</div>
-      </div>
-
-      <div className="cb-room-line">
-        {done && total ? `${responded.length} of ${total} databases answered` : waitingLine}
-      </div>
-      {/* SSE stage rail (#23): the pipeline's real stages, in wire order.
-          Completed stages read done, the live one carries the accent, the
-          rest sit faint. The detail line under the rail is the stage's own
-          honest note (counts the backend actually sent). Rendered only on
-          the streaming path; the single-fetch fallback keeps the room as
-          it was. */}
-      {stream && !done && (
-        <div role="status" style={{ marginTop: 14, width: "100%", maxWidth: 420 }} aria-label="Search progress">
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 0", alignItems: "center" }}>
-            {SEARCH_STREAM_STAGES.map((s, i) => {
-              const state = stream.index == null ? "pending" : i < stream.index ? "done" : i === stream.index ? "active" : "pending";
-              return (
-                <React.Fragment key={s.key}>
-                  {i > 0 && <span aria-hidden="true" style={{ margin: "0 7px", color: P.faint, fontSize: FONT_SIZES.caption }}>→</span>}
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: state === "active" ? 650 : 500,
-                    color: state === "pending" ? P.faint : state === "active" ? P.ink : P.ink2,
-                  }}>
-                    <span aria-hidden="true" style={{
-                      width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
-                      background: state === "active" ? accent : state === "done" ? withAlpha(accent, 0.55) : P.line2,
-                      boxShadow: state === "active" ? `0 0 8px ${withAlpha(accent, 0.8)}` : "none",
-                    }} />
-                    {s.label}
-                  </span>
-                </React.Fragment>
-              );
-            })}
-          </div>
-          {stream.detail && (
-            <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-              {stream.detail}
-            </div>
-          )}
+    <div className={reduced ? "cb-dive" : "cb-dive cb-dive-descend"} style={{ "--cb-acc": accent }} role="status" aria-label="Search in progress">
+      {!reduced && (
+        <div className="cb-dive-snowfield" aria-hidden="true">
+          {snow.slice(0, Math.min(snow.length, snowCount)).map((m, i) => (
+            <span key={i} className="cb-dive-mote" style={{
+              left: m.left + "%", top: m.top + "%",
+              width: m.size, height: m.size, opacity: m.op,
+              animationDuration: m.dur + "s", animationDelay: m.delay + "s",
+            }} />
+          ))}
         </div>
       )}
+
+      <div className="cb-dive-kicker">Query</div>
+      <h2 className="cb-dive-q">{q}</h2>
+
+      {/* The depth well: the stage rail as a depth cross-section. The rail
+          fills behind the traveler as stages complete — the trail of the
+          descent. */}
+      <div className="cb-dive-well">
+        <div className="cb-dive-rail" aria-hidden="true">
+          <div className="cb-dive-railfill" style={{ height: markPct + "%" }} />
+          {!reduced && activeIndex >= 0 && (
+            <div className="cb-dive-traveler" style={{ top: `calc(${markPct}% - 5px)` }} />
+          )}
+        </div>
+        <ol className="cb-dive-strata" aria-label="Pipeline stages">
+          {stages.map((s, i) => {
+            const state = activeIndex < 0 ? "pending" : i < activeIndex ? "done" : i === activeIndex ? "active" : "pending";
+            const h = histFor(i);
+            const detail = state === "active" ? (stream.detail || "") : (h && h.detail ? h.detail : "");
+            return (
+              <li key={s.key} className={`cb-dive-stratum is-${state}`}>
+                <span className="cb-dive-depth">{DIVE_DEPTHS[i]}</span>
+                <span className="cb-dive-node" aria-hidden="true">
+                  {state === "done" ? <Icon name="check" size={11} /> : null}
+                </span>
+                <span className="cb-dive-stage">
+                  <span className="cb-dive-label">{s.label}</span>
+                  <span className="cb-sr-only">{state === "done" ? ", done" : state === "active" ? ", in progress" : ", waiting"}</span>
+                  {detail ? <span className="cb-dive-detail" title={detail}>{detail}</span> : null}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+
+      <div className="cb-dive-count">{countLine}</div>
+      <div className="cb-dive-line">{waitingLine}</div>
+
+      {/* First-run honesty caption: one line, plain words, shown once. */}
+      {!honestySeen && (
+        <div className="cb-dive-honesty">
+          Real stages. No fake progress. If a database is slow, you will see it waiting.
+        </div>
+      )}
+
+      {/* The one real milestone: the /api/videos fetch resolved with
+          footage while this search is still current. */}
+      {!contextual && videosLocated && (
+        <div className="cb-dive-milestone">
+          <span className="cb-dive-dot" aria-hidden="true" />
+          Related footage located
+        </div>
+      )}
+
       {/* Cancel: aborts the in-flight request (AbortController) and hands
-          the question back to the input so it can be edited and retried.
-          Rendered whenever a search is in flight and a cancel handler is
-          wired — the one control the room was missing. */}
-      {!done && onCancel && (
-        <div style={{ marginTop: 16 }}>
+          the question back to the input so it can be edited and retried. */}
+      {onCancel && (
+        <div style={{ marginTop: 16, position: "relative", zIndex: 1 }}>
           <UIButton P={P} variant="ghost" type="button" onClick={onCancel}
             style={{
               minHeight: 44, padding: "8px 22px", borderRadius: 9999, cursor: "pointer",
@@ -2583,43 +2600,32 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
             }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = P.ink; }}
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}
-            // Keyboard parity with the hover restyle above.
             onFocus={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = P.ink; }}
             onBlur={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}>
             Cancel search
           </UIButton>
         </div>
       )}
-      {/* The one real milestone: the /api/videos fetch resolved with
-          footage while this search is still current. */}
-      {!done && videosLocated && (
-        <div className="cb-room-milestone">
-          <span className="cb-room-dot" aria-hidden="true" />
-          Related footage located
-        </div>
-      )}
-      {/* The per-database breakdown, only once it is real. */}
-      {done && total > 0 && (
-        <div className="cb-room-chips">
-          {sourcesQueried.map((s, i) => (
-            <span key={s.source} className={reduced ? "" : "cb-trace-chip"} style={{
-              animationDelay: reduced ? undefined : `${Math.min(i, 12) * 45}ms`,
-              fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)",
-              color: s.ok ? P.ink2 : P.faint,
-              border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : P.line}`,
-              background: s.ok ? withAlpha(accent, 0.07) : "transparent",
-              borderRadius: 9999, padding: "3px 12px",
-              display: "inline-flex", alignItems: "center", gap: 6,
-            }}>
-              <span style={{
-                width: 4, height: 4, borderRadius: "50%",
-                background: s.ok ? accent : P.line,
-              }} />
-              {s.source}{s.ok && s.count ? ` ${s.count}` : ""}
-            </span>
-          ))}
-        </div>
-      )}
+    </div>
+  );
+}
+
+/* ── DiveInline: the honest inline loader ─────────────────────────────────
+   Replaces Skeleton (document/compare loading). One hairline, one
+   travelling marker, one mono label — the read-head motif. No fake
+   geometry, no placeholder blocks pretending to be content. */
+function DiveInline({ P, accent, label = "Working" }) {
+  return (
+    <div role="status" aria-label={label} style={{ padding: "30px 4px" }}>
+      <div className="cb-readhead" style={{ background: P.line }}>
+        <span className="cb-readhead-marker" style={{ background: accent }} />
+      </div>
+      <div style={{
+        marginTop: 10, fontFamily: "var(--cb-mono)", fontSize: 11, fontWeight: 500,
+        letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint,
+      }}>
+        {label}
+      </div>
     </div>
   );
 }
@@ -4121,110 +4127,6 @@ function FactCheck({ fc, P, accent }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function Skeleton({ P, accent, label = "Working" }) {
-  const bar = (w, h = 12) => (
-    <div aria-hidden="true" className="cb-skelbar" style={{
-      height: h, width: w, borderRadius: RADIUS.md,
-      background: P.skel,
-      "--cb-skel": P.skel,
-    }} />
-  );
-  return (
-    <div style={{
-      /* Pass 1 (2026-09-17): opaque. A loading placeholder has no business
-         being glass — it sits in normal content flow, and the blur only
-         existed to frost the ambient reel behind it. */
-      background: P.surface,
-      border: `1px solid ${P.line}`,
-      borderRadius: RADIUS.md, padding: "32px 34px",
-      display: "flex", flexDirection: "column", gap: 14,
-    }}>
-      {/* Read-head loading motif: a hairline with a travelling marker plus
-          a mono readout. Never a shimmer bar, never a bare "Loading…". */}
-      <div style={{ marginBottom: 6 }}>
-        <div className="cb-readhead" style={{ background: P.line }}>
-          <span className="cb-readhead-marker" style={{ background: accent }} />
-        </div>
-        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint }}>
-          {label}
-        </div>
-      </div>
-      {/* Simulated header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-        {bar("80px", 18)}
-        {bar("50px", 18)}
-      </div>
-      {/* Simulated paragraph */}
-      {bar("95%", 13)}
-      {bar("100%", 13)}
-      {bar("88%", 13)}
-      <div style={{ height: 6 }} />
-      {bar("92%", 13)}
-      {bar("76%", 13)}
-    </div>
-  );
-}
-
-/* Staged skeleton (#9): mirrors the answer's geometry while the SSE stages
-   progress — headline block, claim rows with citation chips, and the
-   Sources panel. Every block has fixed dimensions so the skeleton reserves
-   the space the answer will take and nothing shifts when it lands. Shown
-   only on the streaming path, under the ReadingRoom's stage rail. */
-function AnswerSkeleton({ P, accent }) {
-  const bar = (w, h, radius = 6) => (
-    <div aria-hidden="true" className="cb-skelbar" style={{
-      height: h, width: w, borderRadius: radius, flexShrink: 0,
-      background: P.skel,
-      "--cb-skel": P.skel,
-    }} />
-  );
-  return (
-    <div aria-hidden="true" style={{ marginTop: 26, paddingTop: 22, borderTop: `1px solid ${P.line}` }}>
-      {/* Read-head loading motif: hairline with travelling marker plus a
-          mono readout. Never a shimmer bar. */}
-      <div style={{ marginBottom: 18 }}>
-        <div className="cb-readhead" style={{ background: P.line }}>
-          <span className="cb-readhead-marker" style={{ background: accent }} />
-        </div>
-        <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint }}>
-          Composing answer
-        </div>
-      </div>
-      {/* Answer headline block */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {bar("64%", 26)}
-        {bar("41%", 17)}
-      </div>
-      {/* Claim rows, each with its citation chip */}
-      {[0, 1, 2].map((i) => (
-        <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 18 }}>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-            {bar("100%", 13)}
-            {bar(i === 2 ? "68%" : "88%", 13)}
-          </div>
-          <div style={{
-            width: 34, height: 22, borderRadius: 6, flexShrink: 0,
-            border: `1px solid ${withAlpha(accent, 0.35)}`,
-            background: withAlpha(accent, 0.08),
-          }} />
-        </div>
-      ))}
-      {/* Sources panel */}
-      <div style={{ marginTop: 22, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "16px 16px" }}>
-        <div style={{ marginBottom: 12 }}>{bar("34%", 12)}</div>
-        {[0, 1, 2].map((i) => (
-          <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", height: 34 }}>
-            {bar(28, 16, 4)}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-              {bar(i === 1 ? "52%" : "78%", 11, 4)}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -5904,19 +5806,63 @@ function ReportModal({ query, P, accent, at, onClose }) {
                 ))}
               </div>
             </div>
+            {paras.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 8 }}>
+                  {selectedClaim !== null ? "Selected claim" : "Tap the claim that is wrong"}
+                </div>
+                {selectedClaim !== null ? (
+                  <div style={{
+                    padding: "12px 14px", borderRadius: RADIUS.md,
+                    border: `1px solid ${withAlpha(accent, 0.4)}`,
+                    background: withAlpha(accent, 0.07),
+                    fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.6,
+                    fontFamily: "var(--cb-font)",
+                  }}>
+                    <div style={{ marginBottom: 6 }}>"{paras[selectedClaim].slice(0, 220)}{paras[selectedClaim].length > 220 ? "…" : ""}"</div>
+                    {claimCites(paras[selectedClaim]).length > 0 && (
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-mono)" }}>
+                        Cites [{claimCites(paras[selectedClaim]).join("] [")}]
+                      </div>
+                    )}
+                    <button type="button" onClick={() => setSelectedClaim(null)}
+                      style={{ marginTop: 8, background: "none", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 600, padding: 0, fontFamily: "var(--cb-font)" }}>
+                      Choose a different claim
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+                    {paras.map((p, i) => (
+                      <button key={i} type="button" onClick={() => { setSelectedClaim(i); setSelecting(false); }}
+                        style={{
+                          textAlign: "left", padding: "10px 12px", borderRadius: RADIUS.md,
+                          border: `1px solid ${P.line}`, background: "transparent",
+                          fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.55,
+                          cursor: "pointer", fontFamily: "var(--cb-font)",
+                          minHeight: 44,
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = withAlpha(accent, 0.5); }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; }}>
+                        {p.slice(0, 140)}{p.length > 140 ? "…" : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Describe the issue</div>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder="Which claim is incorrect? What should it say instead?" style={{
+              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>What should it say instead?</div>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="The correct information, if you know it. Optional when you have tapped the claim above." style={{
                 width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: RADIUS.md,
                 border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
                 color: P.ink, fontFamily: "var(--cb-font)", resize: "vertical", outline: "none",
               }} />
             </div>
-            <button type="submit" disabled={submitting || !description.trim()} style={{
+            <button type="submit" disabled={submitting || (!description.trim() && selectedClaim === null)} style={{
               width: "100%", padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600,
               background: accent, color: at, border: "none", borderRadius: RADIUS.md,
-              cursor: submitting || !description.trim() ? "default" : "pointer",
-              opacity: submitting || !description.trim() ? 0.6 : 1,
+              cursor: submitting || (!description.trim() && selectedClaim === null) ? "default" : "pointer",
+              opacity: submitting || (!description.trim() && selectedClaim === null) ? 0.6 : 1,
               fontFamily: "var(--cb-font)",
             }}>{submitting ? "Sending…" : "Submit report"}</button>
             {error && (
@@ -7640,6 +7586,35 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
     () => (done && !synthFailed ? buildEvidenceMap(t.factCheck, t.disagreementVerdict) : null),
     [done, synthFailed, t.factCheck, t.disagreementVerdict]
   );
+  /* ── SIMPLIFY TOGGLE ──
+     One tap rewrites the answer one reading level down. Citations stay
+     attached. The reading level indicator tells users the toggle exists. */
+  const [simplified, setSimplified] = useState(null);
+  const [simplifying, setSimplifying] = useState(false);
+  const [readingLevel, setReadingLevel] = useState("graduate");
+  const doSimplify = async () => {
+    if (simplified) { setSimplified(null); setReadingLevel("graduate"); return; }
+    if (simplifying || !t.answer) return;
+    setSimplifying(true);
+    try {
+      const res = await fetch("/api/simplify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: t.answer, level: readingLevel === "graduate" ? "undergrad" : "plain" }),
+      });
+      if (!res.ok) throw new Error("simplify failed");
+      const data = await res.json();
+      if (data.text) {
+        setSimplified(data.text);
+        setReadingLevel(readingLevel === "graduate" ? "undergrad" : "plain");
+      }
+    } catch (cbErr) {
+      console.error("[Cerebrum] simplify failed:", cbErr);
+      toast("Couldn't simplify this answer right now.", { tone: "error" });
+    } finally {
+      setSimplifying(false);
+    }
+  };
   // Venn readiness, computed the same way VennDiagram decides to render —
   // the jump rail's status must match the section, not approximate it.
   // Pass 2: the classification itself is hoisted (`venn`) because the
@@ -7782,6 +7757,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         { id: "yes", label: "Yes, useful", icon: "thumb-up", hint: vote === "up" ? "Marked" : undefined, onClick: () => castVote("up") },
         { id: "no", label: "No, missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
       ] : []),
+      ...(done && interactive && t.answer && t.answer.length > 200 ? [{
+        id: "simplify", label: simplifying ? "Simplifying…" : simplified ? "Show original" : "Simplify",
+        icon: "bookOpen", hint: readingLevel === "graduate" ? undefined : readingLevel,
+        onClick: doSimplify,
+      }] : []),
       { id: "report", label: "Report a problem", icon: "flag", hint: user ? undefined : "Sign in", onClick: () => { if (user) setShowReport(true); else onRequireAuth(); } },
     ];
     return items.filter((it, i, arr) => {
@@ -8030,11 +8010,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
-                {renderAnswer(stripFallbackChrome(shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
+                {renderAnswer(stripFallbackChrome(simplified || shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
               </div>
             </>
           ) : (
-            renderAnswer(shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)
+            renderAnswer(simplified || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)
           )}
         </div>
         {done && (
@@ -8045,6 +8025,20 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 (non-AI) fallback is a different kind of object than a failed
                 AI one, and the byline must not call it a failure either. */}
             <span style={S.aiTag}>{t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
+            {/* Reading level indicator: tells users the Simplify toggle exists */}
+            {done && !synthFailed && t.answer && t.answer.length > 200 && (
+              <button type="button" onClick={doSimplify} title={simplified ? "Show the original answer" : "Rewrite this answer in simpler language"}
+                style={{
+                  minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6,
+                  fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
+                  color: simplified ? accent : P.faint, background: "transparent",
+                  border: "none", cursor: "pointer", padding: "3px 8px",
+                }}>
+                <span style={{ fontFamily: "var(--cb-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Reading level: {readingLevel}
+                </span>
+              </button>
+            )}
             {/* Pro quota nudge: when the backend gated AI synthesis (free cap
                 hit, or signed out), the footnote says why and where to go —
                 never a dead end. Opens the Pro modal / auth via window
@@ -8072,7 +8066,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             onClose={() => { setHoverCite && setHoverCite(0); setActiveCite(0); }}
           />
         ) : null}
-        {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} />}
+        {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} answer={t.answer} sources={t.sources} />}
         </article>
         </TickFrame>
       </div>
@@ -10913,7 +10907,67 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [cooldown, setCooldown] = useState(0);
+  const [shakeKey, setShakeKey] = useState(0);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const boxRefs = useRef([]);
+  const passkeySupported = typeof window !== "undefined" && !!window.PublicKeyCredential &&
+    typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function";
+
+  // base64url helpers for the WebAuthn ceremony (ArrayBuffer <-> string).
+  const b64urlEncode = (buf) => {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+  const b64urlDecode = (s) => {
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  };
+
+  // Passkey sign-in: one tap, no email round trip. The server issues the
+  // challenge bound to this email; the authenticator signs it; the server
+  // verifies and returns a session through the same path as OTP.
+  async function signInWithPasskey() {
+    if (passkeyBusy || busy) return;
+    const cleanEmail = email.trim();
+    if (!cleanEmail) { setError("Enter your email first, then use your passkey."); return; }
+    setError("");
+    setPasskeyBusy(true);
+    try {
+      const begin = await apiAuth("passkey-auth-begin", { email: cleanEmail });
+      if (!begin || !begin.ok || !begin.allowCredentials || !begin.allowCredentials.length) {
+        setError("No passkey is registered for that email yet. Sign in with a code once, then set one up.");
+        return;
+      }
+      const cred = await navigator.credentials.get({
+        publicKey: {
+          challenge: b64urlDecode(begin.challenge),
+          rpId: begin.rpId,
+          allowCredentials: begin.allowCredentials.map((id) => ({ type: "public-key", id: b64urlDecode(id) })),
+          userVerification: "preferred",
+        },
+      });
+      if (!cred) throw new Error("cancelled");
+      const finish = await apiAuth("passkey-auth-finish", {
+        email: cleanEmail,
+        credentialId: cred.id,
+        authenticatorData: b64urlEncode(cred.response.authenticatorData),
+        clientDataJSON: b64urlEncode(cred.response.clientDataJSON),
+        signature: b64urlEncode(cred.response.signature),
+      });
+      if (finish && finish.user) onAuthed(finish.user);
+      else throw new Error("verify");
+    } catch (err) {
+      if (err && err.name === "NotAllowedError") setError("Passkey was cancelled. Try again when ready.");
+      else setError(err.message || "That passkey didn't work. Try the email code instead.");
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
   useEffect(() => {
     if (cooldown <= 0) return;
     const id = setInterval(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
@@ -10946,8 +11000,10 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
       const data = await apiAuth("verify-code", { email, code: fullCode });
       onAuthed(data.user);
     } catch (err) {
-      setError(err.message || "That code didn't work.");
-      setDigits(Array(OTP_LENGTH).fill(""));
+      // The digits stay put on a wrong code. Wiping all six boxes punishes
+      // a single typo with full retyping; the error names the fix instead.
+      setError(err.message || "That code didn't match. Check the newest email, codes refresh each time you resend.");
+      setShakeKey((k) => k + 1);
       setTimeout(() => boxRefs.current[0]?.focus(), 60);
     } finally {
       setBusy(false);
@@ -11031,6 +11087,12 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
             <UIButton P={P} variant="ghost" type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-font)" }}>
               {busy ? "Sending…" : "Send sign-in code"}
             </UIButton>
+            {passkeySupported && (
+              <button type="button" onClick={signInWithPasskey} disabled={passkeyBusy || busy}
+                style={{ width: "100%", marginTop: 10, minHeight: 44, padding: "10px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.ink2, cursor: (passkeyBusy || busy) ? "default" : "pointer", opacity: (passkeyBusy || busy) ? 0.6 : 1, fontFamily: "var(--cb-font)" }}>
+                {passkeyBusy ? "Waiting for your passkey…" : "Use a passkey instead"}
+              </button>
+            )}
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 14, lineHeight: 1.6 }}>
               Saved articles, collections, and history stay local unless you sign in. See <a href="/privacy" style={{ color: P.faint, borderBottom: `1px dotted ${P.faint}`, textDecoration: "none" }}>Privacy</a> for exactly what that means.
             </div>
@@ -11038,7 +11100,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
         ) : (
           <div style={{ paddingTop: 4 }}>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 18 }}>We sent a 6-digit code to <strong>{email}</strong>. It expires in 15 minutes.</div>
-            <div style={{ display: "flex", gap: 8, justifyContent: "center" }} onPaste={(e) => onBoxPaste(0, e)}>
+            <div key={shakeKey} style={{ display: "flex", gap: 8, justifyContent: "center", animation: shakeKey > 0 ? "cb-otp-shake 320ms cubic-bezier(0.16, 1, 0.3, 1)" : "none" }} onPaste={(e) => onBoxPaste(0, e)}>
               {digits.map((d, i) => (
                 <input
                   key={i}
@@ -15470,7 +15532,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             ) : (
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Reading the document section by section.</div>
             )}
-            <Skeleton P={P} accent={accent} label="Reading document" />
+            <DiveInline P={P} accent={accent} label="Reading document" />
           </div>
         )}
         {summary && (
@@ -15537,7 +15599,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   {compareBusy && (
                     <>
                       <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Comparing the documents…</div>
-                      <Skeleton P={P} accent={accent} label="Comparing documents" />
+                      <DiveInline P={P} accent={accent} label="Comparing documents" />
                       <UIButton P={P} variant="ghost" onClick={cancelCompare}
                         style={{ minHeight: 44, marginTop: 10, padding: "12px 16px", borderRadius: 9999, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
                         Cancel
@@ -17564,6 +17626,14 @@ function App() {
   const [user, setUser] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState("login");
+  // returnTo: where to go after a successful sign-in. Set when the Pro
+  // modal's sign-in button opens auth, so the highest-intent click in the
+  // app doesn't dead-end at the sign-in wall.
+  const [authReturnTo, setAuthReturnTo] = useState(null);
+  // Passkey graduation: one quiet offer after the first OTP sign-in.
+  // Shown once (localStorage flag), only when the account has no passkey
+  // yet and this browser supports WebAuthn.
+  const [passkeyOffer, setPasskeyOffer] = useState(false);
   // ── Cerebrum Pro (2026-09-15) ──
   const [proStatus, setProStatus] = useState(null);
   const [proModalOpen, setProModalOpen] = useState(false);
@@ -18103,6 +18173,9 @@ function App() {
      searchRequestId: the X-Request-ID echoed by the backend, quoted on
      error reports so a report can be matched to a server log. */
   const [streamStage, setStreamStage] = useState(null);
+  /* The Dive: id of the freshly arrived turn, so it can ascend once.
+     Cleared on animation end. */
+  const [diveAscendId, setDiveAscendId] = useState(null);
   const [streamActive, setStreamActive] = useState(false);
   const [searchRequestId, setSearchRequestId] = useState("");
   /* Progress-flash suppression (#23): the ReadingRoom only mounts once the
@@ -18915,6 +18988,9 @@ function App() {
   })();
   const inputRef = useRef(null);
   const cmdRef = useRef(null);
+  /* Workstream E (2026-10-08): mobile gestures. headerTouchY tracks the
+     pull-down on the mobile header that opens the command palette. */
+  const headerTouchY = useRef(0);
   // A quiet tribute, not a feature: the version badge used to read "DP" —
   // a private nod to Dolly Parton, kept as an initialism nobody would think
   // twice about. Now that it's spelled out as a real version number,
@@ -19181,6 +19257,8 @@ function App() {
       })];
       setTurns(nextTurns);
       setAllSources(nextSources);
+      /* The Dive: the answer ascends back to the surface. */
+      setDiveAscendId(turnId);
       // New investigations get their vault id up front when the vault is
       // unlocked, so the encrypted push and the local search index see a
       // stable identity immediately instead of waiting for the write-back.
@@ -19603,6 +19681,41 @@ function App() {
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  /* Workstream E (2026-10-08): mobile drawer gestures. Swipe in from the
+     left edge to open the drawer; swipe left to close it. Passive
+     listeners, no scroll interference. Pull-down on the header itself
+     opens the command palette (wired on the header element below). */
+  useEffect(() => {
+    if (!isMobile) return;
+    let sx = 0, sy = 0, active = false;
+    const ts = (e) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY; active = true;
+    };
+    const tm = (e) => {
+      if (!active) return;
+      const t = e.touches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (!sidebarMobileOpen && sx < 24 && dx > 80 && Math.abs(dy) < 50) {
+        active = false;
+        setSidebarMobileOpen(true);
+      } else if (sidebarMobileOpen && dx < -80 && Math.abs(dy) < 50) {
+        active = false;
+        setSidebarMobileOpen(false);
+      }
+    };
+    const te = () => { active = false; };
+    document.addEventListener("touchstart", ts, { passive: true });
+    document.addEventListener("touchmove", tm, { passive: true });
+    document.addEventListener("touchend", te, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", ts);
+      document.removeEventListener("touchmove", tm);
+      document.removeEventListener("touchend", te);
+    };
+  }, [isMobile, sidebarMobileOpen]);
 
   // (No wheel-scroll takeover here — see the comment above InfoPage() for
   // why it was removed. Native scrolling + the sticky header's own
@@ -20306,36 +20419,120 @@ function App() {
           the Sidebar on mobile, since a permanently-docked 260px rail
           doesn't fit next to search results on a phone screen — gets its
           own minimal floating trigger just below instead of a full bar. */}
-      {isMobile && (
-        /* 56px header bar: the menu button lives here, not floating over
-           content. It can no longer cover article titles or the profile
-           cover. */
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, height: 56, zIndex: Z.headerBar,
-          display: "flex", alignItems: "center", padding: "0 12px",
-          /* Opaque fill, no backdrop blur: a full-width fixed bar over
-             scrolling content is per-frame compositor work on a phone for
-             zero legibility gain at 56px. */
-          background: P.bg,
-          borderBottom: `1px solid ${P.line}`,
-        }}>
-          <button
-            className="cb-hbtn"
-            onClick={() => { sfx(); setSidebarMobileOpen(true); }}
-            aria-label="Open menu"
-            title="Menu"
-            style={{
-              width: 44, height: 44, borderRadius: "50%",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "transparent",
-              border: `1px solid ${P.line}`,
-              color: P.ink, cursor: "pointer",
-            }}
-          >
-          <Icon name="menu" size={18} />
-          </button>
-        </div>
-      )}
+      {/* Workstream E (2026-10-08): the mobile header gets a job, and a
+          bottom tab bar replaces the hamburger drawer as primary nav.
+          Header: menu (opens the "More" drawer) | living title | inbox
+          bell with unread dot | account avatar. Tab bar: Home, Library,
+          Create, Inbox, Account — five thumb-reachable targets. Pull down
+          on the header opens the command palette. */}
+      {isMobile && <style>{`body{padding-bottom:calc(72px + env(safe-area-inset-bottom)) !important;}`}</style>}
+      {isMobile && (() => {
+        const VIEW_TITLES = { search: "Search", document: "Document Mode", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile" };
+        let headerTitle = VIEW_TITLES[view] || "Cerebrum";
+        if (view === "search" && turns.length > 0 && (history || []).length > 0) {
+          const recent = [...history].sort((a, b) => (b.lastOpened || b.ts || 0) - (a.lastOpened || a.ts || 0))[0];
+          if (recent && recent.title) headerTitle = recent.title;
+        }
+        const unreadCount = (threads || []).filter((t) => t.unread).length;
+        return (
+          <React.Fragment>
+            <div
+              onTouchStart={(e) => { headerTouchY.current = e.touches[0].clientY; }}
+              onTouchMove={(e) => {
+                const dy = e.touches[0].clientY - headerTouchY.current;
+                if (dy > 60) { headerTouchY.current = Infinity; setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }
+              }}
+              style={{
+                position: "fixed", top: 0, left: 0, right: 0, height: 56, zIndex: Z.headerBar,
+                display: "flex", alignItems: "center", padding: "0 8px 0 12px", gap: 2,
+                /* Opaque fill, no backdrop blur: a full-width fixed bar over
+                   scrolling content is per-frame compositor work on a phone
+                   for zero legibility gain at 56px. */
+                background: P.bg,
+                borderBottom: `1px solid ${P.line}`,
+              }}>
+              <button
+                className="cb-hbtn"
+                onClick={() => { sfx(); setSidebarMobileOpen(true); }}
+                aria-label="Open menu"
+                title="More"
+                style={{
+                  width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "transparent",
+                  border: `1px solid ${P.line}`,
+                  color: P.ink, cursor: "pointer",
+                }}
+              >
+                <Icon name="menu" size={18} />
+              </button>
+              <div style={{ flex: 1, minWidth: 0, padding: "0 6px" }}>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerTitle}</div>
+              </div>
+              <button onClick={() => { sfx(); stableSidebarNavigate("inbox"); }}
+                aria-label={unreadCount ? `Inbox, ${unreadCount} unread` : "Inbox"} title="Inbox"
+                style={{ width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: P.ink2, cursor: "pointer", position: "relative", flexShrink: 0 }}>
+                <Icon name="mail" size={18} />
+                {unreadCount > 0 && <span style={{ position: "absolute", top: 9, right: 9, width: 10, height: 10, borderRadius: "50%", background: "#e5484d", border: `2px solid ${P.bg}` }} aria-hidden="true" />}
+              </button>
+              <button onClick={() => { sfx(); stableSidebarNavigate("profile"); }}
+                aria-label={user ? "Account" : "Sign in"} title={user ? "Account" : "Sign in"}
+                style={{ width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", flexShrink: 0 }}>
+                {user ? (
+                  <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", ...avatarSkin(user.email || user.id || "cerebrum") }}>{(user.email || "?")[0].toUpperCase()}</span>
+                ) : (
+                  <Icon name="user" size={18} style={{ color: P.ink2 }} />
+                )}
+              </button>
+            </div>
+            <nav aria-label="Primary" style={{
+              position: "fixed", bottom: 0, left: 0, right: 0, zIndex: Z.headerBar,
+              display: "flex", alignItems: "stretch",
+              background: P.bg, borderTop: `1px solid ${P.line}`,
+              paddingBottom: "env(safe-area-inset-bottom)",
+            }}>
+              {[
+                { key: "search", label: "Home", icon: "search" },
+                { key: "library", label: "Library", icon: "bookmark" },
+                { key: "new", label: "Create", icon: "plus", fab: true },
+                { key: "inbox", label: "Inbox", icon: "mail", badge: unreadCount },
+                { key: "profile", label: "Account", icon: "user" },
+              ].map((t) => {
+                const isActiveTab = view === t.key;
+                return (
+                  <button key={t.key} onClick={() => { sfx(); stableSidebarNavigate(t.key); }}
+                    aria-label={t.label} aria-current={isActiveTab ? "page" : undefined}
+                    style={{
+                      flex: 1, minHeight: 64, display: "flex", flexDirection: "column",
+                      alignItems: "center", justifyContent: "center", gap: 3,
+                      background: "transparent", border: "none", cursor: "pointer",
+                      color: isActiveTab ? accent : P.faint,
+                      fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
+                      position: "relative",
+                    }}>
+                    {t.fab ? (
+                      <span style={{
+                        width: 48, height: 48, borderRadius: "50%", marginTop: -22,
+                        background: accent, color: accentInk,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        boxShadow: "0 4px 16px rgba(0,0,0,0.30)",
+                      }}>
+                        <Icon name="plus" size={22} />
+                      </span>
+                    ) : (
+                      <span style={{ position: "relative", display: "inline-flex" }}>
+                        <Icon name={t.icon} size={20} />
+                        {t.badge > 0 && <span style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: "#e5484d", color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
+                      </span>
+                    )}
+                    {!t.fab && <span>{t.label}</span>}
+                  </button>
+                );
+              })}
+            </nav>
+          </React.Fragment>
+        );
+      })()}
       {view === "search" && (
       /* Commit 85 -- this container used to carry
          onDoubleClick={() => ask(selection)}. Double-click is how everyone
@@ -20533,15 +20730,9 @@ function App() {
                       single-fetch fallback renders the room as before.
                       The room mounts 280ms after the search starts so
                       sub-280ms answers never flash a loader. */}
-                  <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated}
+                  <Dive P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} contextual={contextBusy} videosLocated={videosLocated}
                     stream={streamActive ? streamStage : null}
                     onCancel={() => { try { askAbortRef.current?.abort("cancelled"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askAbortRef.current?.abort('cancelled'); }:", cbErr); } }} />
-                  {/* Staged skeleton (#9): while the SSE stages progress,
-                      the answer's geometry waits below the stage rail —
-                      headline block, claim rows with citation chips, the
-                      Sources panel — every block fixed-dimension, so
-                      nothing shifts when the answer lands. */}
-                  {streamActive && <AnswerSkeleton P={P} accent={accent} />}
                 </div>)}
                 {error && (
                   <SearchErrorPanel P={P} accent={accent}
@@ -22408,158 +22599,203 @@ summary::-webkit-details-marker { display: none; }
    nodes, which flash faintly as the wavefront passes. Pure ambience for
    the outgoing query — the elapsed readout and the status line below
    stay the only claims about the work itself. */
-/* ── ReadingRoom: the descent instrument ──
-   Water, not machinery. Marine snow drifts up through the field; a single
-   reading line scans beneath it — the query reading the literature. The
-   scan loops because the client cannot know mid-request progress; the
-   elapsed clock is the only real number. */
-.cb-room {
+/* ── Dive: the descent instrument ──
+   The one loading language. Five depth strata, one per real pipeline
+   stage; the rail fills and the traveler rides as stage frames arrive.
+   Marine snow is a light CSS field that densifies with depth. No elapsed
+   clock, no fake progress, no fake geometry. */
+.cb-dive {
   --cb-acc: #a3b899;
+  position: relative;
   padding: 34px 4px 8px;
-  animation: cbSignalIn 0.7s var(--cb-ease) both;
-  /* The room's instruments paint above the flight atmosphere (a fixed
-     z-index:0 layer): without a position here the canvas would cover
-     the text it serves. */
-  position: relative; z-index: ${Z.content};
+  overflow: hidden;
 }
-.cb-room-kicker {
-  /* Pass 3 (2026-09-17): mono label, not a tracked-out eyebrow. */
+/* The descent: the room sinks in when the search starts. 550ms spatial
+   tier, the single curve. Reduced motion never gets this class. */
+.cb-dive-descend { animation: cbDiveDescend 550ms var(--cb-ease) both; }
+@keyframes cbDiveDescend {
+  from { opacity: 0; transform: translateY(-28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cb-dive-kicker {
+  /* Mono label, not a tracked-out eyebrow. */
   font-family: var(--cb-mono); font-size: 11px; font-weight: 500;
   color: color-mix(in srgb, var(--cb-acc) 85%, white);
   margin-bottom: 14px;
+  position: relative; z-index: 1;
 }
-.cb-room-q {
+.cb-dive-q {
   font-family: var(--cb-font); font-weight: 600;
   letter-spacing: -0.015em; line-height: 1.28;
   font-size: clamp(20px, 4.2vw, 30px);
   color: #f2f4f2;
   max-width: 720px; margin: 0;
+  position: relative; z-index: 1;
 }
-/* The flight atmosphere: the 190-particle field at full viewport while a
-   query is in flight. Fixed, pointer-transparent, above the dimmed reel
-   (z-index 0, later in the DOM) and below the room's instruments. When
-   the answer arrives the room unmounts and takes the sky with it. */
-.cb-dive-atmosphere {
-  position: fixed; inset: 0; z-index: ${Z.base};
-  pointer-events: none;
-  overflow: hidden;
-}
-/* The particle canvas: full-viewport, painted first so the reading line
-   sweeps above it. */
-.cb-dive-particles {
+/* Marine snow: the water column. Motes drift downward on transform only;
+   each carries its own duration and negative delay so the field is
+   already mid-drift on mount. */
+.cb-dive-snowfield {
   position: absolute; inset: 0;
-  width: 100%; height: 100%;
-  display: block;
+  pointer-events: none; overflow: hidden;
 }
-/* The descent field: now just the reading line's own quiet column — the
-   particles have the whole viewport, so the line needs only enough room
-   to breathe. */
-.cb-dive-field {
-  position: relative;
-  height: 64px;
-  max-width: 640px;
-  margin: 26px auto 0;
-  overflow: hidden;
-}
-/* The reading line: one hairline. The scan is a dot with a short tail
-   travelling the full width on transform only — no layout thrash. It
-   fades at both ends so it reads as a sweep, never a fill. */
-.cb-dive-line {
-  position: absolute; left: 0; right: 0; top: 50%;
-  height: 1px; background: rgba(255,255,255,0.14);
-}
-.cb-dive-scan {
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-  animation: cbDiveScan 5s ease-in-out infinite;
+.cb-dive-mote {
+  position: absolute;
+  border-radius: 50%;
+  background: #ffffff;
+  animation: cbSnowDrift linear infinite;
   will-change: transform;
 }
-@keyframes cbDiveScan {
-  0% { transform: translateX(-14px); opacity: 0; }
-  8% { opacity: 1; }
-  92% { opacity: 1; }
-  100% { transform: translateX(calc(100% + 14px)); opacity: 0; }
+@keyframes cbSnowDrift {
+  from { transform: translateY(-16px); }
+  to { transform: translateY(48px); }
 }
-.cb-dive-dot {
-  position: absolute; top: 50%; left: 0;
-  width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
+/* The depth well: the stage rail as a depth cross-section. Strata are a
+   fixed 64px so the rail marks land exactly: node centers at
+   10/30/50/70/90% of the well. */
+.cb-dive-well {
+  position: relative; z-index: 1;
+  display: flex; gap: 18px;
+  margin-top: 30px; max-width: 560px;
+}
+.cb-dive-rail {
+  position: relative; flex-shrink: 0;
+  width: 2px; align-self: stretch;
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+}
+.cb-dive-railfill {
+  position: absolute; top: 0; left: 0; right: 0;
+  background: var(--cb-acc); opacity: 0.55;
+  border-radius: 2px;
+  transition: height 550ms var(--cb-ease);
+}
+/* The traveler: the live stage, riding the rail. */
+.cb-dive-traveler {
+  position: absolute; left: 50%;
+  width: 11px; height: 11px; margin-left: -5.5px;
   border-radius: 50%; background: var(--cb-acc);
+  box-shadow: 0 0 10px var(--cb-acc);
+  transition: top 550ms var(--cb-ease);
+  animation: cbTravelerPulse 1.8s var(--cb-ease) infinite;
 }
-.cb-dive-dot::after {
-  content: ""; position: absolute; top: 1.5px; right: 7px;
-  width: 34px; height: 2px; border-radius: 2px;
-  background: var(--cb-acc); opacity: 0.35;
+@keyframes cbTravelerPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.75; }
 }
-/* Parked marker for reduced motion and the received state: a quiet tick
-   at the line's start. Still and honest — the clock below is the signal. */
-.cb-dive-marker {
-  position: absolute; top: 50%; left: 0;
-  width: 5px; height: 5px; margin-top: -2.5px;
-  border-radius: 50%; background: var(--cb-acc); opacity: 0.7;
-}
-.cb-dive-scope {
-  margin-top: 14px; text-align: center;
-  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.06em;
-  color: rgba(242,244,242,0.4);
-}
-.cb-dive-center {
-  margin-top: 16px;
+.cb-dive-strata {
+  list-style: none; margin: 0; padding: 0;
   display: flex; flex-direction: column;
-  align-items: center; text-align: center;
+  flex: 1; min-width: 0;
 }
-.cb-dive-elabel {
-  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
-  letter-spacing: 0.34em; text-transform: uppercase;
-  color: rgba(242,244,242,0.38);
-  margin-bottom: 6px; padding-left: 0.34em; /* recenter tracked caps */
+.cb-dive-stratum {
+  display: flex; align-items: center; gap: 12px;
+  height: 64px; min-width: 0;
 }
-.cb-dive-clock {
+.cb-dive-depth {
+  font-family: var(--cb-mono); font-size: 10px; font-weight: 500;
+  color: rgba(242,244,242,0.35);
+  width: 38px; flex-shrink: 0; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cb-dive-node {
+  width: 16px; height: 16px; flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--cb-acc);
+}
+.cb-dive-stratum.is-pending .cb-dive-node {
+  border: 1px solid rgba(255,255,255,0.22);
+}
+.cb-dive-stratum.is-active .cb-dive-node {
+  border: 1px solid var(--cb-acc);
+  background: color-mix(in srgb, var(--cb-acc) 25%, transparent);
+}
+.cb-dive-stratum.is-done .cb-dive-node {
+  border: 1px solid color-mix(in srgb, var(--cb-acc) 60%, transparent);
+  background: color-mix(in srgb, var(--cb-acc) 12%, transparent);
+}
+.cb-dive-stage { display: flex; flex-direction: column; min-width: 0; }
+.cb-dive-label {
+  font-family: var(--cb-font); font-size: 13px; font-weight: 600;
+  color: #f2f4f2; letter-spacing: 0.01em;
+}
+.cb-dive-stratum.is-pending .cb-dive-label { color: rgba(242,244,242,0.4); font-weight: 500; }
+.cb-dive-detail {
+  font-family: var(--cb-font); font-size: 11px;
+  color: rgba(242,244,242,0.5); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
+}
+/* The honest count: replaces the elapsed clock. Tabular numerals so the
+   number doesn't jitter as it climbs. */
+.cb-dive-count {
+  position: relative; z-index: 1;
+  margin-top: 22px;
   font-family: var(--cb-font); font-weight: 600;
-  font-size: 40px; letter-spacing: -0.015em; line-height: 1;
+  font-size: 15px; letter-spacing: -0.01em;
   color: #f5f7f5;
   font-variant-numeric: tabular-nums;
 }
-.cb-dive-s {
-  font-size: 16px; font-weight: 500;
-  color: rgba(242,244,242,0.45);
-  margin-left: 2px;
-}
-.cb-dive-state {
+.cb-dive-line {
+  position: relative; z-index: 1;
   margin-top: 8px;
-  font-family: var(--cb-font); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.3em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--cb-acc) 85%, white);
-  padding-left: 0.3em;
-}
-.cb-room-line {
-  margin-top: 18px; text-align: center;
   font-family: var(--cb-font); font-size: 11px;
   letter-spacing: 0.02em;
   color: rgba(242,244,242,0.45);
+  max-width: 560px;
 }
-.cb-room-dot {
-  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
-  background: var(--cb-acc);
+/* First-run honesty caption. One line, plain words, shown once. */
+.cb-dive-honesty {
+  position: relative; z-index: 1;
+  margin-top: 14px; max-width: 560px;
+  font-family: var(--cb-font); font-size: 12px; line-height: 1.6;
+  color: color-mix(in srgb, var(--cb-acc) 80%, white);
+  border-left: 2px solid color-mix(in srgb, var(--cb-acc) 55%, transparent);
+  padding-left: 12px;
 }
-.cb-room-milestone {
-  margin-top: 8px;
+.cb-dive-milestone {
+  position: relative; z-index: 1;
+  margin-top: 10px;
   display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   letter-spacing: 0.02em;
   color: rgba(242,244,242,0.85);
   animation: cbRise 320ms var(--cb-ease) both;
 }
-.cb-room-chips {
-  display: flex; flex-wrap: wrap; align-items: center;
-  gap: 6px 10px; margin-top: 12px;
+.cb-dive-dot {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+  background: var(--cb-acc);
 }
+/* The ascent: when the answer lands, it rises from below. 550ms spatial
+   tier, the single curve. Applied once to the freshly arrived turn, then
+   removed on animation end. */
+.cb-turn-ascend { animation: cbAscend 550ms var(--cb-ease) both; will-change: transform, opacity; }
+@keyframes cbAscend {
+  from { opacity: 0; transform: translateY(48px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* View depth: diving deeper sinks the incoming view from above;
+   surfacing rises it from below. */
+.cb-view-descend { animation: cbViewDescend 550ms var(--cb-ease) both; }
+@keyframes cbViewDescend {
+  from { opacity: 0; transform: translateY(-32px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cb-view-ascend { animation: cbAscend 550ms var(--cb-ease) both; }
 @media (prefers-reduced-motion: reduce) {
-  .cb-dive-scan { animation: none; }
+  .cb-dive-mote { animation: none; }
+  .cb-dive-traveler { animation: none; }
 }
 /* The in-product motion toggle (Settings → Sound & motion → Off) applies
    the same kills via body.cb-motion-off, for stylesheet-driven motion the
    OS media query can't reach. Components gate their own motion through
    useReducedMotion(); this is the backstop for the loops above. */
-body.cb-motion-off .cb-dive-scan,
+body.cb-motion-off .cb-dive-mote,
+body.cb-motion-off .cb-dive-traveler,
+body.cb-motion-off .cb-turn-ascend,
+body.cb-motion-off .cb-view-descend,
+body.cb-motion-off .cb-view-ascend,
 body.cb-motion-off .cb-trace-chip,
 body.cb-motion-off .cb-focus-in,
 body.cb-motion-off .cb-title-veil,
@@ -22574,7 +22810,6 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
-
 
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
    The sweep is a radar, not a progress bar — indeterminate by design,
@@ -22741,25 +22976,6 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
 @media (prefers-reduced-motion: reduce) {
   .cb-readhead-marker { animation: none; left: 0; }
 }
-/* Skeleton shimmer: a slow, soft light sweep across loading bars. Subtle
-   enough to read as "working" rather than "flashing" — 2.2s cycle, low
-   contrast gradient, respects reduced motion. */
-@keyframes cbSkelShimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-.cb-skelbar {
-  background-image: linear-gradient(100deg,
-    var(--cb-skel, rgba(128,128,128,0.14)) 40%,
-    var(--cb-skel-hi, rgba(255,255,255,0.09)) 50%,
-    var(--cb-skel, rgba(128,128,128,0.14)) 60%) !important;
-  background-size: 200% 100% !important;
-  animation: cbSkelShimmer 2.2s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .cb-skelbar { animation: none; }
-}
-body.cb-motion-off .cb-skelbar { animation: none !important; }
 /* Touch: the per-row citation copy button is hover-revealed on desktop;
    touch pointers have no hover, so it stays visible there instead of
    being unreachable. Both conditions are listed: some touch laptops
@@ -22995,6 +23211,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   to   { opacity: 1; transform: none; }
 }
 .cb-toast-pop { animation: cbToastPop 280ms var(--cb-ease-out, ease-out) both; }
+
+/* Passkey graduation: a gentle horizontal nudge on a wrong OTP code. The
+   digits stay in place (nothing is wiped); the shake is the feedback. */
+@keyframes cbOtpShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-7px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes cbOtpShake { 0%, 100% { transform: translateX(0); } }
+}
 
 /* Range sliders */
 input[type="range"] { -webkit-appearance: none; height: 3px; border-radius: 2px; }
