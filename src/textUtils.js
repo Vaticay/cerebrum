@@ -312,7 +312,7 @@ export function formatCitation(source, style, index) {
 }
 
 export function formatBibliography(sources, style) {
-  return sources
+  return (sources || [])
     .map((s, i) => formatCitation(s, style, i + 1))
     .join(style === "bibtex" ? "\n\n" : "\n\n");
 }

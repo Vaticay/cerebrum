@@ -8032,7 +8032,7 @@ const Turn = React.memo(TurnInner);
    `input`, so it changes on every keystroke and any closure over it would
    defeat the memo. */
 const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
-  const onStress = useCallback((o) => askRef.current?.(t.q, o), [askRef, t.q]);
+  const onStress = useCallback((o) => askRef.current?.(t?.q, o), [askRef, t?.q]);
   return <Turn t={t} onStress={onStress} {...rest} />;
 });
 
@@ -8216,7 +8216,7 @@ function CompareModal({ P, accent, at, S, history, close }) {
   );
   const Column = ({ entry }) => (
     <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 18 }}>
-      {entry ? entry.turns.map((t, ti) => (
+      {entry ? (entry.turns || []).map((t, ti) => (
         // interactive=false — this is a read-only side-by-side replay of a
         // past investigation, and there's no live `ask` or network-graph
         // state here to wire "Continue the investigation" / "Source

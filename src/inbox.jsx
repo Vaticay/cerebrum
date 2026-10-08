@@ -788,7 +788,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           msgKind: "cipher", senderDeviceId: deviceId,
           createdAt: Date.now(), e2ee: { ok: true, text },
         };
-        setActiveThread((t) => (t ? { ...t, messages: [...t.messages, localMsg] } : t));
+        setActiveThread((t) => (t ? { ...t, messages: [...(t.messages || []), localMsg] } : t));
         setThreads((prev) => prev.map((t) => (t.id === activeId ? {
           ...t,
           lastMessage: { encrypted: true, mine: true, text, createdAt: Date.now() },
@@ -805,7 +805,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           attachment_meta: attachment.meta || null,
         } : {}),
       });
-      setActiveThread((t) => (t ? { ...t, messages: [...t.messages, { ...res.message, who: "You" }] } : t));
+      setActiveThread((t) => (t ? { ...t, messages: [...(t.messages || []), { ...res.message, who: "You" }] } : t));
       setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, lastMessage: res.message } : t)));
     } catch (e) {
       setDraft(text);
@@ -1138,10 +1138,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 does everywhere else, and has no effect once the thread is
                 long enough to scroll. */}
             <div ref={msgPaneRef} style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0 }}>
-              {activeThread.messages.length === 0 && (
+              {(activeThread.messages || []).length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet. Say hello.</div>
               )}
-              {activeThread.messages.map((m, i) => {
+              {(activeThread.messages || []).map((m, i) => {
                 const key = m.id || i;
                 // E2EE Phase 1.3 — display model for cipher rows. Rows
                 // addressed to another of this user's devices vanish

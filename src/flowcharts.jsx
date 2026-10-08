@@ -588,8 +588,8 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
   }, []);
   useEffect(() => { pushHistory(); /* seed with initial state */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const applySnap = (s) => {
-    setNodes(s.nodes.map((n) => ({ ...n })));
-    setEdges(s.edges.map((e) => ({ ...e })));
+    setNodes((s?.nodes || []).map((n) => ({ ...n })));
+    setEdges((s?.edges || []).map((e) => ({ ...e })));
     setSelection(null);
     setPendingFrom(null);
   };
