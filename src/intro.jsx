@@ -15,7 +15,7 @@ import {
 import {
   setCookie, getCookie, APP_VERSION_LABEL, useIsMobile,
 } from "./appUtils.js";
-import { cbMotionOff } from "./flowcharts.jsx";
+import { cbMotionOff, Dialog } from "./flowcharts.jsx";
 
 function InvestigationOpening({ accent, animationMode }) {
   const [gone, setGone] = useState(false);
@@ -1268,6 +1268,276 @@ function CerebrumFieldCanvas({
   );
 }
 
+
+export const FilmLayer = forwardRef(function FilmLayer({
+  src = null, poster = null,
+  active = true, visible = true,
+  loop = true, preload = "metadata",
+  fadeMs = 2200, objectPosition = "50% 50%",
+  pinned = true, dim = 0, dimColor = "#0b0d10",
+  className = "", style = {},
+  manageVisibility = true, stallMs = 9000,
+  onLoadedData, onError, onReady, onStalled,
+  onAutoplayBlocked, onPlaybackChange, onPlayState,
+}, ref) {
+  const vref = useRef(null);
+  const layerRef = useRef(null);
+  const [posterUrl, setPosterUrl] = useState(poster || null);
+  const readyRef = useRef(false);
+  const srcRef = useRef(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const visibleTargetRef = useRef(!!visible);
+  const stallRef = useRef(0);
+  const notifiedRef = useRef(false);
+  const playingRef = useRef(null);
+  const reduceMotion = cbMotionOff();
+
+  /* Callbacks are read through refs: a fresh callback identity must never
+     restart a reel or reload a clip. */
+  const onLoadedDataRef = useRef(onLoadedData); onLoadedDataRef.current = onLoadedData;
+  const onErrorRef = useRef(onError); onErrorRef.current = onError;
+  const onReadyRef = useRef(onReady); onReadyRef.current = onReady;
+  const onStalledRef = useRef(onStalled); onStalledRef.current = onStalled;
+  const onAutoplayBlockedRef = useRef(onAutoplayBlocked); onAutoplayBlockedRef.current = onAutoplayBlocked;
+  const onPlaybackChangeRef = useRef(onPlaybackChange); onPlaybackChangeRef.current = onPlaybackChange;
+  const onPlayStateRef = useRef(onPlayState); onPlayStateRef.current = onPlayState;
+
+  const declarative = src != null;
+
+  /* The single funnel for the video's opacity: on only when the layer
+     wants to be seen AND there are usable frames to show. Before canplay
+     the poster layer beneath holds the frame — poster-first, always. */
+  const applyVisibility = () => {
+    const el = vref.current;
+    if (!el) return;
+    try { el.style.opacity = (visibleTargetRef.current && readyRef.current) ? "1" : "0"; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx applyVisibility: el.style.opacity = (visibleTargetRef.current && readyRef.current) ? '1:", cbErr); }
+  };
+
+  /* The muted-inline play sequence (§5). The IDL properties are reinforced
+     on the element before every play() — React's muted JSX attribute sets
+     the content attribute, which iOS ignores. */
+  const guardedPlay = () => {
+    const el = vref.current;
+    if (!el || !activeRef.current) return;
+    try {
+      el.muted = true;
+      el.defaultMuted = true;
+      const p = el.play();
+      if (p && p.catch) p.catch((err) => {
+        /* Rejected (Low Power Mode, data-saver vetoes): settle on the
+           poster. The video never left opacity 0, so there is no blank
+           layer — and with no controls attribute, no native play icon. */
+        if (!notifiedRef.current) {
+          notifiedRef.current = true;
+          try { if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); }:", cbErr); }
+        }
+      });
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onAutoplayBlockedRef.current) onAutoplayBlockedRef.current(err); }:", cbErr); }
+  };
+
+  const pause = () => { try { if (vref.current) vref.current.pause(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx pause: if (vref.current) vref.current.pause(); }:", cbErr); } };
+
+  /* Load a clip and run the full guarded sequence — or, with
+     preloadOnly, buffer it into a hidden slot without playing (the
+     reel warms the next clip while the current one holds the screen). */
+  const loadClip = (clipSrc, opts = {}) => {
+    const el = vref.current;
+    if (!el || !clipSrc) return;
+    const { objectPosition: pos, preloadOnly = false } = opts;
+    const file = filmBestFile(el, clipSrc);
+    let sameFile = false;
+    try { sameFile = el.getAttribute("src") === file; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx loadClip: sameFile = el.getAttribute('src') === file; }:", cbErr); }
+    if (sameFile && srcRef.current === clipSrc) {
+      /* Already on this clip (a warmed preload promoted to current, or a
+         resume re-issuing play): do not tear down the decoder, restart
+         the stall clock, or touch ready state — just make sure it plays. */
+      if (!preloadOnly) guardedPlay();
+      return;
+    }
+    srcRef.current = clipSrc;
+    readyRef.current = false;
+    clearTimeout(stallRef.current);
+    /* The poster always matches the clip being loaded: a clip that fails
+       to decode leaves its own graded still behind, never a gray plane. */
+    setPosterUrl(filmPoster(clipSrc));
+    if (pos) { try { el.style.objectPosition = pos; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.style.objectPosition = pos; }:", cbErr); } }
+    if (preloadOnly) { try { el.preload = "auto"; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.preload = 'auto'; }:", cbErr); } }
+    try { el.src = file; el.load(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.src = file; el.load(); }:", cbErr); }
+    stallRef.current = setTimeout(() => {
+      /* Stall guard: never playable -> hold the poster. The video stays
+         at opacity 0 over its poster layer; the parent may move to
+         another source via onStalled. */
+      if (!readyRef.current) {
+        try { if (onStalledRef.current) onStalledRef.current(clipSrc); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onStalledRef.current) onStalledRef.current(clipSrc); }:", cbErr); }
+      }
+    }, stallMs);
+    if (!preloadOnly) guardedPlay();
+  };
+
+  /* Leave no dead src behind: a clip that 404s must unload so a later
+     load takes the normal path instead of fading up black. */
+  const unload = () => {
+    const el = vref.current;
+    if (!el) return;
+    clearTimeout(stallRef.current);
+    readyRef.current = false;
+    srcRef.current = null;
+    visibleTargetRef.current = false;
+    try { el.removeAttribute("src"); el.load(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx unload: el.removeAttribute('src'); el.load(); }:", cbErr); }
+    applyVisibility();
+  };
+
+  /* Element listeners, mounted once. canplay is the poster's release:
+     only usable media data lets the video fade up. */
+  useEffect(() => {
+    const el = vref.current;
+    if (!el) return;
+    const onCanPlay = () => {
+      clearTimeout(stallRef.current);
+      readyRef.current = true;
+      applyVisibility();
+      try { if (onReadyRef.current) onReadyRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onCanPlay: if (onReadyRef.current) onReadyRef.current(); }:", cbErr); }
+    };
+    const onLd = () => { try { if (onLoadedDataRef.current) onLoadedDataRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onLd: if (onLoadedDataRef.current) onLoadedDataRef.current(); }:", cbErr); } };
+    const onErr = () => {
+      clearTimeout(stallRef.current);
+      try { if (onErrorRef.current) onErrorRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onErr: if (onErrorRef.current) onErrorRef.current(); }:", cbErr); }
+    };
+    const onPS = () => {
+      try { if (onPlayStateRef.current) onPlayStateRef.current(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onPS: if (onPlayStateRef.current) onPlayStateRef.current(); }:", cbErr); }
+      let playing = false;
+      try { playing = !el.paused; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onPS: playing = !el.paused; }:", cbErr); }
+      if (playingRef.current !== playing) {
+        playingRef.current = playing;
+        try { if (onPlaybackChangeRef.current) onPlaybackChangeRef.current(playing); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: if (onPlaybackChangeRef.current) onPlaybackChangeRef.current(playing);:", cbErr); }
+      }
+    };
+    el.addEventListener("canplay", onCanPlay);
+    el.addEventListener("loadeddata", onLd);
+    el.addEventListener("error", onErr);
+    el.addEventListener("play", onPS);
+    el.addEventListener("playing", onPS);
+    el.addEventListener("pause", onPS);
+    return () => {
+      clearTimeout(stallRef.current);
+      el.removeEventListener("canplay", onCanPlay);
+      el.removeEventListener("loadeddata", onLd);
+      el.removeEventListener("error", onErr);
+      el.removeEventListener("play", onPS);
+      el.removeEventListener("playing", onPS);
+      el.removeEventListener("pause", onPS);
+    };
+  }, []);
+
+  /* Declarative drive: a src prop means the parent is not driving the
+     slot API — the layer loads the clip itself. */
+  useEffect(() => {
+    if (!declarative) return;
+    loadClip(src, { objectPosition });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, declarative]);
+  useEffect(() => {
+    if (!declarative) return;
+    visibleTargetRef.current = !!visible;
+    applyVisibility();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, declarative]);
+  useEffect(() => {
+    if (!declarative) return;
+    if (!active) pause();
+    else if (srcRef.current) guardedPlay();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, declarative]);
+
+  /* The visibility contract (§5): pause the decoder the moment the tab
+     hides; on foreground, re-run the muted-inline play sequence rather
+     than assuming playback resumed. The reel passes
+     manageVisibility={false} and runs its own (it also has timers to
+     restart); everyone else gets this. */
+  useEffect(() => {
+    if (!manageVisibility) return;
+    const onVis = () => {
+      const el = vref.current;
+      if (!el) return;
+      if (document.hidden) { try { el.pause(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: el.pause(); }:", cbErr); } }
+      else if (activeRef.current && visibleTargetRef.current && srcRef.current) guardedPlay();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [manageVisibility]);
+
+  /* The slot API for the reel: everything the old code did by touching
+     the <video> directly, now behind named operations. */
+  useImperativeHandle(ref, () => ({
+    loadClip: (s, opts) => loadClip(s, opts),
+    preloadClip: (s, opts) => loadClip(s, { ...(opts || {}), preloadOnly: true }),
+    unload: () => unload(),
+    guardedPlay: () => guardedPlay(),
+    /* Gesture-context playback: runs inside the tap's own window, the one
+       place iOS Low Power Mode honours play(). */
+    playNow: () => { notifiedRef.current = false; guardedPlay(); return true; },
+    pause: () => pause(),
+    setVisible: (v) => { visibleTargetRef.current = !!v; applyVisibility(); },
+    /* zIndex staging for the dip-free dissolve: the incoming slot rises
+       above the outgoing while it fades in over it. */
+    setZ: (z) => { try { if (layerRef.current) layerRef.current.style.zIndex = String(z); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: if (layerRef.current) layerRef.current.style.zIndex = String(z); }:", cbErr); } },
+    /* After the crossfade the outgoing slot is fully covered: drop it
+       instantly (no second fade) and pause its decoder — this is the
+       "pause offscreen video after crossfades" half of the contract. */
+    snapHide: () => {
+      visibleTargetRef.current = false;
+      const el = vref.current;
+      if (!el) return;
+      try {
+        const t = el.style.transition;
+        el.style.transition = "none";
+        el.style.opacity = "0";
+        void el.offsetWidth;
+        el.style.transition = t;
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: const t = el.style.transition;:", cbErr); }
+    },
+    isPaused: () => { try { return !vref.current || vref.current.paused; } catch { return true; } },
+  }));
+
+  const wrapStyle = {
+    position: pinned ? "fixed" : "absolute",
+    inset: 0,
+    overflow: "hidden",
+    pointerEvents: "none",
+    ...style,
+  };
+  return (
+    <div ref={layerRef} className={"cb-film-layer " + className} aria-hidden="true" style={wrapStyle}>
+      {/* Poster beneath the video, always: first paint, blocked reel,
+          and the frames before a decoder produces a picture — a graded
+          still, never a gray plane. */}
+      <div className="cb-film-layer-poster" style={posterUrl ? { backgroundImage: `url("${posterUrl}")` } : undefined} />
+      <video
+        ref={vref}
+        className="cb-film-layer-video"
+        muted
+        autoPlay
+        loop={loop}
+        playsInline
+        webkit-playsinline="true"
+        disablePictureInPicture
+        preload={preload}
+        poster={posterUrl || undefined}
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{
+          objectPosition,
+          opacity: 0,
+          transition: reduceMotion ? "none" : `opacity ${fadeMs}ms var(--cb-ease)`,
+        }}
+      />
+      {dim > 0 && (
+        <div className="cb-film-layer-dim" style={{ background: dimColor, opacity: dim }} />
+      )}
+    </div>
+  );
+});
 
 export const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, onPlaybackChange, startAt = null, holdMs = FILM_HOLD_MS, proReel = false }, ref) {
   const aRef = useRef(null);

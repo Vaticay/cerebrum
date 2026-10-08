@@ -144,9 +144,9 @@ await test("the old worked-example section is gone — the specimen is the examp
 group("Playback truth — labels follow the video element, not intent flags");
 
 await test("CinematicFilm listens to real media events", () => {
-  assert.ok(appSrc.includes('addEventListener("playing"'), "no playing listener");
-  assert.ok(appSrc.includes('addEventListener("pause"'), "no pause listener");
-  assert.ok(appSrc.includes('addEventListener("play"'), "no play listener");
+  assert.ok(cssSrc.includes('addEventListener("playing"'), "no playing listener");
+  assert.ok(cssSrc.includes('addEventListener("pause"'), "no pause listener");
+  assert.ok(cssSrc.includes('addEventListener("play"'), "no play listener");
 });
 
 await test("playback state is reported to the parent via onPlaybackChange", () => {
