@@ -24816,10 +24816,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
    scholarly shape: a small rectangular reference, not a chat badge. */
 .cb-cite {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 24px; height: 22px; padding: 0 5px; margin: 0 1px;
-  border: 1px solid currentColor; border-radius: 6px;
-  font-family: var(--cb-mono); font-size: 12px; font-weight: 600; line-height: 1;
-  vertical-align: 2px; cursor: pointer; background: transparent; opacity: 1;
+  min-width: 20px; height: 18px; padding: 0 4px; margin: 0 1px;
+  border: 1px solid currentColor; border-radius: 2px;
+  font-family: var(--cb-mono); font-size: 11px; font-weight: 600; line-height: 1;
+  vertical-align: 2px; cursor: pointer; background: transparent; opacity: 0.85;
 }
 .cb-cite:hover, .cb-cite[data-active="true"] { opacity: 1; background: color-mix(in srgb, var(--cb-acc) 14%, transparent); }
 /* The 44px hit area lives on a positioned pseudo-element: the glyph keeps
