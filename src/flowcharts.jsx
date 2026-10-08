@@ -9,7 +9,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
+import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS, MOTION } from "./designSystem.jsx";
 import { getCookie, __cbMotionCache, cbMotionCacheSet, download, selectChrome } from "./appUtils.js";
 import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
 
@@ -46,11 +46,15 @@ export function Dialog({
   // Optional Escape override: called instead of onClose when the dialog is
   // topmost (e.g. FlowchartStudio dismisses its export menu first).
   onEscape = null,
+  // Exit animation: when provided, Dialog stays mounted during exit.
+  // Parent should render <Dialog open={isOpen} /> instead of {isOpen && <Dialog />}.
+  open = true,
 }) {
   const panelRef = useRef(null);
   const idRef = useRef(null);
   if (idRef.current === null) idRef.current = "cbdlg-" + Math.random().toString(36).slice(2);
   const [entered, setEntered] = useState(false);
+  const [closing, setClosing] = useState(false);
   const animate = !cbMotionOff();
   /* The key handler is registered once on mount (capture phase), but the
      callbacks it invokes must stay fresh — e.g. FlowchartStudio's onEscape
@@ -90,7 +94,7 @@ export function Dialog({
         // handler (command palette, notebook overlay) sees it.
         e.stopPropagation();
         if (onEscapeRef.current) onEscapeRef.current();
-        else if (dismissable) onCloseRef.current();
+        else if (dismissable) requestClose();
         return;
       }
       if (e.key === "Tab" && panelRef.current) {
@@ -130,6 +134,29 @@ export function Dialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Exit animation: when `open` becomes false, play the exit transition
+  // before unmounting. Uses MOTION.panel duration (150ms for exit, snappier
+  // than the 280ms entrance).
+  useEffect(() => {
+    if (!open && !closing) {
+      setClosing(true);
+      setEntered(false);
+    }
+  }, [open, closing]);
+
+  // requestClose triggers the exit animation, then calls onClose after
+  // the animation completes. This gives dialogs a smooth exit instead
+  // of instantly unmounting.
+  const requestClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    setEntered(false);
+    const duration = animate ? MOTION.panel * 1000 * 0.6 : 0; // 60% of panel for snappier exit
+    setTimeout(() => {
+      if (onCloseRef.current) onCloseRef.current();
+    }, duration);
+  }, [closing, animate]);
+
   const basePanel = drawer ? {
     width: "min(480px, 94vw)", height: "100%", overflowY: "auto", outline: "none",
     display: "flex", flexDirection: "column",
@@ -145,7 +172,7 @@ export function Dialog({
       // — default to a generic one so AT always announces something.
       aria-label={labelledBy ? undefined : (label || "Dialog")}
       aria-labelledby={labelledBy}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) { if (onEscapeRef.current) onEscapeRef.current(); else if (dismissable) onCloseRef.current(); } }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) { if (onEscapeRef.current) onEscapeRef.current(); else if (dismissable) requestClose(); } }}
       style={{
         position: "fixed", inset: 0, zIndex, display: "flex",
         alignItems: drawer ? "stretch" : "center", justifyContent: drawer ? "flex-end" : "center",
@@ -153,7 +180,7 @@ export function Dialog({
         // Controlled dim — no backdrop-filter blur on the scrim (§4).
         background: "rgba(0,0,0,0.65)",
         opacity: animate ? (entered ? 1 : 0) : 1,
-        transition: animate ? "opacity 280ms ease" : "none",
+        transition: animate ? `opacity ${MOTION.panel * 1000}ms ease` : "none",
         ...scrimStyle,
       }}
     >
@@ -176,7 +203,7 @@ export function Dialog({
           animation: "none",
           opacity: animate ? (entered ? 1 : 0) : 1,
           transform: animate ? (entered ? "translateY(0) scale(1)" : "translateY(10px) scale(0.985)") : "none",
-          transition: animate ? "opacity 280ms ease, transform 280ms cubic-bezier(0.16, 1, 0.3, 1)" : "none",
+          transition: animate ? `opacity ${MOTION.panel * 1000}ms ease, transform ${MOTION.panel * 1000}ms ${MOTION.ease}` : "none",
           ...panelStyle,
         }}
       >
