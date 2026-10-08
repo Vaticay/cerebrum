@@ -2307,7 +2307,7 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
               const state = stream.index == null ? "pending" : i < stream.index ? "done" : i === stream.index ? "active" : "pending";
               return (
                 <React.Fragment key={s.key}>
-                  {i > 0 && <span aria-hidden="true" style={{ margin: "0 7px", color: P.faint, fontSize: 11 }}>→</span>}
+                  {i > 0 && <span aria-hidden="true" style={{ margin: "0 7px", color: P.faint, fontSize: FONT_SIZES.caption }}>→</span>}
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 6,
                     fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: state === "active" ? 650 : 500,
@@ -9800,7 +9800,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</h1>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
-          {isPro && <ProBadge style={{ fontSize: 11 }} />}
+          {isPro && <ProBadge />}
           {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
         </span>
       </div>
@@ -9833,7 +9833,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
               <th style={{ textAlign: "left", padding: "12px 16px", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow, color: P.faint, borderBottom: `1px solid ${P.line}` }}></th>
               {tiers.map((t) => (
                 <th key={t.id} style={{ textAlign: "center", padding: "12px 8px", fontSize: FONT_SIZES.small, fontWeight: 800, color: t.id === tier ? P.ink : P.ink2, borderBottom: `1px solid ${P.line}`, background: t.id === tier ? withAlpha("#d4af37", 0.06) : "transparent" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t.id === "pro" && <ProBadge style={{ fontSize: 11 }} />}{t.name}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t.id === "pro" && <ProBadge />}{t.name}</span>
                 </th>
               ))}
             </tr>
@@ -9873,7 +9873,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
-                  {t.id === "pro" && <ProBadge style={{ fontSize: 11 }} />}{t.name}
+                  {t.id === "pro" && <ProBadge />}{t.name}
                 </span>
                 {current && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>}
               </div>
@@ -12803,7 +12803,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 color: P.ink, fontFamily: "var(--cb-font)",
                 letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.02,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-              }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={18} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 11 }} />}</h1>
+              }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={18} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge />}</h1>
             )}
             {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
             <div style={{ marginTop: 5, fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>
@@ -13461,7 +13461,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{founder.name}</span>
                     <VerifiedCheck size={15} />
-                    {founder.isPro && <ProBadge style={{ fontSize: 11 }} />}
+                    {founder.isPro && <ProBadge />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>
                     @{founder.username} · Founder &amp; Owner
@@ -13797,7 +13797,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <h2 style={{ fontSize: 26, fontWeight: 800, color: P.ink, margin: 0, letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.05, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
                       {(isFounder || isVerified) && <VerifiedCheck size={16} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
-                      {u.isPro && <ProBadge style={{ fontSize: 11 }} />}
+                      {u.isPro && <ProBadge />}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                       <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
