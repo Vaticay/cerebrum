@@ -14,6 +14,7 @@
 
 import { useState, useRef, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
+import { PALETTES } from "./palettes.js";
 
 export const FONT_SIZES = {
   // The 6-role editorial scale (DESIGN_RESEARCH.md §7.1): every size in

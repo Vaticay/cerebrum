@@ -50,7 +50,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
         border: `1px solid ${P.line}`,
-        borderRadius: 8, padding: "26px", outline: "none", fontFamily: "var(--cb-font)",
+        borderRadius: RADIUS.md, padding: "26px", outline: "none", fontFamily: "var(--cb-font)",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
       }}
     >
@@ -73,7 +73,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
               <div role="radiogroup" aria-label="Report reason" style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {REPORT_REASONS.map((r) => (
                   <UIButton P={P} variant="ghost" key={r.id} type="button" role="radio" aria-checked={reason === r.id} onClick={() => setReason(r.id)} style={{ minHeight: 44,
-                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: 8, cursor: "pointer",
+                    fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: RADIUS.md, cursor: "pointer",
                     fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease",
                     background: reason === r.id ? withAlpha(accent, 0.16) : "transparent",
                     color: reason === r.id ? accent : P.ink2,
@@ -85,14 +85,14 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="Add context for the review team (optional)" placeholder="Add context for the review team" style={{
-                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: 8,
+                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: RADIUS.md,
                 border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
                 color: P.ink, fontFamily: "var(--cb-font)", resize: "vertical", outline: "none",
               }} />
             </div>
             <button type="submit" disabled={submitting} style={{
               width: "100%", padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 600,
-              background: accent, color: at, border: "none", borderRadius: 8,
+              background: accent, color: at, border: "none", borderRadius: RADIUS.md,
               cursor: submitting ? "default" : "pointer",
               opacity: submitting ? 0.6 : 1,
               fontFamily: "var(--cb-font)",
@@ -1059,27 +1059,27 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     person" is. */}
                 {activeThread.kind === "dm" && activeThread.otherId && (
                   <div style={{ position: "relative" }}>
-                    <UIButton P={P} variant="ghost" onClick={() => setMenuOpen((v) => !v)} aria-label="Conversation options" aria-haspopup="true" aria-expanded={menuOpen} style={{ width: 44, height: 44, borderRadius: 8, border: "none", background: menuOpen ? withAlpha(accent, 0.12) : "transparent", color: P.ink2, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                    <UIButton P={P} variant="ghost" onClick={() => setMenuOpen((v) => !v)} aria-label="Conversation options" aria-haspopup="true" aria-expanded={menuOpen} style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", background: menuOpen ? withAlpha(accent, 0.12) : "transparent", color: P.ink2, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                       <Icon name="moreVertical" size={17} />
                     </UIButton>
                     {menuOpen && (<>
                       <div onClick={() => setMenuOpen(false)} aria-hidden="true" style={{ position: "fixed", inset: 0, zIndex: Z.dropdown }} />
                       <div style={{
                         position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: Z.dropdownMenu, minWidth: 200,
-                        background: P.dark ? "rgba(22,24,34,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: 8,
+                        background: P.dark ? "rgba(22,24,34,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
                         boxShadow: "0 12px 32px rgba(0,0,0,0.22)", padding: 6, display: "flex", flexDirection: "column",
                       }}>
-                        <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 8, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ minHeight: 44, color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
                         </UIButton>
-                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 8, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
                         {/* E2EE Phase 1.4 — safety numbers. Only on encrypted
                             DMs: there's nothing to verify on a plaintext
                             thread. */}
                         {activeThread.encrypted && (
-                          <UIButton P={P} variant="ghost" onClick={openSafetyModal} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: 8, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                          <UIButton P={P} variant="ghost" onClick={openSafetyModal} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                             <Icon name="shield" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Verify encryption
                           </UIButton>
                         )}
@@ -1220,7 +1220,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightbox(m.attachmentData); } }}
                           style={{
                             marginTop: m.text ? 8 : 0, display: "block", maxWidth: "100%", maxHeight: 340,
-                            borderRadius: 12, cursor: "zoom-in", border: `1px solid ${P.line}`, objectFit: "cover",
+                            borderRadius: RADIUS.lg, cursor: "zoom-in", border: `1px solid ${P.line}`, objectFit: "cover",
                           }}
                         />
                       )}
@@ -1230,7 +1230,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           readable at all by someone who can't play audio. */}
                       {m.attachmentKind === "audio" && m.attachmentData && (
                         <div style={{
-                          marginTop: m.text ? 8 : 0, padding: "12px 12px", borderRadius: 12, minWidth: 220,
+                          marginTop: m.text ? 8 : 0, padding: "12px 12px", borderRadius: RADIUS.lg, minWidth: 220,
                           background: m.mine ? withAlpha(at, 0.14) : (P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"),
                           border: `1px solid ${m.mine ? withAlpha(at, 0.25) : P.line}`,
                         }}>
@@ -1252,7 +1252,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         <a
                           href={safeHref(m.attachmentUrl || "#")} target="_blank" rel="noopener noreferrer"
                           style={{
-                            marginTop: m.text ? 8 : 0, padding: "12px 16px", borderRadius: 12, display: "block",
+                            marginTop: m.text ? 8 : 0, padding: "12px 16px", borderRadius: RADIUS.lg, display: "block",
                             background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.28)}`, textDecoration: "none",
                           }}
                         >
@@ -1270,7 +1270,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       )}
                       {m.attachmentKind !== "image" && m.attachmentKind !== "audio" && m.attachmentKind !== "paper" && m.attachmentTitle && (
                         <div style={{
-                          marginTop: 8, padding: "12px 16px", borderRadius: 8, display: "flex", alignItems: "center", gap: 10,
+                          marginTop: 8, padding: "12px 16px", borderRadius: RADIUS.md, display: "flex", alignItems: "center", gap: 10,
                           background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
                         }}>
                           <Icon name="external" size={15} style={{ color: accent, flexShrink: 0 }} />
@@ -1424,7 +1424,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       >
         <img src={lightbox} alt="Attached" role="button" tabIndex={0} aria-label="Attached image. Activate to close."
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightbox(null); } }}
-          style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 12, objectFit: "contain" }} onClick={() => setLightbox(null)} />
+          style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: RADIUS.lg, objectFit: "contain" }} onClick={() => setLightbox(null)} />
       </Dialog>
     )}
     {reportModal && activeThread && (
@@ -1464,7 +1464,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           ) : (<>
             {safetyModal.changed && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", borderRadius: 12, background: withAlpha(STATUS.bad, 0.12), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", borderRadius: RADIUS.lg, background: withAlpha(STATUS.bad, 0.12), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, marginBottom: 16 }}>
                 <Icon name="warning" size={17} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
                 <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: mInk, fontFamily: "var(--cb-font)" }}>
                   <strong>The security numbers changed.</strong> {activeThread.name}'s devices changed since you last verified. Make sure this was them — a new phone, a reinstalled app — before continuing. If you can't confirm it, don't send anything sensitive.
@@ -1473,12 +1473,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
             <div style={{
               display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8,
-              padding: 16, borderRadius: 12, background: mCard,
+              padding: 16, borderRadius: RADIUS.lg, background: mCard,
               border: `1px solid ${mLine}`, marginBottom: 14,
             }}>
               {(safetyModal.number || "").split(" ").map((g, i) => (
                 <div key={i} style={{
-                  textAlign: "center", padding: "8px 4px", borderRadius: 8,
+                  textAlign: "center", padding: "8px 4px", borderRadius: RADIUS.md,
                   background: isMobile && !P.dark ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)",
                   fontSize: FONT_SIZES.body, fontWeight: 700, letterSpacing: TRACKING.eyebrow,
                   color: mInk, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums",
@@ -1529,7 +1529,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               aria-label="Group name"
               autoFocus={!isMobile}
               style={{
-                width: "100%", padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
                 background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                 border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
               }}
@@ -1555,7 +1555,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               placeholder="Search a name or @username"
               aria-label="Search people to add"
               style={{
-                width: "100%", padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
                 background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                 border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
               }}
@@ -1567,7 +1567,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {groupResults.length > 0 && (
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
                 {groupResults.map((r) => (
-                  <button key={r.id} onClick={() => { setGroupMembers((prev) => [...prev, r]); setGroupQuery(""); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+                  <button key={r.id} onClick={() => { setGroupMembers((prev) => [...prev, r]); setGroupQuery(""); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44 }}>
                     <span style={{ width: 32, height: 32, borderRadius: "50%", background: withAlpha(accent, 0.14), color: accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 700, flexShrink: 0 }}>
                       {(r.name || r.username || "?").charAt(0).toUpperCase()}
                     </span>
@@ -1613,7 +1613,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 onChange={(e) => setSettingsName(e.target.value.slice(0, 80))}
                 aria-label="Group name"
                 style={{
-                  flex: 1, minWidth: 0, padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                  flex: 1, minWidth: 0, padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
                   background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
                 }}
@@ -1649,7 +1649,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       disabled={settingsBusy === "remove:" + m.id}
                       aria-label={`Remove ${m.name || m.username}`}
                       title={`Remove ${m.name || m.username}`}
-                      style={{ width: 44, height: 44, borderRadius: 8, border: "none", background: "transparent", color: P.faint, cursor: settingsBusy === "remove:" + m.id ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                      style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: settingsBusy === "remove:" + m.id ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
                     >
                       {settingsBusy === "remove:" + m.id ? <span style={{ fontSize: FONT_SIZES.micro }}>…</span> : <Icon name="close" size={13} />}
                     </UIButton>
@@ -1666,7 +1666,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               placeholder="Search a name or @username"
               aria-label="Search people to add"
               style={{
-                width: "100%", padding: "12px 12px", borderRadius: 8, fontSize: 16,
+                width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
                 background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                 border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
               }}
@@ -1678,7 +1678,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {settingsResults.length > 0 && (
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
                 {settingsResults.map((r) => (
-                  <button key={r.id} onClick={() => addGroupMembers([r.id])} disabled={settingsBusy === "add"} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, border: "none", background: "transparent", cursor: settingsBusy === "add" ? "default" : "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44, opacity: settingsBusy === "add" ? 0.5 : 1 }}>
+                  <button key={r.id} onClick={() => addGroupMembers([r.id])} disabled={settingsBusy === "add"} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: settingsBusy === "add" ? "default" : "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44, opacity: settingsBusy === "add" ? 0.5 : 1 }}>
                     <span style={{ width: 32, height: 32, borderRadius: "50%", background: withAlpha(accent, 0.14), color: accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 700, flexShrink: 0 }}>
                       {(r.name || r.username || "?").charAt(0).toUpperCase()}
                     </span>
