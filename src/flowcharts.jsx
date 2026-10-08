@@ -153,7 +153,7 @@ export function Dialog({
         // Controlled dim — no backdrop-filter blur on the scrim (§4).
         background: "rgba(0,0,0,0.65)",
         opacity: animate ? (entered ? 1 : 0) : 1,
-        transition: animate ? "opacity 200ms ease" : "none",
+        transition: animate ? "opacity 280ms ease" : "none",
         ...scrimStyle,
       }}
     >
@@ -176,7 +176,7 @@ export function Dialog({
           animation: "none",
           opacity: animate ? (entered ? 1 : 0) : 1,
           transform: animate ? (entered ? "translateY(0) scale(1)" : "translateY(10px) scale(0.985)") : "none",
-          transition: animate ? "opacity 200ms ease, transform 240ms cubic-bezier(0.16,1,0.3,1)" : "none",
+          transition: animate ? "opacity 280ms ease, transform 280ms cubic-bezier(0.16, 1, 0.3, 1)" : "none",
           ...panelStyle,
         }}
       >

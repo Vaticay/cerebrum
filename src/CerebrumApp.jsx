@@ -1596,14 +1596,14 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
       >
         <Icon name="filter" size={12} />
         {isDefault ? "Add constraints" : active[1]}
-        <span aria-hidden="true" style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.22s cubic-bezier(0.16,1,0.3,1)" }}>
+        <span aria-hidden="true" style={{ display: "inline-flex", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)" }}>
           <Icon name="chevronDown" size={12} />
         </span>
       </UIButton>
       <div style={{
         display: "grid",
         gridTemplateRows: open ? "1fr" : "0fr",
-        transition: "grid-template-rows 0.32s cubic-bezier(0.16,1,0.3,1), opacity 0.24s ease, visibility 0.24s",
+        transition: "grid-template-rows 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.24s ease, visibility 0.24s",
         opacity: open ? 1 : 0,
         // A collapsed panel with opacity 0 still leaves its tier buttons
         // in the Tab order — visibility:hidden removes them from the
@@ -2226,7 +2226,7 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
 
   useEffect(() => {
     if (done) return undefined;
-    // 200ms, not 100ms: this is a clock, and re-rendering it ten times a
+    // 280ms, not 100ms: this is a clock, and re-rendering it ten times a
     // second to move a digit that changes once a second is wasted work
     // during the most performance-sensitive moment in the app.
     const id = setInterval(() => setElapsed(performance.now() - startRef.current), 200);
@@ -2283,7 +2283,7 @@ function ReadingRoom({ P, accent, q, done = false, sourcesQueried = null, contex
 
       <div className="cb-dive-center">
         <div className="cb-dive-elabel">Elapsed</div>
-        {/* The clock ticks every 200ms — it must not live inside the
+        {/* The clock ticks every 280ms — it must not live inside the
             aria-live region or screen readers re-announce the whole room
             five times a second. aria-live="off" keeps it out of the
             announcement stream. */}
@@ -2773,7 +2773,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
             padding: "0 24px calc(20px + env(safe-area-inset-bottom))",
             fontFamily: "var(--cb-font)",
             transform: dragY ? `translateY(${dragY}px)` : undefined,
-            animation: dragY ? undefined : "cbPeekSheetIn .32s cubic-bezier(0.16,1,0.3,1) both",
+            animation: dragY ? undefined : "cbPeekSheetIn .32s cubic-bezier(0.16, 1, 0.3, 1) both",
           }}
         >
           {/* Drag handle: 44px tall so it's a real touch target, not a
@@ -2787,12 +2787,12 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{
-              fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 600, color: accentInk(P, accent),
+              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, color: accentInk(P, accent),
               background: withAlpha(accent, 0.13), border: "1px solid " + withAlpha(accent, 0.28),
               borderRadius: RADIUS.pill, padding: "2px 12px",
             }}>Source {n}</span>
             <span style={{
-              fontSize: 10, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase",
+              fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase",
               borderRadius: RADIUS.pill, padding: "3px 12px",
               background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
               color: fullText ? accent : P.faint,
@@ -2863,16 +2863,16 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           ? "inset 0 1px 0 rgba(255,255,255,0.06), 0 20px 56px rgba(0,0,0,0.55)"
           : "0 20px 48px rgba(34,37,42,0.16)",
         padding: "16px 16px 13px", fontFamily: "var(--cb-font)",
-        animation: "cbPeekIn .22s cubic-bezier(0.16,1,0.3,1) both",
+        animation: "cbPeekIn .22s cubic-bezier(0.16, 1, 0.3, 1) both",
       }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{
-          fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 600, color: accentInk(P, accent),
+          fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, color: accentInk(P, accent),
           background: withAlpha(accent, 0.13), border: "1px solid " + withAlpha(accent, 0.28),
           borderRadius: RADIUS.pill, padding: "1px 8px",
         }}>{n}</span>
         <span style={{
-          fontSize: 10, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase",
+          fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase",
           borderRadius: RADIUS.pill, padding: "2px 8px",
           background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
           color: fullText ? accent : P.faint,
@@ -2887,13 +2887,13 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
       </div>
 
       <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{src.title}</div>
-      {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: 11, color: P.faint, marginBottom: 6 }}>{meta}</div>}
+      {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>{meta}</div>}
       {/* #18: the tooltip names the paper fully — title, venue/year above,
           and a DOI link when the record carries one. Hover and focus both
           land here (see renderInlineSegments' onMouseEnter/onFocus), so
           keyboard readers get the same provenance. */}
       {doiHref(src) && (
-        <div style={{ fontFamily: "var(--cb-font)", fontSize: 11, color: P.faint, marginBottom: 8 }}>
+        <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 8 }}>
           DOI&nbsp;
           <a href={doiHref(src)} target="_blank" rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -2988,7 +2988,7 @@ function flyToLibrary(fromEl, accent) {
       width: "14px", height: "14px", borderRadius: "50%",
       background: accent || "#A3B899",
       boxShadow: "0 0 0 6px " + (accent || "#A3B899") + "22, 0 6px 18px rgba(0,0,0,0.4)",
-      transition: "transform .55s cubic-bezier(0.4, 0, 0.2, 1), opacity .55s ease",
+      transition: "transform .55s cubic-bezier(0.16, 1, 0.3, 1), opacity .55s ease",
     });
     document.body.appendChild(dot);
 
@@ -3044,7 +3044,7 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
           How independent is this evidence
         </span>
         <span style={{
-          marginLeft: "auto", fontFamily: "var(--cb-font)", fontSize: 10,
+          marginLeft: "auto", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption,
           color: P.faint, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "2px 8px",
         }}>counted, not written</span>
       </div>
@@ -3071,7 +3071,7 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
           {ancestors.map((a, i) => (
             <div key={i} style={{ display: "flex", gap: 9, alignItems: "flex-start", marginBottom: 6 }}>
               <span style={{
-                fontFamily: "var(--cb-font)", fontSize: 10, color: accentInk(P, accent), flexShrink: 0, paddingTop: 2,
+                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: accentInk(P, accent), flexShrink: 0, paddingTop: 2,
                 whiteSpace: "nowrap",
               }}>{a.citedBy}/{papers}</span>
               <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5 }}>
@@ -4598,10 +4598,10 @@ function InfoPage({ page }) {
         .cb-info-block li:last-child { border-bottom: none; }
         .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 18px; width: 5px; height: 5px; border-radius: 50%; background: ${accent}; }
         .cb-info-navlink { position: relative; transition: color .15s ease; }
-        .cb-info-navlink::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; background: ${accent}; border-radius: 2px; transform: scaleX(0); transform-origin: left; transition: transform .25s cubic-bezier(0.4, 0, 0.2, 1); }
+        .cb-info-navlink::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; background: ${accent}; border-radius: 2px; transform: scaleX(0); transform-origin: left; transition: transform .25s cubic-bezier(0.16, 1, 0.3, 1); }
         .cb-info-navlink:hover { color: ${accent} !important; }
         .cb-info-navlink:hover::after, .cb-info-navlink[aria-current="page"]::after { transform: scaleX(1); }
-        .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16,1,0.3,1) both; }
+        .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16, 1, 0.3, 1) both; }
         @keyframes cbInfoFade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
       `}</style>
       <header style={{ position: "sticky", top: 0, zIndex: Z.sticky }}>
@@ -4796,7 +4796,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     return seen.length > 1 ? seen.sort() : null;
   }, [sources]);
   /* Pass 6: a plain quiet text action — never a letterspaced caps button. */
-  const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-mono)", fontSize: 11, fontWeight: 500, color: P.faint };
+  const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
   const ctlBtn = {
     minHeight: 44, display: "inline-flex", alignItems: "center", padding: "12px 16px",
@@ -4821,7 +4821,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
       <span style={{ position: "relative", display: "inline-flex" }}>
         <UIButton P={P} variant="ghost" onClick={() => setExportOpen((v) => !v)} aria-haspopup="menu" aria-expanded={exportOpen} style={ctlBtn}>
           Export
-          <span aria-hidden="true" style={{ marginLeft: 6, fontSize: 10, color: P.faint }}>▾</span>
+          <span aria-hidden="true" style={{ marginLeft: 6, fontSize: FONT_SIZES.caption, color: P.faint }}>▾</span>
         </UIButton>
         {exportOpen && (
           <>
@@ -4996,7 +4996,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ fontSize: 11, fontWeight: 700, color: source.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: source.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
             {source.retracted ? "Retracted" : "Expression of concern"}
           </div>
         )}
@@ -5005,7 +5005,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
             numbered list imply they back a claim. */}
         {source.uncited && (
           <div title={source.uncitedReason || "Not cited by the answer"} className="cb-further-pill"
-            style={{ fontSize: 11, fontWeight: 600, color: P.faint, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+            style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
             Further reading — not cited above
           </div>
         )}
@@ -5188,7 +5188,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
   };
 
   return (
-    <Dialog label="Cerebrum Pro" onClose={onClose} zIndex={220} width={540}
+    <Dialog label="Cerebrum Pro" onClose={onClose} zIndex={220} width={640}
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
@@ -5525,7 +5525,7 @@ function ReportModal({ query, P, accent, at, onClose }) {
   ];
 
   return (
-    <Dialog label="Report data issue" onClose={onClose} zIndex={220} width={460}
+    <Dialog label="Report data issue" onClose={onClose} zIndex={220} width={440}
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
@@ -5822,7 +5822,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
      the diagram's data speaks, not its chrome. */
   const regionLabel = (x, text, count) => (
     <text x={x} y={336} textAnchor="middle" fill={P.faint}
-      style={{ fontFamily: "var(--cb-mono)", fontSize: 11, fontWeight: 500 }}>
+      style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, fontWeight: 500 }}>
       {text.toLowerCase()} · {count}
     </text>
   );
@@ -6924,7 +6924,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         </button>
         <div style={{ minWidth: 0 }}>
           {(s.retracted || s.concern) && (
-            <div style={{ fontSize: 11, fontWeight: 700, color: s.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: s.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
               {s.retracted ? "Retracted" : "Expression of concern"}
             </div>
           )}
@@ -6938,7 +6938,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
             <div style={{ marginTop: 6 }}>
               <a href={doiHref} target="_blank" rel="noreferrer" className="cb-mono"
                 onClick={(e) => e.stopPropagation()}
-                style={{ fontSize: 11, color: accent, textDecoration: "none", overflowWrap: "anywhere" }}>
+                style={{ fontSize: FONT_SIZES.caption, color: accent, textDecoration: "none", overflowWrap: "anywhere" }}>
                 doi:{doi}
               </a>
             </div>
@@ -6961,13 +6961,13 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         background: P.surface, borderTop: `1px solid ${P.line}`, borderRadius: "16px 16px 0 0",
         boxShadow: "0 -24px 64px rgba(0,0,0,0.4)",
         display: "flex", flexDirection: "column",
-        animation: "cbSheetIn .3s cubic-bezier(0.16,1,0.3,1) both",
+        animation: "cbSheetIn .3s cubic-bezier(0.16, 1, 0.3, 1) both",
       } : {
         position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: Z.drawer,
         background: P.surface, borderLeft: `1px solid ${P.line}`,
         boxShadow: "-24px 0 64px rgba(0,0,0,0.35)",
         display: "flex", flexDirection: "column",
-        animation: "cbDrawerIn .28s cubic-bezier(0.16,1,0.3,1) both",
+        animation: "cbDrawerIn .28s cubic-bezier(0.16, 1, 0.3, 1) both",
       }}>
       {isMobile && (
         <div aria-hidden="true" style={{ padding: "12px 0 2px", display: "flex", justifyContent: "center", flexShrink: 0 }}>
@@ -7030,7 +7030,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
   const ytId = getYouTubeId(video);
   const poster = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : (video.thumbnail || null);
   return (
-    <Dialog label={video.title || "Video"} onClose={close} zIndex={217} width={860}
+    <Dialog label={video.title || "Video"} onClose={close} zIndex={217} width={880}
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         border: `1px solid ${P.line}`,
@@ -7591,7 +7591,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   {linkCopied ? "Link copied" : "Share"}
                 </button>
                 {shareUrl && (
-                  <Dialog label="Share this answer" onClose={() => setShareUrl(null)} zIndex={230} width={480}>
+                  <Dialog label="Share this answer" onClose={() => setShareUrl(null)} zIndex={230} width={440}>
                     <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginBottom: 12, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
                       Copy the link below to share this answer.
                     </div>
@@ -8061,7 +8061,7 @@ const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
 function ImportLocalDataPrompt({ P, accent, at, savedCount, historyCount, onImport, onSkip }) {
   return (
     <Dialog label="Import your existing data" onClose={onSkip} dismissable={false}
-      zIndex={216} width={400}
+      zIndex={216} width={440}
       panelStyle={{ background: P.bg, borderRadius: RADIUS.md, padding: 26, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }}
     >
         <div style={{ width: 40, height: 40, borderRadius: RADIUS.md, background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}><Icon name="bookmarkFilled" size={18} /></div>
@@ -8183,7 +8183,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
     );
   }
   return (
-    <Dialog label="Collections" onClose={close} zIndex={200} width={780}
+    <Dialog label="Collections" onClose={close} zIndex={200} width={880}
       /* Escape in the rename input cancels the rename (the input's own
          stopPropagation can no longer beat the primitive's capture-phase
          listener); anywhere else it closes the dialog, as before. */
@@ -8632,7 +8632,7 @@ function SourceNetworkGraph({ P, accent, at, sources, close }) {
   // node halos and hairlines read on it in either page theme.
   const darkP = P.dark ? P : PALETTES.Dark;
   return (
-    <ModalChrome label="Source relevance network" eyebrow="Evidence" title="Source network" accent={accent} width={700} onClose={close}>
+    <ModalChrome label="Source relevance network" eyebrow="Evidence" title="Source network" accent={accent} width={880} onClose={close}>
       <div style={{ padding: "6px 2px 0" }}>
         <NetworkGraphBody P={darkP} accent={accent} sources={sources} />
       </div>
@@ -8755,7 +8755,7 @@ function EvidenceTableModal({ P, accent, at, sources, close }) {
   const td = { padding: "12px 0", fontSize: FONT_SIZES.caption, color: P.ink, verticalAlign: "top", fontFamily: "var(--cb-font)", borderTop: `1px solid ${P.line}` };
 
   return (
-    <Dialog label="The evidence, side by side" onClose={close} zIndex={200} width={860}
+    <Dialog label="The evidence, side by side" onClose={close} zIndex={200} width={880}
       panelStyle={{
         background: P.bg, borderRadius: RADIUS.lg, maxHeight: "86dvh", display: "flex",
         flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -10151,7 +10151,7 @@ function LiteratureTimeline({ P, accent, at, turn, close }) {
   const sources = (turn && turn.sources) || [];
   const eras = useMemo(() => groupSourcesIntoEras(sources), [sources]);
   return (
-    <ModalChrome label="The arc of this literature" eyebrow="Evidence" title="The arc of this literature" accent={accent} width={700} tall onClose={close}>
+    <ModalChrome label="The arc of this literature" eyebrow="Evidence" title="The arc of this literature" accent={accent} width={880} tall onClose={close}>
       <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.6)", lineHeight: 1.6, margin: "2px 0 4px" }}>
         The story the cited years tell — foundations, building, current.
       </div>
@@ -10498,7 +10498,7 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.borderColor = withAlpha(accent, 0.35); e.currentTarget.style.transform = "translateY(-1px)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = selected ? withAlpha(accent, 0.12) : "transparent"; e.currentTarget.style.borderColor = selected ? accent : "transparent"; e.currentTarget.style.transform = "none"; }}>
       <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true" style={{ filter: `drop-shadow(0 2px 4px ${withAlpha(accent, 0.25)})` }}>{shape}</svg>
-      <span style={{ fontSize: 10, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 600 }}>{t.name}</span>
+      <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 600 }}>{t.name}</span>
     </button>
   );
 }
@@ -10659,7 +10659,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
   const boxStyle = { width: 44, height: 52, textAlign: "center", fontSize: 22, fontWeight: 700, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
 
   return (
-    <ModalChrome label="Sign in to Cerebrum" P={P} accent={accent} onClose={close} zIndex={215} width={400}
+    <ModalChrome label="Sign in to Cerebrum" P={P} accent={accent} onClose={close} zIndex={215} width={440}
       eyebrow={step === "email" ? "Account" : "Check your email"}
       title={step === "email" ? (intent === "signup" ? "Create your account" : "Sign in") : "Enter your code"}>
 
@@ -11815,7 +11815,7 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
               fontSize: small ? FONT_SIZES.caption : FONT_SIZES.small,
               fontWeight: on ? 700 : 500, fontFamily: "var(--cb-font)",
               letterSpacing: TYPE.heading.letterSpacing, whiteSpace: "nowrap", flexShrink: 0,
-              transition: "color 180ms ease",
+              transition: "color 150ms ease",
             }}
           >{lab}</button>
         );
@@ -11827,7 +11827,7 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
         /* scaleX grows from the left edge: with the default center origin
            the underline would sit half a tab left of its target. */
         transformOrigin: "left center",
-        transition: "transform 250ms cubic-bezier(0.4, 0, 0.2, 1)",
+        transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)",
         opacity: bar.visible ? 1 : 0,
       }} />
     </div>
@@ -12165,7 +12165,7 @@ function StarRating({ P, value, onRate, disabled, size = 16 }) {
               color: filled ? "#e8b44a" : P.faint,
               opacity: disabled ? 0.5 : (filled ? 1 : 0.55),
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              transition: "color 120ms ease, transform 120ms ease",
+              transition: "color 150ms ease, transform 150ms ease",
               transform: hover === star ? "scale(1.15)" : "none",
             }}
           >
@@ -12247,7 +12247,7 @@ function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro })
       <div style={{ ...eyebrowLocal, margin: "0 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
         Start from a template
         {!isPro && (
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: PRO.emeraldInk, background: PRO.emerald, borderRadius: 9999, padding: "2px 8px" }}>PRO</span>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: PRO.emeraldInk, background: PRO.emerald, borderRadius: 9999, padding: "2px 8px" }}>PRO</span>
         )}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
@@ -12723,7 +12723,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           borderBottom: `1px solid ${P.line}`,
           transform: heroGone ? "translateY(0)" : "translateY(-110%)",
           opacity: heroGone ? 1 : 0,
-          transition: "transform 220ms ease, opacity 220ms ease",
+          transition: "transform 280ms ease, opacity 280ms ease",
           pointerEvents: heroGone ? "auto" : "none",
         }}>
           <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0, background: P.surface }}>
@@ -13070,7 +13070,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
              the bar pins, ease the chapters right so the first never slides
              underneath it. */
           paddingLeft: isMobile && tabsStuck ? 64 : undefined,
-          transition: "padding-left 180ms ease",
+          transition: "padding-left 150ms ease",
           borderTop: `1px solid ${P.line}`,
           borderBottom: `1px solid ${P.line}`,
         }}>
@@ -13525,7 +13525,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                     {((r.badges || []).includes("founder") || (r.badges || []).includes("verified")) && (
                       <VerifiedCheck size={14} title={(r.badges || []).includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />
                     )}
-                    {r.isPro && <ProBadge style={{ fontSize: 11, flexShrink: 0 }} />}
+                    {r.isPro && <ProBadge style={{ fontSize: FONT_SIZES.caption, flexShrink: 0 }} />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>@{r.username}</div>
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{subtitle}</div>}
@@ -13569,7 +13569,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
     );
   }
   return (
-    <Dialog label="Find researchers" onClose={close} zIndex={214} width={480}
+    <Dialog label="Find researchers" onClose={close} zIndex={214} width={440}
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
@@ -13752,7 +13752,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
   const context = u ? [u.degree, u.grad_year, u.affiliation].filter(Boolean).join(" · ") : "";
 
   return (
-    <Dialog label={`${displayName}'s profile`} onClose={onClose} zIndex={216} width={520}
+    <Dialog label={`${displayName}'s profile`} onClose={onClose} zIndex={216} width={640}
       scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
       panelStyle={{
         background: P.surface, border: `1px solid ${P.line}`,
@@ -14781,7 +14781,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 <div key={d.fp}
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.background = withAlpha(accent, 0.05); }}
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.background = "transparent"; }}
-                  style={{ minHeight: 44, display: "flex", alignItems: "center", gap: SP.sm, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "6px 6px 6px 12px", width: "100%", transition: "border-color 180ms var(--cb-ease), background 180ms var(--cb-ease)" }}>
+                  style={{ minHeight: 44, display: "flex", alignItems: "center", gap: SP.sm, textAlign: "left", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "6px 6px 6px 12px", width: "100%", transition: "border-color 150ms var(--cb-ease), background 150ms var(--cb-ease)" }}>
                   <button onClick={() => openRecent(d.fp)}
                     style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}
                     aria-label={`Open ${d.title}`}>
@@ -15037,7 +15037,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 <button onClick={() => setShowDocB(true)}
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.faint; e.currentTarget.style.color = P.ink; }}
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; }}
-                  style={{ minHeight: 44, background: "none", border: `1px dashed ${P.line2}`, borderRadius: RADIUS.md, padding: "12px 16px", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", transition: "border-color 180ms var(--cb-ease), color 180ms var(--cb-ease)" }}>
+                  style={{ minHeight: 44, background: "none", border: `1px dashed ${P.line2}`, borderRadius: RADIUS.md, padding: "12px 16px", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", transition: "border-color 150ms var(--cb-ease), color 150ms var(--cb-ease)" }}>
                   Compare with a second document
                 </button>
               ) : (
@@ -15262,16 +15262,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 aria-label="Ask a question about this document"
                 disabled={qaBusy}
                 onFocus={() => setQaFocus(true)} onBlur={() => setQaFocus(false)}
-                style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "12px 13px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${qaFocus ? accent : P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", outline: "none", boxShadow: qaFocus ? `0 0 0 3px ${withAlpha(accent, 0.16)}` : "none", transition: "border-color 180ms var(--cb-ease), box-shadow 180ms var(--cb-ease)" }}
+                style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "12px 13px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${qaFocus ? accent : P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", outline: "none", boxShadow: qaFocus ? `0 0 0 3px ${withAlpha(accent, 0.16)}` : "none", transition: "border-color 150ms var(--cb-ease), box-shadow 150ms var(--cb-ease)" }}
               />
               {qaBusy ? (
                 <button onClick={cancelQa} aria-label="Stop" title="Stop"
-                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "border-color 180ms var(--cb-ease), color 180ms var(--cb-ease)" }}>
+                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "border-color 150ms var(--cb-ease), color 150ms var(--cb-ease)" }}>
                   <Icon name="close" size={15} />
                 </button>
               ) : (
                 <button onClick={askFollowUp} disabled={!qaQuery.trim() || qaBusy} aria-label="Ask"
-                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0, transition: "background 180ms var(--cb-ease), opacity 180ms ease" }}>
+                  style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: (!qaQuery.trim() || qaBusy) ? dimBtnBg : accent, color: (!qaQuery.trim() || qaBusy) ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: (!qaQuery.trim() || qaBusy) ? "default" : "pointer", flexShrink: 0, transition: "background 150ms var(--cb-ease), opacity 150ms ease" }}>
                   <Icon name="send" size={15} />
                 </button>
               )}
@@ -15600,7 +15600,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       borderRight: `1px solid ${P.line}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
-      transition: "transform 240ms cubic-bezier(0.4, 0, 0.2, 1)",
+      transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)",
     },
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "0 0 40px rgba(0,0,0,0.4)" },
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 24px", cursor: "pointer", flexShrink: 0 },
@@ -16130,7 +16130,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       boxShadow: `0 8px 28px ${withAlpha(accent, 0.45)}, 0 2px 8px rgba(0,0,0,0.25)`,
       zIndex: Z.header, fontFamily: "var(--cb-font)",
       display: "flex", alignItems: "center", justifyContent: "center",
-      transition: "transform 260ms var(--cb-ease), opacity 200ms ease",
+      transition: "transform 280ms var(--cb-ease), opacity 280ms ease",
     },
     /* ── Command palette / legacy modals ──
        scrim, cmdWrap/cmdBox/*, modalWrap/modal/modalTitle/modalClose were
@@ -16202,7 +16202,7 @@ async function copyToClipboard(text, successMessage) {
 function CommandPalette({ open, onClose, P, accent, query, setQuery, suggestions, commands, active, setActive, onKeyDown, onAsk, inputRef }) {
   if (!open) return null;
   return (
-    <ModalChrome label="Command palette" P={P} accent={accent} onClose={onClose} zIndex={220} width={560}
+    <ModalChrome label="Command palette" P={P} accent={accent} onClose={onClose} zIndex={220} width={640}
       eyebrow="Command" title={null}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "2px 2px 16px", borderBottom: `1px solid ${P.line}`, marginBottom: 6 }}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke={P.faint} strokeWidth="1.8" /><path d="M21 21l-4-4" stroke={P.faint} strokeWidth="1.8" strokeLinecap="round" /></svg>
@@ -16340,7 +16340,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
   );
 
   return (
-    <Dialog label="Account" onClose={onClose} zIndex={240} width={400}
+    <Dialog label="Account" onClose={onClose} zIndex={240} width={440}
       scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
       panelStyle={{
         background: P.surface, border: `1px solid ${P.line}`,
@@ -16473,7 +16473,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     <nav ref={navRevealRef} aria-label="Main"
       onMouseEnter={() => { if (!isMobile && railCollapsed) setRailHover(true); }}
       onMouseLeave={() => setRailHover(false)}
-      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1), transform 240ms cubic-bezier(0.4, 0, 0.2, 1)", overflowX: "hidden", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "12px 0 40px rgba(0,0,0,0.35)" } : {}) }}>
+      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 280ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.16, 1, 0.3, 1)", overflowX: "hidden", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "12px 0 40px rgba(0,0,0,0.35)" } : {}) }}>
       {/* Explicit close button for the mobile drawer. */}
       {isMobile && mobileOpen && (
         <UIButton P={P} variant="ghost"
@@ -16563,7 +16563,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
                 transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
               }}
               onMouseEnter={hoverIn} onMouseLeave={hoverOut("__rail")}>
-              <span style={{ display: "inline-flex", transform: railCollapsed ? "rotate(180deg)" : "none", transition: "transform 200ms ease" }}>
+              <span style={{ display: "inline-flex", transform: railCollapsed ? "rotate(180deg)" : "none", transition: "transform 280ms ease" }}>
                 <Icon name="chevronLeft" size={16} />
               </span>
             </UIButton>
@@ -16733,7 +16733,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
 
   return (
     <Dialog labelledBy="cb-consent-title" onClose={() => {}} dismissable={false}
-      zIndex={Z.max} width={560}
+      zIndex={Z.max} width={640}
       scrimStyle={{ backdropFilter: "blur(18px) saturate(1.05)", WebkitBackdropFilter: "blur(18px) saturate(1.05)", background: "rgba(0,0,0,0.72)" }}
       panelStyle={{
         background: P.bg, color: P.ink,
@@ -17575,7 +17575,7 @@ function App() {
   const [streamActive, setStreamActive] = useState(false);
   const [searchRequestId, setSearchRequestId] = useState("");
   /* Progress-flash suppression (#23): the ReadingRoom only mounts once the
-     search has been in flight for 200ms, so sub-200ms answers never flash
+     search has been in flight for 280ms, so sub-280ms answers never flash
      a loader. */
   const [showBusy, setShowBusy] = useState(false);
   useEffect(() => {
@@ -19714,7 +19714,7 @@ function App() {
                hands off, so it's the one surface where the two motion
                languages colliding was most obvious: the Intro exits on a
                1.3-1.7s power3.inOut rise, and this used to arrive on a
-               250ms CSS blur-fade. Same GSAP gesture, slightly quicker than
+               280ms CSS blur-fade. Same GSAP gesture, slightly quicker than
                the Intro itself (this is a return-to-home, not a curtain
                raise), so the handoff reads as one continuous motion. The
                glow layer is excluded from the stagger — it's a decorative
@@ -19892,8 +19892,8 @@ function App() {
                       progress the client cannot know. On the SSE path the
                       room also carries the pipeline's real stage rail; the
                       single-fetch fallback renders the room as before.
-                      The room mounts 200ms after the search starts so
-                      sub-200ms answers never flash a loader. */}
+                      The room mounts 280ms after the search starts so
+                      sub-280ms answers never flash a loader. */}
                   <ReadingRoom P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} done={false} contextual={contextBusy} videosLocated={videosLocated}
                     stream={streamActive ? streamStage : null}
                     onCancel={() => { try { askAbortRef.current?.abort("cancelled"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askAbortRef.current?.abort('cancelled'); }:", cbErr); } }} />
@@ -20715,7 +20715,7 @@ function App() {
               position: "absolute", top: -5, right: -5, minWidth: 24, height: 24,
               padding: "0 6px", borderRadius: 9999,
               background: P.dark ? "#f2f4f2" : "#14171a", color: P.dark ? "#14171a" : "#f2f4f2",
-              fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)",
+              fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontVariantNumeric: "tabular-nums",
               border: `2px solid ${P.dark ? "#0b0d10" : "#ffffff"}`,
@@ -20950,9 +20950,9 @@ const CSS = `
      serif at these sizes read as a magazine, and Cerebrum is software. */
   --cb-font:  'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
-  --cb-ease-in: cubic-bezier(0.4, 0, 1, 1);
-  --cb-ease-out: cubic-bezier(0, 0, 0.2, 1);
-  --cb-spring:  cubic-bezier(0.34, 1.45, 0.64, 1);
+  --cb-ease-in: cubic-bezier(0.16, 1, 0.3, 1);
+  --cb-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --cb-spring:  cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 *, *::before, *::after {
@@ -21007,7 +21007,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   background: var(--cb-accent, #34d399); color: #0b0f0d;
   font-size: 14px; font-weight: 600; text-decoration: none;
   transform: translateY(-64px);
-  transition: transform 160ms var(--cb-ease);
+  transition: transform 150ms var(--cb-ease);
 }
 /* Hover-revealed controls need a tap/focus path: the message report
    button is always visible on coarse pointers and whenever it (or its
@@ -21243,12 +21243,12 @@ summary::-webkit-details-marker { display: none; }
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; filter: none; }
 }
-.cb-doc-tabbody { animation: cbDocTabIn 260ms var(--cb-ease); }
+.cb-doc-tabbody { animation: cbDocTabIn 280ms var(--cb-ease); }
 @media (prefers-reduced-motion: reduce) { .cb-doc-tabbody { animation: none; } }
 /* Intake focus ring: the field's border lives on this wrapper so
    :focus-within can light it without !important fighting the textarea's
    inline styles. --cb-accent is set on the app shell (see S.page). */
-.cb-doc-intake { transition: border-color 180ms var(--cb-ease), box-shadow 180ms var(--cb-ease); }
+.cb-doc-intake { transition: border-color 150ms var(--cb-ease), box-shadow 150ms var(--cb-ease); }
 .cb-doc-intake:focus-within {
   border-color: var(--cb-accent, #8ba888) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #8ba888) 16%, transparent);
@@ -21298,7 +21298,7 @@ summary::-webkit-details-marker { display: none; }
   to   { transform: translateY(0); }
 }
 .cb-masked-reveal {
-  animation: cbMaskedRise 1.1s cubic-bezier(0.65, 0, 0.35, 1) both;
+  animation: cbMaskedRise 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
   will-change: transform;
 }
 .cb-focus-in {
@@ -21384,7 +21384,7 @@ summary::-webkit-details-marker { display: none; }
   color: #f2f4f2;
   /* Material, not luminous: a top inner edge, never an outer glow. */
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
-  transition: border-color 240ms var(--cb-ease), background-color 240ms var(--cb-ease);
+  transition: border-color 280ms var(--cb-ease), background-color 280ms var(--cb-ease);
 }
 .cb-intro-go:hover { border-color: rgba(242,244,242,0.65); background: rgba(255,255,255,0.06); }
 .cb-intro-go:active { background: rgba(255,255,255,0.10); }
@@ -21943,12 +21943,12 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
    reveal system at the top of this file follows, so CSS-driven and
    GSAP-driven entrances read as the same motion language:
 
-     micro  (inline, in-place)      180ms
+     micro  (inline, in-place)      150ms
      object (a card, a row)         320ms
      region (a panel, a page area)  460ms
      surface(a modal, a full view)  560ms
 
-   Longer than the old values on purpose: 200ms on a large surface doesn't
+   Longer than the old values on purpose: 280ms on a large surface doesn't
    read as "snappy," it reads as a jump cut. Small things stay fast.
 
    LOAD-BEARING: .cb-fade pairs an inline opacity-0 pre-animation state
@@ -21962,7 +21962,7 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
 /* Content is visible by default — the animation is an enhancement, never
    a requirement. If animations are disabled (reduced motion) or fail to
    run, citations and buttons must still be visible. */
-.cb-fade    { opacity: 1; animation: cbFade  180ms var(--cb-ease) both; }
+.cb-fade    { opacity: 1; animation: cbFade  150ms var(--cb-ease) both; }
 .cb-rise    { opacity: 1; animation: cbRise  320ms var(--cb-ease) both; }
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 560ms var(--cb-ease) both; }
@@ -22017,7 +22017,7 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
 .cb-stagger > *:nth-child(2) { animation-delay: 45ms; }
 .cb-stagger > *:nth-child(3) { animation-delay: 90ms; }
 .cb-stagger > *:nth-child(4) { animation-delay: 135ms; }
-.cb-stagger > *:nth-child(5) { animation-delay: 180ms; }
+.cb-stagger > *:nth-child(5) { animation-delay: 150ms; }
 .cb-stagger > *:nth-child(6) { animation-delay: 225ms; }
 .cb-stagger > *:nth-child(7) { animation-delay: 270ms; }
 .cb-stagger > *:nth-child(8) { animation-delay: 315ms; }
@@ -22082,7 +22082,7 @@ body.cb-motion-off .cb-readhead-marker { animation: none !important; left: 0; }
 
 /* ── Global button physics: subtle, no bounce ── */
 button {
-  transition: transform 120ms ease, opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+  transition: transform 150ms ease, opacity 280ms ease, background-color 280ms ease, border-color 280ms ease, color 280ms ease, box-shadow 280ms ease;
 }
 button:not(:disabled):hover { filter: none; }
 button:not(:disabled):active { transition-duration: 80ms; }
@@ -22094,7 +22094,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Cards with glass depth ── */
 .cb-card {
-  transition: border-color 160ms ease, background-color 160ms ease;
+  transition: border-color 150ms ease, background-color 150ms ease;
 }
 .cb-card[role="button"]:hover { border-color: var(--cb-accent); }
 
@@ -22151,7 +22151,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .cb-iris-veil, .cb-iris-door { display: none; }
   .cb-threshold-veil { display: none; }
   .cb-trace-chip { animation: none; }
-  .cb-answer-enter { animation: cbFade 180ms ease both; }
+  .cb-answer-enter { animation: cbFade 150ms ease both; }
   /* Intro: the hero arrives without motion. */
   .cb-focus-in { animation: none; }
   /* Premium pass: every new motion dies here too. */
@@ -22230,14 +22230,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    Pills, and every one of them lifts a hair on hover. The lift is the
    whole trick: it is what separates a control you can press from a shape
    that happens to be rounded. */
-.cb-intro-navlink { transition: background 220ms var(--cb-ease), color 220ms var(--cb-ease); }
+.cb-intro-navlink { transition: background 280ms var(--cb-ease), color 280ms var(--cb-ease); }
 .cb-intro-navlink:hover { background: rgba(255,255,255,0.09); color: #f2f4f2 !important; }
 
 
-.cb-intro-sourcelink { transition: color 220ms var(--cb-ease); }
+.cb-intro-sourcelink { transition: color 280ms var(--cb-ease); }
 .cb-intro-sourcelink:hover { color: #f2f4f2 !important; }
 /* (.cb-intro-go is defined once, beside the other intro rules above.) */
-.cb-intro-chip { transition: background 260ms var(--cb-ease), color 260ms var(--cb-ease), transform 260ms var(--cb-ease), border-color 260ms var(--cb-ease); }
+.cb-intro-chip { transition: background 280ms var(--cb-ease), color 280ms var(--cb-ease), transform 280ms var(--cb-ease), border-color 280ms var(--cb-ease); }
 .cb-intro-chip:hover {
   background: rgba(255,255,255,0.12) !important;
   border-color: rgba(255,255,255,0.16) !important;
@@ -22303,7 +22303,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 input[type="range"] { -webkit-appearance: none; height: 3px; border-radius: 2px; }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
-  background: currentColor; cursor: pointer; transition: transform 120ms ease;
+  background: currentColor; cursor: pointer; transition: transform 150ms ease;
 }
 input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
 input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
@@ -22621,12 +22621,12 @@ body {
 
 /* Every button gets its color/background changes eased. This is the single
    cheapest upgrade in the file: the difference between a UI that snaps and
-   one that feels considered is usually 160ms on the properties that were
-   already changing. "transform" keeps the 120ms ease from the Global button
+   one that feels considered is usually 150ms on the properties that were
+   already changing. "transform" keeps the 150ms ease from the Global button
    physics rule above, so hover lifts/press scales stay consistent — the
    opt-in press classes below still own the actual transform values. */
 button, a {
-  transition: transform 120ms ease, background-color 0.18s ease, border-color 0.18s ease,
+  transition: transform 150ms ease, background-color 0.18s ease, border-color 0.18s ease,
               color 0.18s ease, opacity 0.18s ease, box-shadow 0.22s ease;
 }
 
@@ -22899,7 +22899,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 /* Shared action treatment: solid, no decorative gradients. */
 .cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-hbtn {
   box-shadow: 0 2px 5px rgba(0,0,0,.10);
-  transition: box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
+  transition: box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease;
 }
 .cb-modal, .cb-material-panel {
   border-top-color: rgba(160,175,165,.24);
