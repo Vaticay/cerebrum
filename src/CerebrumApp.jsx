@@ -103,7 +103,7 @@ import {
   FILM_POSTER_CLIP, DOC_FILM_SRC, FILM_OPT_IN_KEY, filmForcedOn,
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
   filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog, playEnterThoom,
-  SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm,
+  SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm, Mark,
 } from "./intro.jsx";
 
 /* Unified scroll lock (replaces the three competing implementations). */
@@ -518,14 +518,6 @@ async function saveToZotero(sources, apiKey, userId) {
    overlay with no motion to justify it. */
 /* Moved to src/intro.jsx: InvestigationOpening */
 
-function Mark({ size = 26, accent, glow }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ filter: glow ? `drop-shadow(0 0 8px ${withAlpha(accent, 0.35)})` : "none" }}>
-      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z" />
-      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z" />
-    </svg>
-  );
-}
 
 /* ════════════════════════════════════════════════════════════════
    MOTION SYSTEM — the Intro's GSAP choreography, everywhere else
