@@ -17391,7 +17391,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}>
             <Icon name="search" size={15} />
             <span style={{ flex: 1, textAlign: "left" }}>Search or command</span>
-            <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>⌘K</kbd>
+            <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: 6, padding: "2px 7px" }}>{typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K"}</kbd>
           </button>
         </div>
       )}
@@ -22666,11 +22666,7 @@ summary::-webkit-details-marker { display: none; }
    on, so it reads as stepping through light, not a loading screen. */
 .cb-threshold-veil {
   position: fixed; inset: 0; z-index: ${Z.modal}; pointer-events: none;
-  background:
-    radial-gradient(42vmax 42vmax at var(--cb-tx, 50%) var(--cb-ty, 62%),
-      rgba(217,164,65,0.30) 0%, rgba(217,164,65,0.08) 34%,
-      rgba(5,7,10,0) 60%),
-    #05070a;
+  background: #05070a;
 }
 
 /* ── The Threshold: intro rebuild ──
@@ -22949,22 +22945,22 @@ summary::-webkit-details-marker { display: none; }
 .cb-intro-atmosphere > div { position: absolute; border-radius: 50%; will-change: transform, opacity; }
 .cb-atmo-a {
   width: 72vmax; height: 72vmax; left: -18vmax; top: -22vmax;
-  background: radial-gradient(circle, rgba(217,164,65,0.10) 0%, transparent 62%);
+  background: none;
   animation: cbAtmoDriftA 110s ease-in-out infinite alternate;
 }
 .cb-atmo-b {
   width: 84vmax; height: 84vmax; right: -26vmax; bottom: -30vmax;
-  background: radial-gradient(circle, rgba(122,142,162,0.075) 0%, transparent 64%);
+  background: none;
   animation: cbAtmoDriftB 130s ease-in-out infinite alternate;
 }
 .cb-atmo-c {
   width: 58vmax; height: 58vmax; left: 24vmax; top: 30vmax;
-  background: radial-gradient(circle, rgba(196,176,142,0.05) 0%, transparent 60%);
+  background: none;
   animation: cbAtmoDriftC 92s ease-in-out infinite alternate;
 }
 .cb-atmo-well {
   width: 120vmax; height: 70vmax; left: -10vmax; top: -42vmax; border-radius: 0;
-  background: radial-gradient(ellipse 60% 55% at 50% 40%, rgba(210,220,212,0.055) 0%, transparent 70%);
+  background: none;
   animation: cbAtmoWell 64s ease-in-out infinite alternate;
 }
 @keyframes cbAtmoDriftA {
