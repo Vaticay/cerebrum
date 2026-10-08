@@ -506,8 +506,8 @@ await test("sidebar carries New investigation next to Investigations", async () 
   const navAt = src.indexOf('["investigations", "Investigations", "history"');
   const navBlock = src.slice(navAt, navAt + 400);
   assert.match(navBlock, /\["new", "New investigation", "plus", null\]/, "sidebar New investigation item missing or misplaced");
-  // The action row gets a full 44px target.
-  assert.match(src, /minHeight: key === "new" \? 44 : 38/, "sidebar action row missing 44px target");
+  // All nav rows get 44px targets via S.sidebarItem (no per-row override needed).
+  assert.match(src, /sidebarItem: \{[^}]*minHeight: 44/, "sidebar rows missing 44px target");
   // The nav key is wired: handleSidebarNavigate runs newSession + Search.
   assert.match(src, /case "new": newSession\(\); setView\("search"\); break;/, '"new" nav case missing');
 });

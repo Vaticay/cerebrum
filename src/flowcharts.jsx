@@ -162,6 +162,15 @@ export function Dialog({
         className={panelClassName}
         style={{
           ...basePanel,
+          // Default panel treatment: every dialog gets a visible panel even
+          // when the caller forgets panelStyle. Uses theme CSS variables
+          // with dark-mode fallbacks (Dialog portals to body, so variables
+          // may not be inherited).
+          background: "var(--cb-surface, #141416)",
+          border: "1px solid var(--cb-line, rgba(255,255,255,0.12))",
+          borderRadius: 12,
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+          color: "var(--cb-ink, #f4f4f2)",
           // The class brings the shared panel treatment; the keyframe
           // entrance is neutralized in favor of this state-driven one.
           animation: "none",
@@ -918,7 +927,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             style={{
               flex: "1 1 140px", minWidth: 0, background: "transparent",
               border: "none", borderBottom: `1px dashed transparent`, outline: "none",
-              color: P.ink, fontSize: 15, fontWeight: 650, fontFamily: "var(--cb-font)",
+              color: P.ink, fontSize: 16, fontWeight: 650, fontFamily: "var(--cb-font)",
               padding: "4px 2px", transition: "border-color 0.15s ease",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.borderBottomColor = withAlpha(accent, 0.45); }}

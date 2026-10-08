@@ -2599,14 +2599,14 @@ function splitGluedHeading(line) {
    lives in the prose under them, not in badges. */
 function h2Block(text, key, P, accent) {
   return (
-    <div key={key} className="cb-kicker" style={{ margin: "44px 0 14px" }}>
+    <div key={key} style={{ margin: "44px 0 14px", fontSize: FONT_SIZES.title, fontWeight: 700, lineHeight: 1.3, letterSpacing: "-0.015em", color: P.ink, fontFamily: "var(--cb-font)" }}>
       {text}
     </div>
   );
 }
 
 function h3Block(text, key, P) {
-  return <div key={key} className="cb-kicker" style={{ margin: "30px 0 10px" }}>{text}</div>;
+  return <div key={key} style={{ margin: "30px 0 10px", fontSize: FONT_SIZES.body, fontWeight: 700, lineHeight: 1.4, color: P.ink, fontFamily: "var(--cb-font)" }}>{text}</div>;
 }
 
 /* Bring a source into view without moving the reader.
@@ -3913,7 +3913,7 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
       <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
         {actions.includes("retry") && (
           <UIButton P={P} variant="ghost" onClick={onRetry}
-            style={{ minHeight: 44, padding: "0 24px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: "#11140f", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            style={{ minHeight: 44, padding: "0 24px", fontSize: FONT_SIZES.small, fontWeight: 700, background: accent, color: accentText(accent), border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
             Try again
           </UIButton>
         )}
@@ -7090,7 +7090,9 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
   const tierLabel = (EVIDENCE_TIERS.find((x) => x[0] === evidenceFilter) || [])[1] || evidenceFilter;
   const backend = t.noResults && Array.isArray(t.noResults.reformulations) ? t.noResults.reformulations : [];
   const suggestions = (backend.length > 0 ? backend : clientReformulations(t.q, evidenceFilter)).slice(0, 3);
-  if (!suggestions.length && !filtered) return null;
+  // Never render nothing: a genuine no-results turn is exactly when guidance
+  // matters most. Fall back to an explanatory line + broad-retry action.
+  const hasRecovery = suggestions.length > 0 || filtered;
   const runSuggestion = (s) => {
     if (!s) return;
     if (s.clearFilter && onClearFilterAndRetry) { onClearFilterAndRetry(s.query || t.q); return; }
@@ -7122,6 +7124,14 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
           <UIButton P={P} variant="ghost" onClick={() => onClearFilterAndRetry(t.q)}
             style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
             Clear the {tierLabel} filter and search again
+          </UIButton>
+        </div>
+      )}
+      {!hasRecovery && onRelated && (
+        <div style={{ marginTop: 4 }}>
+          <UIButton P={P} variant="ghost" onClick={() => onRelated(t.q)}
+            style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.08), color: accent, border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+            Try a broader question <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
           </UIButton>
         </div>
       )}
@@ -9704,7 +9714,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
           Sign in to see your meters — AI answers, document reads, and flowcharts, with exact refill times.
         </div>
-        <UIButton P={P} variant="ghost" onClick={() => onOpenAuth && onOpenAuth("signin")} style={{ marginTop: 20, padding: "12px 28px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: "#fff", background: accent, border: "none", borderRadius: 12, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+        <UIButton P={P} variant="ghost" onClick={() => onOpenAuth && onOpenAuth("signin")} style={{ marginTop: 20, padding: "12px 28px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: at, background: accent, border: "none", borderRadius: 12, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
           Sign in
         </UIButton>
       </div>
@@ -9790,7 +9800,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</h1>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
-          {isPro && <ProBadge style={{ fontSize: 10 }} />}
+          {isPro && <ProBadge style={{ fontSize: 11 }} />}
           {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
         </span>
       </div>
@@ -9802,8 +9812,8 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
 
       <div style={{ marginTop: 12 }}>
         <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap}
-          sub={isPro ? null : isLite ? "Pro has no limits: unlimited answers." : "Pro Lite gives you 150 answers per 5 days, 10 times your current limit."}
-          upgrade={isLite ? "Go Pro: unlimited answers" : "Get Lite: 150 answers per 5 days"} />
+          sub={isPro ? null : isLite ? "Pro has no limits: unlimited answers." : "Pro Lite gives you 500 answers per 5 days, 10 times your current limit."}
+          upgrade={isLite ? "Go Pro: unlimited answers" : "Get Lite: 500 answers per 5 days"} />
         <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap}
           sub={isPro ? null : isLite ? "Pro has no limits: unlimited reads." : "Pro Lite gives you 30 reads per 5 days, 10 times your current limit."}
           upgrade={isLite ? "Go Pro: unlimited reads" : "Get Lite: 30 reads per 5 days"} />
@@ -9823,7 +9833,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
               <th style={{ textAlign: "left", padding: "12px 16px", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow, color: P.faint, borderBottom: `1px solid ${P.line}` }}></th>
               {tiers.map((t) => (
                 <th key={t.id} style={{ textAlign: "center", padding: "12px 8px", fontSize: FONT_SIZES.small, fontWeight: 800, color: t.id === tier ? P.ink : P.ink2, borderBottom: `1px solid ${P.line}`, background: t.id === tier ? withAlpha("#d4af37", 0.06) : "transparent" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t.id === "pro" && <ProBadge style={{ fontSize: 9 }} />}{t.name}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t.id === "pro" && <ProBadge style={{ fontSize: 11 }} />}{t.name}</span>
                 </th>
               ))}
             </tr>
@@ -9863,7 +9873,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
-                  {t.id === "pro" && <ProBadge style={{ fontSize: 9 }} />}{t.name}
+                  {t.id === "pro" && <ProBadge style={{ fontSize: 11 }} />}{t.name}
                 </span>
                 {current && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>}
               </div>
@@ -12676,7 +12686,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     ? (user?.proSource === "lifetime" ? "Lifetime member · no billing, ever" : "Unlimited AI answers, document reads and flowcharts")
     : (() => {
         const q = proStatus?.quota;
-        const cap = q?.cap || (pRank === "lite" ? 150 : 15);
+        const cap = q?.cap || (pRank === "lite" ? 500 : 50);
         const used = q?.used || 0;
         return `${used} of ${cap} AI answers this period`;
       })();
@@ -12793,7 +12803,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 color: P.ink, fontFamily: "var(--cb-font)",
                 letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.02,
                 display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-              }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={18} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 10 }} />}</h1>
+              }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={18} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge style={{ fontSize: 11 }} />}</h1>
             )}
             {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
             <div style={{ marginTop: 5, fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>
@@ -13451,7 +13461,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink }}>{founder.name}</span>
                     <VerifiedCheck size={15} />
-                    {founder.isPro && <ProBadge style={{ fontSize: 10 }} />}
+                    {founder.isPro && <ProBadge style={{ fontSize: 11 }} />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>
                     @{founder.username} · Founder &amp; Owner
@@ -13515,7 +13525,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                     {((r.badges || []).includes("founder") || (r.badges || []).includes("verified")) && (
                       <VerifiedCheck size={14} title={(r.badges || []).includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />
                     )}
-                    {r.isPro && <ProBadge style={{ fontSize: 9, flexShrink: 0 }} />}
+                    {r.isPro && <ProBadge style={{ fontSize: 11, flexShrink: 0 }} />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>@{r.username}</div>
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{subtitle}</div>}
@@ -13787,7 +13797,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <h2 style={{ fontSize: 26, fontWeight: 800, color: P.ink, margin: 0, letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.05, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
                       {(isFounder || isVerified) && <VerifiedCheck size={16} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
-                      {u.isPro && <ProBadge style={{ fontSize: 10 }} />}
+                      {u.isPro && <ProBadge style={{ fontSize: 11 }} />}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                       <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>@{u.username}</span>
@@ -15598,9 +15608,9 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     sidebarSectionLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
-      /* Pass 3 (2026-09-17): quiet rail — 38px rows, no rounded pill
-         backgrounds on nav items. The row is a line, not a chip. */
-      padding: "9px 12px", minHeight: 38, borderRadius: 0, border: "none", background: "transparent",
+      /* 44px min-height for touch targets (was 38px, which defeated the
+         global 44px button floor via inline style). */
+      padding: "9px 12px", minHeight: 44, borderRadius: 0, border: "none", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
       fontFamily: "var(--cb-font)", transition: "background 150ms ease, color 150ms ease",
     },
@@ -16501,7 +16511,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
                 /* The "New investigation" action row gets a full 44px target
                    and a slightly stronger label on mobile — it's the one row
                    here that starts something, not a destination. */
-                style={{ minHeight: key === "new" ? 44 : 38, ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
+                style={{ ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
                 aria-current={view === key ? "page" : undefined} aria-label={label} className=""
                 onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
                 <Icon name={icon} size={16} />
@@ -16543,19 +16553,18 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         {/* Mute is a preference, not a destination: a quiet icon button,
             not a full nav-styled row competing with real navigation. The
             chevron beside it collapses the rail to icons. */}
-        <div style={{ display: "flex", justifyContent: expanded ? "flex-end" : "center", alignItems: "center", gap: 4, marginBottom: 4 }}>
+        <div style={{ display: "flex", justifyContent: expanded ? "flex-end" : "center", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
           {!isMobile && (
             <UIButton P={P} variant="ghost" onClick={onToggleRail} title={railCollapsed ? "Expand navigation" : "Collapse to icons"} aria-pressed={!!railCollapsed} aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation to icons"}
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 30, height: 30, borderRadius: "50%", cursor: "pointer",
+                width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
                 background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
-                transition: "color 150ms ease, border-color 150ms ease",
+                transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = accent; e.currentTarget.style.borderColor = withAlpha(accent, 0.5); }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; e.currentTarget.style.borderColor = P.line; }}>
+              onMouseEnter={hoverIn} onMouseLeave={hoverOut("__rail")}>
               <span style={{ display: "inline-flex", transform: railCollapsed ? "rotate(180deg)" : "none", transition: "transform 200ms ease" }}>
-                <Icon name="chevronLeft" size={15} />
+                <Icon name="chevronLeft" size={16} />
               </span>
             </UIButton>
           )}
@@ -16563,11 +16572,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+              width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
               background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
-              transition: "color 150ms ease, border-color 150ms ease",
+              transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
             }}>
-            <Icon name={muted ? "volumeOff" : "volumeOn"} size={15} />
+            <Icon name={muted ? "volumeOff" : "volumeOn"} size={16} />
           </button>
         </div>
         {user ? (
@@ -16611,7 +16620,8 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         ) : (
           <UIButton P={P} variant="ghost"
             onClick={() => { if (onOpenAuth) onOpenAuth("login"); else onNavigate("profile"); }}
-            onMouseEnter={hoverIn} onMouseLeave={hoverOut("profile")}
+            onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.18); }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.1); }}
             title={expanded ? undefined : "Sign in"}
             aria-label="Sign in"
             style={{
@@ -16619,6 +16629,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               padding: expanded ? "12px 12px" : "12px 0", borderRadius: RADIUS.md, cursor: "pointer",
               border: `1px solid ${withAlpha(accent, 0.4)}`, background: withAlpha(accent, 0.1),
               color: P.ink, fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
+              transition: "background 150ms ease",
             }}
           >
             <Icon name="user" size={15} />
@@ -21482,7 +21493,7 @@ summary::-webkit-details-marker { display: none; }
 /* ── The question field: one hairline box, no instrument ── */
 .cb-ask {
   --cb-acc: #a3b899;
-  width: 100%; max-width: 760px; margin: 0 auto;
+  width: 100%; max-width: 820px; margin: 0 auto;
   animation: cbConsoleIn 0.7s var(--cb-ease) 0.08s both;
 }
 .cb-ask-field {
@@ -21544,10 +21555,10 @@ summary::-webkit-details-marker { display: none; }
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   background: none; border: 0; border-radius: 10px; cursor: pointer;
-  color: var(--cb-faint);
-  transition: color 0.2s ease;
+  color: var(--cb-ink2);
+  transition: color 0.2s ease, background 0.2s ease;
 }
-.cb-ask-tool:hover { color: var(--cb-ink); }
+.cb-ask-tool:hover { color: var(--cb-ink); background: color-mix(in srgb, var(--cb-acc) 8%, transparent); }
 .cb-ask-mic {
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -21555,15 +21566,20 @@ summary::-webkit-details-marker { display: none; }
 }
 /* The Ask action: a word, not a key. */
 .cb-ask-go {
-  min-height: 44px; padding: 0 14px; margin-left: 2px;
-  border: 0; background: none; cursor: pointer;
+  min-height: 44px; padding: 0 20px; margin-left: 4px;
+  border: 1px solid color-mix(in srgb, var(--cb-acc) 40%, transparent);
+  background: color-mix(in srgb, var(--cb-acc) 14%, transparent);
+  border-radius: 12px; cursor: pointer;
   color: var(--cb-acc);
   font-family: var(--cb-font); font-size: 15px; font-weight: 650;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: opacity 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
 }
-.cb-ask-go:hover:not(:disabled) { opacity: 0.8; }
-.cb-ask-go:disabled { opacity: 0.6; cursor: default; }
+.cb-ask-go:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cb-acc) 22%, transparent);
+  border-color: color-mix(in srgb, var(--cb-acc) 60%, transparent);
+}
+.cb-ask-go:disabled { opacity: 0.45; cursor: default; color: var(--cb-faint, #888); }
 .cb-ask-spin {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--cb-acc) 35%, transparent);
@@ -21578,19 +21594,17 @@ summary::-webkit-details-marker { display: none; }
   padding: 8px 6px 0;
 }
 .cb-mode {
-  background: none; border: 0; cursor: pointer;
-  min-height: 44px; padding: 8px 2px;
+  background: none; border: 1px solid transparent; cursor: pointer;
+  min-height: 44px; padding: 8px 14px; border-radius: 10px;
   font-family: var(--cb-font); font-size: 14px; font-weight: 550;
   color: var(--cb-faint);
-  transition: color 0.2s ease;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
-.cb-mode:hover { color: var(--cb-ink2); }
+.cb-mode:hover { color: var(--cb-ink2); background: color-mix(in srgb, var(--cb-acc) 6%, transparent); }
 .cb-mode.is-on {
   color: var(--cb-ink); font-weight: 650;
-  text-decoration: underline;
-  text-decoration-color: var(--cb-acc);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 5px;
+  background: color-mix(in srgb, var(--cb-acc) 12%, transparent);
+  border-color: color-mix(in srgb, var(--cb-acc) 30%, transparent);
 }
 
 /* ── Recent questions, docked to the field ── */
@@ -23067,11 +23081,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .cb-cite {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 24px; height: 22px; padding: 0 5px; margin: 0 1px;
-  border: 1px solid currentColor; border-radius: 4px;
-  font-family: var(--cb-mono); font-size: 11px; font-weight: 600; line-height: 1;
-  vertical-align: 2px; cursor: pointer; background: transparent; opacity: 0.8;
+  border: 1px solid currentColor; border-radius: 6px;
+  font-family: var(--cb-mono); font-size: 12px; font-weight: 600; line-height: 1;
+  vertical-align: 2px; cursor: pointer; background: transparent; opacity: 1;
 }
-.cb-cite:hover, .cb-cite[data-active="true"] { opacity: 1; background: rgba(127,127,127,0.14); }
+.cb-cite:hover, .cb-cite[data-active="true"] { opacity: 1; background: color-mix(in srgb, var(--cb-acc) 14%, transparent); }
 /* The 44px hit area lives on a positioned pseudo-element: the glyph keeps
    its 24×22 scholarly shape in the prose line, but taps land on a 44px
    target that opens the preview. Absolute positioning keeps the line box
@@ -23137,7 +23151,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
 
 /* Quiet instrument kicker — replaces letterspaced all-caps eyebrows. */
 .cb-kicker {
-  font-family: var(--cb-mono); font-size: 11px; font-weight: 500; letter-spacing: 0;
+  font-family: var(--cb-mono); font-size: 12px; font-weight: 500; letter-spacing: 0;
   color: var(--cb-faint, #888); text-transform: none;
 }
 

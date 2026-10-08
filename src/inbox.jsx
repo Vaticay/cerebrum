@@ -1584,7 +1584,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             Group messages aren't end-to-end encrypted yet.
           </div>
           <UIButton
-            P={P} variant="primary"
+            P={P} variant="primary" accent={accent} at={at}
             onClick={createGroup}
             disabled={!groupName.trim() || groupMembers.length < 2 || groupCreating}
             style={{ minHeight: 48, opacity: (!groupName.trim() || groupMembers.length < 2 || groupCreating) ? 0.5 : 1 }}
@@ -1619,7 +1619,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 }}
               />
               <UIButton
-                P={P} variant="primary"
+                P={P} variant="primary" accent={accent} at={at}
                 onClick={renameGroup}
                 disabled={!settingsName.trim() || settingsBusy === "rename"}
                 style={{ minHeight: 48, padding: "0 18px", opacity: (!settingsName.trim() || settingsBusy === "rename") ? 0.5 : 1 }}
