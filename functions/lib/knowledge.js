@@ -1491,3 +1491,349 @@ export function verifyAnswerAgainstSources(answerText, papers) {
     : `Every specific name the answer uses turns up in a paper it cites. That means it is drawing on this evidence rather than reaching past it. It is not a check on whether the conclusions are right.`;
   return { checked: true, unsupported, supported, thin, note };
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// 9. TEMPORAL CONSENSUS ANALYSIS (2026-10-08 intelligence upgrade)
+//
+// A brilliant research assistant doesn't just tell you what the literature
+// says — they tell you how the answer CHANGED over time. Was this always
+// the consensus, or did early studies disagree? Is the field converging or
+// fragmenting? This analyzes the publication timeline to detect:
+//   - Consensus formation (early mixed → recent agreement)
+//   - Consensus erosion (early agreement → recent challenges)
+//   - Stable consensus (consistent across time)
+//   - Emerging topic (too recent for a track record)
+// Returns a structured timeline the synthesis prompt can use directly.
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Analyzes how scientific consensus on a topic evolved over time.
+ * @param {Array} papers - Ranked papers with year, studyType, title
+ * @param {Array} conflicts - Detected conflicts (from detectSourceConflicts)
+ * @returns {Object} { pattern, summary, periods, confidence }
+ */
+export function analyzeTemporalConsensus(papers, conflicts = []) {
+  const list = (papers || []).filter(p => p && p.year > 1900 && p.year <= new Date().getFullYear() + 1);
+  if (list.length < 3) {
+    return { pattern: "insufficient", summary: null, periods: [], confidence: 0 };
+  }
+  
+  const sorted = [...list].sort((a, b) => a.year - b.year);
+  const minYear = sorted[0].year;
+  const maxYear = sorted[sorted.length - 1].year;
+  const span = maxYear - minYear;
+  
+  // Split into early / middle / recent thirds
+  const third = Math.max(1, Math.floor(sorted.length / 3));
+  const early = sorted.slice(0, third);
+  const recent = sorted.slice(-third);
+  
+  // Count conflicts involving early vs recent papers
+  const conflictIdx = new Set();
+  for (const c of (conflicts || [])) {
+    if (c && c.idxA) conflictIdx.add(c.idxA);
+    if (c && c.idxB) conflictIdx.add(c.idxB);
+  }
+  
+  // Heuristic: papers in conflicts = "contested" signal
+  const earlyContested = early.filter((p, i) => conflictIdx.has(sorted.indexOf(p) + 1)).length;
+  const recentContested = recent.filter((p, i) => conflictIdx.has(sorted.indexOf(p) + 1)).length;
+  const earlyRate = early.length > 0 ? earlyContested / early.length : 0;
+  const recentRate = recent.length > 0 ? recentContested / recent.length : 0;
+  
+  // Count high-tier studies (meta-analysis/RCT) by period
+  const isHighTier = (p) => {
+    const st = String(p.studyType || "").toLowerCase();
+    return st.includes("meta-analysis") || st.includes("systematic review") || st.includes("randomized");
+  };
+  const earlyHighTier = early.filter(isHighTier).length;
+  const recentHighTier = recent.filter(isHighTier).length;
+  
+  let pattern, summary, confidence;
+  
+  if (span <= 3) {
+    pattern = "emerging";
+    summary = `This is an emerging topic — all ${list.length} sources are from ${minYear}${minYear === maxYear ? "" : "–" + maxYear}, too narrow a window to judge how consensus is forming.`;
+    confidence = 0.3;
+  } else if (earlyRate > 0.3 && recentRate < 0.15) {
+    pattern = "converging";
+    summary = `The field has converged: early work (${minYear}–${early[early.length-1].year}) was contested, but ${recent.length - recentContested} of ${recent.length} recent sources agree.`;
+    confidence = 0.7;
+  } else if (earlyRate < 0.15 && recentRate > 0.3) {
+    pattern = "diverging";
+    summary = `The consensus is fracturing: early sources largely agreed, but ${recentContested} of ${recent.length} recent papers challenge the established view.`;
+    confidence = 0.7;
+  } else if (earlyRate < 0.15 && recentRate < 0.15) {
+    pattern = "stable";
+    summary = `Stable consensus across ${span} years (${minYear}–${maxYear}): sources agree throughout the timeline.`;
+    confidence = 0.8;
+  } else {
+    pattern = "contested";
+    summary = `Genuinely contested across the full ${span}-year span — disagreement isn't resolving with time.`;
+    confidence = 0.6;
+  }
+  
+  // Paradigm shift signal: recent high-tier studies contradicting older consensus
+  let shiftNote = null;
+  if (recentHighTier > 0 && pattern === "diverging") {
+    shiftNote = `Notably, ${recentHighTier} recent ${recentHighTier === 1 ? "high-tier study (meta-analysis/RCT)" : "high-tier studies"} ${recentHighTier === 1 ? "challenges" : "challenge"} the older consensus — this may signal a genuine paradigm shift, not just noise.`;
+  }
+  
+  return {
+    pattern,
+    summary: shiftNote ? summary + " " + shiftNote : summary,
+    periods: [
+      { label: "early", years: [early[0]?.year, early[early.length-1]?.year], count: early.length, contested: earlyContested, highTier: earlyHighTier },
+      { label: "recent", years: [recent[0]?.year, recent[recent.length-1]?.year], count: recent.length, contested: recentContested, highTier: recentHighTier },
+    ],
+    spanYears: span,
+    confidence,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 10. SAMPLE SIZE EXTRACTION (2026-10-08 intelligence upgrade)
+//
+// detectStatisticalRigor() only checks WHETHER "n=" appears. A brilliant
+// assistant asks HOW MANY. This extracts actual sample sizes, computes the
+// total evidence base, and flags when conclusions rest on thin data.
+// ════════════════════════════════════════════════════════════════════════
+
+const SAMPLE_SIZE_RE = /\bn\s*=\s*(\d{1,7})\b/gi;
+const PARTICIPANTS_RE = /(\d{1,7})\s+(?:participants|subjects|patients|individuals|cases)\b/gi;
+
+/**
+ * Extracts sample sizes from paper abstracts.
+ * @returns {Object} { totalN, perPaper: [{idx, n}], largestN, medianN, thinData: bool, summary }
+ */
+export function extractSampleSizes(papers) {
+  const perPaper = [];
+  for (let i = 0; i < (papers || []).length; i++) {
+    const p = papers[i];
+    const text = ((p && p.title) || "") + " " + ((p && p.abstract) || "");
+    const sizes = [];
+    let m;
+    SAMPLE_SIZE_RE.lastIndex = 0;
+    while ((m = SAMPLE_SIZE_RE.exec(text)) && sizes.length < 5) {
+      const n = parseInt(m[1], 10);
+      if (n > 0 && n < 10000000) sizes.push(n);
+    }
+    PARTICIPANTS_RE.lastIndex = 0;
+    while ((m = PARTICIPANTS_RE.exec(text)) && sizes.length < 5) {
+      const n = parseInt(m[1], 10);
+      if (n > 0 && n < 10000000) sizes.push(n);
+    }
+    if (sizes.length > 0) {
+      perPaper.push({ idx: i + 1, n: Math.max(...sizes), title: (p.title || "").slice(0, 60) });
+    }
+  }
+  
+  const ns = perPaper.map(p => p.n).sort((a, b) => a - b);
+  const totalN = ns.reduce((s, n) => s + n, 0);
+  const medianN = ns.length > 0 ? ns[Math.floor(ns.length / 2)] : 0;
+  const largestN = ns.length > 0 ? ns[ns.length - 1] : 0;
+  const reporting = perPaper.length;
+  const total = (papers || []).length;
+  
+  let summary = null;
+  let thinData = false;
+  if (reporting > 0) {
+    if (totalN < 500 && total >= 3) {
+      thinData = true;
+      summary = `Thin evidence base: ${reporting} of ${total} sources report sample sizes, totaling just n=${totalN.toLocaleString()} participants. Treat quantitative claims cautiously.`;
+    } else if (medianN < 100 && reporting >= 2) {
+      thinData = true;
+      summary = `Small-study pattern: median sample size is n=${medianN.toLocaleString()} across ${reporting} reporting sources. Findings may not generalize.`;
+    } else if (totalN >= 10000) {
+      summary = `Substantial evidence base: ${reporting} sources report a combined n=${totalN.toLocaleString()} participants.`;
+    }
+  }
+  
+  return { totalN, perPaper, largestN, medianN, reporting, total, thinData, summary };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 11. QUANTITATIVE AGREEMENT CHECK (2026-10-08 intelligence upgrade)
+//
+// When multiple papers report numbers (percentages, effect sizes), a smart
+// assistant checks: do the numbers actually agree? Three papers saying
+// "reduces risk by 15%, 18%, and 82%" is a red flag, not a consensus.
+// ════════════════════════════════════════════════════════════════════════
+
+const PERCENT_RE = /(\d{1,3}(?:\.\d+)?)\s*%/g;
+
+/**
+ * Checks whether quantitative claims across papers are consistent.
+ * @returns {Object} { consistent: bool|null, range, summary }
+ */
+export function checkQuantitativeAgreement(papers) {
+  const values = [];
+  for (let i = 0; i < (papers || []).length; i++) {
+    const text = ((papers[i] && papers[i].abstract) || "").slice(0, 3000);
+    let m;
+    PERCENT_RE.lastIndex = 0;
+    const found = [];
+    while ((m = PERCENT_RE.exec(text)) && found.length < 3) {
+      const v = parseFloat(m[1]);
+      if (v > 0 && v <= 100) found.push(v);
+    }
+    if (found.length > 0) values.push({ idx: i + 1, values: found });
+  }
+  
+  if (values.length < 2) return { consistent: null, range: null, summary: null };
+  
+  // Compare first-reported percentages across papers
+  const firsts = values.map(v => v.values[0]);
+  const min = Math.min(...firsts);
+  const max = Math.max(...firsts);
+  const spread = max - min;
+  const mean = firsts.reduce((s, v) => s + v, 0) / firsts.length;
+  
+  // Coefficient of variation as agreement measure
+  const cv = mean > 0 ? spread / mean : 999;
+  
+  if (cv < 0.5) {
+    return {
+      consistent: true,
+      range: [min, max],
+      summary: `Quantitatively consistent: key percentages cluster between ${min}% and ${max}% across ${values.length} sources.`,
+    };
+  } else {
+    return {
+      consistent: false,
+      range: [min, max],
+      summary: `Quantitative disagreement: reported figures range from ${min}% to ${max}% — a ${(max/min).toFixed(1)}x spread. The direction may agree but the magnitude doesn't.`,
+    };
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 12. CONTRADICTION EXPLANATION (2026-10-08 intelligence upgrade)
+//
+// Detecting that two papers disagree is table stakes. A brilliant assistant
+// asks WHY: different study designs? Different time periods? Different
+// populations? Animal vs human? This generates hypotheses for the
+// disagreement from observable paper metadata.
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generates hypotheses for why two conflicting papers disagree.
+ * @returns {Array<string>} Human-readable hypotheses
+ */
+export function explainContradiction(paperA, paperB) {
+  const hypotheses = [];
+  if (!paperA || !paperB) return hypotheses;
+  
+  // Study design mismatch
+  const typeA = String(paperA.studyType || "").toLowerCase();
+  const typeB = String(paperB.studyType || "").toLowerCase();
+  const tierRank = (t) => {
+    if (t.includes("meta-analysis") || t.includes("systematic review")) return 5;
+    if (t.includes("randomized")) return 4;
+    if (t.includes("cohort") || t.includes("observational")) return 3;
+    if (t.includes("case")) return 2;
+    if (t.includes("preclinical") || t.includes("in vitro") || t.includes("animal")) return 1;
+    return 0;
+  };
+  const rankA = tierRank(typeA), rankB = tierRank(typeB);
+  if (rankA !== rankB && rankA > 0 && rankB > 0) {
+    const higher = rankA > rankB ? "first" : "second";
+    hypotheses.push(`Different evidence tiers: the ${higher} source is a higher-tier design (${rankA > rankB ? paperA.studyType : paperB.studyType}) than the other (${rankA > rankB ? paperB.studyType || "unclassified" : paperA.studyType || "unclassified"}). The stronger design usually deserves more weight.`);
+  }
+  
+  // Temporal gap
+  const yearA = Number(paperA.year), yearB = Number(paperB.year);
+  if (yearA > 1900 && yearB > 1900 && Math.abs(yearA - yearB) >= 8) {
+    const older = yearA < yearB ? yearA : yearB;
+    const newer = yearA < yearB ? yearB : yearA;
+    hypotheses.push(`Time gap: ${older} vs ${newer} — methods, populations, or the underlying phenomenon itself may have changed across ${newer - older} years.`);
+  }
+  
+  // Preprint vs peer-reviewed
+  const isPreprint = (p) => /\b(biorxiv|medrxiv|arxiv|preprint)\b/i.test(String(p.journal || "") + " " + String(p.url || ""));
+  if (isPreprint(paperA) !== isPreprint(paperB)) {
+    hypotheses.push(`One source is a preprint (not yet peer-reviewed) while the other passed peer review — treat the preprint's claims as provisional.`);
+  }
+  
+  // Journal tier mismatch
+  const tierA = scoreJournalTier(paperA.journal);
+  const tierB = scoreJournalTier(paperB.journal);
+  if (tierA !== tierB && tierA > 0 && tierB > 0 && Math.abs(tierA - tierB) >= 2) {
+    hypotheses.push(`Journal-tier gap: one appeared in a flagship venue, the other in a less selective journal — editorial scrutiny differs.`);
+  }
+  
+  return hypotheses.slice(0, 3);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 13. SMART FOLLOW-UP QUESTIONS (2026-10-08 intelligence upgrade)
+//
+// Follow-ups should come from actual gaps in THIS evidence, not templates.
+// Each generator fires only when its specific gap is detected.
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Generates follow-up questions from actual evidence gaps.
+ * @returns {Array<{q: string, why: string}>}
+ */
+export function generateSmartFollowUps(papers, gaps, temporal, sampleData) {
+  const followUps = [];
+  const list = papers || [];
+  
+  // Gap: all preclinical, no human data
+  const hasHuman = list.some(p => {
+    const t = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+    return /\b(human|patient|clinical trial|cohort)\b/.test(t) && !/\b(mouse|rat|murine|in vitro|cell line)\b/.test(t.slice(0, 200));
+  });
+  const hasAnimal = list.some(p => /\b(mouse|mice|rat|murine|animal model)\b/i.test((p.title || "") + " " + (p.abstract || "")));
+  if (hasAnimal && !hasHuman && list.length >= 2) {
+    followUps.push({
+      q: "Has this been tested in humans, or is the evidence still preclinical?",
+      why: "All sources are animal/in vitro models with no human data detected.",
+    });
+  }
+  
+  // Gap: old evidence
+  if (temporal && temporal.periods && temporal.periods[1]) {
+    const recentYear = temporal.periods[1].years[1];
+    if (recentYear && new Date().getFullYear() - recentYear >= 5) {
+      followUps.push({
+        q: "What's the latest research on this? The newest source here is from " + recentYear + ".",
+        why: "Evidence may be stale.",
+      });
+    }
+  }
+  
+  // Gap: thin sample sizes
+  if (sampleData && sampleData.thinData) {
+    followUps.push({
+      q: "Are there larger studies on this? The current evidence rests on small samples.",
+      why: "Sample sizes are thin (total n=" + sampleData.totalN.toLocaleString() + ").",
+    });
+  }
+  
+  // Gap: no high-tier evidence
+  const hasHighTier = list.some(p => {
+    const st = String(p.studyType || "").toLowerCase();
+    return st.includes("meta-analysis") || st.includes("systematic review") || st.includes("randomized");
+  });
+  if (!hasHighTier && list.length >= 3) {
+    followUps.push({
+      q: "Is there a meta-analysis or systematic review on this topic?",
+      why: "No high-tier synthesis detected in current sources.",
+    });
+  }
+  
+  // Gap: single dominant source
+  if (list.length === 1) {
+    followUps.push({
+      q: "What do other researchers say? This answer rests on a single source.",
+      why: "Only one source cleared the relevance bar.",
+    });
+  }
+  
+  // Gap: quantitative disagreement
+  // (caller passes quantCheck result)
+  
+  return followUps.slice(0, 3);
+}

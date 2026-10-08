@@ -19,6 +19,11 @@ import {
   intentEvidenceBonus,
   detectStatisticalRigor,
   verifyAnswerAgainstSources,
+  analyzeTemporalConsensus,
+  extractSampleSizes,
+  checkQuantitativeAgreement,
+  explainContradiction,
+  generateSmartFollowUps,
 } from "../lib/knowledge.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
 import { maybeSweep } from "../lib/retention.js";
@@ -11810,6 +11815,68 @@ async function runSearchPipeline(pctx) {
     }
 
     // ════════════════════════════════════════════════════════════════
+    // INTELLIGENCE BRIEF (2026-10-08)
+    // A brilliant research assistant doesn't just summarize — they notice
+    // HOW the evidence fits together. This injects five computed analyses
+    // directly into the synthesis prompt so the model reasons from them:
+    // temporal consensus (how the answer changed over time), sample sizes
+    // (how much data this actually rests on), quantitative agreement (do
+    // the numbers cohere?), and contradiction explanations (WHY do sources
+    // disagree?). All computed deterministically from paper metadata —
+    // the model doesn't have to guess, it just has to use what's given.
+    // ════════════════════════════════════════════════════════════════
+    if (useEvidence && evidencePapers.length >= 2) {
+      const briefParts = [];
+      let briefConflicts = [];
+      try {
+        briefConflicts = detectSourceConflicts(evidencePapers, null).conflicts || [];
+      } catch {}
+      try {
+        const temporal = analyzeTemporalConsensus(evidencePapers, briefConflicts);
+        if (temporal && temporal.summary) {
+          briefParts.push("TEMPORAL CONSENSUS: " + temporal.summary);
+        }
+      } catch {}
+      try {
+        const samples = extractSampleSizes(evidencePapers);
+        if (samples && samples.summary) {
+          briefParts.push("EVIDENCE BASE: " + samples.summary);
+        }
+      } catch {}
+      try {
+        const quant = checkQuantitativeAgreement(evidencePapers);
+        if (quant && quant.summary) {
+          briefParts.push("NUMBERS CHECK: " + quant.summary);
+        }
+      } catch {}
+      try {
+        if (briefConflicts.length > 0) {
+          const explanations = [];
+          for (const c of briefConflicts.slice(0, 2)) {
+            const pa = evidencePapers[(c.idxA || 1) - 1];
+            const pb = evidencePapers[(c.idxB || 1) - 1];
+            const hyps = explainContradiction(pa, pb);
+            if (hyps.length > 0) {
+              explanations.push("Sources [" + c.idxA + "] vs [" + c.idxB + "] disagree on '" + (c.topic || "this finding") + "'. Likely reasons: " + hyps.join(" "));
+            }
+          }
+          if (explanations.length > 0) {
+            briefParts.push("WHY THEY DISAGREE: " + explanations.join(" "));
+          }
+        }
+      } catch {}
+      if (briefParts.length > 0) {
+        messages.push({
+          role: "system",
+          content:
+            "INTELLIGENCE BRIEF — computed from the actual sources below, not generated. " +
+            "Weave these observations into your answer where relevant; don't just append them. " +
+            briefParts.join("\n"),
+        });
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // CONVERSATION AWARENESS INJECTION
     // Give the LLM a rich understanding of the conversation context.
     // This is what makes the conversation feel genuinely aware — it knows
@@ -13703,6 +13770,19 @@ async function runSearchPipeline(pctx) {
     // italicizeScientificTerms()'s own comment for why order matters here.
     answer = italicizeScientificTerms(answer, query);
 
+    // INTELLIGENCE UPGRADE (2026-10-08): smart follow-up questions generated
+    // from actual gaps in THIS evidence — not templates. Each fires only
+    // when its specific gap is detected (no human data, stale sources, thin
+    // samples, no high-tier synthesis, single source).
+    let smartFollowUps = [];
+    try {
+      if (useEvidence && evidencePapers.length > 0) {
+        const fuTemporal = analyzeTemporalConsensus(evidencePapers, literatureConflicts);
+        const fuSamples = extractSampleSizes(evidencePapers);
+        smartFollowUps = generateSmartFollowUps(evidencePapers, evidenceGaps, fuTemporal, fuSamples);
+      }
+    } catch {}
+
     return new Response(
       JSON.stringify({
         answer,
@@ -13726,6 +13806,7 @@ async function runSearchPipeline(pctx) {
         confidence,              // { level: strong|moderate|thin, line } | null
         coverageNote,            // honest note when databases failed | null
         ambiguity,               // { ambiguous, term, resolvedAs, interpretations }
+        smartFollowUps,          // [{ q, why }] from actual evidence gaps (2026-10-08)
         degraded: stageHealth.some((s) => !s.ok) || responseKind === "no-results",
         // 2026-09-12: the synthesis entry also carries its per-leg race
         // summary (winner, legs, failedLegs) — see the synthesis
