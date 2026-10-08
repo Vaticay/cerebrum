@@ -6430,7 +6430,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
      the diagram's data speaks, not its chrome. */
   const regionLabel = (x, text, count) => (
     <text x={x} y={336} textAnchor="middle" fill={P.faint}
-      style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, fontWeight: 500 }}>
+      style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500 }}>
       {text.toLowerCase()} · {count}
     </text>
   );
