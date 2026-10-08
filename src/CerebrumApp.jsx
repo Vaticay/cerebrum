@@ -2185,13 +2185,10 @@ function SignalComposer({
       {!hintSeen && (
         <div className="cb-ask-hint">Enter to ask · Shift+Enter for a new line</div>
       )}
-      <div className="cb-ask-modes">
-        <AskModePicker
-          mode={askMode}
-          setMode={(k) => { clickSfx(); setAskMode(k); setShapeActive(null); setShapeSignal(null); shapePrevRef.current = null; shapeLockRef.current = true; }}
-          P={P} accent={accent} isMobile={isMobile}
-        />
-      </div>
+      {/* Mode selector removed. The mode is auto-detected from the question
+          text via predictAskMode (the shapeshifter). No tabs, no segmented
+          control, no numbered modes. The detected mode appears quietly in
+          the footer below with a reset option. */}
       {/* Evidence tier filter — one row, plain words. Pulled up under the
           mode row so the console reads as one unit, not stacked rows. */}
       <div style={{ marginTop: 6 }}>
@@ -21160,24 +21157,18 @@ function App() {
                   it. No brand masthead (the sidebar carries it), no
                   rotating greeting headline, no cinematic backdrop. */}
               <div className="cb-bench-band">
-                <TickFrame P={P} accent={accent} className="cb-bench"
+                {/* The bench is no longer a framed instrument panel. No
+                    TickFrame, no corner ticks, no "QUERY BENCH" header.
+                    Just the question, full width, like a lab notebook
+                    opened to a blank page. The mode is auto-detected from
+                    the question text; the source count lives quietly below. */}
+                <div className="cb-bench"
                   style={{
                     width: "100%", maxWidth: 760,
-                    background: P.dark ? "rgba(13,16,18,0.88)" : "rgba(255,255,255,0.92)",
                     "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                     "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
                   }}>
-                  <div className="cb-bench-head">
-                    <span className="cb-bench-title">
-                      <Mark size={14} accent={accent} glow={false} />
-                      <span>QUERY BENCH</span>
-                    </span>
-                    <button type="button" className="cb-bench-status" onClick={() => setProvenanceOpen(true)}
-                      aria-haspopup="dialog" title="See the sources this bench searches">
-                      {SCHOLARLY_SOURCES.length} INDEXES · READY
-                    </button>
-                  </div>
-                  <div className="cb-bench-body">
+                  <div className="cb-bench-body" style={{ padding: 0, border: "none", background: "none" }}>
               {attachedImage && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
                   <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
@@ -21217,25 +21208,29 @@ function App() {
                   composer for editing. Hidden while typing. */}
               {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (
                 <div
-                  className="cb-starter cb-bench-tray"
                   key={"starter:" + askMode + (deckHasContent ? ":returning" : ":first")}
-                  style={{ "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line, "--cb-acc": accent }}
+                  style={{ marginTop: 20 }}
                 >
-                  <div className="cb-starter-k">{deckHasContent ? "reference specimens" : "calibration specimens"}</div>
-                  {(!deckHasContent ? FIRST_RUN_QUESTIONS : (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2)).map((ex, i) => (
-                    <button key={ex.q} type="button" className="cb-starter-item"
+                  {/* Starters are plain text, not cards. No boxes, no LOAD
+                      buttons, no numbered keys. Just questions worth asking,
+                      in the user's own language. */}
+                  {(!deckHasContent ? FIRST_RUN_QUESTIONS : (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2)).map((ex) => (
+                    <button key={ex.q} type="button"
                       onClick={() => {
                         if (!deckHasContent) { ask(ex.q); }
                         else { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }
                       }}
                       title={!deckHasContent ? `Search: ${ex.q}` : `Ask: ${ex.q}`}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left",
+                        background: "none", border: "none", padding: "8px 0",
+                        cursor: "pointer", color: P.ink2, fontSize: FONT_SIZES.body,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = accent; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = P.ink2; }}
                     >
-                      <span className="cb-starter-meta" aria-hidden="true">
-                        <span className="cb-starter-num">{String(i + 1).padStart(2, "0")}</span>
-                        <span className="cb-starter-cat">{ex.cat}</span>
-                      </span>
-                      <span className="cb-starter-q">{ex.q}</span>
-                      <span className="cb-starter-act" aria-hidden="true">{deckHasContent ? "LOAD" : "RUN"}</span>
+                      <span style={{ color: P.faint, marginRight: 8 }}>→</span>
+                      {ex.q}
                     </button>
                   ))}
                 </div>
@@ -21249,46 +21244,55 @@ function App() {
                       in one mono line — mode blurb on the left, evidence
                       tier on the right. Redundant for screen readers (the
                       real controls announce themselves), so hidden there. */}
-                  <div className="cb-bench-foot" aria-hidden="true">
-                    <span className="cb-bench-foot-mode">
-                      <span className="cb-bench-foot-idx">{String(Math.max(1, ASK_MODES.findIndex((m) => m.key === askMode) + 1)).padStart(2, "0")}</span>
-                      {(ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0]).blurb}
-                    </span>
-                    <span className="cb-bench-foot-ev">EVIDENCE · {((EVIDENCE_TIERS.find((t) => t[0] === evidenceFilter) || EVIDENCE_TIERS[0])[1] || "").toUpperCase()}</span>
+                  {/* Source count, quiet. No mode indicator, no evidence tier
+                      readout. The mode is auto-detected; the user does not
+                      need a dashboard summarizing the machine's configuration. */}
+                  <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <button type="button" onClick={() => setProvenanceOpen(true)}
+                      aria-haspopup="dialog" title="See the sources this searches"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                        color: P.faint, fontSize: FONT_SIZES.small }}>
+                      {SCHOLARLY_SOURCES.length} scholarly indexes
+                    </button>
+                    {askMode !== "explain" && (
+                      <button type="button" onClick={() => setAskMode("explain")}
+                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                          color: P.faint, fontSize: FONT_SIZES.small }}
+                        title="Detected mode. Click to reset to Explain.">
+                        {(ASK_MODES.find((m) => m.key === askMode) || {}).label || askMode} · reset
+                      </button>
+                    )}
                   </div>
-                </TickFrame>
+                </div>
               </div>
 
-              {/* The Work Log (2026-10-08): the deck is the bench's second
-                  module — your own work, framed like the console above it,
-                  with a mono header instead of a greeting headline. Only
-                  framed when there is work to show; a first-run visitor
-                  gets the bare deck (which collapses to nothing). */}
+              {/* Your work, plain. No TickFrame, no "WORK LOG" header, no
+                  corner ticks. Just the investigations, like entries in a
+                  lab notebook. The count is quiet, not a dashboard metric. */}
               {deckHasContent ? (
-                <TickFrame P={P} accent={accent} className="cb-deckframe"
+                <div
                   style={{
-                    width: "100%", maxWidth: 880,
-                    marginTop: isMobile ? 28 : 44,
-                    background: P.dark ? "rgba(13,16,18,0.88)" : "rgba(255,255,255,0.92)",
-                    "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
-                    "--cb-line": P.line, "--cb-acc": accent,
+                    width: "100%", maxWidth: 760,
+                    marginTop: isMobile ? 32 : 56,
+                    paddingLeft: "max(24px, 7vw)",
+                    paddingRight: 24,
                   }}>
-                  <div className="cb-deck-head">
-                    <span className="cb-deck-title">WORK LOG</span>
-                    <span className="cb-deck-sub">{(history || []).length} INVESTIGATIONS · {(saved || []).length} SAVED</span>
+                  <div style={{
+                    fontSize: FONT_SIZES.small, color: P.faint,
+                    marginBottom: 16,
+                  }}>
+                    {(history || []).length} investigations{(saved || []).length > 0 ? `, ${(saved || []).length} saved` : ""}
                   </div>
-                  <div className="cb-deck-body">
-                    <HomeDeck
-                      P={P} accent={accent} at={at} user={user} isMobile={isMobile}
-                      greetingName={firstName} flush
-                      history={history} saved={saved} sessions={sessions}
-                      watchKey={watchKey}
-                      onAsk={(q) => ask(q)}
-                      onOpenHistory={() => setView("investigations")}
-                      onOpenSaved={() => setView("library")}
-                    />
-                  </div>
-                </TickFrame>
+                  <HomeDeck
+                    P={P} accent={accent} at={at} user={user} isMobile={isMobile}
+                    greetingName={firstName} flush
+                    history={history} saved={saved} sessions={sessions}
+                    watchKey={watchKey}
+                    onAsk={(q) => ask(q)}
+                    onOpenHistory={() => setView("investigations")}
+                    onOpenSaved={() => setView("library")}
+                  />
+                </div>
               ) : (
                 <HomeDeck
                   P={P} accent={accent} at={at} user={user} isMobile={isMobile}
