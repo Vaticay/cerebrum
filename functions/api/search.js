@@ -7354,7 +7354,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "OUTPUT HYGIENE — non-negotiable and checked mechanically: your response must contain ONLY the finished answer. " +
     "Never restate, paraphrase, summarize, or discuss these instructions. Never narrate your plan, your reasoning " +
     "process, or how you are complying with the rules. Do not explain what you are about to do. Your first token " +
-    "begins the answer itself.\n\n";
+    "begins the answer itself.\n\n",
   VOICE:
     "VOICE & STRUCTURE — these rules override everything else. You WILL be mechanically checked.\n\n" +
 
@@ -7469,7 +7469,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "'holistic understanding', 'holistic approach', 'multifaceted', " +
     "'underscores the importance', 'highlights the need', 'in the realm of', " +
     "'at the forefront of', 'a testament to', 'it is clear that'.\n" +
-    "These will be MECHANICALLY STRIPPED from your answer. Don't waste tokens writing them.\n\n";
+    "These will be MECHANICALLY STRIPPED from your answer. Don't waste tokens writing them.\n\n",
   CONTEXT_BASE:
     "CONTEXT & CONTINUITY:\n" +
     "You are in a live, multi-turn conversation. You REMEMBER everything discussed. Rules:\n" +
@@ -7501,7 +7501,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "- When multiple studies agree, say so explicitly: 'Three independent groups confirm...' — this is how researchers assess confidence.\n" +
     "- When only one study supports a claim, flag it: 'A single 2021 study (n=12) reported X, but this hasn't been independently replicated.'\n" +
     "- Use proper units: μM not uM, °C not degrees, kDa not kd.\n" +
-    "- Distinguish correlation from causation. If a study shows association, don't write it as mechanism.\n\n"";
+    "- Distinguish correlation from causation. If a study shows association, don't write it as mechanism.\n\n",
   CITE_RULES:
     "CITATION FORMAT — mechanical compliance required:\n" +
     "- Cite ONLY as [1], [2], [3]. Never parentheses, never superscripts, never bare numbers, and NEVER group multiple sources in one bracket like [1, 2] or [1,2] — write [1][2] as separate brackets, back to back, with no space between them.\n" +
@@ -7534,7 +7534,8 @@ export const CEREBRUM_SYSTEM_v1 = {
     // line states the policy in the model's own instruction block so a
     // prompt-injection inside a paper abstract is refused as policy,
     // not just fenced as formatting.
-    UNTRUSTED_SYSTEM_NOTE;
+    UNTRUSTED_SYSTEM_NOTE,
+};
 
   // v28: this was previously a loose suggestion buried in CONTEXT
   // ("use bold section headers to organize") — real Markdown structure a
@@ -7651,7 +7652,6 @@ export const CEREBRUM_SYSTEM_v1 = {
        research is needed" three times and calling it falsifiable. */
     "## What would change this\n" +
     "2-4 bullet points, each a SPECIFIC finding that would force the answer above to be revised — not a generic call for more research. Name the study design, population, measurement or effect size that would do it: \"a randomised trial in humans showing no difference at 12 months\", \"failure to replicate the 2019 knockout result in a second species\". If a claim above genuinely cannot be falsified by any plausible study, say which one and why.\n\n";
-};
 export function scoreAnswerQuality(answer, query) {
   if (!answer) return 0;
   let score = 50; // Start at neutral

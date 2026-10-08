@@ -100,6 +100,25 @@ const FILM_CLIPS_PORTRAIT = [
   videoUrl("/assets/cinematic/ambient-07.mp4"),
 ];
 
+/* Intro reel (2026-10-08): dramatic 4K slow-motion cinematic clips for the
+   ceremonial door. Ink in water, the full treatment — dark, slow, dramatic.
+   All clips are Pexels (free for commercial use, no watermark) by
+   Dan Cristian Pădureț. Hotlinked from videos.pexels.com which allows it. */
+const FILM_CLIPS_INTRO = [
+  "https://videos.pexels.com/video-files/3059861/3059861-uhd_3840_2160_25fps.mp4", // Yellow ink swirling in water, slow motion — Dan Cristian Pădureț
+  "https://videos.pexels.com/video-files/4508064/4508064-uhd_3840_2160_25fps.mp4", // Blue paint drop in water, slow motion — Dan Cristian Pădureț
+  "https://videos.pexels.com/video-files/3051490/3051490-uhd_3840_2160_25fps.mp4", // Black ink flowing in water, dramatic — Dan Cristian Pădureț
+];
+
+/* Calm reel (2026-10-08): quieter clips for the main search page. Dusty's
+   note: "different ones (less eye sore for the main page)." Slow smoke on
+   black, barely moving — atmosphere, not a show. */
+const FILM_CLIPS_CALM = [
+  "https://videos.pexels.com/video-files/9694810/9694810-hd_1920_1080_25fps.mp4", // White smoke on black, slow — Pexels
+  videoUrl("/assets/cinematic/ambient-04.mp4"), // Smoke in motion on black — Mixkit (fallback)
+  videoUrl("/assets/cinematic/ambient-06.mp4"), // Abstract smoke texture — Mixkit (fallback)
+];
+
 /* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two
    portrait clips moved OUT of the free lists above, so they play only for
    Pro members. These are the strongest frames in the set — aurora, nebula,
@@ -130,8 +149,13 @@ const FILM_CLIPS_PRO_PORTRAIT = [
    phone still looks like footage; the reverse does not. `pro` selects the
    members-only reel (see FILM_CLIPS_PRO_* above) — offered only to Pro
    members, never to anyone else. */
-function filmReel(pro) {
+function filmReel(pro, reel) {
   if (typeof window === "undefined") return FILM_CLIPS_LANDSCAPE;
+  // Named reels (2026-10-08): "intro" for the dramatic 4K door clips,
+  // "calm" for the quieter main-page clips. These bypass the portrait
+  // check — the clips are chosen to crop well.
+  if (reel === "intro") return FILM_CLIPS_INTRO;
+  if (reel === "calm") return FILM_CLIPS_CALM;
   const portrait = window.innerHeight > window.innerWidth;
   // 2026-10-07: Pro clips (science-*) are 404 on the CDN — they were never
   // uploaded. Pro users get the working ambient reel until the Pro clips
@@ -569,40 +593,6 @@ function SourcesDialog({ onClose, accent }) {
   );
 }
 
-function playEnterThoom() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    if (ctx.state === "suspended") ctx.resume();
-    const t = ctx.currentTime;
-    // Low boom
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(120, t);
-    osc.frequency.exponentialRampToValueAtTime(38, t + 0.9);
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.5, t + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(t); osc.stop(t + 1.3);
-    // Airy shimmer
-    const len = Math.floor(ctx.sampleRate * 0.6);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const noise = ctx.createBufferSource(); noise.buffer = buf;
-    const bp = ctx.createBiquadFilter();
-    bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 0.8;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.08, t + 0.05);
-    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-    noise.connect(bp).connect(ng).connect(ctx.destination);
-    noise.start(t);
-    setTimeout(() => { try { ctx.close(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx: ctx.close(); }:", e); } }, 2000);
-  } catch (e) { /* audio is enhancement, never a blocker */ }
-}
 
 const SPECIMENS = [
   {
@@ -619,6 +609,111 @@ const SPECIMENS = [
     claim: "Running grows new neurons in the adult brain, at least in mice.",
     paper: "H. van Praag et al., \u201cRunning increases cell proliferation and neurogenesis in the adult mouse dentate gyrus,\u201d Nat. Neurosci. 2(3), 1999.",
     doi: "https://doi.org/10.1038/6368",
+  },
+  {
+    claim: "Four-year-olds who could wait for two marshmallows scored markedly higher on their SATs as teenagers.",
+    paper: "Y. Shoda, W. Mischel & P. K. Peake, \u201cPredicting adolescent cognitive and self-regulatory competencies from preschool delay of gratification,\u201d J. Pers. Soc. Psychol. 57(6), 1990.",
+    doi: "https://doi.org/10.1037/0022-3514.57.6.978",
+  },
+  {
+    claim: "Cigarette smokers die of lung cancer at roughly ten times the rate of non-smokers.",
+    paper: "R. Doll & A. B. Hill, \u201cSmoking and carcinoma of the lung,\u201d Br. Med. J. 2(4682), 1950.",
+    doi: "https://doi.org/10.1136/bmj.2.4682.739",
+  },
+  {
+    claim: "DNA is a double helix, with the two strands held together by paired bases.",
+    paper: "J. D. Watson & F. H. C. Crick, \u201cMolecular structure of nucleic acids,\u201d Nature 171(4356), 1953.",
+    doi: "https://doi.org/10.1038/171737a0",
+  },
+  {
+    claim: "People fear a $100 loss about twice as much as they value a $100 gain.",
+    paper: "D. Kahneman & A. Tversky, \u201cProspect theory: An analysis of decision under risk,\u201d Econometrica 47(2), 1979.",
+    doi: "https://doi.org/10.2307/1914185",
+  },
+  {
+    claim: "A bacterial immune system can be reprogrammed to cut any chosen DNA sequence.",
+    paper: "M. Jinek et al., \u201cA programmable dual-RNA-guided DNA endonuclease in adaptive bacterial immunity,\u201d Science 337(6096), 2012.",
+    doi: "https://doi.org/10.1126/science.1225829",
+  },
+  {
+    claim: "Ripples in spacetime from two colliding black holes reached Earth after traveling over a billion years.",
+    paper: "B. P. Abbott et al., \u201cObservation of gravitational waves from a binary black hole merger,\u201d Phys. Rev. Lett. 116(6), 2016.",
+    doi: "https://doi.org/10.1103/PhysRevLett.116.061102",
+  },
+  {
+    claim: "The shadow of a black hole 55 million light-years away was photographed for the first time.",
+    paper: "Event Horizon Telescope Collaboration, \u201cFirst M87 event horizon telescope results,\u201d Astrophys. J. Lett. 875(1), 2019.",
+    doi: "https://doi.org/10.3847/2041-8213/ab0ec7",
+  },
+  {
+    claim: "Swapping one RNA building block lets synthetic messenger RNA slip past the immune system.",
+    paper: "K. Karik\u00f3 et al., \u201cSuppression of RNA recognition by Toll-like receptors,\u201d Immunity 23(2), 2005.",
+    doi: "https://doi.org/10.1016/j.immuni.2005.06.008",
+  },
+  {
+    claim: "Stomach ulcers are caused by bacteria, not stress, and can be cured with antibiotics.",
+    paper: "B. J. Marshall & J. R. Warren, \u201cUnidentified curved bacilli in the stomach of patients with gastritis and peptic ulceration,\u201d Lancet 323(8390), 1984.",
+    doi: "https://doi.org/10.1016/S0140-6736(84)91816-6",
+  },
+  {
+    claim: "Ordinary people will deliver what they believe are dangerous electric shocks when an authority figure tells them to.",
+    paper: "S. Milgram, \u201cBehavioral study of obedience,\u201d J. Abnorm. Soc. Psychol. 67(4), 1963.",
+    doi: "https://doi.org/10.1037/h0040525",
+  },
+  {
+    claim: "Naming the ink color of a word is hard when the word itself spells a different color.",
+    paper: "J. R. Stroop, \u201cStudies of interference in serial verbal reactions,\u201d J. Exp. Psychol. 18(6), 1935.",
+    doi: "https://doi.org/10.1037/h0054651",
+  },
+  {
+    claim: "The least competent people are the most confident about their abilities.",
+    paper: "J. Kruger & D. Dunning, \u201cUnskilled and unaware of it,\u201d J. Pers. Soc. Psychol. 77(6), 1999.",
+    doi: "https://doi.org/10.1037/0022-3514.77.6.1121",
+  },
+  {
+    claim: "The more bystanders who witness an emergency, the less likely any one of them is to help.",
+    paper: "J. M. Darley & B. Latan\u00e9, \u201cBystander intervention in emergencies: Diffusion of responsibility,\u201d J. Pers. Soc. Psychol. 8(4), 1968.",
+    doi: "https://doi.org/10.1037/h0025589",
+  },
+  {
+    claim: "People paid $1 to lie about a boring task later claimed they actually enjoyed it.",
+    paper: "L. Festinger & J. M. Carlsmith, \u201cCognitive consequences of forced compliance,\u201d J. Abnorm. Soc. Psychol. 58(2), 1959.",
+    doi: "https://doi.org/10.1037/h0046929",
+  },
+  {
+    claim: "Antarctic ozone had dropped by a third, revealing a continent-sized hole in the ozone layer.",
+    paper: "J. C. Farman, B. G. Gardiner & J. D. Shanklin, \u201cLarge losses of total ozone in Antarctica reveal seasonal ClOx/NOx interaction,\u201d Nature 315(6016), 1985.",
+    doi: "https://doi.org/10.1038/315207a0",
+  },
+  {
+    claim: "A Mediterranean diet with olive oil or nuts cut heart attacks and strokes by about 30 percent.",
+    paper: "R. Estruch et al., \u201cPrimary prevention of cardiovascular disease with a Mediterranean diet,\u201d N. Engl. J. Med. 368, 2013.",
+    doi: "https://doi.org/10.1056/NEJMoa1200303",
+  },
+  {
+    claim: "Exercise works as an antidepressant, with larger benefits from more vigorous activity.",
+    paper: "F. B. Schuch et al., \u201cExercise as a treatment for depression: A meta-analysis,\u201d Am. J. Psychiatry 175(7), 2018.",
+    doi: "https://doi.org/10.1176/appi.ajp.2018.17111186",
+  },
+  {
+    claim: "Deep sleep replays the day\u2019s experiences and moves them into long-term memory.",
+    paper: "S. Diekelmann & J. Born, \u201cThe memory function of sleep,\u201d Nat. Rev. Neurosci. 11(2), 2010.",
+    doi: "https://doi.org/10.1038/nrn2762",
+  },
+  {
+    claim: "The human body carries roughly as many bacterial cells as human cells.",
+    paper: "Human Microbiome Project Consortium, \u201cStructure, function and diversity of the healthy human microbiome,\u201d Nature 486(7402), 2012.",
+    doi: "https://doi.org/10.1038/nature11234",
+  },
+  {
+    claim: "Mold juice kills staphylococcus bacteria, the first observed antibiotic effect.",
+    paper: "A. Fleming, \u201cOn the antibacterial action of cultures of a penicillium,\u201d Br. J. Exp. Pathol. 10(3), 1929.",
+    doi: "https://doi.org/10.1111/j.1472-765X.1929.tb00571.x",
+  },
+  {
+    claim: "About a third of patients improve on a sugar pill with no active ingredient.",
+    paper: "H. K. Beecher, \u201cThe powerful placebo,\u201d J. Am. Med. Assoc. 159(17), 1955.",
+    doi: "https://doi.org/10.1001/jama.1955.02960340022006",
   },
 ];
 
@@ -642,7 +737,6 @@ const SPECIMENS = [
    - 9s rotation with hold/dialog/reduced-motion pauses: calm, tested.
    - "Traced to a direct finding" + "Start researching": locked copy.
    - The door rule: no composer here, one way in, ceremonial.
-   - playEnterThoom: the entry cue. A door should sound like a door.
    ════════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const isMobile = useIsMobile();
@@ -686,8 +780,6 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const go = (q, submit) => {
     const payload = typeof q === "string" ? q : "";
     if (leaving) return;
-    // The boom: synthesized thoom on the user's gesture
-    playEnterThoom();
     if (animationMode === "off" || reduced) { onEnter(payload, !!submit, null); return; }
     setLeaving(true);
     clearTimeout(leaveTimer.current);
@@ -733,7 +825,25 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     }}>
       {/* The instrument bed: calibration grid on near-black, held by a
           vignette. The grid is static; the air above it is not. */}
-      <div aria-hidden="true" className="cb-instr-bed" />
+      <div aria-hidden="true" className={"cb-instr-bed" + (animate ? " cb-instr-bed-film" : "")} />
+      {/* 4K cinematic reel (2026-10-08): dramatic slow-motion ink-in-water
+          clips behind the instrument bed. The bed's grid stays on top;
+          the video is darkened so type always wins. Reduced motion or
+          animation off: no video, the CSS atmosphere carries the mood. */}
+      {animate && (
+        <div aria-hidden="true" style={{
+          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+          filter: "brightness(0.42) saturate(0.72)",
+        }}>
+          <CinematicFilm
+            reel="intro"
+            animationMode={animationMode}
+            intensity={0.55}
+            onAutoplayBlocked={() => {}}
+            onPlaybackChange={() => {}}
+          />
+        </div>
+      )}
       {/* Atmosphere: the cinematic feel, calmed. Three vast, heavily
           blurred light fields drifting on 90s+ cycles — barely perceptible,
           very dark, never literal footage. The room has air, not a movie.
@@ -793,7 +903,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
-            <span style={readout}>SPEC {String(specimenIdx + 1).padStart(2, "0")}/03</span>
+            <span style={readout}>SPEC {String(specimenIdx + 1).padStart(2, "0")}/{String(specimenCount).padStart(2, "0")}</span>
             {!isMobile && <span style={readout}>15 SOURCES</span>}
             <span style={{
               ...readout,
@@ -902,7 +1012,8 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             </div>
             {/* Specimen selector: numbered instrument tabs, not dots. */}
             <div role="tablist" aria-label="Verified claims" style={{
-              marginTop: 32, display: "flex", alignItems: "center", gap: 8,
+              marginTop: 32, display: "flex", alignItems: "center", justifyContent: "center",
+              gap: 8, flexWrap: "wrap", maxWidth: 720, marginLeft: "auto", marginRight: "auto",
             }}>
               {SPECIMENS.map((sp, i) => {
                 const activeTab = i === specimenIdx;
@@ -1423,7 +1534,7 @@ export const FilmLayer = forwardRef(function FilmLayer({
   );
 });
 
-export const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, onPlaybackChange, startAt = null, holdMs = FILM_HOLD_MS, proReel = false }, ref) {
+export const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, animationMode = "off", paused = false, onClip, onAutoplayBlocked, onPlaybackChange, startAt = null, holdMs = FILM_HOLD_MS, proReel = false, reel = null }, ref) {
   const aRef = useRef(null);
   const bRef = useRef(null);
   const curRef = useRef(0);
@@ -1442,8 +1553,9 @@ export const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, 
   // member sees the members-only backdrop immediately, not after the
   // current free clip's hold expires. idxRef restarts at the head of the
   // new order (the lists are disjoint, so no index can carry over).
-  if (!orderRef.current || orderProRef.current !== proReel) {
-    const o = filmReel(proReel).slice();
+  if (!orderRef.current || orderProRef.current !== proReel || orderRef.current._reel !== reel) {
+    const o = filmReel(proReel, reel).slice();
+    o._reel = reel;
     for (let i = o.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const t = o[i]; o[i] = o[j]; o[j] = t;
@@ -1812,6 +1924,8 @@ export {
   FILM_CLIPS_PORTRAIT,
   FILM_CLIPS_PRO_LANDSCAPE,
   FILM_CLIPS_PRO_PORTRAIT,
+  FILM_CLIPS_INTRO,
+  FILM_CLIPS_CALM,
   videoUrl,
   filmReel,
   FILM_POSTER,
@@ -1833,7 +1947,6 @@ export {
   IntroModal,
   HowItWorksDialog,
   SourcesDialog,
-  playEnterThoom,
   SPECIMENS,
   Intro,
   CerebrumFieldCanvas,

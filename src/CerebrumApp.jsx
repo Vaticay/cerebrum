@@ -103,7 +103,7 @@ import {
   FILM_CREDITS, FILM_MODIFICATIONS, FilmCreditsDialog, FILM_SCENES,
   FILM_POSTER_CLIP, DOC_FILM_SRC, FILM_OPT_IN_KEY, filmForcedOn,
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
-  filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog, playEnterThoom,
+  filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog,
   SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
 } from "./intro.jsx";
 
