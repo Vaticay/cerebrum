@@ -35,6 +35,19 @@ export const FONT_SIZES = {
 
 export const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 
+// Motion system: the single source of truth for durations and easings.
+// feedback: 150ms - button presses, hover states, micro-interactions
+// panel: 280ms - dialogs, panels, drawers, modal entrances
+// spatial: 550ms - large spatial moves, view transitions
+// ease: the single decelerating curve used everywhere
+export const MOTION = {
+  feedback: 0.15,
+  panel: 0.28,
+  spatial: 0.55,
+  ease: "cubic-bezier(0.16, 1, 0.3, 1)",
+  gsapEase: "power3.out",
+};
+
 // Pro brand color: the deliberate emerald used for Pro surfaces (upgrade
 // prompts, Pro badges, Pro marketing). This is a brand decision, not the
 // user's selected accent — Pro surfaces stay emerald across all themes.

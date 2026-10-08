@@ -76,7 +76,7 @@ import {
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
-import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
+import {FONT_SIZES, STATUS, PRO, MOTION, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
@@ -695,15 +695,8 @@ function usePremiumPointer() {
    `--cb-ease` is the same curve the CSS layer uses, so a GSAP tween and a CSS
    transition on the same element cannot disagree.
    ════════════════════════════════════════════════════════════════════════ */
-const MOTION = {
-  feedback: 0.15,
-  panel: 0.28,
-  spatial: 0.55,
-  // A single decelerating curve. Nothing overshoots: springy scientific text
-  // reads as a toy, and the brief is explicit about it.
-  ease: "cubic-bezier(0.16, 1, 0.3, 1)",
-  gsapEase: "power3.out",
-};
+/* MOTION is imported from designSystem.jsx - the single source of truth for
+   durations and easings. See designSystem.jsx for the tier definitions. */
 
 function useGsapReveal(deps = [], opts = {}) {
   const ref = useRef(null);
