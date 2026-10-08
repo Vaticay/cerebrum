@@ -71,12 +71,12 @@ function publicPlans() {
     // Pro Lite: the middle rung — 10x free usage, metered, none of Pro's perks.
     "lite-monthly": {
       usd: PRO_PLANS["lite-monthly"].usd, interval: "month", label: "Lite Monthly", tier: "lite",
-      note: "10x the free usage. Not unlimited — and none of Pro's badge, theme, or reel.",
+      note: "10x the free usage. Not unlimited — and none of Pro's badge or theme.",
     },
     "lite-annual": {
       usd: PRO_PLANS["lite-annual"].usd, interval: "year", label: "Lite Annual", tier: "lite",
       perMonth: PRO_PLANS["lite-annual"].perMonth,
-      note: "10x the free usage. Not unlimited — and none of Pro's badge, theme, or reel.",
+      note: "10x the free usage. Not unlimited — and none of Pro's badge or theme.",
     },
     freeAiCap: FREE_AI_ANSWERS_PER_MONTH,
     freeDocReadsCap: FREE_DOC_READS_PER_MONTH,

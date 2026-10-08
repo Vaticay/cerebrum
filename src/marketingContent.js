@@ -33,7 +33,7 @@ export const MARKETING_PAGES = {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Features",
     title: "Search, read, and map the scientific literature",
-    lede: "Cerebrum searches 15 open scholarly databases in parallel and answers with citations you can open and check. Free to use, no account required.",
+    lede: "Cerebrum searches 15 scholarly databases in parallel and answers with citations you can check. Free; a free account unlocks AI answers, reads, and flowcharts.",
     updated: "Updated September 2026.",
     blocks: [
       {
@@ -58,7 +58,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "Is Cerebrum free?",
-        a: "Yes. The free tier includes 50 AI answers, 3 document reads, and 1 flowchart every 5 days, with no account required. Cerebrum Pro ($20/month or $144/year) removes the limits.",
+        a: "Yes. The free tier includes 50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. Searching the databases works without one. Cerebrum Pro ($20/month or $144/year) removes the limits.",
       },
       {
         q: "Where do the answers come from?",
@@ -66,7 +66,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Do I need an account?",
-        a: "No. An account is optional and only syncs what you explicitly save: articles, collections, history, and your Pro status.",
+        a: "Searching works without an account. A free account unlocks your 50 AI answers, 3 document reads, and 1 flowchart every 5 days, and syncs what you save: articles, collections, history, and your Pro status.",
       },
     ],
   },
@@ -84,7 +84,7 @@ export const MARKETING_PAGES = {
     blocks: [
       {
         h: "Free, forever",
-        p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days. No account required, no ads, no tracking pixels, no sale of personal information.",
+        p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. No ads, no tracking pixels, no sale of personal information.",
       },
       {
         h: "Cerebrum Pro",

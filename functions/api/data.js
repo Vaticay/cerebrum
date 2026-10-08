@@ -27,6 +27,7 @@ import {
 } from "../lib/e2eeValidate.js";
 import { clientIp, privacyKey, requireTrustedOrigin, corsHeaders, readOriginAllowed, readJsonBody } from "../lib/http.js";
 import { requireConfirmation } from "../lib/inputGuard.js";
+import { sendPushToUsers, getPushDisplayName, buildNewMessagePushPayload } from "../lib/pushNotify.js";
 
 const MAX_MESSAGE_LEN = 4000;
 const MAX_NAME_LEN = 120;
@@ -1873,6 +1874,28 @@ export async function onRequest(context) {
         attachmentKind || null, attachmentData || null, attachmentUrl || null, attachmentMeta || null, now,
         msgKind, senderDeviceId, msgKind === "cipher" ? E2EE_ENVELOPE_VERSION : 1
       ).run();
+      // Wake the other participants' closed tabs. The payload never carries
+      // message content — E2EE threads are unreadable server-side anyway,
+      // and plaintext threads stay private by choice. Fire-and-forget: the
+      // message is stored, push must never block the response.
+      {
+        const senderId = user.id;
+        const isEncrypted = msgKind === "cipher";
+        const pushWork = (async () => {
+          try {
+            const others = await env.DB.prepare(
+              "SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ?"
+            ).bind(threadId, senderId).all();
+            const otherIds = (others.results || []).map((r) => r.user_id).filter(Boolean);
+            if (!otherIds.length) return;
+            const senderName = await getPushDisplayName(env, senderId);
+            await sendPushToUsers(env, otherIds, () =>
+              buildNewMessagePushPayload({ threadId, senderName, encrypted: isEncrypted }));
+          } catch { /* push never breaks messaging */ }
+        })();
+        if (context && typeof context.waitUntil === "function") context.waitUntil(pushWork);
+        else pushWork.catch(() => {});
+      }
       return new Response(JSON.stringify({
         ok: true,
         message: {

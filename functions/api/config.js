@@ -70,6 +70,8 @@ const WATCHED = [
   ["Calls", "TURN_URLS", "Static TURN server URLs (fallback path)", "Static TURN relay"],
   ["Calls", "TURN_USERNAME", "Static TURN username (fallback path)", "Static TURN relay"],
   ["Calls", "TURN_CREDENTIAL", "Static TURN credential (fallback path)", "Static TURN relay"],
+  ["Calls", "VAPID_PUBLIC_KEY", "Web Push VAPID public key (safe to expose)", "Background push notifications"],
+  ["Calls", "VAPID_PRIVATE_KEY", "Web Push VAPID private key", "Background push notifications"],
   // ── Site & admin ──
   ["Site & admin", "FOUNDER_EMAIL", "Founder account email (admin gates)", "Founder-only diagnostics"],
   ["Site & admin", "PREVIEW_ORIGINS", "Set to 'off' to distrust Pages preview origins", "Preview-origin CORS trust"],

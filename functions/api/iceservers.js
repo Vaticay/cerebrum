@@ -184,17 +184,19 @@ export async function onRequest(context) {
   /* No relay is configured. Say so in the payload rather than silently
      serving STUN-only ICE and letting the call fail as a mystery — the
      client uses this to tell the caller what is actually wrong instead of
-     "couldn't establish a connection". The Open Relay entry stays as a
-     last resort because when it does work it is better than nothing, but
-     it is explicitly no longer treated as a working relay. */
-  iceServers.push({
-    urls: [
-      "turn:openrelay.metered.ca:80",
-      "turn:openrelay.metered.ca:443",
-      "turn:openrelay.metered.ca:443?transport=tcp",
-    ],
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  });
+     "couldn't establish a connection".
+
+     The Metered openrelay.metered.ca entry used to sit here as a last
+     resort, but its public credentials no longer authenticate (Metered
+     locked the open relay behind accounts/API keys — see the Commit 85
+     note above), so it was dead weight: every call attempt burned ICE
+     gathering time on allocations that 401. Removed 2026-10-08.
+
+     FREE RELAY PATH: Cloudflare Realtime TURN includes 1,000 GB/month
+     free (shared with SFU; $0.05/GB after). For 1:1 calls that is
+     effectively unlimited, and TURN is only used when a direct path
+     fails — which is most calls never. Setup is two env vars (see the
+     TURN_KEY_ID block above); create the key at Cloudflare dashboard →
+     Realtime → TURN Keys. No code changes needed. */
   return new Response(JSON.stringify({ iceServers, relay: "none", reason: relayReason }), { status: 200, headers: cors });
 }

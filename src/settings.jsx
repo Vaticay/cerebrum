@@ -16,6 +16,21 @@ import { ZkSession, isValidRecoveryPhrase, makeItemId } from "./zkData.js";
 import { normalizePhrase } from "./e2ee/recovery.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+// Web Push VAPID public key — public by design (it goes into
+// PushManager.subscribe on every browser). The private half lives only as
+// the VAPID_PRIVATE_KEY server secret. Generated 2026-10-08.
+const VAPID_PUBLIC_KEY = "BNkVJMCVa6LUAYd7O5lMdgZcfyLQir-roz4E_vAyJ0dYgKEOFD4K-bIguz9dm65DNFJ618EPnO5T7itboMs56PY";
+
+// base64url → Uint8Array for PushManager.subscribe's applicationServerKey.
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
 function TtsVoiceSetting({ P, accent, at, S, sfx }) {
   const [voice, setVoice] = useState(() => { try { return localStorage.getItem("cb_tts_voice") || "female"; } catch { return "female"; } });
   const set = (v) => { setVoice(v); try { localStorage.setItem("cb_tts_voice", v); } catch (cbErr) { console.error("[Cerebrum] settings.jsx set: localStorage.setItem('cb_tts_voice', v); }:", cbErr); } sfx(); };
@@ -275,7 +290,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           {rank !== "pro" && (
             <Row
               label="Pro"
-              desc="The meter goes away: unlimited AI answers, document reads and flowcharts, deeper Pro search, investigation templates, API access, plus the badge, four exclusive themes and the members' reels. $20/month or $144/year."
+              desc="The meter goes away: unlimited AI answers, document reads and flowcharts, deeper Pro search, investigation templates, API access, plus the badge and four exclusive themes. $20/month or $144/year."
               control={rank === "free" ? goldBtn("Go Pro", onOpenPro) : quietBtn("Go Pro", onOpenPro)}
               last
             />
@@ -380,7 +395,7 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
         control={
           <div style={{ display: "flex", gap: 8 }}>
             <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") create(); }}
-              placeholder="Key name, e.g. my script" autoComplete="off"
+              placeholder="Key name, e.g. my script" autoComplete="off" aria-label="API key name"
               style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, fontFamily: "var(--cb-font)", width: 170 }} />
             <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={create} disabled={busy || (keys && keys.length >= 5)} style={{ minHeight: 40, flexShrink: 0 }}>
               {busy ? "…" : "Create key"}
@@ -457,7 +472,7 @@ function ProGrantPanel({ P, accent, at, Section, Row, onProChanged }) {
         control={
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run("grant", email); }}
-              placeholder="name@example.com" type="email" autoComplete="off"
+              placeholder="name@example.com" type="email" autoComplete="off" aria-label="Email address to grant access"
               style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: 8, fontFamily: "var(--cb-font)", flex: "1 1 160px", minWidth: 0, maxWidth: 260 }} />
             <UIButton P={P} variant="ghost" onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 700, background: busy ? P.raised : "#34d399", color: busy ? P.faint : "#1a1405", border: "none", borderRadius: 8, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
               {busy ? "…" : "Grant"}
@@ -1543,7 +1558,7 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{format(local)}</span>
       </div>
       <div style={{ minHeight: 44, display: "flex", alignItems: "center" }}>
-        <input type="range" min={min} max={max} step={step} value={local} onChange={(e) => setLocal(parseFloat(e.target.value))} onMouseUp={commit} onTouchEnd={commit} onKeyUp={commit} style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
+        <input type="range" min={min} max={max} step={step} value={local} aria-label={label} onChange={(e) => setLocal(parseFloat(e.target.value))} onMouseUp={commit} onTouchEnd={commit} onKeyUp={commit} style={{ width: "100%", accentColor: accent, cursor: "pointer" }} />
       </div>
     </div>
   );
@@ -1804,6 +1819,76 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const [notifPerm, setNotifPerm] = useState(() => {
     try { return "Notification" in window ? Notification.permission : "unsupported"; } catch { return "unsupported"; }
   });
+  // Web Push (background notifications) — the Notification API above only
+  // fires while a tab is open. PushManager + the service worker wake a
+  // closed browser. "unknown" until we check the service worker.
+  const [pushState, setPushState] = useState("unknown"); // unknown|unsupported|off|on|working
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) { if (!dead) setPushState("unsupported"); return; }
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (!dead) setPushState(sub ? "on" : "off");
+      } catch { if (!dead) setPushState("unsupported"); }
+    })();
+    return () => { dead = true; };
+  }, []);
+  const setPushEnabled = async (enable) => {
+    setPushState("working");
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (enable) {
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        const res = await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription: sub.toJSON() }),
+        });
+        if (!res.ok) {
+          try { await sub.unsubscribe(); } catch { /* noop */ }
+          throw new Error("server rejected the subscription");
+        }
+        setPushState("on");
+        toast("Background notifications on. Calls and messages will reach you with the tab closed.");
+      } else {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          const endpoint = sub.endpoint;
+          try { await sub.unsubscribe(); } catch { /* noop */ }
+          try {
+            await fetch("/api/push/unsubscribe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ endpoint }),
+            });
+          } catch { /* server cleanup is best-effort */ }
+        } else {
+          // No local subscription but the server may still hold one for
+          // this browser from before — clear them all.
+          try {
+            await fetch("/api/push/unsubscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          } catch { /* noop */ }
+        }
+        setPushState("off");
+        toast("Background notifications off.");
+      }
+    } catch (e) {
+      console.error("push toggle failed:", e);
+      // Re-check the real state rather than guessing.
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        setPushState(sub ? "on" : "off");
+      } catch { setPushState("off"); }
+      toast("Couldn't change that. The browser may be blocking notifications.");
+    }
+    sfx();
+  };
   // Commit 75 — founder diagnostics. Loaded only on the Account tab.
   const [founderStatus, setFounderStatus] = useState(null);
   useEffect(() => {
@@ -2565,7 +2650,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               footer={
                 notifPerm === "unsupported" ? "This browser doesn't support desktop notifications."
                 : notifPerm === "denied" ? "Your browser is blocking notifications for this site. Re-allow them in the padlock menu in the address bar: Cerebrum can't undo that from here."
-                : notifPerm === "granted" ? "Cerebrum only notifies you while this tab is in the background. Nothing is sent while you're looking at it."
+                : notifPerm === "granted" ? (pushState === "on"
+                    ? "Background notifications are on: calls and messages reach you even with Cerebrum closed."
+                    : "Cerebrum only notifies you while this tab is in the background. Enable background notifications below to be reached with the tab closed.")
                 : "Cerebrum will ask your browser for permission the first time it has something to tell you."
               }
             >
@@ -2594,6 +2681,41 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       color: notifPerm === "granted" ? (P.dark ? STATUS.good : "#047857") : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
                     }}>{notifPerm === "granted" ? "On" : notifPerm === "denied" ? "Blocked" : "Unavailable"}</span>
+                  )
+                }
+                last
+              />
+              {/* Web Push — wakes a closed browser via the service worker.
+                  The row above (Notification API) only fires while a tab is
+                  open; this one covers calls and messages when Cerebrum
+                  isn't running at all. */}
+              <Row
+                label="Background notifications"
+                desc={
+                  pushState === "on" ? "Calls and messages reach you with the tab closed"
+                  : pushState === "unsupported" ? "Not available in this browser"
+                  : pushState === "unknown" || pushState === "working" ? "Checking…"
+                  : "Get notified even when Cerebrum is closed"
+                }
+                control={
+                  pushState === "on" ? (
+                    <Switch on={true} onChange={() => setPushEnabled(false)} label="Background notifications" />
+                  ) : pushState === "off" ? (
+                    notifPerm === "granted" ? (
+                      <button onClick={() => setPushEnabled(true)}
+                        aria-label="Enable background notifications"
+                        style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        Enable
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                        Allow desktop notifications first
+                      </span>
+                    )
+                  ) : (
+                    <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, padding: "4px 12px", borderRadius: 9999, color: P.faint, background: withAlpha(P.faint, 0.12) }}>
+                      {pushState === "unsupported" ? "Unavailable" : "…"}
+                    </span>
                   )
                 }
                 last
@@ -2697,7 +2819,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               conditional block under the same tab id is deliberate — it
               keeps each block short enough to read at a glance. */}
           {tab === "privacy" && (<>
-            <Section title="History & storage" footer="Kept in this browser. They never leave your device. Queries go to our server to run the search: details in Privacy, above.">
+            <Section title="History & storage" footer={user
+              ? "Kept in this browser and synced to your account, so your work follows you to other devices. Erase removes both copies. Queries go to our server to run the search: details in Privacy, above."
+              : "Kept in this browser. They never leave your device. Queries go to our server to run the search: details in Privacy, above."}>
               <Row label="Saved conversations" desc={`${(history || []).length} conversation${(history || []).length === 1 ? "" : "s"} kept`} />
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} last={(history || []).length === 0} />
               {(history || []).length > 0 && (

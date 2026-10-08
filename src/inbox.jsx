@@ -1031,6 +1031,24 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     science tool knowing what a huddle is; everyone knows a
                     phone icon and a camera icon. Both open the same call
                     surface; the audio one starts with the camera off. */}
+                {/* Bug 8 fix (2026-10-08): group calls are a button without an
+                    engine — VideoHuddle is architecturally 1:1 (peer identity
+                    latches to the first signal, the ring poll returns one
+                    ring). The buttons below used to render on group threads
+                    promising what the engine cannot do. On groups they now
+                    render disabled with an honest tooltip instead of a lie. */}
+                {activeThread.kind === "group" ? (
+                  <button
+                    disabled
+                    aria-label="Group calls aren't supported yet"
+                    title="Group calls aren't supported yet — video calls work in direct messages"
+                    style={{
+                      background: withAlpha(accent, 0.05), border: "none", borderRadius: "50%", color: P.faint,
+                      cursor: "default", opacity: 0.4,
+                      width: 38, height: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  ><Icon name="camera" size={16} /></button>
+                ) : (<>
                 <button
                   onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId, { audioOnly: true }); }}
                   disabled={activeThread.blocked}
@@ -1052,6 +1070,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     width: 38, height: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
                   }}
                 ><Icon name="camera" size={16} /></button>
+                </>)}
                 {/* Commit 48: block/report menu — DM-only (see user_blocks'
                     scope note in schema.sql: groups have no membership-
                     removal flow to pair blocking with yet), and only once

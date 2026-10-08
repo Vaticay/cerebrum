@@ -49,8 +49,12 @@ self.addEventListener("push", (event) => {
       body,
       icon: "/favicon-32x32.png",
       badge: "/favicon-32x32.png",
-      tag: "cb-thread-" + ((data && data.threadId) || "inbox"),
+      tag: "cb-" + ((data && data.kind) || "thread") + "-" + ((data && data.threadId) || "inbox"),
       renotify: false,
+      // An incoming call is the one notification that must not auto-dismiss:
+      // if the user is away from the desk, a 20-second toast means a missed
+      // call they never knew about.
+      requireInteraction: data && data.kind === "call",
       data: { url },
     });
   })());

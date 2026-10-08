@@ -2067,6 +2067,7 @@ function SignalComposer({
         <div className="cb-ask-inputwrap">
           <textarea
             ref={inputRef}
+            id="cb-search"
             className="cb-ask-input"
             role="combobox"
             aria-controls="cb-ask-recents"
@@ -5647,7 +5648,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
               500 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered — never unlimited.
             </div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
-              Want the deep end? Pro is unlimited on all three, plus the badge, theme, and members' reels.
+              Want the deep end? Pro is unlimited on all three, plus the badge and theme.
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 18, flexWrap: "wrap" }}>
               {proStatus.hasBilling && configured && (
@@ -5707,7 +5708,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>10x the free usage, metered</span>
               </div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5, marginBottom: 12 }}>
-                500 AI answers · 30 document reads · 10 flowcharts, every 5 days. None of Pro's badge, theme, or members' reels.
+                500 AI answers · 30 document reads · 10 flowcharts, every 5 days. None of Pro's badge or theme.
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 {[
@@ -5738,7 +5739,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 ["30 document reads every 5 days", "Free: 3 every 5 days"],
                 ["10 flowchart saves every 5 days", "Free: 1 every 5 days"],
                 ["A set allowance, not unlimited", "Pro removes the limit entirely"],
-                ["No Pro badge, theme, or members' films", "Those stay Pro-only"],
+                ["No Pro badge or theme", "Those stay Pro-only"],
               ] : [
                 ["Answer as many questions as you want", "Free: 50 every 5 days"],
                 ["Read as many documents as you want", "Free: 3 every 5 days"],
@@ -5746,7 +5747,6 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 ["A Pro badge on your profile", "Shows wherever your name appears"],
                 ["Four Pro themes", "Pro, Pro Violet, Pro Abyss, Pro Ember — members only"],
                 ["Deeper Pro search", "2x semantic rerank pool, 50 papers, stronger models, no cheap-first"],
-                ["Members-only background films", "Aurora, nebula, eclipse and DNA reels"],
                 ["Answer PDF export", "Clean PDFs with citations for your thesis"],
               ]).map(([t, d]) => (
                 <li key={t} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -5797,6 +5797,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                       <input value={studentCode} onChange={(e) => setStudentCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                         onKeyDown={(e) => { if (e.key === "Enter") verifyStudentCode(); }}
                         placeholder="000000" inputMode="numeric" autoComplete="one-time-code"
+                        aria-label="Verification code"
                         style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.body, letterSpacing: "0.3em", textAlign: "center", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
                       <UIButton P={P} variant="ghost" onClick={verifyStudentCode} disabled={studentBusy || studentCode.length !== 6}
                         style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: studentBusy || studentCode.length !== 6 ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || studentCode.length !== 6 ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
@@ -5818,6 +5819,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                       <input value={studentEmail} onChange={(e) => setStudentEmail(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") sendStudentCode(); }}
                         placeholder="you@university.edu" type="email" autoComplete="email"
+                        aria-label="College email address"
                         style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.small, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
                       <UIButton P={P} variant="ghost" onClick={sendStudentCode} disabled={studentBusy || !studentEmail.includes("@")}
                         style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: studentBusy || !studentEmail.includes("@") ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || !studentEmail.includes("@") ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0, whiteSpace: "nowrap" }}>
@@ -8700,7 +8702,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
           {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
               {renamingId === c.id ? (
-                <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
+                <input autoFocus value={renameValue} aria-label="Rename collection" onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
               ) : (
                 <UIButton P={P} variant="ghost" onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ minHeight: 44, flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accent : P.ink2, fontFamily: "var(--cb-font)" }}>
                   {c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span>
@@ -10487,7 +10489,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             <ProBadge />
           </div>
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-            Pro gives you unlimited AI answers, document reads, and flowcharts, plus the gold badge, the black and bronze theme, and members-only cinematic reels.
+            Pro gives you unlimited AI answers, document reads, and flowcharts, plus the gold badge and the black and bronze theme.
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap", alignItems: "center" }}>
             <button onClick={onOpenPro} style={{ padding: "12px 26px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -17960,12 +17962,10 @@ function App() {
      bug. Defaults to "annual" for every other entry point. */
   const [proModalPlan, setProModalPlan] = useState("annual");
   const openPro = (plan) => { setProModalPlan(plan || "annual"); setProModalOpen(true); };
-  // Members-only cinematic reel toggle. A client-side preference, not a
-  // security boundary: the toggle and the Pro palette are only offered to
-  // Pro accounts, and the server is the authority on who is Pro.
   /* 2026-10-05: the proReel toggle lived here. It switched the workspace
      film reel to members-only footage; the reel is gone, so the toggle went
-     with it. */
+     with it. (2026-10-08: the marketing copy promising members' reels was
+     also removed — the perk no longer exists.) */
   /* 2026-10-05: the ambient reel behind the product surfaces is gone —
      cinema lives at the door only. What remains of this cluster: the
      intro-handoff clip (the graded still that bridges the door-to-workspace
@@ -21226,7 +21226,7 @@ function App() {
                     <EvidenceFilter value={evidenceFilter} onChange={(v) => { sfx(); setEvidenceFilter(v); }} P={P} accent={accent} isMobile={isMobile} />
                   </div>
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
+                    <input style={S.searchInput} value={input} aria-label="Follow-up question" onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} getInput={() => input} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>

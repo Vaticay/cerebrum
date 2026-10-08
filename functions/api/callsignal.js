@@ -35,6 +35,7 @@
 import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey, readJsonBody } from "../lib/http.js";
 import { getSessionUser, isBlockedPair, ensureSocialTables } from "../lib/authHelpers.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
+import { sendPushToUsers, getPushDisplayName, buildCallPushPayload } from "../lib/pushNotify.js";
 
 
 // Generous relative to search/videos endpoints: a single call's connection
@@ -226,6 +227,21 @@ export async function onRequest(context) {
       // needing a cron trigger this project doesn't otherwise have.
       await env.DB.prepare("DELETE FROM call_signals WHERE thread_id = ? AND created_at < ?")
         .bind(threadId, now - SIGNAL_TTL_MS).run().catch(() => {});
+      // An SDP offer is the one signal that means "a call is starting" —
+      // the ring heartbeat repeats, ICE trickles, but the offer fires once.
+      // Wake the other participants' closed tabs with a push so the call
+      // doesn't depend on them having Cerebrum open. Fire-and-forget: the
+      // signal is already stored, push must never block it.
+      if (type === "offer" && Array.isArray(authorized) && authorized.length) {
+        const callerId = user.id;
+        const calleeIds = authorized.slice();
+        const pushWork = (async () => {
+          const callerName = await getPushDisplayName(env, callerId);
+          await sendPushToUsers(env, calleeIds, () => buildCallPushPayload({ callerName }));
+        })();
+        if (context && typeof context.waitUntil === "function") context.waitUntil(pushWork);
+        else pushWork.catch(() => {});
+      }
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: cors });
     }
 

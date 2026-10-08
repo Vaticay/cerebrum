@@ -6540,7 +6540,7 @@ export async function detectSemanticDivergence(papers, env) {
 // retrieval record), the most likely reasons (ranked by signal), and
 // concrete reformulations derived from the question itself. It never
 // guesses at the science — only reports the search.
-export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gatedOut, gatedExamples, errored }) {
+export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gatedOut, gatedExamples, errored, filteredOut, filterLabel }) {
   const q = String(query || "").trim();
   const list = Array.isArray(sourcesQueried) ? sourcesQueried : [];
   const failedCount = list.filter((s) => !s.ok).length;
@@ -6574,6 +6574,18 @@ export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gated
   }
 
   const likelyReasons = [];
+  // Bug 4 fix (2026-10-08): when the evidence tier filter removed every
+  // candidate, say so plainly — the old copy blamed "the filter" for
+  // results it never shaped. Now the filter is real, so this is true.
+  if (filteredOut > 0) {
+    const tierName = String(filterLabel || "the selected evidence tier")
+      .replace("systematic-review", "systematic reviews")
+      .replace("rct", "randomised trials")
+      .replace("in-vivo-vitro", "animal/cell studies");
+    likelyReasons.push("The evidence filter (" + tierName + ") removed all " +
+      filteredOut + " candidate paper" + (filteredOut === 1 ? "" : "s") +
+      " — none matched that study type. Clearing the filter and searching again usually finds related work.");
+  }
   if (gatedOut > 0) {
     likelyReasons.push("Papers exist nearby, but none were on-topic enough to cite — the question may use terms the literature doesn't.");
   }
@@ -8793,6 +8805,10 @@ async function gatherPapers(rawQuery, opts) {
         qualityScore: quality,   // 0-30, source quality signals
         journalTier: journalBonus > 0 ? journalBonus : undefined,
         studyType: studyType ? studyType.label : undefined,
+        // Bug 4 fix (2026-10-08): the client evidence filter was a placebo —
+        // the backend never read it. The key (not just the label) is stored
+        // so the tier filter below can match papers deterministically.
+        studyTypeKey: studyType ? studyType.key : undefined,
         flaggedPublisher: predPenalty < 0 || undefined,
         contentHits,
         titleContentHits,
@@ -11065,6 +11081,36 @@ async function runSearchPipeline(pctx) {
       return !NON_SCHOLARLY_CONTAINER.test(container);
     });
 
+    // Bug 4 fix (2026-10-08): the evidence filter is real now. The client
+    // sends settings.evidenceFilter ("systematic-review" | "rct" |
+    // "in-vivo-vitro", absent when "all"); previously the backend never
+    // read it and the client never filtered either, while the zero-results
+    // copy blamed "the filter" for results it didn't shape. Now the tier
+    // is enforced here, before the citation gate, using the studyTypeKey
+    // computed during ranking. Papers that don't match are counted in
+    // evidenceFilteredOut (reported on the envelope) so the UI can say
+    // honestly how many the filter withheld. When the filter empties the
+    // list, the answer takes the no-evidence path and the no-results
+    // payload names the filter as the cause — never a silent fallback to
+    // unfiltered, which would lie about what the user asked for.
+    let evidenceFilteredOut = 0;
+    let evidenceFilterApplied = null;
+    {
+      const rawFilter = String(settings.evidenceFilter || "").trim().toLowerCase();
+      const FILTER_TO_KEY = {
+        "systematic-review": "SYSTEMATIC_REVIEW",
+        "rct": "RCT",
+        "in-vivo-vitro": "PRECLINICAL",
+      };
+      const wantKey = FILTER_TO_KEY[rawFilter];
+      if (wantKey) {
+        evidenceFilterApplied = rawFilter;
+        const before = papers.length;
+        papers = papers.filter((pp) => pp && pp.studyTypeKey === wantKey);
+        evidenceFilteredOut = Math.max(0, before - papers.length);
+      }
+    }
+
     // The citation gate. Every paper that reaches the answer must clear
     // RELEVANCE_FLOOR (60) — below it a score is carried by passing keyword
     // mentions rather than topical study, and the real incident was an
@@ -13238,6 +13284,9 @@ async function runSearchPipeline(pctx) {
           rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
           gatedOut: useEvidence ? relevanceGatedOut : 0,
           gatedExamples: useEvidence ? gatedOutTitles : [],
+          // Bug 4 fix: honest filter attribution in the no-results answer.
+          filteredOut: useEvidence ? evidenceFilteredOut : 0,
+          filterLabel: evidenceFilterApplied,
         });
         answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
         responseKind = "no-results";
@@ -13793,6 +13842,12 @@ async function runSearchPipeline(pctx) {
            RELEVANCE_FLOOR). The UI can state this honestly instead of
            silently dropping them. */
         relevanceGatedOut,
+        // Bug 4 fix (2026-10-08): the evidence tier filter is enforced now.
+        // evidenceFilterApplied is the requested tier ("systematic-review" |
+        // "rct" | "in-vivo-vitro", null when unfiltered); evidenceFilteredOut
+        // is how many papers the filter withheld before the citation gate.
+        evidenceFilterApplied,
+        evidenceFilteredOut,
         videos,
         factCheck: factCheckResult,
         literature_conflicts: literatureConflicts.length > 0 ? literatureConflicts : null,
