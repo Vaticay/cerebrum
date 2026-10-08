@@ -4400,7 +4400,7 @@ function VerdictReadout({ t, P }) {
         <Icon name={glyph} size={54} />
       </div>
       <div className="cb-verdict-body">
-        <div className="cb-verdict-eyebrow">Verdict</div>
+        <div className="cb-verdict-eyebrow">Answer check</div>
         <div className="cb-verdict-word" style={{ color: P.ink }}>{word}</div>
         <div className="cb-verdict-sub" style={{ color: P.ink2 }}>{sub}</div>
         <div className="cb-mono cb-verdict-readout" style={{ color: P.faint }}>{readout}</div>
