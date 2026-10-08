@@ -32,7 +32,7 @@ const { PAGES } = await import(join(root, "src/legalContent.js"));
 /* Marketing pages (/features, /pricing, /document-mode, /diagram-studio,
    /investigations) share the same data shape as PAGES, so the same render
    pipeline produces their documents. */
-const { MARKETING_PAGES } = await import(join(root, "src/marketingContent.js"));
+const { MARKETING_PAGES, DEMO_QUESTIONS } = await import(join(root, "src/marketingContent.js"));
 const ALL_PAGES = { ...PAGES, ...MARKETING_PAGES };
 const { demoteNoscriptH1 } = await import("./prerender-lib.mjs");
 
@@ -113,6 +113,25 @@ function renderPage(slug, data, shell) {
       })}\n    </script>`
     : "";
 
+  /* One-question live demo, static edition. /about and /features get the
+   * same three cached sample answers the SPA renders interactively, as plain
+   * HTML with real citation links, so crawlers and readers without
+   * JavaScript see the product proof too. */
+  const demoHtml = (slug === "about" || slug === "features") && Array.isArray(DEMO_QUESTIONS) && DEMO_QUESTIONS.length
+    ? `<hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />\n` +
+      `<div>\n<h2>See what an answer looks like</h2>\n` +
+      DEMO_QUESTIONS.map((d) =>
+        `<h3 style="font-size:1.05rem;margin:1.4rem 0 .4rem">${esc(d.q)}</h3>\n` +
+        d.paragraphs.map((para) =>
+          `<p>${esc(para.text)}${(para.cites || []).map((n) => ` [${n}]`).join("")}</p>`
+        ).join("\n") + `\n` +
+        `<ol style="font-size:.9rem;color:#555">` +
+        d.sources.map((s) =>
+          `<li><a href="${esc(s.url)}" style="color:#555">${esc(s.title)}</a> ${esc(s.venue)}, ${esc(s.year)}</li>`
+        ).join("") + `</ol>`
+      ).join("\n") + `\n<p style="font-size:.9rem;color:#6b6b6b">A cached sample, not a live search. Every citation above is a real paper you can open.</p>\n</div>`
+    : "";
+
   const head = `
     <title>${esc(title)}</title>
     <meta name="description" content="${esc(description)}" />
@@ -146,6 +165,7 @@ function renderPage(slug, data, shell) {
       ${data.updated ? `<p style="font:500 13px/1.5 system-ui,sans-serif;color:#6b6b6b">${esc(data.updated)}</p>` : ""}
       <hr style="border:0;border-top:1px solid #e0ddd8;margin:2rem 0" />
       ${body}
+      ${demoHtml}
       ${faqHtml}
       <hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />
       <p style="font:400 13px/1.6 system-ui,sans-serif;color:#6b6b6b">

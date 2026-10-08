@@ -11,7 +11,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App, InfoPage, CSS } from "./CerebrumApp.jsx";
-import { classifyRoute } from "./routeClassify.js";
+import { classifyRoute, INFO_SLUGS } from "./routeClassify.js";
+import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
 
 /**
  * Catches a render error anywhere below it.
@@ -137,38 +138,147 @@ class ErrorBoundary extends React.Component {
  * served" without a build-time allowlist, and a catch-all Function route
  * would shadow real static files. This view is the safe half; see the
  * ship report for the deferred edge half.
+ *
+ * The view is theme aware: it reads the visitor's palette cookie like
+ * InfoPage does instead of hardcoding dark, so light mode users do not get
+ * a jarring black page. It also earns its keep: a working search box that
+ * deep links into the app (?q= prefills the composer and runs once, per
+ * src/deepLink.js), a fuzzy "did you mean" suggestion for mistyped slugs,
+ * and the full sitemap so a lost visitor can browse instead of bounce.
  */
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function bestRouteMatch(path) {
+  if (!path) return null;
+  let best = null, bestD = Infinity;
+  for (const r of INFO_SLUGS) {
+    const d = levenshtein(path.toLowerCase(), r);
+    if (d < bestD) { bestD = d; best = r; }
+  }
+  if (best && bestD <= Math.max(2, Math.floor(best.length / 3))) return best;
+  return null;
+}
+
+function readCookie(k) {
+  try {
+    const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)"));
+    return m ? decodeURIComponent(m[1]) : null;
+  } catch { return null; }
+}
+
 function NotFound() {
   React.useEffect(() => {
     try { document.title = "Page not found — Cerebrum"; } catch (cbErr) { console.error("[Cerebrum] main.jsx NotFound: document.title = 'Page not found — Cerebrum'; }:", cbErr); }
   }, []);
-  const link = {
-    color: "#e8e6e1", textDecoration: "underline",
-    textUnderlineOffset: 3, textDecorationColor: "rgba(232,230,225,0.4)",
+  const paletteName = readCookie("cb_pal") || "Dark";
+  const P = PALETTES[isProPalette(paletteName) ? "Dark" : paletteName] || PALETTES.Dark;
+  const accentName = readCookie("cb_accent") || "Mono";
+  const customAccent = readCookie("cb_accentCustom") || "";
+  const accent = customAccent || ACCENTS[accentName] || ACCENTS.Mono;
+  const [q, setQ] = React.useState("");
+  const deadPath = (() => {
+    try { return window.location.pathname.replace(/^\//, "").replace(/\.html$/, "").replace(/\/+$/, ""); }
+    catch { return ""; }
+  })();
+  const suggestion = bestRouteMatch(deadPath);
+  const go = () => {
+    const query = q.trim();
+    if (query) window.location.href = "/?q=" + encodeURIComponent(query);
   };
+  const link = {
+    color: accent, textDecoration: "underline",
+    textUnderlineOffset: 3, textDecorationColor: "rgba(128,128,128,0.4)",
+    fontWeight: 600,
+  };
+  const groups = [
+    { h: "Product", links: [["Features", "/features"], ["Pricing", "/pricing"], ["Document Mode", "/document-mode"], ["Diagram Studio", "/diagram-studio"], ["Investigations", "/investigations"]] },
+    { h: "Company", links: [["About", "/about"], ["Contact", "/contact"]] },
+    { h: "Legal", links: [["Privacy", "/privacy"], ["Terms", "/terms"], ["Disclosures", "/disclosures"]] },
+  ];
   return (
     <div style={{
       minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: "#0a0d14", color: "#e8e6e1", padding: 24, textAlign: "center",
+      background: P.bg, color: P.ink, padding: 24,
       fontFamily: "var(--cb-font, 'Inter Tight', system-ui, sans-serif)",
     }}>
-      <div style={{ maxWidth: 480 }}>
-        <div style={{ fontSize: 13, letterSpacing: "0.14em", color: "rgba(232,230,225,0.45)", marginBottom: 14 }}>
+      <div style={{ maxWidth: 560, width: "100%", textAlign: "center", padding: "48px 0" }}>
+        <div style={{ fontSize: 13, letterSpacing: "0.14em", color: P.faint, marginBottom: 14, fontWeight: 600 }}>
           404
         </div>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.015em", margin: "0 0 12px" }}>
-          That page isn&rsquo;t here
+        <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-0.015em", margin: "0 0 12px", color: P.ink }}>
+          We don&rsquo;t invent pages either.
         </h1>
-        <p style={{ fontSize: 15, lineHeight: 1.65, color: "rgba(232,230,225,0.72)", margin: "0 0 26px" }}>
-          The address doesn&rsquo;t match anything on Cerebrum. If you were
-          looking for a paper or an answer, start a fresh search — or open
-          Document Mode from the sidebar once you&rsquo;re in.
+        <p style={{ fontSize: 15, lineHeight: 1.65, color: P.ink2, margin: "0 0 8px" }}>
+          That address doesn&rsquo;t match anything here. We could guess what you
+          meant, but we&rsquo;d rather say so.
         </p>
-        <div style={{ display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap", fontSize: 14, fontWeight: 600 }}>
+        {suggestion && (
+          <p style={{ fontSize: 15, lineHeight: 1.65, color: P.ink2, margin: "0 0 8px" }}>
+            Did you mean <a href={"/" + suggestion} style={link}>/{suggestion}</a>?
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 8, margin: "24px auto 0", maxWidth: 440 }}>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") go(); }}
+            placeholder="Or search the literature directly"
+            aria-label="Search the literature"
+            style={{
+              flex: 1, minHeight: 44, padding: "0 16px", borderRadius: 12,
+              border: `1px solid ${P.line2}`, background: P.surface, color: P.ink,
+              fontSize: 16, fontFamily: "var(--cb-font)", outline: "none",
+            }}
+          />
+          <button
+            onClick={go}
+            style={{
+              minHeight: 44, minWidth: 44, padding: "0 20px", borderRadius: 12,
+              border: "none", background: accent, color: "#0b0b0e",
+              fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)",
+            }}
+          >
+            Search
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap", fontSize: 14, marginTop: 26 }}>
           <a href="/" style={link}>Back to search</a>
           <a href="/about" style={link}>About Cerebrum</a>
           <a href="/contact" style={link}>Contact</a>
         </div>
+        <div style={{
+          marginTop: 40, paddingTop: 24, borderTop: `1px solid ${P.line}`,
+          display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, textAlign: "left",
+        }}>
+          {groups.map((g) => (
+            <div key={g.h}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", color: P.faint, marginBottom: 10 }}>
+                {g.h.toUpperCase()}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {g.links.map(([label, href]) => (
+                  <a key={href} href={href} style={{ fontSize: 14, color: P.ink2, textDecoration: "none", fontWeight: 500 }}>{label}</a>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p style={{ fontSize: 13, color: P.faint, marginTop: 32, lineHeight: 1.6 }}>
+          Think this page should exist? <a href="/contact" style={link}>Tell us</a>.
+        </p>
       </div>
     </div>
   );

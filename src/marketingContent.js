@@ -100,6 +100,11 @@ export const MARKETING_PAGES = {
         h: "Why Pro exists",
         p: "Cerebrum is an independent project, not an advertising business. Pro subscriptions pay for the search infrastructure directly, so the product never needs to monetize your attention.",
       },
+      {
+        h: "Will free cover you?",
+        p: "Drag the slider to your typical week. The free tier gives you 50 AI answers every 5 days, which works out to about 70 a week. Feel the math before you decide.",
+        widget: "quota-calc",
+      },
     ],
     faq: [
       {
@@ -225,3 +230,96 @@ export const MARKETING_PAGES = {
 
 /** Slugs that get prerendered documents, in sitemap order. */
 export const MARKETING_SLUGS = Object.keys(MARKETING_PAGES);
+
+/**
+ * One-question live demo: three sample questions with cached sample answers
+ * and real citations, embedded on /about and /features.
+ *
+ * These are fixed, honest snapshots, not live search results. Every cited
+ * paper is real and links to its DOI. The demo exists so a visitor sees what
+ * a Cerebrum answer looks like, citations and all, before signing up for
+ * anything. Copy is written dash free per the product voice rule.
+ */
+export const DEMO_QUESTIONS = [
+  {
+    q: "Does creatine cause hair loss?",
+    paragraphs: [
+      {
+        text: "No study has directly shown that creatine causes hair loss. The concern comes from one small 2009 trial of 20 college rugby players, which found a rise in DHT, the hormone most tied to male pattern baldness, during three weeks of creatine use. But the trial never measured hair loss, and nothing since has replicated even the DHT finding in a way that points to baldness.",
+        cites: [2],
+      },
+      {
+        text: "Against that sits the much larger safety literature. The International Society of Sports Nutrition's 2017 position stand, reviewing the full body of creatine research, reports no hair loss signal across hundreds of studies. If creatine caused baldness at any meaningful rate, it would be visible in that data by now.",
+        cites: [1],
+      },
+    ],
+    sources: [
+      {
+        title: "International Society of Sports Nutrition position stand: safety and efficacy of creatine supplementation in exercise, sport, and medicine",
+        venue: "J Int Soc Sports Nutr",
+        year: "2017",
+        url: "https://doi.org/10.1186/s12970-017-0173-z",
+      },
+      {
+        title: "Three weeks of creatine monohydrate supplementation affects dihydrotestosterone to testosterone ratio in college-aged rugby players",
+        venue: "Clin J Sport Med",
+        year: "2009",
+        url: "https://doi.org/10.1097/JSM.0b013e3181b8b52b",
+      },
+    ],
+  },
+  {
+    q: "Have microplastics been found inside the human body?",
+    paragraphs: [
+      {
+        text: "Yes, in blood. A 2022 Dutch study detected plastic particles in blood samples from 17 of 22 healthy donors, the first time quantities were measured in human blood.",
+        cites: [1],
+      },
+      {
+        text: "And in stool, earlier: a 2019 Austrian pilot study found microplastics in every stool sample from 8 volunteers across 8 countries. Both studies are small and say nothing about health effects, which remain unstudied at these exposures.",
+        cites: [2],
+      },
+    ],
+    sources: [
+      {
+        title: "Discovery and quantification of plastic particle pollution in human blood",
+        venue: "Environ Int",
+        year: "2022",
+        url: "https://doi.org/10.1016/j.envint.2022.107199",
+      },
+      {
+        title: "Detection of various microplastics in human stool: a prospective case series",
+        venue: "Ann Intern Med",
+        year: "2019",
+        url: "https://doi.org/10.7326/M19-0618",
+      },
+    ],
+  },
+  {
+    q: "Is coffee linked to a longer life?",
+    paragraphs: [
+      {
+        text: "In large observational studies, yes, modestly. A US study of over 400,000 adults found coffee drinkers had slightly lower mortality than non drinkers, with the effect leveling around 4 to 5 cups a day.",
+        cites: [1],
+      },
+      {
+        text: "But these are associations, not proof. Coffee drinkers differ from non drinkers in many ways, and no trial has randomized people to drink coffee for decades. A 2014 meta analysis of 21 studies found the same pattern, dose dependent up to about 4 cups.",
+        cites: [1, 2],
+      },
+    ],
+    sources: [
+      {
+        title: "Association of coffee drinking with total and cause-specific mortality",
+        venue: "N Engl J Med",
+        year: "2012",
+        url: "https://doi.org/10.1056/NEJMoa1112010",
+      },
+      {
+        title: "Coffee consumption and mortality from all causes, cardiovascular disease, and cancer: a dose-response meta-analysis",
+        venue: "Am J Epidemiol",
+        year: "2014",
+        url: "https://doi.org/10.1093/aje/kwu194",
+      },
+    ],
+  },
+];
