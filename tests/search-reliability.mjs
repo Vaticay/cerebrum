@@ -45,15 +45,26 @@ function extractFns() {
     if (src[i] === "[") depth++;
     if (src[i] === "]") { depth--; if (depth === 0) { cgEnd = i + 1; break; } }
   }
+  // SYNONYMS map for abbreviation expansion tests (2026-10-08 BSFL regression)
+  const synStart = src.indexOf("const SYNONYMS = {");
+  let synDepth = 0, synEnd = synStart;
+  for (let i = synStart; i < src.length; i++) {
+    if (src[i] === "{") synDepth++;
+    if (src[i] === "}") { synDepth--; if (synDepth === 0) { synEnd = i + 1; break; } }
+  }
+  const expStart = src.indexOf("function expansionsFor(tokens)");
+  const expEnd = src.indexOf("const ORGANISM_PHRASES = [", expStart);
   const code = src.slice(swStart, swEnd) + "\n" +
     src.slice(lemStart, cqEnd) + "\n" +
     src.slice(cgStart, cgEnd) + "\n" +
+    src.slice(synStart, synEnd) + "\n" +
+    src.slice(expStart, expEnd) + "\n" +
     "const CONCEPT_LOOKUP = new Map(); for (const g of CONCEPT_GROUPS) for (const t of g) CONCEPT_LOOKUP.set(t, new Set(g));";
-  const fn = new Function(code + "\nreturn { lemmatizeTerm, cleanQuery, CONCEPT_LOOKUP };");
+  const fn = new Function(code + "\nreturn { lemmatizeTerm, cleanQuery, CONCEPT_LOOKUP, SYNONYMS, expansionsFor };");
   return fn();
 }
 
-const { lemmatizeTerm, cleanQuery, CONCEPT_LOOKUP } = extractFns();
+const { lemmatizeTerm, cleanQuery, CONCEPT_LOOKUP, SYNONYMS, expansionsFor } = extractFns();
 
 console.log("\nVerb lemmatization");
 
@@ -124,6 +135,32 @@ test("has pattern/morphology group", () => {
   assert.ok(group, "pattern should have a concept group");
   assert.ok(group.has("polygonal"), "should include polygonal");
   assert.ok(group.has("morphology"), "should include morphology");
+});
+
+console.log("\nBSFL abbreviation expansion (2026-10-08 regression)");
+
+test("SYNONYMS has bsfl entry", () => {
+  assert.ok(SYNONYMS["bsfl"], "bsfl should be in SYNONYMS");
+  assert.ok(SYNONYMS["bsfl"].includes("black soldier fly larvae"), "should expand to black soldier fly larvae");
+  assert.ok(SYNONYMS["bsfl"].includes("hermetia illucens"), "should expand to hermetia illucens");
+});
+
+test("expansionsFor resolves bsfl token", () => {
+  const exp = expansionsFor(["bsfl", "gut", "microbiome"]);
+  assert.ok(exp.includes("black soldier fly larvae"), "should include black soldier fly larvae");
+  assert.ok(exp.includes("hermetia illucens"), "should include hermetia illucens");
+});
+
+test("expansionsFor handles uppercase BSFL", () => {
+  const exp = expansionsFor(["bsfl", "gut", "microbiome"]);
+  assert.ok(exp.length >= 2, "should produce at least 2 expansions");
+});
+
+test("gut has intestinal concept group", () => {
+  const group = CONCEPT_LOOKUP.get("gut");
+  assert.ok(group, "gut should have a concept group");
+  assert.ok(group.has("intestinal"), "should include intestinal");
+  assert.ok(group.has("midgut"), "should include midgut");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

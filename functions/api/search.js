@@ -11415,6 +11415,35 @@ async function runSearchPipeline(pctx) {
         health: stageHealth,
       });
       gResult = retrievalStage.value || { papers: [], _diag: {} };
+      // DEFENSIVE RETRY (2026-10-08): if the full ladder returned zero papers
+      // for an organism query, try once more with the simplest possible form:
+      // bare scientific name + top topic terms, no boolean operators, no
+      // rung ladder. This covers transient source failures where the complex
+      // query path yields nothing but a direct keyword search would succeed.
+      // Bounded: single attempt, only when the first pass found nothing.
+      if ((gResult.papers || []).length === 0 && typeof gatherPapers === "function") {
+        try {
+          const _retryDiag = (gResult._diag || {});
+          _retryDiag.emptyRetryAttempted = true;
+          // Build minimal query from the searchQuery already in scope
+          const _sq = String(searchQuery || query || "").toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)
+            .filter((t) => t.length > 2);
+          if (_sq.length >= 2) {
+            const _simpleQ = _sq.slice(0, 4).join(" ");
+            const _retryRes = await gatherPapers(_simpleQ, {
+              openAlexKey: env.OPENALEX_KEY || "",
+              ncbiKey: env.NCBI_API_KEY || "",
+              s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
+              limit: 10, isPro: false, db: env.DB, env,
+            }).catch(() => ({ papers: [] }));
+            if ((_retryRes.papers || []).length > 0) {
+              gResult = _retryRes;
+              if (gResult._diag) gResult._diag.emptyRetrySucceeded = true;
+            }
+          }
+        } catch (cbErr) { console.error("[Cerebrum] search.js empty-retry:", cbErr); }
+      }
       // Operator-visible flag: this request ran the Pro depth pipeline.
       if (gResult._diag) gResult._diag.proSearchDepth = isProSearch;
       // Priority queue: which lane this search ran in.
