@@ -244,8 +244,8 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
         label={label}
         desc={`${used} of ${cap} used · ${fmtRefill(refillMs)}`}
         control={
-          <div style={{ width: 92, height: 5, borderRadius: 9999, background: P.raised, overflow: "hidden", flexShrink: 0 }} role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`}>
-            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 9999, background: pct >= 100 ? STATUS.bad : "#d4a437", transition: "width 300ms ease" }} />
+          <div style={{ width: 92, height: 5, borderRadius: 2, background: P.raised, overflow: "hidden", flexShrink: 0 }} role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`}>
+            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, background: pct >= 100 ? STATUS.bad : "#d4a437", transition: "width 300ms ease" }} />
           </div>
         }
         last={last}
@@ -544,7 +544,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   const pillBtn = {
     minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600,
     background: withAlpha(accent, 0.16), color: accent,
-    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999,
+    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 2,
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
   };
   const dangerBtn = {
@@ -554,7 +554,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   const statusPill = (text, color) => (
     <span style={{
       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
-      padding: "4px 12px", borderRadius: 9999, color, background: withAlpha(color, 0.12),
+      padding: "4px 12px", borderRadius: 2, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
   );
@@ -918,7 +918,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const pillBtn = {
     minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600,
     background: withAlpha(accent, 0.16), color: accent,
-    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999,
+    border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 2,
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
   };
   const dangerBtn = {
@@ -929,7 +929,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const statusPill = (text, color) => (
     <span style={{
       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
-      padding: "4px 12px", borderRadius: 9999, color, background: withAlpha(color, 0.12),
+      padding: "4px 12px", borderRadius: 2, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
   );
@@ -1674,7 +1674,7 @@ function SystemStatus({ P, accent }) {
       ))}
       {!rows && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "12px 0" }}>Checking…</div>}
       <UIButton P={P} variant="ghost" onClick={check} style={{ minHeight: 44,
-        marginTop: 14, padding: "8px 16px", borderRadius: 9999, cursor: "pointer",
+        marginTop: 14, padding: "8px 16px", borderRadius: 2, cursor: "pointer",
         background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2,
         fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
       }}>Re-check</UIButton>
@@ -2180,7 +2180,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
       style={{ width: 52, height: 44, background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 9999, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 280ms ease" }}>
+      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 2, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 280ms ease" }}>
         <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
       </span>
     </button>
@@ -2300,7 +2300,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 placeholder="Search settings"
                 aria-label="Search settings"
                 style={{
-                  width: "100%", padding: "9px 12px 9px 34px", minHeight: 44, borderRadius: 9999,
+                  width: "100%", padding: "9px 12px 9px 34px", minHeight: 44, borderRadius: 2,
                   background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none",
                   fontSize: 16, fontFamily: "var(--cb-font)",
@@ -2461,7 +2461,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     control={
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
-                        padding: "4px 12px", borderRadius: 9999,
+                        padding: "4px 12px", borderRadius: 2,
                         color: founderStatus.configured ? (P.dark ? STATUS.good : "#047857") : statusBad(P, paletteName),
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
                       }}>{founderStatus.configured ? "Configured" : "Missing"}</span>
@@ -2474,7 +2474,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     control={
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
-                        padding: "4px 12px", borderRadius: 9999,
+                        padding: "4px 12px", borderRadius: 2,
                         color: founderStatus.youAreFounder ? (P.dark ? STATUS.good : "#047857") : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
                       }}>{founderStatus.youAreFounder ? "You" : "No"}</span>
@@ -2671,13 +2671,13 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       try {
                         Notification.requestPermission().then((perm) => setNotifPerm(perm));
                       } catch { setNotifPerm("unsupported"); }
-                    }} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                    }} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                       Allow
                     </button>
                   ) : (
                     <span style={{
                       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
-                      padding: "4px 12px", borderRadius: 9999,
+                      padding: "4px 12px", borderRadius: 2,
                       color: notifPerm === "granted" ? (P.dark ? STATUS.good : "#047857") : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
                     }}>{notifPerm === "granted" ? "On" : notifPerm === "denied" ? "Blocked" : "Unavailable"}</span>
@@ -2704,7 +2704,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     notifPerm === "granted" ? (
                       <button onClick={() => setPushEnabled(true)}
                         aria-label="Enable background notifications"
-                        style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                         Enable
                       </button>
                     ) : (
@@ -2713,7 +2713,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       </span>
                     )
                   ) : (
-                    <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, padding: "4px 12px", borderRadius: 9999, color: P.faint, background: withAlpha(P.faint, 0.12) }}>
+                    <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, padding: "4px 12px", borderRadius: 2, color: P.faint, background: withAlpha(P.faint, 0.12) }}>
                       {pushState === "unsupported" ? "Unavailable" : "…"}
                     </span>
                   )
@@ -2863,7 +2863,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                           setWatchlist((prev) => prev.filter((x) => x.id !== w.id));
                           try { await apiDataAction("unwatch-topic", { topic: w.topic }); }
                           catch { loadWatchlist(); }
-                        }} style={{ minHeight: 44, padding: "5px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 9999, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        }} style={{ minHeight: 44, padding: "5px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                           Unwatch
                         </UIButton>
                       }

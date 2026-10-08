@@ -1220,7 +1220,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div className="cb-kicker">Inspector</div>
               {(selNode || selEdge) && (
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 9999, padding: "3px 12px", textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 2, padding: "3px 12px", textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>
                   {selNode ? FC_NODE_TYPES[selNode.type].name : "Arrow"}
                 </div>
               )}

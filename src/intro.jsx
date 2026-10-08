@@ -282,7 +282,7 @@ function FilmCreditsDialog({ onClose, accent }) {
           </h2>
           <button onClick={onClose} aria-label="Close credits" style={{
             border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.72)", cursor: "pointer", borderRadius: 9999,
+            color: "rgba(242,244,242,0.72)", cursor: "pointer", borderRadius: 2,
             padding: "16px 16px", fontSize: 13, fontFamily: "var(--cb-font)",
           }}>Close</button>
         </div>
@@ -508,7 +508,7 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, flex: 1, lineHeight: 1.25 }}>{title}</h2>
           <button onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
             border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 9999,
+            color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 2,
             padding: "7px 15px", fontSize: 13, fontFamily: "var(--cb-font)", flexShrink: 0,
           }}>Close</button>
         </div>

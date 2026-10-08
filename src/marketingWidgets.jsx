@@ -109,7 +109,7 @@ export function LiveDemo({ P, accent, isMobile }) {
             onClick={() => setActive(i)}
             aria-pressed={active === i}
             style={{
-              minHeight: 44, padding: "10px 16px", borderRadius: 9999, cursor: "pointer",
+              minHeight: 44, padding: "10px 16px", borderRadius: 2, cursor: "pointer",
               border: `1px solid ${active === i ? accent : P.line2}`,
               background: active === i ? accent : "transparent",
               color: active === i ? "#0b0b0e" : P.ink,

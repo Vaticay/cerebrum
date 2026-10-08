@@ -565,7 +565,7 @@ function ProBadge({ style } = {}) {
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#06281c",
       background: PRO.emerald,
-      borderRadius: 9999, padding: "2px 8px 2px 9px",
+      borderRadius: 2, padding: "2px 8px 2px 9px",
       whiteSpace: "nowrap", ...style,
     }}>PRO</span>
   );
@@ -579,7 +579,7 @@ function TierBadge({ tier, style } = {}) {
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#c99a2e",
       border: "1px solid rgba(212,164,55,0.55)",
-      borderRadius: 9999, padding: "1px 8px 1px 9px",
+      borderRadius: 2, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>LITE</span>
   );
@@ -589,7 +589,7 @@ function TierBadge({ tier, style } = {}) {
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#9aa3a8",
       border: "1px solid rgba(150,160,165,0.4)",
-      borderRadius: 9999, padding: "1px 8px 1px 9px",
+      borderRadius: 2, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>FREE</span>
   );
