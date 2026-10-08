@@ -39,7 +39,7 @@ export const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 // prompts, Pro badges, Pro marketing). This is a brand decision, not the
 // user's selected accent — Pro surfaces stay emerald across all themes.
 export const PRO = {
-  emerald: PRO.emerald,
+  emerald: "#34d399",
   emeraldInk: "#06281c",
 };
 
