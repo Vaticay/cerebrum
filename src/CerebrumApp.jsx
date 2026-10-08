@@ -76,7 +76,7 @@ import {
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
-import {FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
+import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
@@ -5213,7 +5213,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
           <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", padding: "24px 0", textAlign: "center" }}>Checking Pro status…</div>
         ) : user?.isPro ? (
           <div style={{ textAlign: "center", padding: "12px 0 4px" }}>
-            <div style={{ width: 52, height: 52, borderRadius: "50%", margin: "0 auto 14px", display: "flex", alignItems: "center", justifyContent: "center", background: "#34d399", color: "#06281c" }}>
+            <div style={{ width: 52, height: 52, borderRadius: "50%", margin: "0 auto 14px", display: "flex", alignItems: "center", justifyContent: "center", background: PRO.emerald, color: PRO.emeraldInk }}>
               <Icon name="check" size={24} />
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>You're Pro.</div>
@@ -5245,10 +5245,10 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                   {busy ? "Opening…" : "Manage subscription"}
                 </UIButton>
               )}
-              <UIButton P={P} variant="ghost" onClick={() => upgradeToPlan("monthly")} disabled={busy} style={{ minHeight: 44, padding: "12px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#06281c", background: "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+              <UIButton P={P} variant="ghost" onClick={() => upgradeToPlan("monthly")} disabled={busy} style={{ minHeight: 44, padding: "12px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                 {busy ? "Starting…" : `Pro Monthly: ${monthlyAmt}/mo`}
               </UIButton>
-              <button onClick={() => upgradeToPlan("annual")} disabled={busy} style={{ minHeight: 44, padding: "12px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#06281c", background: "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+              <button onClick={() => upgradeToPlan("annual")} disabled={busy} style={{ minHeight: 44, padding: "12px 22px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                 {busy ? "Starting…" : `Pro Annual: ${annualAmt}/yr`}
               </button>
             </div>
@@ -5266,7 +5266,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
                     padding: "16px 16px", borderRadius: RADIUS.lg, cursor: "pointer", textAlign: "left",
-                    background: plan === opt.id ? withAlpha("#34d399", 0.07) : "transparent",
+                    background: plan === opt.id ? withAlpha(PRO.emerald, 0.07) : "transparent",
                     border: plan === opt.id ? "1px solid rgba(52,211,153,0.5)" : `1px solid ${P.line}`,
                     transition: "border-color 150ms ease, background 150ms ease",
                     width: "100%",
@@ -5280,7 +5280,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                     <span>
                       <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
                         {opt.name}
-                        {opt.badge && <span style={{ marginLeft: 8, fontSize: FONT_SIZES.micro, fontWeight: 600, color: "#34d399", fontFamily: "var(--cb-font)" }}>{opt.badge}</span>}
+                        {opt.badge && <span style={{ marginLeft: 8, fontSize: FONT_SIZES.micro, fontWeight: 600, color: PRO.emerald, fontFamily: "var(--cb-font)" }}>{opt.badge}</span>}
                       </span>
                       <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2 }}>{opt.note}</span>
                     </span>
@@ -5308,7 +5308,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                     style={{ minHeight: 44,
                       flex: 1, padding: "12px 12px", borderRadius: RADIUS.md, cursor: "pointer",
                       fontSize: FONT_SIZES.small, fontWeight: plan === opt.id ? 700 : 600, fontFamily: "var(--cb-font)",
-                      background: plan === opt.id ? withAlpha("#34d399", 0.07) : "transparent",
+                      background: plan === opt.id ? withAlpha(PRO.emerald, 0.07) : "transparent",
                       color: plan === opt.id ? P.ink : P.ink2,
                       border: plan === opt.id ? "1px solid rgba(52,211,153,0.5)" : `1px solid ${P.line}`,
                     }}>
@@ -5340,7 +5340,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 ["Answer PDF export", "Clean PDFs with citations for your thesis"],
               ]).map(([t, d]) => (
                 <li key={t} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  <span style={{ color: "#34d399", marginTop: 1 }}><Icon name="check" size={15} /></span>
+                  <span style={{ color: PRO.emerald, marginTop: 1 }}><Icon name="check" size={15} /></span>
                   <span>
                     <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{t}</span>
                     <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>: {d}</span>
@@ -5350,7 +5350,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
             </ul>
             {error && <div style={{ marginBottom: 12, fontSize: FONT_SIZES.small, color: "#e5484d", fontFamily: "var(--cb-font)" }}>{error}</div>}
             {!user ? (
-              <button onClick={() => { onClose(); onSignIn(); }} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#06281c", background: "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              <button onClick={() => { onClose(); onSignIn(); }} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                 Sign in to go Pro
               </button>
             ) : !configured ? (
@@ -5365,7 +5365,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 {studentStep === "verified" ? (
                   <>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                      <span style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "#34d399", color: "#06281c", flexShrink: 0 }}>
+                      <span style={{ width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: PRO.emerald, color: PRO.emeraldInk, flexShrink: 0 }}>
                         <Icon name="check" size={16} />
                       </span>
                       <div>
@@ -5373,7 +5373,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{studentEmail} · one-time discount, applied at checkout</div>
                       </div>
                     </div>
-                    <UIButton P={P} variant="ghost" onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#06281c", background: busy ? P.raised : "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+                    <UIButton P={P} variant="ghost" onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: PRO.emeraldInk, background: busy ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                       {busy ? "Starting secure checkout…" : `Go Pro: ${studentAmt}/mo for 12 months`}
                     </UIButton>
                   </>
@@ -5389,7 +5389,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                         placeholder="000000" inputMode="numeric" autoComplete="one-time-code"
                         style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.body, letterSpacing: "0.3em", textAlign: "center", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
                       <UIButton P={P} variant="ghost" onClick={verifyStudentCode} disabled={studentBusy || studentCode.length !== 6}
-                        style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#06281c", background: studentBusy || studentCode.length !== 6 ? P.raised : "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || studentCode.length !== 6 ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+                        style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: studentBusy || studentCode.length !== 6 ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || studentCode.length !== 6 ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
                         {studentBusy ? "…" : "Verify"}
                       </UIButton>
                     </div>
@@ -5410,7 +5410,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                         placeholder="you@university.edu" type="email" autoComplete="email"
                         style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.small, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
                       <UIButton P={P} variant="ghost" onClick={sendStudentCode} disabled={studentBusy || !studentEmail.includes("@")}
-                        style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: "#06281c", background: studentBusy || !studentEmail.includes("@") ? P.raised : "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || !studentEmail.includes("@") ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                        style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: studentBusy || !studentEmail.includes("@") ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || !studentEmail.includes("@") ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0, whiteSpace: "nowrap" }}>
                         {studentBusy ? "Sending…" : "Send code"}
                       </UIButton>
                     </div>
@@ -5418,7 +5418,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                 )}
               </div>
             ) : (
-              <UIButton P={P} variant="ghost" onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: "#06281c", background: busy ? P.raised : "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
+              <UIButton P={P} variant="ghost" onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 800, color: PRO.emeraldInk, background: busy ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
                 {busy ? "Starting secure checkout…" : `${checkoutVerb}: ${checkoutLabel}`}
               </UIButton>
             )}
@@ -5435,7 +5435,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
                   "Secure checkout by Stripe. Your card details never touch Cerebrum's servers.",
                 ].map((line) => (
                   <li key={line} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
-                    <span style={{ color: "#34d399", flexShrink: 0, marginTop: 1 }}><Icon name="check" size={12} /></span>
+                    <span style={{ color: PRO.emerald, flexShrink: 0, marginTop: 1 }}><Icon name="check" size={12} /></span>
                     <span>{line}</span>
                   </li>
                 ))}
@@ -7696,7 +7696,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 events so this deeply-nested renderer needs no props. */}
             {t.aiQuota && t.aiQuota.gated === "free-cap" && (
               <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: "#06281c", background: "#34d399", border: "none", borderRadius: 9999, padding: "3px 12px", cursor: "pointer" }}>
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: 9999, padding: "3px 12px", cursor: "pointer" }}>
                 Out of free AI answers — Go Pro
               </button>
             )}
@@ -9899,7 +9899,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             Pro gives you unlimited AI answers, document reads, and flowcharts, plus the gold badge, the black and bronze theme, and members-only cinematic reels.
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap", alignItems: "center" }}>
-            <button onClick={onOpenPro} style={{ padding: "12px 26px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: "#06281c", background: "#34d399", border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            <button onClick={onOpenPro} style={{ padding: "12px 26px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
               Go Pro: $20/mo or $144/yr
             </button>
             {!isLite && (
@@ -12247,7 +12247,7 @@ function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro })
       <div style={{ ...eyebrowLocal, margin: "0 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
         Start from a template
         {!isPro && (
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: "#06281c", background: "#34d399", borderRadius: 9999, padding: "2px 8px" }}>PRO</span>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: PRO.emeraldInk, background: PRO.emerald, borderRadius: 9999, padding: "2px 8px" }}>PRO</span>
         )}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
@@ -13894,9 +13894,9 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                         padding: "12px 24px", minHeight: 48, borderRadius: 9999,
                         cursor: verifyBusy ? "default" : "pointer",
                         fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)",
-                        background: isVerified ? withAlpha("#34d399", 0.12) : "transparent",
-                        color: isVerified ? "#34d399" : P.faint,
-                        border: `1px solid ${isVerified ? withAlpha("#34d399", 0.3) : P.line}`,
+                        background: isVerified ? withAlpha(PRO.emerald, 0.12) : "transparent",
+                        color: isVerified ? PRO.emerald : P.faint,
+                        border: `1px solid ${isVerified ? withAlpha(PRO.emerald, 0.3) : P.line}`,
                         opacity: verifyBusy ? 0.6 : 1,
                       }}
                     >{verifyBusy ? "Saving…" : isVerified ? "✓ Verified" : "Verify account"}</button>
@@ -16919,7 +16919,7 @@ function useDynamicFavicon({ accent, busy, unread }) {
 
     const drawFrame = (t) => {
       const { accent: ac, busy: bz, unread: un } = stateRef.current;
-      const mark = ac || "#34d399";
+      const mark = ac || PRO.emerald;
       ctx.clearRect(0, 0, S, S);
       // flat deep-ink tile — solid, no gradients, no lift, no glow.
       // The mark carries the icon; effects don't.

@@ -35,6 +35,14 @@ export const FONT_SIZES = {
 
 export const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 
+// Pro brand color: the deliberate emerald used for Pro surfaces (upgrade
+// prompts, Pro badges, Pro marketing). This is a brand decision, not the
+// user's selected accent — Pro surfaces stay emerald across all themes.
+export const PRO = {
+  emerald: PRO.emerald,
+  emeraldInk: "#06281c",
+};
+
 export function accentText(hex) {
   if (!hex || hex[0] !== "#" || hex.length < 7) return "#111";
   // Pick whichever ink - white or #0f172a - has the stronger WCAG contrast
@@ -431,7 +439,7 @@ export const SHADOW = {
 
 export const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "award", tint: "#c9a227" },
-  verified: { label: "Verified", icon: "check", tint: "#34d399" },
+  verified: { label: "Verified", icon: "check", tint: PRO.emerald },
   early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
 };
 
@@ -441,7 +449,7 @@ export function VerifiedCheck({ size = 15, title = "Verified: the owner of Cereb
   return (
     <span title={title} aria-label={title} role="img" style={{ display: "inline-flex", flexShrink: 0, verticalAlign: "middle" }}>
       <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-        <path fill="#34d399" d="M12 1.6l2.6 2.05 3.3-.2.55 3.27 2.85 1.68-1.3 3.05 1.3 3.05-2.85 1.68-.55 3.27-3.3-.2L12 22.4l-2.6-2.05-3.3.2-.55-3.27L2.7 15.6 4 12.55 2.7 9.5l2.85-1.68.55-3.27 3.3.2z" />
+        <path fill={PRO.emerald} d="M12 1.6l2.6 2.05 3.3-.2.55 3.27 2.85 1.68-1.3 3.05 1.3 3.05-2.85 1.68-.55 3.27-3.3-.2L12 22.4l-2.6-2.05-3.3.2-.55-3.27L2.7 15.6 4 12.55 2.7 9.5l2.85-1.68.55-3.27 3.3.2z" />
         <path fill="#fff" d="M10.9 15.4l-3-3 1.2-1.2 1.8 1.8 4.1-4.1 1.2 1.2z" />
       </svg>
     </span>
@@ -475,7 +483,7 @@ function ProBadge({ style } = {}) {
       display: "inline-flex", alignItems: "center",
       fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#06281c",
-      background: "#34d399",
+      background: PRO.emerald,
       borderRadius: 9999, padding: "2px 8px 2px 9px",
       whiteSpace: "nowrap", ...style,
     }}>PRO</span>
