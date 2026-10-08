@@ -12721,12 +12721,6 @@ async function runSearchPipeline(pctx) {
        race outright.
        ══════════════════════════════════════════════════════════════ */
     const PROVIDERS = [
-      // CEREBRUM-1 (Phase 0): Cerebrum's own fine-tuned model. Races first.
-      // Points at Hugging Face serverless inference for vaticay/cerebrum-1-8b.
-      // The model doesn't exist yet — the leg gracefully fails (404/timeout)
-      // and the race falls through to the other providers. No user-visible
-      // difference except which model wins (tracked in modelUsed).
-      { id: "cerebrum-1", key: env.HF_TOKEN || "hf-none", url: "https://api-inference.huggingface.co/models/vaticay/cerebrum-1-8b" },
       { id: "groq",     key: env.GROQ_KEY,          url: "https://api.groq.com/openai/v1/chat/completions" },
       { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
       { id: "gemini",   key: env.GEMINI_KEY,        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
@@ -12792,9 +12786,6 @@ async function runSearchPipeline(pctx) {
     // rounds out wave 2.
     const PROVIDER_MODELS = {
       // cerebrum-1: Cerebrum's own model (Phase 0). The model doesn't exist
-      // yet on HF, so this leg 404s and the race falls through gracefully.
-      // When vaticay/cerebrum-1-8b is published, this leg will race first.
-      "cerebrum-1": { w1: ["vaticay/cerebrum-1-8b"], w2: [] },
       groq:     { w1: ["openai/gpt-oss-120b"],      w2: ["openai/gpt-oss-20b", "meta-llama/llama-4-maverick-17b-128e-instruct"] },
       // 2026-09-12: llama-3.3-70b, qwen-3-32b and llama3.1-8b were all
       // retired by Cerebras (404 model_not_found). gpt-oss-120b is the live
