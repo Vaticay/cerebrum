@@ -12721,6 +12721,12 @@ async function runSearchPipeline(pctx) {
        race outright.
        ══════════════════════════════════════════════════════════════ */
     const PROVIDERS = [
+      // CEREBRUM-1 (Phase 0): Cerebrum's own fine-tuned model. Races first.
+      // Points at Hugging Face serverless inference for vaticay/cerebrum-1-8b.
+      // The model doesn't exist yet — the leg gracefully fails (404/timeout)
+      // and the race falls through to the other providers. No user-visible
+      // difference except which model wins (tracked in modelUsed).
+      { id: "cerebrum-1", key: env.HF_TOKEN || "hf-none", url: "https://api-inference.huggingface.co/models/vaticay/cerebrum-1-8b" },
       { id: "groq",     key: env.GROQ_KEY,          url: "https://api.groq.com/openai/v1/chat/completions" },
       { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
       { id: "gemini",   key: env.GEMINI_KEY,        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
@@ -12785,6 +12791,10 @@ async function runSearchPipeline(pctx) {
     // Production chat models (500/1000 tok/s); llama-4-maverick preview
     // rounds out wave 2.
     const PROVIDER_MODELS = {
+      // cerebrum-1: Cerebrum's own model (Phase 0). The model doesn't exist
+      // yet on HF, so this leg 404s and the race falls through gracefully.
+      // When vaticay/cerebrum-1-8b is published, this leg will race first.
+      "cerebrum-1": { w1: ["vaticay/cerebrum-1-8b"], w2: [] },
       groq:     { w1: ["openai/gpt-oss-120b"],      w2: ["openai/gpt-oss-20b", "meta-llama/llama-4-maverick-17b-128e-instruct"] },
       // 2026-09-12: llama-3.3-70b, qwen-3-32b and llama3.1-8b were all
       // retired by Cerebras (404 model_not_found). gpt-oss-120b is the live
@@ -14201,6 +14211,41 @@ async function runSearchPipeline(pctx) {
       }
     } catch {}
 
+    // CEREBRUM-1 Phase 0: learning loop. Log every completed answer for
+    // future fine-tuning. Fire-and-forget — never blocks the response.
+    // The dataset grows automatically; /api/llm/export pulls high-quality
+    // rows as instruction-tuning JSONL when Dusty says "tune the model."
+    try {
+      if (env.DB && answer && typeof answer === "string" && answer.length > 100) {
+        const llmQuality = scoreAnswerQuality(answer, query);
+        const llmModel = synthWinner ? String(synthWinner.model) : "unknown";
+        const evSummary = (evidencePapers || []).slice(0, 5).map((p) => {
+          const pp = (p && p.p) || p || {};
+          return [pp.title, pp.journal, pp.year].filter(Boolean).join(" | ");
+        }).join(" ;; ").slice(0, 2000);
+        const llmId = "llm_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        // Ensure table exists (self-healing for deploys that haven't run schema.sql)
+        env.DB.prepare(
+          "CREATE TABLE IF NOT EXISTS llm_training_data (" +
+          "id TEXT NOT NULL PRIMARY KEY, question TEXT NOT NULL, " +
+          "evidence_summary TEXT, answer_text TEXT NOT NULL, " +
+          "model_used TEXT NOT NULL, quality_score INTEGER NOT NULL DEFAULT 0, " +
+          "system_prompt_version TEXT NOT NULL DEFAULT 'v1', answer_tier TEXT, " +
+          "created_at INTEGER NOT NULL)"
+        ).run().catch(() => {});
+        env.DB.prepare(
+          "INSERT INTO llm_training_data " +
+          "(id, question, evidence_summary, answer_text, model_used, quality_score, " +
+          "system_prompt_version, answer_tier, created_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(
+          llmId, String(query || "").slice(0, 500), evSummary,
+          answer.slice(0, 8000), llmModel, llmQuality,
+          CEREBRUM_SYSTEM_VERSION, answerTier, Date.now()
+        ).run().catch((e) => console.error("[Cerebrum] llm_training_data insert failed:", e && e.message));
+      }
+    } catch (cbErr) { console.error("[Cerebrum] learning loop threw:", cbErr); }
+
     return new Response(
       JSON.stringify({
         answer,
@@ -14225,6 +14270,10 @@ async function runSearchPipeline(pctx) {
         // deterministic answers.
         responseKind,            // "research" | "no-results"
         answerTier,              // "research" | "background" | "limited" | "weak" | "definition"
+        // CEREBRUM-1 Phase 0: which model won the race + which system prompt version.
+        // modelUsed is like "groq:openai/gpt-oss-120b" or "cerebrum-1:vaticay/cerebrum-1-8b".
+        modelUsed: synthWinner ? String(synthWinner.model) : null,
+        systemPromptVersion: CEREBRUM_SYSTEM_VERSION,
         noResults: noResultsPayload, // structured no-results payload (null otherwise)
         disagreementVerdict,     // { status: divided|settled|thin, conflictCount, summary }
         evidenceGaps,            // [string]

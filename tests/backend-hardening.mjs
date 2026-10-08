@@ -626,20 +626,12 @@ await test("requireConfirmation gates exactly the irreversible actions", () => {
 await test("synthesis system prompt carries the untrusted-content note", async () => {
   const src = await readSrc("functions/api/search.js");
   assert.match(src, /UNTRUSTED_SYSTEM_NOTE/, "note imported into search.js");
-  const citeStart = src.indexOf("const CITE_RULES =");
-  assert.ok(citeStart !== -1);
-  // The note terminates CITE_RULES, which every synthesis branch includes.
-  // String literals can contain semicolons, so strip them before counting
-  // statement-level semicolons to prove the const ends at the note.
-  const noteEnd = src.indexOf("UNTRUSTED_SYSTEM_NOTE;", citeStart);
-  assert.ok(noteEnd !== -1, "untrusted note terminates CITE_RULES");
-  const raw = src.slice(citeStart, noteEnd + "UNTRUSTED_SYSTEM_NOTE;".length);
-  const noStrings = raw.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/\/\/[^\n]*/g, "");
-  const stmtEnd = noStrings.indexOf(";");
-  assert.ok(stmtEnd !== -1);
-  const statement = noStrings.slice(0, stmtEnd + 1);
-  assert.ok(statement.trimEnd().endsWith("UNTRUSTED_SYSTEM_NOTE;"),
-    "the const's statement ends at the untrusted note — it is the last thing the model reads");
+  // CEREBRUM_SYSTEM_v1 (Phase 0): CITE_RULES is now a property of the versioned
+  // prompt object. The note must still be the last thing in CITE_RULES.
+  const citeStart = src.indexOf("CITE_RULES:");
+  assert.ok(citeStart !== -1, "CITE_RULES property exists in CEREBRUM_SYSTEM_v1");
+  const noteEnd = src.indexOf("UNTRUSTED_SYSTEM_NOTE,", citeStart);
+  assert.ok(noteEnd !== -1, "untrusted note terminates CITE_RULES (as object property)");
 });
 
 await test("destructive routes enforce server-side confirmation", async () => {

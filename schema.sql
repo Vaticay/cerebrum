@@ -594,3 +594,26 @@ CREATE TABLE IF NOT EXISTS search_slots (
   n          INTEGER NOT NULL DEFAULT 0,
   expires_at INTEGER NOT NULL DEFAULT 0  -- ms epoch; stale ⇒ self-heal
 );
+
+-- ============================================================
+-- 2026-10-08 — CEREBRUM-1 Phase 0: LLM learning loop.
+-- Every completed answer is logged here with the model that won the race,
+-- the system prompt version, and the quality score. High-quality rows
+-- become training triples (question → evidence → answer) for fine-tuning
+-- Cerebrum's own model. The dataset grows automatically with every search.
+-- Export via /api/llm/export (founder-only) as instruction-tuning JSONL.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS llm_training_data (
+  id                  TEXT NOT NULL PRIMARY KEY,
+  question            TEXT NOT NULL,
+  evidence_summary    TEXT,           -- condensed evidence (papers cited)
+  answer_text         TEXT NOT NULL,
+  model_used          TEXT NOT NULL,  -- e.g. "groq:openai/gpt-oss-120b"
+  quality_score       INTEGER NOT NULL DEFAULT 0,
+  system_prompt_version TEXT NOT NULL DEFAULT 'v1',
+  answer_tier         TEXT,           -- "research" | "background" | "limited" | etc.
+  created_at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_training_quality ON llm_training_data(quality_score);
+CREATE INDEX IF NOT EXISTS idx_llm_training_model ON llm_training_data(model_used);
+CREATE INDEX IF NOT EXISTS idx_llm_training_created ON llm_training_data(created_at);
