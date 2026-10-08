@@ -50,6 +50,7 @@ import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalConte
    object the prerender pipeline uses, so JS-enabled visitors see content
    instead of a blank page. */
 import { MARKETING_PAGES } from "./marketingContent.js";
+import { QuotaCalculator, LiveDemo } from "./marketingWidgets.jsx";
 import { getDeepLinkQuery } from "./deepLink.js";
 import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
@@ -4879,6 +4880,12 @@ function InfoPage({ page }) {
             <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
             {data.updated && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-font)" }}>{data.updated}</div>}
           </div>
+          {/* One-question live demo: a cached sample answer with real
+              citations, so visitors see the product before signing up. */}
+          {(page === "about" || page === "features") && (
+            <LiveDemo P={P} accent={accent} isMobile={isMobile} />
+          )}
+          </div>
           {isLegal && (
             <nav aria-label="Contents" className="cb-fadein" style={{
               marginTop: 34, padding: "16px 24px", borderRadius: RADIUS.lg,
@@ -4938,6 +4945,9 @@ function InfoPage({ page }) {
                   )}
                 </h2>
                 {block.p && <p>{block.p}</p>}
+                {block.widget === "quota-calc" && (
+                  <QuotaCalculator P={P} accent={accent} isMobile={isMobile} />
+                )}
                 {block.email && <a href={`mailto:${block.email}`} style={{ fontSize: FONT_SIZES.body, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)", display: "inline-block", marginBottom: 8 }}>{block.email}</a>}
                 {block.list && <ul>{block.list.map((li, j) => <li key={j}>{li}</li>)}</ul>}
               </div>
@@ -20021,7 +20031,7 @@ function App() {
       sub: [s.venue, s.year].filter(Boolean).join(" · ") || "Saved paper",
       run: () => { setCmdOpen(false); setView("library"); },
     })),
-    ...((collections || []).filter((c) => fuzzyMatch(c.name, cmdQuery)).slice(0, 2).map((c) => ({
+    ...(collections || []).filter((c) => fuzzyMatch(c.name, cmdQuery)).slice(0, 2).map((c) => ({
       type: "col", icon: "folder", label: c.name || "Untitled collection",
       sub: "Collection",
       run: () => { setCmdOpen(false); setView("collections"); },
