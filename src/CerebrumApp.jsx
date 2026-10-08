@@ -9014,8 +9014,8 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
           )}
           {!preview && (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.18)" }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(10,14,32,0.65)", border: "1px solid rgba(255,255,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z" /></svg>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(10,14,32,0.65)", border: "1px solid rgba(255,255,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}>
+                <Icon name="play" size={13} />
               </div>
             </div>
           )}
@@ -15981,7 +15981,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       boxShadow: P.dark
         ? "0 24px 64px -16px rgba(0,0,0,0.55), 0 4px 16px -4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)"
         : "0 24px 64px -24px rgba(15,23,42,0.22), 0 4px 16px -6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.7)",
-      padding: isCompact ? (isMobile ? "20px 18px" : "28px 36px") : (isMobile ? "26px 20px" : "40px 48px"),
+      padding: isCompact ? (isMobile ? "20px 18px" : "28px 36px") : (isMobile ? "26px 20px" : "32px 40px"),
       lineHeight: 1.7,
       fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
       overflow: "hidden",
@@ -16005,7 +16005,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.8s linear infinite" },
     followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: isMobile ? "10px 8px 10px 16px" : "12px 12px 12px 22px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", transition: "border-color 0.3s ease, box-shadow 0.3s ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
-    relatedLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
+    relatedLabel: { fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.ink2, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
     relatedBtn: {
       display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -16733,7 +16733,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
 
   return (
     <Dialog labelledBy="cb-consent-title" onClose={() => {}} dismissable={false}
-      zIndex={9000} width={560}
+      zIndex={Z.max} width={560}
       scrimStyle={{ backdropFilter: "blur(18px) saturate(1.05)", WebkitBackdropFilter: "blur(18px) saturate(1.05)", background: "rgba(0,0,0,0.72)" }}
       panelStyle={{
         background: P.bg, color: P.ink,
@@ -17073,7 +17073,7 @@ function App() {
   /* RESTORED 2026-09-17: animated typing. The answer reveal plays a few
      words at a time on fresh answers (see TurnInner); the cb_tw cookie
      remembers the choice. */
-  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") !== "0");
+  const [typewriter, setTypewriter] = useState(() => getCookie("cb_tw") === "1");
   useEffect(() => { setCookie("cb_tw", typewriter ? "1" : "0"); }, [typewriter]);
   const refreshPro = useCallback(async () => {
     try { setProStatus(await apiProGet()); } catch { setProStatus(null); }

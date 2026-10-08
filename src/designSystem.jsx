@@ -183,9 +183,10 @@ export function Icon({ name, size = 17, className, style }) {
     case "screenShareOff": return <svg {...common}><rect x="2" y="4" width="20" height="14" rx="2" /><path d="M12 15V8M9 11l3-3 3 3" /><path d="M8 21h8" /><path d="M3 3l18 18" /></svg>;
     // Speaker-view glyph: one large tile, the counterpart to "grid" for
     // the huddle's switch-view toggle.
-    case "speakerView": return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /></svg>;
+    case "speakerView": return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" /></svg>;
     case "document": return <svg {...common}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6" /></svg>;
     case "upload": return <svg {...common}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path d="M12 3v12" /></svg>;
+    case "play": return <svg {...common} fill="currentColor" stroke="none"><path d="M8 5v14l11-7z" /></svg>;
     default: {
       if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
