@@ -260,7 +260,23 @@ async function checkFile(filename) {
     }
   }
 
-  // Pattern 2: Known helpers that were moved during the monolith split
+  // Pattern 2: React hooks used but not imported/defined.
+  // Catches the 2026-10-08 "useImperativeHandle is not defined" crash:
+  // FilmLayer/CinematicFilm were moved to intro.jsx without their hook import.
+  const hookRe = /(?<![.\w$])(use(?:State|Ref|Effect|Callback|Memo|Reducer|Context|ImperativeHandle|LayoutEffect|DebugValue|Id|SyncExternalStore|Transition|DeferredValue))\s*\(/g;
+  const seenHooks = new Set();
+  while ((m = hookRe.exec(src)) !== null) {
+    const name = m[1];
+    if (seenHooks.has(name)) continue;
+    seenHooks.add(name);
+    if (!isAvailable(name)) {
+      const lineNum = src.substring(0, m.index).split("\n").length;
+      console.log(`  ✗ ${filename}:${lineNum}: React hook "${name}" used but not imported`);
+      failures++;
+    }
+  }
+
+  // Pattern 3: Known helpers that were moved during the monolith split
   const movedHelpers = [
     "cbMotionOff",
     "__cbMotionCache",

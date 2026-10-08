@@ -7,7 +7,7 @@
  * Also home to the film-reel helpers (filmBlocked, filmPoster, etc.) and
  * the motion-preference hooks, which the App re-imports.
  */
-import React, { useState, useRef, useEffect, useCallback, forwardRef } from "react";
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import {
   FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon,
   TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING,
