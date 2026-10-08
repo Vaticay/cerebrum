@@ -110,9 +110,12 @@ await test("rotation pauses while held, in dialogs, or under reduced motion", ()
   assert.ok(eff.includes("reduced"), "reduced-motion bail missing");
 });
 
-await test("dots select specimens directly", () => {
-  assert.ok(src.includes('role="tablist"'), "dots tablist missing");
-  assert.ok(src.includes("onClick={() => setSpecimenIdx(i)}"), "dot selection not wired");
+await test("stepper moves between specimens", () => {
+  assert.ok(src.includes('aria-label="Previous claim"'), "prev button missing");
+  assert.ok(src.includes('aria-label="Next claim"'), "next button missing");
+  assert.ok(src.includes("(i - 1 + specimenCount) % specimenCount"), "prev wrap not wired");
+  assert.ok(src.includes("(i + 1) % specimenCount"), "next wrap not wired");
+  assert.ok(!src.includes('role="tablist"'), "tab wall should be gone");
 });
 
 await test("specimen change has its own entrance animation", () => {
@@ -194,7 +197,10 @@ await test("old fade-and-rise entrance is fully gone", () => {
 });
 
 await test("kicker is tiny tracked caps", () => {
-  assert.ok(src.includes('letterSpacing: "0.42em"'), "kicker tracking not at the tiny-caps scale");
+  assert.ok(
+    src.includes('letterSpacing: "0.42em"') || src.includes('letterSpacing: "0.32em"'),
+    "kicker tracking not at the tiny-caps scale"
+  );
 });
 
 await test("CTA is a whisper outline, not a chunky pill", () => {

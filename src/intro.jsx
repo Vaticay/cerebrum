@@ -938,22 +938,25 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         )}
       </header>
 
-      {/* ── The specimen slide ──
-          One verified claim under glass: the product at specimen scale,
-          framed by instrument ticks. */}
+      {/* ── The specimen placard ──
+          One verified claim on a museum placard: solid matte plate, left
+          aligned, accession number stamped top right. No glass, no corner
+          ticks, no tab wall. */}
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20, flex: 1,
         display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center",
-        padding: isMobile ? "40px 20px 36px" : "56px 26px 48px",
-        textAlign: "center",
+        alignItems: isMobile ? "center" : "flex-start",
+        justifyContent: "center",
+        padding: isMobile ? "40px 20px 36px" : "56px 26px 48px 7vw",
       }}>
-        <TickFrame P={P} accent={introAccent}
+        <div
           className={animate ? "cb-focus-in" : undefined}
           style={{
-            width: "100%", maxWidth: 920,
-            padding: isMobile ? "38px 26px 34px" : "60px 72px 52px",
-            background: "rgba(8,11,14,0.82)",
+            width: "100%", maxWidth: 660,
+            padding: isMobile ? "30px 24px 26px" : "44px 48px 40px",
+            background: "#0c0e0b",
+            border: "1px solid " + hairline,
+            borderRadius: 2,
             ...(animate ? { animationDelay: "0.35s" } : null),
           }}>
           <div
@@ -961,49 +964,58 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             onMouseLeave={() => setSpecimenHeld(false)}
             onFocus={() => setSpecimenHeld(true)}
             onBlur={() => setSpecimenHeld(false)}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}
+            style={{ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%" }}
           >
             <div style={{
-              fontFamily: mono, fontSize: 11, letterSpacing: "0.42em",
-              textIndent: "0.42em", fontWeight: 600,
-              textTransform: "uppercase", color: faint,
-              fontVariantNumeric: "tabular-nums",
+              display: "flex", alignItems: "baseline", justifyContent: "space-between",
+              borderBottom: "1px solid " + hairline, paddingBottom: 14,
             }}>
-              Specimen {String(specimenIdx + 1).padStart(2, "0")} // Verified claim
+              <span style={{
+                fontFamily: mono, fontSize: 11, letterSpacing: "0.32em",
+                fontWeight: 600, textTransform: "uppercase", color: faint,
+              }}>
+                Verified claim
+              </span>
+              <span style={{
+                fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
+                fontWeight: 600, color: introAccent,
+                fontVariantNumeric: "tabular-nums",
+              }}>
+                {String(specimenIdx + 1).padStart(2, "0")}/{String(specimenCount).padStart(2, "0")}
+              </span>
             </div>
             <div key={specimenIdx} className={animate ? "cb-specimen-in" : undefined} style={{
-              display: "flex", flexDirection: "column", alignItems: "center", width: "100%",
+              display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%",
             }}>
               <p style={{
                 fontFamily: serif,
-                fontSize: isMobile ? "clamp(26px, 7vw, 34px)" : "clamp(32px, 4.2vw, 54px)",
-                fontWeight: 560, letterSpacing: "-0.01em", lineHeight: 1.24,
-                color: "#ffffff", margin: "30px auto 0", maxWidth: "22ch",
-                textAlign: "center", textWrap: "balance",
+                fontSize: isMobile ? "clamp(24px, 6.4vw, 30px)" : "clamp(28px, 3.4vw, 40px)",
+                fontWeight: 560, letterSpacing: "-0.01em", lineHeight: 1.3,
+                color: "#ffffff", margin: "26px 0 0", maxWidth: "26ch",
+                textAlign: "left", textWrap: "balance",
               }}>
                 &ldquo;{specimen.claim}&rdquo;
               </p>
               <div style={{
-                marginTop: 28, display: "flex", alignItems: "center", justifyContent: "center", gap: 11,
+                marginTop: 24, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 11,
               }}>
                 <span style={{
                   color: introAccent, display: "inline-flex", lineHeight: 0,
-                  filter: "drop-shadow(0 0 9px " + withAlpha(introAccent, 0.55) + ")",
                 }}>
-                  <Icon name="verdictSupported" size={19} />
+                  <Icon name="verdictSupported" size={17} />
                 </span>
                 <span style={{
-                  fontFamily: mono, fontSize: 12, fontWeight: 600,
-                  letterSpacing: "0.26em", textIndent: "0.26em",
+                  fontFamily: mono, fontSize: 11, fontWeight: 600,
+                  letterSpacing: "0.22em",
                   textTransform: "uppercase", color: introAccent,
                 }}>
                   Traced to a direct finding
                 </span>
               </div>
               <p style={{
-                margin: "20px auto 0", maxWidth: "62ch",
+                margin: "18px 0 0", maxWidth: "62ch",
                 fontSize: isMobile ? 13.5 : 14.5, lineHeight: 1.7,
-                color: "rgba(238,241,238,0.66)",
+                color: "rgba(238,241,238,0.66)", textAlign: "left",
               }}>
                 {specimen.paper}{" "}
                 <a href={specimen.doi} target="_blank" rel="noopener noreferrer"
@@ -1012,32 +1024,44 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 </a>
               </p>
             </div>
-            {/* Specimen selector: numbered instrument tabs, not dots. */}
-            <div role="tablist" aria-label="Verified claims" style={{
-              marginTop: 32, display: "flex", alignItems: "center", justifyContent: "center",
-              gap: 8, flexWrap: "wrap", maxWidth: 720, marginLeft: "auto", marginRight: "auto",
+            {/* Specimen stepper: prev / counter / next. The tab wall is gone. */}
+            <div style={{
+              marginTop: 30, display: "flex", alignItems: "center", justifyContent: "flex-start",
+              gap: 4, borderTop: "1px solid " + hairline, paddingTop: 18,
             }}>
-              {SPECIMENS.map((sp, i) => {
-                const activeTab = i === specimenIdx;
-                return (
-                  <button key={i} type="button" role="tab" aria-selected={activeTab}
-                    aria-label={"Claim " + (i + 1) + ": " + sp.claim.slice(0, 60) + "\u2026"}
-                    onClick={() => setSpecimenIdx(i)}
-                    style={{
-                      minWidth: 44, minHeight: 44, padding: "0 12px", cursor: "pointer",
-                      fontFamily: mono, fontSize: 12, fontWeight: 600, letterSpacing: "0.1em",
-                      color: activeTab ? introAccent : "rgba(238,241,238,0.38)",
-                      background: activeTab ? withAlpha(introAccent, 0.08) : "transparent",
-                      border: "1px solid " + (activeTab ? withAlpha(introAccent, 0.55) : "rgba(255,255,255,0.12)"),
-                      borderRadius: 3,
-                    }}>
-                    {String(i + 1).padStart(2, "0")}
-                  </button>
-                );
-              })}
+              <button type="button" aria-label="Previous claim"
+                onClick={() => setSpecimenIdx((i) => (i - 1 + specimenCount) % specimenCount)}
+                style={{
+                  minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
+                  fontFamily: mono, fontSize: 14, fontWeight: 600,
+                  color: "rgba(238,241,238,0.6)",
+                  background: "transparent",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 2,
+                }}>
+                &#8592;
+              </button>
+              <button type="button" aria-label="Next claim"
+                onClick={() => setSpecimenIdx((i) => (i + 1) % specimenCount)}
+                style={{
+                  minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
+                  fontFamily: mono, fontSize: 14, fontWeight: 600,
+                  color: "rgba(238,241,238,0.6)",
+                  background: "transparent",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 2,
+                }}>
+                &#8594;
+              </button>
+              <span style={{
+                marginLeft: 12, fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
+                color: faint, fontVariantNumeric: "tabular-nums",
+              }}>
+                {String(specimenIdx + 1).padStart(2, "0")} / {String(specimenCount).padStart(2, "0")}
+              </span>
             </div>
           </div>
-        </TickFrame>
+        </div>
 
         {/* The single way in. */}
         <div className={animate ? cls.concat("cb-focus-in").join(" ") : cls.join(" ")}
