@@ -25019,6 +25019,22 @@ button.cb-cite { min-height: 0; min-width: 0; }
    everywhere, drawer or not. */
 .cb-answer-wrap { width: 100%; max-width: 1320px; margin: 0 auto; padding-left: max(24px, 6vw); }
 .cb-answer-wrap .cb-article { max-width: 72ch; min-width: 0; margin-left: 0; margin-right: auto; }
+/* Mobile readability (2026-10-08): Dusty reported the answer view is hard
+   to read on phones. Larger type, looser leading, more air between
+   sections, smaller citation chips, stacked buttons. */
+@media (max-width: 720px) {
+  .cb-answer-wrap { padding-left: 16px; padding-right: 16px; }
+  .cb-answer-wrap .cb-article { font-size: 17px !important; line-height: 1.75 !important; }
+  .cb-answer-wrap .cb-article p { margin-bottom: 1.1em; }
+  .cb-sect { margin: 40px 0 16px; gap: 10px; }
+  .cb-sect-label { font-size: 15px; letter-spacing: 0.04em; white-space: normal; }
+  .cb-sect-sub { margin: 26px 0 10px; font-size: 14px; }
+  .cb-cite { min-width: 18px; height: 16px; padding: 0 3px; font-size: 10px; margin: 0 1px; }
+  .cb-controls { flex-direction: column; align-items: stretch; gap: 10px; }
+  .cb-ctlbtn { width: 100%; min-height: 48px; font-size: 13px; text-align: center; }
+  .cb-claim { gap: 10px; }
+  .cb-verdict { padding: 20px 18px !important; }
+}
 /* The drawer positions itself via inline styles (fixed, portaled); the
    old sticky-rail positioning is retired. .cb-ev-rail stays as a hook. */
 @media (max-width: 1023px) {
