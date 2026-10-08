@@ -320,7 +320,8 @@ export function UIButton({
   );
 }
 
-export function UICard({ children, P, pad = true, className = "", style, onClick, specimen = false }) {
+export function UICard({ children, P = null, pad = true, className = "", style, onClick, specimen = false }) {
+  const pal = P || PALETTES.Dark;
   return (
     <div
       onClick={onClick}
@@ -334,9 +335,9 @@ export function UICard({ children, P, pad = true, className = "", style, onClick
         /* Solid surface with a whisper of depth: one soft shadow lifts the
            card off the page. Clickable cards get a gentle hover lift.
            Uses the SHADOW scale (md) — theme-aware. */
-        background: P.surface,
-        border: P.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${P.line2}`,
-        boxShadow: SHADOW.md(P),
+        background: pal.surface,
+        border: pal.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${pal.line2}`,
+        boxShadow: SHADOW.md(pal),
         transition: onClick ? "transform 0.25s var(--cb-ease), box-shadow 0.25s var(--cb-ease)" : undefined,
         padding: pad ? SP.lg : 0,
         overflow: "hidden", minWidth: 0,
@@ -349,7 +350,8 @@ export function UICard({ children, P, pad = true, className = "", style, onClick
   );
 }
 
-export function UIRow({ label, desc, control, onClick, P, accent, last, tone, style, paletteName }) {
+export function UIRow({ label, desc, control, onClick, P = null, accent, last, tone, style, paletteName }) {
+  const pal = P || PALETTES.Dark;
   return (
     <div
       onClick={onClick}
@@ -362,24 +364,25 @@ export function UIRow({ label, desc, control, onClick, P, accent, last, tone, st
         display: "flex", alignItems: "center", gap: SP.md,
         padding: `${SP.md}px ${SP.lg}px ${SP.md}px ${SP.lg - 2}px`,
         minHeight: 46,
-        borderBottom: last ? "none" : `1px solid ${P.line}`,
+        borderBottom: last ? "none" : `1px solid ${pal.line}`,
         cursor: onClick ? "pointer" : "default", minWidth: 0, ...style,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? statusBad(P, paletteName) : P.ink, overflowWrap: "anywhere" }}>{label}</div>
-        {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
+        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? statusBad(pal, paletteName) : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
+        {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: pal.faint, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
     </div>
   );
 }
 
-export function UIField({ value, onChange, placeholder, P, accent, multiline, rows = 3, ariaLabel, maxLength, style, onKeyDown, className = "" }) {
+export function UIField({ value, onChange, placeholder, P = null, accent, multiline, rows = 3, ariaLabel, maxLength, style, onKeyDown, className = "" }) {
+  const pal = P || PALETTES.Dark;
   const base = {
     width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: RADIUS.md,
-    background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-    border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+    background: pal.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+    border: `1px solid ${pal.line}`, color: pal.ink, outline: "none",
     /* 16px floor: iOS Safari zooms the viewport on focus for anything
        smaller, so every text input holds 16px on all viewports. */
     fontSize: 16, ...TYPE.body, minWidth: 0, ...style,
@@ -522,9 +525,10 @@ export { ProBadge, TierBadge };
    aria-activedescendant; the menu is role=listbox, options role=option.
    Options accept [{ value, label }] or [[value, label]] pairs. */
 export function UISelect({
-  P, accent, value, onChange, options = [], ariaLabel,
+  P = null, accent, value, onChange, options = [], ariaLabel,
   disabled = false, size = "md", style, menuStyle, className = "",
 }) {
+  const pal = P || PALETTES.Dark;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [pos, setPos] = useState(null);
@@ -627,9 +631,9 @@ export function UISelect({
           borderRadius: RADIUS.md,
           /* UIButton secondary skin — the select reads as family, not as
              a browser control. */
-          background: P.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
-          color: P.ink, border: `1px solid ${P.line2}`,
-          boxShadow: P.dark
+          background: pal.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
+          color: pal.ink, border: `1px solid ${pal.line2}`,
+          boxShadow: pal.dark
             ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"
             : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px -2px rgba(15,23,42,0.12)",
           fontSize: triggerFs, fontWeight: 600, letterSpacing: "-0.005em",
@@ -643,7 +647,7 @@ export function UISelect({
           {selected ? selected.label : ""}
         </span>
         <Icon name="chevronDown" size={14} style={{
-          flexShrink: 0, color: P.faint,
+          flexShrink: 0, color: pal.faint,
           transform: open ? "rotate(180deg)" : "none",
           transition: "transform 0.2s var(--cb-ease)",
         }} />
@@ -658,8 +662,8 @@ export function UISelect({
             position: "fixed", zIndex: Z.selectMenu,
             left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width,
             maxHeight: 280, overflowY: "auto",
-            background: P.dark ? "rgba(20,22,28,0.98)" : "#ffffff",
-            border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
+            background: pal.dark ? "rgba(20,22,28,0.98)" : "#ffffff",
+            border: `1px solid ${pal.line}`, borderRadius: RADIUS.lg, padding: 6,
             boxShadow: SHADOW.md(P),
             ...menuStyle,
           }}
@@ -680,13 +684,13 @@ export function UISelect({
                   minHeight: 40, display: "flex", alignItems: "center", gap: SP.sm,
                   padding: "8px 10px", borderRadius: RADIUS.md, cursor: "pointer",
                   background: isActive
-                    ? (accent ? withAlpha(accent, 0.12) : P.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)")
+                    ? (accent ? withAlpha(accent, 0.12) : pal.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)")
                     : "transparent",
-                  color: P.ink, fontSize: FONT_SIZES.label, fontWeight: isSel ? 700 : 500,
+                  color: pal.ink, fontSize: FONT_SIZES.label, fontWeight: isSel ? 700 : 500,
                   fontFamily: "var(--cb-font)",
                 }}
               >
-                <span style={{ width: 16, flexShrink: 0, display: "inline-flex", justifyContent: "center", color: accent || P.ink }}>
+                <span style={{ width: 16, flexShrink: 0, display: "inline-flex", justifyContent: "center", color: accent || pal.ink }}>
                   {isSel ? <Icon name="check" size={14} /> : null}
                 </span>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
