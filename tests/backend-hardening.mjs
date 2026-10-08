@@ -462,9 +462,9 @@ await test("search: budget authorized once before wave 1; every wave gated on de
   const authCount = (src.match(/authorizeLlmCall\(env,/g) || []).length;
   assert.equal(authCount, 1, `authorize once per search, found ${authCount}`);
   for (const gate of [
-    "if (!aiOK && aiSynthesisAllowed && !budgetDenied) {",
-    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && Date.now() < synthesisDeadline && msLeft() > 6000) {",
-    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && Date.now() < synthesisDeadline && msLeft() > 4000) {",
+    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {",
+    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {",
+    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {",
   ]) {
     assert.ok(src.includes(gate), `wave gate present: ${gate.slice(0, 60)}…`);
   }

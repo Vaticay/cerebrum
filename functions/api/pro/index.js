@@ -684,7 +684,11 @@ async function handleApiKeyUsage(request, env, cors) {
 
 // ── Template telemetry (Pro members only) ─────────────────────────────────
 // template-track: fire-and-forget from the client when a Pro investigation
-// template is started. template-stats: per-template totals + 30-day window.
+// template is started. template-stats: per-template totals + 30-day window
+// for the dashboard. Only counts — no topics, no user content.
+
+// Track is rate-limited per IP so a script can't inflate numbers; the
+// allowlist in templateTelemetry.js drops unknown ids silently.
 async function handleTemplateTrack(request, env, cors, body) {
   const checked = await requireProUser(request, env, cors);
   if (checked.response) return checked.response;
@@ -695,6 +699,8 @@ async function handleTemplateTrack(request, env, cors, body) {
   const templateId = body && typeof body.templateId === "string" ? body.templateId : "";
   const { recordTemplateStart, isKnownTemplate } = await import("../../lib/templateTelemetry.js");
   if (!isKnownTemplate(templateId)) return json({ ok: true, tracked: false }, 200, cors);
+  // Single D1 upsert, never throws — await inline; no context.waitUntil is
+  // threaded to these handlers and the write is a few ms.
   await recordTemplateStart(env, templateId);
   return json({ ok: true, tracked: true }, 200, cors);
 }

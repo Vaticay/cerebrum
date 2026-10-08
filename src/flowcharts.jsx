@@ -9,8 +9,8 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING } from "./designSystem.jsx";
-import { getCookie, __cbMotionCache, cbMotionCacheSet, download } from "./appUtils.js";
+import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
+import { getCookie, __cbMotionCache, cbMotionCacheSet, download, selectChrome } from "./appUtils.js";
 import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
 
 export function cbMotionOff() {
@@ -1251,8 +1251,8 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
                       style={{
                         width: "100%", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
-                        border: `1px solid ${P.line}`, borderRadius: 8, color: P.ink, padding: "8px 12px",
-                        fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)",
+                        border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 30px 8px 12px",
+                        fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P),
                       }}>
                       <option value="">No citation</option>
                       {sources.slice(0, 12).map((s, i) => (

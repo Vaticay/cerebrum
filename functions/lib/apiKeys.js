@@ -6,9 +6,22 @@
 // metering, the same pipeline. A key only works while its owner is Pro —
 // downgrade or cancel and every key 403s until Pro is restored.
 //
+// API SCOPES (v1, documented intent): keys are single-scope — they can only
+// call /api/search, as the key owner. They cannot touch account settings,
+// billing, other users' data, or any write endpoint. If Cerebrum ever grows
+// more API surfaces, new scopes would be minted per-key here (e.g. a
+// `scopes` column) rather than widening existing keys. All-or-nothing is
+// correct for v1 because /api/search is the entire API surface.
+//
 // Only the sha256 hash is stored. The raw key is shown exactly once, at
 // creation. Revocation is a timestamp, not a delete, so audit history
 // survives.
+//
+// Usage accounting: per-key daily call/error counters (api_key_usage)
+// power the per-key dashboard in Settings. Aggregation is daily, not
+// per-request, so the table stays tiny and contains no query content —
+// only counts. Rows older than 90 days are fair game for retention
+// sweeps (see functions/lib/retention.js).
 
 import { randomToken, sha256Hex } from "./authHelpers.js";
 
@@ -168,6 +181,8 @@ export async function recordApiKeyUsage(env, keyId, isError) {
  * Per-key usage stats for one user's keys: totals plus a 7-day window.
  * Ownership is enforced by joining api_keys on user_id — a user can only
  * ever see their own keys' numbers.
+ * Returns [{ id, name, keyPrefix, createdAt, lastUsedAt, totalCalls,
+ * totalErrors, calls7d, errors7d, callsToday, daily: [{day, calls, errors}] }]
  */
 export async function getApiKeyUsage(env, userId) {
   try {

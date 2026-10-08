@@ -87,7 +87,8 @@ export async function sweepExpiredData(env) {
     ["magic_links",        "DELETE FROM magic_links WHERE expires_at < ?",        now - RETENTION.magicLinkMs],
     ["sessions",           "DELETE FROM sessions WHERE expires_at < ?",           now],
     ["rate_limits",        "DELETE FROM rate_limits WHERE expires_at < ?",        now],
-    // Telemetry tables use YYYY-MM-DD day strings, not epoch ms.
+    // Telemetry tables use YYYY-MM-DD day strings, not epoch ms — the
+    // cutoff is computed as a day string so the comparison is lexical.
     ["api_key_usage",      "DELETE FROM api_key_usage WHERE day < ?",      dayCutoff(now - RETENTION.apiKeyUsageMs)],
     ["search_denials",     "DELETE FROM search_denials WHERE day < ?",     dayCutoff(now - RETENTION.searchDenialsMs)],
     ["template_usage",     "DELETE FROM template_usage WHERE day < ?",     dayCutoff(now - RETENTION.templateUsageMs)],
