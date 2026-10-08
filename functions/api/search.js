@@ -4788,12 +4788,13 @@ export function assessExtractionQuality(items, ctx = {}) {
 function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
   const q = String((ctx && ctx.query) || "").trim().slice(0, 160);
   const n = (pool || []).length;
-  const unitWord = n === 1 ? "paper" : "papers";
+  const hasRef = (pool || []).some((it) => { const p = (it && it.p) || it || {}; return p.type === "Reference" || /wikipedia/i.test(p.journal || "") || /wikipedia/i.test(p.url || ""); });
+  const unitWord = hasRef ? (n === 1 ? "source" : "sources") : (n === 1 ? "paper" : "papers");
   let md = "## Couldn't find a direct answer\n\n";
   md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
-    ", but couldn't build a reliable summary from them — " +
-    "so instead of stitching together sentences that don't actually answer your question, " +
-    "here are the closest papers to read directly.\n";
+    ", but couldn't build a reliable summary from them. " +
+    "So instead of stitching together sentences that don't actually answer your question, " +
+    "here are the closest " + unitWord + " to read directly.\n";
   md += "\n### Why this isn't a summary\n\n";
   md += quality.reasons.map((r) => "- " + r).join("\n") + "\n";
   if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
@@ -4803,11 +4804,12 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
         interps.slice(0, 3).join(", ") + ".*\n";
     }
   }
-  md += "\n### Closest papers\n\n";
+  md += "\n### Closest " + unitWord + "\n\n";
   for (const it of (items || [])) {
     const p = (it && it.p) || {};
     const title = extractTitleClaim(p.title) || "Untitled";
-    const venue = [p.journal, p.year].filter(Boolean).join(", ");
+    const isWiki = p.type === "Reference" || /wikipedia/i.test(p.journal || "") || /wikipedia/i.test(p.url || "");
+    const venue = isWiki ? "Wikipedia" : [p.journal, p.year].filter(Boolean).join(", ");
     md += "- **" + title + "**" + (venue ? " — " + venue : "") + " [" + it.idx + "]\n";
   }
   let reforms = [];
