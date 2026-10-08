@@ -1908,7 +1908,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
   async function submitDeleteAccount() {
     setDelBusy(true);
-    try { await apiAuth("delete-account", {}); onAccountDeleted(); close(); }
+    try { await apiAuth("delete-account", { confirm: true }); onAccountDeleted(); close(); }
     catch (err) { toast(err.message || "Couldn't delete account.", { tone: "error" }); setDelBusy(false); }
   }
 

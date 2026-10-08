@@ -370,33 +370,95 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename 
   });
   return { ...result, total, capped: total > 20 };
 }
-/* Pro: Answer PDF export. Opens a clean print view of the answer with
-   citations; the user saves as PDF from the print dialog. No dependencies,
-   works everywhere. */
-function exportAnswerToPDF(answer, sources, question) {
-  const win = window.open("", "_blank", "width=800,height=600");
-  if (!win) return { ok: false };
-  const srcList = (sources || []).map((s, i) =>
-    `<li><strong>[${i + 1}]</strong> ${(s.title || "Untitled").replace(/</g, "&lt;")}<br/>` +
-    `<em>${(s.authors || "").replace(/</g, "&lt;")}</em>${s.journal ? `, ${s.journal.replace(/</g, "&lt;")}` : ""}${s.year ? ` (${s.year})` : ""}<br/>` +
-    `${s.doi ? `DOI: ${s.doi}<br/>` : ""}${s.url ? `<a href="${s.url}">${s.url}</a>` : ""}</li>`
-  ).join("");
-  win.document.write(`<!DOCTYPE html><html><head><title>Cerebrum Answer</title><style>
-    body { font-family: Georgia, serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.6; }
-    h1 { font-size: 22px; border-bottom: 2px solid #333; padding-bottom: 10px; }
-    h2 { font-size: 18px; margin-top: 30px; }
-    ol { padding-left: 20px; } li { margin-bottom: 12px; font-size: 14px; }
-    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; font-size: 12px; color: #666; }
-    @media print { body { margin: 20px; } }
-  </style></head><body>
-    <h1>${(question || "Research Answer").replace(/</g, "&lt;")}</h1>
-    <div>${answer || ""}</div>
-    <h2>Sources</h2><ol>${srcList}</ol>
-    <div class="footer">Exported from Cerebrum &middot; ${new Date().toLocaleDateString()} &middot; askcerebrum.org</div>
-  </body></html>`);
-  win.document.close();
-  setTimeout(() => { win.print(); }, 500);
-  return { ok: true };
+/* Pro: Answer PDF export. Generates a real PDF client-side with jspdf
+   (lazy-loaded so the main bundle never pays for it): the question as the
+   title, the answer body as clean wrapped text, and a numbered source list.
+   Returns { ok, filename } so the caller only logs successful exports. */
+async function exportAnswerToPDF(answer, sources, question) {
+  try {
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+    const ML = 56, MR = 56, MT = 56, MB = 64;
+    const maxW = W - ML - MR;
+    let y = MT;
+    const need = (h) => { if (y + h > H - MB) { doc.addPage(); y = MT; } };
+
+    // Title: the question.
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(17);
+    doc.setTextColor(20, 20, 20);
+    const titleLines = doc.splitTextToSize(String(question || "Research Answer"), maxW);
+    need(titleLines.length * 22);
+    doc.text(titleLines, ML, y);
+    y += titleLines.length * 22 + 6;
+
+    // Dateline.
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    const dateLine = `Exported from Cerebrum · ${new Date().toLocaleDateString()} · askcerebrum.org`;
+    doc.text(dateLine, ML, y);
+    y += 26;
+
+    // Answer body: strip markdown, wrap as plain text.
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(30, 30, 30);
+    const body = stripMarkdown(answer || "");
+    const bodyLines = doc.splitTextToSize(body, maxW);
+    for (const line of bodyLines) {
+      need(16);
+      doc.text(line, ML, y);
+      y += 15.5;
+    }
+    y += 14;
+
+    // Numbered sources.
+    const list = sources || [];
+    if (list.length) {
+      need(30);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(20, 20, 20);
+      doc.text("Sources", ML, y);
+      y += 20;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.setTextColor(50, 50, 50);
+      list.forEach((s, i) => {
+        const bits = [`[${i + 1}] ${s.title || "Untitled"}`];
+        const byline = [s.authors, s.journal, s.year].filter(Boolean).join(", ");
+        if (byline) bits.push(byline);
+        if (s.doi) bits.push(`DOI: ${s.doi}`);
+        else if (s.url) bits.push(s.url);
+        const lines = doc.splitTextToSize(bits.join(" · "), maxW - 14);
+        need(lines.length * 13 + 8);
+        lines.forEach((line, li) => {
+          doc.text(line, ML + (li === 0 ? 0 : 14), y);
+          y += 13;
+        });
+        y += 8;
+      });
+    }
+
+    // Footer on every page.
+    const pages = doc.getNumberOfPages();
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(140, 140, 140);
+    for (let p = 1; p <= pages; p++) {
+      doc.setPage(p);
+      doc.text(`Cerebrum · ${dateLine} · Page ${p} of ${pages}`, ML, H - 36);
+    }
+
+    const filename = "cerebrum-answer.pdf";
+    doc.save(filename);
+    return { ok: true, filename };
+  } catch (e) {
+    return { ok: false, error: e && e.message };
+  }
 }
 async function saveToZotero(sources, apiKey, userId) {
   const items = sources.map((s) => ({ itemType: "journalArticle", title: s.title || "", creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })), publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "" }));
@@ -5454,8 +5516,8 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
 // Pricing + checkout + portal. Rendered as a modal by the main app;
 // also opened from the answer-footnote quota nudge via the "cb:open-pro"
 // window event so deeply-nested components never need prop drilling.
-function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn }) {
-  const [plan, setPlan] = useState("annual");
+function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPlan }) {
+  const [plan, setPlan] = useState(initialPlan || "annual");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Student verification state: email → code → verified → checkout.
@@ -7554,7 +7616,7 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
       </div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 12, maxWidth: 620 }}>
         {filtered
-          ? <>No papers matched with the <strong style={{ color: P.ink }}>{tierLabel}</strong> filter on — it removed every candidate. Clear it to search the full literature, or try a rephrasing.</>
+          ? <>No papers matched with the <strong style={{ color: P.ink }}>{tierLabel}</strong> filter on{t.evidenceFilteredOut > 0 ? <> — it removed all {t.evidenceFilteredOut} candidate{t.evidenceFilteredOut === 1 ? "" : "s"}</> : " — it removed every candidate"}. Clear it to search the full literature, or try a rephrasing.</>
           : <>No papers in the literature matched this question. Each suggestion below changes the search strategy, not just the wording.</>}
       </div>
       {suggestions.length > 0 && (
@@ -8057,7 +8119,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 {user?.isPro && (
                   <button type="button" className="cb-ctlbtn"
                     title="Export as PDF"
-                    onClick={() => { exportAnswerToPDF(t.answer, t.sources, t.q); logExport("PDF", "cerebrum-answer.pdf"); }}
+                    onClick={async () => {
+                      const r = await exportAnswerToPDF(t.answer, t.sources, t.q);
+                      if (r && r.ok) logExport("PDF", r.filename || "cerebrum-answer.pdf");
+                      else toast("Couldn't generate the PDF. Try again?", { tone: "error" });
+                    }}
                   >
                     Export PDF
                   </button>
@@ -10249,7 +10315,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   const fq = proStatus?.flowcharts;
   const liteMonthly = plans["lite-monthly"]?.usd != null ? `$${plans["lite-monthly"].usd}` : "$3.99";
 
-  const Gauge = ({ label, used, cap, sub, upgrade }) => {
+  const Gauge = ({ label, used, cap, sub, upgrade, upgradePlan }) => {
     const unlimited = cap == null;
     const pct = unlimited ? 100 : cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
     const left = unlimited ? null : Math.max(0, cap - used);
@@ -10285,7 +10351,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
           {sub && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{sub}</span>}
         </div>
         {showUpgrade && (
-          <UIButton P={P} variant="ghost" onClick={onOpenPro} style={{
+          <UIButton P={P} variant="ghost" onClick={() => onOpenPro(upgradePlan)} style={{
             marginTop: 10, minHeight: 44, padding: "12px 24px", borderRadius: 6,
             border: state === "empty" ? "none" : `1px solid ${withAlpha("#d4a437", 0.55)}`,
             background: state === "empty" ? "#e5484d" : "transparent",
@@ -10307,8 +10373,11 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
   ];
   const tierAction = (id) => {
     if (id === tier) return <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>;
+    /* 2026-10-08: "Get Lite" must open the Pro dialog with the Lite plan
+       preselected — opening on Pro Annual ($144) after clicking "Get Lite"
+       is a money-path bug. */
     return (
-      <UIButton P={P} variant="ghost" onClick={onOpenPro} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: id === "pro" ? "#d4a437" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+      <UIButton P={P} variant="ghost" onClick={() => onOpenPro(id === "lite" ? "lite-monthly" : undefined)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: id === "pro" ? "#d4a437" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
         {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : "Switch to Free"}
       </UIButton>
     );
@@ -10332,13 +10401,16 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       <div style={{ marginTop: 12 }}>
         <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap}
           sub={isPro ? null : isLite ? "Pro has no limits: unlimited answers." : "Pro Lite gives you 500 answers per 5 days, 10 times your current limit."}
-          upgrade={isLite ? "Go Pro: unlimited answers" : "Get Lite: 500 answers per 5 days"} />
+          upgrade={isLite ? "Go Pro: unlimited answers" : "Get Lite: 500 answers per 5 days"}
+          upgradePlan={isLite ? "annual" : "lite-monthly"} />
         <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap}
           sub={isPro ? null : isLite ? "Pro has no limits: unlimited reads." : "Pro Lite gives you 30 reads per 5 days, 10 times your current limit."}
-          upgrade={isLite ? "Go Pro: unlimited reads" : "Get Lite: 30 reads per 5 days"} />
+          upgrade={isLite ? "Go Pro: unlimited reads" : "Get Lite: 30 reads per 5 days"}
+          upgradePlan={isLite ? "annual" : "lite-monthly"} />
         <Gauge label="FLOWCHARTS" used={fq?.used || 0} cap={isPro ? null : fq?.cap}
           sub={isPro ? null : isLite ? "Pro has no limits: unlimited flowcharts." : "Pro Lite gives you 10 flowcharts per 5 days, 10 times your current limit."}
-          upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"} />
+          upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"}
+          upgradePlan={isLite ? "annual" : "lite-monthly"} />
       </div>
 
       <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Compare plans</h2>
@@ -17882,6 +17954,12 @@ function App() {
   // ── Cerebrum Pro (2026-09-15) ──
   const [proStatus, setProStatus] = useState(null);
   const [proModalOpen, setProModalOpen] = useState(false);
+  /* 2026-10-08: plan preselection for the Pro modal. "Get Lite" CTAs must
+     open the dialog with the Lite plan selected, never Pro Annual ($144) —
+     one inattentive click on the wrong preselected tier is a money-path
+     bug. Defaults to "annual" for every other entry point. */
+  const [proModalPlan, setProModalPlan] = useState("annual");
+  const openPro = (plan) => { setProModalPlan(plan || "annual"); setProModalOpen(true); };
   // Members-only cinematic reel toggle. A client-side preference, not a
   // security boundary: the toggle and the Pro palette are only offered to
   // Pro accounts, and the server is the authority on who is Pro.
@@ -17934,6 +18012,46 @@ function App() {
   // (Document Mode, History, Saved, Collections, Find People) stayed as
   // its existing dialog; only its trigger moved into the Sidebar.
   const [view, setView] = useState("search"); // "search" | "profile" | "settings" | "trending" | "inbox"
+  // Bug 7 fix (2026-10-08): the "Direct messages" notification toggle was a
+  // placebo outside the inbox — the only message-notification path lived in
+  // InboxView's 15s poll, which dies when InboxView unmounts on navigation.
+  // This app-wide notifier runs the same detection whenever the inbox view
+  // is NOT mounted, so the setting's promise ("a new message in a
+  // conversation you're part of") holds on every screen. When view ===
+  // "inbox", InboxView's own poll owns notifications and this stays idle —
+  // no double-firing. Seeded on mount, never notified for.
+  useEffect(() => {
+    if (!user || view === "inbox") return;
+    let cancelled = false;
+    const lastSeenIds = new Map();
+    let seeded = false;
+    const refresh = () => {
+      apiDataGet("inbox").then((data) => {
+        if (cancelled || !data?.items) return;
+        if (seeded) {
+          for (const t of data.items) {
+            const lm = t.lastMessage;
+            const lid = lm && (lm.id || (lm.senderId + ":" + lm.createdAt));
+            if (!lid || lm.mine) { if (lid) lastSeenIds.set(t.id, lid); continue; }
+            if (lastSeenIds.get(t.id) && lastSeenIds.get(t.id) !== lid) {
+              cbNotify(t.name || "Cerebrum", "New message.", "cb-inbox-" + t.id, "message");
+            }
+            lastSeenIds.set(t.id, lid);
+          }
+        } else {
+          for (const t of data.items) {
+            const lm = t.lastMessage;
+            const lid = lm && (lm.id || (lm.senderId + ":" + lm.createdAt));
+            if (lid) lastSeenIds.set(t.id, lid);
+          }
+          seeded = true;
+        }
+      }).catch(() => {});
+    };
+    refresh();
+    const pollId = setInterval(refresh, 15000);
+    return () => { cancelled = true; clearInterval(pollId); };
+  }, [user, view]);
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   /* Focus trap for the mobile drawer: Tab cycles within it, Escape closes.
      Scroll locking is owned by the anyOverlayOpen pin effect
@@ -18064,6 +18182,11 @@ function App() {
         link_site: profileRes.user.link_site || "",
         link_orcid: profileRes.user.link_orcid || "",
         link_scholar: profileRes.user.link_scholar || "",
+        // interests + pinned must come along or the debounced profile sync
+        // below pushes interests: [] over the server copy on every
+        // fresh-device sign-in, and the pinned shelf strands server-side.
+        interests: Array.isArray(profileRes.user.interests) ? profileRes.user.interests : [],
+        pinned: Array.isArray(profileRes.user.pinned) ? profileRes.user.pinned : [],
       }));
       setProfileMeta({ followers: profileRes.followers || 0, followingCount: profileRes.followingCount || 0, badges: profileRes.badges || [] });
       // Reading Profiles roam with the account: if the account names a
@@ -18138,6 +18261,7 @@ function App() {
     // wall. Reopen Pro now that the session exists.
     if (authReturnTo === "pro") {
       setAuthReturnTo(null);
+      setProModalPlan("annual");
       setProModalOpen(true);
     }
     // Passkey graduation: one quiet offer after sign-in, only if this
@@ -18268,13 +18392,14 @@ function App() {
 
   // Deep components (the answer-footnote quota nudge) open the Pro modal
   // and the auth dialog through window events instead of prop drilling.
+  // The event may carry { plan } in detail to preselect a plan.
   useEffect(() => {
-    const openPro = () => setProModalOpen(true);
+    const openProEvt = (e) => { setProModalPlan(e?.detail?.plan || "annual"); setProModalOpen(true); };
     const openAuth = () => { setAuthInitialTab("login"); setAuthOpen(true); };
-    window.addEventListener("cb:open-pro", openPro);
+    window.addEventListener("cb:open-pro", openProEvt);
     window.addEventListener("cb:open-auth", openAuth);
     return () => {
-      window.removeEventListener("cb:open-pro", openPro);
+      window.removeEventListener("cb:open-pro", openProEvt);
       window.removeEventListener("cb:open-auth", openAuth);
     };
   }, []);
@@ -19491,7 +19616,7 @@ function App() {
         logZeroResult(question, { filtered: effEvidenceFilter !== "all", suggestions: ((data.noResults && data.noResults.reformulations) || []).length });
       }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
+      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -20684,7 +20809,7 @@ function App() {
         onToggleMute={handleToggleMute}
         onLogoClick={handleLogoClick}
         railCollapsed={railCollapsed} onToggleRail={toggleRail}
-        proStatus={proStatus} onOpenPro={() => setProModalOpen(true)} onSignOut={signOut}
+        proStatus={proStatus} onOpenPro={openPro} onSignOut={signOut}
         onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }}
         onOpenInvestigation={openHistoryItem}
         onOpenPalette={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}
@@ -21171,20 +21296,20 @@ function App() {
               setView("search"); ask(templateQuestions(t, topic)[0]);
             }}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
-            proStatus={proStatus} onOpenPro={() => setProModalOpen(true)}
+            proStatus={proStatus} onOpenPro={openPro}
           />
         </Reveal>
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: () => setProModalOpen(true), onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
         </Reveal>
       )}
       {view === "trending" && (
         <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} /></Reveal>
       )}
       {view === "usage" && (
-        <Reveal style={S.pageView} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={() => setProModalOpen(true)} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
+        <Reveal style={S.pageView} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={openPro} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
       )}
       {/* Commit 99 — Document Mode, as a destination. See NotebookMode's own
           comment for why it stopped being an overlay. */}
@@ -21195,7 +21320,7 @@ function App() {
       )}
       {view === "document" && (
         <Reveal style={{ ...S.pageView, background: "transparent", minHeight: "100%" }} deps={[view]}>
-          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={() => setProModalOpen(true)} onUsageChanged={refreshPro}
+          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={openPro} onUsageChanged={refreshPro}
             /* The document page runs its own single FilmLayer; mirror the
                workspace reel's rule so reduced motion / Save-Data /
                animation-off / low-memory hold the graded still instead. */
@@ -21579,8 +21704,7 @@ function App() {
                       try {
                         const mod = await import("./importCitations.js");
                         const selected = importPreview.papers.filter((_, i) => importSelected.has(i));
-                        const merged = mod.mergeCitationPapers(saved, selected);
-                        const added = merged.length - saved.length;
+                        const { merged, added } = mod.mergeCitationPapers(saved, selected);
                         setSaved(merged);
                         logExport("Import", `${added} papers from ${importPreview.format}`);
                         toast(`Imported ${added} paper${added === 1 ? "" : "s"}.`, { tone: "success" });
@@ -21984,6 +22108,7 @@ function App() {
         <ProModal
           P={P} accent={accent} at={at} user={user} proStatus={proStatus}
           onClose={() => setProModalOpen(false)}
+          initialPlan={proModalPlan}
           onSignIn={() => { setAuthInitialTab("login"); setAuthReturnTo("pro"); setAuthOpen(true); }}
         />
       )}
@@ -22005,7 +22130,9 @@ function App() {
               if (!user.isPro) {
                 let allow = null;
                 try { allow = await apiProPost("flowchart-allow", {}); } catch { allow = null; }
-                if (!allow || !allow.allowed) { setProModalOpen(true); return; }
+                /* 2026-10-08: preselect the right tier — a free user hitting
+                   the flowchart cap wants Lite, a Lite user wants Pro. */
+                if (!allow || !allow.allowed) { openPro(proStatus?.tier === "lite" ? "annual" : "lite-monthly"); return; }
                 refreshPro();
               }
             }
