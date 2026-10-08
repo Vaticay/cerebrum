@@ -11442,34 +11442,103 @@ async function runSearchPipeline(pctx) {
         health: stageHealth,
       });
       gResult = retrievalStage.value || { papers: [], _diag: {} };
-      // DEFENSIVE RETRY (2026-10-08): if the full ladder returned zero papers
-      // for an organism query, try once more with the simplest possible form:
-      // bare scientific name + top topic terms, no boolean operators, no
-      // rung ladder. This covers transient source failures where the complex
-      // query path yields nothing but a direct keyword search would succeed.
-      // Bounded: single attempt, only when the first pass found nothing.
-      if ((gResult.papers || []).length === 0 && typeof gatherPapers === "function") {
+      // MINIMUM RESULTS GUARANTEE (2026-10-08): Dusty: never show
+      // Wikipedia-only results when real papers exist for the topic.
+      // If the full ladder returned zero papers, fewer than MIN_REAL_PAPERS,
+      // or ONLY encyclopedia sources (Wikipedia etc.), broaden the query
+      // automatically through a bounded sequence of strategies, stopping at
+      // the first one that yields strictly more real (non-encyclopedia)
+      // papers. Every attempt is logged to _diag.minResultsGuarantee for
+      // operator diagnostics. Bounded: max 3 extra gatherPapers calls.
+      const _papers0 = gResult.papers || [];
+      const _realPapers0 = _papers0.filter((p) => !isEncyclopediaSource(p));
+      const MIN_REAL_PAPERS = 3;
+      const _needsBroaden = _papers0.length === 0
+        || _papers0.length < MIN_REAL_PAPERS
+        || _realPapers0.length === 0;
+      if (_needsBroaden && typeof gatherPapers === "function") {
         try {
           const _retryDiag = (gResult._diag || {});
+          const _mrg = {
+            attempted: true,
+            trigger: _papers0.length === 0 ? "zero_papers"
+              : _realPapers0.length === 0 ? "encyclopedia_only"
+              : "thin_results",
+            initialPapers: _papers0.length,
+            initialRealPapers: _realPapers0.length,
+            strategies: [],
+          };
+          _retryDiag.minResultsGuarantee = _mrg;
+          // Keep the old flag name too so existing dashboards don't break.
           _retryDiag.emptyRetryAttempted = true;
-          // Build minimal query from the searchQuery already in scope
-          const _sq = String(searchQuery || query || "").toLowerCase()
+          // Build candidate broadened queries, broadest-last so the first
+          // win is the most specific query that still worked.
+          const _baseQ = String(searchQuery || query || "");
+          const _candidates = [];
+          const _seenQ = new Set();
+          const _pushCand = (name, q) => {
+            const _qq = String(q || "").trim().replace(/\s+/g, " ");
+            if (_qq.length >= 2 && !_seenQ.has(_qq.toLowerCase())) {
+              _seenQ.add(_qq.toLowerCase());
+              _candidates.push({ name, q: _qq });
+            }
+          };
+          // Strategy 1: bare significant terms, no boolean operators.
+          const _sq = _baseQ.toLowerCase()
             .replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)
             .filter((t) => t.length > 2);
-          if (_sq.length >= 2) {
-            const _simpleQ = _sq.slice(0, 4).join(" ");
-            const _retryRes = await gatherPapers(_simpleQ, {
-              openAlexKey: env.OPENALEX_KEY || "",
-              ncbiKey: env.NCBI_API_KEY || "",
-              s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
-              limit: 10, isPro: false, db: env.DB, env,
-            }).catch(() => ({ papers: [] }));
-            if ((_retryRes.papers || []).length > 0) {
-              gResult = _retryRes;
-              if (gResult._diag) gResult._diag.emptyRetrySucceeded = true;
+          if (_sq.length >= 2) _pushCand("bare_terms", _sq.slice(0, 4).join(" "));
+          // Strategy 2: synonym-expanded keywords (e.g. BSFL -> the
+          // scientific name plus topic words as plain keywords).
+          try {
+            const _toks = _baseQ.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+            const _exp = expansionsFor(_toks);
+            if (_exp && _exp.length > 0) {
+              _pushCand("synonym_expanded",
+                [...new Set([..._toks.slice(0, 3), ..._exp.slice(0, 3)])].join(" "));
+            }
+          } catch (cbErr) { console.error("[Cerebrum] search.js mrg synonym:", cbErr); }
+          // Strategy 3: organism alone (broadest possible net). For
+          // "BSFL gut microbiome" this becomes "Hermetia illucens", which
+          // matches hundreds of indexed papers on its own.
+          try {
+            const _split = splitOrganismTopic(_baseQ);
+            if (_split && _split.hasOrganism && (_split.orgPhrases || []).length > 0) {
+              // Prefer the scientific (two-word latin) phrase when present.
+              const _sci = (_split.orgPhrases || []).find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2);
+              _pushCand("organism_only", _sci || _split.orgPhrases[0]);
+            }
+          } catch (cbErr) { console.error("[Cerebrum] search.js mrg organism:", cbErr); }
+          // Run candidates in order; adopt the first strictly-better result.
+          for (const _cand of _candidates.slice(0, 3)) {
+            let _res = null;
+            try {
+              _res = await gatherPapers(_cand.q, {
+                openAlexKey: env.OPENALEX_KEY || "",
+                ncbiKey: env.NCBI_API_KEY || "",
+                s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
+                limit: 10, isPro: false, db: env.DB, env,
+              });
+            } catch (cbErr) { _res = { papers: [] }; }
+            const _rp = (_res.papers || []).filter((p) => !isEncyclopediaSource(p));
+            const _attempt = {
+              strategy: _cand.name,
+              query: _cand.q.slice(0, 120),
+              papers: (_res.papers || []).length,
+              realPapers: _rp.length,
+            };
+            _mrg.strategies.push(_attempt);
+            // Strictly better = more real papers than the first pass.
+            // (Equal counts don't justify swapping result sets.)
+            if (_rp.length > _realPapers0.length) {
+              gResult = _res;
+              _attempt.adopted = true;
+              _mrg.adoptedStrategy = _cand.name;
+              if (gResult._diag) gResult._diag.minResultsGuarantee = _mrg;
+              break;
             }
           }
-        } catch (cbErr) { console.error("[Cerebrum] search.js empty-retry:", cbErr); }
+        } catch (cbErr) { console.error("[Cerebrum] search.js min-results-guarantee:", cbErr); }
       }
       // Operator-visible flag: this request ran the Pro depth pipeline.
       if (gResult._diag) gResult._diag.proSearchDepth = isProSearch;

@@ -163,5 +163,67 @@ test("gut has intestinal concept group", () => {
   assert.ok(group.has("midgut"), "should include midgut");
 });
 
+console.log("\nMinimum results guarantee (2026-10-08 regression)");
+
+// These are source-presence tests: they lock the broadening pipeline
+// into the handler so a future refactor cannot silently drop it.
+test("handler has minimum-results-guarantee block", () => {
+  assert.ok(src.includes("MINIMUM RESULTS GUARANTEE"),
+    "search.js must contain the minimum results guarantee block");
+  assert.ok(src.includes("minResultsGuarantee"),
+    "search.js must log broadening diagnostics to _diag.minResultsGuarantee");
+});
+
+test("broadening triggers on zero, thin, and encyclopedia-only results", () => {
+  assert.ok(src.includes('"zero_papers"'),
+    "must detect the zero-papers trigger");
+  assert.ok(src.includes('"encyclopedia_only"'),
+    "must detect the Wikipedia-only trigger");
+  assert.ok(src.includes('"thin_results"'),
+    "must detect the thin-results trigger");
+  assert.ok(src.includes("MIN_REAL_PAPERS"),
+    "must define a minimum real-paper threshold");
+});
+
+test("broadening uses three strategies in order", () => {
+  assert.ok(src.includes('"bare_terms"'),
+    "strategy 1: bare significant terms must exist");
+  assert.ok(src.includes('"synonym_expanded"'),
+    "strategy 2: synonym-expanded query must exist");
+  assert.ok(src.includes('"organism_only"'),
+    "strategy 3: organism-alone broadest net must exist");
+});
+
+test("broadening adopts only strictly-better results", () => {
+  // Guard against swapping a good result set for an equal-or-worse one.
+  assert.ok(src.includes("_rp.length > _realPapers0.length"),
+    "must only adopt a retry result with MORE real papers than the first pass");
+  assert.ok(src.includes("_candidates.slice(0, 3)"),
+    "must bound the broadening to at most 3 extra retrieval calls");
+});
+
+test("broadening counts real papers via isEncyclopediaSource", () => {
+  assert.ok(src.includes("!isEncyclopediaSource(p)"),
+    "must filter encyclopedia sources when counting real papers");
+  assert.ok(src.includes("function isEncyclopediaSource(p)"),
+    "isEncyclopediaSource helper must exist");
+  // The helper must catch Wikipedia by journal, URL, type, or flag.
+  const helperStart = src.indexOf("function isEncyclopediaSource(p)");
+  const helperEnd = src.indexOf("}", src.indexOf("return /wikipedia/i", helperStart)) + 1;
+  const helper = src.slice(helperStart, helperEnd);
+  assert.ok(helper.includes("wikipedia"), "must detect wikipedia");
+  assert.ok(helper.includes("Reference"), "must detect Reference type");
+});
+
+test("broadening prefers the scientific name for organism-only strategy", () => {
+  assert.ok(src.includes("organism_only"),
+    "organism_only strategy must exist");
+  // The scientific (two-word latin) phrase is preferred over common names.
+  const idx = src.indexOf("organism_only");
+  const window = src.slice(idx - 600, idx + 200);
+  assert.ok(/\[a-z\]\+ \[a-z\]\+/.test(window) || /sci/.test(window),
+    "organism_only should prefer the scientific name phrase");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
