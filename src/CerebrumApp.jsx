@@ -2684,7 +2684,7 @@ function DiveInline({ P, accent, label = "Working" }) {
       </div>
       <div style={{
         marginTop: 10, fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 500,
-        letterSpacing: "0.14em", textTransform: "uppercase", color: P.faint,
+        letterSpacing: "normal", textTransform: "none", color: P.faint,
       }}>
         {label}
       </div>
@@ -3132,7 +3132,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
               borderRadius: RADIUS.pill, padding: "2px 12px",
             }}>Source {n}</span>
             <span style={{
-              fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase",
+              fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "normal", textTransform: "none",
               borderRadius: RADIUS.pill, padding: "3px 12px",
               background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
               color: fullText ? accent : P.faint,
@@ -3211,7 +3211,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           borderRadius: RADIUS.pill, padding: "1px 8px",
         }}>{n}</span>
         <span style={{
-          fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase",
+          fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: "normal", textTransform: "none",
           borderRadius: RADIUS.pill, padding: "2px 8px",
           background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
           color: fullText ? accent : P.faint,
@@ -3379,7 +3379,7 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
-        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase", color: P.faint }}>
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint }}>
           How independent is this evidence
         </span>
         <span style={{
@@ -3579,7 +3579,7 @@ function StressTest({ turn, P, accent, at, onStress, busy, isMobile }) {
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: accent, flexShrink: 0 }} />
-        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.label, textTransform: "uppercase", color: P.faint }}>
+        <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint }}>
           Stress-test this answer
         </span>
       </div>
@@ -4326,7 +4326,7 @@ function FactCheck({ fc, P, accent }) {
           <div key={i} style={{ display: "flex", gap: 12, padding: "12px 0 0", marginTop: 12, borderTop: `1px solid ${P.line}` }}>
             <span style={{ color: cc, flexShrink: 0, display: "flex", marginTop: 1 }}><Icon name={rowGlyph} size={20} /></span>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: cc, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: cc, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
                 {c.status === "unsupported" ? "Unsupported" : c.status === "thin" ? "Thin evidence" : "Partly backed"}
               </div>
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5, fontFamily: "var(--cb-font)", fontWeight: 500, overflowWrap: "anywhere" }}>{c.claim}</div>
@@ -4377,7 +4377,7 @@ function VerdictReadout({ t, P }) {
     glyph = "verdictContradicted";
     word = "Contested";
     tone = STATUS.bad;
-    sub = "The literature splits on this one. Both camps are mapped below.";
+    sub = "The sources disagree. Both sides are cited below.";
   } else if (total > 0 && nUns === 0 && nThin === 0) {
     glyph = "verdictSupported";
     word = "Supported";
@@ -4423,7 +4423,7 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
   };
   return (
     <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
       <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
       <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
       {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
@@ -6505,7 +6505,7 @@ const AUTOPSY_ENTITY_LABELS = { doi: "DOI", phrase: "Exact phrase", organism: "O
 function AutopsySection({ P, accent, kicker, children }) {
   return (
     <section style={{ marginTop: 26 }}>
-      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: accent, marginBottom: 12 }}>{kicker}</div>
+      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: "normal", textTransform: "none", color: accent, marginBottom: 12 }}>{kicker}</div>
       {children}
     </section>
   );
@@ -6543,7 +6543,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
                   return (
                     <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <div style={{ width: 118, flexShrink: 0, textAlign: "right" }}>
-                        <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: last ? accent : P.ink2 }}>{s.label}</div>
+                        <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: last ? accent : P.ink2 }}>{s.label}</div>
                         <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2 }}>{s.note.toLowerCase()}</div>
                       </div>
                       <div style={{ flex: 1, minWidth: 0, height: 34, display: "flex", alignItems: "center" }}>
@@ -6564,7 +6564,6 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
             </div>
             {totalDb > 0 && (
               <>
-                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>PER-DATABASE CONTRIBUTIONS · {responded.length}/{totalDb} ANSWERED</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px" }}>
                   {t.sourcesQueried.map((s) => (
                     <span key={s.source} style={{
@@ -6587,7 +6586,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
 
         {/* ── 02 · Query reading ── */}
         <AutopsySection P={P} accent={accent} kicker="02 · Query reading">
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>STRUCTURED ENTITIES</div>
+          <div style={{ fontSize: 14, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "normal" }}>Entities</div>
           {entities.length ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
               {entities.map((e, i) => (
@@ -6599,7 +6598,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
           ) : (
             <div style={{ ...monoLine, marginBottom: 16, color: P.faint, fontStyle: "italic" }}>No structured entities detected. Treated as a plain research question.</div>
           )}
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>QUERY RESOLVER</div>
+          <div style={{ fontSize: 14, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "normal" }}>Query</div>
           {resolver ? (
             <div style={{ ...monoLine, marginBottom: 16 }}>
               {resolver.intent && <div>intent · <span style={{ color: P.ink }}>{resolver.intent}</span></div>}
@@ -6610,7 +6609,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
           ) : (
             <div style={{ marginBottom: 16 }}>{notRecorded}</div>
           )}
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>SELF-REASONING</div>
+          <div style={{ fontSize: 14, color: P.faint, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "normal" }}>Reasoning</div>
           {reasoning ? (
             <div style={{ ...monoLine }}>
               {reasoning.complexity && <div>complexity · <span style={{ color: P.ink }}>{reasoning.complexity}</span></div>}
@@ -6723,7 +6722,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
             )}
             {Array.isArray(t.evidenceGaps) && t.evidenceGaps.length > 0 && (
               <div style={{ marginTop: 4 }}>
-                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 6, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>EVIDENCE GAPS</div>
+                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginBottom: 6, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>Evidence gaps</div>
                 {t.evidenceGaps.map((g, i) => (
                   <div key={i} style={{ ...monoLine, marginBottom: 4 }}>· {g}</div>
                 ))}
@@ -6820,7 +6819,7 @@ function AnswerArc({ turn, P, accent }) {
       </div>
       {convergence && (
         <div style={{ marginTop: 6, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(accent, 0.3)}`, background: withAlpha(accent, 0.06), fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-          <span style={{ color: accent, fontWeight: 700, marginRight: 8, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.eyebrow }}>CONVERGENCE</span>
+          <span style={{ color: accent, fontWeight: 700, marginRight: 8, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.eyebrow }}>Agreement</span>
           {convergence}
         </div>
       )}
@@ -6939,7 +6938,7 @@ function ReadHead({ label, P, accent }) {
       <div className="cb-readhead" style={{ background: P.line }}>
         <span className="cb-readhead-marker" style={{ background: accent }} />
       </div>
-      <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint }}>
+      <div style={{ marginTop: 10, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint }}>
         {label}
       </div>
     </div>
@@ -7729,7 +7728,7 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
   };
   return (
     <div style={{ marginTop: 20 }} className="cb-fade">
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Try this instead
       </div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 12, maxWidth: 620 }}>
@@ -7766,7 +7765,7 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
       )}
       {t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
             “{t.ambiguity.term}” could mean
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -7799,7 +7798,7 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
   return (
     <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${P.line}` }} className="cb-fade">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
           Sources · {sources.length}
         </div>
         <button type="button" onClick={onVerify}
@@ -7853,7 +7852,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
   if (!chips.length) return null;
   return (
     <div style={{ marginTop: 20 }} className="cb-fade">
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Keep going
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -8376,7 +8375,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   color: simplified ? accent : P.faint, background: "transparent",
                   border: "none", cursor: "pointer", padding: "3px 8px",
                 }}>
-                <span style={{ fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                <span style={{ fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "normal", textTransform: "none" }}>
                   Reading level: {readingLevel}
                 </span>
               </button>
@@ -8389,13 +8388,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 not filled pills. No em dash in the copy. */}
             {t.aiQuota && t.aiQuota.gated === "free-cap" && (
               <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", color: accent, background: "transparent", border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "normal", textTransform: "none", color: accent, background: "transparent", border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
                 Free AI answers used up. Go Pro
               </button>
             )}
             {t.aiQuota && t.aiQuota.gated === "signin-required" && (
               <UIButton P={P} variant="ghost" onClick={() => window.dispatchEvent(new CustomEvent("cb:open-auth"))}
-                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "0.08em", textTransform: "uppercase", color: P.ink2, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
+                style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "normal", textTransform: "none", color: P.ink2, background: "transparent", border: `1px solid ${P.line2}`, borderRadius: 4, padding: "3px 12px", cursor: "pointer" }}>
                 Sign in for AI answers
               </UIButton>
             )}
@@ -8525,7 +8524,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         <details style={{ marginTop: 16 }} className="cb-fade">
           <summary style={{
             cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro,
-            fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint,
+            fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint,
           }}>
             Flashpoints · {t.literatureConflicts.length} conflicting claim pair{t.literatureConflicts.length === 1 ? "" : "s"}
           </summary>
@@ -8582,7 +8581,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         /* Pass 2 (instrument): ambiguity is a ruled notice, not a tinted
            card. Mono kicker, plain sentence, instrument buttons. */
         <div style={{ marginTop: 16, padding: "14px 4px 4px", borderTop: `1px solid ${withAlpha(STATUS.warn, 0.45)}` }} className="cb-fade">
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: STATUS.warn, marginBottom: 8, fontFamily: "var(--cb-font)" }}>Ambiguous term</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: STATUS.warn, marginBottom: 8, fontFamily: "var(--cb-font)" }}>Ambiguous term</div>
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
             “{t.ambiguity.term}” means different things in different fields.
             {t.ambiguity.resolvedAs ? <> This answer ran with <span style={{ fontWeight: 600 }}>{t.ambiguity.resolvedAs}</span>.</> : <> Pick the one you meant.</>}
@@ -9185,7 +9184,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               {source.journal && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.journal}</span>}
               {source.year && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.year}</span>}
-              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.label, textTransform: "uppercase", color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: RADIUS.md, fontFamily: "var(--cb-font)" }}>{source.type}</span>}
+              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: RADIUS.md, fontFamily: "var(--cb-font)" }}>{source.type}</span>}
               {typeof source.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.relevance}% match</span>}
               {source.citations > 0 && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{formatCitationCount(source.citations, source.year, "citation")}</span>}
             </div>
@@ -9195,7 +9194,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
               {plates.map((pl) => (
                 <div key={pl.k} style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "12px 12px", background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)" }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>{pl.k}</div>
+                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>{pl.k}</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.45 }}>{pl.v}</div>
                 </div>
               ))}
@@ -9203,14 +9202,14 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
           )}
 
           <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Abstract</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Abstract</div>
             <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.75, fontFamily: "var(--cb-font)" }}>
               {source.abstract || "No abstract available for this paper."}
             </div>
           </div>
 
           <div style={{ borderTop: `1px solid ${P.line}`, paddingTop: 20 }}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Ask about this paper</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Ask about this paper</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={scopedInput}
@@ -9236,7 +9235,7 @@ function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
       )}
       {drawerTab === "methodology" && (
         <div className="cb-fade">
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 16 }}>Methodology Matrix</div>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 16 }}>Methodology Matrix</div>
           {methodology.length > 0 && methodology[0].design !== "Not specified" ? (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
@@ -9549,7 +9548,7 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
   const [sortKey, setSortKey] = useState("cited");
   const rows = useMemo(() => buildEvidenceRows(sources), [sources]);
   const sorted = useMemo(() => sortEvidenceRows(rows, sortKey), [rows, sortKey]);
-  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.panel, zIndex: Z.content, whiteSpace: "nowrap" };
+  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.panel, zIndex: Z.content, whiteSpace: "nowrap" };
   const td = { padding: "12px", borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.small, color: P.ink, verticalAlign: "top" };
   return (
     <div className="cb-fade">
@@ -10068,7 +10067,7 @@ function TrendingHero({ P, accent, item, onExpand, generatedAt }) {
           <MediaFigure P={P} media={media} title={item.title} still linkCredit={false} />
         </div>
       )}
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         Lead story · {trendKind(item)}
       </div>
       <div style={{ fontSize: "clamp(24px, 3.2vw, 38px)", fontWeight: 650, color: P.ink, lineHeight: 1.14, letterSpacing: "-0.02em", maxWidth: 820 }}>
@@ -12461,8 +12460,8 @@ function Eyebrow({ children, P, right, style }) {
   return (
     <div className="cb-eyebrow" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, ...style }}>
       <span style={{
-        fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700,
-        letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase", color: P.faint, whiteSpace: "nowrap",
+        fontFamily: "var(--cb-font)", fontSize: 14, fontWeight: 600,
+        letterSpacing: "normal", textTransform: "none", color: P.faint, whiteSpace: "nowrap",
       }}>{children}</span>
       <span aria-hidden="true" style={{ flex: 1, height: 1, background: P.line, minWidth: 24 }} />
       {right && <span className="cb-eyebrow-right" style={{ flexShrink: 0 }}>{right}</span>}
@@ -13002,7 +13001,7 @@ function SaveIndicator({ state, P, accent }) {
    the PRO badge and gets the Pro upsell modal.
 */
 function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro }) {
-  const eyebrowLocal = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const eyebrowLocal = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" };
   const [topicFor, setTopicFor] = useState(null);
   const [topicValue, setTopicValue] = useState("");
   const begin = (t) => {
@@ -13189,7 +13188,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
           </g>
         ))}
       </svg>
-      <div style={{ position: "absolute", left: 14, bottom: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", fontWeight: 600 }}>
+      <div style={{ position: "absolute", left: 14, bottom: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", textTransform: "none", fontWeight: 600 }}>
         {layout.nodes.length} {layout.nodes.length === 1 ? "paper" : "papers"} · your sky
       </div>
       {tip && (
@@ -13448,7 +13447,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     return d.toLocaleDateString(undefined, opts);
   };
 
-  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" };
 
   // Membership rank for the identity-level membership row below: derived
   // the same way as the account menu and the Settings card, from
@@ -13914,7 +13913,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       style={{ minHeight: 44,
                         flexShrink: 0, background: "none", border: "none", cursor: "pointer",
                         fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
-                        letterSpacing: TRACKING.label, textTransform: "uppercase",
+                        letterSpacing: "normal", textTransform: "none",
                         color: isPinned ? accentInk(P, accent) : P.faint,
                         opacity: pinSaving ? 0.5 : 1, padding: "4px 2px",
                       }}
@@ -14586,7 +14585,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                 </div>
 
                 {(data.badges || []).filter((b) => b !== "founder").length > 0 && (
-                  <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                  <div style={{ marginTop: 12, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
                     {(data.badges || []).filter((b) => b !== "founder").map((b) => String(b).replace(/[_-]+/g, " ")).join(" · ")}
                   </div>
                 )}
@@ -14966,7 +14965,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // and must not commit state once it has moved on — otherwise the old
   // document's result (or its abort error) lands on the new document.
   const docGen = useRef(0);
-  const docEyebrow = { fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 600, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" };
+  const docEyebrow = { fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" };
   /* Sep 2026: the source (intake) pane sits over Document Mode's own film.
      Bare content on the page scrim let video texture ghost through behind
      dimmed text — so the intake pane gets the same opaque card treatment
@@ -17004,7 +17003,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, act
       <div style={{ maxHeight: 340, overflowY: "auto", padding: "6px 0" }}>
         {groups.map((g, gi) => (
           <div key={g.title + "::" + gi}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>{g.title}</div>
+            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, padding: "12px 4px 6px", fontFamily: "var(--cb-font)" }}>{g.title}</div>
             {g.items.map((item, ii) => {
               flatIdx++;
               const idx = flatIdx;
