@@ -16718,7 +16718,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     /* The Query Bench (2026-10-08): the home screen is an instrument
        panel, not a chat window. Top-anchored at a working height —
        equipment sits where the hands are, not at the optical middle
-       of the room. */
+       of the room.
+       2026-10-09: Dusty overrode the top-anchor — "the search bar needs
+       to go back in the middle." The hero Reveal now re-centers with
+       justifyContent: "center" (see the search-view render). This style
+       keeps the bench padding; the centering happens at the call site. */
     heroBench: {
       justifyContent: "flex-start",
       padding: isMobile ? "72px 0 40px" : "52px 0 64px",
@@ -21139,7 +21143,7 @@ function App() {
                know), tighter padding — so the search bar and the first row
                of deck cards land on the first screen together. A visitor
                with nothing on the deck still gets the full curtain-raise. */
-            <Reveal style={{ ...S.hero, ...S.heroBench }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
+            <Reveal style={{ ...S.hero, ...S.heroBench, justifyContent: "center" }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
               <div style={S.heroGlow} data-cb-no-reveal="" />
               {/* ══════════════════════════════════════════════════════
                   Commit 87 — the returning-user hero was still a brand
