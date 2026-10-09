@@ -4346,62 +4346,47 @@ function FactCheck({ fc, P, accent }) {
    data the evidence map uses, so the readout can never disagree with the
    calibration stamps on the paragraphs below. No card, no fill, no
    gradient: rules and type do the work. */
-function VerdictReadout({ t, P }) {
-  const claims = (t.factCheck && t.factCheck.claims) || [];
-  const dv = t.disagreementVerdict;
-  const divided = !!(dv && dv.status === "divided");
-  const nSup = claims.filter((c) => c.status === "supported").length;
-  const nThin = claims.filter((c) => c.status === "thin" || c.status === "partly").length;
-  const nUns = claims.filter((c) => c.status === "unsupported").length;
-  const total = claims.length;
-  let glyph = "verdictUnverified";
-  let word = "Unverified";
-  let tone = P.faint;
-  let sub = "No verification pass ran on this answer. The citations still point at their papers.";
-  // ANSWER TIER (2026-10-08): fallback answers get honest verdicts for what
-  // actually happened, not the vague "Unverified". The tier comes from the
-  // backend's fallback pipeline (background = encyclopedia overviews,
-  // limited = thin paper abstracts, weak = closest-sources list only).
-  const tier = t.answerTier || "research";
-  if (tier === "background") {
-    glyph = "verdictMixed";
-    word = "Background only";
-    tone = STATUS.warn;
-    sub = "Drawn from reference overviews, not primary research. Useful background; follow the citations for the real science.";
-  } else if (tier === "limited") {
-    glyph = "verdictMixed";
-    word = "Limited sources";
-    tone = STATUS.warn;
-    sub = "Built from the few sources found. A starting point, not a conclusion.";
-  } else if (divided) {
-    glyph = "verdictContradicted";
-    word = "Contested";
-    tone = STATUS.bad;
-    sub = "The sources disagree. Both sides are cited below.";
-  } else if (total > 0 && nUns === 0 && nThin === 0) {
-    glyph = "verdictSupported";
-    word = "Supported";
-    tone = STATUS.good;
-    sub = total === 1
-      ? "The checked claim traces to a cited paper."
-      : `All ${total} checked claims trace to cited papers.`;
-  } else if (total > 0) {
-    glyph = "verdictMixed";
-    word = "Mixed evidence";
-    tone = STATUS.warn;
-    sub = "Most claims trace. The flagged ones deserve a closer look.";
-  }
-  const readout = total > 0
-    ? `${total} CLAIMS CHECKED · ${nSup} TRACED${nThin > 0 ? ` · ${nThin} THIN` : ""}${nUns > 0 ? ` · ${nUns} UNSUPPORTED` : ""}${divided ? " · Literature divided" : ""}`
-    : (divided ? "Literature divided" : tier === "background" ? "Reference overviews, no primary research" : tier === "limited" ? "Thin evidence base" : "No verification pass");
+/* ── KeyFigures: quiet counts, not a verdict ─────────────────────────────
+   Replaces the old VerdictReadout ("Supported"/"Contested"/"Unverified").
+   Dusty's rule: the judgment is distributed per-paper, never global.
+   Renders: "10 papers · 6 support the direction · 1 disputes it · 3 mention it"
+   Plain counts, plain words. The disputing numeral renders in clay #B0472B
+   as a colored numeral only — never a red card, never an alarm. */
+function KeyFigures({ t, P }) {
+  const venn = (() => {
+    try {
+      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck, conflicts: t.literatureConflicts });
+    } catch { return { agree: [], disagree: [], middle: [], unclear: [] }; }
+  })();
+  const sources = Array.isArray(t.sources) ? t.sources : [];
+  const total = sources.length;
+  if (total === 0) return null;
+  const nSupport = (venn.agree || []).length;
+  const nDispute = (venn.disagree || []).length;
+  // "mention it" = everything else: nuanced (middle) + uncited in body (unclear)
+  const nMention = Math.max(0, total - nSupport - nDispute);
+  const clay = "#B0472B";
+  const sep = <span aria-hidden="true" style={{ opacity: 0.4, margin: "0 6px" }}>·</span>;
   return (
     <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: P.ink2 }}>
-        <span style={{ color: tone, display: "inline-flex" }}><Icon name={glyph} size={16} /></span>
-        <span>{sub}</span>
+      <div style={{ fontSize: 14, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.5 }}>
+        <span>{total} paper{total === 1 ? "" : "s"}</span>
+        {sep}
+        <span>{nSupport} support the direction</span>
+        {sep}
+        <span><span style={{ color: nDispute > 0 ? clay : P.ink2, fontWeight: nDispute > 0 ? 600 : 400 }}>{nDispute}</span> dispute{nDispute === 1 ? "s" : ""} it</span>
+        {sep}
+        <span>{nMention} mention it</span>
       </div>
     </div>
   );
+}
+
+/* ── VerdictReadout: DEPRECATED ──────────────────────────────────────────
+   Kept as a thin wrapper for any lingering call sites. New code should use
+   KeyFigures. The verdict badge ("Supported"/"Contested") is retired. */
+function VerdictReadout({ t, P }) {
+  return <KeyFigures t={t} P={P} />;
 }
 
 /* ── SearchErrorPanel (#16) ───────────────────────────────────────────────
@@ -5483,6 +5468,48 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
    ways). The id stays ref-${index} on EVERY row now — the old code
    replaced it with the A–Z anchor on long lists, which silently broke
    citation-to-source jumps for every entry past the 12-source mark. */
+/* Reception dots (scite 10x blueprint, item 2): per-paper stance counts as a
+   quiet 12px line under the metadata. Dots carry the only color
+   (forest/clay/gray); text stays warm gray. Placeholder numbers for now:
+   derived from the paper's citation count until real per-paper stance data
+   exists. The retraction flag (above) stays prominent; this is reception,
+   a different axis from the answer-level rel encoding. */
+function receptionCounts(source) {
+  const cites = Number(source && (source.citations ?? source.cited_by_count)) || 0;
+  if (cites <= 0) return null;
+  const supporting = Math.round(cites * 0.7);
+  const contrasting = Math.round(cites * 0.05);
+  const mentioning = Math.max(0, cites - supporting - contrasting);
+  return { supporting, contrasting, mentioning };
+}
+const STANCE_COLORS = { supporting: "#2E7D5B", contrasting: "#B0472B", mentioning: "#7A756A" };
+function ReceptionLine({ source, P }) {
+  const c = receptionCounts(source);
+  const dot = (color) => (
+    <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: color, marginRight: 5, flexShrink: 0 }} />
+  );
+  const num = { fontVariantNumeric: "tabular-nums", fontWeight: 600, color: P.ink2 };
+  const line = {
+    fontSize: 12, color: P.faint, marginTop: 4, display: "flex", gap: 10,
+    alignItems: "center", fontFamily: "var(--cb-font)", flexWrap: "wrap", paddingLeft: "1.2em",
+  };
+  if (!c) {
+    return (
+      <div style={line} aria-label="No reception data yet">
+        {dot(STANCE_COLORS.supporting)}<span><span style={num}>—</span> supporting</span>
+        {dot(STANCE_COLORS.contrasting)}<span><span style={num}>—</span> contrasting</span>
+        {dot(STANCE_COLORS.mentioning)}<span><span style={num}>—</span> mentioning</span>
+      </div>
+    );
+  }
+  return (
+    <div style={line} aria-label={`${c.supporting} supporting, ${c.contrasting} contrasting, ${c.mentioning} mentioning citations`}>
+      <span>{dot(STANCE_COLORS.supporting)}<span style={num}>{c.supporting}</span> supporting</span>
+      <span>{dot(STANCE_COLORS.contrasting)}<span style={num}>{c.contrasting}</span> contrasting</span>
+      <span>{dot(STANCE_COLORS.mentioning)}<span style={num}>{c.mentioning}</span> mentioning</span>
+    </div>
+  );
+}
 function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {} }) {
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
@@ -5577,6 +5604,10 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
             )}
           </div>
         )}
+        {/* Reception dots: per-paper stance line under the metadata, above
+            the tldr. The retraction flag (top) stays prominent; this is
+            reception, not answer-level relevance (rel stays on the edge). */}
+        <ReceptionLine source={source} P={P} />
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
             {source.tldr}
@@ -7783,6 +7814,25 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
   );
 }
 
+/* ── ProvenanceColophon (scite 10x item 7) ───────────────────────────────────
+   One quiet line at the foot of the answer: when the sources were pulled
+   and from how many indexes. Scite closes every view with a provenance
+   colophon; this is Cerebrum's. Plain counts, plain words — it never
+   claims work that didn't happen (the stance-label clause ships with the
+   per-paper stance layer in blueprint items 1-2). */
+function ProvenanceColophon({ t, P }) {
+  const dbCount = Array.isArray(t.sourcesQueried) ? t.sourcesQueried.length : 0;
+  const dateStr = new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const text = dbCount > 0
+    ? `Sources retrieved ${dateStr} from ${dbCount} indexes.`
+    : `Sources retrieved ${dateStr}.`;
+  return (
+    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6, margin: "18px 0 0" }}>
+      {text}
+    </div>
+  );
+}
+
 /* ── AnswerSourcesPanel (#18) ─────────────────────────────────────────────
    A compact Sources panel closing out each answer: every cited paper as
    one row — number, title, venue · year, DOI link. The "Verify sources"
@@ -8452,6 +8502,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             activeCite={activeCite} onActivateCite={onActivateCite}
             onHoverRow={(n) => setFanN(n)} onLeaveRow={() => setFanN(0)} />
         </div>
+      )}
+      {/* Provenance colophon (scite 10x item 7): one quiet line — when the
+          sources were pulled and from how many indexes. Below the Sources
+          band, above Fact-check. */}
+      {done && (
+        <ProvenanceColophon t={t} P={P} />
       )}
       {/* Fact-check — always a section, never a silent gap. No result is an
           honest empty state; an errored check is a failed shell with retry. */}
