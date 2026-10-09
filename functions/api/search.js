@@ -5527,7 +5527,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         // A lede that opens with "Further," or "However," reads like a
         // paragraph torn from the middle of a paper, not an answer to the
         // question. Strip the connective so the claim opens on its content.
-        s = s.replace(/^(?:Further|Additionally|However|Moreover|Nevertheless|Nonetheless|In addition|Also|Overall|In this study|In the present study|In these studies|Here|Herein|Interestingly|Notably|Surprisingly|Importantly|Consistently|Taken together|Together)[,;:]?\s+/i, "");
+        s = s.replace(/^(?:Further|Additionally|However|Moreover|Nevertheless|Nonetheless|In addition|Also|Overall|In this study|In the present study|In these studies|Here|Herein|Interestingly|Notably|Surprisingly|Importantly|Consistently|Taken together|Together|Finally|Lastly|In conclusion|To summarize)[,;:]?\s+/i, "");
         if (!/[.!?]$/.test(s)) s += ".";
         s = s.replace(/^[a-z]/, (ch) => ch.toUpperCase());
         return s + " [" + c.idx + "]";
