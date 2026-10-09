@@ -8862,7 +8862,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 above already owns the failure plainly. An extractive
                 (non-AI) fallback is a different kind of object than a failed
                 AI one, and the byline must not call it a failure either. */}
-            <span style={S.aiTag}>{t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
+            <span style={S.aiTag}>{(t.sources || []).length === 0 ? "No sources found" : t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
             {/* Reading level indicator: tells users the Simplify toggle exists */}
             {done && !synthFailed && t.answer && t.answer.length > 200 && (
               <button type="button" onClick={doSimplify} title={readingLevel === "plain" ? "Show the original answer" : "Rewrite one reading level simpler (" + (readingLevel === "graduate" ? "undergrad" : "plain") + " next)"}

@@ -7691,6 +7691,41 @@ function postProcessAnswer(rawAnswer) {
   return answer;
 }
 
+// ZERO-EVIDENCE HALLUCINATION GUARD (2026-10-09) . mechanical backstop.
+// When the pipeline handed the model zero citable sources, any specific
+// study detail in the answer is invented by definition: named researchers,
+// (Author, Year) citations, sample sizes, concentrations, "a 2021 study".
+// If any of those markers appear, or the answer runs long with no sources
+// at all, the whole answer is replaced with the honest deterministic
+// fallback. Runs after postProcessAnswer, so it sees the final text.
+// Pure and exported for tests.
+export function guardNoEvidenceHallucination(answer, query) {
+  const text = String(answer || "").trim();
+  if (!text) return answer;
+  const markers = [
+    /et al\.?/i,                             // named researchers
+    /\b[A-Z][a-z]+(?:\s+[a-z]+){0,2}\s*\(\d{4}\)/, // Klein (1995), Lee and Kim (2020)
+    /\bn\s*=\s*\d+/i,                        // n=45
+    /\b(19|20)\d{2}\s+stud(y|ies)\b/i,       // "2021 study"
+    /\[\s*\d+\s*\]/,                         // [1] with nothing to cite
+  ];
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const hit = markers.some((re) => re.test(text));
+  if (!hit && words <= 200) return answer;
+  // Deterministic honest fallback . no invented content possible.
+  let terms = "";
+  try {
+    const reforms = deriveReformulations(query) || [];
+    const first = (reforms || []).find((r) => r && r.query);
+    terms = first ? String(first.query).slice(0, 120) : "";
+  } catch { /* never break the answer on a helper failure */ }
+  let md = "## No papers found\n\n";
+  md += "Cerebrum searched the databases and found no papers on this topic, so there is nothing reliable to summarize. ";
+  md += "No studies are named below because none were retrieved; anything more specific would be invented.\n";
+  if (terms) md += "\nFor the primary literature, try searching: \"" + terms + "\"\n";
+  return md;
+}
+
 // Extract conflicting claims from the answer text.
 // Scans for hedge phrases, contrastive conjunctions, and citation-backed
 // opposing claims. Returns an array of { claimA, claimB, sourceA, sourceB }
@@ -12890,16 +12925,32 @@ async function runSearchPipeline(pctx) {
         "If you know relevant papers exist on this topic (from your training), mention the general findings and suggest " +
         "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else {
-      systemPrompt = ID + PERSONALITY + (relevanceGatedOut > 0
-        ? "The literature search returned " + relevanceGatedOut + (relevanceGatedOut === 1 ? " paper, " : " papers, ") +
-          "but none cleared the relevance bar for this question, so none are cited below . they were withheld rather than risk misleading citations. "
-        : "The literature search didn't surface papers for this specific phrasing, ") + "but you absolutely know this topic. " +
-        "IMPORTANT: Do NOT start with 'no papers retrieved' or any disclaimer. Start with a direct, authoritative scientific answer. " +
-        "Give an excellent, comprehensive answer drawing on your full scientific knowledge. Be specific . name enzymes, genes, organisms, mechanisms, " +
-        "quantify where possible, and cite the key researchers and landmark studies you know about in plain text (e.g., 'Work by [name] demonstrated...'). " +
-        "At the END (not the beginning), add one line: 'For the primary literature, try searching: [2-3 specific search terms]' . " +
-        "suggest the exact PubMed/Google Scholar search terms that would find the relevant papers.\n" +
-        "ZERO fabricated citations . no [1], no (Author, Year), no DOIs. You may name findings and researchers in plain prose.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + STRUCTURE;
+      // 2026-10-09 . ZERO-EVIDENCE HARDBALL. The old prompt told the model
+      // to "give an excellent, comprehensive answer drawing on your full
+      // scientific knowledge" and to "name the key researchers and landmark
+      // studies you know about in plain prose" when zero sources were
+      // citable. That instruction manufactured the worst failure this
+      // system has: long answers full of invented studies (named authors,
+      // n values, concentrations) with no papers retrieved. The contract
+      // below replaces it: say nothing was found, suggest search terms,
+      // and stop. The mechanical guard (guardNoEvidenceHallucination,
+      // applied after post-processing) deletes any answer that violates
+      // this anyway, so the prompt and the guard agree.
+      const trulyNoPapers = ((typeof papers !== "undefined" && papers) || []).length === 0;
+      systemPrompt = ID + PERSONALITY +
+        (trulyNoPapers
+          ? "ZERO-EVIDENCE ANSWER . READ THIS FIRST. The 15-database literature search returned no papers for this query, and no reference sources were found either. You have NOTHING to synthesize from. There is no evidence block below.\n\n"
+          : "ZERO CITABLE EVIDENCE . READ THIS FIRST. The literature search returned " + relevanceGatedOut + (relevanceGatedOut === 1 ? " paper, " : " papers, ") +
+            "but none cleared the relevance bar for this question, so none are cited below . they were withheld rather than risk misleading citations. You have NOTHING citable to synthesize from. There is no evidence block below.\n\n") +
+        "Your ENTIRE answer is exactly these two parts, in this order, and nothing else:\n" +
+        "1. One plain sentence stating that no " + (trulyNoPapers ? "papers were found" : "citable papers were found") + " for this topic in the searched databases.\n" +
+        "2. One line: 'For the primary literature, try searching: [2-3 specific search terms]' . suggest the exact PubMed or Google Scholar search terms that would find the relevant papers.\n\n" +
+        "HARD PROHIBITIONS . your response is mechanically checked and discarded if violated:\n" +
+        "- NEVER name a researcher, author, laboratory, study, or paper. You have no sources, so every attribution would be invented.\n" +
+        "- NEVER write a sample size (n=...), concentration, percentage, p-value, effect size, or any other study number. With no sources, every number is fabricated.\n" +
+        "- NEVER describe an experiment, method, or finding ('a 2021 study showed...', 'researchers found...', 'work by ... demonstrated...').\n" +
+        "- NEVER use citation brackets like [1] or parenthetical (Author, Year) references. There is nothing to cite.\n" +
+        "Keep the whole answer under 80 words. A short honest 'nothing found' is the correct answer here. Do not use the four-section structure; this answer has no sections.\n\n" + VOICE + CONTEXT + "LENGTH: under 80 words. Two parts only, then stop.\n";
     }
 
     const messages = [{ role: "system", content: systemPrompt }];
@@ -14435,6 +14486,16 @@ async function runSearchPipeline(pctx) {
     // This is a MECHANICAL fix . we don't rely on the model to follow rules.
     if (aiOK) {
       answer = postProcessAnswer(answer);
+      // ============ ZERO-EVIDENCE HALLUCINATION GUARD ============
+      // 2026-10-09: when the model was handed zero citable sources
+      // (!useEvidence && !useWeb means sourceList is empty), any specific
+      // study detail in its answer is invented by definition. The prompt
+      // above already forbids this; this is the mechanical backstop that
+      // deletes a violating answer and replaces it with the honest
+      // deterministic fallback.
+      if (!useEvidence && !useWeb) {
+        answer = guardNoEvidenceHallucination(answer, query);
+      }
     }
 
     // ============ v6.0: QUALITY-GATED RETRY ============
