@@ -12543,6 +12543,21 @@ async function runSearchPipeline(pctx) {
       }
     }
 
+    // CONSTRAINT ENFORCEMENT (2026-10-09): If the query has load-bearing
+    // constraints (e.g. "waste oil"), papers that don't mention them are
+    // off-topic and must not be cited. This is a redundant check in case
+    // the scorer-level capping didn't run. The paper stays in the full
+    // set for honesty, but never reaches the answer as evidence.
+    try {
+      const _cqa = analyzeQuery(searchQuery);
+      if (_cqa && _cqa.constraints && _cqa.constraints.length > 0 && !_cqa.isNameSearch && !isFollowupMode) {
+        papers = papers.filter((pp) => {
+          const v = verifyPaperConstraints(pp, _cqa);
+          return v.verdict === "on-topic";
+        });
+      }
+    } catch (cbErr) { console.error("[Cerebrum] search.js constraint filter:", cbErr); }
+
     // The citation gate. Every paper that reaches the answer must clear
     // RELEVANCE_FLOOR (60) . below it a score is carried by passing keyword
     // mentions rather than topical study, and the real incident was an
