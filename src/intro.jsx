@@ -10,7 +10,7 @@
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import {
   FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon,
-  TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING, TickFrame,
+  TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING,
 } from "./designSystem.jsx";
 import {
   setCookie, getCookie, APP_VERSION_LABEL, useIsMobile,
@@ -760,19 +760,24 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     ? accent
     : "#A3B899";
 
-  /* Specimen rotation: advance every 9s, paused while a dialog is open,
-     while the visitor holds the specimen, or under reduced motion.
-     Numbered tabs select directly. */
+  /* Specimen rotation: three cards as a set, advancing every 9s (desktop)
+     or 12s (mobile), paused while a dialog is open, while the visitor holds
+     the cards, or under reduced motion. Steppers move by a full set. */
   const [specimenIdx, setSpecimenIdx] = useState(0);
   const [specimenHeld, setSpecimenHeld] = useState(false);
+  const [doorHover, setDoorHover] = useState(false);
   const specimenCount = SPECIMENS.length;
+  const setSize = 3;
   useEffect(() => {
     if (reduced || animationMode === "off") return undefined;
     if (specimenHeld || howOpen || sourcesOpen) return undefined;
-    const t = setInterval(() => setSpecimenIdx((i) => (i + 1) % specimenCount), 9000);
+    const t = setInterval(
+      () => setSpecimenIdx((i) => (i + setSize) % specimenCount),
+      isMobile ? 12000 : 9000
+    );
     return () => clearInterval(t);
-  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, specimenCount]);
-  const specimen = SPECIMENS[specimenIdx];
+  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, specimenCount, isMobile]);
+  const specimenSet = [0, 1, 2].map((k) => SPECIMENS[(specimenIdx + k) % specimenCount]);
 
   /* ── The door rule ──
      This screen is a threshold, not a search screen: there is no composer
@@ -789,28 +794,13 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   };
 
   const animate = animationMode !== "off" && !reduced;
-  /* Boot sequence: the instrument powers on. Readouts come online in
-     sequence and the calibration flips from CAL··· to CAL · VERIFIED.
-     Under reduced motion (or animation off) everything is simply on. */
-  const [calibrated, setCalibrated] = useState(!animate);
-  useEffect(() => {
-    if (!animate) { setCalibrated(true); return undefined; }
-    const t = setTimeout(() => setCalibrated(true), 1100);
-    return () => clearTimeout(t);
-  }, [animate]);
-  const mono = "var(--cb-mono)";
   const serif = "var(--cb-font)";
   const ink = "#eef1ee";
   const faint = "rgba(238,241,238,0.52)";
   const hairline = "rgba(255,255,255,0.08)";
 
-  const readout = {
-    fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
-    color: faint, fontWeight: 500, whiteSpace: "nowrap",
-    fontVariantNumeric: "tabular-nums",
-  };
   const navLink = {
-    fontFamily: serif, fontSize: 11, letterSpacing: "0.18em",
+    fontFamily: serif, fontSize: 13, letterSpacing: "normal",
     color: "rgba(238,241,238,0.72)", textDecoration: "none",
     fontWeight: 500, padding: "10px 6px", whiteSpace: "nowrap",
   };
@@ -825,33 +815,16 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
     }}>
-      {/* The instrument bed: calibration grid on near-black, held by a
-          vignette. The grid is static; the air above it is not. */}
-      <div aria-hidden="true" className={"cb-instr-bed" + (animate ? " cb-instr-bed-film" : "")} />
-      {/* 4K cinematic reel (2026-10-08): dramatic slow-motion ink-in-water
-          clips behind the instrument bed. The bed's grid stays on top;
-          the video is darkened so type always wins. Reduced motion or
-          animation off: no video, the CSS atmosphere carries the mood. */}
-      {animate && (
-        <div aria-hidden="true" style={{
-          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-          filter: "brightness(0.42) saturate(0.72)",
-        }}>
-          <CinematicFilm
-            reel="intro"
-            animationMode={animationMode}
-            intensity={0.55}
-            onAutoplayBlocked={() => {}}
-            onPlaybackChange={() => {}}
-          />
-        </div>
-      )}
       {/* Atmosphere: the cinematic feel, calmed. Three vast, heavily
           blurred light fields drifting on 90s+ cycles — barely perceptible,
           very dark, never literal footage. The room has air, not a movie.
+          The video reel is gone: Dusty's bar is "no recognizable footage."
           Under reduced motion (or animation off) this is a single still
           frame: the blobs sit at rest, no movement. */}
-      <div aria-hidden="true" className="cb-intro-atmosphere">
+      <div aria-hidden="true" className="cb-intro-atmosphere" style={{
+        filter: doorHover ? "brightness(1.15)" : "brightness(1)",
+        transition: "filter 600ms ease",
+      }}>
         <div className="cb-atmo-a" />
         <div className="cb-atmo-b" />
         <div className="cb-atmo-c" />
@@ -859,31 +832,10 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       </div>
       {/* Grain without the jitter: texture, not weather. */}
       <div aria-hidden="true" className="cb-intro-grain" style={{ animation: "none" }} />
-      {/* Corner ticks frame the viewport itself: the whole screen is the
-          instrument, not just the panel. */}
-      <TickFrame P={P} tickColor={withAlpha(introAccent, 0.55)} border={false}
-        className="cb-instr-viewport" aria-hidden="true" />
 
-      {/* Depth rail: the descent motif as a static scale. The door sits at
-          the surface (000M); the workspace is the descent. The marker only
-          lights once the instrument has calibrated. */}
-      {!isMobile && (
-        <div aria-hidden="true" className="cb-depth-rail">
-          <div className={"cb-depth-mark" + (calibrated ? " cb-depth-here" : "")}><span>000M</span><i /></div>
-          <div className="cb-depth-mark"><span>200M</span><i /></div>
-          <div className="cb-depth-mark"><span>400M</span><i /></div>
-          <div className="cb-depth-mark"><span>600M</span><i /></div>
-          <div className="cb-depth-mark"><span>800M</span><i /></div>
-          <div className="cb-depth-surface">SURFACE</div>
-        </div>
-      )}
-
-      {/* ── Instrument header ──
-          Readouts, not navigation chrome. The machine voice is mono. */}
+      {/* ── Header: the wordmark and quiet links. No instrument chrome. */}
       <header className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 30,
-        borderBottom: "1px solid " + hairline,
-        background: "rgba(5,7,10,0.72)",
         ...(animate ? { animationDelay: "0.15s" } : null),
       }}>
         <div style={{
@@ -896,25 +848,8 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               fontFamily: serif, fontSize: 13, fontWeight: 600,
               letterSpacing: "0.34em", textIndent: "0.06em", color: "#ffffff",
             }}>CEREBRUM</span>
-            {/* Power indicator: the instrument is on. */}
-            <span aria-hidden="true" style={{
-              width: 7, height: 7, borderRadius: "50%",
-              background: calibrated ? introAccent : "rgba(238,241,238,0.25)",
-              boxShadow: calibrated ? "0 0 10px " + withAlpha(introAccent, 0.8) : "none",
-              transition: "background 400ms ease, box-shadow 400ms ease",
-            }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
-            
-            
-            <span style={{
-              ...readout,
-              fontFamily: serif,
-              color: calibrated ? withAlpha(introAccent, 0.9) : "rgba(238,241,238,0.35)",
-              transition: "color 400ms ease",
-            }}>
-              {calibrated ? "CAL · VERIFIED" : "CAL ···"}
-            </span>
             {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
@@ -946,138 +881,147 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20, flex: 1,
         display: "flex", flexDirection: "column",
-        alignItems: isMobile ? "center" : "flex-start",
+        alignItems: "center",
         justifyContent: "center",
-        padding: isMobile ? "40px 20px 36px" : "56px 26px 48px 7vw",
+        padding: isMobile ? "40px 20px 36px" : "56px 26px 48px",
       }}>
+        {/* Three claims on a reading table: fanned cards, center hero.
+            No counters, no accession numbers. The set crossfades every
+            9s (desktop) / 12s (mobile). Hover pauses. */}
         <div
           className={animate ? "cb-focus-in" : undefined}
+          onMouseEnter={() => setSpecimenHeld(true)}
+          onMouseLeave={() => setSpecimenHeld(false)}
+          onFocus={() => setSpecimenHeld(true)}
+          onBlur={() => setSpecimenHeld(false)}
           style={{
-            width: "100%", maxWidth: 660,
-            padding: isMobile ? "30px 24px 26px" : "44px 48px 40px",
-            background: "#0c0e0b",
-            border: "1px solid " + hairline,
-            borderRadius: 2,
+            width: "100%", maxWidth: 1120,
+            display: "flex",
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "center",
+            justifyContent: "center",
+            gap: isMobile ? 14 : 26,
             ...(animate ? { animationDelay: "0.35s" } : null),
           }}>
-          <div
-            onMouseEnter={() => setSpecimenHeld(true)}
-            onMouseLeave={() => setSpecimenHeld(false)}
-            onFocus={() => setSpecimenHeld(true)}
-            onBlur={() => setSpecimenHeld(false)}
-            style={{ display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%" }}
-          >
-            <div style={{
-              display: "flex", alignItems: "baseline", justifyContent: "space-between",
-              borderBottom: "1px solid " + hairline, paddingBottom: 14,
-            }}>
-              <span style={{
-                fontFamily: serif, fontSize: 11, letterSpacing: "0.32em",
-                fontWeight: 600, textTransform: "none", color: faint,
-              }}>
-                Verified claim
-              </span>
-              <span style={{
-                fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
-                fontWeight: 600, color: introAccent,
-                fontVariantNumeric: "tabular-nums",
-              }}>
-                {String(specimenIdx + 1).padStart(2, "0")}/{String(specimenCount).padStart(2, "0")}
-              </span>
-            </div>
-            <div key={specimenIdx} className={animate ? "cb-specimen-in" : undefined} style={{
-              display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%",
-            }}>
-              <p style={{
-                fontFamily: serif,
-                fontSize: isMobile ? "clamp(24px, 6.4vw, 30px)" : "clamp(28px, 3.4vw, 40px)",
-                fontWeight: 560, letterSpacing: "-0.01em", lineHeight: 1.3,
-                color: "#ffffff", margin: "26px 0 0", maxWidth: "26ch",
-                textAlign: "left", textWrap: "balance",
-              }}>
-                &ldquo;{specimen.claim}&rdquo;
-              </p>
-              <div style={{
-                marginTop: 24, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 11,
-              }}>
-                <span style={{
-                  color: introAccent, display: "inline-flex", lineHeight: 0,
+          {specimenSet.map((spec, k) => {
+            const isHero = !isMobile && k === 1;
+            const isFlank = !isMobile && k !== 1;
+            return (
+              <div
+                key={specimenIdx + "-" + k}
+                className={animate ? "cb-specimen-in" : undefined}
+                style={{
+                  flex: isMobile ? "1 1 auto" : isHero ? "1 1 470px" : "1 1 330px",
+                  maxWidth: isMobile ? 560 : isHero ? 490 : 350,
+                  width: isMobile ? "100%" : undefined,
+                  margin: isMobile ? "0 auto" : undefined,
+                  padding: isMobile ? "26px 24px 24px" : isHero ? "40px 44px 36px" : "30px 30px 28px",
+                  background: "#0c0e0b",
+                  border: "1px solid " + hairline,
+                  borderRadius: 2,
+                  opacity: isFlank ? 0.55 : 1,
+                  transform: isMobile
+                    ? "translateX(" + (k * 12) + "px)"
+                    : isFlank
+                      ? "scale(0.82) translateY(" + (k === 0 ? -24 : 24) + "px)"
+                      : "none",
+                  transition: "opacity 500ms ease, transform 500ms ease",
+                }}
+              >
+                <p style={{
+                  fontFamily: serif,
+                  fontSize: isMobile
+                    ? "clamp(20px, 5.6vw, 26px)"
+                    : isHero
+                      ? "clamp(24px, 2.8vw, 33px)"
+                      : "clamp(17px, 1.8vw, 21px)",
+                  fontWeight: 560, letterSpacing: "-0.01em", lineHeight: 1.32,
+                  color: "#ffffff", margin: 0, maxWidth: "28ch",
+                  textAlign: "left", textWrap: "balance",
                 }}>
-                  <Icon name="verdictSupported" size={17} />
-                </span>
-                <span style={{
-                  fontFamily: serif, fontSize: 11, fontWeight: 600,
-                  letterSpacing: "0.22em",
-                  textTransform: "none", color: introAccent,
+                  &ldquo;{spec.claim}&rdquo;
+                </p>
+                <div style={{
+                  marginTop: isHero ? 22 : 16, display: "flex", alignItems: "center",
+                  justifyContent: "flex-start", gap: 10,
                 }}>
-                  Traced to a direct finding
-                </span>
+                  <span style={{ color: introAccent, display: "inline-flex", lineHeight: 0 }}>
+                    <Icon name="verdictSupported" size={isHero ? 17 : 14} />
+                  </span>
+                  <span style={{
+                    fontFamily: serif, fontSize: 11, fontWeight: 600,
+                    letterSpacing: "normal",
+                    textTransform: "none", color: introAccent,
+                  }}>
+                    Traced to a direct finding
+                  </span>
+                </div>
+                <p style={{
+                  margin: "16px 0 0", maxWidth: "62ch",
+                  fontSize: isMobile ? 13 : isHero ? 14 : 12.5, lineHeight: 1.65,
+                  color: "rgba(238,241,238,0.66)", textAlign: "left",
+                }}>
+                  {spec.paper}{" "}
+                  <a href={spec.doi} target="_blank" rel="noopener noreferrer"
+                    style={{ color: introAccent, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
+                    Open the paper &#8599;
+                  </a>
+                </p>
               </div>
-              <p style={{
-                margin: "18px 0 0", maxWidth: "62ch",
-                fontSize: isMobile ? 13.5 : 14.5, lineHeight: 1.7,
-                color: "rgba(238,241,238,0.66)", textAlign: "left",
-              }}>
-                {specimen.paper}{" "}
-                <a href={specimen.doi} target="_blank" rel="noopener noreferrer"
-                  style={{ color: introAccent, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
-                  Open the paper &#8599;
-                </a>
-              </p>
-            </div>
-            {/* Specimen stepper: prev / counter / next. The tab wall is gone. */}
-            <div style={{
-              marginTop: 30, display: "flex", alignItems: "center", justifyContent: "flex-start",
-              gap: 4, borderTop: "1px solid " + hairline, paddingTop: 18,
-            }}>
-              <button type="button" aria-label="Previous claim"
-                onClick={() => setSpecimenIdx((i) => (i - 1 + specimenCount) % specimenCount)}
-                style={{
-                  minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
-                  fontFamily: serif, fontSize: 14, fontWeight: 600,
-                  color: "rgba(238,241,238,0.6)",
-                  background: "transparent",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: 2,
-                }}>
-                &#8592;
-              </button>
-              <button type="button" aria-label="Next claim"
-                onClick={() => setSpecimenIdx((i) => (i + 1) % specimenCount)}
-                style={{
-                  minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
-                  fontFamily: serif, fontSize: 14, fontWeight: 600,
-                  color: "rgba(238,241,238,0.6)",
-                  background: "transparent",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: 2,
-                }}>
-                &#8594;
-              </button>
-              <span style={{
-                marginLeft: 12, fontFamily: mono, fontSize: 11, letterSpacing: "0.18em",
-                color: faint, fontVariantNumeric: "tabular-nums",
-              }}>
-                {String(specimenIdx + 1).padStart(2, "0")} / {String(specimenCount).padStart(2, "0")}
-              </span>
-            </div>
-          </div>
+            );
+          })}
         </div>
+
+        {/* Stepper: moves by a full set of three. Desktop only. */}
+        {!isMobile && (
+          <div style={{
+            marginTop: 30, display: "flex", alignItems: "center", justifyContent: "center",
+            gap: 8,
+          }}>
+            <button type="button" aria-label="Previous three claims"
+              onClick={() => setSpecimenIdx((i) => (i - setSize + specimenCount) % specimenCount)}
+              style={{
+                minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
+                fontFamily: serif, fontSize: 14, fontWeight: 600,
+                color: "rgba(238,241,238,0.6)",
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 2,
+              }}>
+              &#8592;
+            </button>
+            <button type="button" aria-label="Next three claims"
+              onClick={() => setSpecimenIdx((i) => (i + setSize) % specimenCount)}
+              style={{
+                minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
+                fontFamily: serif, fontSize: 14, fontWeight: 600,
+                color: "rgba(238,241,238,0.6)",
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 2,
+              }}>
+              &#8594;
+            </button>
+          </div>
+        )}
 
         {/* The single way in. */}
         <div className={animate ? cls.concat("cb-focus-in").join(" ") : cls.join(" ")}
           style={animate ? { animationDelay: "0.9s" } : undefined}>
-          <button type="button" onClick={() => go("", false)} className="cb-intro-go" style={{
+          <button type="button" onClick={() => go("", false)} className="cb-intro-go"
+            onMouseEnter={() => setDoorHover(true)}
+            onMouseLeave={() => setDoorHover(false)}
+            style={{
             marginTop: 42, cursor: "pointer", color: "#f2f4f2",
             padding: isMobile ? "15px 34px" : "16px 52px",
-            fontSize: 12.5, fontWeight: 600, fontFamily: "var(--cb-font)",
-            letterSpacing: "0.24em", textIndent: "0.24em",
+            fontSize: 15, fontWeight: 600, fontFamily: "var(--cb-font)",
+            letterSpacing: "normal",
             textTransform: "none", whiteSpace: "nowrap",
           }}>Start researching</button>
           <div style={{ marginTop: 20 }}>
             <button type="button" onClick={() => setHowOpen(true)} style={{
               background: "none", border: "none", cursor: "pointer",
-              fontFamily: serif, fontSize: 12, letterSpacing: "0.16em",
+              fontFamily: serif, fontSize: 13, letterSpacing: "normal",
               color: faint, textDecoration: "underline", textUnderlineOffset: 5,
               textTransform: "none", padding: "10px 8px",
             }}>How it works</button>
@@ -1085,59 +1029,9 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
       </main>
 
-      {/* ── Spec plate ──
-          Engraved like the plate on real lab equipment: model, method,
-          evidence terms. The honesty content, compressed to readouts. A
-          door does not scroll through marketing sections. */}
-      <section aria-label="Instrument specification" className="cb-intro-chrome" style={{
-        position: "relative", zIndex: 20,
-        borderTop: "1px solid " + hairline,
-        background: "rgba(255,255,255,0.014)",
-      }}>
-        <div style={{
-          maxWidth: 1200, margin: "0 auto", padding: isMobile ? "24px 24px" : "30px 26px",
-          display: "flex", justifyContent: "center",
-        }}>
-          <div style={{
-            border: "1px solid " + hairline, borderRadius: 3,
-            padding: isMobile ? "18px 20px" : "22px 30px",
-            display: "grid", gridTemplateColumns: isMobile ? "auto 1fr" : "repeat(5, auto)",
-            gap: isMobile ? "12px 18px" : "0 34px",
-            background: "rgba(5,7,10,0.5)",
-          }}>
-            {[
-              ["MODEL", "CEREBRUM-1"],
-              ["SOURCES", "15 SCHOLARLY DBS"],
-              ["METHOD", "ONE SEARCH · DEDUPED"],
-              ["EVIDENCE", "EVERY CLAIM TRACED"],
-              ["TERMS", "NO ADS · NO FARMING"],
-            ].map(([k, v], ri) => (
-              <div key={k} style={{
-                display: "flex", flexDirection: isMobile ? "row" : "column", gap: isMobile ? 18 : 7,
-                alignItems: isMobile ? "baseline" : "flex-start",
-                ...(isMobile ? {} : ri > 0 ? { borderLeft: "1px solid " + hairline, paddingLeft: 34 } : null),
-              }}>
-                <span style={{
-                  fontFamily: serif, fontSize: 10, fontWeight: 600,
-                  letterSpacing: "0.28em", color: withAlpha(introAccent, 0.8),
-                  ...(isMobile ? { minWidth: 86 } : null),
-                }}>{k}</span>
-                <span style={{
-                  fontFamily: mono, fontSize: 12, fontWeight: 500,
-                  letterSpacing: "0.08em", color: "rgba(238,241,238,0.82)",
-                  whiteSpace: "nowrap",
-                }}>{v}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Footer ── */}
+      {/* ── Footer: one quiet line. */}
       <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 20,
-        borderTop: "1px solid " + hairline,
-        background: "rgba(5,7,10,0.85)",
         paddingBottom: "max(16px, env(safe-area-inset-bottom))",
         ...(animate ? { animationDelay: "1.2s" } : null),
       }}>
@@ -1145,22 +1039,17 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           maxWidth: 1440, margin: "0 auto", padding: "16px 26px 0",
           display: "flex", alignItems: "center", flexWrap: "wrap",
           gap: "10px 22px",
-          fontFamily: serif, fontSize: 10.5, letterSpacing: "0.14em",
+          fontFamily: serif, fontSize: 12, letterSpacing: "normal",
           color: "rgba(238,241,238,0.42)",
         }}>
-          <button type="button" onClick={() => setSourcesOpen(true)} style={{
-            background: "none", border: "none", padding: "10px 0", cursor: "pointer",
-            fontFamily: serif, fontSize: 10.5, letterSpacing: "0.14em",
-            color: "rgba(238,241,238,0.66)", fontWeight: 600,
-          }}>RESEARCH SOURCES &#8599;</button>
           <span style={{ flex: 1 }} />
-          {["About", "Privacy", "Terms", "Disclosures", "Contact"].map((item) => (
+          {["About", "Privacy", "Terms", "Contact"].map((item) => (
             <a key={item} href={"/" + item.toLowerCase()} style={{
               color: "rgba(238,241,238,0.42)", textDecoration: "none", padding: "10px 0",
               textTransform: "none",
             }}>{item}</a>
           ))}
-          <span>© {new Date().getFullYear()} CEREBRUM · {APP_VERSION_LABEL}</span>
+          <span>© {new Date().getFullYear()} Cerebrum</span>
         </div>
       </footer>
 

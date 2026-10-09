@@ -4386,7 +4386,88 @@ function KeyFigures({ t, P }) {
    Kept as a thin wrapper for any lingering call sites. New code should use
    KeyFigures. The verdict badge ("Supported"/"Contested") is retired. */
 function VerdictReadout({ t, P }) {
-  return <KeyFigures t={t} P={P} />;
+  return (
+    <>
+      <KeyFigures t={t} P={P} />
+      <ConsensusMeter t={t} P={P} />
+    </>
+  );
+}
+
+/* ── ConsensusMeter: how the studies lean (from Consensus) ─────────────────
+   For yes/no questions only ("Does X cause Y?", "Is X effective for Y?").
+   Renders a quiet horizontal meter: green segment (studies leaning yes),
+   gray (mixed/unclear), clay (leaning no). Segment width is proportional to
+   the study-type-weighted count (RCT > observational), so a systematic
+   review moves the needle more than a case report.
+
+   Stance comes from the existing venn classification: agree → yes,
+   disagree → no, middle + unclear → mixed. This is information, not a
+   verdict — no alarm colors, no badge, no "Contested" language. */
+function isYesNoQuestion(q) {
+  const s = String(q || "").trim().toLowerCase();
+  if (!s.endsWith("?")) return false;
+  return /^(does|do|is|are|can|could|will|would|should|has|have|did|was|were|may|might)\b/.test(s);
+}
+const STUDY_TYPE_METER_WEIGHTS = {
+  SYSTEMATIC_REVIEW: 16,
+  RCT: 13,
+  COHORT: 10,
+  CASE_CONTROL: 7,
+  NARRATIVE_REVIEW: 6,
+  CASE_REPORT: 4,
+  PRECLINICAL: 3,
+  EDITORIAL: 1,
+};
+function meterWeightFor(source) {
+  const key = source && source.studyTypeKey;
+  return STUDY_TYPE_METER_WEIGHTS[key] || 5;
+}
+function ConsensusMeter({ t, P }) {
+  const q = (t && (t.q || t.question)) || "";
+  if (!isYesNoQuestion(q)) return null;
+  let venn;
+  try {
+    venn = classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck, conflicts: t.literatureConflicts });
+  } catch { return null; }
+  const sources = Array.isArray(t.sources) ? t.sources : [];
+  if (sources.length === 0) return null;
+  const agreeSet = new Set(venn.agree || []);
+  const disagreeSet = new Set(venn.disagree || []);
+  let yesW = 0, noW = 0, mixedW = 0;
+  let yesN = 0, noN = 0, mixedN = 0;
+  sources.forEach((s, idx) => {
+    const n = idx + 1;
+    const w = meterWeightFor(s);
+    if (agreeSet.has(n)) { yesW += w; yesN += 1; }
+    else if (disagreeSet.has(n)) { noW += w; noN += 1; }
+    else { mixedW += w; mixedN += 1; }
+  });
+  const totalW = yesW + noW + mixedW;
+  if (totalW === 0) return null;
+  const yesPct = (yesW / totalW) * 100;
+  const noPct = (noW / totalW) * 100;
+  const mixedPct = Math.max(0, 100 - yesPct - noPct);
+  const green = "#2E7D5B";
+  const clay = "#B0472B";
+  const gray = "#7A756A";
+  const label = { fontSize: 12, color: P.faint, fontVariantNumeric: "tabular-nums" };
+  return (
+    <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }} aria-label="How the studies lean">
+      <div style={{ fontSize: 13, color: P.ink2, marginBottom: 8 }}>How the studies lean</div>
+      <div style={{ display: "flex", height: 8, borderRadius: 2, overflow: "hidden", background: P.line }} role="img"
+        aria-label={`${yesN} studies lean yes, ${mixedN} are mixed, ${noN} lean no`}>
+        {yesPct > 0 && <div style={{ width: `${yesPct}%`, background: green }} />}
+        {mixedPct > 0 && <div style={{ width: `${mixedPct}%`, background: gray, opacity: 0.55 }} />}
+        {noPct > 0 && <div style={{ width: `${noPct}%`, background: clay }} />}
+      </div>
+      <div style={{ display: "flex", gap: 16, marginTop: 6, ...label }}>
+        <span><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 2, background: green, marginRight: 5 }} />{yesN} yes</span>
+        <span><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 2, background: gray, opacity: 0.55, marginRight: 5 }} />{mixedN} mixed</span>
+        <span><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: 2, background: clay, marginRight: 5 }} />{noN} no</span>
+      </div>
+    </div>
+  );
 }
 
 /* ── SearchErrorPanel (#16) ───────────────────────────────────────────────
@@ -7953,6 +8034,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
      every width; citation taps and the toolbar/jump-rail entries open it. */
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [listenOpen, setListenOpen] = useState(false);
+  /* Evidence table view: prose vs table. The table is the same studies
+     laid out side by side for lit-review work — rows = papers, columns
+     follow the question type. Defaults to prose. */
+  const [evidenceView, setEvidenceView] = useState("prose");
   const [openVideo, setOpenVideo] = useState(null);
   const reducedMotion = useReducedMotion();
   const answerTopRef = useRef(null);
@@ -8404,10 +8489,38 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 {renderAnswer(stripFallbackChrome(simplified || shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
               </div>
             </>
+          ) : evidenceView === "table" ? (
+            /* Evidence table view: the same studies as rows, columns follow
+               the question type. Toggled from the view switch below the
+               answer — prose remains the default. */
+            <EvidenceTableAnswerView t={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
           ) : (
             renderAnswer(simplified || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)
           )}
         </div>
+        {/* View switch: prose vs evidence table. Only once the answer has
+            settled and there are sources to tabulate. Quiet segmented
+            control — 14px normal case, no chrome. */}
+        {done && !synthFailed && !connFailed && sources.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, marginBottom: 2 }}>
+            <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>View:</span>
+            <div role="tablist" aria-label="Answer view" style={{ display: "inline-flex", border: `1px solid ${P.line}`, borderRadius: 2, overflow: "hidden" }}>
+              {[["prose", "Prose"], ["table", "Table"]].map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={evidenceView === id}
+                  onClick={() => setEvidenceView(id)}
+                  style={{
+                    background: evidenceView === id ? withAlpha(accent, 0.14) : "transparent",
+                    border: "none", cursor: "pointer", padding: "6px 14px",
+                    fontSize: FONT_SIZES.caption, fontWeight: evidenceView === id ? 700 : 400,
+                    color: evidenceView === id ? P.ink : P.faint, fontFamily: "var(--cb-font)",
+                    letterSpacing: "normal", textTransform: "none", minHeight: 32,
+                  }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {done && (
           <div style={{ ...S.byline, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
             {/* synthesisMode comes from the backend. A failed synthesis ("none")
@@ -9497,6 +9610,178 @@ function sortEvidenceRows(rows, sortKey) {
   if (sortKey === "citations") return r.sort((a, b) => (b.citations || -1) - (a.citations || -1));
   if (sortKey === "design") return r.sort((a, b) => ((b.design && b.design.rank) || 0) - ((a.design && a.design.rank) || 0));
   return r.sort((a, b) => a.i - b.i); // as cited
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Evidence table (inline): rows = papers, columns = extracted fields.
+
+   The prose answer is what Cerebrum speaks; the table is what a grad
+   student doing a lit review actually needs — every study side by side,
+   every cell traceable to a sentence in the paper. Same honesty rule as
+   the evidence modal above: read literally from the abstract or show a
+   dash. Nothing is generated, nothing is inferred.
+
+   Column sets follow the question type:
+   - clinical: Population, Intervention, Outcome, Sample size
+   - methods:  Technique, Sample, Key result
+   - general:  Method, Key finding
+   ══════════════════════════════════════════════════════════════════ */
+
+// Safe sentence splitter (no lookbehind — works everywhere).
+function evSentences(text) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const out = [];
+  const parts = clean.split(/([.!?])\s+/);
+  let cur = "";
+  for (let i = 0; i < parts.length; i += 2) {
+    cur += (parts[i] || "") + (parts[i + 1] || "");
+    if (cur.trim().length > 12) { out.push(cur.trim()); cur = ""; }
+  }
+  if (cur.trim().length > 12) out.push(cur.trim());
+  return out;
+}
+
+function evFirstMatch(sents, re) {
+  for (const s of sents) { if (re.test(s)) return s; }
+  return "";
+}
+
+function evTruncate(s, max) {
+  const t = String(s || "").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max - 1).trimEnd() + "…";
+}
+
+// Population: the sentence that says who was studied.
+function extractPopulation(source) {
+  const sents = evSentences(source && source.abstract);
+  return evFirstMatch(sents, /\b(patients|participants|subjects|volunteers|adults|children|infants|cohort|women|men)\b/i);
+}
+
+// Intervention: the sentence that says what was done to them.
+function extractIntervention(source) {
+  const sents = evSentences(source && source.abstract);
+  return evFirstMatch(sents, /\b(treated|treatment|received|administered|dose|dosing|intervention|therapy|given)\b/i);
+}
+
+// Outcome: the sentence that says what changed.
+function extractOutcome(source) {
+  const sents = evSentences(source && source.abstract);
+  return evFirstMatch(sents, /\b(reduced|improved|increased|decreased|outcome|efficacy|effective|significant|compared|versus)\b/i);
+}
+
+// Technique/method: the sentence that says how the work was done.
+function extractTechnique(source) {
+  const sents = evSentences(source && source.abstract);
+  return evFirstMatch(sents, /\b(we |method|methods|using|used|performed|conducted|measured|analyzed|analysed|assessed|reared|synthesized|reaction|assay|protocol)\b/i)
+    || sents[0] || "";
+}
+
+// Key finding: the tldr when the backend wrote one, else the closing
+// sentence of the abstract (results live at the end), else the opener.
+function extractKeyFinding(source) {
+  if (source && source.tldr && String(source.tldr).trim()) return String(source.tldr).trim();
+  const sents = evSentences(source && source.abstract);
+  if (!sents.length) return "";
+  return sents[sents.length - 1] || sents[0] || "";
+}
+
+function detectTableSpec(question) {
+  const q = String(question || "").toLowerCase();
+  if (/\b(treatment|therapy|therap|drug|medication|efficacy|patients|clinical|trial|placebo|dosage|dose|intervention|versus|reduces?|improves?|effective)\b/.test(q)) return "clinical";
+  if (/\b(method|technique|approach|protocol|synthesis|reaction|assay|procedure|how (do|does|is|are|was|were))\b/.test(q)) return "methods";
+  return "general";
+}
+
+const TABLE_SPECS = {
+  clinical: [
+    { key: "population", label: "Population", extract: extractPopulation, width: 190 },
+    { key: "intervention", label: "Intervention", extract: extractIntervention, width: 190 },
+    { key: "outcome", label: "Outcome", extract: extractOutcome, width: 200 },
+    { key: "n", label: "Sample", extract: (s) => { const n = sampleSize(s); return n != null ? "n = " + n.toLocaleString("en-US") : ""; }, width: 90, numeric: true },
+  ],
+  methods: [
+    { key: "technique", label: "Technique", extract: extractTechnique, width: 220 },
+    { key: "n", label: "Sample", extract: (s) => { const n = sampleSize(s); return n != null ? "n = " + n.toLocaleString("en-US") : ""; }, width: 90, numeric: true },
+    { key: "finding", label: "Key result", extract: extractKeyFinding, width: 260 },
+  ],
+  general: [
+    { key: "method", label: "Method", extract: extractTechnique, width: 230 },
+    { key: "finding", label: "Key finding", extract: extractKeyFinding, width: 300 },
+  ],
+};
+
+/* Inline evidence table: same data as the modal, but in the reading
+   column under the answer, toggled against the prose view. Rows keep
+   citation order. Every cell that names a value is a verbatim abstract
+   sentence (truncated); blanks are dashes, never guesses. */
+function EvidenceTableAnswerView({ t, P, accent, onOpenPaper = () => {} }) {
+  const sources = (t && t.sources) || [];
+  const specKey = detectTableSpec(t && t.q);
+  const spec = TABLE_SPECS[specKey] || TABLE_SPECS.general;
+  const dash = <span style={{ color: P.faint, opacity: 0.6 }}>—</span>;
+  const th = {
+    textAlign: "left", padding: "0 8px 8px 0", fontSize: FONT_SIZES.micro,
+    fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
+    letterSpacing: "normal", textTransform: "none",
+  };
+  const td = {
+    padding: "12px 8px 12px 0", fontSize: FONT_SIZES.caption, color: P.ink,
+    verticalAlign: "top", fontFamily: "var(--cb-font)", borderTop: `1px solid ${P.line}`,
+    lineHeight: 1.5,
+  };
+  const specLabel = specKey === "clinical" ? "Clinical columns" : specKey === "methods" ? "Methods columns" : "General columns";
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+        <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
+          Evidence table
+        </div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+          {sources.length} studies · {specLabel} · every cell from the paper's abstract
+        </div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, width: 28 }}>#</th>
+              <th style={th}>Study</th>
+              {spec.map((c) => (
+                <th key={c.key} style={{ ...th, width: c.width, textAlign: c.numeric ? "right" : "left" }}>{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sources.map((s, i) => (
+              <tr key={i}>
+                <td style={{ ...td, color: accent, fontWeight: 700, whiteSpace: "nowrap" }}>{i + 1}</td>
+                <td style={{ ...td, minWidth: 150 }}>
+                  <button type="button" onClick={() => onOpenPaper(i + 1)} title={(s && s.title) || "Open this paper"}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>
+                    {s && s.title ? renderCleanTitle(evTruncate(s.title, 90)) : "Untitled paper"}
+                  </button>
+                  <div style={{ color: P.faint, marginTop: 3, fontSize: FONT_SIZES.micro }}>
+                    {[s && s.year].filter(Boolean).join("")}
+                    {s && s.authors ? ` · ${evTruncate(String(s.authors).split(";")[0], 28)}` : ""}
+                  </div>
+                </td>
+                {spec.map((c) => {
+                  const v = evTruncate(c.extract(s), 170);
+                  return (
+                    <td key={c.key} style={{ ...td, textAlign: c.numeric ? "right" : "left", fontVariantNumeric: "tabular-nums" }}>
+                      {v ? v : dash}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function EvidenceTableModal({ P, accent, at, sources, close }) {
