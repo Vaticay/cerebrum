@@ -386,12 +386,16 @@ await test("title-only papers get the honest weak-evidence answer (honesty gate 
 
 await test("papers with abstracts get clustered themes and extracted findings", () => {
   const out = buildExtractiveSynthesis(ABSTRACT_PAPERS);
-  assert.ok(out.includes("### "), "no theme sections produced");
+  assert.ok(out.includes("Findings on "), "no theme sections produced");
   // The two microbiome papers share vocabulary and must cluster apart from physics.
-  assert.ok(/Gut ·|Microbiome|Larval/i.test(out), "microbiome theme missing");
-  assert.ok(/Quantum/i.test(out), "physics theme missing");
+  assert.ok(/Findings on /i.test(out) && /microbiome|larval/i.test(out), "microbiome theme missing");
+  assert.ok(/quantum/i.test(out), "physics theme missing");
   assert.ok(out.includes("**62%**"), "quantities are not bolded");
   assert.ok(out.includes("**p < 0.01**"), "p-value was mangled by sentence splitting");
+  // 2026-10-08: theme headers are sentence-case lead-in lines, never
+  // ALL-CAPS tag-soup ### subheaders ("WASTE · FLY · HERMETIA").
+  assert.ok(!/^### [A-Z][A-Z\s]*(?:\s*[·•]\s*[A-Z][A-Z\s]*)+\s*$/m.test(out), "tag-soup ### header survived");
+  assert.ok(!/^[A-Z][A-Z\s]*(?:\s*[·•]\s*[A-Z][A-Z\s]*)+\s*$/m.test(out), "tag-soup keyword line survived");
 });
 
 await test("returns null when there is nothing to synthesize from", () => {
@@ -492,7 +496,7 @@ await test("evidence brief is launched lazily and consumed by waves 2+", () => {
   // budget contention.
   assert.match(searchSrc, /startBrief\(\)/, "lazy brief launch missing");
   assert.match(searchSrc, /buildBriefMessages\(briefText\)/, "wave 2 does not consume the brief");
-  assert.match(searchSrc, /EVIDENCE BRIEF \(pre-extracted claims — lead with these/, "wave 3 does not consume the brief");
+  assert.match(searchSrc, /EVIDENCE BRIEF \(pre-extracted claims \. lead with these/, "wave 3 does not consume the brief");
 });
 await test("speculative brief fan-out is capped and wave 2 waits boundedly", () => {
   // The brief must not drain the rate-limit buckets waves 1-3 need:

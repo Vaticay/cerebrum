@@ -1065,6 +1065,23 @@ const INTENT_WORDS = new Set([
   "produce", "producing", "produced", "into", "from",
 ]);
 
+// Query verbs and question-framing meta-words that describe what the user
+// WANTS but never what a paper is ABOUT. "Who won the 2026 Nobel Prize"
+// matched sports papers on "won"; "which paper first reported X" matched
+// veterinary case reports on the literal phrase "first reported". These get
+// near-zero specificity so they can never gate or dominate scoring — they
+// live in peripheralTerms at most.
+const GENERIC_QUERY_WORDS = new Set([
+  "won", "winner", "winners", "winning", "lose", "loses", "losing", "lost",
+  "beat", "beats", "beating", "beaten", "defeat", "defeats", "defeated",
+  "champion", "champions", "victory", "victories", "triumph", "triumphs",
+  "first", "second", "third", "reported", "reporting",
+  "describe", "describes", "described", "describing",
+  "discover", "discovers", "discovered", "discovering",
+  "discovery", "discoveries", "found", "finding",
+  "involving", "involved",
+]);
+
 // Common misspellings and variants of scientific terms. Search engines don't
 // autocorrect . a typo returns zero. This runs before term extraction so the
 // canonical spelling reaches the API.
@@ -1477,6 +1494,9 @@ const CONCEPT_LOOKUP = (() => {
 // Score how specific/informative a term is. Higher = more worth gating on.
 function termSpecificity(term) {
   if (GENERIC_SCIENCE_WORDS.has(term)) return 0.15;
+  // Query verbs / question-framing words ("won", "first", "reported") are
+  // never topic signals. Near-zero weight so they can never gate.
+  if (GENERIC_QUERY_WORDS.has(term)) return 0.1;
   // Intent verbs ("raise", "caution", "using") describe what the user WANTS
   // but not what the paper is ABOUT. Score below the anchor threshold so they
   // never dominate the top-4 rung.
@@ -2073,7 +2093,7 @@ function lemmatizeTerm(w) {
   return w;
 }
 
-function cleanQuery(raw) {
+function cleanQuery(raw, suppressSet) {
   // Strip potential prompt injection attempts
   let sanitized = raw
     .replace(/\b(ignore|disregard|forget)\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?|context)\b/gi, "")
@@ -2082,15 +2102,125 @@ function cleanQuery(raw) {
     .replace(/<[^>]+>/g, "")
     .slice(0, 500); // Hard cap query length
 
-  const cleaned = sanitized
+  const toks = sanitized
     .toLowerCase()
     .replace(/[^\w\s-]/g, " ")
     .split(/\s+/)
     .filter((w) => w.length > 2 && !STOPWORDS.has(w))
-    .map((w) => lemmatizeTerm(w))
-    .join(" ")
-    .trim();
+    .map((w) => lemmatizeTerm(w));
+  // Query-intent suppression (2026-10-08): detectQueryIntent() flags tokens
+  // that are INTENT MARKERS, not content . e.g. "won" in a Nobel-Prize
+  // query or "first"/"reported" in a first-report query. Stripped from the
+  // RETRIEVAL query only; the raw query still reaches the synthesis prompt
+  // untouched, so the answer knows what was actually asked. Optional and
+  // backward-compatible: existing callers pass nothing.
+  const kept = (suppressSet && suppressSet.size)
+    ? toks.filter((w) => !suppressSet.has(w) && !suppressSet.has(lemmatizeTerm(w)))
+    : toks;
+  const cleaned = kept.join(" ").trim();
   return cleaned || raw.trim().slice(0, 500);
+}
+
+// ============ QUERY INTENT DETECTION ============
+// (2026-10-08) Rule-based intent classifier. Runs on the RAW query inside
+// gatherPapers() BEFORE cleanQuery(), so it sees the question words the
+// retrieval layer normally strips ("won", "first reported", "what is").
+//
+// Two real production failures drove this:
+//   1. "Who won the 2026 Nobel Prize in Chemistry?" returned water polo
+//      championships. The token "won" is a sports verb everywhere else;
+//      nothing knew "Nobel Prize" recontextualizes it as an award.
+//   2. "Which paper first reported nonlinear effects in asymmetric
+//      synthesis?" returned veterinary case reports. The literal phrase
+//      "first reported" dominated matching and fetched "First reported
+//      case of X in a horse" papers.
+//
+// The output is a plain object, zero model calls, audited via
+// _diag.queryIntent on every request:
+//   kind:        "general" | "award" | "first_report" | "definition"
+//   entities:    recognized named entities, e.g. ["Nobel Prize"]
+//   suppress:    Set of tokens to strip from the RETRIEVAL query only.
+//                These are intent markers, not content. The raw query
+//                still goes to the synthesis prompt verbatim.
+//   require:     entity terms the top results must mention. If zero of
+//                the top-10 papers mention them, the result set answers a
+//                different question . flagged by the coherence gate.
+//   boostRecent / recentYears: award queries are almost always about
+//                recent announcements; boost the current/previous year.
+//   boostSeminal: first-report queries want the founding paper, which is
+//                usually the most-cited paper WITHIN its topic.
+//   preferReviews: "what is X" definition queries rank reviews higher.
+const AWARD_SPORTS_VERBS = new Set([
+  "won", "win", "wins", "winner", "winners", "winning",
+  "champion", "champions", "championship", "championships",
+  "victory", "victories", "beat", "beats", "beaten", "defeat", "defeated",
+]);
+const FIRST_REPORT_MARKERS = new Set([
+  "first", "report", "reported", "reports", "describe", "described",
+  "record", "recorded", "identify", "identified", "observe", "observed",
+  "discover", "discovered", "discovery",
+]);
+
+function detectQueryIntent(raw) {
+  const src = " " + String(raw || "").toLowerCase().replace(/[^\w\s-]/g, " ") + " ";
+  const intent = {
+    kind: "general",
+    entities: [],
+    suppress: new Set(),
+    require: [],
+    boostRecent: false,
+    recentYears: [],
+    boostSeminal: false,
+    preferReviews: false,
+  };
+
+  // ---- Award intent ----
+  // Trigger: an explicit award entity ("nobel", "laureate"), "won the X
+  // prize/award/medal", or "prize/award/medal in <field>". A bare "prize"
+  // without an award context does NOT trigger . we don't want "prize"
+  // in "a prize-winning tomato variety" to suppress anything.
+  const awardEntity = /\bnobel\b|\blaureate\b|\bfields\s+medal\b|\bturing\s+award\b|\bpulitzer\b/.test(src);
+  const awardWon = /(?:\bwon\b|\bwinning\b|\bwin\b|\bawarded?\b)\s+the\s+\w*(?:prize|award|medal)\b/.test(src);
+  const awardField = /\b(?:prize|award|medal)\s+(?:in|for)\s+(?:chemistry|physics|medicine|physiology|economics|literature|peace)\b/.test(src);
+  if (awardEntity || awardWon || awardField) {
+    intent.kind = "award";
+    if (/\bnobel\b/.test(src)) {
+      intent.entities.push("Nobel Prize");
+      // "laureat" (unstemmed) matches laureate/laureates/laureation.
+      intent.require.push("nobel", "laureat");
+    } else {
+      intent.entities.push("award");
+      intent.require.push("prize", "award", "medal", "laureat");
+    }
+    for (const w of AWARD_SPORTS_VERBS) intent.suppress.add(w);
+    // Award queries are about announcements, which are current. Boost the
+    // current and previous year on top of the standard recency curve.
+    const nowY = new Date().getFullYear();
+    intent.boostRecent = true;
+    intent.recentYears = [nowY, nowY - 1];
+  }
+
+  // ---- First-report / discovery intent ----
+  // Trigger: "first reported/described/recorded", "who discovered",
+  // "discovered by". This is a provenance question, not a case report:
+  // the literal phrase is an intent marker, never a content term.
+  if (/\bfirst\s+(reported|described|recorded|identified|observed)\b/.test(src)
+    || /\bwho\s+(?:first\s+)?discovered\b/.test(src)
+    || /\bdiscover(?:ed|y)\s+by\b/.test(src)) {
+    if (intent.kind === "general") intent.kind = "first_report";
+    for (const w of FIRST_REPORT_MARKERS) intent.suppress.add(w);
+    intent.boostSeminal = true;
+  }
+
+  // ---- Definition intent ----
+  // "What is X?" . prefer reviews. The retrieval ladder already handles
+  // this adequately; this flag is the explicit scorer-side preference.
+  if (/^\s*what\s+(?:is|are|was|were)\b/.test(src)) {
+    intent.preferReviews = true;
+    if (intent.kind === "general") intent.kind = "definition";
+  }
+
+  return intent;
 }
 
 // ============ SCHOLARLY DATABASE SOURCES ============
@@ -5868,6 +5998,39 @@ export function reconcileDisagreementVerdict(detected, textMined) {
   const verdict = buildDisagreementVerdict(conflicts, (detected && detected.sourceCount) || 0);
   return { conflicts, verdict };
 }
+
+// SINGLE-SOURCE VERDICT ENFORCEMENT (2026-10-09): the verdict badge, the
+// Flashpoints panel, and the markdown "Where researchers disagree" section
+// must all read the same final conflict list. The section is generated
+// deterministically here from that list, so it can never contradict the
+// verdict again ("Contested" next to "No opposing findings surfaced").
+// If the answer has no disagreement section, nothing is added.
+// Exported so the enforcement itself is testable.
+export function enforceDisagreementSection(answer, conflicts, verdict) {
+  const text = String(answer || "");
+  const list = Array.isArray(conflicts) ? conflicts : [];
+  // From the section header to the next "## " header or end of text.
+  const re = /(^|\n)(##\s*Where researchers disagree[^\n]*\n)([\s\S]*?)(?=\n##\s|\n#\s|$)/i;
+  const m = text.match(re);
+  if (!m) return text;
+  let body;
+  if (list.length > 0) {
+    // Divided: name the disputing sources and the point of disagreement.
+    // Dusty's rule: a dispute label names both sides or it gets dropped.
+    const lines = list.slice(0, 3).map((c) => {
+      const a = String(c.claimA || "").replace(/\*\*/g, "").trim();
+      const b = String(c.claimB || "").replace(/\*\*/g, "").trim();
+      return "- [" + c.idxA + "] reports: " + a + "\n" +
+             "  [" + c.idxB + "] reports the opposite: " + b;
+    }).join("\n");
+    const summary = verdict && verdict.summary ? verdict.summary : "";
+    body = lines + (summary ? "\n\n" + summary : "") + "\n";
+  } else {
+    body = ((verdict && verdict.summary) ||
+      "No opposing findings surfaced across the sources. As cited, the literature reads as consistent on this question.") + "\n";
+  }
+  return text.slice(0, m.index) + m[1] + m[2] + "\n" + body + text.slice(m.index + m[0].length);
+}
 // ── SEMANTIC CONFLICT DETECTION (2026-10-07) ────────────────────────
 // Systematic disagreement detection, second pass. detectSourceConflicts
 // above uses keyword overlap (claimsShareTopic) to find papers on the
@@ -8415,6 +8578,90 @@ async function recallTopicMemory(topic, db) {
 // at the call site (timeoutMs: Math.max(3000, msLeft() - 6000)), which
 // always fires first. This constant is a backstop for direct callers of
 // gatherPapers, not a guarantee the pipeline can honor.
+// ============ QUERY ANCHORS (2026-10-08) ============
+// Dusty: "make the searches intelligent". The minimum-results guarantee
+// broadened "BSFL waste oil substrates" to "Hermetia illucens" alone and
+// returned mushroom-waste papers as if they answered a waste-oil question.
+// The discriminator ("waste oil") was dropped before the anchor (organism).
+// Anchors are the multi-word topic phrases that must survive broadening:
+// every broadened candidate query must contain at least one, and a result
+// set is adopted only if its papers actually contain an anchor.
+const FLUFF_WORDS = new Set([
+  ...STOPWORDS,
+  ...GENERIC_SCIENCE_WORDS,
+  ...INTENT_WORDS,
+  ...GENERIC_QUERY_WORDS,
+]);
+
+// Conservative singular stem used only for anchor matching: "substrates"
+// and "substrate" are the same constraint.
+function anchorStem(w) {
+  const lw = w.toLowerCase();
+  if (lw.length > 4 && lw.endsWith("ies")) return lw.slice(0, -3) + "y";
+  if (lw.length > 4 && lw.endsWith("es") && /(ches|shes|sses|xes|zes)$/.test(lw)) return lw.slice(0, -2);
+  if (lw.length > 3 && lw.endsWith("s") && !lw.endsWith("ss")) return lw.slice(0, -1);
+  return lw;
+}
+
+// extractAnchors("Studies involving BSFL waste oil substrates")
+//   -> ["waste oil substrates"]
+// Walks the original token order, drops organism words and fluff, and keeps
+// runs of 2+ consecutive surviving tokens as quoted-phrase anchors.
+export function extractAnchors(rawQuery) {
+  try {
+    const { orgPhrases } = splitOrganismTopic(String(rawQuery || ""));
+    const orgWordSet = new Set();
+    for (const p of (orgPhrases || [])) {
+      for (const w of String(p).toLowerCase().split(/\s+/)) orgWordSet.add(w);
+    }
+    const toks = String(rawQuery || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length > 1);
+    const anchors = [];
+    let run = [];
+    const flush = () => {
+      if (run.length >= 2) anchors.push(run.join(" "));
+      run = [];
+    };
+    for (const t of toks) {
+      // Pure numbers (years etc.) are recency signals, not topic constraints.
+      if (t.length <= 2 || /^\d+$/.test(t) || orgWordSet.has(t) || FLUFF_WORDS.has(t)) { flush(); continue; }
+      run.push(t);
+    }
+    flush();
+    // Dedupe; longest first so the most specific anchor is tried first.
+    return [...new Set(anchors)].sort((a, b) => b.length - a.length);
+  } catch {
+    return [];
+  }
+}
+
+// Does a paper's title+abstract satisfy an anchor? Every anchor word (stemmed)
+// must appear as a word in the haystack. Order-independent, so "oil waste
+// substrates" still matches "waste oil substrates".
+function anchorHit(anchor, haystack) {
+  const words = String(anchor || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  const hay = " " + String(haystack || "").toLowerCase().replace(/[^a-z0-9]+/g, " ") + " ";
+  return words.every((w) => {
+    const s = anchorStem(w);
+    return hay.includes(" " + w + " ") || hay.includes(" " + s + " ");
+  });
+}
+
+// Count papers in a list that satisfy at least one anchor.
+function countAnchorPapers(papers, anchors) {
+  if (!anchors || !anchors.length) return (papers || []).length;
+  let n = 0;
+  for (const p of (papers || [])) {
+    const hay = (p.title || "") + " " + (p.abstract || "");
+    if (anchors.some((a) => anchorHit(a, hay))) n++;
+  }
+  return n;
+}
+
 const GATHER_PAPERS_BUDGET_MS = 20000;
 async function gatherPapers(rawQuery, opts) {
   const _searchStart = Date.now();
@@ -8433,7 +8680,14 @@ async function gatherPapers(rawQuery, opts) {
   const ncbiKey = (opts && opts.ncbiKey) || "";
   const s2Key = (opts && opts.s2Key) || "";
   const limit = (opts && opts.limit) || 25;
-  _outerDiag.phase = "cleaned_query"; const query = cleanQuery(preprocessQuery(rawQuery)); _outerDiag.cleanedQuery = query.slice(0, 200);
+  // Query-intent detection (2026-10-08): classify the question BEFORE
+  // cleanQuery strips the intent markers ("won", "first reported"). The
+  // suppression set is passed to cleanQuery so intent markers never reach
+  // the database queries; the raw query still goes to synthesis verbatim.
+  const queryIntent = detectQueryIntent(rawQuery);
+  _outerDiag.phase = "cleaned_query"; const query = cleanQuery(preprocessQuery(rawQuery), queryIntent.suppress);
+  _outerDiag.cleanedQuery = query.slice(0, 200);
+  _outerDiag.queryIntent = { kind: queryIntent.kind, entities: queryIntent.entities, suppressed: [...queryIntent.suppress] };
   // A resolved person name from conversation history (pronoun follow-up like
   // "he has papers from UTK") takes priority over re-detecting from rawQuery.
   const resolvedPersonName = opts && opts.resolvedPersonName;
@@ -9217,6 +9471,10 @@ async function gatherPapers(rawQuery, opts) {
   // bias" rather than an error.
   const researchIntents = classifyResearchIntent(rawQuery);
 
+  // Query-intent year boost set (2026-10-08): award queries boost the
+  // announcement year(s) on top of the standard recency curve.
+  const intentRecentYears = new Set(queryIntent.recentYears || []);
+
   // Neutral (organism) words vs content (topic) words
   const neutralWords = new Set(terms.filter((t) => SYNONYMS[t]));
   for (const phrase of expansions) {
@@ -9296,9 +9554,34 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
+  // Query anchors (2026-10-08): multi-word topic constraints extracted once
+  // per request; the per-paper loop below reads them via closure.
+  const anchors = extractAnchors(rawQuery);
+  // Named entities (2026-10-08): capitalized multi-word sequences, quoted
+  // phrases, and known single-word entities from the raw query. Computed
+  // once; the scorer bonuses exact phrase matches in title/abstract.
+  const entityPhrases = (() => {
+    const out = [];
+    try {
+      const q = String(rawQuery || "");
+      for (const m of q.matchAll(/"([^"]{3,})"/g)) out.push(m[1].trim());
+      for (const m of q.matchAll(/\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+)\b/g)) out.push(m[1].trim());
+      // Single capitalized words (length >= 4), skipping the question's
+      // opening word ("Who won..." -> "Who" is not an entity).
+      const firstTok = q.trim().split(/\s+/)[0] || "";
+      for (const m of q.matchAll(/\b([A-Z][a-z]{3,})\b/g)) {
+        if (m[1] !== firstTok) out.push(m[1].trim());
+      }
+      // Known strong single-word entities.
+      for (const e of ["Nobel"]) {
+        if (new RegExp("\\b" + e + "\\b", "i").test(q)) out.push(e);
+      }
+    } catch { /* entity extraction is best-effort */ }
+    return [...new Set(out)];
+  })();
+
   const scoredMapped = merged
-    .map((p) => {
-      const title = p.title || "";
+    .map((p) => {      const title = p.title || "";
       const abstract = p.abstract || "";
       const hay = (title + " " + abstract).toLowerCase();
       const titleHay = title.toLowerCase();
@@ -9419,6 +9702,51 @@ async function gatherPapers(rawQuery, opts) {
         return Math.min(30, 10 * (best - 1));
       })();
       match += phraseBonus;
+      /* ══════════════════════════════════════════════════════════════
+         Commit 95 (2026-10-08): query anchors. The multi-word topic
+         phrases that discriminate the question ("waste oil substrates",
+         "nobel prize") get a decisive bonus when they appear verbatim in
+         the title, and a smaller one for abstract-only matches. This is
+         what lets a waste-oil paper outrank a mushroom-waste paper even
+         when both mention the organism. */
+      const anchorBonus = (() => {
+        if (!anchors.length || !title) return 0;
+        const norm = (s) => " " + String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+        const tHay = norm(title);
+        const fullHay = norm(title + " " + abstract);
+        let best = 0;
+        for (const a of anchors) {
+          const an = " " + a.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+          if (an.trim().length < 4) continue;
+          if (tHay.includes(an)) best = Math.max(best, 24);
+          else if (fullHay.includes(an)) best = Math.max(best, 10);
+        }
+        return best;
+      })();
+      match += anchorBonus;
+      /* ══════════════════════════════════════════════════════════════
+         Commit 95 (2026-10-08): named-entity weighting. Capitalized
+         multi-word sequences and quoted phrases in the raw query ("Nobel
+         Prize", "Soai reaction") identify the topic far more strongly
+         than any single lowercase token. Exact entity-phrase matches in
+         the title get a strong bonus; abstract-only matches a smaller one.
+         Generic capitalized words that open the question ("Who", "What",
+         "Which") are excluded via the first-token skip. */
+      const entityBonus = (() => {
+        if (!entityPhrases.length) return 0;
+        const norm = (s) => " " + String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+        const tHay = norm(title);
+        const fullHay = norm(title + " " + abstract);
+        let best = 0;
+        for (const e of entityPhrases) {
+          const en = " " + e.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+          if (en.trim().length < 3) continue;
+          if (tHay.includes(en)) best = Math.max(best, 14);
+          else if (fullHay.includes(en)) best = Math.max(best, 6);
+        }
+        return Math.min(28, best);
+      })();
+      match += entityBonus;
       // Peripheral terms are a small bonus, never a requirement
       match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
       if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 12;
@@ -9456,6 +9784,39 @@ async function gatherPapers(rawQuery, opts) {
         else if (age <= 5) quality += 7;
         else if (age <= 10) quality += 4;
         else if (age <= 20) quality += 1;
+      }
+
+      /* ══════════════════════════════════════════════════════════════
+         Query-intent signals (2026-10-08, detectQueryIntent above).
+
+         - award: the question is about a named prize/award. Only papers
+           that mention the award entity ("nobel", "laureate", ...) can
+           answer it . reward them decisively. Also boost the
+           announcement year(s), since award queries are almost always
+           about recent announcements. Absence of the entity is handled
+           by the post-rerank coherence gate, not by a penalty here.
+         - first_report: "which paper first reported X". Two signals:
+           (a) the literal-phrase trap . titles like "First reported case
+           of X in a horse" matched on "first"+"report" alone and
+           outranked real seminal papers. Demote hard unless 2+ core
+           topic terms sit in the title (a genuinely on-topic case
+           report keeps its score).
+           (b) seminality: the founding paper is usually the most-cited
+           paper WITHIN its topic, so add a citation bonus beyond the
+           standard curve for this intent only.
+         - definition ("what is X"): prefer reviews, whose titles say so. */
+      if (queryIntent.kind === "award") {
+        if (queryIntent.require.length && queryIntent.require.some((t) => hay.indexOf(t) !== -1)) match += 15;
+        if (intentRecentYears.has(yr)) quality += 8;
+      } else if (queryIntent.kind === "first_report") {
+        if (/\bfirst\s+(reported|described|recorded)\s+case\b|\bcase\s+report\b|\bfirst\s+case\s+of\b/i.test(title) && coreTitleHits < 2) {
+          match -= 25;
+        }
+        if (typeof p.citations === "number" && p.citations > 0) {
+          quality += Math.min(8, Math.log10(1 + p.citations) * 2.5);
+        }
+      } else if (queryIntent.preferReviews) {
+        if (/\breview\b|\bmeta[-\s]?analysis\b/i.test(title)) quality += 6;
       }
 
       // ---- Domain-knowledge signals (functions/lib/knowledge.js) ----
@@ -9765,6 +10126,32 @@ async function gatherPapers(rawQuery, opts) {
   } else if (isNameQuery) {
     diag.semanticRerank = { applied: false, reason: "name_query" };
   }
+
+  // ---- QUERY INTENT: coherence gate (2026-10-08) ----
+  // For intents with hard entity requirements (award), verify the top
+  // results actually mention the entity. If zero of the top-10 papers
+  // mention it, the result set answers a different question than asked .
+  // this is exactly what produced "Who won the 2026 Nobel Prize in
+  // Chemistry" answering with water polo championships. Flagged in _diag
+  // so the endpoint can respond honestly instead of synthesizing a
+  // confident wrong answer. Never throws, never blocks retrieval.
+  diag.queryIntent = (() => {
+    const summary = {
+      kind: queryIntent.kind,
+      entities: queryIntent.entities,
+      suppressed: [...queryIntent.suppress],
+      coherent: true,
+    };
+    if (queryIntent.kind !== "general" && queryIntent.require.length && rerankedFinal.length) {
+      const topHay = rerankedFinal.slice(0, 10)
+        .map((p) => ((p.title || "") + " " + (p.abstract || "")).toLowerCase())
+        .join(" ");
+      const found = queryIntent.require.some((t) => topHay.indexOf(t) !== -1);
+      summary.coherent = found;
+      if (!found) summary.missing = queryIntent.require.slice(0, 4);
+    }
+    return summary;
+  })();
 
   diag.funnel = funnel;
   return { papers: rerankedFinal, _diag: diag };
@@ -11512,39 +11899,81 @@ async function runSearchPipeline(pctx) {
           const _baseQ = String(searchQuery || query || "");
           const _candidates = [];
           const _seenQ = new Set();
-          const _pushCand = (name, q) => {
+          const _pushCand = (name, q, constraintsDropped) => {
             const _qq = String(q || "").trim().replace(/\s+/g, " ");
             if (_qq.length >= 2 && !_seenQ.has(_qq.toLowerCase())) {
               _seenQ.add(_qq.toLowerCase());
-              _candidates.push({ name, q: _qq });
+              _candidates.push({ name, q: _qq, constraintsDropped: constraintsDropped || [] });
             }
           };
+          // QUERY ANCHORS (2026-10-08): the multi-word topic phrases that
+          // discriminate the question. Broadening must preserve them —
+          // dropping "waste oil" and keeping only "Hermetia illucens"
+          // returned mushroom papers for a waste-oil question. The ladder
+          // below tries anchor-preserving candidates first; the bare
+          // organism is the last resort and is logged as dropping the
+          // constraint.
+          const _anchors = extractAnchors(_baseQ);
+          _mrg.anchors = _anchors;
+          let _sciOrg = "";
+          try {
+            const _split = splitOrganismTopic(_baseQ);
+            if (_split && _split.hasOrganism && (_split.orgPhrases || []).length > 0) {
+              // Prefer the scientific (two-word latin) phrase when present.
+              _sciOrg = (_split.orgPhrases || []).find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2)
+                || _split.orgPhrases[0];
+            }
+          } catch (cbErr) { console.error("[Cerebrum] search.js mrg organism:", cbErr); }
+          if (_anchors.length > 0) {
+            const _anchorQ = _anchors.map((a) => '"' + a + '"').join(" ");
+            // Strategy A: anchor phrase + organism (most specific that can work).
+            if (_sciOrg) _pushCand("anchor_plus_organism", _anchorQ + " " + _sciOrg, []);
+            // Strategy B: anchor phrase + organism synonyms (wider organism net).
+            try {
+              const _toks = _baseQ.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+              const _exp = expansionsFor(_toks);
+              if (_exp && _exp.length > 0) {
+                const _orgSyns = [...new Set([_sciOrg, ..._exp.slice(0, 3)].filter(Boolean))];
+                if (_orgSyns.length > 1 || (_orgSyns.length === 1 && _orgSyns[0] !== _sciOrg)) {
+                  _pushCand("anchor_plus_synonyms",
+                    _anchorQ + " (" + _orgSyns.join(" OR ") + ")", []);
+                }
+              }
+            } catch (cbErr) { console.error("[Cerebrum] search.js mrg anchor synonyms:", cbErr); }
+            // Strategy C: anchor phrase alone (sometimes the organism term
+            // is the noisy part — a BSFL paper that never uses the latin name).
+            _pushCand("anchor_only", _anchorQ, _sciOrg ? ["organism"] : []);
+          }
           // Strategy 1: bare significant terms, no boolean operators.
           const _sq = _baseQ.toLowerCase()
             .replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)
             .filter((t) => t.length > 2);
-          if (_sq.length >= 2) _pushCand("bare_terms", _sq.slice(0, 4).join(" "));
+          if (_sq.length >= 2) _pushCand("bare_terms", _sq.slice(0, 4).join(" "),
+            _anchors.filter((a) => !_sq.slice(0, 4).join(" ").toLowerCase().includes(a.split(" ")[0])));
           // Strategy 2: synonym-expanded keywords (e.g. BSFL -> the
           // scientific name plus topic words as plain keywords).
           try {
             const _toks = _baseQ.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
             const _exp = expansionsFor(_toks);
             if (_exp && _exp.length > 0) {
-              _pushCand("synonym_expanded",
-                [...new Set([..._toks.slice(0, 3), ..._exp.slice(0, 3)])].join(" "));
+              const _q2 = [...new Set([..._toks.slice(0, 3), ..._exp.slice(0, 3)])].join(" ");
+              _pushCand("synonym_expanded", _q2,
+                _anchors.filter((a) => !_q2.toLowerCase().includes(a.split(" ")[0])));
             }
           } catch (cbErr) { console.error("[Cerebrum] search.js mrg synonym:", cbErr); }
-          // Strategy 3: organism alone (broadest possible net). For
-          // "BSFL gut microbiome" this becomes "Hermetia illucens", which
-          // matches hundreds of indexed papers on its own.
-          try {
-            const _split = splitOrganismTopic(_baseQ);
-            if (_split && _split.hasOrganism && (_split.orgPhrases || []).length > 0) {
-              // Prefer the scientific (two-word latin) phrase when present.
-              const _sci = (_split.orgPhrases || []).find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2);
-              _pushCand("organism_only", _sci || _split.orgPhrases[0]);
-            }
-          } catch (cbErr) { console.error("[Cerebrum] search.js mrg organism:", cbErr); }
+          // Strategy 3: organism alone (broadest possible net, LAST resort).
+          // For "BSFL gut microbiome" this becomes "Hermetia illucens", which
+          // matches hundreds of indexed papers on its own — but drops every
+          // topic constraint, so it can only win when nothing anchor-aware
+          // worked, and the dropped anchors are recorded honestly.
+          if (_sciOrg) {
+            _pushCand("organism_only", _sciOrg, _anchors.slice());
+          }
+          // Anchor coverage of the first pass: how many real papers actually
+          // satisfied an anchor. Adoption requires beating BOTH the paper
+          // count and the anchor coverage — ten off-topic papers must never
+          // displace two on-topic ones.
+          const _anchorPapers0 = countAnchorPapers(_realPapers0, _anchors);
           // Run candidates in order; adopt the first strictly-better result.
           for (const _cand of _candidates.slice(0, 3)) {
             let _res = null;
@@ -11557,19 +11986,27 @@ async function runSearchPipeline(pctx) {
               });
             } catch (cbErr) { _res = { papers: [] }; }
             const _rp = (_res.papers || []).filter((p) => !isEncyclopediaSource(p));
+            const _anchorPapers = countAnchorPapers(_rp, _anchors);
             const _attempt = {
               strategy: _cand.name,
               query: _cand.q.slice(0, 120),
               papers: (_res.papers || []).length,
               realPapers: _rp.length,
+              anchorPapers: _anchorPapers,
+              constraintsDropped: _cand.constraintsDropped,
             };
             _mrg.strategies.push(_attempt);
-            // Strictly better = more real papers than the first pass.
-            // (Equal counts don't justify swapping result sets.)
-            if (_rp.length > _realPapers0.length) {
+            // Strictly better = more real papers than the first pass AND no
+            // worse on anchor coverage. (Equal counts don't justify swapping
+            // result sets; lower anchor coverage never justifies it.)
+            const _moreReal = _rp.length > _realPapers0.length;
+            const _anchorOk = _anchors.length === 0 || _anchorPapers > _anchorPapers0
+              || (_anchorPapers0 === 0 && _anchorPapers >= 1 && _rp.length > 0);
+            if (_moreReal && _anchorOk) {
               gResult = _res;
               _attempt.adopted = true;
               _mrg.adoptedStrategy = _cand.name;
+              _mrg.adoptedConstraintsDropped = _cand.constraintsDropped;
               if (gResult._diag) gResult._diag.minResultsGuarantee = _mrg;
               break;
             }
@@ -14397,6 +14834,13 @@ async function runSearchPipeline(pctx) {
         ).run().catch((e) => console.error("[Cerebrum] llm_training_data insert failed:", e && e.message));
       }
     } catch (cbErr) { console.error("[Cerebrum] learning loop threw:", cbErr); }
+
+    // SINGLE-SOURCE VERDICT (2026-10-09): rewrite the markdown disagreement
+    // section from the FINAL conflict list the badge and Flashpoints panel
+    // already read. Runs last, after every prose pass, so the section can
+    // never again say "No opposing findings" next to a "Contested" badge.
+    // Deterministic prose from identifiers, never generated.
+    answer = enforceDisagreementSection(answer, literatureConflicts, disagreementVerdict);
 
     return new Response(
       JSON.stringify({
