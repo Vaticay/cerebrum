@@ -846,7 +846,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             <Mark size={19} accent={introAccent} glow />
             <span style={{
               fontFamily: serif, fontSize: 13, fontWeight: 600,
-              letterSpacing: "0.34em", textIndent: "0.06em", color: "#ffffff",
+              letterSpacing: "0.1em", color: "#ffffff",
             }}>CEREBRUM</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
@@ -916,15 +916,15 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                   width: isMobile ? "100%" : undefined,
                   margin: isMobile ? "0 auto" : undefined,
                   padding: isMobile ? "26px 24px 24px" : isHero ? "40px 44px 36px" : "30px 30px 28px",
-                  background: "#0c0e0b",
+                  background: k === 0 ? "#0c0e0b" : k === 1 ? "#0d0e0b" : "#0b0d0c",
                   border: "1px solid " + hairline,
                   borderRadius: 2,
-                  opacity: isFlank ? 0.55 : 1,
+                  opacity: isMobile ? 1 : isFlank ? (k === 0 ? 0.58 : 0.5) : 1,
                   transform: isMobile
-                    ? "translateX(" + (k * 12) + "px)"
+                    ? "translateX(" + (k * 12) + "px) rotate(" + (k === 1 ? -0.4 : k === 2 ? 0.5 : 0) + "deg)"
                     : isFlank
-                      ? "scale(0.82) translateY(" + (k === 0 ? -24 : 24) + "px)"
-                      : "none",
+                      ? "scale(" + (k === 0 ? 0.82 : 0.79) + ") translateY(" + (k === 0 ? -18 : 31) + "px) rotate(" + (k === 0 ? -0.7 : 0.5) + "deg)"
+                      : "rotate(-0.2deg)",
                   transition: "opacity 500ms ease, transform 500ms ease",
                 }}
               >
@@ -935,9 +935,9 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                     : isHero
                       ? "clamp(24px, 2.8vw, 33px)"
                       : "clamp(17px, 1.8vw, 21px)",
-                  fontWeight: 560, letterSpacing: "-0.01em", lineHeight: 1.32,
+                  fontWeight: 500, letterSpacing: "-0.01em", lineHeight: 1.32,
                   color: "#ffffff", margin: 0, maxWidth: "28ch",
-                  textAlign: "left", textWrap: "balance",
+                  textAlign: "left",
                 }}>
                   &ldquo;{spec.claim}&rdquo;
                 </p>
@@ -945,13 +945,10 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                   marginTop: isHero ? 22 : 16, display: "flex", alignItems: "center",
                   justifyContent: "flex-start", gap: 10,
                 }}>
-                  <span style={{ color: introAccent, display: "inline-flex", lineHeight: 0 }}>
-                    <Icon name="verdictSupported" size={isHero ? 17 : 14} />
-                  </span>
                   <span style={{
-                    fontFamily: serif, fontSize: 11, fontWeight: 600,
+                    fontFamily: serif, fontSize: 11, fontWeight: 500,
                     letterSpacing: "normal",
-                    textTransform: "none", color: introAccent,
+                    textTransform: "none", color: "rgba(238,241,238,0.45)",
                   }}>
                     Traced to a direct finding
                   </span>
@@ -981,24 +978,20 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             <button type="button" aria-label="Previous three claims"
               onClick={() => setSpecimenIdx((i) => (i - setSize + specimenCount) % specimenCount)}
               style={{
-                minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
-                fontFamily: serif, fontSize: 14, fontWeight: 600,
-                color: "rgba(238,241,238,0.6)",
-                background: "transparent",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 2,
+                padding: "12px 14px", cursor: "pointer",
+                fontFamily: serif, fontSize: 17,
+                color: "rgba(238,241,238,0.4)",
+                background: "none", border: "none",
               }}>
               &#8592;
             </button>
             <button type="button" aria-label="Next three claims"
               onClick={() => setSpecimenIdx((i) => (i + setSize) % specimenCount)}
               style={{
-                minWidth: 44, minHeight: 44, padding: "0 14px", cursor: "pointer",
-                fontFamily: serif, fontSize: 14, fontWeight: 600,
-                color: "rgba(238,241,238,0.6)",
-                background: "transparent",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 2,
+                padding: "12px 14px", cursor: "pointer",
+                fontFamily: serif, fontSize: 17,
+                color: "rgba(238,241,238,0.4)",
+                background: "none", border: "none",
               }}>
               &#8594;
             </button>
