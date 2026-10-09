@@ -1330,6 +1330,13 @@ const CONCEPT_GROUPS = [
   ["insect", "insects", "larva", "larvae", "larval", "worm", "worms", "caterpillar",
    "grub", "mealworm", "waxworm", "galleria", "tenebrio", "hermetia", "zophobas",
    "beetle", "moth", "fly", "arthropod", "arthropods", "entomological"],
+  // 2026-10-09: BSFL concept group. The query term "bsfl" was not matching
+  // papers that only wrote "Hermetia illucens" or "black soldier fly" because
+  // SYNONYMS (used for query expansion) was not connected to CONCEPT_LOOKUP
+  // (used by the scoring matcher). This group makes has("bsfl") match all
+  // common name variants, so BSFL papers score correctly.
+  ["bsfl", "bsf", "black soldier fly", "black soldier fly larvae",
+   "black soldier fly larva", "hermetia", "hermetia illucens"],
   ["microbe", "microbes", "microbial", "microbiome", "microbiota", "bacteria",
    "bacterial", "bacterium", "gut flora", "microflora", "symbiont", "symbionts",
    "microorganism", "microorganisms"],
