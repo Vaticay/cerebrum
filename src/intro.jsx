@@ -905,8 +905,8 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
-            <span style={readout}>SPEC {String(specimenIdx + 1).padStart(2, "0")}/{String(specimenCount).padStart(2, "0")}</span>
-            {!isMobile && <span style={readout}>15 SOURCES</span>}
+            
+            
             <span style={{
               ...readout,
               fontFamily: serif,

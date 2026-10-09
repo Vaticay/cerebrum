@@ -5429,7 +5429,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
   // simply states the fact).
   if (!sources || sources.length === 0) {
     const empty = (
-      <AnswerStateCard kicker="NO SOURCES CITED" title="This answer cites no papers."
+      <AnswerStateCard kicker="No sources cited" title="This answer cites no papers."
         body="The databases returned nothing to cite for this query."
         actions={onRetry ? [{ label: "Retry search", primary: true, onClick: onRetry }] : []}
         P={P} accent={accent}>
@@ -7359,7 +7359,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
              with nothing, the honest empty state. */
           <ReadHead label="Reading video index" P={P} accent={accent} />
         ) : (
-          <AnswerStateCard kicker="NO EXPLAINERS FOUND" title="No video explainers surfaced."
+          <AnswerStateCard kicker="No explainers found" title="No video explainers surfaced."
             body="The video index returned nothing for this query."
             actions={onRetry ? [{ label: "Retry search", primary: true, onClick: onRetry }] : []}
             P={P} accent={accent} />
@@ -8322,7 +8322,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                real retry — never a bare error string, never invented data.
                NEXT-GEN: the panel offers retry, rephrasing, and watching
                the topic — not just "try again". */
-            <AnswerStateCard kicker="CONNECTION FAILED" tone="bad"
+            <AnswerStateCard kicker="Connection failed" tone="bad"
               title="The databases couldn't be reached."
               body="Every source we queried for this answer failed to respond. Nothing was retrieved, so there's nothing to synthesize yet."
               actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
@@ -8332,7 +8332,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           ) : synthFailed && sources.length === 0 ? (
             /* Synthesis failed and the fallback carried no papers either:
                there is no answer text to show at all. */
-            <AnswerStateCard kicker="NO SYNTHESIS AVAILABLE" tone="warn"
+            <AnswerStateCard kicker="No synthesis available" tone="warn"
               title="Synthesis isn't available right now."
               body="Every model is at capacity and no extractive fallback was possible, so there's no answer text to show."
               actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
@@ -8462,7 +8462,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           ) : (
             <AnswerSection eyebrow="Fact-check" P={P} accent={accent}>
               <AnswerStateCard
-                kicker={t.factCheck && t.factCheck.error ? "CHECK FAILED" : "NOTHING TO VERIFY"}
+                kicker={t.factCheck && t.factCheck.error ? "Check failed" : "Nothing to verify"}
                 tone={t.factCheck && t.factCheck.error ? "bad" : "neutral"}
                 title={t.factCheck && t.factCheck.error
                   ? "The verification pass didn't complete."
@@ -9613,7 +9613,7 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
   if (!sources.length) {
     return (
       <AnswerSection quiet eyebrow="Compare" title="The receipts, in one place" P={P} accent={accent}>
-        <AnswerStateCard kicker="NOTHING TO COMPARE" title="No studies to compare."
+        <AnswerStateCard kicker="Nothing to compare" title="No studies to compare."
           body="The comparison tools need cited studies to work with. This answer cites none."
           P={P} accent={accent} />
       </AnswerSection>
