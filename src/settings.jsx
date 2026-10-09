@@ -553,7 +553,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   };
   const statusPill = (text, color) => (
     <span style={{
-      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
+      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
       padding: "4px 12px", borderRadius: 2, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
@@ -928,7 +928,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const ghostBtn = { ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 };
   const statusPill = (text, color) => (
     <span style={{
-      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
+      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
       padding: "4px 12px", borderRadius: 2, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
@@ -2141,7 +2141,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     <div style={{ marginBottom: 28 }}>
       {/* Section headers are small caps captions — they name the table
           that follows rather than competing with it. */}
-      {title && <div style={{ fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 700, color: P.faint, marginBottom: SP.sm, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow, fontFamily: "var(--cb-font)" }}>{title}</div>}
+      {title && <div style={{ fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 700, color: P.faint, marginBottom: SP.sm, textTransform: "none", letterSpacing: "normal", fontFamily: "var(--cb-font)" }}>{title}</div>}
       <div>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
@@ -2252,7 +2252,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     const faint = pvHighContrast ? (P.dark ? "#c9c9c9" : "#333333") : P.faint;
     return (
       <div aria-live="polite" style={{ marginTop: 12, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, padding: 16, background: P.surface }}>
-        <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: faint, fontWeight: 600, marginBottom: 8, fontFamily: "var(--cb-font)" }}>
+        <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "none", color: faint, fontWeight: 600, marginBottom: 8, fontFamily: "var(--cb-font)" }}>
           Preview{pk ? ` · ${READING_PROFILES[pk].label}` : " · current settings"}
         </div>
         <div style={{ fontSize: 12, color: faint, marginBottom: 6, fontFamily: pvDyslexic ? "OpenDyslexic, var(--cb-font)" : "var(--cb-font)" }}>{PROFILE_PREVIEW.kicker}</div>
@@ -2460,7 +2460,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     desc={founderStatus.configured ? `Set to ${founderStatus.configuredValue}` : "Not set on the server"}
                     control={
                       <span style={{
-                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
+                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                         padding: "4px 12px", borderRadius: 2,
                         color: founderStatus.configured ? (P.dark ? STATUS.good : "#047857") : statusBad(P, paletteName),
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
@@ -2473,7 +2473,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     desc={founderStatus.matchedUser ? `Resolves to @${founderStatus.matchedUser}` : "No account matches that address"}
                     control={
                       <span style={{
-                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
+                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                         padding: "4px 12px", borderRadius: 2,
                         color: founderStatus.youAreFounder ? (P.dark ? STATUS.good : "#047857") : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
@@ -2545,7 +2545,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                         <Icon name={prof.icon} size={18} style={{ color: isActive ? accent : P.ink2, flexShrink: 0 }} />
                         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink }}>{prof.label}</span>
                         {isActive && (
-                          <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: accent }}>Active</span>
+                          <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "none", color: accent }}>Active</span>
                         )}
                       </span>
                       <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.45 }}>{prof.desc}</span>
@@ -2676,7 +2676,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     </button>
                   ) : (
                     <span style={{
-                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label,
+                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                       padding: "4px 12px", borderRadius: 2,
                       color: notifPerm === "granted" ? (P.dark ? STATUS.good : "#047857") : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
@@ -2713,7 +2713,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       </span>
                     )
                   ) : (
-                    <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, padding: "4px 12px", borderRadius: 2, color: P.faint, background: withAlpha(P.faint, 0.12) }}>
+                    <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal", padding: "4px 12px", borderRadius: 2, color: P.faint, background: withAlpha(P.faint, 0.12) }}>
                       {pushState === "unsupported" ? "Unavailable" : "…"}
                     </span>
                   )

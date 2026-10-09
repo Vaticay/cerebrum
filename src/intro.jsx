@@ -973,7 +973,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             }}>
               <span style={{
                 fontFamily: serif, fontSize: 11, letterSpacing: "0.32em",
-                fontWeight: 600, textTransform: "uppercase", color: faint,
+                fontWeight: 600, textTransform: "none", color: faint,
               }}>
                 Verified claim
               </span>
@@ -1008,7 +1008,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 <span style={{
                   fontFamily: serif, fontSize: 11, fontWeight: 600,
                   letterSpacing: "0.22em",
-                  textTransform: "uppercase", color: introAccent,
+                  textTransform: "none", color: introAccent,
                 }}>
                   Traced to a direct finding
                 </span>
@@ -1072,14 +1072,14 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             padding: isMobile ? "15px 34px" : "16px 52px",
             fontSize: 12.5, fontWeight: 600, fontFamily: "var(--cb-font)",
             letterSpacing: "0.24em", textIndent: "0.24em",
-            textTransform: "uppercase", whiteSpace: "nowrap",
+            textTransform: "none", whiteSpace: "nowrap",
           }}>Start researching</button>
           <div style={{ marginTop: 20 }}>
             <button type="button" onClick={() => setHowOpen(true)} style={{
               background: "none", border: "none", cursor: "pointer",
               fontFamily: serif, fontSize: 12, letterSpacing: "0.16em",
               color: faint, textDecoration: "underline", textUnderlineOffset: 5,
-              textTransform: "uppercase", padding: "10px 8px",
+              textTransform: "none", padding: "10px 8px",
             }}>How it works</button>
           </div>
         </div>
@@ -1157,7 +1157,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           {["About", "Privacy", "Terms", "Disclosures", "Contact"].map((item) => (
             <a key={item} href={"/" + item.toLowerCase()} style={{
               color: "rgba(238,241,238,0.42)", textDecoration: "none", padding: "10px 0",
-              textTransform: "uppercase",
+              textTransform: "none",
             }}>{item}</a>
           ))}
           <span>© {new Date().getFullYear()} CEREBRUM · {APP_VERSION_LABEL}</span>

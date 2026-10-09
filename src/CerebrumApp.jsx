@@ -4392,8 +4392,8 @@ function VerdictReadout({ t, P }) {
     sub = "Most claims trace. The flagged ones deserve a closer look.";
   }
   const readout = total > 0
-    ? `${total} CLAIMS CHECKED · ${nSup} TRACED${nThin > 0 ? ` · ${nThin} THIN` : ""}${nUns > 0 ? ` · ${nUns} UNSUPPORTED` : ""}${divided ? " · LITERATURE DIVIDED" : ""}`
-    : (divided ? "LITERATURE DIVIDED" : tier === "background" ? "REFERENCE OVERVIEWS · NO PRIMARY RESEARCH" : tier === "limited" ? "THIN EVIDENCE BASE" : "NO VERIFICATION PASS");
+    ? `${total} CLAIMS CHECKED · ${nSup} TRACED${nThin > 0 ? ` · ${nThin} THIN` : ""}${nUns > 0 ? ` · ${nUns} UNSUPPORTED` : ""}${divided ? " · Literature divided" : ""}`
+    : (divided ? "Literature divided" : tier === "background" ? "Reference overviews, no primary research" : tier === "limited" ? "Thin evidence base" : "No verification pass");
   return (
     <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: P.ink2 }}>
@@ -6882,7 +6882,7 @@ function OpenQuestions({ cards, P, accent }) {
                   {c.whyOpen}
                 </div>
                 <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-                  <span style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.label, display: "block", marginBottom: 2 }}>WHAT WOULD CLOSE IT</span>
+                  <span style={{ color: P.faint, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.label, display: "block", marginBottom: 2 }}>What would close it</span>
                   {c.whatWouldCloseIt}
                 </div>
               </div>
@@ -7683,7 +7683,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
             />
           ) : (
             <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
-              <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, color: P.faint }}>UNPLAYABLE</div>
+              <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrowWide, color: P.faint }}>Unplayable</div>
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>This video's identifier couldn't be read, so it can't be embedded here.</div>
             </div>
           )}
@@ -8346,7 +8346,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                stripped so it doesn't compete — the paper blocks themselves
                are preserved untouched. */
             <>
-              <AnswerStateCard kicker="SYNTHESIS UNAVAILABLE" tone="warn"
+              <AnswerStateCard kicker="Synthesis unavailable" tone="warn"
                 title="Every model is at capacity, so this isn't a written synthesis."
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
@@ -8497,10 +8497,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   is instead of defaulting to "no clear divide". */}
               {(() => {
                 const v = t.disagreementVerdict;
-                const kicker = !v ? "NO CLEAR DIVIDE"
+                const kicker = !v ? "No clear divide"
                   : v.status === "divided" ? "DIVIDED"
                   : v.status === "settled" ? "CONSISTENT"
-                  : "THIN EVIDENCE";
+                  : "Thin evidence";
                 const body = (v && v.summary) || "The cited claims don't split into two camps. The literature, as cited, reads as settled or too thin to divide.";
                 return (
                   <AnswerStateCard kicker={kicker}
@@ -21417,7 +21417,7 @@ function App() {
                           <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TYPE</span>
                           <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>SOURCE / JOURNAL</span>
                           <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>SAVED</span>
-                          <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>USED IN</span>
+                          <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>Used in</span>
                           <span style={{ width: 76, flexShrink: 0 }} />
                         </div>
                       )}

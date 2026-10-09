@@ -1141,7 +1141,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       <FcNodeShape n={n} P={P} accent={accent} selected={sel} pending={pend} />
                       {kicker && (
                         <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={10.5} fill={accent}
-                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: TRACKING.eyebrowWide }}>
+                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "normal" }}>
                           {kicker}
                         </text>
                       )}
@@ -1202,7 +1202,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               ))}
               <UIButton P={P} variant="ghost" type="button" title="Reset view" aria-label="Reset view"
                 onClick={() => setViewport({ x: 40, y: 40, zoom: 1 })}
-                style={{ minWidth: 44, minHeight: 44, height: 30, padding: "0 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}
+                style={{ minWidth: 44, minHeight: 44, height: 30, padding: "0 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "normal" }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
                 {Math.round(viewport.zoom * 100)}%
@@ -1220,7 +1220,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div className="cb-kicker">Inspector</div>
               {(selNode || selEdge) && (
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 2, padding: "3px 12px", textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 2, padding: "3px 12px", textTransform: "none", letterSpacing: "normal" }}>
                   {selNode ? FC_NODE_TYPES[selNode.type].name : "Arrow"}
                 </div>
               )}
@@ -1239,7 +1239,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             )}
             {selNode && (
               <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Label</label>
+                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label</label>
                 <textarea id="fc-label-edit" value={selNode.label} rows={3}
                   onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
                   onBlur={pushHistory}
@@ -1253,7 +1253,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     never destroys information — it's one click away. */}
                 {selNode.detail && (
                   <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Source sentence</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Source sentence</div>
                     <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 12px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8 }}>
                       {selNode.detail}
                     </div>
@@ -1261,7 +1261,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 )}
                 {selNode.type === "evidence" && sources && sources.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Cites paper</label>
+                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Cites paper</label>
                     <select id="fc-source-pick" value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
                       onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
                       style={{
@@ -1299,7 +1299,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             )}
             {selEdge && (
               <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "uppercase", letterSpacing: TRACKING.eyebrow }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
+                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
                 <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
@@ -1892,7 +1892,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   };
 
   const paneLabel = {
-    fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase",
+    fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none",
     color: P.faint, fontFamily: "var(--cb-font)", padding: "12px 16px",
     borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
   };
@@ -2136,7 +2136,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             <div style={paneLabel}>
               <span>Source</span>
               <button onClick={copyCode} title="Copy diagram source"
-                style={{ minHeight: 44, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, textTransform: "uppercase", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                style={{ minHeight: 44, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
                 {copied ? "Copied ✓" : "Copy"}
               </button>
               <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: TRACKING.tight, textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span>
@@ -2306,7 +2306,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
         {eyebrow && (
           <div style={{
             fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700,
-            letterSpacing: TRACKING.eyebrowWide, textTransform: "uppercase",
+            letterSpacing: "normal", textTransform: "none",
             color: withAlpha(accent, 0.9), marginBottom: 5,
           }}>{eyebrow}</div>
         )}

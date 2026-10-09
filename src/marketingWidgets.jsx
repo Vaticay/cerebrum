@@ -100,7 +100,7 @@ export function LiveDemo({ P, accent, isMobile }) {
       borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface,
     }}>
       <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
-        SEE WHAT AN ANSWER LOOKS LIKE
+        See what an answer looks like
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
         {DEMO_QUESTIONS.map((d, i) => (
