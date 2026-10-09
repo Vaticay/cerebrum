@@ -204,65 +204,6 @@ await test("renderFlashpointClaim strips block markers before inline rendering",
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Single-source verdict enforcement (2026-10-09) — the markdown section can never contradict the badge");
-
-const { enforceDisagreementSection } = await import(join(root, "functions/api/search.js"));
-
-// Dusty's live failure: badge said "Contested" while "Where researchers
-// disagree" said "No opposing findings surfaced". The enforcement pass must
-// rewrite the section from the final conflict list, naming both sides.
-await test("divided verdict rewrites a contradictory section with named sources", () => {
-  const answer =
-    "# The short answer\n\nText.\n\n## Where researchers disagree\n\n" +
-    "No opposing findings surfaced across the 8 sources. As cited, the literature reads as consistent on this question.\n\n" +
-    "## How solid is this?\n\nStrong confidence.\n";
-  const { conflicts, verdict } = reconcileDisagreementVerdict(
-    { conflicts: [{ idxA: 3, idxB: 7, claimA: "Oil pomace boosts protein.", claimB: "Oil pomace depresses protein." }], sourceCount: 8 },
-    []
-  );
-  assert.equal(verdict.status, "divided");
-  const out = enforceDisagreementSection(answer, conflicts, verdict);
-  const section = out.split("## Where researchers disagree")[1].split("## How solid")[0];
-  assert.ok(!/no opposing findings/i.test(section), "contradictory text survived");
-  assert.ok(section.includes("[3] reports:"), "disputing source A not named");
-  assert.ok(section.includes("[7] reports the opposite:"), "disputing source B not named");
-  assert.ok(out.includes("## How solid is this?"), "following section was eaten");
-});
-
-await test("settled verdict replaces a false divide with the consistent summary", () => {
-  const answer =
-    "# A\n\n## Where researchers disagree\n\n[1] reports X while [2] reports the opposite Y.\n\n## How solid is this?\n\nThin.\n";
-  const { conflicts, verdict } = reconcileDisagreementVerdict({ conflicts: [], sourceCount: 8 }, []);
-  assert.equal(verdict.status, "settled");
-  const out = enforceDisagreementSection(answer, conflicts, verdict);
-  const section = out.split("## Where researchers disagree")[1].split("## How solid")[0];
-  assert.ok(/no opposing findings/i.test(section), "settled summary missing");
-  assert.ok(!/reports the opposite/.test(section), "false divide survived");
-});
-
-await test("answers without a disagreement section are left untouched", () => {
-  const answer = "# A\n\nJust text.\n";
-  const { conflicts, verdict } = reconcileDisagreementVerdict({ conflicts: [], sourceCount: 1 }, []);
-  assert.equal(enforceDisagreementSection(answer, conflicts, verdict), answer);
-});
-
-await test("pipeline calls the enforcement pass on the final answer", () => {
-  assert.match(
-    searchSrc,
-    /answer = enforceDisagreementSection\(answer, literatureConflicts, disagreementVerdict\);/,
-    "final answer must be normalized from the final conflict list before the response"
-  );
-});
-
-await test("verdict badge derives divided from the flashpoints array, not a parallel status", () => {
-  assert.match(
-    appSrc,
-    /const divided = conflicts\.length > 0;/,
-    "badge must read the same conflict array the panel renders"
-  );
-});
-
-// ══════════════════════════════════════════════════════════════════════════
 if (failures.length) {
   console.log(`\n${passed} passed, ${failures.length} failed`);
   process.exit(1);

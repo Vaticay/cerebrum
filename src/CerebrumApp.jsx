@@ -4348,17 +4348,14 @@ function FactCheck({ fc, P, accent }) {
    gradient: rules and type do the work. */
 function VerdictReadout({ t, P }) {
   const claims = (t.factCheck && t.factCheck.claims) || [];
-  // SINGLE-SOURCE (2026-10-09): the divided signal reads the same conflict
-  // array the Flashpoints panel renders, not a parallel status field. The
-  // badge and the panel can never disagree about whether a divide exists.
-  const conflicts = Array.isArray(t.literatureConflicts) ? t.literatureConflicts : [];
-  const divided = conflicts.length > 0;
+  const dv = t.disagreementVerdict;
+  const divided = !!(dv && dv.status === "divided");
   const nSup = claims.filter((c) => c.status === "supported").length;
   const nThin = claims.filter((c) => c.status === "thin" || c.status === "partly").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
   const total = claims.length;
   let glyph = "verdictUnverified";
-  let word = "Not checked";
+  let word = "Unverified";
   let tone = P.faint;
   let sub = "No verification pass ran on this answer. The citations still point at their papers.";
   // ANSWER TIER (2026-10-08): fallback answers get honest verdicts for what
@@ -6464,11 +6461,11 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
         </div>
         {model.unclear.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-            <span className="cb-kicker">Not cited in the answer</span>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }} role="list" aria-label="Papers not cited in the answer">
+            <span className="cb-kicker">No clear signal</span>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }} role="list" aria-label="Papers with no clear stance signal">
               {model.unclear.map((n) => {
                 const s = src(n);
-                const label = `[${n}] ${s.title || "Untitled source"}: not cited in the answer`;
+                const label = `[${n}] ${s.title || "Untitled source"}: no stance signal`;
                 return (
                   <button key={n} type="button" title={s.title || "Untitled source"} aria-label={label + ". Activate to open the paper."}
                     onClick={() => onOpenPaper(n)}

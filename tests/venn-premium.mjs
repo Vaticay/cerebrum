@@ -97,11 +97,7 @@ await test("classification logic entry point untouched", () => {
 await test("hover readout and unclear row copy preserved", () => {
   assert.ok(/Placed from the fact-check and the disagreement section — never guessed/.test(src),
     "honest placement copy missing");
-  // 2026-10-09: unclear row renamed — "No clear signal" read as a verdict
-  // and contradicted the Flashpoints panel. "Not cited in the answer" is
-  // what unclear actually means and cannot be confused with a verdict.
-  assert.ok(/Not cited in the answer/.test(src), "uncited row copy missing");
-  assert.ok(!/No clear signal/.test(src), "'No clear signal' kicker must be gone");
+  assert.ok(/No clear signal/.test(src), "no-clear-signal row missing");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
