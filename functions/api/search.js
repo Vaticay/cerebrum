@@ -14421,6 +14421,7 @@ async function runSearchPipeline(pctx) {
           queryAnalysisPayload = {
             plainEnglish: queryAnalysis.plainEnglish,
             keyPhrases: queryAnalysis.keyPhrases,
+            constraints: (queryAnalysis.constraints || []).map((c) => c.phrase),
             organism: queryAnalysis.organism,
             questionType: queryAnalysis.questionType,
             isNameSearch: queryAnalysis.isNameSearch,
