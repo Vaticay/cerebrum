@@ -5365,14 +5365,26 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // higher finding-density claim about something peripheral (the
     // "Further, PERMANOVA showed that age and gender..." failure).
     const ledeQTerms = significantQueryTerms(ctx && ctx.query);
+    // Phrase-aware lede (2026-10-09): a claim containing a multi-word query
+    // phrase ("waste oil") is more on-question than one containing only a
+    // single term ("waste"). Build 2-word phrases in query order; a full
+    // phrase hit counts as 3 term hits so it decisively outranks partial
+    // matches. Additive to the term-overlap count below.
+    const ledeQPhrases = [];
+    for (let i = 0; i + 1 < ledeQTerms.length; i++) {
+      ledeQPhrases.push(ledeQTerms[i] + " " + ledeQTerms[i + 1]);
+    }
     const ledeQHits = (t) => {
       const low = String(t || "").toLowerCase();
       let n = 0;
       for (const q of ledeQTerms) if (q && low.indexOf(q) >= 0) n++;
+      for (const ph of ledeQPhrases) if (ph && low.indexOf(ph) >= 0) n += 3;
       return n;
     };
     // Lede order: on-substrate before drifted, query-relevant before
-    // tangential, concise before sprawling, then finding-density.
+    // tangential, concise before sprawling, then paper relevance (a claim
+    // from a higher-ranked paper more directly answers the question than a
+    // finding-dense claim from a peripheral paper), then finding-density.
     // A drifted paper's finding must not open the lede merely because it
     // scored higher on raw finding-density, and a 70-word mega-sentence
     // must not open it either. Skipped claims keep their fingerprint
@@ -5381,7 +5393,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       ((a.drifted ? 1 : 0) - (b.drifted ? 1 : 0)) ||
       (ledeQHits(b.text) - ledeQHits(a.text)) ||
       ((claimWords(a.text) > 45 ? 1 : 0) - (claimWords(b.text) > 45 ? 1 : 0)) ||
-      (b.score - a.score) || (a.idx - b.idx)
+      (a.idx - b.idx) || (b.score - a.score)
     );
     for (const c of ledeOrder) {
       if (c.score < 0 || usedIdx.has(c.idx)) continue;
