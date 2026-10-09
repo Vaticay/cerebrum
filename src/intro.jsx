@@ -815,10 +815,26 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
     }}>
+      {/* Cinematic film reel: dramatic clips for the ceremonial door.
+          Restored per Dusty 2026-10-09 ("bring back the videos on intro").
+          Runs under the atmosphere at low intensity. */}
+      {animate && (
+        <div aria-hidden="true" style={{
+          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+          filter: "brightness(0.42) saturate(0.72)",
+        }}>
+          <CinematicFilm
+            reel="intro"
+            animationMode={animationMode}
+            intensity={0.55}
+            onAutoplayBlocked={() => {}}
+            onPlaybackChange={() => {}}
+          />
+        </div>
+      )}
       {/* Atmosphere: the cinematic feel, calmed. Three vast, heavily
           blurred light fields drifting on 90s+ cycles — barely perceptible,
-          very dark, never literal footage. The room has air, not a movie.
-          The video reel is gone: Dusty's bar is "no recognizable footage."
+          very dark. The room has air.
           Under reduced motion (or animation off) this is a single still
           frame: the blobs sit at rest, no movement. */}
       <div aria-hidden="true" className="cb-intro-atmosphere" style={{
