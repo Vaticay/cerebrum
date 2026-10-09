@@ -836,7 +836,6 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       {/* ── Header: the wordmark and quiet links. No instrument chrome. */}
       <header className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 30,
-        ...(animate ? { animationDelay: "0.15s" } : null),
       }}>
         <div style={{
           maxWidth: 1440, margin: "0 auto", padding: "13px 26px",
@@ -901,7 +900,6 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             alignItems: isMobile ? "stretch" : "center",
             justifyContent: "center",
             gap: isMobile ? 14 : 26,
-            ...(animate ? { animationDelay: "0.35s" } : null),
           }}>
           {specimenSet.map((spec, k) => {
             const isHero = !isMobile && k === 1;
@@ -1000,7 +998,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
 
         {/* The single way in. */}
         <div className={animate ? cls.concat("cb-focus-in").join(" ") : cls.join(" ")}
-          style={animate ? { animationDelay: "0.9s" } : undefined}>
+>
           <button type="button" onClick={() => go("", false)} className="cb-intro-go"
             onMouseEnter={() => setDoorHover(true)}
             onMouseLeave={() => setDoorHover(false)}
@@ -1026,7 +1024,6 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       <footer className={animate ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
         position: "relative", zIndex: 20,
         paddingBottom: "max(16px, env(safe-area-inset-bottom))",
-        ...(animate ? { animationDelay: "1.2s" } : null),
       }}>
         <div style={{
           maxWidth: 1440, margin: "0 auto", padding: "16px 26px 0",

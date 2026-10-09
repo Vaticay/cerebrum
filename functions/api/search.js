@@ -2572,6 +2572,359 @@ export function classifyQuestionType(query) {
   return { type: "general", term: null };
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// QUERY INTELLIGENCE (2026-10-09): "actual intelligence like it's teaching you"
+// Dusty: the search is dumb. It matches keywords, applies bonuses, and hopes.
+// When it fails (BSFL waste oil), it fails silently and confidently.
+// This layer makes the system REASON about what it's doing:
+//   1. analyzeQuery: parse the query, extract load-bearing constraints,
+//      and state in plain English what it's looking for.
+//   2. verifyPaperConstraints: check each retrieved paper against those
+//      constraints (does it actually mention "waste oil"?).
+//   3. assessExtractionQuality consumes the verdicts: zero papers satisfying
+//      all constraints triggers the honest fallback, not a confident answer
+//      about an adjacent question.
+//   4. Constraint failures are logged to D1 for future learning.
+// Pure functions, no I/O, fully testable. Incremental: nothing rewritten.
+// ═══════════════════════════════════════════════════════════════════
+
+// Words that frame a question but carry no constraint meaning. Stripped
+// before phrase extraction so "Studies involving X" yields the constraint
+// in X, not "studies involving" as a phrase.
+const QUERY_FRAMING_WORDS = new Set([
+  "studies", "study", "involving", "involved", "involves", "involve",
+  "papers", "paper", "research", "researching", "regarding", "about",
+  "on", "for", "with", "using", "use", "used", "what", "which", "who",
+  "whom", "whose", "when", "where", "why", "how", "is", "are", "was",
+  "were", "do", "does", "did", "can", "could", "has", "have", "had",
+  "will", "would", "should", "the", "a", "an", "of", "in", "to", "and",
+  "or", "vs", "versus", "between", "among", "per", "via", "from",
+  "effect", "effects", "affect", "affects", "impact", "impacts", "role",
+  "review", "reviews", "overview", "literature", "evidence", "findings",
+  "results", "data", "report", "reported", "first", "new", "recent",
+  "latest", "current", "there", "their", "they", "them", "this", "that",
+  "these", "those", "it", "its", "as", "at", "by", "be", "been", "are",
+  "any", "some", "all", "more", "most", "other", "such", "than", "then",
+  "into", "over", "under", "after", "before", "between", "through",
+]);
+
+// Generic descriptors that modify a constraint but aren't constraints
+// themselves. "waste oil substrates": "substrates" is the category,
+// "waste oil" is the constraint.
+const GENERIC_DESCRIPTORS = new Set([
+  "substrates", "substrate", "sources", "source", "types", "type",
+  "kinds", "kind", "forms", "form", "methods", "method", "techniques",
+  "technique", "approaches", "approach", "systems", "system", "models",
+  "model", "factors", "factor",
+]);
+
+// Normalize text for constraint matching: lowercase, hyphens to spaces,
+// collapse whitespace. Plural tolerance is handled at match time.
+function normalizeConstraintText(s) {
+  return String(s || "").toLowerCase().replace(/[-‐‑]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Build a regex that matches a phrase with plural tolerance on each word.
+// "waste oil" matches "waste oil", "waste oils", "waste-oil".
+function constraintPhraseRegex(phrase) {
+  const words = normalizeConstraintText(phrase).split(" ").filter(Boolean);
+  if (words.length === 0) return null;
+  const wordPat = words.map((w) => {
+    const base = w.replace(/s$/, "");
+    const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return escaped + "(?:s)?";
+  });
+  return new RegExp("\\b" + wordPat.join("[\\s-]+") + "\\b", "i");
+}
+
+// Does the text mention this phrase? Checks the phrase itself plus any
+// registered synonym expansions (e.g. "BSFL" via organism phrases).
+function textMentionsPhrase(text, phrase, synonymPhrases) {
+  const norm = normalizeConstraintText(text);
+  if (!norm) return false;
+  const re = constraintPhraseRegex(phrase);
+  if (re && re.test(norm)) return true;
+  for (const syn of (synonymPhrases || [])) {
+    const sre = constraintPhraseRegex(syn);
+    if (sre && sre.test(norm)) return true;
+  }
+  return false;
+}
+
+// Extract load-bearing multi-word phrases from a query. A phrase is
+// load-bearing when 2+ content words appear adjacently after stripping
+// framing words and organism terms. "waste oil substrates" -> ["waste oil"]
+// ("substrates" is a generic descriptor, not part of the constraint).
+function extractKeyPhrases(query, organismPhrases) {
+  const norm = normalizeConstraintText(query);
+  const orgSet = new Set((organismPhrases || []).map(normalizeConstraintText));
+  // Also index individual organism words so "black soldier fly larvae"
+  // doesn't leak "fly larvae" as a key phrase.
+  const orgWords = new Set();
+  for (const p of orgSet) for (const w of p.split(" ")) orgWords.add(w);
+
+  const tokens = norm.split(" ").filter((t) =>
+    t.length > 2 && !QUERY_FRAMING_WORDS.has(t) && !orgSet.has(t) && !orgWords.has(t)
+  );
+  const phrases = [];
+  // Sliding window: adjacent content words form candidate phrases.
+  // Skip windows ending in a generic descriptor.
+  for (let len = 3; len >= 2; len--) {
+    for (let i = 0; i + len <= tokens.length; i++) {
+      const window = tokens.slice(i, i + len);
+      const last = window[window.length - 1];
+      const core = GENERIC_DESCRIPTORS.has(last) ? window.slice(0, -1) : window;
+      if (core.length < 2) continue;
+      const phrase = core.join(" ");
+      if (!phrases.includes(phrase)) phrases.push(phrase);
+    }
+    // Prefer longer phrases: once we have 3-word phrases, 2-word
+    // sub-phrases of them are redundant.
+    if (phrases.length > 0 && len === 3) break;
+  }
+  return phrases.slice(0, 3);
+}
+
+// Learned from Dusty's corrections. These are not heuristics; they are
+// recorded failures. Each entry: a query pattern and the constraint the
+// system previously dropped.
+// Format: { match: RegExp, constraint: "phrase", note: "..." }
+const LEARNED_CONSTRAINT_RULES = [
+  {
+    // 2026-10-09: "Studies involving BSFL waste oil substrates" returned
+    // general waste papers. The 'oil' constraint was dropped by the
+    // minimum-results guarantee's organism_only strategy.
+    match: /waste[\s-]*oil/i,
+    constraint: "waste oil",
+    note: "waste oil is one concept, not two keywords",
+  },
+  {
+    // 2026-10-09: "Reese Saho" (name search) had papers classified as
+    // "supporting the direction". Name searches have no direction.
+    match: null, // handled via isNameSearch, kept here as documentation
+    constraint: null,
+    note: "name searches carry no stance; never classify papers as supporting/disputing",
+  },
+];
+
+/**
+ * Analyze a search query the way a researcher would read it: what is being
+ * asked, what must a paper contain to count, and what would make the
+ * search fail honestly.
+ *
+ * Returns:
+ * {
+ *   originalQuery, questionType, questionTerm, isNameSearch,
+ *   organism: "Hermetia illucens" | null,
+ *   organismPhrases: [...],
+ *   keyPhrases: ["waste oil"],        // load-bearing multi-word concepts
+ *   constraints: [{ phrase, terms }], // every paper must satisfy ALL
+ *   plainEnglish: "Looking for ...",  // human-readable intent statement
+ *   mustSatisfyAll: true,             // AND semantics, not OR
+ * }
+ */
+export function analyzeQuery(rawQuery) {
+  const query = String(rawQuery || "").trim();
+  const qType = classifyQuestionType(query);
+  const isNameSearch = looksLikePersonName(query);
+  let organism = null;
+  let organismPhrases = [];
+  try {
+    const split = splitOrganismTopic(query);
+    organismPhrases = split.orgPhrases || [];
+    // Prefer the two-word latin binomial as the canonical organism name.
+    organism = organismPhrases.find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2)
+      || organismPhrases[0] || null;
+  } catch { /* best-effort */ }
+
+  // Key phrases from the query itself, plus any learned rules that fire.
+  let keyPhrases = [];
+  try { keyPhrases = extractKeyPhrases(query, organismPhrases); } catch { /* best-effort */ }
+  for (const rule of LEARNED_CONSTRAINT_RULES) {
+    if (rule.match && rule.constraint && rule.match.test(query)
+        && !keyPhrases.includes(rule.constraint)) {
+      keyPhrases.push(rule.constraint);
+    }
+  }
+
+  const constraints = keyPhrases.map((phrase) => ({
+    phrase,
+    terms: normalizeConstraintText(phrase).split(" ").filter(Boolean),
+  }));
+
+  // Plain-English intent statement. This is what the system believes the
+  // user is asking for; it goes into _diag so the frontend can show it
+  // (query translation transparency) and so failures are explainable.
+  let plainEnglish = "";
+  try {
+    const parts = [];
+    if (qType.type === "definition" && qType.term) {
+      parts.push("a definition of \"" + qType.term + "\"");
+    } else if (qType.type === "yesno") {
+      parts.push("a yes/no answer to \"" + query.slice(0, 80) + "\"");
+    } else if (isNameSearch) {
+      parts.push("papers by or about \"" + query.slice(0, 80) + "\" (name search: no stance classification applies)");
+    } else {
+      const topicBits = [];
+      if (organism) topicBits.push(organism);
+      for (const c of constraints) topicBits.push("\"" + c.phrase + "\"");
+      if (topicBits.length > 0) parts.push("studies involving " + topicBits.join(" + "));
+      else parts.push("papers about \"" + query.slice(0, 80) + "\"");
+    }
+    plainEnglish = "Looking for " + parts.join("; ") + ".";
+    if (constraints.length > 0 && !isNameSearch) {
+      plainEnglish += " Every paper must mention "
+        + constraints.map((c) => "\"" + c.phrase + "\"").join(" and ")
+        + "; papers missing a constraint are off-topic, not supporting.";
+    }
+  } catch { plainEnglish = "Looking for papers about \"" + query.slice(0, 80) + "\"."; }
+
+  return {
+    originalQuery: query,
+    questionType: qType.type,
+    questionTerm: qType.term || null,
+    isNameSearch: !!isNameSearch,
+    organism,
+    organismPhrases,
+    keyPhrases,
+    constraints,
+    plainEnglish,
+    mustSatisfyAll: true,
+  };
+}
+
+/**
+ * Check a single paper against the query's constraints. This is the
+ * self-checking step: after retrieval, the system verifies its own work.
+ *
+ * Returns:
+ * {
+ *   satisfiesAll: boolean,
+ *   matched: ["waste oil"],     // constraints found in title/abstract
+ *   missing: ["waste oil"],      // constraints NOT found
+ *   verdict: "on-topic" | "partial" | "off-topic",
+ *   explanation: "Mentions 'waste' but not 'oil' ...",
+ * }
+ */
+export function verifyPaperConstraints(paper, analysis) {
+  const empty = { satisfiesAll: true, matched: [], missing: [], verdict: "on-topic", explanation: "" };
+  if (!analysis || !analysis.constraints || analysis.constraints.length === 0) return empty;
+  if (analysis.isNameSearch) return empty; // name searches have no topical constraints
+
+  const p = paper || {};
+  const text = ((p.title || "") + " " + (p.abstract || "")).trim();
+  const matched = [];
+  const missing = [];
+  for (const c of analysis.constraints) {
+    // Synonym phrases for this constraint: organism expansions apply when
+    // the constraint contains an organism term; otherwise just the phrase.
+    const syns = [];
+    for (const term of c.terms) {
+      const key = term.toLowerCase();
+      if (SYNONYMS[key]) syns.push(...SYNONYMS[key]);
+    }
+    if (textMentionsPhrase(text, c.phrase, syns)) matched.push(c.phrase);
+    else missing.push(c.phrase);
+  }
+
+  const satisfiesAll = missing.length === 0;
+  let verdict = "on-topic";
+  let explanation = "";
+  if (!satisfiesAll) {
+    // Partial: paper matches at least one constraint term individually
+    // (e.g. mentions "waste" but not "waste oil").
+    const normText = normalizeConstraintText(text);
+    const partialHits = [];
+    for (const c of analysis.constraints) {
+      if (matched.includes(c.phrase)) continue;
+      const hitTerms = c.terms.filter((t) => {
+        const re = constraintPhraseRegex(t);
+        return re && re.test(normText);
+      });
+      if (hitTerms.length > 0) partialHits.push("\"" + hitTerms.join(" ") + "\" without \"" + c.phrase + "\"");
+    }
+    if (partialHits.length > 0) {
+      verdict = "partial";
+      explanation = "Mentions " + partialHits.join("; ") + ". About an adjacent topic, not the requested one.";
+    } else {
+      verdict = "off-topic";
+      explanation = "Does not mention " + missing.map((m) => "\"" + m + "\"").join(" or ") + ".";
+    }
+  }
+  return { satisfiesAll, matched, missing, verdict, explanation };
+}
+
+/**
+ * Verify a list of papers. Returns aggregate stats plus per-paper verdicts.
+ * Exported for testing and for the honesty gate.
+ */
+export function verifyPaperList(papers, analysis) {
+  const list = papers || [];
+  const verdicts = list.map((p, i) => ({ idx: i, ...verifyPaperConstraints(p, analysis) }));
+  const onTopic = verdicts.filter((v) => v.verdict === "on-topic").length;
+  const partial = verdicts.filter((v) => v.verdict === "partial").length;
+  const offTopic = verdicts.filter((v) => v.verdict === "off-topic").length;
+  return { verdicts, onTopic, partial, offTopic, total: list.length, allMiss: onTopic === 0 && list.length > 0 };
+}
+
+// D1 table for the correction learning log. Created lazily on first write;
+// a missing table or missing DB binding must never fail a search.
+async function ensureCorrectionLogTable(db) {
+  try {
+    await db.prepare(
+      "CREATE TABLE IF NOT EXISTS correction_patterns (" +
+      "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+      "pattern TEXT NOT NULL, " +
+      "query_signature TEXT, " +
+      "detail TEXT, " +
+      "created_at INTEGER NOT NULL)"
+    ).run();
+  } catch { /* best-effort */ }
+}
+
+// Log a constraint failure for future learning. Called (best-effort, via
+// waitUntil where available) when the verification step finds that none of
+// the retrieved papers satisfy the query's key constraints. This is the
+// system's memory: "this query pattern failed this way before."
+export async function logConstraintFailure(env, analysis, verification) {
+  try {
+    const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
+    if (!db || !analysis) return;
+    await ensureCorrectionLogTable(db);
+    const sig = normalizeConstraintText(analysis.originalQuery).split(" ")
+      .filter((t) => t.length > 2 && !QUERY_FRAMING_WORDS.has(t))
+      .sort().join(" ");
+    const detail = JSON.stringify({
+      keyPhrases: analysis.keyPhrases,
+      organism: analysis.organism,
+      total: verification.total,
+      partial: verification.partial,
+      offTopic: verification.offTopic,
+      missingEverywhere: (verification.verdicts || [])
+        .map((v) => v.missing).flat()
+        .filter((m, i, a) => a.indexOf(m) === i),
+    }).slice(0, 2000);
+    await db.prepare(
+      "INSERT INTO correction_patterns (pattern, query_signature, detail, created_at) VALUES (?, ?, ?, ?)"
+    ).bind("constraint_failure", sig, detail, Date.now()).run();
+  } catch { /* learning must never break search */ }
+}
+
+// Read recent correction patterns (for operator diagnostics, not for
+// request-time decisions: the learned rules above are the request-time
+// path; this is the audit trail).
+export async function getCorrectionPatterns(env, limit = 20) {
+  try {
+    const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
+    if (!db) return [];
+    await ensureCorrectionLogTable(db);
+    const rows = await db.prepare(
+      "SELECT pattern, query_signature, detail, created_at FROM correction_patterns ORDER BY id DESC LIMIT ?"
+    ).bind(Math.min(limit, 100)).all();
+    return (rows && rows.results) || [];
+  } catch { return []; }
+}
+
 // E.g. "Reese Sahos studies on BSFL" -> "Reese Saho".
 // Handles possessive forms (drops trailing 's or s when followed by a possessive
 // context word like "studies", "papers", "research").
@@ -4860,7 +5213,46 @@ export function assessExtractionQuality(items, ctx = {}) {
   if (stats.withFindings === 0) {
     reasons.push("None of the papers had usable abstracts to draw findings from.");
   }
-  return { ok: reasons.length === 0, reasons, stats };
+  // CONSTRAINT VERIFICATION (2026-10-09): the intelligence layer's
+  // self-check. If the query carries load-bearing constraints (multi-word
+  // phrases like "waste oil"), verify the cited papers actually mention
+  // them. A paper about "waste substrates" that never mentions "oil" is
+  // not evidence about waste oil substrates, no matter how high it scored.
+  let constraintCheck = null;
+  try {
+    const analysis = (ctx && ctx.queryAnalysis)
+      || analyzeQuery((ctx && ctx.query) || "");
+    if (analysis && analysis.constraints && analysis.constraints.length > 0
+        && !analysis.isNameSearch && (items || []).length > 0) {
+      const papers = (items || []).map((it) => (it && it.p) || {});
+      const verification = verifyPaperList(papers, analysis);
+      constraintCheck = {
+        keyPhrases: analysis.keyPhrases,
+        plainEnglish: analysis.plainEnglish,
+        onTopic: verification.onTopic,
+        partial: verification.partial,
+        offTopic: verification.offTopic,
+        // Per-paper verdicts for the frontend (which papers are actually
+        // about the requested topic vs adjacent topics).
+        verdicts: verification.verdicts.map((v) => ({
+          verdict: v.verdict, missing: v.missing, explanation: v.explanation,
+        })),
+      };
+      if (verification.allMiss) {
+        const phraseList = analysis.keyPhrases.map((p) => "\"" + p + "\"").join(" and ");
+        const partialNote = verification.partial > 0
+          ? " " + verification.partial + " mention related terms but not the full phrase."
+          : "";
+        reasons.push(
+          "None of the papers mention " + phraseList + " specifically." + partialNote +
+          " They are about an adjacent topic, not what was asked."
+        );
+      }
+    }
+  } catch (cbErr) { console.error("[Cerebrum] search.js constraint verification:", cbErr); }
+  const out = { ok: reasons.length === 0, reasons, stats };
+  if (constraintCheck) out.constraintCheck = constraintCheck;
+  return out;
 }
 
 // The honest answer for a failed honesty gate: no synthesized claims, no
@@ -4874,10 +5266,27 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
   const hasRef = (pool || []).some((it) => { const p = (it && it.p) || it || {}; return p.type === "Reference" || /wikipedia/i.test(p.journal || "") || /wikipedia/i.test(p.url || ""); });
   const unitWord = hasRef ? (n === 1 ? "source" : "sources") : (n === 1 ? "paper" : "papers");
   let md = "## Couldn't find a direct answer\n\n";
-  md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
-    ", but couldn't build a reliable summary from them. " +
-    "So instead of stitching together sentences that don't actually answer your question, " +
-    "here are the closest " + unitWord + " to read directly.\n";
+  // CONSTRAINT FAILURE LEAD (2026-10-09): when the intelligence layer found
+  // that no paper satisfies the query's key constraints, say so directly
+  // instead of the generic "couldn't build a reliable summary". The user
+  // asked about X; the papers are about Y. Name both.
+  const cc = quality && quality.constraintCheck;
+  if (cc && cc.keyPhrases && cc.keyPhrases.length > 0 && cc.onTopic === 0) {
+    const phraseList = cc.keyPhrases.map((p) => "\"" + p + "\"").join(" and ");
+    md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
+      ", but none of them are actually about " + phraseList + ". ";
+    if (cc.partial > 0) {
+      md += "The closest " + (cc.partial === 1 ? "paper mentions" : "papers mention") +
+        " related terms, but not the full phrase. ";
+    }
+    md += "So instead of answering a different question confidently, here are the closest " +
+      unitWord + " to read directly.\n";
+  } else {
+    md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
+      ", but couldn't build a reliable summary from them. " +
+      "So instead of stitching together sentences that don't actually answer your question, " +
+      "here are the closest " + unitWord + " to read directly.\n";
+  }
   md += "\n### Why this isn't a summary\n\n";
   md += quality.reasons.map((r) => "- " + r).join("\n") + "\n";
   if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
@@ -10568,11 +10977,18 @@ async function runSearchPipeline(pctx) {
     // true count. Best-effort by design: a failed consume must never fail
     // the search itself.
     const meterAiAnswer = async () => {
-      if (proLib && (aiGate.kind === "free" || aiGate.kind === "lite") && aiGate.userId) {
+      if (proLib && aiGate.userId) {
         try {
-          const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGate.aiCap);
-          if (consumed && typeof consumed.used === "number") aiGate.aiUsed = consumed.used;
-        } catch (cbErr) { console.error("[Cerebrum] search.js meterAiAnswer: const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGa:", cbErr); }
+          if (aiGate.kind === "pro") {
+            // Pro is unlimited, but the answer is still counted so the
+            // Usage page shows real numbers. No cap check, ever.
+            const n = await proLib.recordAiAnswer(env, aiGate.userId);
+            if (typeof n === "number") aiGate.aiUsed = n;
+          } else if (aiGate.kind === "free" || aiGate.kind === "lite") {
+            const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGate.aiCap);
+            if (consumed && typeof consumed.used === "number") aiGate.aiUsed = consumed.used;
+          }
+        } catch (cbErr) { console.error("[Cerebrum] search.js meterAiAnswer:", cbErr); }
       }
     };
     // The quota shape every AI surface returns, so the client's upgrade
@@ -11292,6 +11708,10 @@ async function runSearchPipeline(pctx) {
     // "weak" | "definition". Carried on the response so the UI renders an
     // honest verdict for fallback answers instead of "Unverified".
     let answerTier = "research";
+    // QUERY INTELLIGENCE (2026-10-09): the structured query analysis.
+    // Set at the synthesis stage; carried on the response so the UI can
+    // show query translation transparency ("Looking for...").
+    let queryAnalysisPayload = null;
     let noResultsPayload = null;
     const stageHealth = [];
     // NEXT-GEN query intelligence: assigned once the final searchQuery is
@@ -11596,17 +12016,12 @@ async function runSearchPipeline(pctx) {
                 [...new Set([..._toks.slice(0, 3), ..._exp.slice(0, 3)])].join(" "));
             }
           } catch (cbErr) { console.error("[Cerebrum] search.js mrg synonym:", cbErr); }
-          // Strategy 3: organism alone (broadest possible net). For
-          // "BSFL gut microbiome" this becomes "Hermetia illucens", which
-          // matches hundreds of indexed papers on its own.
-          try {
-            const _split = splitOrganismTopic(_baseQ);
-            if (_split && _split.hasOrganism && (_split.orgPhrases || []).length > 0) {
-              // Prefer the scientific (two-word latin) phrase when present.
-              const _sci = (_split.orgPhrases || []).find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2);
-              _pushCand("organism_only", _sci || _split.orgPhrases[0]);
-            }
-          } catch (cbErr) { console.error("[Cerebrum] search.js mrg organism:", cbErr); }
+          // Strategy 3 (REMOVED 2026-10-09, score #13): organism alone was
+          // the broadest possible net — for "BSFL waste oil substrates" it
+          // became just "Hermetia illucens", dropping the 'waste oil'
+          // constraint entirely and confidently answering an adjacent
+          // question. The MRG must NEVER drop a key topic constraint.
+          // If no papers match the topic, the answer says so honestly.
           // Run candidates in order; adopt the first strictly-better result.
           for (const _cand of _candidates.slice(0, 3)) {
             let _res = null;
@@ -13762,9 +14177,10 @@ async function runSearchPipeline(pctx) {
     }
 
     // PRO TIER . charge the AI answer against the caller's monthly bucket.
-    // Only free accounts are metered (Pro is unlimited; anonymous callers
-    // never reach the AI waves). Best-effort by design: a failed increment
-    // must never fail the search itself.
+    // Free/Lite are capped; Pro is unlimited but still counted (the Usage
+    // page shows real numbers for Pro members — transparency, not a cap).
+    // Best-effort by design: a failed increment must never fail the search
+    // itself.
     if (aiOK) await meterAiAnswer();
 
     // Nuance #33 . token spend accounting, once per search. The budget was
@@ -13848,8 +14264,25 @@ async function runSearchPipeline(pctx) {
         // confidence / falsification sections. ctx carries what those
         // sections need; ambiguity names the interpretations instead of
         // silently picking one.
+        // QUERY INTELLIGENCE (2026-10-09): analyze the query once here so
+        // the honesty gate can verify papers against the actual constraints
+        // instead of hoping the scores got it right.
+        let queryAnalysis = null;
+        try { queryAnalysis = analyzeQuery(searchQuery); } catch (cbErr) { console.error("[Cerebrum] search.js analyzeQuery:", cbErr); }
+        // Expose the plain-English intent + key phrases on the response for
+        // query translation transparency (the "what did you hear?" line).
+        if (queryAnalysis) {
+          queryAnalysisPayload = {
+            plainEnglish: queryAnalysis.plainEnglish,
+            keyPhrases: queryAnalysis.keyPhrases,
+            organism: queryAnalysis.organism,
+            questionType: queryAnalysis.questionType,
+            isNameSearch: queryAnalysis.isNameSearch,
+          };
+        }
         const ext = buildExtractiveSynthesis(extPool, briefClaims, {
           query: searchQuery,
+          queryAnalysis,
           isNameSearch,
           isFollowupMode,
           sourcesQueried: publicSourcesQueried(),
@@ -13862,6 +14295,20 @@ async function runSearchPipeline(pctx) {
             : aiGate.kind === "anonymous" ? "signin-required" : aiGate.kind === "lite" ? "lite-cap" : "free-cap",
         });
         if (ext) { answer = ext; answerTier = getLastExtractiveTier(); extractiveOK = true; }
+        // LEARNING (2026-10-09): if the intelligence layer finds that none
+        // of the retrieved papers satisfy the query's key constraints, log
+        // it for future learning. Best-effort via waitUntil; a logging
+        // failure must never fail the search.
+        try {
+          if (queryAnalysis && queryAnalysis.constraints && queryAnalysis.constraints.length > 0
+              && !queryAnalysis.isNameSearch && typeof waitUntil === "function") {
+            const _verification = verifyPaperList(extPool || [], queryAnalysis);
+            if (_verification.allMiss) {
+              const _env = env, _qa = queryAnalysis, _v = _verification;
+              waitUntil(logConstraintFailure(_env, _qa, _v).catch(() => {}));
+            }
+          }
+        } catch { /* learning must never break search */ }
       } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
       if (!extractiveOK) {
         // INTELLIGENT NO-RESULTS . the terminal state when every provider
@@ -14494,6 +14941,7 @@ async function runSearchPipeline(pctx) {
         confidence,              // { level: strong|moderate|thin, line } | null
         coverageNote,            // honest note when databases failed | null
         ambiguity,               // { ambiguous, term, resolvedAs, interpretations }
+        queryAnalysis: queryAnalysisPayload, // { plainEnglish, keyPhrases, organism, questionType, isNameSearch } | null
         smartFollowUps,          // [{ q, why }] from actual evidence gaps (2026-10-08)
         degraded: stageHealth.some((s) => !s.ok) || responseKind === "no-results",
         // 2026-09-12: the synthesis entry also carries its per-leg race

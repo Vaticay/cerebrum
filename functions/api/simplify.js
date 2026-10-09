@@ -2,7 +2,10 @@
 //
 // Takes the full answer text (with citation markers like [1], [2]) and
 // rewrites it in simpler language while keeping every citation marker
-// exactly where it belongs. Graduate -> undergrad -> plain language.
+// exactly where it belongs. Three tiers: graduate (the original) ->
+// undergrad -> plain language. Each request rewrites from the original
+// answer, never from a previous simplification, so quality never compounds
+// downward.
 //
 // This is a rendering concern, not a retrieval one: no new search runs,
 // no papers are fetched. The citations stay attached to the claims they
@@ -16,8 +19,8 @@ function openRouterKey(env) {
 }
 
 const LEVEL_PROMPTS = {
-  undergrad: "Rewrite the following scientific answer for an undergraduate student. Use simpler vocabulary and shorter sentences. Explain jargon when you use it. Keep the structure and all section headers. Do NOT remove, move, or renumber any citation markers like [1], [2] — they must stay attached to the claims they support. Do not add new claims. Do not remove claims.",
-  plain: "Rewrite the following scientific answer in plain language a curious non-scientist can follow. Use everyday words, short sentences, and concrete examples. Keep the structure and all section headers. Do NOT remove, move, or renumber any citation markers like [1], [2] — they must stay attached to the claims they support. Do not add new claims. Do not remove claims.",
+  undergrad: "Rewrite the following scientific answer for a college undergraduate who has taken intro science courses but is not a specialist. Use simpler vocabulary and shorter sentences. Define or replace graduate-level jargon with terms an undergrad would know. Aim for roughly two-thirds the length of the original — genuinely shorter, not just reworded. Keep the structure and all section headers. Do NOT remove, move, or renumber any citation markers like [1], [2] — they must stay attached to the claims they support. Do not add new claims. Do not remove claims.",
+  plain: "Rewrite the following scientific answer in plain language a curious adult with no science background can follow. Use everyday words, short sentences, and a concrete analogy where one helps. A smart non-technical reader should understand every sentence on first read. Aim for roughly half the length of the original — cut ruthlessly, keep only what matters. Keep the section headers. Do NOT remove, move, or renumber any citation markers like [1], [2] — they must stay attached to the claims they support. Do not add new claims. Do not remove claims.",
 };
 
 export async function onRequestPost({ request, env }) {

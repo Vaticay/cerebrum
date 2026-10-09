@@ -22,6 +22,7 @@ import {
 } from "../../lib/http.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
 import { getSessionUser } from "../../lib/authHelpers.js";
+import { getTenantSpend } from "../../lib/requestLog.js";
 import {
   FREE_AI_ANSWERS_PER_MONTH, FREE_DOC_READS_PER_MONTH, FREE_FLOWCHARTS_PER_MONTH,
   LITE_AI_ANSWERS, LITE_DOC_READS, LITE_FLOWCHARTS,
@@ -29,6 +30,7 @@ import {
   PRO_PLANS, isValidProPlan, isLiteRow, tierOfRow, capsForTier, tierForCheckoutPlan,
   ensureProTables, getUserProRow, resolveAiGate,
   getDocReads, getFlowchartCount, consumeFlowchart,
+  recordFlowchart, getPeriodUsage,
   verifyStripeWebhookSignature, verifyWebhookSignatureAny, applyStripeEvent,
   normalizeEmail, validateGrantTarget,
   grantLifetimePro, revokeLifetimePro, listLifetimePros,
@@ -103,9 +105,31 @@ async function handleStatus(request, env, cors) {
   const isLite = tier === "lite";
   const caps = capsForTier(tier);
   // Metered buckets beyond AI answers: document reads and flowchart saves.
-  // Pro reports null caps (unlimited); the client renders "Unlimited".
-  const docReads = isPro ? { used: 0, cap: null } : { used: await getDocReads(env, user.id), cap: caps.docs };
-  const flowcharts = isPro ? { used: 0, cap: null } : { used: await getFlowchartCount(env, user.id), cap: caps.flowcharts };
+  // Pro reports null caps (unlimited) — but real used counts, so the Usage
+  // page shows what Pro members actually burned. Transparency, not a cap.
+  const proUsage = isPro ? await getPeriodUsage(env, user.id) : null;
+  const docReads = isPro
+    ? { used: proUsage.doc_reads, cap: null }
+    : { used: await getDocReads(env, user.id), cap: caps.docs };
+  const flowcharts = isPro
+    ? { used: proUsage.flowcharts, cap: null }
+    : { used: await getFlowchartCount(env, user.id), cap: caps.flowcharts };
+  // Token spend for this UTC calendar month (prompt + completion, all AI
+  // surfaces). Already recorded per user by recordLlmUsage — this just
+  // surfaces it. Counts mix provider-reported tokens and character-count
+  // estimates; the client labels them as estimates.
+  let tokens = null;
+  try {
+    const t = await getTenantSpend(env, user.id);
+    tokens = {
+      period: t.period,
+      calls: t.calls,
+      promptTokens: t.promptTokens,
+      completionTokens: t.completionTokens,
+      totalTokens: t.promptTokens + t.completionTokens,
+      estCostUsd: Math.round((t.estCostUsd || 0) * 100) / 100,
+    };
+  } catch { tokens = null; }
   return json({
     ...base,
     signedIn: true,
@@ -121,6 +145,7 @@ async function handleStatus(request, env, cors) {
     quota: { used: gate.aiUsed, cap: isPro ? null : gate.aiCap },
     docReads,
     flowcharts,
+    tokens,
     // Free-quota refill info: every metered bucket refills together when this
     // countdown hits zero. Pro ignores it (unlimited).
     quotaPeriod: { days: FREE_QUOTA_PERIOD_DAYS, resetsInMs: quotaResetsInMs() },
@@ -727,7 +752,11 @@ async function handleFlowchartAllow(request, env, cors) {
   const gate = await resolveAiGate(env, user);
   const tier = gate.kind === "pro" ? "pro" : gate.kind === "lite" ? "lite" : "free";
   if (tier === "pro") {
-    return json({ ok: true, allowed: true, pro: true, used: 0, cap: null }, 200, cors);
+    // Pro is unlimited, but the save is still counted so the Usage page
+    // shows real numbers. No cap check, ever.
+    let proUsed = 0;
+    try { proUsed = await recordFlowchart(env, user.id); } catch { /* best-effort */ }
+    return json({ ok: true, allowed: true, pro: true, used: proUsed, cap: null }, 200, cors);
   }
   // Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per quota period
   // (Lite 10). The allowance check and the increment are ONE atomic consume:

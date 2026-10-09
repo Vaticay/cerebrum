@@ -1097,6 +1097,10 @@ export async function onRequest(context) {
           cors
         );
       }
+    } else if (docTier === "pro" && docUser && docUser.id) {
+      // Pro is unlimited, but the read is still counted so the Usage page
+      // shows real numbers. No cap check, ever.
+      try { docUsed = await proLib.recordDocRead(env, docUser.id); } catch { /* best-effort */ }
     }
     const docQuota = () => ({
       used: docUsed,

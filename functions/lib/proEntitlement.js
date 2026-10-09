@@ -310,6 +310,28 @@ export function quotaResetsInMs(nowMs = Date.now()) {
 
 // ── Entitlement reads ─────────────────────────────────────────────────────
 
+// Current quota-period counters for any user, regardless of tier — the
+// transparency read. Pro users have no caps, but their usage is still
+// counted so the Usage page can show what they burned. Fail-open: a DB
+// problem reads as zeros, never as an error.
+export async function getPeriodUsage(env, userId) {
+  const zero = { ai_answers: 0, doc_reads: 0, flowcharts: 0 };
+  if (!env || !env.DB || !userId) return zero;
+  try {
+    await ensureProTables(env);
+    const u = await env.DB.prepare(
+      "SELECT ai_answers, doc_reads, flowcharts FROM pro_usage WHERE user_id = ? AND month = ?"
+    ).bind(userId, periodKey()).first();
+    return {
+      ai_answers: (u && typeof u.ai_answers === "number") ? u.ai_answers : 0,
+      doc_reads: (u && typeof u.doc_reads === "number") ? u.doc_reads : 0,
+      flowcharts: (u && typeof u.flowcharts === "number") ? u.flowcharts : 0,
+    };
+  } catch {
+    return zero;
+  }
+}
+
 export function isProRow(row) {
   return !!row && row.plan === "pro";
 }
@@ -366,10 +388,13 @@ export async function resolveAiGate(env, sessionUser) {
   if (!sessionUser || !sessionUser.id) return base;
   const row = await getUserProRow(env, sessionUser.id);
   if (isProRow(row)) {
+    // Pro has no caps, but usage is still counted (transparency, not
+    // paywalling) so the Usage page shows real numbers for Pro members.
+    const proUsage = await getPeriodUsage(env, sessionUser.id);
     return {
       kind: "pro",
       userId: sessionUser.id,
-      aiUsed: 0,
+      aiUsed: proUsage.ai_answers,
       aiCap: Infinity,
       proSource: row.pro_source || "subscription",
     };

@@ -3445,7 +3445,14 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
    the anti-AI-vibe treatment. */
 function CitationThreads({ data, P, accent }) {
   const [open, setOpen] = React.useState(false);
-  if (!data || !Array.isArray(data.threads) || data.threads.length === 0) return null;
+  const empty = !data || !Array.isArray(data.threads) || data.threads.length === 0;
+  if (empty) {
+    return (
+      <div style={{ marginTop: 14, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+        No direct citations between these papers.
+      </div>
+    );
+  }
   const nodes = Array.isArray(data.threadNodes) ? data.threadNodes : [];
   // Build adjacency: for each node, which nodes it cites (outgoing) and which cite it (incoming)
   const cites = new Map(); // fromIdx -> Set(toIdx)
@@ -4353,20 +4360,36 @@ function FactCheck({ fc, P, accent }) {
    Plain counts, plain words. The disputing numeral renders in clay #B0472B
    as a colored numeral only — never a red card, never an alarm. */
 function KeyFigures({ t, P }) {
+  const sources = Array.isArray(t.sources) ? t.sources : [];
+  const total = sources.length;
+  if (total === 0) return null;
+  const sep = <span aria-hidden="true" style={{ opacity: 0.4, margin: "0 6px" }}>·</span>;
+  // Weak tier: the backend could not build a reliable summary. These papers
+  // are keyword matches, not evidence — there is no direction for them to
+  // support. Say so plainly instead of laundering them into "support".
+  const weak = (t && t.answerTier === "weak")
+    || /^##\s*couldn't find a direct answer/i.test(String((t && t.answer) || ""));
+  if (weak) {
+    return (
+      <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
+        <div style={{ fontSize: 14, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.5 }}>
+          <span>{total} paper{total === 1 ? "" : "s"} found</span>
+          {sep}
+          <span>no clear direction</span>
+        </div>
+      </div>
+    );
+  }
   const venn = (() => {
     try {
       return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck, conflicts: t.literatureConflicts });
     } catch { return { agree: [], disagree: [], middle: [], unclear: [] }; }
   })();
-  const sources = Array.isArray(t.sources) ? t.sources : [];
-  const total = sources.length;
-  if (total === 0) return null;
   const nSupport = (venn.agree || []).length;
   const nDispute = (venn.disagree || []).length;
   // "mention it" = everything else: nuanced (middle) + uncited in body (unclear)
   const nMention = Math.max(0, total - nSupport - nDispute);
   const clay = "#B0472B";
-  const sep = <span aria-hidden="true" style={{ opacity: 0.4, margin: "0 6px" }}>·</span>;
   return (
     <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
       <div style={{ fontSize: 14, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.5 }}>
@@ -4426,6 +4449,11 @@ function meterWeightFor(source) {
 function ConsensusMeter({ t, P }) {
   const q = (t && (t.q || t.question)) || "";
   if (!isYesNoQuestion(q)) return null;
+  // Weak tier: no summary was built, so there is no question for studies to
+  // lean on. A full-gray "all mixed" bar would imply the studies were read
+  // against the question — they were not. Hide.
+  if ((t && t.answerTier === "weak")
+    || /^##\s*couldn't find a direct answer/i.test(String((t && t.answer) || ""))) return null;
   let venn;
   try {
     venn = classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck, conflicts: t.literatureConflicts });
@@ -5555,13 +5583,12 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
    derived from the paper's citation count until real per-paper stance data
    exists. The retraction flag (above) stays prominent; this is reception,
    a different axis from the answer-level rel encoding. */
+/* Reception counts: honest "unknown" until real per-paper stance data exists.
+   Score #13 (2026-10-09): the old version derived "supporting" as 70% of
+   citation count — arithmetic fiction presented as data. Removed. All papers
+   show dashes until the citation-statement pipeline lands. */
 function receptionCounts(source) {
-  const cites = Number(source && (source.citations ?? source.cited_by_count)) || 0;
-  if (cites <= 0) return null;
-  const supporting = Math.round(cites * 0.7);
-  const contrasting = Math.round(cites * 0.05);
-  const mentioning = Math.max(0, cites - supporting - contrasting);
-  return { supporting, contrasting, mentioning };
+  return null;
 }
 const STANCE_COLORS = { supporting: "#2E7D5B", contrasting: "#B0472B", mentioning: "#7A756A" };
 function ReceptionLine({ source, P }) {
@@ -6444,152 +6471,101 @@ function DisagreementPanel({ answer, sources, P, accent, isMobile }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   VENN DIAGRAM — where the papers stand
+/* ════════════════════════════════════════════════════════════
+   STANCE LEDGER — where the papers stand
 
-   A research instrument, not decoration: left lobe = papers backing the
-   answer's core claims, right lobe = papers pushing back, the overlap =
-   papers doing both (cited for a supported claim and inside the
-   disagreement section, or carrying a "partly"/"thin" verdict). Papers
-   with no signal sit outside in a quiet "no clear signal" row — placed
-   honestly, never guessed.
+   The venn diagram is gone. Two overlapping circles with colored dots
+   read as a dashboard widget, not a reading room. This is a ledger:
+   papers grouped under plain stance headings, each row a citation
+   number and a title that opens the paper. No geometry, no badges,
+   no alarm. A contesting paper gets a clay numeral, never a red card.
 
-   The geometry is precise and still: two perfect circles, hairline
-   strokes, low-opacity fills — a figure in a review, not a toy. Nothing
-   on this diagram moves, ever. Placement is deterministic: dots sit on a
-   golden-angle spiral inside their region, sized subtly by citation
-   count where the source carries one. Fewer than two classifiable
-   papers and the diagram stays home — an absent diagram beats a
-   fabricated one.
-   ══════════════════════════════════════════════════════════════════ */
+   Placement is honest: from the fact-check and the disagreement
+   section, never guessed. Papers with no signal sit under "no clear
+   signal". Fewer than two classifiable papers and the ledger stays
+   home.
+   ════════════════════════════════════════════════════════════ */
 
-function vennDotLayout(count, cx, cy, maxR) {
-  const pts = [];
-  for (let i = 0; i < count; i++) {
-    const r = maxR * Math.sqrt((i + 0.5) / Math.max(count, 1));
-    const a = i * 2.399963 + 0.7; // golden angle — even, deterministic spread
-    pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
-  }
-  return pts;
-}
-
-function vennDotRadius(s) {
-  const c = typeof s.citations === "number" ? s.citations
-    : typeof s.cited_by_count === "number" ? s.cited_by_count : null;
-  /* Subtle sizing: informative without shouting — 4.5px base, up to 8px
-     for heavily cited work. */
-  if (c == null || !(c > 0)) return 4.5;
-  return 4 + Math.min(4, Math.log10(c + 1) * 1.4);
-}
-
-/* Premium instrument palette: the supports lobe follows the reader's
-   accent; the contests lobe is a muted clay/rust — warn desaturated and
-   darkened so it sits quietly on the page. Middle dots use the arithmetic
-   blend of the two, so the overlap reads as a calm mix, never a third
-   neon color. */
-const VENN_CLAY = "#9e7350";
-
-function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
+function StanceLedger({ turn, P, accent, onOpenPaper = () => {} }) {
   const model = useMemo(
     () => classifyVennPapers({ answer: turn.answer, sources: turn.sources, factCheck: turn.factCheck, conflicts: turn.literatureConflicts }),
     [turn]
   );
-  const [hoverN, setHoverN] = useState(null);
   const classifiable = model.agree.length + model.disagree.length + model.middle.length;
   if (classifiable < 2) return null;
 
   const sources = turn.sources || [];
   const src = (n) => sources[n - 1] || {};
-  const hovered = hoverN ? src(hoverN) : null;
 
-  const agreePts = vennDotLayout(model.agree.length, 192, 192, 76);
-  const disagreePts = vennDotLayout(model.disagree.length, 488, 192, 76);
-  const middlePts = vennDotLayout(model.middle.length, 340, 192, 50);
-  const middleColor = mixHex(accent, VENN_CLAY, 0.5);
+  const groups = [
+    { key: "agree", label: "Supports the direction", ids: model.agree, numColor: accent },
+    { key: "middle", label: "Qualifies it", ids: model.middle, numColor: accent },
+    { key: "disagree", label: "Contests it", ids: model.disagree, numColor: STANCE_COLORS.contrasting },
+  ].filter((g) => g.ids.length > 0);
 
-  const regionName = (r) => r === "agree" ? "supports the answer" : r === "disagree" ? "contests the answer" : "supports and contests";
-
-  const dot = (n, pt, color, region) => {
+  const paperRow = (n, numColor) => {
     const s = src(n);
-    const r = vennDotRadius(s);
-    const label = `[${n}] ${s.title || "Untitled source"}${s.year ? ` · ${s.year}` : ""}: ${regionName(region)}`;
-    const hot = hoverN === n;
     return (
-      <g key={`${region}-${n}`} transform={`translate(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`}>
-        <title>{label}</title>
-        <circle
-          r={r + 6} fill="transparent"
-          tabIndex={0} role="button" aria-label={label + ". Activate to open the paper."}
-          style={{ cursor: "pointer" }}
-          onClick={() => onOpenPaper(n)}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPaper(n); } }}
-          onMouseEnter={() => setHoverN(n)} onMouseLeave={() => setHoverN(null)}
-          onFocus={() => setHoverN(n)} onBlur={() => setHoverN(null)}
-        />
-        <circle r={r} fill={color} stroke={P.bg} strokeWidth={1} opacity={hot ? 1 : 0.92}
-          style={{ transition: "opacity 150ms ease", pointerEvents: "none" }} />
-        {hot && <circle r={r + 4.5} fill="none" stroke={color} strokeWidth={1} opacity={0.6} style={{ pointerEvents: "none" }} />}
-      </g>
+      <button key={n} type="button" onClick={() => onOpenPaper(n)}
+        aria-label={"[" + n + "] " + (s.title || "Untitled source") + ". Open this paper."}
+        style={{
+          display: "flex", gap: 10, alignItems: "baseline", width: "100%",
+          background: "none", border: "none", borderTop: "1px solid " + P.line,
+          padding: "8px 0", cursor: "pointer", textAlign: "left",
+          fontFamily: "var(--cb-font)",
+        }}>
+        <span style={{
+          fontWeight: 700, color: numColor, fontSize: FONT_SIZES.caption,
+          flexShrink: 0, fontVariantNumeric: "tabular-nums",
+        }}>
+          [{n}]
+        </span>
+        <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55 }}>
+          {s.title || "Untitled source"}
+          {s.year ? <span style={{ color: P.faint }}> {"\u00b7"} {s.year}</span> : null}
+        </span>
+      </button>
     );
   };
 
-  /* Pass 6: the stance labels are quiet lowercase instrument kickers —
-     the diagram's data speaks, not its chrome. */
-  const regionLabel = (x, text, count) => (
-    <text x={x} y={336} textAnchor="middle" fill={P.faint}
-      style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500 }}>
-      {text.toLowerCase()} · {count}
-    </text>
-  );
-
   return (
     <AnswerSection quiet eyebrow="Where the papers stand" P={P} accent={accent}>
-      <div style={{ maxWidth: 720 }}>
-        <svg viewBox="0 0 680 372" style={{ width: "100%", height: "auto", display: "block" }}
-          role="img"
-          aria-label={`Venn diagram of cited papers: ${model.agree.length} support the answer, ${model.disagree.length} contest it, ${model.middle.length} do both.`}>
-          {/* Two perfect static circles — hairline strokes, low-opacity
-              fills. The overlap tints naturally from the translucent fills;
-              nothing on this diagram moves, ever. */}
-          <circle cx={250} cy={192} r={136} fill={withAlpha(accent, 0.07)}
-            stroke={withAlpha(accent, 0.55)} strokeWidth={1} />
-          <circle cx={430} cy={192} r={136} fill={withAlpha(VENN_CLAY, 0.07)}
-            stroke={withAlpha(VENN_CLAY, 0.55)} strokeWidth={1} />
-          {model.agree.map((n, i) => dot(n, agreePts[i], accent, "agree"))}
-          {model.middle.map((n, i) => dot(n, middlePts[i], middleColor, "middle"))}
-          {model.disagree.map((n, i) => dot(n, disagreePts[i], VENN_CLAY, "disagree"))}
-          {regionLabel(192, "SUPPORTS", model.agree.length)}
-          {regionLabel(340, "BOTH", model.middle.length)}
-          {regionLabel(488, "CONTESTS", model.disagree.length)}
-        </svg>
-        <div style={{ minHeight: 22, marginTop: 2, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5 }} aria-live="polite">
-          {hovered ? (
-            <span><span style={{ fontFamily: "var(--cb-font)", fontWeight: 700, color: accent }}>[{hoverN}]</span> {hovered.title || "Untitled source"}{hovered.year ? ` · ${hovered.year}` : ""}</span>
-          ) : (
-            <span style={{ color: P.faint, fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)" }}>
-              Placed from the fact-check and the disagreement section — never guessed. Select a paper to open it.
-            </span>
-          )}
-        </div>
+      <div style={{ maxWidth: 640 }}>
+        {groups.map((g) => (
+          <div key={g.key} style={{ marginBottom: 20 }}>
+            <div style={{
+              fontSize: FONT_SIZES.caption, color: P.faint,
+              fontFamily: "var(--cb-font)", marginBottom: 2,
+            }}>
+              {g.label} {"\u00b7"} {g.ids.length}
+            </div>
+            <div>{g.ids.map((n) => paperRow(n, g.numColor))}</div>
+          </div>
+        ))}
         {model.unclear.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-            <span className="cb-kicker">No clear signal</span>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }} role="list" aria-label="Papers with no clear stance signal">
-              {model.unclear.map((n) => {
-                const s = src(n);
-                const label = `[${n}] ${s.title || "Untitled source"}: no stance signal`;
-                return (
-                  <button key={n} type="button" title={s.title || "Untitled source"} aria-label={label + ". Activate to open the paper."}
-                    onClick={() => onOpenPaper(n)}
-                    style={{ minWidth: 44, minHeight: 44,
-                      width: 14, height: 14, borderRadius: "50%", padding: 0, cursor: "pointer",
-                      background: withAlpha(P.faint, 0.35), border: `1px solid ${withAlpha(P.faint, 0.5)}`,
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.6); }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = withAlpha(P.faint, 0.35); }}
-                  />
-                );
-              })}
+          <div>
+            <div style={{
+              fontSize: FONT_SIZES.caption, color: P.faint,
+              fontFamily: "var(--cb-font)", marginBottom: 6,
+            }}>
+              No clear signal {"\u00b7"} {model.unclear.length}
+            </div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.7 }}>
+              {model.unclear.map((n) => (
+                <button key={n} type="button" onClick={() => onOpenPaper(n)}
+                  aria-label={"[" + n + "] open this paper"}
+                  style={{
+                    background: "none", border: "none", padding: "4px 10px 4px 0",
+                    cursor: "pointer", fontFamily: "var(--cb-font)",
+                    fontSize: FONT_SIZES.caption, color: P.faint,
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                  [{n}]
+                </button>
+              ))}
+              <div style={{ fontSize: FONT_SIZES.micro, marginTop: 4 }}>
+                Placed from the fact-check and the disagreement section {"\u2014"} never guessed.
+              </div>
             </div>
           </div>
         )}
@@ -6597,6 +6573,7 @@ function VennDiagram({ turn, P, accent, onOpenPaper = () => {}, isMobile }) {
     </AnswerSection>
   );
 }
+
 
 /* ══════════════════════════════════════════════════════════════════
    QUERY AUTOPSY — "How this answer was built"
@@ -6920,7 +6897,10 @@ function AnswerArc({ turn, P, accent }) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
                 <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink }}>{era.name}</span>
                 {era.disagreementCount > 0 && (
-                  <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", fontWeight: 700, color: STATUS.warn, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, padding: "1px 8px", borderRadius: 2 }}>CONTESTED</span>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", color: P.faint }}>
+                    <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: STANCE_COLORS.contrasting, marginRight: 6 }} />
+                    {era.disagreementCount} contested {era.disagreementCount === 1 ? "claim" : "claims"} in this era
+                  </span>
                 )}
               </div>
               <EraYearStrip era={era} P={P} accent={accent} isNewest={i === model.eras.length - 1} />
@@ -6930,8 +6910,8 @@ function AnswerArc({ turn, P, accent }) {
         ))}
       </div>
       {convergence && (
-        <div style={{ marginTop: 6, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(accent, 0.3)}`, background: withAlpha(accent, 0.06), fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>
-          <span style={{ color: accent, fontWeight: 700, marginRight: 8, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, letterSpacing: TRACKING.eyebrow }}>Agreement</span>
+        <div style={{ marginTop: 6, padding: "12px 16px", border: `1px solid ${P.line}`, borderRadius: 2, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+          <span style={{ color: P.faint, marginRight: 8 }}>Where it lands:</span>
           {convergence}
         </div>
       )}
@@ -8061,27 +8041,36 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
     () => (done && !synthFailed ? buildEvidenceMap(t.factCheck, t.disagreementVerdict) : null),
     [done, synthFailed, t.factCheck, t.disagreementVerdict]
   );
-  /* ── SIMPLIFY TOGGLE ──
-     One tap rewrites the answer one reading level down. Citations stay
-     attached. The reading level indicator tells users the toggle exists. */
-  const [simplified, setSimplified] = useState(null);
+  /* ── SIMPLIFICATION TIERS ──
+     Three real reading levels: graduate (the original answer) → undergrad →
+     plain language. Each tap steps one level down, then cycles back to the
+     original. Citations stay attached at every level. Each tier is rewritten
+     once from the ORIGINAL answer and cached, so stepping back is instant
+     and re-simplifying never compounds distortion. */
+  const SIMPLIFY_TIERS = ["graduate", "undergrad", "plain"];
+  const SIMPLIFY_LABELS = { graduate: "Graduate", undergrad: "Undergrad", plain: "Plain" };
+  const [simplifiedByTier, setSimplifiedByTier] = useState({});
   const [simplifying, setSimplifying] = useState(false);
   const [readingLevel, setReadingLevel] = useState("graduate");
   const doSimplify = async () => {
-    if (simplified) { setSimplified(null); setReadingLevel("graduate"); return; }
+    const next = SIMPLIFY_TIERS[(SIMPLIFY_TIERS.indexOf(readingLevel) + 1) % SIMPLIFY_TIERS.length];
+    if (next === "graduate") { setReadingLevel("graduate"); return; }
+    if (simplifiedByTier[next]) { setReadingLevel(next); return; }
     if (simplifying || !t.answer) return;
     setSimplifying(true);
     try {
       const res = await fetch("/api/simplify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: t.answer, level: readingLevel === "graduate" ? "undergrad" : "plain" }),
+        body: JSON.stringify({ text: t.answer, level: next }),
       });
       if (!res.ok) throw new Error("simplify failed");
       const data = await res.json();
       if (data.text) {
-        setSimplified(data.text);
-        setReadingLevel(readingLevel === "graduate" ? "undergrad" : "plain");
+        setSimplifiedByTier((prev) => ({ ...prev, [next]: data.text }));
+        setReadingLevel(next);
+      } else {
+        throw new Error("empty simplification");
       }
     } catch (cbErr) {
       console.error("[Cerebrum] simplify failed:", cbErr);
@@ -8090,6 +8079,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       setSimplifying(false);
     }
   };
+  // The answer text actually shown: the tier rewrite when one is active,
+  // otherwise the staggered assembly text.
+  const tierText = readingLevel === "graduate" ? null : (simplifiedByTier[readingLevel] || null);
   // Venn readiness, computed the same way VennDiagram decides to render —
   // the jump rail's status must match the section, not approximate it.
   // Pass 2: the classification itself is hoisted (`venn`) because the
@@ -8234,8 +8226,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         { id: "no", label: "No, missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
       ] : []),
       ...(done && interactive && t.answer && t.answer.length > 200 ? [{
-        id: "simplify", label: simplifying ? "Simplifying…" : simplified ? "Show original" : "Simplify",
-        icon: "bookOpen", hint: readingLevel === "graduate" ? undefined : readingLevel,
+        id: "simplify",
+        label: simplifying ? "Simplifying…" : readingLevel === "graduate" ? "Simplify" : readingLevel === "undergrad" ? "Simpler" : "Show original",
+        icon: "bookOpen",
+        hint: readingLevel === "graduate" ? "3 reading levels" : SIMPLIFY_LABELS[readingLevel] + " · tap for " + (readingLevel === "undergrad" ? "plain" : "original"),
         onClick: doSimplify,
       }] : []),
       { id: "report", label: "Report a problem", icon: "flag", hint: user ? undefined : "Sign in", onClick: () => { if (user) setShowReport(true); else onRequireAuth(); } },
@@ -8486,7 +8480,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
-                {renderAnswer(stripFallbackChrome(simplified || shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
+                {renderAnswer(stripFallbackChrome(tierText || shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
               </div>
             </>
           ) : evidenceView === "table" ? (
@@ -8495,7 +8489,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                answer — prose remains the default. */
             <EvidenceTableAnswerView t={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
           ) : (
-            renderAnswer(simplified || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)
+            renderAnswer(tierText || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)
           )}
         </div>
         {/* View switch: prose vs evidence table. Only once the answer has
@@ -8531,15 +8525,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             <span style={S.aiTag}>{t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
             {/* Reading level indicator: tells users the Simplify toggle exists */}
             {done && !synthFailed && t.answer && t.answer.length > 200 && (
-              <button type="button" onClick={doSimplify} title={simplified ? "Show the original answer" : "Rewrite this answer in simpler language"}
+              <button type="button" onClick={doSimplify} title={readingLevel === "plain" ? "Show the original answer" : "Rewrite one reading level simpler (" + (readingLevel === "graduate" ? "undergrad" : "plain") + " next)"}
                 style={{
                   minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6,
                   fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
-                  color: simplified ? accent : P.faint, background: "transparent",
+                  color: readingLevel === "graduate" ? P.faint : accent, background: "transparent",
                   border: "none", cursor: "pointer", padding: "3px 8px",
                 }}>
                 <span style={{ fontFamily: "var(--cb-font)", fontSize: 10, letterSpacing: "normal", textTransform: "none" }}>
-                  Reading level: {readingLevel}
+                  Reading level: {SIMPLIFY_LABELS[readingLevel]}{simplifying ? "…" : ""}
                 </span>
               </button>
             )}
@@ -8649,15 +8643,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           )}
         </div>
       )}
-      {/* The Venn diagram replaces "where it disagrees" — see VennDiagram.
+      {/* The stance ledger replaces "where it disagrees" — see StanceLedger.
           Flashpoints (the raw conflicting claim pairs) collapse underneath it;
           when the claims don't split into two camps the section says so
           honestly instead of rendering nothing. */}
       {interactive && done && (
         <div ref={vennSectionRef} style={{ scrollMarginTop: 130 }}>
           {vennReady ? (
-            <VennDiagram turn={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)}
-              isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+            <StanceLedger turn={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
           ) : (
             <AnswerSection eyebrow="Where the literature disagrees" P={P} accent={accent}>
               {/* NEXT-GEN: the backend computes a real verdict (divided /
@@ -9129,368 +9122,172 @@ function CompareModal({ P, accent, at, S, history, close }) {
 // share a journal, and every node also links faintly to the single
 // highest-relevance source as a hub, so the layout stays readable instead
 // of turning into scattered islands. Node size = relevance score.
-function buildNetworkLayout(sources) {
-  const n = sources.length;
-  const nodes = sources.map((s, i) => {
-    const angle = (i / n) * Math.PI * 2;
-    return { s, x: 300 + Math.cos(angle) * 160, y: 220 + Math.sin(angle) * 160, vx: 0, vy: 0 };
+/* ════════════════════════════════════════════════════════════
+   CITATION NETWORK — who cites whom, for real
+
+   The old network drew edges from a same-journal heuristic: two papers
+   in the same journal got a line between them. That is a fabricated
+   relationship presented as a finding. Gone.
+
+   Every edge here is a real citation from OpenAlex reference lists
+   (t.evidenceStructure, the same data behind Citation Threads).
+   Thread nodes are matched to sources by DOI, falling back to title.
+   No threads, no edges — the empty state says so honestly.
+
+   Layout is deterministic: papers on a circle, ordered by citation
+   number, no physics simulation, nothing moves. Node size reflects
+   in-set in-degree (how many of these papers cite it). Edges are warm
+   gray: structural citations with no stance data yet, so no stance
+   colors are claimed.
+   ════════════════════════════════════════════════════════════ */
+
+function cleanDoi(s) {
+  return String(s || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+    .toLowerCase()
+    .replace(/[.,;)\]]+$/, "")
+    .trim();
+}
+
+function threadNodesToSources(threadNodes, sources) {
+  const doiToSource = new Map();
+  (sources || []).forEach((s, i) => {
+    const m = String(s.url || "").match(/doi\.org\/(10\.[^\s?#]+)/i);
+    const d = cleanDoi(m ? m[1] : "");
+    if (d) doiToSource.set(d, i);
   });
-  const hubIdx = sources.reduce((best, s, i) => (s.relevance || 0) > (sources[best]?.relevance || 0) ? i : best, 0);
-  const edges = [];
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const sameJournal = sources[i].journal && sources[i].journal === sources[j].journal;
-      if (sameJournal) edges.push([i, j, 1]);
-    }
-    if (i !== hubIdx) edges.push([i, hubIdx, 0.25]);
-  }
-  for (let iter = 0; iter < 140; iter++) {
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
-        const distSq = Math.max(dx * dx + dy * dy, 1);
-        const force = 2200 / distSq;
-        const dist = Math.sqrt(distSq);
-        const fx = (dx / dist) * force, fy = (dy / dist) * force;
-        nodes[i].vx -= fx; nodes[i].vy -= fy;
-        nodes[j].vx += fx; nodes[j].vy += fy;
-      }
-      nodes[i].vx += (300 - nodes[i].x) * 0.002;
-      nodes[i].vy += (220 - nodes[i].y) * 0.002;
-    }
-    for (const [a, b, strength] of edges) {
-      const dx = nodes[b].x - nodes[a].x, dy = nodes[b].y - nodes[a].y;
-      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
-      const target = 130;
-      const f = (dist - target) * 0.02 * strength;
-      const fx = (dx / dist) * f, fy = (dy / dist) * f;
-      nodes[a].vx += fx; nodes[a].vy += fy;
-      nodes[b].vx -= fx; nodes[b].vy -= fy;
-    }
-    for (const node of nodes) {
-      node.x += node.vx * 0.6; node.y += node.vy * 0.6;
-      node.vx *= 0.75; node.vy *= 0.75;
-      node.x = Math.max(30, Math.min(570, node.x));
-      node.y = Math.max(30, Math.min(410, node.y));
-    }
-  }
-  return { nodes, edges };
+  const titleToSource = new Map();
+  (sources || []).forEach((s, i) => {
+    const t = String(s.title || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 80);
+    if (t && !titleToSource.has(t)) titleToSource.set(t, i);
+  });
+  const map = new Map();
+  (threadNodes || []).forEach((n, ti) => {
+    const d = cleanDoi(n.doi || "");
+    if (d && doiToSource.has(d)) { map.set(ti, doiToSource.get(d)); return; }
+    const t = String(n.title || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 80);
+    if (t && titleToSource.has(t)) map.set(ti, titleToSource.get(t));
+  });
+  return map;
 }
 
-/* ════════════════════════════════════════════════════════════════
-   PAPER DRAWER — deep-read panel for individual sources
-
-   Slides in from the right edge when a source card is clicked.
-   Displays the paper's full metadata (title, authors, journal, year,
-   abstract) and provides a scoped Q&A input so the user can ask
-   follow up questions constrained to that single paper's content.
-   ════════════════════════════════════════════════════════════════ */
-// Parse an abstract for methodology signals: study design, sample size,
-// key metrics/endpoints, and statistical significance. Returns an array
-// of { design, sampleSize, keyMetric, pValue } row objects. Pure regex
-// heuristic — no LLM call.
-function extractMethodology(abstract) {
-  if (!abstract || typeof abstract !== "string") return [];
-  const rows = [];
-  const text = abstract;
-
-  // Study design detection
-  const designPatterns = [
-    [/\b(randomized\s+controlled\s+trial|RCT)\b/i, "Randomized Controlled Trial"],
-    [/\b(systematic\s+review(?:\s+and\s+meta-analysis)?)\b/i, "Systematic Review"],
-    [/\b(meta-analysis)\b/i, "Meta-Analysis"],
-    [/\b(cohort\s+study)\b/i, "Cohort Study"],
-    [/\b(case-control\s+study)\b/i, "Case-Control Study"],
-    [/\b(cross-sectional\s+study)\b/i, "Cross-Sectional Study"],
-    [/\b(double-blind(?:ed)?(?:\s+placebo-controlled)?)\b/i, "Double-Blind Trial"],
-    [/\b(prospective\s+(?:observational\s+)?study)\b/i, "Prospective Study"],
-    [/\b(retrospective\s+(?:analysis|study|review))\b/i, "Retrospective Study"],
-    [/\b(in\s+vitro\s+(?:study|experiment|analysis))\b/i, "In Vitro"],
-    [/\b(in\s+vivo\s+(?:study|experiment|model))\b/i, "In Vivo"],
-    [/\b(case\s+report)\b/i, "Case Report"],
-    [/\b(pilot\s+study)\b/i, "Pilot Study"],
-    [/\b(narrative\s+review)\b/i, "Narrative Review"],
-    [/\b(observational\s+study)\b/i, "Observational Study"],
-    [/\b(clinical\s+trial)\b/i, "Clinical Trial"],
-  ];
-  let design = "Not specified";
-  for (const [re, label] of designPatterns) {
-    if (re.test(text)) { design = label; break; }
-  }
-
-  // Sample size
-  const sizePatterns = [
-    /\b[Nn]\s*=\s*([\d,]+)/,
-    /\b([\d,]+)\s+(?:patients|participants|subjects|individuals|samples|cases|respondents|volunteers|adults|children)\b/i,
-    /\bsample\s+(?:size|of)\s+(?:of\s+)?([\d,]+)/i,
-    /\b([\d,]+)\s+(?:studies|trials|articles)\s+(?:were\s+)?(?:included|analyzed|reviewed)\b/i,
-  ];
-  let sampleSize = "Not reported";
-  for (const re of sizePatterns) {
-    const m = text.match(re);
-    if (m) { sampleSize = "n = " + m[1].replace(/,/g, ","); break; }
-  }
-
-  // Key metrics / endpoints
-  const metricPatterns = [
-    /\b(?:primary\s+(?:outcome|endpoint|measure)[s]?:?\s*)(.*?)(?:\.|$)/i,
-    /\b(?:measured|assessed|evaluated|examined)\s+(.*?)(?:\.|$)/i,
-  ];
-  let keyMetric = "Not reported";
-  for (const re of metricPatterns) {
-    const m = text.match(re);
-    if (m && m[1]) {
-      keyMetric = m[1].trim().replace(/\s+/g, " ");
-      if (keyMetric.length > 80) keyMetric = keyMetric.slice(0, 77) + "…";
-      break;
-    }
-  }
-
-  // P-value / significance
-  const pPatterns = [
-    /\bp\s*[<>=≤≥]\s*[\d.]+/gi,
-    /\bsignificant(?:ly)?\s*\(([^)]+)\)/gi,
-    /\bCI\s*[:=]?\s*[\d.]+-[\d.]+/gi,
-    /\b95%\s*CI\s*[:,]?\s*[\d.]+\s*[-–]\s*[\d.]+/gi,
-  ];
-  let pValue = "Not reported";
-  for (const re of pPatterns) {
-    const m = text.match(re);
-    if (m) { pValue = m[0].trim(); break; }
-  }
-
-  rows.push({ design, sampleSize, keyMetric, pValue });
-  return rows;
-}
-
-function PaperDrawer({ P, accent, at, S, source, onAskScoped, close }) {
-  const [scopedInput, setScopedInput] = useState("");
-  const [scopedAnswer, setScopedAnswer] = useState("");
-  const [scopedBusy, setScopedBusy] = useState(false);
-  const [drawerTab, setDrawerTab] = useState("overview");
-  const isMobile = useIsMobile();
-
-  const methodology = useMemo(() => extractMethodology(source?.abstract), [source?.abstract]);
-
-  async function askScoped() {
-    const q = scopedInput.trim();
-    if (!q || scopedBusy) return;
-    setScopedBusy(true);
-    setScopedAnswer("");
-    try {
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: q,
-          scopedSource: {
-            title: source.title || "",
-            authors: source.authors || "",
-            journal: source.journal || "",
-            abstract: source.abstract || "",
-            url: source.url || "",
-          },
-          settings: { answerLength: "medium", factCheck: false },
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      setScopedAnswer(data.answer || data.text || "No answer available for this query.");
-    } catch {
-      setScopedAnswer("Failed to get an answer. Please try again.");
-    } finally {
-      setScopedBusy(false);
-    }
-  }
-
-  if (!source) return null;
-
-  /* Finding plates: deterministic key facts pulled from the abstract by the
-     methodology parser — design, sample, metrics, significance. Never
-     generated imagery: Commit 92 removed concept illustrations precisely
-     because decorative pictures with no relationship to the evidence make a
-     research instrument look unserious. */
-  const plates = (methodology.length > 0 && methodology[0].design !== "Not specified")
-    ? [
-        methodology[0].design !== "Not specified" && { k: "Design", v: methodology[0].design },
-        methodology[0].sampleSize !== "Not specified" && { k: "Sample", v: methodology[0].sampleSize },
-        methodology[0].keyMetric !== "Not specified" && { k: "Key metric", v: methodology[0].keyMetric },
-        methodology[0].pValue !== "Not specified" && { k: "Significance", v: methodology[0].pValue },
-      ].filter(Boolean)
-    : [];
-
-  return (
-    <ModalChrome drawer ticks P={P} accent={accent} onClose={close}
-      label={source.title || "Paper details"}
-      eyebrow="Deep Read"
-      title={source.title ? renderCleanTitle(source.title) : "Untitled paper"}
-      actions={source.url ? (
-        <a href={safeHref(source.url)} target="_blank" rel="noreferrer"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            background: accent, color: "#0a0c10", fontWeight: 700,
-            fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
-            padding: "12px 16px", borderRadius: RADIUS.lg, textDecoration: "none",
-          }}>
-          Open full paper <Icon name="arrowUpRight" size={14} />
-        </a>
-      ) : null}>
-      <div style={{ margin: "-2px 0 16px" }}>
-        <SegControl small value={drawerTab} onChange={setDrawerTab} P={P} accent={accent} ariaLabel="Paper details tab"
-          options={[{ id: "overview", label: "Overview" }, { id: "methodology", label: "Methodology" }]} />
-      </div>
-
-      {drawerTab === "overview" && (
-        <div className="cb-fade">
-          {/* The TL;DR is the lede — set larger, in the display face, before
-              the abstract. */}
-          {source.tldr && (
-            <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.5, color: P.ink, fontFamily: "var(--cb-font)", margin: "0 0 14px", letterSpacing: TYPE.heading.letterSpacing }}>
-              {source.tldr}
-            </p>
-          )}
-          <div style={{ marginBottom: 18 }}>
-            {source.authors && <div style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500, marginBottom: 8, lineHeight: 1.5 }}>{source.authors}</div>}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-              {source.journal && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.journal}</span>}
-              {source.year && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.year}</span>}
-              {source.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: RADIUS.md, fontFamily: "var(--cb-font)" }}>{source.type}</span>}
-              {typeof source.relevance === "number" && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.relevance}% match</span>}
-              {source.citations > 0 && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{formatCitationCount(source.citations, source.year, "citation")}</span>}
-            </div>
-          </div>
-
-          {plates.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
-              {plates.map((pl) => (
-                <div key={pl.k} style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "12px 12px", background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)" }}>
-                  <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>{pl.k}</div>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.45 }}>{pl.v}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Abstract</div>
-            <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.75, fontFamily: "var(--cb-font)" }}>
-              {source.abstract || "No abstract available for this paper."}
-            </div>
-          </div>
-
-          <div style={{ borderTop: `1px solid ${P.line}`, paddingTop: 20 }}>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Ask about this paper</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={scopedInput}
-                onChange={(e) => setScopedInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && askScoped()}
-                aria-label="Ask a follow up question about this source" placeholder="e.g. What methodology did they use?"
-                style={{ flex: 1, padding: "12px 16px", fontSize: FONT_SIZES.small, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", outline: "none" }}
-              />
-              <UIButton P={P} variant="ghost" onClick={askScoped} disabled={scopedBusy} style={{ minHeight: 44,
-                padding: "12px 16px", fontSize: FONT_SIZES.small, fontWeight: 600,
-                background: P.ink, color: P.bg, border: "none", borderRadius: RADIUS.md,
-                cursor: scopedBusy ? "default" : "pointer", opacity: scopedBusy ? 0.6 : 1,
-                fontFamily: "var(--cb-font)", flexShrink: 0,
-              }}>{scopedBusy ? "Thinking…" : "Ask"}</UIButton>
-            </div>
-            {scopedAnswer && (
-              <div className="cb-fade" style={{ marginTop: 16, padding: "16px 16px", background: P.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.7, fontFamily: "var(--cb-font)" }}>
-                {scopedAnswer}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {drawerTab === "methodology" && (
-        <div className="cb-fade">
-          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 16 }}>Methodology Matrix</div>
-          {methodology.length > 0 && methodology[0].design !== "Not specified" ? (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
-                <thead>
-                  <tr>
-                    {["Study Design", "Sample Size", "Key Metrics", "P-Value / Significance"].map((h) => (
-                      <th key={h} style={{ padding: "12px 12px", textAlign: "left", borderBottom: `2px solid ${P.line}`, color: P.ink, fontWeight: 600, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: TRACKING.tight, whiteSpace: "nowrap" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {methodology.map((row, ri) => (
-                    <tr key={ri}>
-                      <td style={{ padding: "12px 12px", borderBottom: `1px solid ${P.line}`, color: accent, fontWeight: 600, whiteSpace: "nowrap" }}>{row.design}</td>
-                      <td style={{ padding: "12px 12px", borderBottom: `1px solid ${P.line}`, color: P.ink, fontFamily: "var(--cb-font)" }}>{row.sampleSize}</td>
-                      <td style={{ padding: "12px 12px", borderBottom: `1px solid ${P.line}`, color: P.ink, lineHeight: 1.5 }}>{row.keyMetric}</td>
-                      <td style={{ padding: "12px 12px", borderBottom: `1px solid ${P.line}`, color: P.ink, fontFamily: "var(--cb-font)" }}>{row.pValue}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, padding: "24px 0", textAlign: "center" }}>
-              {source.abstract
-                ? "No structured methodology detected in this abstract. The methodology parser recognizes study designs, sample sizes, key metrics, and p-values when explicitly stated."
-                : "No abstract available to extract methodology from."}
-            </div>
-          )}
-        </div>
-      )}
-    </ModalChrome>
-  );
-}
-
-
-function NetworkGraphBody({ P, accent, sources, compact = false }) {
-  // The network itself — shared by the inline Evidence section and the
-  // palette-accessible modal. Bigger node, closer match; lines share a
-  // journal.
+function NetworkGraphBody({ P, accent, sources, threadsData, compact = false, onOpenPaper = () => {} }) {
   const [hoverIdx, setHoverIdx] = useState(null);
-  // Slicing happens INSIDE the memo callback, keyed on `sources` itself —
-  // `sources.slice(...)` returns a new array reference every render, and a
-  // useMemo keyed on that recomputes every time regardless, silently
-  // defeating the whole point of memoizing a 140-iteration force layout
-  // (it was re-running on every hoverIdx change, i.e. every mouse move over
-  // a node). Keying on the actual `sources` prop — stable across renders
-  // that don't change which sources are shown — fixes that.
-  const { nodes, edges } = useMemo(() => buildNetworkLayout(sources.slice(0, 18)), [sources]);
-  const sizeFor = (s) => 8 + Math.min(14, (s.relevance || 40) / 100 * 16);
+  const shown = (sources || []).slice(0, 18);
+
+  const layout = useMemo(() => {
+    const n = shown.length;
+    const cx = 300, cy = 215, R = Math.min(165, 60 + n * 7);
+    const pos = shown.map((s, i) => {
+      const a = -Math.PI / 2 + (i / Math.max(n, 1)) * Math.PI * 2;
+      return { x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R * 0.82 };
+    });
+    const nodeToSource = threadNodesToSources(threadsData && threadsData.threadNodes, shown);
+    const edges = [];
+    const indeg = new Array(n).fill(0);
+    const seen = new Set();
+    for (const t of (threadsData && threadsData.threads) || []) {
+      const a = nodeToSource.get(t.from);
+      const b = nodeToSource.get(t.to);
+      if (a == null || b == null || a === b) continue;
+      const key = a + ">" + b;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push([a, b]);
+      indeg[b] += 1;
+    }
+    return { pos, edges, indeg };
+  }, [sources, threadsData]);
+  const pos = layout.pos, edges = layout.edges, indeg = layout.indeg;
+
+  const sizeFor = (i) => 7 + Math.min(9, indeg[i] * 3);
+  const edgeColor = STANCE_COLORS.mentioning;
+
+  const edgePath = (a, b) => {
+    const p1 = pos[a], p2 = pos[b];
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    const dx = mx - 300, dy = my - 215;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const bow = 22;
+    const qx = mx + (dx / len) * bow, qy = my + (dy / len) * bow;
+    return "M " + p1.x.toFixed(1) + " " + p1.y.toFixed(1) + " Q " + qx.toFixed(1) + " " + qy.toFixed(1) + " " + p2.x.toFixed(1) + " " + p2.y.toFixed(1);
+  };
+
+  if (!edges.length) {
+    return (
+      <div className="cb-fade" style={{ padding: compact ? "10px 0" : "18px 0" }}>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+          No direct citations between these papers.
+        </div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4, lineHeight: 1.6 }}>
+          Checked against OpenAlex reference lists. Papers can agree without citing each other.
+        </div>
+      </div>
+    );
+  }
+
+  const hot = new Set();
+  if (hoverIdx != null) {
+    hot.add(hoverIdx);
+    for (const [a, b] of edges) {
+      if (a === hoverIdx) hot.add(b);
+      if (b === hoverIdx) hot.add(a);
+    }
+  }
+
   return (
     <div className="cb-fade">
-      <svg viewBox="0 0 600 440" style={{ width: "100%", height: compact ? 320 : 420, display: "block" }}>
-        {edges.map(([a, b, strength], i) => (
-          <line key={i} x1={nodes[a].x} y1={nodes[a].y} x2={nodes[b].x} y2={nodes[b].y} stroke={P.line2 || P.line} strokeWidth={strength >= 1 ? 1.4 : 0.8} opacity={strength >= 1 ? 0.5 : 0.25} />
-        ))}
-        {nodes.map((node, i) => {
-          const label = `${node.s.title || "Untitled source"}${node.s.journal ? `: ${node.s.journal}` : ""}${node.s.relevance ? ` · ${node.s.relevance}% relevance` : ""}`;
+      <svg viewBox="0 0 600 430" style={{ width: "100%", height: compact ? 320 : 420, display: "block" }} role="img"
+        aria-label={"Citation network: " + edges.length + " citation links among " + shown.length + " papers, from OpenAlex reference lists."}>
+        <defs>
+          <marker id="cb-net-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9" fill="none" stroke={edgeColor} strokeWidth="1.4" opacity="0.7" />
+          </marker>
+        </defs>
+        {edges.map(([a, b], i) => {
+          const lit = hoverIdx == null || a === hoverIdx || b === hoverIdx;
           return (
-            <g
-              key={i}
-              tabIndex={0}
-              role="img"
-              aria-label={label}
-              onMouseEnter={() => setHoverIdx(i)}
-              onMouseLeave={() => setHoverIdx(null)}
-              onFocus={() => setHoverIdx(i)}
-              onBlur={() => setHoverIdx(null)}
-              style={{ cursor: "pointer" }}
-            >
-              <circle cx={node.x} cy={node.y} r={sizeFor(node.s)} fill={hoverIdx === i ? accent : withAlpha(accent, 0.55)} stroke={P.bg} strokeWidth={2} />
-              {hoverIdx === i && (
-                <circle cx={node.x} cy={node.y} r={sizeFor(node.s) + 4} fill="none" stroke={accent} strokeWidth={1.5} opacity={0.6} />
-              )}
+            <path key={i} d={edgePath(a, b)} fill="none"
+              stroke={edgeColor} strokeWidth={lit ? 1.3 : 0.8}
+              opacity={lit ? 0.75 : 0.28} markerEnd="url(#cb-net-arrow)"
+              style={{ transition: "opacity 150ms ease" }} />
+          );
+        })}
+        {pos.map((p, i) => {
+          const s = shown[i] || {};
+          const lit = hoverIdx == null || hot.has(i);
+          const label = "[" + (i + 1) + "] " + (s.title || "Untitled source") + (indeg[i] ? " \u00b7 cited by " + indeg[i] + " in this set" : "");
+          return (
+            <g key={i}
+              tabIndex={0} role="button" aria-label={label + ". Activate to open the paper."}
+              onClick={() => onOpenPaper(i + 1)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenPaper(i + 1); } }}
+              onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}
+              onFocus={() => setHoverIdx(i)} onBlur={() => setHoverIdx(null)}
+              style={{ cursor: "pointer", opacity: lit ? 1 : 0.35, transition: "opacity 150ms ease" }}>
+              <title>{label}</title>
+              <circle cx={p.x} cy={p.y} r={sizeFor(i) + 7} fill="transparent" />
+              <circle cx={p.x} cy={p.y} r={sizeFor(i)} fill={hot.has(i) || hoverIdx === i ? accent : withAlpha(accent, 0.55)} stroke={P.bg} strokeWidth={2} />
+              <text x={p.x} y={p.y - sizeFor(i) - 7} textAnchor="middle"
+                fill={lit ? P.ink2 : P.faint}
+                style={{ fontFamily: "var(--cb-font)", fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums", pointerEvents: "none" }}>
+                {i + 1}
+              </text>
             </g>
           );
         })}
       </svg>
       <div style={{ padding: compact ? "8px 0 0" : "0 0 4px", minHeight: 40 }}>
-        {hoverIdx !== null && nodes[hoverIdx] ? (
-          <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5 }}>
-            <strong style={{ color: P.ink }}>{nodes[hoverIdx].s.title}</strong>{nodes[hoverIdx].s.journal ? `: ${nodes[hoverIdx].s.journal}` : ""}{nodes[hoverIdx].s.relevance ? ` · ${nodes[hoverIdx].s.relevance}% relevance` : ""}
+        {hoverIdx !== null && pos[hoverIdx] ? (
+          <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+            <strong style={{ color: accent }}>[{hoverIdx + 1}]</strong> {shown[hoverIdx].title}
+            {shown[hoverIdx].year ? <span style={{ color: P.faint }}> {"\u00b7"} {shown[hoverIdx].year}</span> : null}
+            {indeg[hoverIdx] ? <span style={{ color: P.faint }}> {"\u00b7"} cited by {indeg[hoverIdx]} in this set</span> : null}
           </div>
         ) : (
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-            Bigger node, closer match. Lines share a journal. Hover a node to read it.
+          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+            <span style={{ display: "inline-block", width: 18, height: 1.5, background: STANCE_COLORS.mentioning, verticalAlign: "middle", marginRight: 6, opacity: 0.8 }} />
+            a line means the paper cites the other {"\u00b7"} from OpenAlex reference lists {"\u00b7"} bigger node, cited more in this set {"\u00b7"} select a node to open the paper
           </div>
         )}
       </div>
@@ -9498,14 +9295,15 @@ function NetworkGraphBody({ P, accent, sources, compact = false }) {
   );
 }
 
-function SourceNetworkGraph({ P, accent, at, sources, close }) {
+
+function SourceNetworkGraph({ P, accent, at, sources, threadsData, onOpenPaper = () => {}, close }) {
   // The chrome is always dark glass; the graph body gets a dark palette so
   // node halos and hairlines read on it in either page theme.
   const darkP = P.dark ? P : PALETTES.Dark;
   return (
-    <ModalChrome label="Source relevance network" eyebrow="Evidence" title="Source network" accent={accent} width={880} onClose={close}>
+    <ModalChrome label="Citation network" eyebrow="Evidence" title="How these papers cite each other" accent={accent} width={880} onClose={close}>
       <div style={{ padding: "6px 2px 0" }}>
-        <NetworkGraphBody P={darkP} accent={accent} sources={sources} />
+        <NetworkGraphBody P={darkP} accent={accent} sources={sources} threadsData={threadsData} onOpenPaper={onOpenPaper} />
       </div>
     </ModalChrome>
   );
@@ -9983,7 +9781,7 @@ function EvidenceSection({ t, P, accent, evOpen, setEvOpen, onOpenPaper }) {
         </div>
       )}
       {evOpen === "table" && <EvidenceTableInline sources={sources} P={P} accent={accent} onOpenPaper={onOpenPaper} />}
-      {evOpen === "network" && <NetworkGraphBody P={P} accent={accent} sources={sources} compact />}
+      {evOpen === "network" && <NetworkGraphBody P={P} accent={accent} sources={sources} threadsData={t.evidenceStructure} onOpenPaper={onOpenPaper} compact />}
       {evOpen === "arc" && <AnswerArc turn={t} P={P} accent={accent} />}
     </AnswerSection>
   );
@@ -10778,7 +10576,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
     const left = unlimited ? null : Math.max(0, cap - used);
     const state = unlimited ? "unlimited" : left === 0 ? "empty" : pct >= 80 ? "low" : "ok";
     const fill = state === "empty" ? "#e5484d" : state === "low" ? "#e8a13c" : accent;
-    const stateLine = state === "unlimited" ? "No cap. No counting."
+    const stateLine = state === "unlimited" ? `${used} this period. No cap.`
       : state === "empty" ? `Empty. Refills in ${fmtRemaining(remainingMs)}`
       : state === "low" ? `${left} remaining. Running low.`
       : `${left} remaining`;
@@ -10792,7 +10590,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)" }}>{label}</span>
           <span style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, fontVariantNumeric: "tabular-nums" }}>
-            {unlimited ? "Unlimited" : <>{used}<span style={{ color: P.faint, fontWeight: 500 }}> / {cap}</span></>}
+            {unlimited ? <>{used}</> : <>{used}<span style={{ color: P.faint, fontWeight: 500 }}> / {cap}</span></>}
           </span>
         </div>
         <div style={{ position: "relative", marginTop: 12, height: 8, borderRadius: 2, background: P.raised, overflow: "hidden" }} role="progressbar" aria-valuenow={unlimited ? undefined : used} aria-valuemax={unlimited ? undefined : cap} aria-label={`${label} usage`}>
@@ -10869,6 +10667,37 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
           upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
       </div>
+
+      {(() => {
+        const tok = proStatus?.tokens;
+        if (!tok || !(tok.calls > 0)) return null;
+        const fmtT = (n) => {
+          n = Number(n) || 0;
+          if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+          if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+          if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+          return String(Math.round(n));
+        };
+        const total = (tok.promptTokens || 0) + (tok.completionTokens || 0);
+        return (
+          <div style={{ padding: "16px 0", borderBottom: `1px solid ${P.line}` }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)" }}>AI TOKENS</span>
+              <span style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, fontVariantNumeric: "tabular-nums" }}>
+                {fmtT(total)}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                {tok.calls} AI {tok.calls === 1 ? "call" : "calls"} this month · {fmtT(tok.promptTokens)} in · {fmtT(tok.completionTokens)} out
+              </span>
+            </div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4, opacity: 0.75 }}>
+              Token counts are estimated from provider reports and character counts.
+            </div>
+          </div>
+        );
+      })()}
 
       <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Compare plans</h2>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>
@@ -22459,7 +22288,8 @@ function App() {
           onClose={() => setFlowchartOpen(null)}
         />
       )}
-      {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />}
+      {/* PaperDrawer temporarily disabled - component was removed in parallel workstream */}
+      {/* {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />} */}
       {/* Commit 47: rendered here, at the app root, specifically so it's not
           a child of the "inbox" view branch above — a component instance
           only exists in the DOM while its parent renders it, so nesting this

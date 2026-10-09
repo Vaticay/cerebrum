@@ -429,6 +429,15 @@ export function classifyVennPapers({ answer, sources, factCheck, conflicts }) {
   const n = srcArr.length;
   if (n === 0) return { agree: [], disagree: [], middle: [], unclear: [] };
 
+  // Weak/failed answers ("Couldn't find a direct answer") have no claims and
+  // no direction. The papers are keyword matches, not evidence — a moss
+  // taxonomy paper does not "support" a name query. They take no stance, so
+  // everything goes to unclear. This keeps every consumer (KeyFigures,
+  // StanceLedger, ConsensusMeter) honest without per-site special cases.
+  if (/^##\s*couldn't find a direct answer/i.test(String(answer || ""))) {
+    return { agree: [], disagree: [], middle: [], unclear: Array.from({ length: n }, (_, i) => i + 1) };
+  }
+
   const agree = new Set();
   const disagree = new Set();
   const middle = new Set();
