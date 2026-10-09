@@ -4395,15 +4395,10 @@ function VerdictReadout({ t, P }) {
     ? `${total} CLAIMS CHECKED · ${nSup} TRACED${nThin > 0 ? ` · ${nThin} THIN` : ""}${nUns > 0 ? ` · ${nUns} UNSUPPORTED` : ""}${divided ? " · LITERATURE DIVIDED" : ""}`
     : (divided ? "LITERATURE DIVIDED" : tier === "background" ? "REFERENCE OVERVIEWS · NO PRIMARY RESEARCH" : tier === "limited" ? "THIN EVIDENCE BASE" : "NO VERIFICATION PASS");
   return (
-    <div className="cb-verdict" style={{ borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}` }}>
-      <div className="cb-verdict-glyph" style={{ color: tone }}>
-        <Icon name={glyph} size={54} />
-      </div>
-      <div className="cb-verdict-body">
-        <div className="cb-verdict-eyebrow">Answer check</div>
-        <div className="cb-verdict-word" style={{ color: P.ink }}>{word}</div>
-        <div className="cb-verdict-sub" style={{ color: P.ink2 }}>{sub}</div>
-        <div className="cb-mono cb-verdict-readout" style={{ color: P.faint }}>{readout}</div>
+    <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: P.ink2 }}>
+        <span style={{ color: tone, display: "inline-flex" }}><Icon name={glyph} size={16} /></span>
+        <span>{sub}</span>
       </div>
     </div>
   );
@@ -8215,7 +8210,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     and pipeline honesty now live in the Answer diagnostics
                     disclosure below the toolbar; they are no longer a badge
                     row. */}
-                <span className="cb-readout-label">Readout{minRead > 0 ? ` · ${minRead} min` : ""} · {t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}</span>
+                <span className="cb-readout-label">{t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}{minRead > 0 ? ` · ${minRead} min read` : ""}</span>
               </div>
             ) : <span />}
             {/* Pass 2: the toolbar is a quiet strip of text actions — Copy
@@ -8287,14 +8282,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     </div>
                   </Dialog>
                 )}
-                {/* Evidence index: toggles the evidence drawer — the index is
+                {/* Sources: toggles the evidence drawer — the index is
                     a secondary surface now, not a column competing with the
                     answer. */}
-                <button type="button" className="cb-ctlbtn" title={evidenceOpen ? "Hide the evidence index" : "Show the evidence index"}
+                <button type="button" className="cb-ctlbtn" title={evidenceOpen ? "Hide sources" : "Show sources"}
                   aria-expanded={evidenceOpen}
                   onClick={() => setEvidenceOpen((v) => !v)}
                 >
-                  Evidence index
+                  Sources
                 </button>
                 <ToolbarOverflow P={P} accent={accent} items={overflowItems} />
               </div>
@@ -24915,12 +24910,13 @@ button.cb-cite { min-height: 0; min-width: 0; }
 .cb-sect { display: flex; align-items: baseline; gap: 14px; margin: 48px 0 20px; }
 .cb-sect::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--cb-line, rgba(128,128,128,0.22)); }
 .cb-sect-label {
-  font-size: 12px; font-weight: 700; letter-spacing: 0.12em;
-  text-transform: uppercase; white-space: nowrap;
+  font-size: 20px; font-weight: 650; letter-spacing: -0.01em;
+  text-transform: none; white-space: normal; margin-bottom: 16px;
+  color: var(--cb-ink);
 }
 .cb-sect-sub {
-  margin: 30px 0 12px; font-size: 12px; font-weight: 700;
-  letter-spacing: 0.1em; text-transform: uppercase;
+  margin: 36px 0 14px; font-size: 16px; font-weight: 650;
+  letter-spacing: -0.01em; text-transform: none;
 }
 
 /* ── Control strip: the answer toolbar as instrument controls ────────────
@@ -24928,10 +24924,10 @@ button.cb-cite { min-height: 0; min-width: 0; }
    The More menu trigger keeps its own styling. */
 .cb-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cb-ctlbtn {
-  font-family: var(--cb-font); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  padding: 0 12px; min-height: 44px;
-  border: 1px solid var(--cb-line, rgba(128,128,128,0.3)); border-radius: 4px;
+  font-family: var(--cb-font); font-size: 14px; font-weight: 500;
+  letter-spacing: 0; text-transform: none;
+  padding: 0 16px; min-height: 44px;
+  border: 1px solid var(--cb-line, rgba(128,128,128,0.3)); border-radius: 2px;
   background: transparent; color: var(--cb-ink2, #ccc); cursor: pointer;
   white-space: nowrap;
 }
