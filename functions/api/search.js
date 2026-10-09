@@ -1162,6 +1162,8 @@ const SPELLING_CORRECTIONS = {
   "tempurature": "temperature", "temperture": "temperature",
   "moleclue": "molecule", "molecuel": "molecule",
   "algorithem": "algorithm", "algorithim": "algorithm",
+  // Disease & symptom names
+  "plauge": "plague",
 };
 
 // Multi-word scientific terms that must be preserved as a phrase. Users type
@@ -1208,9 +1210,14 @@ const SCIENTIFIC_COMPOUNDS = [
   [/\bstem[\s-]?cell\b/gi, "stem-cell"],
 ];
 
-// Preprocess a raw query BEFORE term extraction. Fixes typos, joins scientific
-// compounds, so downstream code sees the canonical form.
-function preprocessQuery(raw) {
+// Spelling correction only (no paraphrasing, no compound joining): the
+// canonical-spelling form of a query. 2026-10-09: constraint extraction
+// (analyzeQuery) must see the SAME corrected terms the retrieval pipeline
+// searches for. Before this, retrieval searched the corrected query while
+// the constraint check ran on the raw one, so a typo ("plauge") became a
+// load-bearing constraint no paper could satisfy and every retrieved paper
+// was capped below the relevance floor.
+function correctQuerySpelling(raw) {
   let q = " " + (raw || "").toLowerCase() + " ";
   // Binomial typo correction before anything else . fixes voice-dictation
   // mangling like "Hermetia illucens" -> "Hermia illusions" so the organism
@@ -1228,7 +1235,13 @@ function preprocessQuery(raw) {
       words[i] = words[i].replace(w, SPELLING_CORRECTIONS[w]);
     }
   }
-  q = words.join("");
+  return words.join("");
+}
+
+// Preprocess a raw query BEFORE term extraction. Fixes typos, joins scientific
+// compounds, so downstream code sees the canonical form.
+function preprocessQuery(raw) {
+  let q = correctQuerySpelling(raw);
   // Then join scientific compounds so "co occurrence" becomes "co-occurrence".
   for (const [re, canonical] of SCIENTIFIC_COMPOUNDS) {
     q = q.replace(re, canonical);
@@ -2613,6 +2626,13 @@ const QUERY_FRAMING_WORDS = new Set([
   "these", "those", "it", "its", "as", "at", "by", "be", "been", "are",
   "any", "some", "all", "more", "most", "other", "such", "than", "then",
   "into", "over", "under", "after", "before", "between", "through",
+  // 2026-10-09: question-property adjectives. "how deadly is the bubonic
+  // plague" asks about the plague's lethality; "deadly" is the property
+  // being asked about, not a phrase papers must contain. Without this,
+  // "deadly bubonic plague" became a load-bearing constraint no paper
+  // satisfies and the whole pool was capped below the relevance floor.
+  "deadly", "dangerous", "lethal", "fatal", "safe", "effective",
+  "common", "rare", "serious", "severe", "harmful",
 ]);
 
 // Generic descriptors that modify a constraint but aren't constraints
@@ -2698,7 +2718,7 @@ function extractKeyPhrases(query, organismPhrases) {
 
   const tokens = norm.split(" ").filter((t) =>
     t.length > 2 && !QUERY_FRAMING_WORDS.has(t) && !orgSet.has(t) && !orgWords.has(t)
-  );
+  ).map((t) => t.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")).filter((t) => t.length > 2);
   const phrases = [];
   // Sliding window: adjacent content words form candidate phrases.
   // Skip windows ending in a generic descriptor.
@@ -2757,9 +2777,17 @@ const LEARNED_CONSTRAINT_RULES = [
  * }
  */
 export function analyzeQuery(rawQuery) {
-  const query = String(rawQuery || "").trim();
+  // 2026-10-09: analyze the TYPO-CORRECTED query, not the raw one. The
+  // retrieval ladder searches the corrected form; constraint extraction
+  // must agree with it. "how deadly is the bubonic plauge" must yield the
+  // constraint "bubonic plague", not "deadly bubonic plauge". The raw
+  // original is kept as originalQuery for display and learning signatures.
+  const raw = String(rawQuery || "").trim();
+  const query = correctQuerySpelling(raw).trim();
   const qType = classifyQuestionType(query);
-  const isNameSearch = looksLikePersonName(query);
+  // Name detection needs the user's original capitalization ("Reese Saho"
+  // vs "reese saho"), so it runs on the raw query, not the lowercased one.
+  const isNameSearch = looksLikePersonName(raw);
   let organism = null;
   let organismPhrases = [];
   try {
@@ -2813,7 +2841,7 @@ export function analyzeQuery(rawQuery) {
   } catch { plainEnglish = "Looking for papers about \"" + query.slice(0, 80) + "\"."; }
 
   return {
-    originalQuery: query,
+    originalQuery: raw,
     questionType: qType.type,
     questionTerm: qType.term || null,
     isNameSearch: !!isNameSearch,

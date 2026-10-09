@@ -8472,15 +8472,28 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               <QueryRetryForm P={P} accent={accent} onAsk={adjustQuery} id={`cb-retry-${t.answerId || "turn"}`} />
             </AnswerStateCard>
           ) : synthFailed && sources.length === 0 ? (
-            /* Synthesis failed and the fallback carried no papers either:
-               there is no answer text to show at all. */
-            <AnswerStateCard kicker="No synthesis available" tone="warn"
-              title="Synthesis isn't available right now."
-              body="Every model is at capacity and no extractive fallback was possible, so there's no answer text to show."
-              actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
-              P={P} accent={accent}>
-              <QueryRetryForm P={P} accent={accent} onAsk={adjustQuery} id={`cb-retry-${t.answerId || "turn"}`} />
-            </AnswerStateCard>
+            /* Synthesis failed and the fallback carried no papers. The
+               backend still builds an intelligent no-results answer (what
+               was tried, likely reasons, rephrasings) — show it, never a
+               bare dead end. 2026-10-09: the old branch discarded t.answer
+               here and printed "no answer text to show" even though the
+               backend had produced one. */
+            <>
+              <AnswerStateCard kicker="No synthesis available" tone="warn"
+                title={answerText.trim() ? "No citable literature surfaced." : "Synthesis isn't available right now."}
+                body={answerText.trim()
+                  ? "Every model is at capacity and no paper cleared the bar for this question, so there's no written synthesis. What follows is the honest record of the search instead."
+                  : "Every model is at capacity and no extractive fallback was possible, so there's no answer text to show."}
+                actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
+                P={P} accent={accent}>
+                <QueryRetryForm P={P} accent={accent} onAsk={adjustQuery} id={`cb-retry-${t.answerId || "turn"}`} />
+              </AnswerStateCard>
+              {answerText.trim() ? (
+                <div style={{ marginTop: 16 }}>
+                  {renderAnswer(tierText || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
+                </div>
+              ) : null}
+            </>
           ) : synthFailed ? (
             /* Synthesis failed but the fallback retrieved papers: the card
                owns the status and the plain-English explanation; the chrome
