@@ -6014,10 +6014,26 @@ export function enforceDisagreementSection(answer, conflicts, verdict) {
   const m = text.match(re);
   if (!m) return text;
   let body;
-  if (list.length > 0) {
+  // Filter out contaminated conflicts: claims that are actually section headers,
+  // tag-soup lines, or recursive section quotes (not real paper claims).
+  const isHeaderLike = (s) => {
+    const t = String(s || "").toLowerCase();
+    return t.includes("what the research shows") ||
+           t.includes("where researchers disagree") ||
+           t.includes("findings on ") ||
+           t.includes("the short answer") ||
+           t.includes("how solid is this") ||
+           t.length < 20;
+  };
+  const cleanList = list.filter(c => {
+    const a = String(c.claimA || "");
+    const b = String(c.claimB || "");
+    return !isHeaderLike(a) && !isHeaderLike(b);
+  });
+  if (cleanList.length > 0) {
     // Divided: name the disputing sources and the point of disagreement.
     // Dusty's rule: a dispute label names both sides or it gets dropped.
-    const lines = list.slice(0, 3).map((c) => {
+    const lines = cleanList.slice(0, 3).map((c) => {
       const a = String(c.claimA || "").replace(/\*\*/g, "").trim();
       const b = String(c.claimB || "").replace(/\*\*/g, "").trim();
       return "- [" + c.idxA + "] reports: " + a + "\n" +
