@@ -13661,90 +13661,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           from the workspace) so the name never slides under the button. */}
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 56px" : "18px 28px 72px" }}>
 
-        {/* Collapsed identity bar: pins once the sky scrolls away. The
-            outer wrapper is sticky with zero height when hidden (no layout
-            gap); the inner bar slides down when the hero leaves. */}
-        <div aria-hidden={!heroGone} style={{
-          position: "sticky", top: 0, zIndex: Z.popover,
-          height: heroGone ? "auto" : 0, overflow: "visible",
-          margin: isMobile ? "0 -18px" : "0 -28px",
-        }}>
-        <div style={{
-          margin: 0,
-          padding: isMobile ? "10px 18px" : "10px 28px",
-          display: "flex", alignItems: "center", gap: 10,
-          /* Pass 1 (2026-09-17): opaque. This is a sticky chrome bar, not
-             an overlay — the blur only frosted the ambient reel behind it. */
-          background: P.bg,
-          borderBottom: `1px solid ${P.line}`,
-          transform: heroGone ? "translateY(0)" : "translateY(-110%)",
-          opacity: heroGone ? 1 : 0,
-          transition: "transform 280ms ease, opacity 280ms ease",
-          pointerEvents: heroGone ? "auto" : "none",
-        }}>
-          <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0, background: P.surface }}>
-            {profile.avatar_base64 && !avatarFailed ? (
-              <img src={profile.avatar_base64} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-            ) : (
-              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: P.ink2, fontFamily: "var(--cb-font)", ...avatarSkin(displayName || user?.id) }}>{displayInitial}</div>
-            )}
-          </div>
-          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</span>
-          <button onClick={() => setEditing((v) => !v)} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", minHeight: 44, padding: "12px 8px", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", color: accent }}>
-            {editing ? "Done" : "Edit"}
-          </button>
-        </div>
-        </div>
+        {/* Identity: name, standing, username. No photo, no badges, no
+            constellation — a researcher is their work, not their avatar. */}
 
-        {/* -- Sky: the constellation hero ---------------------------------
-            The profile's one visual idea: the reader's own library drawn as
-            a star chart. Identity sits on its lower edge, magazine style —
-            avatar overlapping the sky, name set large underneath. */}
-        <div ref={heroRef} style={{ margin: isMobile ? "0 -18px" : "0 -28px", padding: isMobile ? "0 18px" : "0 28px" }}>
-          <ProfileConstellation P={P} accent={accent} papers={saved} pinnedIds={pinnedIds} shelfNameOf={shelfName} height={isMobile ? 200 : 240} />
-        </div>
-
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginTop: -34, position: "relative", zIndex: Z.raised }}>
-          <div style={{ position: "relative", width: 88, height: 88, flexShrink: 0 }}>
-            {!profile.avatar_base64 || avatarFailed ? (
-              <div style={{
-                width: "100%", height: "100%", borderRadius: "50%",
-                ...avatarSkin(displayName || user?.id), display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 32, fontWeight: 700, fontFamily: "var(--cb-font)",
-                border: `3px solid ${P.bg}`,
-              }}>{displayInitial}</div>
-            ) : (
-              <img
-                src={profile.avatar_base64}
-                alt={`${displayName}'s photo`}
-                onError={() => setAvatarFailed(true)}
-                style={{ width: "100%", height: "100%", borderRadius: "50%", display: "block", objectFit: "cover", background: P.surface, border: `3px solid ${P.bg}` }}
-              />
-            )}
-            <UIButton P={P} variant="ghost"
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={avatarSaving}
-              aria-label="Change photo"
-              title="Change photo"
-              style={{
-                position: "absolute", bottom: -2, right: -2, width: 32, height: 32, borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center", cursor: avatarSaving ? "default" : "pointer",
-                background: P.raised, color: P.ink2, border: `1px solid ${P.line2}`,
-                opacity: avatarSaving ? 0.6 : 1,
-              }}
-            >
-              {avatarSaving ? <Icon name="refresh" size={13} className="cb-spin" /> : <Icon name="camera" size={13} />}
-            </UIButton>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
-            {avatarSaving && (
-              <div style={{ position: "absolute", left: 8, right: 8, bottom: -7, height: 3, borderRadius: 6, background: P.line, overflow: "hidden" }}>
-                <div className="cb-indeterminate-bar" style={{ height: "100%", width: "40%", borderRadius: 6, background: accent }} />
-              </div>
-            )}
-          </div>
-
-          <div style={{ flex: 1, minWidth: 0, paddingBottom: 2 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             {editing ? (
               <input
                 value={profile.name || ""}
@@ -13758,29 +13679,28 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 margin: 0, fontSize: isMobile ? 30 : 36, fontWeight: 800,
                 color: P.ink, fontFamily: "var(--cb-font)",
                 letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.02,
-                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-              }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span>{(rawBadges.includes("founder") || rawBadges.includes("verified")) && <VerifiedCheck size={18} title={rawBadges.includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}{user?.isPro && <ProBadge />}</h1>
+              }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span></h1>
             )}
-            {!editing && <ProfileMarkers P={P} accent={accent} markers={markers} />}
             <div style={{ marginTop: 5, fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>
               {displayUsername}
             </div>
+            {!editing && contextLine && (
+              <div style={{ marginTop: 6, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
+            )}
           </div>
 
-          <UIButton P={P} variant="ghost"
+          <button
+            type="button"
             onClick={() => setEditing((v) => !v)}
             style={{
-              flexShrink: 0, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)", border: `1px solid ${P.line}`, borderRadius: 2, cursor: "pointer",
-              padding: "12px 24px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700,
-              fontFamily: "var(--cb-font)", color: P.ink,
+              flexShrink: 0, background: "none", border: "none", cursor: "pointer",
+              minHeight: 44, padding: "12px 4px", fontSize: FONT_SIZES.small, fontWeight: 600,
+              fontFamily: "var(--cb-font)", color: P.faint,
             }}
-          >{editing ? "Done" : "Edit profile"}</UIButton>
+          >{editing ? "Done" : "Edit"}</button>
         </div>
 
-        {avatarError && <div role="alert" style={{ fontSize: FONT_SIZES.caption, color: "#e05555", marginTop: 10 }}>{avatarError}</div>}
-
-        {/* -- Statement: the researcher's own words, set like a pull quote.
-            Bio is the voice; interests and standing are the footnote. */}
+        {/* -- Statement: what they work on, plain. */}
         <div style={{ marginTop: 18 }}>
           {editing ? (
             <div style={{ maxWidth: 620 }}>
@@ -13806,13 +13726,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </div>
           ) : (
             profile.bio ? (
-              <blockquote style={{
-                margin: "6px 0 0", padding: "0 0 0 16px", maxWidth: 640,
-                borderLeft: `2px solid ${accent}`,
-                fontSize: isMobile ? 17 : 19, fontWeight: 500, color: P.ink,
-                fontFamily: "var(--cb-font)", lineHeight: 1.55, letterSpacing: TYPE.heading.letterSpacing,
+              <p style={{
+                margin: "6px 0 0", maxWidth: 640,
+                fontSize: isMobile ? 16 : 17, fontWeight: 400, color: P.ink2,
+                fontFamily: "var(--cb-font)", lineHeight: 1.65,
                 whiteSpace: "pre-wrap",
-              }}>{profile.bio}</blockquote>
+              }}>{profile.bio}</p>
             ) : (
               <button
                 type="button" onClick={() => setEditing(true)}
@@ -13829,9 +13748,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             </div>
           )}
 
-          {!editing && contextLine && (
-            <div style={{ marginTop: 6, fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6 }}>{contextLine}</div>
-          )}
           {!editing && !contextLine && profile.bio && (
             <button
               type="button" onClick={() => setEditing(true)}
@@ -13859,176 +13775,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           )}
         </div>
 
-        {/* -- Ledger: plan and work, as rows. --------------------------------
-            One ruled block. A number sits next to the thing it counts;
-            nothing floats in tiles. */}
-        {!editing && (
-          <div style={{ marginTop: 22, borderTop: `1px solid ${P.line}` }} role="list" aria-label="Membership and work">
-            <button onClick={onOpenPro} className="cb-row" style={{
-              display: "flex", alignItems: "center", gap: 12, width: "100%",
-              background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
-              padding: "13px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44,
-            }}>
-              <span style={{ fontSize: FONT_SIZES.small, color: P.faint, width: 108, flexShrink: 0 }}>Membership</span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink }}>{pTierName}</span>
-                <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1 }}>{pUsage}</span>
-              </span>
-
-            </button>
-            {profileStats.map((s) => (
-              <button key={s.id} onClick={() => setTab(s.id)} className="cb-row" style={{
-                display: "flex", alignItems: "baseline", gap: 12, width: "100%",
-                background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
-                padding: "13px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44,
-              }}>
-                <span style={{ flex: 1, fontSize: FONT_SIZES.small, color: P.faint }}>{s.label}</span>
-                <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontVariantNumeric: "tabular-nums" }}>{s.n}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {editing && (
-          <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
-            {/* No cover picker: the banner is gone. No bio field: it edits
-                inline, where it lives. What remains are the interdependent
-                fields (degree, affiliation) and the lists — the focused
-                form, not a chain of isolated inline fields. */}
-            <div>
-              <div style={{ ...eyebrow, marginBottom: 8 }}>Research interests</div>
-              <input
-                value={(profile.interests || []).join(", ")}
-                onChange={(e) => setProfile((p2) => ({ ...p2, interests: e.target.value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 8) }))}
-                aria-label="Research interests, separated by commas"
-                placeholder="e.g. protein folding, climate modeling"
-                style={{
-                  width: "100%", padding: "12px 12px", borderRadius: RADIUS.md,
-                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                  fontSize: 16, fontFamily: "var(--cb-font)",
-                }}
-              />
-              <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4 }}>
-                Separate with commas — up to 8.
-              </div>
-            </div>
-            <div>
-              <div style={{ ...eyebrow, marginBottom: 8 }}>Elsewhere</div>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr" }}>
-                {[["link_site", "Website"], ["link_orcid", "ORCID profile"], ["link_scholar", "Google Scholar"]].map(([field, label]) => (
-                  <input key={field}
-                    value={profile[field] || ""}
-                    onChange={(e) => setProfile((p2) => ({ ...p2, [field]: e.target.value }))}
-                    placeholder={label}
-                    aria-label={label}
-                    style={{
-                      padding: "9px 12px", borderRadius: RADIUS.md, minWidth: 0,
-                      background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-                      border: `1px solid ${P.line}`, color: P.ink, outline: "none",
-                      fontSize: 16, fontFamily: "var(--cb-font)",
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-            <div>
-              <div style={{ ...eyebrow, marginBottom: 8 }}>Standing</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                <SuggestInput
-                  value={profile.degree || ""}
-                  onChange={(v) => setProfile((p) => ({ ...p, degree: v }))}
-                  placeholder="Degree, e.g. Ph.D. Microbiology"
-                  ariaLabel="Degree"
-                  matches={degreeMatches}
-                  P={P} accent={accent} inputStyle={inputStyle}
-                  style={{ flex: "1 1 200px" }}
-                />
-                <input
-                  value={profile.grad_year || ""}
-                  onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
-                  placeholder="Grad. year"
-                  aria-label="Graduating year"
-                  style={{ ...inputStyle, width: 104, flex: "0 0 104px", fontFamily: "var(--cb-font)", fontSize: 16 }}
-                />
-              </div>
-              <SuggestInput
-                value={profile.affiliation || ""}
-                onChange={(v) => setProfile((p) => ({ ...p, affiliation: v }))}
-                placeholder="Affiliation, e.g. University of Tennessee"
-                ariaLabel="Affiliation"
-                matches={affiliationMatches}
-                P={P} accent={accent} inputStyle={inputStyle}
-                style={{ marginTop: 8, maxWidth: 440 }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* -- The shelf: four numbered slots, always visible ------------------
-            Letterboxd's Four Favorites, for papers. The visible constraint IS
-            the invitation — empty slots show the shape of the intention. */}
-        <section aria-label="Pinned papers" style={{ marginTop: 34 }}>
-          <div style={{ ...eyebrow, marginBottom: 4 }}>The shelf</div>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>
-            Four papers that say who you are as a researcher.
-          </div>
-          <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 10 }}>
-            {[0, 1, 2, 3].map((slot) => {
-              const sv = pinnedPapers[slot];
-              const key = sv ? paperKey(sv) : null;
-              return (
-                <li key={slot} style={{
-                  minHeight: 132, borderRadius: RADIUS.lg, padding: "12px 12px 12px",
-                  border: sv ? `1px solid ${P.line2}` : `1px dashed ${P.line2}`,
-                  background: sv ? (P.dark ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.018)") : "transparent",
-                  display: "flex", flexDirection: "column",
-                }}>
-                  <span aria-hidden="true" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: sv ? accent : P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.eyebrow }}>{slot + 1}</span>
-                  {sv ? (
-                    <>
-                      <div style={{ flex: 1, minWidth: 0, marginTop: 6 }}>
-                        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 650, color: P.ink, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{renderCleanTitle(sv.title)}</div>
-                        <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 5, fontFamily: "var(--cb-font)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {[sv.year, sv.journal].filter(Boolean).join(" · ")}
-                        </div>
-                      </div>
-                      {editing && (
-                        <button type="button" onClick={() => togglePin(key)} disabled={pinSaving}
-                          aria-label={`Unpin ${cleanTitleText(sv.title)}`}
-                          style={{ minHeight: 44, alignSelf: "flex-start", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", padding: "12px 0 2px", opacity: pinSaving ? 0.5 : 1 }}>
-                          Remove
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <div style={{ flex: 1, display: "flex", alignItems: "center", marginTop: 6 }}>
-                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-                        {editing || pinnedPapers.length === 0 ? "Pin a paper from your library below" : "Empty slot"}
-                      </span>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-
-        {/* -- Chapters ----------------------------------------------------------
-            Text, not pills. The sections are chapters of one document;
-            the bar pins so they stay reachable while scrolling. */}
-        <div ref={tabSentinelRef} aria-hidden="true" style={{ height: 0 }} />
+        {/* -- Sections: investigations, library, collections. Plain text tabs,
+            no sticky bar. */}
         <nav aria-label="Profile sections" style={{
-          position: "sticky", top: 0, zIndex: Z.dropdown, background: P.bg,
-          margin: isMobile ? "30px -18px 0" : "34px -28px 0",
-          padding: isMobile ? "0 18px" : "0 28px",
-          /* The mobile hamburger is fixed at top:14 left:14 (38px). When
-             the bar pins, ease the chapters right so the first never slides
-             underneath it. */
-          paddingLeft: isMobile && tabsStuck ? 64 : undefined,
-          transition: "padding-left 150ms ease",
+          marginTop: 34,
           borderTop: `1px solid ${P.line}`,
-          borderBottom: `1px solid ${P.line}`,
         }}>
           <div style={{ display: "flex", gap: isMobile ? 22 : 28 }} role="tablist" aria-label="Profile sections">
             {[
@@ -14042,7 +13793,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   background: "none", border: "none", padding: "13px 0 11px", cursor: "pointer",
                   fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
                   fontWeight: on ? 700 : 500, color: on ? P.ink : P.faint,
-                  borderBottom: `2px solid ${on ? accent : "transparent"}`, marginBottom: -1, minHeight: 44,
+                  borderBottom: `2px solid ${on ? P.ink : "transparent"}`, marginBottom: -1, minHeight: 44,
                 }}>
                   {c.label} <span style={{ color: P.faint, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{c.n}</span>
                 </button>
@@ -14065,42 +13816,13 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             <div>
               {(saved || []).map((sv, i) => {
                 const key = paperKey(sv);
-                const isPinned = pinnedIds.includes(key);
                 return (
-                  <div key={key || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none", display: "flex", gap: 12, alignItems: "flex-start" }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
-                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                        {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
-                        {shelfName(sv) && <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro }}> · filed under {shelfName(sv)}</span>}
-                      </div>
-                      {/* Personal star rating — Goodreads/Letterboxd-style.
-                          Quiet until hovered; the gold only appears when
-                          there's a rating or the user is interacting. */}
-                      <div style={{ marginTop: 6 }}>
-                        <StarRating
-                          P={P}
-                          value={sv.rating}
-                          disabled={ratingSaving === sv.id}
-                          onRate={(rating) => ratePaper(sv.savedId || sv.id, rating)}
-                          size={14}
-                        />
-                      </div>
+                  <div key={key || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                      {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                      {shelfName(sv) && <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro }}> · filed under {shelfName(sv)}</span>}
                     </div>
-                    {/* Pin toggle: quiet text, not an icon in a box. */}
-                    <button
-                      type="button"
-                      onClick={() => togglePin(key)}
-                      disabled={pinSaving || (!isPinned && pinnedIds.length >= 4)}
-                      title={isPinned ? "Unpin from profile" : pinnedIds.length >= 4 ? "Collection is full (4)" : "Pin to profile"}
-                      style={{ minHeight: 44,
-                        flexShrink: 0, background: "none", border: "none", cursor: "pointer",
-                        fontSize: FONT_SIZES.micro, fontWeight: 600, fontFamily: "var(--cb-font)",
-                        letterSpacing: "normal", textTransform: "none",
-                        color: isPinned ? accentInk(P, accent) : P.faint,
-                        opacity: pinSaving ? 0.5 : 1, padding: "4px 2px",
-                      }}
-                    >{isPinned ? "Pinned" : "Pin"}</button>
                   </div>
                 );
               })}
