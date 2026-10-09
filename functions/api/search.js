@@ -2639,16 +2639,42 @@ function constraintPhraseRegex(phrase) {
 
 // Does the text mention this phrase? Checks the phrase itself plus any
 // registered synonym expansions (e.g. "BSFL" via organism phrases).
+// Two tiers: adjacent match ("waste oil") or proximity match ("waste
+// cooking oil", "waste vegetable oil" — the constraint terms within 2
+// words of each other). A human researcher counts "waste cooking oil"
+// as waste oil; the system should too. Distant co-occurrence ("waste"
+// in one sentence, "oil" three paragraphs later) does NOT count —
+// that's how "municipal solid waste" papers with a passing "oil"
+// mention used to slip through.
 function textMentionsPhrase(text, phrase, synonymPhrases) {
   const norm = normalizeConstraintText(text);
   if (!norm) return false;
   const re = constraintPhraseRegex(phrase);
   if (re && re.test(norm)) return true;
+  const pre = constraintProximityRegex(phrase);
+  if (pre && pre.test(norm)) return true;
   for (const syn of (synonymPhrases || [])) {
     const sre = constraintPhraseRegex(syn);
     if (sre && sre.test(norm)) return true;
+    const spre = constraintProximityRegex(syn);
+    if (spre && spre.test(norm)) return true;
   }
   return false;
+}
+
+// Proximity variant: constraint words with at most 1 word between them.
+// "waste cooking oil" matches "waste oil"; "waste from palm oil" does not
+// (2+ words apart — a different concept: waste derived from oil
+// production, not waste oil itself).
+function constraintProximityRegex(phrase) {
+  const words = normalizeConstraintText(phrase).split(" ").filter(Boolean);
+  if (words.length < 2) return null;
+  const wordPat = words.map((w) => {
+    const base = w.replace(/s$/, "");
+    const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return escaped + "(?:s)?";
+  });
+  return new RegExp("\\b" + wordPat.join("(?:[\\s-]+\\w+)?[\\s-]+") + "\\b", "i");
 }
 
 // Extract load-bearing multi-word phrases from a query. A phrase is
@@ -10236,6 +10262,40 @@ async function gatherPapers(rawQuery, opts) {
   } else if (isNameQuery) {
     diag.semanticRerank = { applied: false, reason: "name_query" };
   }
+
+  // QUERY INTELLIGENCE — constraint cap (2026-10-09): the scorer-level
+  // enforcement of the load-bearing constraints. analyzeQuery extracts
+  // what the query actually demands (e.g. "waste oil" as one concept);
+  // verifyPaperConstraints checks each paper's title+abstract against it.
+  // A paper that misses a key phrase (never mentions "oil") is capped
+  // below RELEVANCE_FLOOR (60) on every score field, so the citation gate
+  // can never cite it as evidence and the semantic rerank cannot rescue
+  // it. The paper stays in the set — the honest weak-evidence answer
+  // lists capped papers as "closest papers to read directly", never as
+  // findings. Name searches are exempt (authorship is the signal there);
+  // queries with no multi-word constraints are unaffected (the old logic
+  // runs untouched).
+  try {
+    const _qa = analyzeQuery(rawQuery);
+    if (_qa && _qa.constraints && _qa.constraints.length > 0 && !_qa.isNameSearch && rerankedFinal.length > 0) {
+      let _capped = 0;
+      for (const p of rerankedFinal) {
+        const v = verifyPaperConstraints(p, _qa);
+        p.constraintVerdict = v.verdict;
+        if (v.verdict !== "on-topic") {
+          p.score = Math.min(Number(p.score) || 0, 45);
+          p.relevance = Math.min(Number(p.relevance) || 0, 45);
+          if (p.blendedScore !== undefined) p.blendedScore = Math.min(Number(p.blendedScore) || 0, 45);
+          if (p.keywordScore !== undefined) p.keywordScore = Math.min(Number(p.keywordScore) || 0, 45);
+          p.constraintMissing = v.missing;
+          _capped++;
+        }
+      }
+      // Capped papers sink below on-topic ones in the final order.
+      rerankedFinal.sort((a, b) => (Number(b.relevance) || 0) - (Number(a.relevance) || 0));
+      if (_capped > 0 && diag) diag.constraintCap = { capped: _capped, keyPhrases: _qa.keyPhrases };
+    }
+  } catch (cbErr) { console.error("[Cerebrum] search.js constraint cap:", cbErr); }
 
   diag.funnel = funnel;
   return { papers: rerankedFinal, _diag: diag };

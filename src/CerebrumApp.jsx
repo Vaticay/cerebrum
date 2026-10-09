@@ -4367,9 +4367,14 @@ function KeyFigures({ t, P }) {
   // Weak tier: the backend could not build a reliable summary. These papers
   // are keyword matches, not evidence — there is no direction for them to
   // support. Say so plainly instead of laundering them into "support".
+  // Same for name searches (2026-10-09): "Reese Saho" papers are keyword
+  // matches by/ about a name, not evidence taking a stance. The backend
+  // flags these via queryAnalysis.isNameSearch; fall back to the weak-tier
+  // answer-heading check for older cached turns.
   const weak = (t && t.answerTier === "weak")
     || /^##\s*couldn't find a direct answer/i.test(String((t && t.answer) || ""));
-  if (weak) {
+  const nameSearch = !!(t && t.queryAnalysis && t.queryAnalysis.isNameSearch);
+  if (weak || nameSearch) {
     return (
       <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
         <div style={{ fontSize: 14, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.5 }}>
@@ -7490,6 +7495,14 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   const retrieved = cited + withheld;
 
   const rows = [];
+  // QUERY INTELLIGENCE (2026-10-09): "what did you hear" — the system's
+  // plain-English read of the query, with its load-bearing constraints.
+  // This is query translation transparency (PubMed's "Search Details" as
+  // a quiet line): when the system drops or keeps a term, it's visible
+  // instead of silent.
+  if (t.queryAnalysis && t.queryAnalysis.plainEnglish) {
+    rows.push({ k: "Heard as", v: t.queryAnalysis.plainEnglish });
+  }
   if (dbOutcomes && dbOutcomes.length > 0) {
     rows.push({
       k: "Databases",
@@ -19752,6 +19765,12 @@ function App() {
         coverageNote: data.coverageNote || null,
         ambiguity: data.ambiguity || null,
         degraded: !!data.degraded,
+        /* QUERY INTELLIGENCE (2026-10-09): the backend's read of the query —
+           plain-English intent, key phrases, question type, name-search flag.
+           KeyFigures uses isNameSearch to avoid implying a "direction" for
+           name searches; AnswerDiagnostics shows plainEnglish as the
+           "what did you hear" transparency line. Absent on older turns. */
+        queryAnalysis: data.queryAnalysis || null,
         stageHealth: Array.isArray(data.stageHealth) ? data.stageHealth : null };
       const looksLikeCorrection = /^(actually|no,?\s+it['']?s|no,?\s+they['']?re|correction[:,]|wrong\b|that['']?s\s+(wrong|incorrect|not right))/i.test(question) || /you\s+(said|got|had|were)\s+.+\s+(wrong|actually|but|however)/i.test(question) || /\bnot\s+\w+,?\s+(it['']?s|they['']?re|but)\s+/i.test(question);
       if (looksLikeCorrection) { setCorrections((prev) => [...prev, question].slice(-20)); }
