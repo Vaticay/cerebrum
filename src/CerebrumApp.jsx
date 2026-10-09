@@ -370,96 +370,410 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename 
   });
   return { ...result, total, capped: total > 20 };
 }
-/* Pro: Answer PDF export. Generates a real PDF client-side with jspdf
-   (lazy-loaded so the main bundle never pays for it): the question as the
-   title, the answer body as clean wrapped text, and a numbered source list.
+/* Pro: Answer PDF export — research article layout.
+   Generates a real PDF client-side with jspdf (lazy-loaded so the main bundle
+   never pays for it): the question as a centered serif title, then Abstract,
+   Keywords, Introduction, Methods, Results, Discussion, and References,
+   built from the answer markdown plus the turn's diagnostics, with the
+   Cerebrum brain mark as a faint watermark on every page.
    Returns { ok, filename } so the caller only logs successful exports. */
-async function exportAnswerToPDF(answer, sources, question) {
+
+// Cerebrum brain mark (public/favicon.svg) rendered once to a PNG data URL
+// for use as the PDF watermark. Cached; null when it cannot be loaded.
+let cerebrumWatermarkUrl = null;
+let cerebrumWatermarkTried = false;
+async function loadCerebrumWatermark() {
+  if (cerebrumWatermarkTried) return cerebrumWatermarkUrl;
+  cerebrumWatermarkTried = true;
+  try {
+    const res = await fetch("/favicon.svg", { cache: "force-cache" });
+    if (!res.ok) return null;
+    const svg = await res.text();
+    if (!svg || svg.indexOf("<svg") < 0) return null;
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = url;
+      });
+      const S = 512;
+      const canvas = document.createElement("canvas");
+      canvas.width = S; canvas.height = S;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, S, S);
+      ctx.drawImage(img, 0, 0, S, S);
+      cerebrumWatermarkUrl = canvas.toDataURL("image/png");
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch (e) { cerebrumWatermarkUrl = null; }
+  return cerebrumWatermarkUrl;
+}
+
+// Strip link markup but keep visible text; citation [n] markers survive.
+function pdfInlineText(t) {
+  return String(t || "")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+}
+// Split a line into {t, bold, italic} runs for **bold** and *italic*.
+function pdfInlineRuns(text) {
+  const runs = [];
+  const clean = pdfInlineText(text);
+  const re = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let last = 0, m;
+  const push = (t, bold, italic) => { if (t) runs.push({ t, bold: !!bold, italic: !!italic }); };
+  while ((m = re.exec(clean))) {
+    push(clean.slice(last, m.index));
+    const tok = m[0];
+    if (tok.length > 4 && tok.startsWith("**")) push(tok.slice(2, -2), true, false);
+    else push(tok.slice(1, -1), false, true);
+    last = m.index + tok.length;
+  }
+  push(clean.slice(last));
+  return runs;
+}
+function pdfRunStyle(r) {
+  return r.bold && r.italic ? "bolditalic" : r.bold ? "bold" : r.italic ? "italic" : "normal";
+}
+const PDF_STOPWORDS = new Set(("a,an,the,of,and,or,in,on,for,to,with,from,by,at,as,is,are,was,were,be,been,being,what,which,who,whom,whose,how,why,when,where,does,do,did,can,could,should,would,has,have,had,its,it,this,that,these,those,there,their,them,they,we,you,your,our,us,not,no,yes,if,then,than,so,such,into,over,under,between,through,during,about,against,studies,study,involving,involved").split(","));
+function pdfKeywords(question) {
+  const out = [], seen = new Set();
+  for (const w of String(question || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)) {
+    const c = w.replace(/-/g, "");
+    if (c.length < 3 || PDF_STOPWORDS.has(c) || seen.has(c)) continue;
+    seen.add(c); out.push(c);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+function pdfSlug(question) {
+  const s = String(question || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  return s || "answer";
+}
+// Split answer markdown into sections by ## headings.
+function pdfSplitSections(md) {
+  const sections = [];
+  let cur = { heading: null, lines: [] };
+  for (const ln of String(md || "").split("\n")) {
+    const hm = ln.match(/^#{1,3}\s+(.*)$/);
+    if (hm) { sections.push(cur); cur = { heading: hm[1].trim(), lines: [] }; }
+    else cur.lines.push(ln);
+  }
+  sections.push(cur);
+  return sections;
+}
+function pdfSectionKind(heading) {
+  const h = String(heading || "").toLowerCase();
+  if (!heading) return "abstract";
+  if (h.indexOf("what the research shows") >= 0) return "introduction";
+  if (h.indexOf("disagree") >= 0) return "disagree";
+  if (h.indexOf("how solid") >= 0) return "solid";
+  if (h.indexOf("what would change") >= 0) return "change";
+  return "extra";
+}
+// Group section lines into paragraph / bullet / numbered blocks.
+function pdfGroupBlocks(lines) {
+  const blocks = [];
+  let para = [];
+  const flushPara = () => { if (para.length) { blocks.push({ type: "para", text: para.join(" ").trim() }); para = []; } };
+  for (const raw of lines) {
+    const ln = raw.trim();
+    if (!ln) { flushPara(); continue; }
+    const bm = ln.match(/^([-*•])\s+(.*)$/);
+    const nm = ln.match(/^(\d+)[.)]\s+(.*)$/);
+    if (bm) { flushPara(); blocks.push({ type: "bullet", text: bm[2] }); }
+    else if (nm) { flushPara(); blocks.push({ type: "numbered", n: nm[1], text: nm[2] }); }
+    else if (/^[-_—]{3,}$/.test(ln)) { flushPara(); }
+    else para.push(ln);
+  }
+  flushPara();
+  return blocks.filter((b) => b.text);
+}
+async function exportAnswerToPDF(answer, sources, question, turn) {
   try {
     const { jsPDF } = await import("jspdf");
     const doc = new jsPDF({ unit: "pt", format: "letter" });
     const W = doc.internal.pageSize.getWidth();
     const H = doc.internal.pageSize.getHeight();
-    const ML = 56, MR = 56, MT = 56, MB = 64;
+    const ML = 72, MR = 72, MT = 72, MB = 78;
     const maxW = W - ML - MR;
+    const pageBottom = H - MB;
     let y = MT;
-    const need = (h) => { if (y + h > H - MB) { doc.addPage(); y = MT; } };
+    const t = turn || {};
+    const list = Array.isArray(sources) ? sources : [];
+    const dateStr = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
 
-    // Title: the question.
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(17);
-    doc.setTextColor(20, 20, 20);
-    const titleLines = doc.splitTextToSize(String(question || "Research Answer"), maxW);
-    need(titleLines.length * 22);
-    doc.text(titleLines, ML, y);
-    y += titleLines.length * 22 + 6;
+    const addPage = () => { doc.addPage(); y = MT; };
+    const need = (h) => { if (y + h > pageBottom) addPage(); };
 
-    // Dateline.
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    const dateLine = `Exported from Cerebrum · ${new Date().toLocaleDateString()} · askcerebrum.org`;
-    doc.text(dateLine, ML, y);
-    y += 26;
-
-    // Answer body: strip markdown, wrap as plain text.
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.setTextColor(30, 30, 30);
-    const body = stripMarkdown(answer || "");
-    const bodyLines = doc.splitTextToSize(body, maxW);
-    for (const line of bodyLines) {
-      need(16);
-      doc.text(line, ML, y);
-      y += 15.5;
+    // Rich paragraph: mixed bold/italic runs, word-wrapped, paginated.
+    function richPara(runs, opts) {
+      const o = Object.assign({ font: "times", size: 11, lineH: 15.5, color: [30, 30, 30], indent: 0, hanging: 0 }, opts || {});
+      const x0 = ML + o.indent;
+      const w0 = maxW - o.indent;
+      doc.setFontSize(o.size);
+      doc.setTextColor(o.color[0], o.color[1], o.color[2]);
+      const words = [];
+      for (const r of runs) {
+        const st = pdfRunStyle(r);
+        doc.setFont(o.font, st);
+        for (const w of r.t.split(/\s+/).filter(Boolean)) words.push({ t: w, st, w: doc.getTextWidth(w) });
+      }
+      if (!words.length) return;
+      doc.setFont(o.font, "normal");
+      const spaceW = doc.getTextWidth(" ");
+      let line = [], lw = 0, isFirst = true;
+      const flush = () => {
+        if (!line.length) return;
+        need(o.lineH);
+        const lx = x0 + (isFirst ? 0 : o.hanging);
+        let dx = lx, first = true;
+        for (const wd of line) {
+          if (!first) dx += spaceW;
+          first = false;
+          doc.setFont(o.font, wd.st);
+          doc.text(wd.t, dx, y);
+          dx += wd.w;
+        }
+        y += o.lineH;
+        line = []; lw = 0; isFirst = false;
+      };
+      for (const wd of words) {
+        const avail = w0 - (isFirst ? 0 : o.hanging);
+        const add = (line.length ? spaceW : 0) + wd.w;
+        if (lw + add > avail && line.length) flush();
+        line.push(wd);
+        lw += add;
+      }
+      flush();
     }
-    y += 14;
+    function sectionHeading(title) {
+      need(40);
+      y += 10;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
+      doc.text(title, ML, y);
+      y += 6;
+      doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.75);
+      doc.line(ML, y, ML + maxW, y);
+      y += 12;
+    }
+    function bulletBlock(text) {
+      need(16);
+      doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+      doc.text("•", ML, y);
+      richPara(pdfInlineRuns(text), { indent: 18 });
+      y += 4;
+    }
+    function numberedBlock(n, text) {
+      need(16);
+      const label = n + ".";
+      doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+      doc.text(label, ML, y);
+      const labelW = doc.getTextWidth(label + "  ");
+      richPara(pdfInlineRuns(text), { indent: labelW });
+      y += 4;
+    }
+    const renderBlocks = (sec) => {
+      for (const b of pdfGroupBlocks(sec.lines)) {
+        if (b.type === "para") { richPara(pdfInlineRuns(b.text)); y += 5; }
+        else if (b.type === "bullet") bulletBlock(b.text);
+        else if (b.type === "numbered") numberedBlock(b.n, b.text);
+      }
+    };
 
-    // Numbered sources.
-    const list = sources || [];
+    // ── Title block ──
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(110, 110, 110);
+    const kicker = "Cerebrum Research";
+    doc.text(kicker, (W - doc.getTextWidth(kicker)) / 2, y);
+    y += 22;
+    doc.setFont("times", "bold"); doc.setFontSize(20); doc.setTextColor(20, 20, 20);
+    const titleLines = doc.splitTextToSize(String(question || "Research Answer"), maxW);
+    need(titleLines.length * 26);
+    doc.text(titleLines, W / 2, y, { align: "center" });
+    y += titleLines.length * 26 + 4;
+    doc.setFont("times", "italic"); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
+    const byline = `Generated ${dateStr} · askcerebrum.org`;
+    doc.text(byline, (W - doc.getTextWidth(byline)) / 2, y);
+    y += 10;
+    doc.setDrawColor(30, 30, 30); doc.setLineWidth(1);
+    doc.line(ML, y, ML + maxW, y);
+    y += 22;
+
+    // ── Sections from the answer markdown ──
+    const sections = pdfSplitSections(answer);
+    const byKind = {};
+    for (const s of sections) {
+      const k = pdfSectionKind(s.heading);
+      (byKind[k] = byKind[k] || []).push(s);
+    }
+
+    // Abstract: everything before the first heading.
+    sectionHeading("Abstract");
+    if (byKind.abstract && pdfGroupBlocks(byKind.abstract.flatMap((s) => s.lines)).length) {
+      for (const s of byKind.abstract) renderBlocks(s);
+    } else {
+      richPara([{ t: "No answer text was available for this query." }], { color: [90, 90, 90] });
+      y += 5;
+    }
+    const kws = pdfKeywords(question);
+    if (kws.length) {
+      y += 2;
+      richPara([{ t: "Keywords: ", bold: true }, { t: kws.join(", ") }], { size: 10, lineH: 14, color: [80, 80, 80] });
+      y += 6;
+    }
+
+    // Introduction.
+    if (byKind.introduction) {
+      sectionHeading("Introduction");
+      for (const s of byKind.introduction) renderBlocks(s);
+    }
+
+    // Methods: how this answer was made, from the turn's real diagnostics.
+    sectionHeading("Methods");
+    const mrows = [];
+    if (t.queryAnalysis && t.queryAnalysis.plainEnglish) mrows.push(["Query interpreted as", String(t.queryAnalysis.plainEnglish)]);
+    const dbOutcomes = Array.isArray(t.sourcesQueried) ? t.sourcesQueried : null;
+    if (dbOutcomes && dbOutcomes.length) {
+      const ok = dbOutcomes.filter((x) => x.ok).length;
+      const missing = dbOutcomes.filter((x) => !x.ok).map((x) => x.source).filter(Boolean);
+      mrows.push(["Databases", `${ok} of ${dbOutcomes.length} scholarly indexes returned results` + (missing.length ? `; no response from ${missing.join(", ")}` : "") + "."]);
+    } else {
+      mrows.push(["Databases", "Searched across Cerebrum's scholarly indexes."]);
+    }
+    const cited = list.length;
+    const withheld = typeof t.relevanceGatedOut === "number" ? t.relevanceGatedOut : 0;
+    mrows.push(["Sources", withheld > 0
+      ? `${cited + withheld} relevant papers retrieved; ${cited} cited below; ${withheld} withheld as tangential.`
+      : `${cited} paper${cited === 1 ? "" : "s"} cited below.`]);
+    if (t.synthesisMode === "extractive") {
+      mrows.push(["Synthesis", "Assembled deterministically from the retrieved papers; no AI synthesis ran for this answer."]);
+    } else {
+      mrows.push(["Synthesis", "Answer text synthesized from the cited papers, with claim-level citations."]);
+    }
+    if (typeof t.answerSeconds === "number" && t.answerSeconds > 0) {
+      const s = t.answerSeconds;
+      mrows.push(["Timing", `Answered in ${s < 10 ? s.toFixed(1) : Math.round(s)} second${s === 1 ? "" : "s"}.`]);
+    }
+    for (const [k, v] of mrows) {
+      need(28);
+      richPara([{ t: k + ": ", bold: true }, { t: v }], { size: 10.5, lineH: 14.5 });
+      y += 3;
+    }
+
+    // Results: key figures + evidence table.
+    sectionHeading("Results");
+    const years = list.map((s) => parseInt(s.year, 10)).filter((n) => !isNaN(n));
+    const journals = [...new Set(list.map((s) => s.journal).filter(Boolean))];
+    const totalCites = list.reduce((a, s) => a + (typeof s.citations === "number" ? s.citations : 0), 0);
+    const figs = [`${cited} paper${cited === 1 ? "" : "s"} underpin this answer`];
+    if (years.length) figs.push(years.length > 1 ? `published ${Math.min(...years)}–${Math.max(...years)}` : `published ${years[0]}`);
+    if (journals.length) figs.push(`across ${journals.length} journal${journals.length === 1 ? "" : "s"}`);
+    if (totalCites > 0) figs.push(`${totalCites.toLocaleString()} combined citations`);
+    need(20);
+    richPara([{ t: figs.join("; ") + "." }]);
+    y += 8;
     if (list.length) {
       need(30);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.setTextColor(20, 20, 20);
-      doc.text("Sources", ML, y);
-      y += 20;
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9.5);
-      doc.setTextColor(50, 50, 50);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
+      doc.text("Evidence at a glance", ML, y);
+      y += 14;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(90, 90, 90);
+      const cNo = ML, cTitle = ML + 28, cYear = ML + maxW - 110, cCite = ML + maxW - 52;
+      doc.text("No.", cNo, y); doc.text("Title", cTitle, y); doc.text("Year", cYear, y); doc.text("Cited by", cCite, y);
+      y += 4;
+      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.5);
+      doc.line(ML, y, ML + maxW, y);
+      y += 10;
+      const titleW = cYear - cTitle - 8;
       list.forEach((s, i) => {
-        const bits = [`[${i + 1}] ${s.title || "Untitled"}`];
-        const byline = [s.authors, s.journal, s.year].filter(Boolean).join(", ");
-        if (byline) bits.push(byline);
-        if (s.doi) bits.push(`DOI: ${s.doi}`);
+        const tLines = doc.splitTextToSize(String(s.title || "Untitled"), titleW);
+        const rh = Math.max(tLines.length * 11.5, 14);
+        need(rh + 6);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+        doc.text(String(i + 1), cNo, y);
+        doc.setFont("times", "normal"); doc.setFontSize(9); doc.setTextColor(40, 40, 40);
+        doc.text(tLines, cTitle, y);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+        doc.text(String(s.year || "—"), cYear, y);
+        doc.text(typeof s.citations === "number" ? s.citations.toLocaleString() : "—", cCite, y);
+        y += rh + 6;
+      });
+      y += 8;
+    }
+
+    // Discussion: disagreement, confidence, what would change this.
+    const discParts = [];
+    if (byKind.disagree) discParts.push({ sub: "Where the evidence diverges", secs: byKind.disagree });
+    if (byKind.solid) discParts.push({ sub: "How solid is this", secs: byKind.solid });
+    if (byKind.change) discParts.push({ sub: "What would change this", secs: byKind.change });
+    if (discParts.length) {
+      sectionHeading("Discussion");
+      for (const p of discParts) {
+        need(26);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
+        doc.text(p.sub, ML, y);
+        y += 16;
+        for (const s of p.secs) renderBlocks(s);
+      }
+    }
+    if (byKind.extra) {
+      for (const s of byKind.extra) {
+        const h = String(s.heading || "").trim();
+        sectionHeading(h ? h.charAt(0).toUpperCase() + h.slice(1) : "Notes");
+        renderBlocks(s);
+      }
+    }
+
+    // References.
+    if (list.length) {
+      sectionHeading("References");
+      list.forEach((s, i) => {
+        const bits = [];
+        const au = String(s.authors || "").trim().replace(/\s+/g, " ");
+        if (au) bits.push(/[.!?]$/.test(au) ? au : au + ".");
+        bits.push('"' + String(s.title || "Untitled").trim() + '"');
+        const venue = [s.journal, s.year].filter(Boolean).join(", ");
+        if (venue) bits.push(venue + ".");
+        if (s.doi) bits.push("https://doi.org/" + String(s.doi).replace(/^https?:\/\/(dx\.)?doi\.org\//, ""));
         else if (s.url) bits.push(s.url);
-        const lines = doc.splitTextToSize(bits.join(" · "), maxW - 14);
-        need(lines.length * 13 + 8);
-        lines.forEach((line, li) => {
-          doc.text(line, ML + (li === 0 ? 0 : 14), y);
-          y += 13;
-        });
-        y += 8;
+        need(16);
+        richPara(pdfInlineRuns(`[${i + 1}] ` + bits.join(" ")), { size: 9.5, lineH: 13, color: [50, 50, 50], hanging: 14 });
+        y += 5;
       });
     }
 
-    // Footer on every page.
+    // Final pass: watermark + footer on every page.
+    const wm = await loadCerebrumWatermark();
     const pages = doc.getNumberOfPages();
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(140, 140, 140);
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
-      doc.text(`Cerebrum · ${dateLine} · Page ${p} of ${pages}`, ML, H - 36);
+      if (wm) {
+        try {
+          const S = 340;
+          doc.saveGraphicsState();
+          doc.setGState(new doc.GState({ opacity: 0.05 }));
+          doc.addImage(wm, "PNG", (W - S) / 2, (H - S) / 2, S, S);
+          doc.restoreGraphicsState();
+        } catch (e) { /* watermark is decorative; never fail the export */ }
+      }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+      doc.text(`Generated by Cerebrum · ${dateStr} · askcerebrum.org`, ML, H - 40);
+      const pg = `Page ${p} of ${pages}`;
+      doc.text(pg, W - MR - doc.getTextWidth(pg), H - 40);
     }
 
-    const filename = "cerebrum-answer.pdf";
+    const filename = `cerebrum-${pdfSlug(question)}.pdf`;
     doc.save(filename);
     return { ok: true, filename };
   } catch (e) {
     return { ok: false, error: e && e.message };
   }
 }
+
 async function saveToZotero(sources, apiKey, userId) {
   const items = sources.map((s) => ({ itemType: "journalArticle", title: s.title || "", creators: (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean).map((name) => ({ creatorType: "author", name })), publicationTitle: s.journal || "", date: String(s.year || ""), url: s.url || "" }));
   const res = await fetch(`https://api.zotero.org/users/${userId}/items`, { method: "POST", headers: { "Zotero-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify(items) });
@@ -8379,7 +8693,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   <button type="button" className="cb-ctlbtn"
                     title="Export as PDF"
                     onClick={async () => {
-                      const r = await exportAnswerToPDF(t.answer, t.sources, t.q);
+                      const r = await exportAnswerToPDF(t.answer, t.sources, t.q, t);
                       if (r && r.ok) logExport("PDF", r.filename || "cerebrum-answer.pdf");
                       else toast("Couldn't generate the PDF. Try again?", { tone: "error" });
                     }}
