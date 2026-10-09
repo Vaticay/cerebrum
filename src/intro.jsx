@@ -100,15 +100,16 @@ const FILM_CLIPS_PORTRAIT = [
   videoUrl("/assets/cinematic/ambient-07.mp4"),
 ];
 
-/* Intro reel (2026-10-08, refreshed): dramatic cinematic clips for the
-   ceremonial door. All clips are Mixkit (free for commercial use, no
-   watermark), hotlinked from assets.mixkit.co which allows it. Dark,
-   slow, dramatic — cosmic dark matter, storm clouds, slow-motion water. */
+/* Intro reel (2026-10-09, burning books clip removed per Dusty):
+   Dramatic cinematic clips for the ceremonial door. All clips are Mixkit
+   (free for commercial use, no watermark). Dark, slow, dramatic.
+   The burning books clip (previously in this list) was removed 2026-10-09:
+   "Burning books is bad" — Dusty. Replaced with 3D brain scan. */
 const FILM_CLIPS_INTRO = [
   "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space — Mixkit
+  "https://assets.mixkit.co/videos/5774/5774-720.mp4", // Doctor uses VR to explore 3D brain — Mixkit
   "https://assets.mixkit.co/videos/20231/20231-720.mp4", // Swirling dark clouds — Mixkit
   "https://assets.mixkit.co/videos/52298/52298-1080.mp4", // Dense storm clouds before a storm — Mixkit
-  "https://assets.mixkit.co/videos/182/182-1080.mp4", // Bubbling water in slow motion, B&W — Mixkit
 ];
 
 /* Calm reel (2026-10-08, refreshed): quieter clips for the main search page.
