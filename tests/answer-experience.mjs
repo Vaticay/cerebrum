@@ -168,13 +168,13 @@ await test("rail jumps are buttons (touch works, no hover dependency)", () => {
 // ══════════════════════════════════════════════════════════════════════════
 group("Toolbar — text actions, everything else under More");
 
-await test("toolbar is Copy answer, Share, Evidence index, More — no chips", () => {
+await test("toolbar is Copy answer, Share, Sources, More — no chips", () => {
   assert.match(appSrc, /<ToolbarOverflow P=\{P\} accent=\{accent\} items=\{overflowItems\} \/>/, "More menu missing from toolbar");
   // Visual overhaul: three control actions + the More menu, as instrument
   // buttons (cb-ctlbtn). No ToolChips on the bar.
   assert.match(appSrc, /title=\{copiedAnswer \? "Copied!" : "Copy answer"\}/, "Copy answer action missing from toolbar");
   assert.match(appSrc, /title=\{linkCopied \? "Link copied!" : "Share"\}/, "Share action missing from toolbar");
-  assert.match(appSrc, /Evidence index/, "Evidence index action missing from toolbar");
+  assert.match(appSrc, />\s*Sources\s*</, "Sources action missing from toolbar");
   const barStart = appSrc.indexOf('aria-label="Answer actions"');
   const barBlock = appSrc.slice(barStart, appSrc.indexOf("</div>", barStart));
   assert.ok(/cb-ctlbtn/.test(barBlock), "toolbar not on the control-button contract");
@@ -354,7 +354,7 @@ await test("evidence drawer: portaled dialog, closed by default, declarative syn
   assert.match(block, /role="dialog"/, "drawer missing dialog role");
   assert.match(block, /if \(!open\) return null/, "drawer does not start closed");
   assert.match(block, /createPortal\(/, "drawer not portaled to document.body");
-  assert.match(block, /aria-label=\{`Evidence index,/, "drawer missing source count label");
+  assert.match(block, /aria-label=\{`Sources,/, "drawer missing source count label");
   // Active-row highlight is declarative — no sticky timer/class bug possible.
   assert.match(block, /className=\{"cb-ledger-row" \+ \(isActive \? " cb-source-linked" : ""\)\}/, "drawer row highlight not declarative");
   assert.ok(!/setTimeout/.test(block), "drawer uses a timer for highlight state");
@@ -363,7 +363,7 @@ await test("evidence drawer: portaled dialog, closed by default, declarative syn
   assert.match(block, /onActivate\(\w+\)/, "drawer number rows not wired to citation sync");
   // Turn-level: the drawer opens from citation taps, toolbar, and jump rail.
   assert.match(appSrc, /\(\) => setEvidenceOpen\(true\)/, "citation taps do not open the drawer");
-  assert.match(appSrc, /setEvidenceOpen\(\(v\) => !v\)/, "toolbar Evidence index does not toggle the drawer");
+  assert.match(appSrc, /setEvidenceOpen\(\(v\) => !v\)/, "toolbar Sources does not toggle the drawer");
 });
 
 await test("question is an instrument query strip, not a serif hero", () => {

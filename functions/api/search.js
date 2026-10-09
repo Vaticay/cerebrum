@@ -9296,6 +9296,36 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
+  // ── QUERY PHRASE TITLE BONUS, phrase list (2026-10-09) ──
+  // Additive to the Commit 93 gateTerms phrase bonus inside the scorer
+  // below (which checks runs of gateTerms in specificity order). This
+  // builds 2-3 word phrases from contentTerms in QUERY order, so a phrase
+  // like "waste oil" survives even when gateTerms get reordered. Query
+  // terms are lemmatized but titles are not, so the regexes below are
+  // plural-tolerant ("substrate" matches "substrates"). Precompiled once
+  // per query; the scorer below only runs .test().
+  const escRe = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const queryPhraseRes = [];
+  for (let i = 0; i < contentTerms.length; i++) {
+    const lens = [2, 3].filter((n) => i + n <= contentTerms.length);
+    for (const n of lens) {
+      const words = contentTerms.slice(i, i + n);
+      const parts = words.map((w) => "(?:" + escRe(w) + "(?:s|es)?)");
+      let full = null;
+      const singles = [];
+      try {
+        full = new RegExp("(?<![a-z0-9])" + parts.join("\\s+") + "(?![a-z0-9])", "i");
+        for (const part of parts) singles.push(new RegExp("(?<![a-z0-9])" + part + "(?![a-z0-9])", "i"));
+      } catch {
+        try {
+          full = new RegExp("\\b" + parts.join("\\s+") + "\\b", "i");
+          for (const part of parts) singles.push(new RegExp("\\b" + part + "\\b", "i"));
+        } catch { /* leave null; bonus simply won't apply */ }
+      }
+      queryPhraseRes.push({ full, singles, n: words.length });
+    }
+  }
+
   const scoredMapped = merged
     .map((p) => {
       const title = p.title || "";
@@ -9419,6 +9449,26 @@ async function gatherPapers(rawQuery, opts) {
         return Math.min(30, 10 * (best - 1));
       })();
       match += phraseBonus;
+      /* ── QUERY PHRASE TITLE BONUS (2026-10-09) ──
+         Additive to the Commit 93 bonus above (gateTerms, specificity
+         order). This one checks query-order phrases against the title:
+         a title containing the user's exact phrase ("waste oil") is
+         decisive — +30 outranks citation/recency quality signals. A
+         3-word phrase with 2 of 3 words in the title gets +15. Best
+         phrase wins; never stacks. */
+      let phraseTitleBonus = 0;
+      if (queryPhraseRes.length && title) {
+        const tt = String(title);
+        for (const pr of queryPhraseRes) {
+          if (pr.full && pr.full.test(tt)) { phraseTitleBonus = 30; break; }
+          if (pr.n >= 3 && pr.singles.length === pr.n) {
+            let hits = 0;
+            for (const s of pr.singles) { if (s.test(tt)) hits++; }
+            if (hits >= 2) phraseTitleBonus = Math.max(phraseTitleBonus, 15);
+          }
+        }
+      }
+      match += phraseTitleBonus;
       // Peripheral terms are a small bonus, never a requirement
       match += peripheralTerms.length ? (periphHits / peripheralTerms.length) * 4 : 0;
       if (organismPresent && (contentTerms.length === 0 || contentHits > 0)) match += 12;

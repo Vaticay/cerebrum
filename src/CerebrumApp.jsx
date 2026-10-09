@@ -7580,7 +7580,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   });
 
   const panel = (
-    <aside role="dialog" aria-label={`Evidence index, ${sources.length} sources`} className="cb-ev-rail"
+    <aside role="dialog" aria-label={`Sources, ${sources.length} sources`} className="cb-ev-rail"
       style={isMobile ? {
         position: "fixed", left: 0, right: 0, bottom: 0, maxHeight: "84dvh", zIndex: Z.drawer,
         background: P.surface, borderTop: `1px solid ${P.line}`, borderRadius: "16px 16px 0 0",
@@ -7603,8 +7603,8 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
         padding: "16px 8px 12px 16px", borderBottom: `1px solid ${P.line}`, flexShrink: 0,
       }}>
-        <span className="cb-kicker">Evidence index · {sources.length}</span>
-        <button ref={closeRef} type="button" onClick={onClose} aria-label="Close evidence index"
+        <span className="cb-kicker">Sources · {sources.length}</span>
+        <button ref={closeRef} type="button" onClick={onClose} aria-label="Close sources"
           style={{
             minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
             background: "none", border: "none", cursor: "pointer", color: P.faint, borderRadius: RADIUS.md,
@@ -7800,7 +7800,7 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
         </div>
         <button type="button" onClick={onVerify}
           style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: "transparent", color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-          Evidence index
+          Sources
         </button>
       </div>
       <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
