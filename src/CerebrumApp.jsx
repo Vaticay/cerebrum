@@ -7370,6 +7370,10 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
           onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery}
           relOf={relOf} activeCite={activeCite} onActivateCite={onActivateCite} />
       )}
+      {/* Citation Threads: visible in the Evidence band, not buried in autopsy */}
+      {t.evidenceStructure && t.evidenceStructure.threads && t.evidenceStructure.threads.length > 0 ? (
+        <CitationThreads data={t.evidenceStructure} P={P} accent={accent} />
+      ) : null}
     </AnswerSection>
   );
 }
