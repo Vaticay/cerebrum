@@ -10231,7 +10231,24 @@ async function gatherPapers(rawQuery, opts) {
         const hasSecondaryOrganism = secondaryOrganisms.some(
           (name) => hay.indexOf(name.toLowerCase()) !== -1
         );
-        if (!hasBinomial && !hasSpeciesWord && !hasAbbrev && !hasSecondaryOrganism) return false;
+        // 2026-10-10: also accept common-name variants via the concept group.
+        // A paper titled "Waste oil substrates reshape the black soldier fly
+        // larval gut microbiome" never mentions "Hermetia illucens" but is
+        // exactly on-topic for a BSFL query. The binomial gate must not be
+        // stricter than the scorer (which already does concept expansion).
+        let hasCommonName = false;
+        try {
+          const grp = CONCEPT_LOOKUP.get(binomial.full.toLowerCase());
+          if (grp) {
+            for (const variant of grp) {
+              if (variant.length > 2 && hay.indexOf(variant.toLowerCase()) !== -1) {
+                hasCommonName = true;
+                break;
+              }
+            }
+          }
+        } catch { /* concept lookup is best-effort */ }
+        if (!hasBinomial && !hasSpeciesWord && !hasAbbrev && !hasSecondaryOrganism && !hasCommonName) return false;
       }
       // Name queries: keep everything relevance-sorted, don't apply topic gate.
       if (isNameQuery) return true;
