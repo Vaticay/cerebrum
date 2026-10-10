@@ -5822,15 +5822,22 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
       {/* Hanging-indent typography lives inside each row's content column —
          the numeral sits in the contract's number gutter, wrapped lines
          align under the text. */}
+  /* Real stance tallies, batched: one request per bibliography render, not
+     one per row. Papers without a DOI or without scite.ai data keep the
+     honest dashes. */
+  const tallyDois = useMemo(() => (sources || []).map(normalizeSourceDoi), [sources]);
+  const tallies = useTallies(tallyDois);
       <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column" }}>
         {(() => {
           const seen = new Set();
           return sources.map((s, i) => {
             const L = String(s.authors || s.title || "").trim().charAt(0).toUpperCase();
             const anchor = jumpLetters && L && /[A-Z]/.test(L) && !seen.has(L) ? (seen.add(L), L) : null;
+            const doi = normalizeSourceDoi(s);
             return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={i === sources.length - 1}
               onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor}
-              rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite} />;
+              rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite}
+              tally={doi && tallies[doi] ? tallies[doi] : null} />;
           });
         })()}
       </ol>
@@ -5902,16 +5909,47 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
    derived from the paper's citation count until real per-paper stance data
    exists. The retraction flag (above) stays prominent; this is reception,
    a different axis from the answer-level rel encoding. */
+/* DOI normalization, shared by the tally hook and BibEntry so the same
+   canonical DOI is used on both sides. Matches sourceKey()'s normalization. */
+function normalizeSourceDoi(source) {
+  const doi = String((source && (source.doi || source.DOI)) || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
+  return /^10\.\d{4,9}\//.test(doi) ? doi.toLowerCase() : null;
+}
+
+/* Real citation-stance counts, from scite.ai's free tallies API via our
+   /api/tallies endpoint (in-memory cached server-side, 24h TTL).
+   Returns a map of lowercase DOI -> { supporting, contradicting, mentioning,
+   total, citingPublications }. Missing entries mean "no data" — the rows
+   render dashes, never guesses. Fetched once per bibliography render. */
+function useTallies(dois) {
+  const [tallies, setTallies] = useState({});
+  const key = useMemo(() => [...new Set((dois || []).filter(Boolean))].sort().join(","), [dois]);
+  useEffect(() => {
+    if (!key) { setTallies({}); return; }
+    let cancelled = false;
+    fetch("/api/tallies?dois=" + encodeURIComponent(key))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!cancelled && j && j.tallies) setTallies(j.tallies); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [key]);
+  return tallies;
+}
+
 /* Reception counts: honest "unknown" until real per-paper stance data exists.
    Score #13 (2026-10-09): the old version derived "supporting" as 70% of
-   citation count — arithmetic fiction presented as data. Removed. All papers
-   show dashes until the citation-statement pipeline lands. */
+   citation count — arithmetic fiction presented as data. Removed.
+   2026-10-10: real counts now come from scite.ai tallies via useTallies;
+   this stays the null-path renderer for papers without tally data. */
 function receptionCounts(source) {
   return null;
 }
 const STANCE_COLORS = { supporting: "#2E7D5B", contrasting: "#B0472B", mentioning: "#7A756A" };
-function ReceptionLine({ source, P }) {
-  const c = receptionCounts(source);
+/* When a real scite.ai tally is passed in, the raw numbers render as-is —
+   never converted to verdicts or percentages. When absent, honest dashes. */
+function ReceptionLine({ source, P, tally = null }) {
+  const c = tally || receptionCounts(source);
   const dot = (color) => (
     <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: color, marginRight: 5, flexShrink: 0 }} />
   );
@@ -5929,15 +5967,19 @@ function ReceptionLine({ source, P }) {
       </div>
     );
   }
+  /* Real counts, shown raw with their labels plus attribution. The API calls
+     the middle bucket "contradicting"; we display it as "contrasting" to
+     match the UI's standing wording. */
   return (
-    <div style={line} aria-label={`${c.supporting} supporting, ${c.contrasting} contrasting, ${c.mentioning} mentioning citations`}>
+    <div style={line} aria-label={`${c.supporting} supporting, ${c.contradicting} contrasting, ${c.mentioning} mentioning citations`}>
       <span>{dot(STANCE_COLORS.supporting)}<span style={num}>{c.supporting}</span> supporting</span>
-      <span>{dot(STANCE_COLORS.contrasting)}<span style={num}>{c.contrasting}</span> contrasting</span>
+      <span>{dot(STANCE_COLORS.contrasting)}<span style={num}>{c.contradicting}</span> contrasting</span>
       <span>{dot(STANCE_COLORS.mentioning)}<span style={num}>{c.mentioning}</span> mentioning</span>
+      <span style={{ color: P.faint, fontSize: 11 }}>via scite.ai</span>
     </div>
   );
 }
-function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {} }) {
+function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null }) {
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
@@ -6034,7 +6076,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
         {/* Reception dots: per-paper stance line under the metadata, above
             the tldr. The retraction flag (top) stays prominent; this is
             reception, not answer-level relevance (rel stays on the edge). */}
-        <ReceptionLine source={source} P={P} />
+        <ReceptionLine source={source} P={P} tally={tally} />
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
             {source.tldr}
