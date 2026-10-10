@@ -9199,12 +9199,35 @@ async function gatherPapers(rawQuery, opts) {
   // the "insect"/"microbe" concept groups and lose the anchor race to
   // unrelated single words like "genetic" that happen to hit a (previously
   // overly broad) concept group by coincidence.
-  const ranked = query
+  let ranked = query
     .split(/[\s-]+/)
     .filter((t) => t.length > 2 && !STOPWORDS.has(t) && !orgFragments.has(t))
     .map((t) => ({ t, spec: termSpecificity(t) }))
     .sort((a, b) => b.spec - a.spec)
     .map((x) => x.t);
+  // 2026-10-10: prioritize constraint words in retrieval ordering. A verbose
+  // query like "Studies involving BSFL waste oil substrates" ranked
+  // "substrates" above "waste"/"oil" by specificity, so the OpenAlex query
+  // became "Hermetia illucens substrates waste oil" instead of
+  // "Hermetia illucens waste oil". The constraint words ARE the topic;
+  // they must come first in the retrieval query.
+  try {
+    const _qaRanked = analyzeQuery(rawQuery);
+    if (_qaRanked && _qaRanked.constraints && _qaRanked.constraints.length > 0 && !_qaRanked.isNameSearch) {
+      const cws = new Set();
+      for (const c of _qaRanked.constraints) {
+        for (const w of String(c.phrase || "").toLowerCase().split(/\s+/)) {
+          const cw = w.replace(/[^a-z0-9]/g, "");
+          if (cw.length > 2) cws.add(cw);
+        }
+      }
+      if (cws.size > 0) {
+        const inC = ranked.filter((t) => cws.has(t.toLowerCase()));
+        const outC = ranked.filter((t) => !cws.has(t.toLowerCase()));
+        if (inC.length > 0) ranked = [...inC, ...outC];
+      }
+    }
+  } catch { /* keep specificity order */ }
   let organismTerm = null;
   if (binomial) {
     organismTerm = '"' + binomial.full + '"';
