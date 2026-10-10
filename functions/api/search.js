@@ -9333,11 +9333,26 @@ async function gatherPapers(rawQuery, opts) {
       }
       if (common && common.toLowerCase() !== orgQuoted.replace(/"/g, "").toLowerCase()) {
         bareCommon = common;
-        // Title filter from the top 2 topic terms (the key phrase).
-        if (topicTerms.length >= 2) {
-          bareCommonTitleFilter = topicTerms.slice(0, 2).join(" ");
-        } else if (topicTerms.length === 1) {
-          bareCommonTitleFilter = topicTerms[0];
+        // Title filter: find the most specific adjacent bigram in the query.
+        // topicTerms sorted by specificity may not be adjacent in the query
+        // (e.g. ["substrates","waste"] instead of "waste oil").
+        // 2026-10-10 (pt 4): derive from query word order, not specificity rank.
+        try {
+          const qWords = String(query || "").toLowerCase().split(/[\s-]+/).filter((w) => w.length > 2);
+          let bestBigram = null;
+          let bestScore = -1;
+          for (let bi = 0; bi < qWords.length - 1; bi++) {
+            const b = qWords[bi] + " " + qWords[bi + 1];
+            // Skip bigrams containing organism words or stopwords
+            if (orgFragments && (orgFragments.has(qWords[bi]) || orgFragments.has(qWords[bi + 1]))) continue;
+            const s = termSpecificity(qWords[bi]) + termSpecificity(qWords[bi + 1]);
+            if (s > bestScore) { bestScore = s; bestBigram = b; }
+          }
+          if (bestBigram) bareCommonTitleFilter = bestBigram;
+          else if (topicTerms.length >= 2) bareCommonTitleFilter = topicTerms.slice(0, 2).join(" ");
+          else if (topicTerms.length === 1) bareCommonTitleFilter = topicTerms[0];
+        } catch {
+          if (topicTerms.length >= 2) bareCommonTitleFilter = topicTerms.slice(0, 2).join(" ");
         }
       }
     }
