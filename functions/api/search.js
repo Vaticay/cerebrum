@@ -9331,7 +9331,19 @@ async function gatherPapers(rawQuery, opts) {
     const topicTerms = orgQuoted
       ? terms.filter((t) => t !== orgQuoted)
       : terms;
-    const topicStr = topicTerms.join(" ");
+    let topicStr = topicTerms.join(" ");
+    // 2026-10-10: when the query has load-bearing constraints, the retrieval
+    // topic should be the CONSTRAINT PHRASE, not all ranked terms. "Studies
+    // involving BSFL waste oil substrates" was sending "waste oil substrates"
+    // to the engines, but the constraint is "waste oil". Extra terms dilute
+    // the query and return off-topic papers.
+    try {
+      const _qaTopic = analyzeQuery(query);
+      if (_qaTopic && _qaTopic.constraints && _qaTopic.constraints.length > 0 && !_qaTopic.isNameSearch) {
+        const cps = _qaTopic.constraints.map((c) => c.phrase).filter(Boolean);
+        if (cps.length > 0) topicStr = cps.join(" ");
+      }
+    } catch { /* keep topicTerms-based topicStr */ }
 
     // Boolean engines (EPMC, PubMed): organism AND topic using boolean syntax
     const boolQ = useBoolean
