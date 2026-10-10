@@ -9364,7 +9364,15 @@ async function gatherPapers(rawQuery, opts) {
       : terms;
     const arx = arxTerms.map((t) => "all:" + t).join(" AND ");
 
-    return [
+    // 2026-10-10: return [names, promises] so the caller can label the
+    // optional common-name OpenAlex query correctly.
+    const names = [
+      "europePMC","pubmed","openAlex",
+      ...(bareCommon ? ["openAlexCommon"] : []),
+      "crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos",
+      "CORE","BASE","pmcFullText","openAire","preprints",
+    ];
+    const promises = [
       europePMC(boolQ, 12),
       pubmed(boolQ, 12, ncbiKey),
       openAlex(bare, 12, openAlexKey),
@@ -9385,6 +9393,7 @@ async function gatherPapers(rawQuery, opts) {
       // that the OpenAlex-mediated `biorxiv()` above was silently missing.
       preprintSearch(bare, 8),
     ];
+    return { names, promises };
   };
 
   // Multi-part question detection.
@@ -9418,10 +9427,15 @@ async function gatherPapers(rawQuery, opts) {
   // for the most expensive 15+ fetches of the search.
   const MAX_LADDER_RUNGS = 3;
   for (let i = 0; i < rungs.length && i < MAX_LADDER_RUNGS; i++) {
-    const rungResults = await Promise.allSettled(fanout(rungs[i], i === 0));
+    const fanoutResult = fanout(rungs[i], i === 0);
+    // fanout returns {names, promises} so the optional common-name query
+    // gets a correct label.
+    const rungNames = fanoutResult.names || sourceNames;
+    const rungPromises = fanoutResult.promises || fanoutResult;
+    const rungResults = await Promise.allSettled(rungPromises);
     accumulated = accumulated.concat(rungResults);
     const perSource = rungResults.map((r, idx) => ({
-      source: sourceNames[idx],
+      source: rungNames[idx] || sourceNames[idx],
       status: r.status,
       count: r.status === "fulfilled" ? (r.value || []).length : 0,
       error: r.status === "rejected" ? String(r.reason && r.reason.message || r.reason).slice(0, 120) : null,
