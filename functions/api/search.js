@@ -3422,10 +3422,13 @@ async function crossref(query, limit = 8) {
 
 async function arxiv(query, limit = 6) {
   try {
+    // 2026-10-10: the caller (fanout) already builds the "all:X AND all:Y"
+    // syntax in `arx`. Do NOT prepend another "all:" here — that produced
+    // "all:all:Hermetia illucens AND ..." which arXiv silently mishandles.
     const url =
       "https://export.arxiv.org/api/query?" +
       new URLSearchParams({
-        search_query: "all:" + query,
+        search_query: query,
         max_results: String(limit),
         sortBy: "relevance",
       });
