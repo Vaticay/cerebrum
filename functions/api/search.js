@@ -3296,10 +3296,15 @@ async function openAlex(query, limit = 10, key = "") {
       // A dataset deposit, a component record, a book chapter etc. never
       // matches either arm and is dropped server-side before it costs us a
       // slot in `limit`.
-      filter: "type:article|preprint,language:en",
+      filter: "type:article|preprint",
 // 2026-10-05: prefer English-language papers. OpenAlex's language filter
 // keeps results predominantly English; non-English papers from other
 // sources are demoted (not dropped) in post-fetch ranking.
+// 2026-10-10: REMOVED language:en. It silently drops papers with NULL
+// language metadata, including very recent preprints (e.g. a 2026 bioRxiv
+// paper on "waste oil substrates" for BSFL was excluded despite being
+// exactly on-topic). The English query itself biases relevance toward
+// English papers; null-language papers are not non-English, just unindexed.
       sort: "relevance_score:desc",
       per_page: String(limit),
       select:
@@ -9301,6 +9306,27 @@ async function gatherPapers(rawQuery, opts) {
       : (orgQuoted ? orgQuoted + " " + topicStr : terms.join(" "));
     // Plain-keyword engines: combined string (organism + topic together)
     const bare = orgQuoted ? orgQuoted.replace(/"/g, "") + " " + topicStr : terms.join(" ");
+    // 2026-10-10: common-name variant for OpenAlex. The scientific name
+    // ("Hermetia illucens") misses papers that only use the common name
+    // ("black soldier fly"/"BSFL") in title+abstract, and OpenAlex does not
+    // do our concept expansion. Fire a second OpenAlex query with the
+    // common name so both vocabularies are covered in rung 1.
+    // orgInfo.orgPhrases holds the query's original organism phrase(s).
+    let bareCommon = null;
+    if (orgQuoted && typeof orgInfo !== "undefined" && orgInfo.orgPhrases && orgInfo.orgPhrases.length) {
+      const rawPhrase = String(orgInfo.orgPhrases[0] || "").toLowerCase();
+      // Expand abbreviations to the full common name via the concept group.
+      let common = String(orgInfo.orgPhrases[0] || "");
+      const grp = CONCEPT_LOOKUP.get(rawPhrase);
+      if (grp) {
+        const pick = [...grp].find((g) => /black soldier fly/i.test(g) && !/larva/i.test(g))
+          || [...grp].find((g) => g.split(" ").length > 1);
+        if (pick) common = pick;
+      }
+      if (common && common.toLowerCase() !== orgQuoted.replace(/"/g, "").toLowerCase()) {
+        bareCommon = common + " " + topicStr;
+      }
+    }
     // arXiv: prefix each term with "all:" and join with " AND "
     const arxTerms = orgQuoted
       ? [orgQuoted.replace(/"/g, ""), ...topicTerms]
@@ -9311,6 +9337,7 @@ async function gatherPapers(rawQuery, opts) {
       europePMC(boolQ, 12),
       pubmed(boolQ, 12, ncbiKey),
       openAlex(bare, 12, openAlexKey),
+      ...(bareCommon ? [openAlex(bareCommon, 12, openAlexKey)] : []),
       crossref(bare, 10),
       arxiv(arx, 8),
       semanticScholar(bare, 10, s2Key),
