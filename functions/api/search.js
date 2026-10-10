@@ -9914,7 +9914,27 @@ async function gatherPapers(rawQuery, opts) {
   const peripheralTerms = rankedTerms.filter((x) => x.spec < 0.5).map((x) => x.t);
   // If nothing cleared the specificity bar (very generic query), fall back to
   // the three most specific terms available so we still gate on something.
-  const gateTerms = coreTerms.length ? coreTerms : rankedTerms.slice(0, 3).map((x) => x.t);
+  let gateTerms = coreTerms.length ? coreTerms : rankedTerms.slice(0, 3).map((x) => x.t);
+  // 2026-10-10: when the query has load-bearing constraints (e.g. "waste oil"),
+  // gate on the CONSTRAINT words, not specificity-ranked terms. A verbose query
+  // like "Studies involving BSFL waste oil substrates" produced gateTerms
+  // ["substrates", "waste", "oil"] by specificity, but "substrates" is not what
+  // the user asked for — the constraint is "waste oil". Papers about waste oil
+  // that don't mention "substrates" were wrongly gated out. The constraints
+  // ARE the topic; specificity ranking is only a fallback when there are none.
+  try {
+    const _qaGate = analyzeQuery(rawQuery);
+    if (_qaGate && _qaGate.constraints && _qaGate.constraints.length > 0 && !_qaGate.isNameSearch) {
+      const constraintWords = [];
+      for (const c of _qaGate.constraints) {
+        for (const w of String(c.phrase || "").toLowerCase().split(/\s+/)) {
+          const cw = w.replace(/[^a-z0-9]/g, "");
+          if (cw.length > 2 && !constraintWords.includes(cw)) constraintWords.push(cw);
+        }
+      }
+      if (constraintWords.length > 0) gateTerms = constraintWords;
+    }
+  } catch { /* keep specificity-based gateTerms */ }
 
   // Compound-term detection. Scientific vocabulary is full of terms users split
   // apart when typing: "micro biome" vs "microbiome", "bio conversion" vs
