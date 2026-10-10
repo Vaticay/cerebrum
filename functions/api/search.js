@@ -9864,7 +9864,36 @@ async function gatherPapers(rawQuery, opts) {
   for (const w of ORGANISM_WORDS) {
     if (terms.includes(w)) neutralWords.add(w);
   }
-  const contentTerms = terms.filter((t) => !neutralWords.has(t));
+  let contentTerms = terms.filter((t) => !neutralWords.has(t));
+  // 2026-10-10: when the query has load-bearing constraints, the constraint
+  // words ARE the topic. Generic descriptors like "substrates" (not part of
+  // any constraint) dilute contentCoverage and let off-topic papers outscore
+  // on-topic ones. If constraints exist, keep only constraint words plus
+  // terms that don't appear in constraints but are still specific.
+  // Actually simpler and safer: drop terms that are generic descriptors
+  // (GENERIC_DESCRIPTORS) when constraints exist, since the constraints
+  // already capture what the user asked for.
+  try {
+    const _qaContent = analyzeQuery(rawQuery);
+    if (_qaContent && _qaContent.constraints && _qaContent.constraints.length > 0 && !_qaContent.isNameSearch) {
+      const constraintWordSet = new Set();
+      for (const c of _qaContent.constraints) {
+        for (const w of String(c.phrase || "").toLowerCase().split(/\s+/)) {
+          const cw = w.replace(/[^a-z0-9]/g, "");
+          if (cw.length > 2) constraintWordSet.add(cw);
+        }
+      }
+      // Keep constraint words; drop generic descriptors that aren't constraints.
+      // This prevents "substrates" from diluting "waste oil" in scoring.
+      const filtered = contentTerms.filter((t) => {
+        const tl = t.toLowerCase();
+        if (constraintWordSet.has(tl)) return true;
+        if (GENERIC_DESCRIPTORS.has(tl)) return false;
+        return true;
+      });
+      if (filtered.length > 0) contentTerms = filtered;
+    }
+  } catch { /* keep original contentTerms */ }
 
   // Conservative stemmer. Only strips endings when the remaining stem is still
   // long enough to be meaningful (>= 4 chars). The old version turned "motion"
