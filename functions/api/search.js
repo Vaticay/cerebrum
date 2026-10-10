@@ -3282,7 +3282,7 @@ async function genericWebSearch(query) {
   }
 }
 
-async function openAlex(query, limit = 10, key = "") {
+async function openAlex(query, limit = 10, key = "", titleFilter = null) {
   try {
 
 
@@ -3296,7 +3296,10 @@ async function openAlex(query, limit = 10, key = "") {
       // A dataset deposit, a component record, a book chapter etc. never
       // matches either arm and is dropped server-side before it costs us a
       // slot in `limit`.
-      filter: "type:article|preprint",
+      // 2026-10-10: optional titleFilter (e.g. "waste oil") constrains to
+      // papers with the phrase in the title. This defeats OpenAlex's
+      // citation-biased relevance ranking that buries 0-citation preprints.
+      filter: "type:article|preprint" + (titleFilter ? ",title.search:" + titleFilter : ""),
 // 2026-10-05: prefer English-language papers. OpenAlex's language filter
 // keeps results predominantly English; non-English papers from other
 // sources are demoted (not dropped) in post-fetch ranking.
@@ -9312,7 +9315,12 @@ async function gatherPapers(rawQuery, opts) {
     // do our concept expansion. Fire a second OpenAlex query with the
     // common name so both vocabularies are covered in rung 1.
     // orgInfo.orgPhrases holds the query's original organism phrase(s).
+    // 2026-10-10 (pt 2): use title.search for the topic phrase. OpenAlex's
+    // relevance_score buries 0-citation preprints even when all keywords
+    // match; constraining the title to the key phrase defeats the citation
+    // bias (target paper went from unranked to #2).
     let bareCommon = null;
+    let bareCommonTitleFilter = null;
     if (orgQuoted && typeof orgInfo !== "undefined" && orgInfo.orgPhrases && orgInfo.orgPhrases.length) {
       const rawPhrase = String(orgInfo.orgPhrases[0] || "").toLowerCase();
       // Expand abbreviations to the full common name via the concept group.
@@ -9324,7 +9332,13 @@ async function gatherPapers(rawQuery, opts) {
         if (pick) common = pick;
       }
       if (common && common.toLowerCase() !== orgQuoted.replace(/"/g, "").toLowerCase()) {
-        bareCommon = common + " " + topicStr;
+        bareCommon = common;
+        // Title filter from the top 2 topic terms (the key phrase).
+        if (topicTerms.length >= 2) {
+          bareCommonTitleFilter = topicTerms.slice(0, 2).join(" ");
+        } else if (topicTerms.length === 1) {
+          bareCommonTitleFilter = topicTerms[0];
+        }
       }
     }
     // arXiv: prefix each term with "all:" and join with " AND "
@@ -9337,7 +9351,7 @@ async function gatherPapers(rawQuery, opts) {
       europePMC(boolQ, 12),
       pubmed(boolQ, 12, ncbiKey),
       openAlex(bare, 12, openAlexKey),
-      ...(bareCommon ? [openAlex(bareCommon, 12, openAlexKey)] : []),
+      ...(bareCommon ? [openAlex(bareCommon, 12, openAlexKey, bareCommonTitleFilter)] : []),
       crossref(bare, 10),
       arxiv(arx, 8),
       semanticScholar(bare, 10, s2Key),
