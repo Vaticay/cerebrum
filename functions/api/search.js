@@ -2046,6 +2046,13 @@ const STOPWORDS = new Set([
   // and returned 0 papers. These words describe the question, not the
   // science, and must not pollute the database query.
   "true","false","truly","actually","fact","facts",
+  // 2026-10-10: query-framing words from QUERY_FRAMING_WORDS. "Studies
+  // involving BSFL waste oil" was scoring 0 sources while "BSFL waste oil"
+  // returned 3, because "studies"/"involving" polluted the term lists.
+  // analyzeQuery already strips these via QUERY_FRAMING_WORDS; the scorer
+  // must too.
+  "studies","study","involving","involved","involves","involve",
+  "papers","paper","research","researching","regarding",
 ]);
 
 // Verb lemmatization for search terms (2026-10-08 search reliability fix).
