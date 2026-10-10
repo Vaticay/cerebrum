@@ -9331,8 +9331,22 @@ async function gatherPapers(rawQuery, opts) {
         if (pick) common = pick;
       }
       if (common && common.toLowerCase() !== orgQuoted.replace(/"/g, "").toLowerCase()) {
-        const topTwo = topicTerms.slice(0, 2).join(" ");
-        bareCommon = topTwo ? common + " " + topTwo : common;
+        // 2026-10-10 (pt 6): use analyzeQuery keyPhrases for the topic part.
+        // topicTerms.slice(0,2) by specificity gave "substrates waste" instead
+        // of the actual constraint phrase "waste oil".
+        let topicPhrase = "";
+        try {
+          const qa = analyzeQuery(query);
+          if (qa && qa.keyPhrases && qa.keyPhrases.length > 0) {
+            topicPhrase = qa.keyPhrases[0];
+          }
+        } catch { /* fall through to topicTerms */ }
+        if (!topicPhrase && topicTerms.length >= 2) {
+          topicPhrase = topicTerms.slice(0, 2).join(" ");
+        } else if (!topicPhrase && topicTerms.length === 1) {
+          topicPhrase = topicTerms[0];
+        }
+        bareCommon = topicPhrase ? common + " " + topicPhrase : common;
       }
     }
     // arXiv: prefix each term with "all:" and join with " AND "
