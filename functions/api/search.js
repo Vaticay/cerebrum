@@ -9337,11 +9337,9 @@ async function gatherPapers(rawQuery, opts) {
         // constraint). 2026-10-10 (pt 5): bigram-by-specificity picked
         // "oil substrates" over "waste oil"; analyzeQuery already knows
         // the true constraint phrase.
-        // DEBUG 2026-10-10: temporary logging to diagnose why this returns 0
         try {
           const qa = analyzeQuery(query);
           const kp = qa && qa.keyPhrases && qa.keyPhrases[0];
-          console.error("[Cerebrum][bareCommon] query=" + String(query).slice(0,60) + " common=" + common + " keyPhrases=" + JSON.stringify(qa && qa.keyPhrases));
           if (kp && typeof kp === "string" && kp.includes(" ")) {
             bareCommonTitleFilter = kp;
           } else if (topicTerms.length >= 2) {
@@ -9349,13 +9347,9 @@ async function gatherPapers(rawQuery, opts) {
           } else if (topicTerms.length === 1) {
             bareCommonTitleFilter = topicTerms[0];
           }
-          console.error("[Cerebrum][bareCommon] bareCommon=" + bareCommon + " titleFilter=" + bareCommonTitleFilter);
-        } catch (e) {
-          console.error("[Cerebrum][bareCommon] EXCEPTION: " + String(e && e.message).slice(0,120));
+        } catch {
           if (topicTerms.length >= 2) bareCommonTitleFilter = topicTerms.slice(0, 2).join(" ");
         }
-      } else {
-        console.error("[Cerebrum][bareCommon] SKIPPED: common=" + common + " orgQuoted=" + orgQuoted);
       }
     }
     // arXiv: prefix each term with "all:" and join with " AND "
