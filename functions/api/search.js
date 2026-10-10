@@ -1556,6 +1556,12 @@ const SYNONYMS = {
   "mrsa": ["methicillin-resistant staphylococcus aureus"],
   "tb": ["mycobacterium tuberculosis"],
   "malaria": ["plasmodium falciparum"],
+  // 2026-10-10: microbiome/microbiota are the same concept under two standard
+  // names. Constraint verification substitutes at the word level ("gut
+  // microbiome" also matches "gut microbiota"), so this stays precise;
+  // query expansion also picks up both terms.
+  microbiome: ["microbiota"],
+  microbiota: ["microbiome"],
   crispr: ["clustered regularly interspaced short palindromic repeats", "cas9", "gene editing"],
   pcr: ["polymerase chain reaction"],
   qpcr: ["quantitative pcr", "real-time pcr", "rt-pcr", "quantitative polymerase chain reaction"],
@@ -2633,6 +2639,28 @@ const QUERY_FRAMING_WORDS = new Set([
   // satisfies and the whole pool was capped below the relevance floor.
   "deadly", "dangerous", "lethal", "fatal", "safe", "effective",
   "common", "rare", "serious", "severe", "harmful",
+  // 2026-10-10: question-framing nouns/verbs/adverbs. "What organisms are
+  // commonly found in the black soldier fly larval gut microbiome" produced
+  // the load-bearing constraints "organisms commonly found" /
+  // "commonly found larval" / "found larval gut" . phrases no paper contains,
+  // so the constraint filter dropped the entire pool and the answer was
+  // "no citable literature surfaced" for a well-studied topic. The asked-about
+  // thing ("organisms") and the asking ("commonly found") are framing, not
+  // constraints; the constraint is "gut microbiome".
+  "organism", "organisms", "commonly", "found", "find", "finds",
+]);
+
+// Life-stage words describe the organism, not the topic. "What organisms are
+// commonly found in the black soldier fly larval gut microbiome" is about
+// the organism's gut microbiome; "larval" must not become a load-bearing
+// topic constraint (it forced the phrase "larval gut microbiome", which
+// papers titled "The Core Gut Microbiome of Black Soldier Fly Larvae"
+// don't contain). Only excluded when an organism was identified; in an
+// organism-free query ("mosquito larvae control") they can be load-bearing.
+const LIFE_STAGE_WORDS = new Set([
+  "larva", "larvae", "larval", "pupa", "pupae", "pupal",
+  "nymph", "nymphs", "nymphal", "maggot", "maggots",
+  "caterpillar", "caterpillars", "grub", "grubs",
 ]);
 
 // Generic descriptors that modify a constraint but aren't constraints
@@ -2718,6 +2746,9 @@ function extractKeyPhrases(query, organismPhrases) {
 
   const tokens = norm.split(" ").filter((t) =>
     t.length > 2 && !QUERY_FRAMING_WORDS.has(t) && !orgSet.has(t) && !orgWords.has(t)
+    // 2026-10-10: life-stage words are organism descriptors, not topic
+    // constraints, when the organism is already identified.
+    && !(organismPhrases.length > 0 && LIFE_STAGE_WORDS.has(t))
   ).map((t) => t.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")).filter((t) => t.length > 2);
   const phrases = [];
   // Sliding window: adjacent content words form candidate phrases.
@@ -2877,14 +2908,30 @@ export function verifyPaperConstraints(paper, analysis) {
   const matched = [];
   const missing = [];
   for (const c of analysis.constraints) {
-    // Synonym phrases for this constraint: organism expansions apply when
-    // the constraint contains an organism term; otherwise just the phrase.
-    const syns = [];
-    for (const term of c.terms) {
-      const key = term.toLowerCase();
-      if (SYNONYMS[key]) syns.push(...SYNONYMS[key]);
+    // Word-level synonym variants of the constraint phrase. "gut microbiome"
+    // must also match "gut microbiota" (same concept, standard alternate
+    // term); testing the synonym as a bare phrase would be too loose
+    // ("skin microbiota" is not the gut microbiome), so substitutes go
+    // back into the phrase and are re-tested with the adjacent/proximity
+    // regexes. Single substitutions of the original phrase only: enough
+    // for real vocabulary variance without combinatorial blowup.
+    const variants = [c.phrase];
+    const words = c.phrase.split(" ");
+    for (let i = 0; i < words.length; i++) {
+      const subs = (SYNONYMS[words[i].toLowerCase()] || []).filter((s) =>
+        String(s).split(" ").length <= 3);
+      for (const s of subs) {
+        const vw = words.slice();
+        vw[i] = String(s);
+        const vp = vw.join(" ");
+        if (!variants.includes(vp)) variants.push(vp);
+      }
     }
-    if (textMentionsPhrase(text, c.phrase, syns)) matched.push(c.phrase);
+    let hit = false;
+    for (const v of variants) {
+      if (textMentionsPhrase(text, v, [])) { hit = true; break; }
+    }
+    if (hit) matched.push(c.phrase);
     else missing.push(c.phrase);
   }
 
