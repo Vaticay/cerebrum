@@ -10484,7 +10484,10 @@ async function gatherPapers(rawQuery, opts) {
       const _engWordCount = _words.filter(w => _commonEng.includes(w.toLowerCase().replace(/[^a-z]/g, ''))).length;
       const _engRatio = _words.length > 0 ? _engWordCount / _words.length : 0;
       const _isLikelyNonEnglish = _engRatio < 0.3 && _words.length > 5;
-      if (_nonLatinRatio > 0.1 || _nonEngRatio > 0.4 || _isLikelyNonEnglish) {
+      // 2026-10-11: Titles with " / " separating native and English gloss (e.g., Indonesian/English)
+      // are translated titles; cap when abstract is missing
+      const _hasTranslationSlash = _title.includes(" / ") && _title.length > 50;
+      if (_nonLatinRatio > 0.1 || _nonEngRatio > 0.4 || _isLikelyNonEnglish || _hasTranslationSlash) {
         p.score = Math.min(Number(p.score) || 0, 45);
         p.relevance = Math.min(Number(p.relevance) || 0, 45);
         if (p.blendedScore !== undefined) p.blendedScore = Math.min(Number(p.blendedScore) || 0, 45);
@@ -10628,10 +10631,14 @@ async function gatherPapers(rawQuery, opts) {
     // substrate-role word; papers where it only appears as a product get
     // capped below the relevance floor.
     try {
-      // Use _qa.topic and keyPhrases to detect substrate queries (resolvedSearchQuery/query not in scope here)
-      const qaText = ((_qa && _qa.topic) || "" + " " + ((_qa && _qa.keyPhrases) || []).join(" ")).toLowerCase();
+      // 2026-10-11: Detect substrate/feed queries from _qa; fallback to keyPhrases containing material terms
+      const _qaTopic = (_qa && _qa.topic) || "";
+      const _qaPhrases = ((_qa && _qa.keyPhrases) || []).join(" ");
+      const qaText = (_qaTopic + " " + _qaPhrases).toLowerCase();
       const isSubstrateQuery = /\b(substrate|substrates|feed|feeding|fed|diet|diets|rearing)\b/.test(qaText);
-      if (isSubstrateQuery && _qa && _qa.keyPhrases && _qa.keyPhrases.length > 0) {
+      // Fallback: if keyPhrases exist and contain a material term, treat as potential substrate query
+      const hasMaterialPhrase = _qa && _qa.keyPhrases && _qa.keyPhrases.some(kp => /\b(oil|waste|substrate|feed)\b/i.test(String(kp)));
+      if ((isSubstrateQuery || hasMaterialPhrase) && _qa && _qa.keyPhrases && _qa.keyPhrases.length > 0) {
         const SUBSTRATE_ROLE_WORDS = ["substrate", "substrates", "feed", "feeding", "fed", "diet", "diets", "supplementation", "rearing", "cultivation", "grown on"];
         const PRODUCT_ROLE_WORDS = ["extractor", "extraction", "biodiesel", "yield", "produce", "production", "harvest"];
         let _roleCapped = 0;
