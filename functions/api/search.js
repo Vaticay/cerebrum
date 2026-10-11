@@ -6866,8 +6866,8 @@ export function buildConfidenceLine(papers, verdict) {
   // internal calibration only.
   const line =
     level === "strong"
-      ? "Strong confidence: " + n + " sources point the same way" +
-        (status === "divided" ? "" : " and none report opposing findings") + "."
+      ? "Cited above: " + n + " papers. " +
+        (status === "divided" ? "" : " See sources for details.")
       : level === "moderate"
         ? "Moderate confidence: " + n + " sources agree, but " +
           (status === "divided"
@@ -7923,6 +7923,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "ALWAYS respond in English regardless of the language of the source papers.\n\n",
   PERSONALITY:
     "PERSONALITY . this is who is writing, not just a formatting rule:\n" +
+    "TEACH FIRST. Before reporting findings, orient the reader in 2-3 sentences: what the key terms mean in plain language, why researchers study this, and what the central question is. " +
     "You're a sharp, curious researcher who actually finds this stuff interesting . not a customer-support bot summarizing " +
     "documents. You have a point of view. When the evidence is genuinely convincing, say so plainly instead of hedging out " +
     "of politeness. When it's thin, say that plainly too . don't split the difference to sound balanced. If a finding is " +
@@ -7979,7 +7980,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "'Based on', 'The research shows', 'Let me explain', 'Here is what we know', " +
     "'While the provided sources', 'To answer your question', 'In conclusion', 'In summary', " +
     "'Let\\'s break this down', 'The provided sources', 'Looking at the', 'Several studies', " +
-    "'The available evidence', 'Recent research', 'The literature suggests', 'According to the sources'. " +
+    "'The available evidence', 'Recent research', 'The literature suggests', 'According to the sources', 'Furthermore', 'Moreover', 'Additionally', 'In addition', 'The species of', 'In this study', 'Here,'. " +
     "CORRECT opening: '_Hermetia illucens_ larvae harbor a gut microbiome dominated by **Firmicutes** and **Proteobacteria** [1][3]...'\n\n" +
 
     "═══ RULE 2: SYNTHESIZE, NEVER LIST (HARD-ENFORCED) ═══\n" +
@@ -8047,6 +8048,10 @@ export const CEREBRUM_SYSTEM_v1 = {
     "answering the general question the user didn't ask.\n\n" +
 
     "═══ RULE 7: RELEVANCE HONESTY ═══\n" +
+    "═══ RULE 8: EXPAND ABBREVIATIONS (HARD-ENFORCED) ═══\n" +
+    "The first time you use any domain abbreviation (HIL, DFW, WCO, UCO, F-EM, RAL, FA, EM, etc.), " +
+    "write the full term followed by the abbreviation in parentheses: 'Hermetia illucens larvae (HIL)'. " +
+    "Never assume the reader knows field shorthand. \n\n" +
     "If papers are tangential, say so in ONE sentence and answer ONLY from what the papers support . " +
     "never present uncited general knowledge as a finding. Mark any background context as such.\n" +
     "Don't pretend irrelevant papers answer the question.\n\n" +
@@ -10460,6 +10465,27 @@ async function gatherPapers(rawQuery, opts) {
     // set. A weak match now honestly reads as "38% match" rather than being
     // inflated to 100% just because everything else was worse.
     p.relevance = Math.max(0, Math.min(100, Math.round(p.score)));
+    // 2026-10-11: Cap papers with missing/short abstracts AND non-English
+    // titles. An uncheckable citation (no abstract to verify claims against)
+    // from a paper the reader cannot read should never be cited as evidence.
+    // Uses the same 45-cap pattern as the constraint cap.
+    const _absLen = (p.abstract || "").length;
+    const _title = (p.title || "");
+    if (_absLen < 100 && _title) {
+      const _nonLatin = (_title.match(/[^\u0000-\u024F\u1E00-\u1EFF\s\d\-.,;:()[\]{}'"!?@#$%^&*+=/<>]/g) || []).length;
+      const _nonLatinRatio = _nonLatin / _title.length;
+      // Check for >40% non-English words (simple heuristic: words with non-ASCII chars)
+      const _words = _title.split(/\s+/);
+      const _nonEngWords = _words.filter(w => /[^\x00-\x7F]/.test(w)).length;
+      const _nonEngRatio = _words.length > 0 ? _nonEngWords / _words.length : 0;
+      if (_nonLatinRatio > 0.1 || _nonEngRatio > 0.4) {
+        p.score = Math.min(Number(p.score) || 0, 45);
+        p.relevance = Math.min(Number(p.relevance) || 0, 45);
+        if (p.blendedScore !== undefined) p.blendedScore = Math.min(Number(p.blendedScore) || 0, 45);
+        if (p.keywordScore !== undefined) p.keywordScore = Math.min(Number(p.keywordScore) || 0, 45);
+        p.unverifiableAbstract = true;
+      }
+    }
     const j = (p.journal || "").toLowerCase();
     if (/wikipedia/.test(j)) p.type = "Reference";
     else if (/preprint|biorxiv|medrxiv|arxiv|ssrn|research square/.test(j))
@@ -10586,6 +10612,60 @@ async function gatherPapers(rawQuery, opts) {
       rerankedFinal.sort((a, b) => (Number(b.relevance) || 0) - (Number(a.relevance) || 0));
       if (_capped > 0 && diag) diag.constraintCap = { capped: _capped, keyPhrases: _qa.keyPhrases };
     }
+
+    // 2026-10-11: SEMANTIC ROLE CHECK for substrate/feed queries. The lexical
+    // constraint check above passes papers where "waste oil" appears anywhere,
+    // but for a query like "waste oil substrates" (feeding oil TO larvae), a
+    // paper about extracting oil FROM larvae (biodiesel, oil extractor) has the
+    // relationship inverted. If the query names a substrate/feeding
+    // relationship, require the constraint phrase to appear near a
+    // substrate-role word; papers where it only appears as a product get
+    // capped below the relevance floor.
+    try {
+      const qLower = (resolvedSearchQuery || query || "").toLowerCase();
+      const isSubstrateQuery = /\b(substrate|substrates|feed|feeding|fed|diet|diets|rearing)\b/.test(qLower);
+      if (isSubstrateQuery && _qa && _qa.keyPhrases && _qa.keyPhrases.length > 0) {
+        const SUBSTRATE_ROLE_WORDS = ["substrate", "substrates", "feed", "feeding", "fed", "diet", "diets", "supplementation", "rearing", "cultivation", "grown on"];
+        const PRODUCT_ROLE_WORDS = ["extractor", "extraction", "biodiesel", "yield", "produce", "production", "harvest"];
+        let _roleCapped = 0;
+        for (const p of rerankedFinal) {
+          // Skip already-capped papers
+          if ((Number(p.relevance) || 0) < 50) continue;
+          const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+          // Check if any key phrase appears near a substrate-role word (within ~15 words)
+          let hasSubstrateRole = false;
+          for (const phrase of _qa.keyPhrases) {
+            const phraseLower = String(phrase).toLowerCase();
+            const phraseIdx = hay.indexOf(phraseLower);
+            if (phraseIdx === -1) continue;
+            // Look at 100 chars before and after the phrase (~15 words)
+            const contextStart = Math.max(0, phraseIdx - 100);
+            const contextEnd = Math.min(hay.length, phraseIdx + phraseLower.length + 100);
+            const context = hay.substring(contextStart, contextEnd);
+            if (SUBSTRATE_ROLE_WORDS.some(w => context.includes(w))) {
+              hasSubstrateRole = true;
+              break;
+            }
+          }
+          // If no substrate role found, check if it's purely a product role
+          if (!hasSubstrateRole) {
+            const hasProductRole = PRODUCT_ROLE_WORDS.some(w => hay.includes(w));
+            if (hasProductRole) {
+              p.score = Math.min(Number(p.score) || 0, 45);
+              p.relevance = Math.min(Number(p.relevance) || 0, 45);
+              if (p.blendedScore !== undefined) p.blendedScore = Math.min(Number(p.blendedScore) || 0, 45);
+              if (p.keywordScore !== undefined) p.keywordScore = Math.min(Number(p.keywordScore) || 0, 45);
+              p.roleInverted = true;
+              _roleCapped++;
+            }
+          }
+        }
+        if (_roleCapped > 0) {
+          rerankedFinal.sort((a, b) => (Number(b.relevance) || 0) - (Number(a.relevance) || 0));
+          if (diag) diag.roleCap = { capped: _roleCapped };
+        }
+      }
+    } catch (roleErr) { console.error("[Cerebrum] search.js role check:", roleErr); }
   } catch (cbErr) { console.error("[Cerebrum] search.js constraint cap:", cbErr); }
 
   diag.funnel = funnel;
