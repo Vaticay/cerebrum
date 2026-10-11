@@ -10478,7 +10478,13 @@ async function gatherPapers(rawQuery, opts) {
       const _words = _title.split(/\s+/);
       const _nonEngWords = _words.filter(w => /[^\x00-\x7F]/.test(w)).length;
       const _nonEngRatio = _words.length > 0 ? _nonEngWords / _words.length : 0;
-      if (_nonLatinRatio > 0.1 || _nonEngRatio > 0.4) {
+      // 2026-10-11: Also catch Latin-script non-English titles (e.g., Indonesian)
+      // Heuristic: if <30% of words are common English words, likely non-English
+      const _commonEng = ['the','a','an','of','and','or','in','on','for','with','to','from','by','as','is','are','was','were','study','effect','influence','protein','oil','waste','larval','larvae','black','soldier','fly','growth','development','optimization','new','approach'];
+      const _engWordCount = _words.filter(w => _commonEng.includes(w.toLowerCase().replace(/[^a-z]/g, ''))).length;
+      const _engRatio = _words.length > 0 ? _engWordCount / _words.length : 0;
+      const _isLikelyNonEnglish = _engRatio < 0.3 && _words.length > 5;
+      if (_nonLatinRatio > 0.1 || _nonEngRatio > 0.4 || _isLikelyNonEnglish) {
         p.score = Math.min(Number(p.score) || 0, 45);
         p.relevance = Math.min(Number(p.relevance) || 0, 45);
         if (p.blendedScore !== undefined) p.blendedScore = Math.min(Number(p.blendedScore) || 0, 45);
@@ -10622,8 +10628,9 @@ async function gatherPapers(rawQuery, opts) {
     // substrate-role word; papers where it only appears as a product get
     // capped below the relevance floor.
     try {
-      const qLower = (resolvedSearchQuery || query || "").toLowerCase();
-      const isSubstrateQuery = /\b(substrate|substrates|feed|feeding|fed|diet|diets|rearing)\b/.test(qLower);
+      // Use _qa.topic and keyPhrases to detect substrate queries (resolvedSearchQuery/query not in scope here)
+      const qaText = ((_qa && _qa.topic) || "" + " " + ((_qa && _qa.keyPhrases) || []).join(" ")).toLowerCase();
+      const isSubstrateQuery = /\b(substrate|substrates|feed|feeding|fed|diet|diets|rearing)\b/.test(qaText);
       if (isSubstrateQuery && _qa && _qa.keyPhrases && _qa.keyPhrases.length > 0) {
         const SUBSTRATE_ROLE_WORDS = ["substrate", "substrates", "feed", "feeding", "fed", "diet", "diets", "supplementation", "rearing", "cultivation", "grown on"];
         const PRODUCT_ROLE_WORDS = ["extractor", "extraction", "biodiesel", "yield", "produce", "production", "harvest"];
