@@ -2649,6 +2649,9 @@ const QUERY_FRAMING_WORDS = new Set([
   // 2026-10-11: substrate/feed role words. "waste oil substrates" means waste oil
   // USED AS substrate; papers about feeding waste oil don't need the literal word.
   "substrate", "substrates", "feed", "feeding", "fed", "diet", "diets",
+  // 2026-10-11: culturability property. "what organisms would be culturable"
+  // asks about a property, not a topic papers must mention.
+  "culturable", "cultivable", "culturability",
   // 2026-10-10: question-framing nouns/verbs/adverbs. "What organisms are
   // commonly found in the black soldier fly larval gut microbiome" produced
   // the load-bearing constraints "organisms commonly found" /
@@ -10608,9 +10611,12 @@ async function gatherPapers(rawQuery, opts) {
   // findings. Name searches are exempt (authorship is the signal there);
   // queries with no multi-word constraints are unaffected (the old logic
   // runs untouched).
+  // 2026-10-11: DISABLED hard constraint capping - it causes 0-source results for valid queries.
+  // The specific filters (Indonesian slash titles, biodiesel role inversion) remain active.
+  // Relevance scoring handles ranking; we don't need to require all terms in every paper.
   try {
     const _qa = analyzeQuery(rawQuery);
-    if (_qa && _qa.constraints && _qa.constraints.length > 0 && !_qa.isNameSearch && rerankedFinal.length > 0) {
+    if (false && _qa && _qa.constraints && _qa.constraints.length > 0 && !_qa.isNameSearch && rerankedFinal.length > 0) {
       let _capped = 0;
       for (const p of rerankedFinal) {
         const v = verifyPaperConstraints(p, _qa);
