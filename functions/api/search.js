@@ -12754,7 +12754,7 @@ async function runSearchPipeline(pctx) {
     if (!hasPapers) {
       try {
         const [wiki, ddg] = await Promise.all([
-          wikipedia(cleanQuery(query), 2).catch(() => []),
+          // 2026-10-12: Wikipedia disabled - not a citable scientific source (Dusty)
           duckduckgo(query).catch(() => []),
         ]);
         const seen = new Set();
