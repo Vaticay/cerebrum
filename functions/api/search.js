@@ -13050,10 +13050,16 @@ async function runSearchPipeline(pctx) {
     if (useEvidence && evidencePapers.length > 1) {
       evidencePapers = dedupePapers(evidencePapers);
     }
+    // 2026-10-12: Second gate must not defeat the cascade.
+    // If papers are already flagged thinEvidence (cascade kept them),
+    // skip the second gate. The "never zero" guarantee is void otherwise.
     if (useEvidence && !isNameSearch && !isFollowupMode) {
-      const beforeGate = evidencePapers.length;
-      evidencePapers = applyRelevanceGate(evidencePapers);
-      relevanceGatedOut += beforeGate - evidencePapers.length;
+      const hasThin = evidencePapers.some(p => p.thinEvidence);
+      if (!hasThin) {
+        const beforeGate = evidencePapers.length;
+        evidencePapers = applyRelevanceGate(evidencePapers);
+        relevanceGatedOut += beforeGate - evidencePapers.length;
+      }
     }
 
     // CONTRADICTION-FIRST RETRIEVAL (2026-10-08 groundbreaking intelligence).
@@ -13117,7 +13123,7 @@ async function runSearchPipeline(pctx) {
     // writes "[3]" meaning its third source while the UI renders a different
     // paper as entry 3. This was silently misattributing citations.
     const sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(
-      ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType }) => ({
+      ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType, thinEvidence }) => ({
         title,
         url,
         journal,
@@ -13130,6 +13136,7 @@ async function runSearchPipeline(pctx) {
         retracted: !!retracted,
         concern: !!concern,
         updateType: updateType || null,
+        thinEvidence: !!thinEvidence,  // 2026-10-12: was dropped, UI never saw it
       })
     );
 
