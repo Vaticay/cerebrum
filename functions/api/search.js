@@ -15649,6 +15649,7 @@ async function runSearchPipeline(pctx) {
                 ? "lite-cap"
                 : "free-cap",
         },
+        _gateDebug: { proLib: !!proLib, kind: aiGate.kind, hasUser: !!aiGate.userId, used: aiGate.aiUsed, cap: aiGate.aiCap, allowed: aiSynthesisAllowed },
         source:
           aiOK && useEvidence
             ? dbUsed + " + AI"
