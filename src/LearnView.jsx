@@ -15,6 +15,11 @@
  * - Spaced review. Every answered finding becomes a tracked claim with
  *   an FSRS style schedule. Claims resurface as they start to fade.
  * - Forgiving streaks. Two freezes, no hearts, no energy limits.
+ *
+ * Presentation (v3): an Imprint grade lesson experience built on that
+ * engine. A library of course covers, a lesson path inside each course,
+ * and a full screen player with one idea per card, a check step before
+ * feedback, and a feedback sheet that quotes the paper itself.
  */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
@@ -137,12 +142,21 @@ function shortCite(source) {
   const a = String(source.authors || "").trim();
   let name = "";
   if (a) {
-    if (a.includes(",")) name = a.split(",")[0].split(" ").pop() + " et al.";
-    else if (/et al/.test(a)) name = a.replace(/\s*et al\.?.*$/, "") + " et al.";
+    const first = a.includes(",") ? a.split(",")[0].trim() : a.replace(/\s*et al\.?.*$/, "").trim();
+    const words = first.split(/\s+/).filter(Boolean);
+    if (words.length === 0) name = "";
+    else if (words.length === 1) name = words[0];
     else {
-      const words = a.split(/\s+/);
-      name = words.length > 2 ? words[words.length - 1] + " et al." : a;
+      // Author strings come in two shapes: "Firstname Surname" and
+      // "Surname F" (surname followed by a bare initial). Taking the
+      // last word of the second shape yields the initial, which reads
+      // as nonsense in a question ("What did Q et al. report?"). When
+      // the last word is a lone initial, the surname is the first word.
+      const last = words[words.length - 1];
+      name = last.replace(/[^A-Za-z]/g, "").length <= 1 ? words[0] : last;
     }
+    if (name && a.includes(",") || /et al/.test(a)) name += " et al.";
+    if (name && name.replace(/[^A-Za-z]/g, "").length < 2) name = "";
   }
   const yr = source.year ? " (" + source.year + ")" : "";
   return (name || "This paper") + yr;
@@ -161,6 +175,9 @@ function seededShuffle(arr, seed) {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+function normKey(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /* Pull cited findings out of an answer's markdown. Each claim keeps
@@ -217,10 +234,15 @@ function numbersIn(claims) {
 let claimSeq = 0;
 function quizCard(claim, allClaims, sources, opts = {}) {
   const source = sources[claim.sourceIdx - 1];
-  const distract = seededShuffle(
-    allClaims.filter((c) => c.sourceIdx !== claim.sourceIdx && c.text !== claim.text),
-    hashStr(claim.text)
-  ).slice(0, 3).map((c) => c.text);
+  // Options are read at a glance, so distractors prefer the shorter
+  // real findings in the pool. The correct finding is never shortened:
+  // options quote papers, they do not paraphrase them.
+  const pool = allClaims
+    .filter((c) => c.sourceIdx !== claim.sourceIdx && c.text !== claim.text)
+    .sort((a, b) => a.text.length - b.text.length);
+  const shortPool = pool.filter((c) => c.text.length <= 230);
+  const distract = seededShuffle(shortPool.length >= 3 ? shortPool : pool, hashStr(claim.text))
+    .slice(0, 3).map((c) => c.text);
   const options = seededShuffle([claim.text, ...distract], hashStr(claim.text) + 7);
   return {
     kind: "quiz",
@@ -271,7 +293,16 @@ function paperCard(source, claim) {
 export function createCourseFromResults(query, sources, answerMd, conflicts) {
   const srcs = (sources || []).filter((s) => s && s.title);
   if (srcs.length < 2) return null;
-  const claims = extractClaims(answerMd);
+  // A paper's own title is not a finding. Answers sometimes restate a
+  // title as a cited sentence, and it reads as nonsense when it turns
+  // up as a quiz option, so title matches never become claims.
+  const titleKeys = new Set(srcs.map((s) => normKey(s.title)).filter((t) => t.length > 12));
+  const claims = extractClaims(answerMd).filter((c) => {
+    const k = normKey(c.text);
+    if (titleKeys.has(k)) return false;
+    for (const t of titleKeys) if (k.length > 12 && t.includes(k)) return false;
+    return true;
+  });
   if (claims.length < 3) return null;
 
   const bySource = new Map();
@@ -415,7 +446,9 @@ const SERIF = "Georgia, 'Iowan Old Style', 'Times New Roman', serif";
 const CSS = `
 .lv-rise { animation: lvRise .45s cubic-bezier(.05,.7,.1,1) both; }
 @keyframes lvRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-.lv-btn { transition: transform 80ms linear, box-shadow 80ms linear, background .15s; }
+.lv-sheet { animation: lvSheet .38s cubic-bezier(.05,.7,.1,1) both; }
+@keyframes lvSheet { from { transform: translateY(102%); } to { transform: none; } }
+.lv-btn { transition: transform 80ms linear, box-shadow 80ms linear, background .15s, opacity .15s; }
 .lv-btn-primary { box-shadow: 0 4px 0 rgba(0,0,0,.38); }
 .lv-btn-primary:active { transform: translateY(4px); box-shadow: 0 0 0 rgba(0,0,0,0); }
 .lv-opt { transition: border-color .15s, background .15s, transform .15s; }
@@ -425,41 +458,87 @@ const CSS = `
 .lv-pop { animation: lvPop .3s cubic-bezier(.2,1.4,.4,1) both; }
 @keyframes lvPop { from { transform: scale(0); } to { transform: scale(1); } }
 .lv-fill { transition: width .5s cubic-bezier(.05,.7,.1,1); }
+.lv-pulse { animation: lvPulse 1.8s ease-in-out infinite; }
+@keyframes lvPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.28); } 50% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
+.lv-node { transition: transform .15s; }
+.lv-node:hover { transform: translateY(-2px); }
 `;
 
-/* ── lesson player ───────────────────────────────────────────────── */
+/* Deterministic cover art for a course: deep paired tones chosen by a
+   hash of the title, a soft radial glow, and the topic's first letter
+   set in large serif. No images, nothing invented, always available. */
+const COVER_PAIRS = [
+  ["#1d3b2a", "#0e2417"], ["#27354d", "#131e30"], ["#3d2c1e", "#241708"],
+  ["#33233f", "#1c1226"], ["#173d3a", "#0a2422"], ["#42252b", "#281116"],
+  ["#2c3a1c", "#18230c"], ["#1e3a4d", "#0e2432"], ["#3f3418", "#261e08"],
+];
+function Cover({ title, height, radius = 16, fontSize }) {
+  const h = hashStr(String(title || "Course"));
+  const pair = COVER_PAIRS[h % COVER_PAIRS.length];
+  const letter = String(title || "C").trim().replace(/^[^A-Za-z0-9]+/, "").charAt(0).toUpperCase() || "C";
+  return (
+    <div aria-hidden="true" style={{
+      height, borderRadius: radius, position: "relative", overflow: "hidden", flexShrink: 0,
+      background: "radial-gradient(120% 150% at 18% 0%, " + pair[0] + " 0%, " + pair[1] + " 72%)",
+    }}>
+      <div style={{
+        position: "absolute", right: -28, top: -38, fontFamily: SERIF, fontWeight: 600,
+        fontSize: fontSize || Math.round(height * 1.5), lineHeight: 1, color: "rgba(255,255,255,.13)",
+        userSelect: "none",
+      }}>{letter}</div>
+      <div style={{
+        position: "absolute", left: 0, right: 0, bottom: 0, height: "46%",
+        background: "linear-gradient(rgba(255,255,255,.07), rgba(255,255,255,0))",
+      }} />
+      <div style={{
+        position: "absolute", left: 16, bottom: 12, width: 34, height: 3, borderRadius: 999,
+        background: "rgba(255,255,255,.55)",
+      }} />
+    </div>
+  );
+}
+
+/* ── lesson player (full screen) ─────────────────────────────────── */
 function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress }) {
   const [lessonIdx, setLessonIdx] = useState(startLesson || 0);
   const [cardIdx, setCardIdx] = useState(0);
   const [picked, setPicked] = useState(null);
-  const [revealed, setRevealed] = useState(false);
+  const [checked, setChecked] = useState(false);
   const [sessionXp, setSessionXp] = useState(0);
   const [answered, setAnswered] = useState(0);
   const [right, setRight] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
+  const [showLessonDone, setShowLessonDone] = useState(false);
+  const xpAtLessonStart = useRef(0);
   const claimsRef = useRef(null);
   if (!claimsRef.current) claimsRef.current = loadClaims();
 
   const lesson = course.lessons[lessonIdx];
   const card = lesson ? lesson.cards[cardIdx] : null;
-  const totalCards = course.lessons.reduce((n, l) => n + l.cards.length, 0);
-  const doneCards = course.lessons.slice(0, lessonIdx).reduce((n, l) => n + l.cards.length, 0) + cardIdx;
   const interactive = card && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "battle");
   const isRight = interactive && card.kind !== "battle" && picked === card.correct;
+  const lessonPct = lesson ? Math.round(((cardIdx + (checked ? 1 : 0)) / lesson.cards.length) * 100) : 0;
 
   const award = (xp) => { setSessionXp((x) => x + xp); };
 
   const pick = (i) => {
-    if (revealed || !interactive) return;
+    if (checked || !interactive) return;
     setPicked(i);
-    setRevealed(true);
+    playSound("tick", soundOn);
+  };
+
+  const check = () => {
+    if (!interactive || picked === null || checked) return;
+    setChecked(true);
     setAnswered((n) => n + 1);
     if (card.kind === "battle") {
       award(6);
       playSound("tick", soundOn);
+      onProgress && onProgress(6, course);
       return;
     }
-    const correct = i === card.correct;
+    const correct = picked === card.correct;
     if (correct) setRight((n) => n + 1);
     award(correct ? 10 : 4);
     playSound(correct ? "correct" : "wrong", soundOn);
@@ -470,15 +549,27 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     onProgress && onProgress(correct ? 10 : 4, course);
   };
 
+  const finishLesson = (markDone) => {
+    if (markDone) {
+      const done = [...new Set([...(course.doneLessons || []), lesson.id])];
+      onProgress && onProgress(20, course, done);
+    }
+    setShowLessonDone(true);
+  };
+
   const advance = () => {
-    if (interactive && !revealed) return;
+    if (interactive && !checked) return;
     if (!interactive) { award(2); onProgress && onProgress(2, course); }
-    setPicked(null); setRevealed(false);
+    setPicked(null); setChecked(false);
     if (cardIdx < lesson.cards.length - 1) { setCardIdx(cardIdx + 1); return; }
-    const done = [...new Set([...(course.doneLessons || []), lesson.id])];
-    onProgress && onProgress(20, course, done);
+    finishLesson(true);
+  };
+
+  const nextLesson = () => {
+    setShowLessonDone(false);
     if (lessonIdx < course.lessons.length - 1) {
-      setLessonIdx(lessonIdx + 1); setCardIdx(0);
+      xpAtLessonStart.current = sessionXp;
+      setLessonIdx(lessonIdx + 1); setCardIdx(0); setShowIntro(true);
     } else {
       setFinished(true);
       playSound("complete", soundOn);
@@ -486,200 +577,288 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   };
 
   const btnPrimary = {
-    background: accent, color: at, border: "none", borderRadius: 12,
-    padding: "14px 28px", fontSize: 15.5, fontWeight: 700, cursor: "pointer",
-    fontFamily: "var(--cb-font)", minHeight: 52,
-  };
-  const btnGhost = {
-    background: "transparent", color: P.ink, border: "1px solid " + P.line, borderRadius: 12,
-    padding: "14px 22px", fontSize: 15, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 52,
+    background: accent, color: at, border: "none", borderRadius: 14,
+    padding: "15px 30px", fontSize: 16, fontWeight: 700, cursor: "pointer",
+    fontFamily: "var(--cb-font)", minHeight: 54,
   };
 
+  const shell = (children) => (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 210, background: P.bg, color: P.ink,
+      overflowY: "auto", fontFamily: "var(--cb-font)", WebkitOverflowScrolling: "touch",
+    }}>
+      <style>{CSS}</style>
+      {children}
+    </div>
+  );
+
   if (finished) {
-    return (
-      <div style={{ maxWidth: 640, margin: "0 auto", padding: "56px 24px", textAlign: "center", fontFamily: "var(--cb-font)" }}>
-        <style>{CSS}</style>
+    return shell(
+      <div style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
         <div className="lv-rise">
-          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ margin: "0 auto 18px" }}>
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ margin: "0 auto 20px" }}>
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
-          <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, color: P.ink, margin: "0 0 10px" }}>{course.title}</h2>
-          <p style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.6, margin: "0 auto 28px", maxWidth: 440 }}>
-            Course finished. Every finding you answered is on your review schedule now. It comes back when it starts to fade, not before.
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>COURSE COMPLETE</div>
+          <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
+          <p style={{ color: P.muted, fontSize: 16, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 440 }}>
+            Every finding you answered is on your review schedule now. It comes back when it starts to fade, not before.
           </p>
-          <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 34 }}>
-            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 22px" }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: accent }}>+{sessionXp}</div>
+          <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 26px" }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color: accent }}>+{sessionXp}</div>
               <div style={{ fontSize: 12, color: P.muted }}>XP this session</div>
             </div>
-            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 22px" }}>
-              <div style={{ fontSize: 26, fontWeight: 700, color: P.ink }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 26px" }}>
+              <div style={{ fontSize: 28, fontWeight: 700 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
               <div style={{ fontSize: 12, color: P.muted }}>First try accuracy</div>
             </div>
           </div>
-          <button className="lv-btn lv-btn-primary" style={btnPrimary} onClick={onExit}>Back to Learn</button>
+          <button className="lv-btn lv-btn-primary" style={btnPrimary} onClick={onExit}>Back to your courses</button>
         </div>
       </div>
     );
   }
-  if (!card) return null;
+  if (!lesson || !card) return null;
 
-  return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "28px 24px 40px", fontFamily: "var(--cb-font)" }}>
-      <style>{CSS}</style>
-      {/* header: lesson position, overall progress */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-        <span style={{ fontSize: 12.5, color: P.muted, letterSpacing: "0.04em" }}>
-          {lesson.title.toUpperCase()} · {cardIdx + 1} OF {lesson.cards.length}
-        </span>
-        <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 20, lineHeight: 1, padding: 6 }}>✕</button>
+  /* Lesson intro: one screen that names the idea before the cards. */
+  if (showIntro) {
+    return shell(
+      <div style={{ maxWidth: 620, margin: "0 auto", padding: "26px 24px 48px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}>
+          <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 6 }}>✕</button>
+          <span style={{ fontSize: 12.5, color: P.muted, letterSpacing: "0.05em" }}>LESSON {lessonIdx + 1} OF {course.lessons.length}</span>
+          <span style={{ width: 34 }} />
+        </div>
+        <div className="lv-rise" style={{ textAlign: "center", paddingTop: "6vh" }}>
+          <Cover title={course.title} height={150} radius={20} />
+          <h2 style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 600, lineHeight: 1.2, margin: "30px 0 12px" }}>{lesson.title}</h2>
+          <p style={{ color: P.muted, fontSize: 16.5, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
+          <p style={{ color: P.muted, fontSize: 13.5, margin: "0 0 38px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
+          <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, width: "100%", maxWidth: 340 }}
+            onClick={() => { xpAtLessonStart.current = sessionXp; setShowIntro(false); }}>
+            Start lesson
+          </button>
+        </div>
       </div>
-      <div style={{ height: 12, borderRadius: 999, background: P.line, overflow: "hidden", marginBottom: 34 }}>
-        <div className="lv-fill" style={{
-          width: ((doneCards / totalCards) * 100) + "%", height: "100%", borderRadius: 999,
-          background: "linear-gradient(rgba(255,255,255,.38), rgba(255,255,255,0) 48%), " + accent,
-        }} />
+    );
+  }
+
+  /* Lesson complete interstitial. */
+  if (showLessonDone) {
+    const lessonXp = sessionXp - xpAtLessonStart.current + 20;
+    return shell(
+      <div style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
+        <div className="lv-rise">
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ margin: "0 auto 18px" }}>
+            <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
+            <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
+          </svg>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>LESSON COMPLETE</div>
+          <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
+          <p style={{ color: P.muted, fontSize: 16, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
+            +{lessonXp} XP. The findings from this lesson are on your review schedule now.
+          </p>
+          <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, width: "100%", maxWidth: 340 }} onClick={nextLesson}>
+            {lessonIdx === course.lessons.length - 1 ? "Finish course" : "Next lesson"}
+          </button>
+          <div style={{ marginTop: 16 }}>
+            <button onClick={onExit} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 14.5, fontFamily: "var(--cb-font)", padding: 8 }}>
+              Back to the path
+            </button>
+          </div>
+        </div>
       </div>
+    );
+  }
 
-      <div key={lessonIdx + "-" + cardIdx} className="lv-rise">
-        {card.kind === "note" && (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12 }}>{(card.kicker || "").toUpperCase()}</div>
-            <h2 style={{ fontFamily: SERIF, fontSize: 29, fontWeight: 600, color: P.ink, lineHeight: 1.25, margin: "0 0 14px" }}>{card.title}</h2>
-            <p style={{ fontSize: 17, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
-            {card.cite && <p style={{ fontSize: 13, color: P.muted, marginTop: 14 }}>{card.cite}</p>}
-          </div>
+  const sheetGood = checked && (card.kind === "battle" || isRight);
+  const sheet = checked ? (
+    <div className="lv-sheet" style={{
+      position: "sticky", bottom: 0, marginTop: 28,
+      background: sheetGood ? "#D7FFB8" : "#FFDFE0",
+      borderTop: "2px solid " + (sheetGood ? "#58CC02" : "#FF4B4B"),
+      borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: "#14240a",
+    }}>
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ fontSize: 16.5, fontWeight: 800, marginBottom: 6, color: sheetGood ? "#2c5a00" : "#8f1216" }}>
+          {card.kind === "battle" ? "Both sides are real. That is the point."
+            : card.pretest ? (isRight ? "Right, before you even read it." : "Good guess. Here is what the paper says.")
+            : isRight ? "Right." : "Not quite."}
+          <span style={{ float: "right", fontSize: 14, fontWeight: 700, color: sheetGood ? "#2c5a00" : "#8f1216" }}>
+            {card.kind === "battle" ? "+6 XP" : isRight ? "+10 XP" : "+4 XP"}
+          </span>
+        </div>
+        {card.kind === "battle" ? (
+          <p style={{ fontSize: 15, lineHeight: 1.6, margin: 0, color: "#24300f" }}>
+            Both of these are real published findings, and they do not agree. There is no correct side to pick here. Disagreement at this level usually means the answer depends on conditions neither study fully controlled.
+          </p>
+        ) : (
+          <>
+            <p style={{ fontFamily: SERIF, fontSize: 16.5, lineHeight: 1.6, margin: 0, color: "#1d2a10" }}>{card.why}</p>
+            <p style={{ fontSize: 12.5, color: "#4a5a38", margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
+          </>
         )}
-
-        {card.kind === "paper" && (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12 }}>FROM THE LITERATURE</div>
-            <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, color: P.ink, lineHeight: 1.35, margin: "0 0 8px" }}>{card.title}</h2>
-            <p style={{ fontSize: 13.5, color: P.muted, margin: "0 0 20px" }}>
-              {card.meta}{card.citations != null ? " · " + card.citations + " citations" : ""}
-            </p>
-            {card.text && (
-              <p style={{ fontFamily: SERIF, fontSize: 19.5, color: P.ink, lineHeight: 1.6, margin: 0, borderLeft: "3px solid " + accent, paddingLeft: 18 }}>
-                {card.text}
-              </p>
-            )}
-          </div>
-        )}
-
-        {(card.kind === "quiz" || card.kind === "cloze") && (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12 }}>
-              {card.pretest ? "PRETEST · GUESS FIRST" : card.kind === "cloze" ? "PREDICT THE RESULT" : "RECALL"}
-            </div>
-            <h2 style={{ fontFamily: SERIF, fontSize: 23, fontWeight: 600, color: P.ink, lineHeight: 1.4, margin: "0 0 8px" }}>{card.question}</h2>
-            {card.kind === "cloze" && card.prompt && (
-              <p style={{ fontFamily: SERIF, fontSize: 18.5, color: P.ink, lineHeight: 1.6, margin: "0 0 6px" }}>{card.prompt}</p>
-            )}
-            {card.pretest && !revealed && (
-              <p style={{ fontSize: 14, color: P.muted, margin: "0 0 4px" }}>You have not been taught this yet. That is the point. A real guess now makes the finding stick later.</p>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
-              {card.options.map((opt, i) => {
-                let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                if (revealed && i === card.correct) { bg = "#D7FFB8"; border = "#58CC02"; color = "#224d00"; }
-                else if (revealed && i === picked) { bg = "#FFDFE0"; border = "#FF4B4B"; color = "#6e0f13"; }
-                else if (!revealed && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
-                return (
-                  <button key={i} className={"lv-opt" + (revealed && picked === i && i !== card.correct ? " lv-shake" : "")}
-                    onClick={() => pick(i)} disabled={revealed}
-                    style={{
-                      appearance: "none", WebkitAppearance: "none",
-                      background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: 14,
-                      padding: "15px 18px", fontSize: card.kind === "cloze" ? 17 : 15.5, lineHeight: 1.5,
-                      color, cursor: revealed ? "default" : "pointer", textAlign: "left",
-                      fontFamily: "var(--cb-font)", minHeight: 52, display: "flex", gap: 12, alignItems: "flex-start",
-                    }}>
-                    {revealed && i === card.correct && (
-                      <svg className="lv-pop" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }}>
-                        <circle cx="12" cy="12" r="11" fill="#58CC02" />
-                        <path d="M7 12.5 L10.5 16 L17 8.5" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                    <span>{opt}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {revealed && (
-              <div className="lv-rise" style={{
-                marginTop: 16, padding: "16px 18px", borderRadius: 14,
-                background: card.kind !== "battle" && !isRight ? "#FFDFE055" : "#D7FFB833",
-                border: "1px solid " + (card.kind !== "battle" && !isRight ? "#FF4B4B55" : "#58CC0255"),
-              }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: P.ink, marginBottom: 6 }}>
-                  {card.pretest
-                    ? "Remember your guess. Here is what the paper actually says."
-                    : isRight ? "Right. Here is the finding in the paper's own words." : "Not quite. Here is what the paper actually says."}
-                </div>
-                <p style={{ fontFamily: SERIF, fontSize: 16.5, color: P.ink, lineHeight: 1.6, margin: 0 }}>{card.why}</p>
-                <p style={{ fontSize: 12.5, color: P.muted, margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
-                <p style={{ fontSize: 12.5, color: accent, fontWeight: 700, margin: "8px 0 0" }}>
-                  {isRight ? "+10 XP" : "+4 XP for the attempt"}. This finding is on your review schedule now.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {card.kind === "battle" && (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12 }}>CLAIM BATTLE · REAL FINDINGS</div>
-            <h2 style={{ fontFamily: SERIF, fontSize: 23, fontWeight: 600, color: P.ink, lineHeight: 1.4, margin: "0 0 18px" }}>{card.question}</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-              {[{ claim: card.claimA, src: card.sourceA, tag: "POSITION A" }, { claim: card.claimB, src: card.sourceB, tag: "POSITION B" }].map((side, i) => (
-                <button key={i} onClick={() => pick(i)} disabled={revealed}
-                  className="lv-opt"
-                  style={{
-                    background: revealed && picked === i ? (P.raised) : P.raised,
-                    border: "2px solid " + (revealed && picked === i ? accent : P.line), borderRadius: 14,
-                    padding: "16px 18px", textAlign: "left", cursor: revealed ? "default" : "pointer", fontFamily: "var(--cb-font)",
-                  }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 8 }}>{side.tag}</div>
-                  <p style={{ fontFamily: SERIF, fontSize: 17, color: P.ink, lineHeight: 1.55, margin: 0 }}>{side.claim}</p>
-                  <p style={{ fontSize: 12.5, color: P.muted, margin: "10px 0 0" }}>{side.src}</p>
-                </button>
-              ))}
-            </div>
-            {revealed && (
-              <div className="lv-rise" style={{ marginTop: 16, padding: "16px 18px", borderRadius: 14, background: P.raised, border: "1px solid " + P.line }}>
-                <p style={{ fontSize: 15, color: P.ink, lineHeight: 1.6, margin: 0 }}>
-                  Both of these are real published findings, and they do not agree. There is no correct side to pick here. Disagreement at this level usually means the answer depends on conditions neither study fully controlled. +6 XP for weighing in.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {card.kind === "summary" && (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12 }}>WRAP UP</div>
-            <h2 style={{ fontFamily: SERIF, fontSize: 29, fontWeight: 600, color: P.ink, lineHeight: 1.25, margin: "0 0 14px" }}>{card.title}</h2>
-            <p style={{ fontSize: 17, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
-          </div>
-        )}
-      </div>
-
-      {/* footer nav */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 36 }}>
-        <span style={{ fontSize: 13, color: P.muted }}>{sessionXp > 0 ? "+" + sessionXp + " XP this lesson run" : ""}</span>
-        <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, opacity: interactive && !revealed ? 0.45 : 1 }}
-          onClick={advance} disabled={interactive && !revealed}>
-          {cardIdx === lesson.cards.length - 1
-            ? lessonIdx === course.lessons.length - 1 ? "Finish course" : "Finish lesson"
-            : "Continue"}
+        <button className="lv-btn" onClick={advance}
+          style={{
+            marginTop: 18, width: "100%", background: sheetGood ? "#58CC02" : "#FF4B4B", color: "#fff",
+            border: "none", borderRadius: 14, padding: "15px 24px", fontSize: 16, fontWeight: 800,
+            cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54, boxShadow: "0 4px 0 rgba(0,0,0,.25)",
+          }}>
+          {cardIdx === lesson.cards.length - 1 ? "Finish lesson" : "Continue"}
         </button>
       </div>
+    </div>
+  ) : null;
+
+  return shell(
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+      {/* top bar: close, segmented course progress, session XP */}
+      <div style={{ maxWidth: 680, width: "100%", margin: "0 auto", padding: "20px 24px 0", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 21, lineHeight: 1, padding: 4 }}>✕</button>
+          <div style={{ display: "flex", gap: 5, flex: 1 }}>
+            {course.lessons.map((l, li) => (
+              <div key={l.id} style={{ flex: 1, height: 10, borderRadius: 999, background: P.line, overflow: "hidden" }}>
+                <div className="lv-fill" style={{
+                  height: "100%", borderRadius: 999,
+                  width: (li < lessonIdx || (li === lessonIdx && showLessonDone) ? 100 : li === lessonIdx ? lessonPct : 0) + "%",
+                  background: "linear-gradient(rgba(255,255,255,.38), rgba(255,255,255,0) 48%), " + accent,
+                }} />
+              </div>
+            ))}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 700, color: accent, minWidth: 52, textAlign: "right" }}>{sessionXp > 0 ? "+" + sessionXp + " XP" : ""}</span>
+        </div>
+        <div style={{ fontSize: 12, color: P.muted, letterSpacing: "0.05em", marginTop: 12 }}>
+          {lesson.title.toUpperCase()} · CARD {cardIdx + 1} OF {lesson.cards.length}
+        </div>
+      </div>
+
+      {/* card stage */}
+      <div style={{ flex: 1, width: "100%", maxWidth: 680, margin: "0 auto", padding: "26px 24px 8px", boxSizing: "border-box" }}>
+        <div key={lessonIdx + "-" + cardIdx} className="lv-rise">
+          {card.kind === "note" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>{(card.kicker || "").toUpperCase()}</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
+              <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+              {card.cite && <p style={{ fontSize: 13, color: P.muted, marginTop: 16 }}>{card.cite}</p>}
+            </div>
+          )}
+
+          {card.kind === "paper" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>FROM THE LITERATURE</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 25, fontWeight: 600, lineHeight: 1.35, margin: "0 0 10px" }}>{card.title}</h2>
+              <p style={{ fontSize: 13.5, color: P.muted, margin: "0 0 22px" }}>
+                {card.meta}{card.citations != null ? " · " + card.citations + " citations" : ""}
+              </p>
+              {card.text && (
+                <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "22px 22px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 10 }}>THE FINDING</div>
+                  <p style={{ fontFamily: SERIF, fontSize: 19.5, lineHeight: 1.6, margin: 0 }}>{card.text}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(card.kind === "quiz" || card.kind === "cloze") && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>
+                {card.pretest ? "PRETEST · GUESS FIRST" : card.kind === "cloze" ? "PREDICT THE RESULT" : "RECALL"}
+              </div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
+              {card.kind === "cloze" && card.prompt && (
+                <p style={{ fontFamily: SERIF, fontSize: 18.5, lineHeight: 1.6, margin: "0 0 8px", color: P.ink2 || P.muted }}>{card.prompt}</p>
+              )}
+              {card.pretest && !checked && (
+                <p style={{ fontSize: 14, color: P.muted, margin: "0 0 6px", lineHeight: 1.55 }}>You have not been taught this yet. That is the point. A real guess now makes the finding stick later.</p>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+                {card.options.map((opt, i) => {
+                  let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
+                  if (checked && i === card.correct) { bg = "#D7FFB8"; border = "#58CC02"; color = "#224d00"; }
+                  else if (checked && i === picked) { bg = "#FFDFE0"; border = "#FF4B4B"; color = "#6e0f13"; }
+                  else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
+                  return (
+                    <button key={i} className={"lv-opt" + (checked && picked === i && i !== card.correct ? " lv-shake" : "")}
+                      onClick={() => pick(i)} disabled={checked}
+                      style={{
+                        appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
+                        background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: 16,
+                        padding: "15px 18px", fontSize: card.kind === "cloze" ? 17.5 : 15.5, lineHeight: 1.5,
+                        color, cursor: checked ? "default" : "pointer", textAlign: "left",
+                        fontFamily: "var(--cb-font)", minHeight: 54, display: "flex", gap: 12, alignItems: "flex-start",
+                      }}>
+                      <span aria-hidden="true" style={{
+                        flexShrink: 0, width: 26, height: 26, borderRadius: 8, marginTop: 1,
+                        border: "1.5px solid " + (checked && i === card.correct ? "#58CC02" : checked && i === picked ? "#FF4B4B" : border),
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 13, fontWeight: 700, color: checked && i === card.correct ? "#2c5a00" : color, opacity: 0.9,
+                      }}>{checked && i === card.correct ? "✓" : "ABCD"[i] || ""}</span>
+                      <span style={{ minWidth: 0, overflowWrap: "break-word" }}>{opt}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {card.kind === "battle" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>CLAIM BATTLE · REAL FINDINGS</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 20px" }}>{card.question}</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {[{ claim: card.claimA, src: card.sourceA, tag: "POSITION A" }, { claim: card.claimB, src: card.sourceB, tag: "POSITION B" }].map((side, i) => (
+                  <button key={i} onClick={() => pick(i)} disabled={checked}
+                    className="lv-opt"
+                    style={{
+                      width: "100%", boxSizing: "border-box", textAlign: "left",
+                      background: P.raised, border: "2px solid " + (!checked && picked === i ? accent : P.line), borderRadius: 18,
+                      padding: "18px 20px", cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)",
+                    }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 9 }}>{side.tag}</div>
+                    <p style={{ fontFamily: SERIF, fontSize: 17.5, lineHeight: 1.55, margin: 0 }}>{side.claim}</p>
+                    <p style={{ fontSize: 12.5, color: P.muted, margin: "10px 0 0" }}>{side.src}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {card.kind === "summary" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
+              <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* bottom action bar / feedback sheet */}
+      {checked ? sheet : (
+        <div style={{ position: "sticky", bottom: 0, padding: "14px 24px 22px", background: "linear-gradient(rgba(0,0,0,0), " + P.bg + " 34%)" }}>
+          <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            <button className="lv-btn lv-btn-primary"
+              style={{
+                ...btnPrimary, width: "100%",
+                opacity: interactive && picked === null ? 0.45 : 1,
+                cursor: interactive && picked === null ? "default" : "pointer",
+              }}
+              onClick={interactive ? check : advance} disabled={interactive && picked === null}>
+              {interactive ? "Check" : cardIdx === lesson.cards.length - 1 ? "Finish lesson" : "Continue"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/* ── home ────────────────────────────────────────────────────────── */
+/* ── course path + library ───────────────────────────────────────── */
 function memoryState(course, claims) {
   const mine = Object.values(claims).filter((c) => c.courseId === course.id && c.reps > 0);
   if (mine.length === 0) return { label: "Not started", pct: 0 };
@@ -690,16 +869,100 @@ function memoryState(course, claims) {
   return { label: "Holding", pct: Math.round(avg * 100) };
 }
 
+function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const done = new Set(course.doneLessons || []);
+  const nextIdx = course.lessons.findIndex((l) => !done.has(l.id));
+  const mem = memoryState(course, claims);
+  return (
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
+      <style>{CSS}</style>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 14.5, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
+        ← All courses
+      </button>
+      <div className="lv-rise">
+        <Cover title={course.title} height={168} radius={22} />
+        <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
+        <p style={{ color: P.muted, fontSize: 14.5, margin: "0 0 6px" }}>
+          {course.lessons.length} lessons · {course.sourceCount || 0} papers · {course.xpEarned || 0} XP earned
+        </p>
+        <div style={{ margin: "14px 0 30px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: P.muted, marginBottom: 6 }}>
+            <span>Memory strength</span><span>{mem.label}</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
+            <div className="lv-fill" style={{ width: mem.pct + "%", height: "100%", background: accent, borderRadius: 999 }} />
+          </div>
+        </div>
+      </div>
+
+      {/* the path: one node per lesson, in the order the field built it */}
+      <div style={{ position: "relative", marginLeft: 27 }}>
+        <div style={{ position: "absolute", left: 0, top: 12, bottom: 12, width: 2, background: P.line }} aria-hidden="true" />
+        {course.lessons.map((lesson, i) => {
+          const isDone = done.has(lesson.id);
+          const isNext = i === nextIdx;
+          return (
+            <div key={lesson.id} style={{ position: "relative", padding: "0 0 26px 34px" }}>
+              <div aria-hidden="true" style={{
+                position: "absolute", left: -27, top: 0, transform: "translateX(-50%)",
+                width: 46, height: 46, borderRadius: "50%",
+                background: isDone ? accent : P.raised,
+                border: "2px solid " + (isDone || isNext ? accent : P.line),
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: isDone ? at : isNext ? accent : P.muted,
+                fontWeight: 800, fontSize: 16, fontFamily: "var(--cb-font)",
+              }} className={isNext ? "lv-pulse" : ""}>
+                {isDone ? (
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                ) : i + 1}
+              </div>
+              <button className="lv-node" onClick={() => onPlay(i)}
+                style={{
+                  display: "block", width: "100%", textAlign: "left", cursor: "pointer",
+                  background: P.raised, border: "1px solid " + (isNext ? accent : P.line), borderRadius: 18,
+                  padding: "16px 18px", fontFamily: "var(--cb-font)", color: P.ink,
+                }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                  <span style={{ fontFamily: SERIF, fontSize: 19.5, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: isDone ? accent : P.muted, flexShrink: 0 }}>
+                    {isDone ? "DONE" : isNext ? "UP NEXT" : lesson.cards.length + " CARDS"}
+                  </span>
+                </div>
+                <p style={{ color: P.muted, fontSize: 14, lineHeight: 1.5, margin: "5px 0 0" }}>{lesson.subtitle}</p>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 8, borderTop: "1px solid " + P.line, paddingTop: 20 }}>
+        {confirmDelete ? (
+          <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 14, color: P.muted }}>Delete this course and its review schedule?</span>
+            <button onClick={onDelete} style={{ background: "#FF4B4B", color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
+            <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.muted, border: "1px solid " + P.line, borderRadius: 9, padding: "8px 14px", fontSize: 13.5, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirmDelete(true)} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 13.5, fontFamily: "var(--cb-font)", padding: 0 }}>
+            Delete course
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Learn home ──────────────────────────────────────────────────── */
 export default function LearnView({ P, accent, at, onNavigate }) {
   const [courses, setCourses] = useState([]);
   const [claims, setClaims] = useState({});
   const [profile, setProfile] = useState(null);
-  const [active, setActive] = useState(null); // { course, startLesson } or { review: true }
+  const [screen, setScreen] = useState({ name: "home" }); // home | path | player
   const [topic, setTopic] = useState("");
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
-  const [soundOn, setSoundOn] = useState(() => loadJSON(SOUND_KEY, true));
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [soundOn, setSoundOn] = useState(() => loadJSON(SOUND_KEY, false));
 
   const refresh = () => {
     setCourses(loadLearnCourses());
@@ -752,7 +1015,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       saveLearnCourse(course);
       refresh();
       setTopic("");
-      setActive({ course, startLesson: 0 });
+      setScreen({ name: "path", courseId: course.id });
     } catch {
       setBuildError("The search did not come back. Check your connection and try again.");
     } finally {
@@ -763,13 +1026,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const startReview = () => {
     const cards = due.slice(0, 12).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
     if (!cards.length) return;
-    const reviewCourse = {
-      id: "review",
-      title: "Review: findings that are fading",
-      lessons: [{ id: "review", title: "Review", subtitle: "", cards }],
-      doneLessons: [],
-    };
-    setActive({ course: reviewCourse, startLesson: 0 });
+    setScreen({
+      name: "player", fromPath: false,
+      course: { id: "review", title: "Review: findings that are fading", lessons: [{ id: "review", title: "Review", subtitle: "Findings that are starting to fade", cards }], doneLessons: [] },
+      startLesson: 0,
+    });
   };
 
   const removeCourse = (id) => {
@@ -778,56 +1039,109 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     const store = loadClaims();
     for (const k of Object.keys(store)) if (store[k].courseId === id) delete store[k];
     saveClaims(store);
-    setConfirmDelete(null);
     refresh();
+    setScreen({ name: "home" });
   };
 
-  if (active) {
+  if (screen.name === "player") {
     return (
       <Player
-        course={active.course}
-        startLesson={active.startLesson}
+        course={screen.course}
+        startLesson={screen.startLesson}
         P={P} accent={accent} at={at || "#101408"}
         soundOn={soundOn}
-        onExit={() => { setActive(null); refresh(); setProfile(touchStreak(loadProfile())); }}
+        onExit={() => {
+          refresh();
+          setProfile(touchStreak(loadProfile()));
+          if (screen.fromPath && screen.course.id !== "review") setScreen({ name: "path", courseId: screen.course.id });
+          else setScreen({ name: "home" });
+        }}
         onProgress={handleProgress}
       />
     );
   }
 
-  const statBox = (value, label) => (
-    <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 20px", minWidth: 104 }}>
-      <div style={{ fontSize: 25, fontWeight: 700, color: P.ink, lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 12, color: P.muted, marginTop: 2 }}>{label}</div>
-    </div>
+  if (screen.name === "path") {
+    const course = courses.find((c) => c.id === screen.courseId);
+    if (course) {
+      return (
+        <PathView
+          course={course} claims={claims} P={P} accent={accent} at={at || "#101408"}
+          onPlay={(i) => setScreen({ name: "player", course, startLesson: i, fromPath: true })}
+          onBack={() => setScreen({ name: "home" })}
+          onDelete={() => removeCourse(course.id)}
+        />
+      );
+    }
+  }
+
+  const pill = (icon, value, label) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 14px", fontSize: 14, color: P.ink }}>
+      {icon}
+      <strong style={{ fontWeight: 700 }}>{value}</strong>
+      <span style={{ color: P.muted, fontSize: 13 }}>{label}</span>
+    </span>
   );
+  const flame = (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 3 C12 3 5.5 9.6 5.5 14.2 C5.5 18 8.4 21 12 21 C15.6 21 18.5 18 18.5 14.2 C18.5 11.8 17.2 9.7 15.8 8.2 C15.4 10 14.4 11.2 13.2 11.6 C13.8 8.8 13.2 5.4 12 3 Z" fill={accent} />
+    </svg>
+  );
+  const nextCourse = courses.find((c) => (c.doneLessons || []).length < c.lessons.length) || courses[0];
 
   return (
     <div style={{ maxWidth: 880, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div>
-          <h1 style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Learn</h1>
+          <h1 style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Learn</h1>
           <p style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
-            Courses built from the papers themselves. Every question is a real finding, every debate is a real disagreement, and reviews come back when your memory starts to fade.
+            Short courses built from the papers themselves. Every question is a real finding, every debate is a real disagreement, and reviews come back when your memory starts to fade.
           </p>
         </div>
         <button onClick={() => { const v = !soundOn; setSoundOn(v); saveJSON(SOUND_KEY, v); }}
           aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"}
-          style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 10, color: P.muted, cursor: "pointer", padding: "8px 12px", fontSize: 13, fontFamily: "var(--cb-font)" }}>
+          style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: 13, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
           Sound {soundOn ? "on" : "off"}
         </button>
       </div>
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "22px 0 30px" }}>
-        {statBox(profile ? profile.xp : 0, "Total XP")}
-        {statBox(profile ? profile.streak || 0 : 0, "Day streak" + (profile && profile.freezes ? " · " + profile.freezes + " freeze" + (profile.freezes === 1 ? "" : "s") + " left" : ""))}
-        {statBox(due.length, "Findings due")}
-        {statBox(courses.length, "Courses")}
+      <div style={{ display: "flex", gap: 9, flexWrap: "wrap", margin: "20px 0 26px" }}>
+        {pill(flame, profile ? profile.streak || 0 : 0, "day streak" + (profile && profile.freezes ? " · " + profile.freezes + " freeze" + (profile.freezes === 1 ? "" : "s") : ""))}
+        {pill(null, profile ? profile.xp : 0, "XP")}
+        {pill(null, due.length, "due for review")}
+        {pill(null, courses.length, "courses")}
       </div>
 
+      {/* continue hero */}
+      {nextCourse && (
+        <button onClick={() => setScreen({ name: "path", courseId: nextCourse.id })}
+          style={{
+            display: "block", width: "100%", textAlign: "left", cursor: "pointer", padding: 0,
+            background: P.raised, border: "1px solid " + P.line, borderRadius: 22, overflow: "hidden",
+            fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 24,
+          }}>
+          <Cover title={nextCourse.title} height={128} radius={0} />
+          <span style={{ display: "block", padding: "18px 22px 20px" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
+              {(nextCourse.doneLessons || []).length > 0 ? "CONTINUE" : "START HERE"}
+            </span>
+            <span style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{nextCourse.title}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
+              <span style={{ flex: 1, height: 8, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
+                <span className="lv-fill" style={{
+                  display: "block", height: "100%", background: accent, borderRadius: 999,
+                  width: (nextCourse.lessons.length ? Math.round(((nextCourse.doneLessons || []).length / nextCourse.lessons.length) * 100) : 0) + "%",
+                }} />
+              </span>
+              <span style={{ fontSize: 13, color: P.muted }}>{(nextCourse.doneLessons || []).length} of {nextCourse.lessons.length} lessons</span>
+            </span>
+          </span>
+        </button>
+      )}
+
       {/* topic builder */}
-      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: 20, marginBottom: 26 }}>
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
         <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>BUILD A COURSE</div>
         <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum searches the literature and turns the findings into a course on the spot.
@@ -840,15 +1154,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             placeholder="e.g. black soldier fly larvae gut microbiome"
             aria-label="Course topic"
             style={{
-              flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12,
-              padding: "13px 16px", fontSize: 15.5, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 52,
+              flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: 14,
+              padding: "14px 16px", fontSize: 15.5, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
             }}
           />
           <button className="lv-btn lv-btn-primary" onClick={buildCourse} disabled={building || !topic.trim()}
             style={{
-              background: accent, color: at || "#101408", border: "none", borderRadius: 12,
-              padding: "13px 24px", fontSize: 15.5, fontWeight: 700, cursor: building ? "wait" : "pointer",
-              fontFamily: "var(--cb-font)", minHeight: 52, opacity: building || !topic.trim() ? 0.55 : 1,
+              background: accent, color: at || "#101408", border: "none", borderRadius: 14,
+              padding: "14px 26px", fontSize: 15.5, fontWeight: 700, cursor: building ? "wait" : "pointer",
+              fontFamily: "var(--cb-font)", minHeight: 54, opacity: building || !topic.trim() ? 0.55 : 1,
             }}>
             {building ? "Searching the literature..." : "Build course"}
           </button>
@@ -858,23 +1172,23 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* review queue */}
       {due.length > 0 && (
-        <div style={{ border: "1px solid " + accent, borderRadius: 16, padding: 20, marginBottom: 26, background: P.raised }}>
+        <div style={{ border: "1px solid " + accent, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DUE FOR REVIEW</div>
           <p style={{ fontSize: 15, color: P.ink, lineHeight: 1.55, margin: "0 0 14px" }}>
             {due.length} finding{due.length === 1 ? " is" : "s are"} starting to fade. Reviewing now, while they are cheap to relearn, is what makes them permanent.
           </p>
           <button className="lv-btn lv-btn-primary" onClick={startReview}
-            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 22px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "13px 24px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
             Start review
           </button>
         </div>
       )}
 
-      {/* courses */}
+      {/* library */}
       {courses.length === 0 ? (
-        <div style={{ border: "1px dashed " + P.line, borderRadius: 16, padding: "36px 28px", textAlign: "center" }}>
-          <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: 21, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
-          <p style={{ color: P.muted, fontSize: 14.5, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 420 }}>
+        <div style={{ border: "1px dashed " + P.line, borderRadius: 20, padding: "38px 28px", textAlign: "center" }}>
+          <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: 22, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
+          <p style={{ color: P.muted, fontSize: 14.5, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
             Build one above, or open any answer in Search and choose Turn into course. Either way, the course is made from the papers that search found.
           </p>
           <button onClick={() => onNavigate && onNavigate("search")}
@@ -883,51 +1197,37 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </button>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {courses.map((course) => {
-            const mem = memoryState(course, claims);
-            const doneCount = (course.doneLessons || []).length;
-            return (
-              <div key={course.id} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "flex-start" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: 20, fontWeight: 600, margin: "0 0 4px", lineHeight: 1.3 }}>{course.title}</h3>
-                    <p style={{ color: P.muted, fontSize: 13, margin: 0 }}>
-                      {course.lessons.length} lessons · {course.sourceCount || 0} papers · {doneCount} of {course.lessons.length} lessons done
-                    </p>
-                  </div>
-                  {confirmDelete === course.id ? (
-                    <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                      <button onClick={() => removeCourse(course.id)} style={{ background: "#FF4B4B", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
-                      <button onClick={() => setConfirmDelete(null)} style={{ background: "transparent", color: P.muted, border: "1px solid " + P.line, borderRadius: 8, padding: "7px 12px", fontSize: 13, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
+        <>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, margin: "6px 0 14px" }}>YOUR COURSES</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
+            {courses.map((course) => {
+              const mem = memoryState(course, claims);
+              const doneCount = (course.doneLessons || []).length;
+              return (
+                <button key={course.id} onClick={() => setScreen({ name: "path", courseId: course.id })}
+                  style={{
+                    textAlign: "left", cursor: "pointer", padding: 0, overflow: "hidden",
+                    background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                    fontFamily: "var(--cb-font)", color: P.ink,
+                  }}>
+                  <Cover title={course.title} height={96} radius={0} fontSize={150} />
+                  <span style={{ display: "block", padding: "15px 18px 17px" }}>
+                    <span style={{ fontFamily: SERIF, fontSize: 18.5, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
+                    <span style={{ fontSize: 12.5, color: P.muted, display: "block", marginTop: 4 }}>
+                      {course.lessons.length} lessons · {course.sourceCount || 0} papers
                     </span>
-                  ) : (
-                    <button onClick={() => setConfirmDelete(course.id)} aria-label="Delete course"
-                      style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 16, padding: 4, flexShrink: 0 }}>✕</button>
-                  )}
-                </div>
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: P.muted, marginBottom: 6 }}>
-                    <span>Memory strength</span><span>{mem.label}</span>
-                  </div>
-                  <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
-                    <div className="lv-fill" style={{ width: mem.pct + "%", height: "100%", background: accent, borderRadius: 999 }} />
-                  </div>
-                </div>
-                <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-                  <button className="lv-btn lv-btn-primary"
-                    onClick={() => {
-                      const nextIdx = course.lessons.findIndex((l) => !(course.doneLessons || []).includes(l.id));
-                      setActive({ course, startLesson: nextIdx < 0 ? 0 : nextIdx });
-                    }}
-                    style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 10, padding: "11px 20px", fontSize: 14.5, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                    {doneCount >= course.lessons.length ? "Replay course" : doneCount > 0 ? "Continue" : "Start course"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+                      <span style={{ flex: 1, height: 7, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
+                        <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: (course.lessons.length ? Math.round((doneCount / course.lessons.length) * 100) : 0) + "%" }} />
+                      </span>
+                      <span style={{ fontSize: 12, color: mem.pct > 0 || doneCount > 0 ? accent : P.muted, fontWeight: 600 }}>{mem.label}</span>
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
