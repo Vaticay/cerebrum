@@ -509,11 +509,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             Course finished. Every finding you answered is on your review schedule now. It comes back when it starts to fade, not before.
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 34 }}>
-            <div style={{ background: P.card, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 22px" }}>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 22px" }}>
               <div style={{ fontSize: 26, fontWeight: 700, color: accent }}>+{sessionXp}</div>
               <div style={{ fontSize: 12, color: P.muted }}>XP this session</div>
             </div>
-            <div style={{ background: P.card, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 22px" }}>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 22px" }}>
               <div style={{ fontSize: 26, fontWeight: 700, color: P.ink }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
               <div style={{ fontSize: 12, color: P.muted }}>First try accuracy</div>
             </div>
@@ -581,15 +581,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
               {card.options.map((opt, i) => {
-                let bg = P.card, border = P.line, color = P.ink;
+                let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
                 if (revealed && i === card.correct) { bg = "#D7FFB8"; border = "#58CC02"; color = "#224d00"; }
                 else if (revealed && i === picked) { bg = "#FFDFE0"; border = "#FF4B4B"; color = "#6e0f13"; }
-                else if (!revealed && picked === i) { bg = "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
+                else if (!revealed && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
                 return (
                   <button key={i} className={"lv-opt" + (revealed && picked === i && i !== card.correct ? " lv-shake" : "")}
                     onClick={() => pick(i)} disabled={revealed}
                     style={{
-                      background: bg, border: "2px solid " + border, borderRadius: 14,
+                      appearance: "none", WebkitAppearance: "none",
+                      background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: 14,
                       padding: "15px 18px", fontSize: card.kind === "cloze" ? 17 : 15.5, lineHeight: 1.5,
                       color, cursor: revealed ? "default" : "pointer", textAlign: "left",
                       fontFamily: "var(--cb-font)", minHeight: 52, display: "flex", gap: 12, alignItems: "flex-start",
@@ -635,7 +636,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 <button key={i} onClick={() => pick(i)} disabled={revealed}
                   className="lv-opt"
                   style={{
-                    background: revealed && picked === i ? (P.card) : P.card,
+                    background: revealed && picked === i ? (P.raised) : P.raised,
                     border: "2px solid " + (revealed && picked === i ? accent : P.line), borderRadius: 14,
                     padding: "16px 18px", textAlign: "left", cursor: revealed ? "default" : "pointer", fontFamily: "var(--cb-font)",
                   }}>
@@ -646,7 +647,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               ))}
             </div>
             {revealed && (
-              <div className="lv-rise" style={{ marginTop: 16, padding: "16px 18px", borderRadius: 14, background: P.card, border: "1px solid " + P.line }}>
+              <div className="lv-rise" style={{ marginTop: 16, padding: "16px 18px", borderRadius: 14, background: P.raised, border: "1px solid " + P.line }}>
                 <p style={{ fontSize: 15, color: P.ink, lineHeight: 1.6, margin: 0 }}>
                   Both of these are real published findings, and they do not agree. There is no correct side to pick here. Disagreement at this level usually means the answer depends on conditions neither study fully controlled. +6 XP for weighing in.
                 </p>
@@ -795,7 +796,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   const statBox = (value, label) => (
-    <div style={{ background: P.card, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 20px", minWidth: 104 }}>
+    <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 14, padding: "14px 20px", minWidth: 104 }}>
       <div style={{ fontSize: 25, fontWeight: 700, color: P.ink, lineHeight: 1.1 }}>{value}</div>
       <div style={{ fontSize: 12, color: P.muted, marginTop: 2 }}>{label}</div>
     </div>
@@ -826,7 +827,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       </div>
 
       {/* topic builder */}
-      <div style={{ background: P.card, border: "1px solid " + P.line, borderRadius: 16, padding: 20, marginBottom: 26 }}>
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: 20, marginBottom: 26 }}>
         <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>BUILD A COURSE</div>
         <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum searches the literature and turns the findings into a course on the spot.
@@ -857,7 +858,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* review queue */}
       {due.length > 0 && (
-        <div style={{ border: "1px solid " + accent, borderRadius: 16, padding: 20, marginBottom: 26, background: P.card }}>
+        <div style={{ border: "1px solid " + accent, borderRadius: 16, padding: 20, marginBottom: 26, background: P.raised }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DUE FOR REVIEW</div>
           <p style={{ fontSize: 15, color: P.ink, lineHeight: 1.55, margin: "0 0 14px" }}>
             {due.length} finding{due.length === 1 ? " is" : "s are"} starting to fade. Reviewing now, while they are cheap to relearn, is what makes them permanent.
@@ -887,7 +888,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             const mem = memoryState(course, claims);
             const doneCount = (course.doneLessons || []).length;
             return (
-              <div key={course.id} style={{ background: P.card, border: "1px solid " + P.line, borderRadius: 16, padding: 20 }}>
+              <div key={course.id} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: 20 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "flex-start" }}>
                   <div style={{ minWidth: 0 }}>
                     <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: 20, fontWeight: 600, margin: "0 0 4px", lineHeight: 1.3 }}>{course.title}</h3>

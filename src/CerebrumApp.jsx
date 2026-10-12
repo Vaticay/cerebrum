@@ -21286,7 +21286,7 @@ function App() {
          actually press. */
       <div style={S.scroll} ref={threadRef}>
         <SelectionAsk onAsk={(q) => ask(q)} P={P} accent={accent} containerRef={threadRef} />
-        <div style={S.container}>
+        <div style={view === "search" ? { ...S.container, maxWidth: 1760 } : S.container}>
           {!started ? (
             /* The home hero is the first thing anyone sees after the Intro
                hands off, so it's the one surface where the two motion
