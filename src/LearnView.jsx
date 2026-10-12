@@ -193,6 +193,37 @@ function normKey(s) {
 /* Pull cited findings out of an answer's markdown. Each claim keeps
    the index of the source it cites. Sections that are not findings
    (Sources, Try asking, Related topics) are skipped. */
+/* A cited sentence is not automatically a finding. Citation fragments
+   travel with real answers: attribution stacked sentences that name
+   three papers and report nothing, stats debris that is mostly digits
+   and brackets, and lines carrying a DOI or URL. As quiz options they
+   read as garbled fragments, because they are. This guard keeps them
+   out of the claim pool, which is also the distractor pool. */
+/* The sentence splitter breaks on every period, including the ones
+   inside "et al.", DOIs, URLs, initials, and decimals. That is where
+   the garbled quiz options actually came from: "Smith et al. (2023)
+   found..." lost its head and shipped as "(2023) found...". Protect
+   those periods before splitting, restore them after. */
+function protectPeriods(s) {
+  let out = s.replace(/\S*(?:https?:\/\/|doi\.org\/|www\.)\S*/g, (m) => m.replace(/\./g, "\u0001"));
+  out = out.replace(/\b(?:e\.g\.|i\.e\.|et al\.|vs\.|Fig\.|Dr\.|Mr\.|Mrs\.|Ms\.|St\.|approx\.)/gi, (m) => m.replace(/\./g, "\u0001"));
+  out = out.replace(/\b([A-Z])\./g, "$1\u0001");
+  out = out.replace(/(\d)\.(\d)/g, "$1\u0001$2").replace(/(\d)\.(\d)/g, "$1\u0001$2");
+  return out;
+}
+
+function looksLikeFragment(text) {
+  if (/https?:\/\/|doi\.org|\bdoi:/i.test(text)) return true;
+  const years = text.match(/\b(?:19|20)\d{2}\b/g) || [];
+  if (years.length >= 3) return true;
+  const etAls = text.match(/\bet al\b/g) || [];
+  if (etAls.length >= 2) return true;
+  const letters = (text.match(/[A-Za-z]/g) || []).length;
+  if (letters / text.length < 0.52) return true;
+  if (/^\(?\d{4}\)?[.,]/.test(text) || /^\[\d+\]/.test(text)) return true;
+  return false;
+}
+
 function extractClaims(answerMd) {
   const claims = [];
   if (!answerMd) return claims;
@@ -223,18 +254,22 @@ function extractClaims(answerMd) {
     const cites = [...text0.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10));
     if (cites.length === 0) continue;
     // Split long paragraphs into sentences, each keeping the citation.
-    const sentences = text0.match(/[^.!?]+[.!?]+["']?\s*(?:\[\d+\]\s*)*/g) || [text0];
+    // Periods inside abbreviations, DOIs, URLs, and decimals are
+    // protected first so a sentence is never sawn in half mid-token.
+    const protectedText = protectPeriods(text0);
+    const sentences = protectedText.match(/[^.!?]+[.!?]+["']?\s*(?:\[\d+\]\s*)*/g) || [protectedText];
     for (const sent of sentences) {
       const sc = [...sent.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10));
       const useCites = sc.length ? sc : (isBullet ? cites : []);
       if (!useCites.length) continue;
-      const text = cleanText(sent);
+      const text = cleanText(sent.replace(/\u0001/g, "."));
       if (text.length < 42 || text.length > 340) continue;
       if (/^(this|the) (answer|search|section)\b/i.test(text)) continue;
       // Publisher page furniture sometimes travels with a citation
       // (author page boilerplate, sign in prompts, rights lines). It
       // is never a finding, so it never becomes a claim.
       if (/oxford academic|all rights reserved|copyright|sign in|privacy policy|terms of use|cookie/i.test(text)) continue;
+      if (looksLikeFragment(text)) continue;
       claims.push({ text, sourceIdx: useCites[0] });
     }
   }
