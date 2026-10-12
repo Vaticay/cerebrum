@@ -6972,6 +6972,23 @@ function AutopsySection({ P, accent, kicker, children }) {
   );
 }
 
+/* Impact formatters: the midpoint of the backend's estimated range,
+   rounded the way a person would say it. */
+function fmtImpactEnergy(impact) {
+  const e = (impact && impact.energyWh) || {};
+  if (typeof e.low !== "number" || typeof e.high !== "number") return "";
+  const mid = (e.low + e.high) / 2;
+  if (mid < 0.1) return "under 0.1 Wh";
+  return (mid < 1 ? mid.toFixed(2) : mid.toFixed(1)).replace(/\.?0+$/, "") + " Wh";
+}
+function fmtImpactWater(impact) {
+  const w = (impact && impact.waterMl) || {};
+  if (typeof w.low !== "number" || typeof w.high !== "number") return "";
+  const mid = (w.low + w.high) / 2;
+  if (mid < 1) return "under 1 mL";
+  return Math.round(mid) + " mL";
+}
+
 function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false }) {
   /* Escape + focus are owned by ModalChrome now. */
   const funnel = sanitizeFunnel(t._funnel);
@@ -7189,6 +7206,28 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
                 ))}
               </div>
             )}
+          </AutopsySection>
+        ) : null}
+
+        {/* ── 08 · Footprint — what this search cost in electricity and
+            water. An estimate from the backend (providers report no
+            actuals), built from the run's real token count and database
+            count. Absent on older cached turns. */}
+        {t.impact ? (
+          <AutopsySection P={P} accent={accent} kicker="08 · Footprint">
+            <div style={{ ...monoLine, marginBottom: 8 }}>
+              <div>electricity · <span style={{ color: P.ink }}>about {fmtImpactEnergy(t.impact)}</span> <span style={{ color: P.faint }}>({t.impact.energyWh.low} to {t.impact.energyWh.high} Wh range)</span></div>
+              <div>water · <span style={{ color: P.ink }}>about {fmtImpactWater(t.impact)}</span> <span style={{ color: P.faint }}>({t.impact.waterMl.low} to {t.impact.waterMl.high} mL range)</span></div>
+              {typeof t.impact.llmTokens === "number" && t.impact.llmTokens > 0 && (
+                <div>synthesis · <span style={{ color: P.ink }}>{t.impact.llmTokens.toLocaleString()} tokens</span></div>
+              )}
+              {typeof t.impact.databasesQueried === "number" && (
+                <div>retrieval · <span style={{ color: P.ink }}>{t.impact.databasesQueried} databases queried</span></div>
+              )}
+            </div>
+            <div style={{ ...monoLine, color: P.faint }}>
+              An estimate, not a meter reading. Providers do not report actual energy or water use, so Cerebrum prices the tokens this search really burned at published per token inference energy for large models (0.1 to 0.5 joules per token), adds a 1.3 times facility overhead and a small flat cost per database, then applies a total water figure of 1.8 mL per Wh for cooling and power generation. An answer drafted from sources without AI skips the token cost, which is most of the footprint.
+            </div>
           </AutopsySection>
         ) : null}
     </ModalChrome>
@@ -8926,6 +8965,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 (non-AI) fallback is a different kind of object than a failed
                 AI one, and the byline must not call it a failure either. */}
             <span style={S.aiTag}>{(t.sources || []).length === 0 ? "No sources found" : t.synthesisMode === "none" ? "Synthesis unavailable · verify against cited sources" : t.synthesisMode === "extractive" ? "Drafted from sources · verify against cited sources" : "AI-synthesized · verify against cited sources"}</span>
+            {t.impact && (
+              <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}
+                title="Estimated from this search's synthesis tokens and published per token energy figures. Providers do not report actual usage, so this is an estimate. The method is written out in How this was built.">
+                This search used about {fmtImpactEnergy(t.impact)} of electricity and {fmtImpactWater(t.impact)} of water (estimate)
+              </span>
+            )}
             {/* Reading level indicator: tells users the Simplify toggle exists */}
             {done && !synthFailed && t.answer && t.answer.length > 200 && (
               <button type="button" onClick={doSimplify} title={readingLevel === "plain" ? "Show the original answer" : "Rewrite one reading level simpler (" + (readingLevel === "graduate" ? "undergrad" : "plain") + " next)"}
@@ -19979,7 +20024,7 @@ function App() {
         logZeroResult(question, { filtered: effEvidenceFilter !== "all", suggestions: ((data.noResults && data.noResults.reformulations) || []).length });
       }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
+      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", impact: data.impact || null, answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
