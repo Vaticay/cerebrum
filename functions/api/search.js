@@ -297,7 +297,7 @@ export function dedupePapers(list) {
  * author-matched papers) and the web-reference fallback (Wikipedia/DDG when
  * zero papers matched at all . those records carry no relevance scores, and
  * inventing a floor for them would delete the last-resort path). */
-export const RELEVANCE_FLOOR = 60;
+export const RELEVANCE_FLOOR = 50; // 2026-10-11: lowered from 60 to test multi-concept queries
 export function paperRelevance(p) {
   const r = p ? p.relevance : undefined;
   return typeof r === "number" && Number.isFinite(r) ? r : -1;
