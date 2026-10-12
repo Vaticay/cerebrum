@@ -15657,7 +15657,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const askFollowUp = async () => {
     const q = qaQuery.trim();
     if (!q || qaBusy || !documentText.trim()) return;
-    if (!docGate()) return;
+    // Questions are not document reads. The read cap gates analyzing a
+    // document, never asking about one already analyzed (the server no
+    // longer meters Q&A as reads either). Signed in is the only gate
+    // here; docGate() with its cap check would shut the ask box after
+    // a couple of questions and call it a Pro feature.
+    if (!user) { if (onOpenAuth) onOpenAuth("signin"); return; }
     // Prior turns ride along for context; the backend bounds and formats
     // them, and is instructed to verify every fact against the document.
     const historyForRequest = qaHistory

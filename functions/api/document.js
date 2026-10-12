@@ -1078,7 +1078,18 @@ export async function onRequest(context) {
     const docCostCtl = { userId: docUser.id, tier: docTier };
     const docCap = docTier === "pro" ? null : proLib.capsForTier(docTier).docs;
     let docUsed = 0;
-    if (docCap !== null) {
+    // A document read is analyzing a document, not asking about one.
+    // Follow-up questions on an already analyzed document never consume
+    // reads: with a free cap of 3, charging each question as a read let
+    // a free user analyze one paper and ask about it twice before the
+    // door shut, which is exactly the "can't ask questions about the
+    // papers" report. Q&A stays rate limited above and token budgeted
+    // through docCostCtl; it just is not metered as a read.
+    const isQaRequest = query.length > 0;
+    if (isQaRequest) {
+      try { docUsed = await proLib.getDocReads(env, docUser.id); } catch { docUsed = 0; }
+    }
+    if (docCap !== null && !isQaRequest) {
       let docAllowed = true;
       try {
         const consumed = await proLib.consumeDocRead(env, docUser.id, docCap);
@@ -1097,7 +1108,7 @@ export async function onRequest(context) {
           cors
         );
       }
-    } else if (docTier === "pro" && docUser && docUser.id) {
+    } else if (docTier === "pro" && docUser && docUser.id && !isQaRequest) {
       // Pro is unlimited, but the read is still counted so the Usage page
       // shows real numbers. No cap check, ever.
       try { docUsed = await proLib.recordDocRead(env, docUser.id); } catch { /* best-effort */ }
