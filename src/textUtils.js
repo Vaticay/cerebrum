@@ -316,3 +316,23 @@ export function formatBibliography(sources, style) {
     .map((s, i) => formatCitation(s, style, i + 1))
     .join(style === "bibtex" ? "\n\n" : "\n\n");
 }
+
+// 2026-10-12: Scite-style yellow keyword highlighting for student readability.
+// Highlights query terms in paper titles and abstracts.
+export function highlightKeywords(text, query) {
+  if (!text || !query) return text;
+  const terms = query.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 4)  // Only meaningful words
+    .filter(w => !['what','which','when','where','with','from','that','this','have','been','were','they','their'].includes(w));
+  if (!terms.length) return text;
+  let result = String(text);
+  // Sort by length descending to match longer phrases first
+  const sorted = [...new Set(terms)].sort((a, b) => b.length - a.length);
+  for (const term of sorted) {
+    const re = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    result = result.replace(re, '<mark class="kw-highlight">$1</mark>');
+  }
+  return result;
+}
