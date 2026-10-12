@@ -516,7 +516,17 @@ const COVER_PAIRS = [
   ["#33233f", "#1c1226"], ["#173d3a", "#0a2422"], ["#42252b", "#281116"],
   ["#2c3a1c", "#18230c"], ["#1e3a4d", "#0e2432"], ["#3f3418", "#261e08"],
 ];
-function Cover({ title, height, radius = 16, fontSize, cat }) {
+function Cover({ title, height, radius = 16, fontSize, cat, img }) {
+  const [imgOk, setImgOk] = useState(true);
+  if (img && imgOk) {
+    return (
+      <div aria-hidden="true" style={{ height, borderRadius: radius, position: "relative", overflow: "hidden", flexShrink: 0, background: "#14161c" }}>
+        <img src={img} alt="" loading="lazy" onError={() => setImgOk(false)}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "40%", background: "linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.20))" }} />
+      </div>
+    );
+  }
   if (cat) return <CategoryArt motif={cat.motif} pair={cat.pair} height={height} radius={radius} />;
   const h = hashStr(String(title || "Course"));
   const pair = COVER_PAIRS[h % COVER_PAIRS.length];
@@ -551,40 +561,40 @@ function Cover({ title, height, radius = 16, fontSize, cat }) {
    motif per shelf, in the shelf's own deep tones. */
 const CATALOG = [
   { name: "Mind and Brain", motif: "brain", pair: ["#27354d", "#131e30"], topics: [
-    { t: "Sleep and Memory", q: "sleep memory consolidation", b: "Why a night of sleep decides what you keep." },
-    { t: "The Predicting Brain", q: "predictive processing brain perception", b: "Your brain guesses the world first, then checks." },
-    { t: "Attention Under Siege", q: "attention focus distraction cognition", b: "What focus actually is, and what steals it." },
-    { t: "Why We Dream", q: "dreaming REM sleep function", b: "The oldest open question in sleep science." },
+    { t: "Sleep and Memory", q: "sleep memory consolidation", b: "Why a night of sleep decides what you keep.", img: "/assets/cortex/sleep-memory.jpg" },
+    { t: "The Predicting Brain", q: "predictive processing brain perception", b: "Your brain guesses the world first, then checks.", img: "/assets/cortex/predicting-brain.jpg" },
+    { t: "Attention Under Siege", q: "attention focus distraction cognition", b: "What focus actually is, and what steals it.", img: "/assets/cortex/attention.jpg" },
+    { t: "Why We Dream", q: "dreaming REM sleep function", b: "The oldest open question in sleep science.", img: "/assets/cortex/dreams.jpg" },
   ]},
   { name: "Body and Health", motif: "pulse", pair: ["#42252b", "#281116"], topics: [
-    { t: "Exercise and Longevity", q: "exercise longevity mortality", b: "How much movement buys how much life, per the data." },
-    { t: "The Gut Immune Alliance", q: "gut microbiome immune system", b: "Your microbes are negotiating with your immune system." },
-    { t: "Fasting and Metabolism", q: "intermittent fasting metabolism", b: "What skipping meals does, and what it does not." },
-    { t: "Pain, Explained", q: "pain perception neuroscience", b: "Pain is an opinion the brain can revise." },
+    { t: "Exercise and Longevity", q: "exercise longevity mortality", b: "How much movement buys how much life, per the data.", img: "/assets/cortex/exercise-longevity.jpg" },
+    { t: "The Gut Immune Alliance", q: "gut microbiome immune system", b: "Your microbes are negotiating with your immune system.", img: "/assets/cortex/gut-immune.jpg" },
+    { t: "Fasting and Metabolism", q: "intermittent fasting metabolism", b: "What skipping meals does, and what it does not.", img: "/assets/cortex/fasting.jpg" },
+    { t: "Pain, Explained", q: "pain perception neuroscience", b: "Pain is an opinion the brain can revise.", img: "/assets/cortex/pain.jpg" },
   ]},
   { name: "Life and Evolution", motif: "helix", pair: ["#1d3b2a", "#0e2417"], topics: [
-    { t: "Editing the Code of Life", q: "CRISPR gene editing", b: "Gene editing, from the first papers to the fights." },
-    { t: "Why We Age", q: "cellular aging senescence", b: "Cells keep time. Here is what the clocks look like." },
-    { t: "Minds of Other Animals", q: "animal cognition consciousness", b: "Which animals know what, and how we can tell." },
-    { t: "The First Life", q: "origin of life abiogenesis", b: "Chemistry that learned to copy itself." },
+    { t: "Editing the Code of Life", q: "CRISPR gene editing", b: "Gene editing, from the first papers to the fights.", img: "/assets/cortex/crispr.jpg" },
+    { t: "Why We Age", q: "cellular aging senescence", b: "Cells keep time. Here is what the clocks look like.", img: "/assets/cortex/aging.jpg" },
+    { t: "Minds of Other Animals", q: "animal cognition consciousness", b: "Which animals know what, and how we can tell.", img: "/assets/cortex/animal-minds.jpg" },
+    { t: "The First Life", q: "origin of life abiogenesis", b: "Chemistry that learned to copy itself.", img: "/assets/cortex/first-life.jpg" },
   ]},
   { name: "Earth and Climate", motif: "earth", pair: ["#173d3a", "#0a2422"], topics: [
-    { t: "Oceans in Motion", q: "ocean currents climate", b: "The conveyor that sets the weather." },
-    { t: "The Soil Beneath Us", q: "soil microbiome carbon", b: "A teaspoon of soil holds a civilization." },
-    { t: "Forests and Carbon", q: "forests carbon sequestration", b: "What trees actually do with carbon, measured." },
-    { t: "Extreme Weather", q: "extreme weather attribution climate change", b: "How scientists pin a storm to a warming world." },
+    { t: "Oceans in Motion", q: "ocean currents climate", b: "The conveyor that sets the weather.", img: "/assets/cortex/oceans.jpg" },
+    { t: "The Soil Beneath Us", q: "soil microbiome carbon", b: "A teaspoon of soil holds a civilization.", img: "/assets/cortex/soil.jpg" },
+    { t: "Forests and Carbon", q: "forests carbon sequestration", b: "What trees actually do with carbon, measured.", img: "/assets/cortex/forests.jpg" },
+    { t: "Extreme Weather", q: "extreme weather attribution climate change", b: "How scientists pin a storm to a warming world.", img: "/assets/cortex/extreme-weather.jpg" },
   ]},
   { name: "Space and Physics", motif: "orbit", pair: ["#33233f", "#1c1226"], topics: [
-    { t: "Black Holes", q: "black hole event horizon", b: "The edge where physics files its complaints." },
-    { t: "The Shape of Spacetime", q: "space time general relativity", b: "Gravity is geometry. The papers that proved it." },
-    { t: "Quantum Machines", q: "quantum computing error correction", b: "Computers that borrow probability itself." },
-    { t: "Worlds Around Other Stars", q: "exoplanet atmospheres habitability", b: "Reading the air of planets we will never touch." },
+    { t: "Black Holes", q: "black hole event horizon", b: "The edge where physics files its complaints.", img: "/assets/cortex/black-holes.jpg" },
+    { t: "The Shape of Spacetime", q: "space time general relativity", b: "Gravity is geometry. The papers that proved it.", img: "/assets/cortex/spacetime.jpg" },
+    { t: "Quantum Machines", q: "quantum computing error correction", b: "Computers that borrow probability itself.", img: "/assets/cortex/quantum.jpg" },
+    { t: "Worlds Around Other Stars", q: "exoplanet atmospheres habitability", b: "Reading the air of planets we will never touch.", img: "/assets/cortex/exoplanets.jpg" },
   ]},
   { name: "The Living World", motif: "microbe", pair: ["#2c3a1c", "#18230c"], topics: [
-    { t: "The Insect Gut", q: "insect gut microbiome", b: "Tiny stomachs running serious chemistry." },
-    { t: "Fermentation", q: "fermentation microbes food", b: "The oldest food technology is alive." },
-    { t: "Microbes and Crops", q: "plant microbiome agriculture", b: "Farms are ecosystems, roots first." },
-    { t: "The Ocean's Smallest", q: "marine microbes phytoplankton", b: "Half your oxygen comes from these." },
+    { t: "The Insect Gut", q: "insect gut microbiome", b: "Tiny stomachs running serious chemistry.", img: "/assets/cortex/insect-gut.jpg" },
+    { t: "Fermentation", q: "fermentation microbes food", b: "The oldest food technology is alive.", img: "/assets/cortex/fermentation.jpg" },
+    { t: "Microbes and Crops", q: "plant microbiome agriculture", b: "Farms are ecosystems, roots first.", img: "/assets/cortex/crops.jpg" },
+    { t: "The Ocean's Smallest", q: "marine microbes phytoplankton", b: "Half your oxygen comes from these.", img: "/assets/cortex/ocean-smallest.jpg" },
   ]},
 ];
 
@@ -671,11 +681,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [finished, setFinished] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [showLessonDone, setShowLessonDone] = useState(false);
+  const [misses, setMisses] = useState([]);
+  const [reviewCards, setReviewCards] = useState(null);
   const xpAtLessonStart = useRef(0);
   const claimsRef = useRef(null);
   if (!claimsRef.current) claimsRef.current = loadClaims();
 
-  const lesson = course.lessons[lessonIdx];
+  const lesson = reviewCards
+    ? { id: "missed-review", title: "Review what you missed", cards: reviewCards }
+    : course.lessons[lessonIdx];
   const card = lesson ? lesson.cards[cardIdx] : null;
   const interactive = card && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "battle");
   const isRight = interactive && card.kind !== "battle" && picked === card.correct;
@@ -701,6 +715,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }
     const correct = picked === card.correct;
     if (correct) setRight((n) => n + 1);
+    if (!correct) {
+      const origin = course.lessons[lessonIdx];
+      setMisses((ms) => (ms.some((m) => m.card === card) ? ms : [...ms, { card, lessonTitle: origin ? origin.title : "" }]));
+    }
     award(correct ? 10 : 4);
     playSound(correct ? "correct" : "wrong", soundOn);
     if (card.claimId && claimsRef.current[card.claimId]) {
@@ -723,7 +741,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     if (!interactive) { award(2); onProgress && onProgress(2, course); }
     setPicked(null); setChecked(false);
     if (cardIdx < lesson.cards.length - 1) { setCardIdx(cardIdx + 1); return; }
+    if (reviewCards) { setReviewCards(null); setCardIdx(0); setShowLessonDone(true); return; }
     finishLesson(true);
+  };
+
+  const startMissReview = (cards) => {
+    setReviewCards(cards);
+    setCardIdx(0); setPicked(null); setChecked(false);
+    setShowLessonDone(false); setShowIntro(false);
   };
 
   const nextLesson = () => {
@@ -776,6 +801,27 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={{ fontSize: 12, color: P.muted }}>First try accuracy</div>
             </div>
           </div>
+          {misses.length > 0 ? (
+            <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
+              {misses.map((m, i) => (
+                <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 18px", marginBottom: 10 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question}</div>
+                  <div style={{ fontSize: 14.5, lineHeight: 1.55, color: P.muted }}>
+                    The finding: <span style={{ color: P.ink }}>{m.card.why}</span>
+                  </div>
+                  {m.card.paperTitle && (
+                    <div style={{ fontSize: 12.5, color: P.muted, marginTop: 6 }}>{m.card.cite} · {m.card.paperTitle}</div>
+                  )}
+                </div>
+              ))}
+              <p style={{ fontSize: 13.5, color: P.muted, lineHeight: 1.55, textAlign: "center", margin: "14px 0 0" }}>
+                These are already on your review schedule, so they will come back while they are still fresh enough to fix.
+              </p>
+            </div>
+          ) : (
+            <p style={{ color: P.muted, fontSize: 14.5, margin: "0 auto 34px" }}>Clean run. Nothing missed.</p>
+          )}
           <button className="lv-btn lv-btn-primary" style={btnPrimary} onClick={onExit}>Back to your courses</button>
         </div>
       </div>
@@ -793,7 +839,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <span style={{ width: 34 }} />
         </div>
         <div className="lv-rise" style={{ textAlign: "center", paddingTop: "6vh" }}>
-          <Cover title={course.title} height={150} radius={20} />
+          <Cover title={course.title} height={150} radius={20} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
           <h2 style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 600, lineHeight: 1.2, margin: "30px 0 12px" }}>{lesson.title}</h2>
           <p style={{ color: P.muted, fontSize: 16.5, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
           <p style={{ color: P.muted, fontSize: 13.5, margin: "0 0 38px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
@@ -821,6 +867,21 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <p style={{ color: P.muted, fontSize: 16, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
             +{lessonXp} XP. The findings from this lesson are on your review schedule now.
           </p>
+          {(() => {
+            const lessonMisses = misses.filter((m) => m.lessonTitle === lesson.title);
+            if (!lessonMisses.length) return null;
+            return (
+              <button className="lv-btn" onClick={() => startMissReview(lessonMisses.map((m) => m.card))}
+                style={{
+                  width: "100%", maxWidth: 340, marginBottom: 12, background: "transparent",
+                  border: "1.5px solid " + accent, color: accent, borderRadius: 14,
+                  padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "var(--cb-font)", minHeight: 50,
+                }}>
+                Review what you missed ({lessonMisses.length})
+              </button>
+            );
+          })()}
           <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, width: "100%", maxWidth: 340 }} onClick={nextLesson}>
             {lessonIdx === course.lessons.length - 1 ? "Finish course" : "Next lesson"}
           </button>
@@ -1042,7 +1103,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
         ← All courses
       </button>
       <div className="lv-rise">
-        <Cover title={course.title} height={168} radius={22} />
+        <Cover title={course.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
         <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
         <p style={{ color: P.muted, fontSize: 14.5, margin: "0 0 6px" }}>
           {course.lessons.length} lessons · {course.sourceCount || 0} papers · {course.xpEarned || 0} XP earned
@@ -1169,6 +1230,89 @@ async function searchForCourse(query) {
 }
 
 /* ── Learn home ──────────────────────────────────────────────────── */
+/* ── the tour ────────────────────────────────────────────────────────
+   Thirty seconds, four steps, shown once on a first visit and
+   replayable from the header. It teaches the loop, not the buttons:
+   pick, guess first, check against the paper, review on schedule. */
+const TOUR_STEPS = [
+  {
+    icon: "grid",
+    title: "Pick a course, or build one",
+    body: "Start from the catalog shelves, or type any topic and Cortex builds a course from the real literature on the spot. Every question in it is a finding from a real paper, never filler written to look like one.",
+  },
+  {
+    icon: "zap",
+    title: "Questions come first",
+    body: "Every course opens by asking before it teaches. A wrong guess here is not a failure. It is the thing that makes the right answer stick when it arrives seconds later.",
+  },
+  {
+    icon: "check",
+    title: "Check, then read why",
+    body: "Pick an answer, press Check, and Cortex grades you against the paper itself, quoting the finding with its citation. The debates are real disagreements between published papers, never staged for drama.",
+  },
+  {
+    icon: "history",
+    title: "Reviews find you",
+    body: "Every finding you answer becomes a memory claim. It comes back right as it starts to fade, and two minutes clears the pile. Streaks forgive here: you get freezes, not guilt.",
+  },
+];
+function CortexTour({ P, accent, at, onClose }) {
+  const [step, setStep] = useState(0);
+  const s = TOUR_STEPS[step];
+  const last = step === TOUR_STEPS.length - 1;
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 260, background: "rgba(5,6,8,0.72)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 18,
+    }} onClick={onClose}>
+      <div className="lv-rise" onClick={(e) => e.stopPropagation()} style={{
+        background: P.raised, border: "1px solid " + P.line, borderRadius: 24,
+        maxWidth: 470, width: "100%", padding: "30px 28px 24px", color: P.ink,
+        fontFamily: "var(--cb-font)", boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
+        maxHeight: "88vh", overflowY: "auto",
+      }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: "50%", marginBottom: 18,
+          background: "rgba(255,255,255,0.06)", color: accent,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <Icon name={s.icon} size={26} />
+        </div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 8 }}>
+          HOW CORTEX WORKS · {step + 1} OF {TOUR_STEPS.length}
+        </div>
+        <h2 style={{ fontFamily: SERIF, fontSize: 25, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{s.title}</h2>
+        <p style={{ fontSize: 15.5, lineHeight: 1.65, color: P.muted, margin: "0 0 24px" }}>{s.body}</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+          {TOUR_STEPS.map((_, i) => (
+            <span key={i} style={{
+              width: i === step ? 22 : 8, height: 8, borderRadius: 999,
+              background: i === step ? accent : P.line, transition: "all .25s",
+            }} />
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {step > 0 && (
+            <button className="lv-btn" onClick={() => setStep(step - 1)}
+              style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: 12, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
+              Back
+            </button>
+          )}
+          <button className="lv-btn lv-btn-primary" onClick={() => (last ? onClose() : setStep(step + 1))}
+            style={{ flex: 1, background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
+            {last ? "Start learning" : "Next"}
+          </button>
+        </div>
+        {!last && (
+          <button onClick={onClose} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 13.5, fontFamily: "var(--cb-font)", padding: "12px 0 0", display: "block", margin: "0 auto" }}>
+            Skip the tour
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function LearnView({ P, accent, at, onNavigate }) {
   const [courses, setCourses] = useState([]);
   const [claims, setClaims] = useState({});
@@ -1178,6 +1322,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
   const [soundOn, setSoundOn] = useState(() => loadJSON(SOUND_KEY, false));
+  const [tourOpen, setTourOpen] = useState(() => {
+    try { return !localStorage.getItem("cerebrum-cortex-tour"); } catch { return false; }
+  });
+  const closeTour = () => {
+    try { localStorage.setItem("cerebrum-cortex-tour", "done"); } catch { /* private mode */ }
+    setTourOpen(false);
+  };
   const [access, setAccess] = useState({ signedIn: false, isFounder: false, isCreator: false, email: "" });
   const [published, setPublished] = useState([]);
   const [catFilter, setCatFilter] = useState("All");
@@ -1257,7 +1408,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setClaims(loadClaims());
   };
 
-  const buildCourseFrom = async (q, displayTitle, categoryName) => {
+  const buildCourseFrom = async (q, displayTitle, categoryName, img) => {
     if (!q || building) return;
     setBuilding(true);
     setBuildingLabel(displayTitle || q);
@@ -1271,6 +1422,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       }
       if (displayTitle) course.title = displayTitle;
       if (categoryName) course.category = categoryName;
+      if (img) course.img = img;
       saveLearnCourse(course);
       refresh();
       setTopic("");
@@ -1355,6 +1507,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   return (
     <div className="lv-home" style={{ maxWidth: 880, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
+      {tourOpen && <CortexTour P={P} accent={accent} at={at} onClose={closeTour} />}
       <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1364,6 +1517,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <p className="lv-sub" style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
             Where papers become memory. Short courses built from the papers themselves. Every question is a real finding, every debate is a real disagreement, and reviews come back when your memory starts to fade.
           </p>
+          <button onClick={() => setTourOpen(true)}
+            style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: 13.5, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "8px 0 0", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            How Cortex works <Icon name="arrowRight" size={13} />
+          </button>
         </div>
         <button onClick={() => { const v = !soundOn; setSoundOn(v); saveJSON(SOUND_KEY, v); }}
           aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"}
@@ -1387,7 +1544,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             background: P.raised, border: "1px solid " + P.line, borderRadius: 22, overflow: "hidden",
             fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 24,
           }}>
-          <Cover title={nextCourse.title} height={128} radius={0} cat={CATALOG.find((c) => c.name === nextCourse.category) || null} />
+          <Cover title={nextCourse.title} height={128} radius={0} cat={CATALOG.find((c) => c.name === nextCourse.category) || null} img={nextCourse.img} />
           <span style={{ display: "block", padding: "18px 22px 20px" }}>
             <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
               {(nextCourse.doneLessons || []).length > 0 ? "CONTINUE" : "START HERE"}
@@ -1431,13 +1588,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             const isBuilding = building && buildingLabel === t.t;
             return (
               <button key={cat.name + t.t} className="lv-topic" disabled={building}
-                onClick={() => { if (existing) setScreen({ name: "path", courseId: existing.id }); else buildCourseFrom(t.q, t.t, cat.name); }}
+                onClick={() => { if (existing) setScreen({ name: "path", courseId: existing.id }); else buildCourseFrom(t.q, t.t, cat.name, t.img); }}
                 style={{
                   textAlign: "left", cursor: building ? "wait" : "pointer", padding: 0, overflow: "hidden",
                   background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
                   fontFamily: "var(--cb-font)", color: P.ink, opacity: building && !isBuilding ? 0.55 : 1,
                 }}>
-                <CategoryArt motif={cat.motif} pair={cat.pair} height={104} radius={0} />
+                <Cover title={t.t} height={104} radius={0} cat={cat} img={t.img} />
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
                   <span style={{ fontFamily: SERIF, fontSize: 17.5, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{t.t}</span>
                   <span style={{ fontSize: 13, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
@@ -1477,6 +1634,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             );
           })}
         </div>
+        <p style={{ fontSize: 12, color: P.muted, margin: "14px 0 0" }}>Cover photos are free stock matched to each topic, from Pexels, Unsplash, and Wikimedia Commons.</p>
         {buildError && catFilter !== null && buildingLabel === "" && (
           <p style={{ color: "#FF8A8A", fontSize: 14, margin: "14px 0 0" }}>{buildError}</p>
         )}
@@ -1635,7 +1793,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                     background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
                     fontFamily: "var(--cb-font)", color: P.ink,
                   }}>
-                  <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} />
+                  <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
                   <span style={{ display: "block", padding: "15px 18px 17px" }}>
                     <span style={{ fontFamily: SERIF, fontSize: 18.5, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
                     <span style={{ fontSize: 12.5, color: P.muted, display: "block", marginTop: 4 }}>
