@@ -8604,7 +8604,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         { id: "no", label: "No, missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
       ] : []),
       ...(done && interactive && sources.length >= 2 && t.answer && t.answer.length > 200 ? [{
-        id: "course", label: "Turn into course", icon: "bookOpen", hint: "Learn",
+        id: "course", label: "Turn into course", icon: "bookOpen", hint: "Cortex",
         onClick: () => {
           const c = createCourseFromResults(t.q, t.sources, t.answer, t.literatureConflicts);
           if (!c) { toast("Not enough cited findings in this answer to build a course yet", { tone: "error" }); return; }
@@ -9329,7 +9329,7 @@ const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
    hype, no dashes, nothing that sounds generated. */
 function Beta2Announcement({ P, accent, at, onClose, onTryLearn }) {
   const items = [
-    { title: "Learn is new", body: "Any search can become a short course built from the papers it found, with quick quizzes and XP as you go. It lives in the sidebar, and on phones it has its own tab." },
+    { title: "Cortex is new", body: "Any search can become a short course built from the papers it found, with quick quizzes and XP as you go. It lives in the sidebar, and on phones it has its own tab." },
     { title: "Search got tougher", body: "Questions with several parts used to come back with no sources at all. They return real sources now, and an answer is never built on zero papers." },
     { title: "Answers read easier", body: "Wider pages, calmer backgrounds, and plainer wording across the whole site." },
     { title: "One intro clip is gone", body: "A background clip that should never have shipped was still playing behind the door. It is out, and every remaining clip has been checked frame by frame." },
@@ -9355,7 +9355,7 @@ function Beta2Announcement({ P, accent, at, onClose, onTryLearn }) {
       </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "10px 18px", color: P.ink, fontSize: 14, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Got it</button>
-        <button onClick={onTryLearn} style={{ background: accent, border: "none", borderRadius: RADIUS.sm, padding: "10px 18px", color: at, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Try Learn</button>
+        <button onClick={onTryLearn} style={{ background: accent, border: "none", borderRadius: RADIUS.sm, padding: "10px 18px", color: at, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Try Cortex</button>
       </div>
     </Dialog>
   );
@@ -17557,7 +17557,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["trending", "Trending", "chart"],
     ["investigations", "Investigations", "history"],
     ["library", "Library", "bookmark"],
-    ["learn", "Learn", "bookOpen"],
+    ["learn", "Cortex", "bookOpen"],
     ...(user ? [["collections", "Collections", "folder"]] : []),
     ...(user ? [["usage", "Usage", "gauge"]] : []),
     ...(user ? [["inbox", "Inbox", "mail"]] : []),
@@ -21168,7 +21168,7 @@ function App() {
           on the header opens the command palette. */}
       {isMobile && <style>{`body{padding-bottom:calc(72px + env(safe-area-inset-bottom)) !important;}`}</style>}
       {isMobile && (() => {
-        const VIEW_TITLES = { search: "Search", document: "Document Mode", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Learn" };
+        const VIEW_TITLES = { search: "Search", document: "Document Mode", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Cortex" };
         let headerTitle = VIEW_TITLES[view] || "Cerebrum";
         if (view === "search" && turns.length > 0 && (history || []).length > 0) {
           const recent = [...history].sort((a, b) => (b.lastOpened || b.ts || 0) - (a.lastOpened || a.ts || 0))[0];
@@ -21235,7 +21235,7 @@ function App() {
               {[
                 { key: "search", label: "Home", icon: "search" },
                 { key: "library", label: "Library", icon: "bookmark" },
-                { key: "learn", label: "Learn", icon: "bookOpen" },
+                { key: "learn", label: "Cortex", icon: "bookOpen" },
                 { key: "new", label: "Create", icon: "plus", fab: true },
                 { key: "inbox", label: "Inbox", icon: "mail", badge: unreadCount },
                 { key: "profile", label: "Account", icon: "user" },
