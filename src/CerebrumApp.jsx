@@ -8604,7 +8604,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         { id: "no", label: "No, missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
       ] : []),
       ...(done && interactive && sources.length >= 2 && t.answer && t.answer.length > 200 ? [{
-        id: "course", label: "Turn into course", icon: "bookOpen", hint: "Cortex",
+        id: "course", label: "Turn into course", icon: "cortex", hint: "Cortex",
         onClick: () => {
           const c = createCourseFromResults(t.q, t.sources, t.answer, t.literatureConflicts);
           if (!c) { toast("Not enough cited findings in this answer to build a course yet", { tone: "error" }); return; }
@@ -17557,7 +17557,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["trending", "Trending", "chart"],
     ["investigations", "Investigations", "history"],
     ["library", "Library", "bookmark"],
-    ["learn", "Cortex", "bookOpen"],
+    ["learn", "Cortex", "cortex"],
     ...(user ? [["collections", "Collections", "folder"]] : []),
     ...(user ? [["usage", "Usage", "gauge"]] : []),
     ...(user ? [["inbox", "Inbox", "mail"]] : []),
@@ -21235,7 +21235,7 @@ function App() {
               {[
                 { key: "search", label: "Home", icon: "search" },
                 { key: "library", label: "Library", icon: "bookmark" },
-                { key: "learn", label: "Cortex", icon: "bookOpen" },
+                { key: "learn", label: "Cortex", icon: "cortex" },
                 { key: "new", label: "Create", icon: "plus", fab: true },
                 { key: "inbox", label: "Inbox", icon: "mail", badge: unreadCount },
                 { key: "profile", label: "Account", icon: "user" },

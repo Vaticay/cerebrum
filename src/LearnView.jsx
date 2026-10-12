@@ -23,6 +23,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { Icon } from "./designSystem.jsx";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -1170,7 +1171,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <style>{CSS}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div>
-          <h1 style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ color: accent, display: "inline-flex", flexShrink: 0 }}><Icon name="cortex" size={36} /></span>
+            <h1 style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
+          </div>
           <p style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
             Where papers become memory. Short courses built from the papers themselves. Every question is a real finding, every debate is a real disagreement, and reviews come back when your memory starts to fade.
           </p>

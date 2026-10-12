@@ -154,6 +154,10 @@ export function Icon({ name, size = 17, className, style }) {
     case "moreVertical": return <svg {...common} fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>;
     case "award": return <svg {...common}><circle cx="12" cy="8" r="6" /><path d="M15.5 12.9L17 22l-5-3-5 3 1.5-9.1" /></svg>;
     case "bookOpen": return <svg {...common}><path d="M12 7v14" /><path d="M3 18a1 1 0 01-1-1V4a1 1 0 011-1h5a4 4 0 014 4 4 4 0 014-4h5a1 1 0 011 1v13a1 1 0 01-1 1h-6a3 3 0 00-3 3 3 3 0 00-3-3z" /></svg>;
+    // Cortex, the learning feature, gets its own mark: two open arcs
+    // like cortical folds forming a C around a single point, the
+    // finding at the center. Drawn to sit naturally beside bookOpen.
+    case "cortex": return <svg {...common}><path d="M18.1 4.7A9.5 9.5 0 1 0 18.1 19.3" /><path d="M15.5 7.8A5.5 5.5 0 1 0 15.5 16.2" /><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" /></svg>;
     case "zap": return <svg {...common}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" /></svg>;
     case "camera": return <svg {...common}><path d="M4 8.5A1.5 1.5 0 015.5 7h2.2l1-1.6A1.5 1.5 0 0110 4.7h4a1.5 1.5 0 011.3.7l1 1.6h2.2A1.5 1.5 0 0120 8.5v10A1.5 1.5 0 0118.5 20h-13A1.5 1.5 0 014 18.5z" /><circle cx="12" cy="13" r="3.6" /></svg>;
     // Commit 46: added for VideoHuddle's FaceTime-style control island —
