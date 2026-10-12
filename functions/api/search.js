@@ -2646,6 +2646,9 @@ const QUERY_FRAMING_WORDS = new Set([
   // satisfies and the whole pool was capped below the relevance floor.
   "deadly", "dangerous", "lethal", "fatal", "safe", "effective",
   "common", "rare", "serious", "severe", "harmful",
+  // 2026-10-11: substrate/feed role words. "waste oil substrates" means waste oil
+  // USED AS substrate; papers about feeding waste oil don't need the literal word.
+  "substrate", "substrates", "feed", "feeding", "fed", "diet", "diets",
   // 2026-10-10: question-framing nouns/verbs/adverbs. "What organisms are
   // commonly found in the black soldier fly larval gut microbiome" produced
   // the load-bearing constraints "organisms commonly found" /
