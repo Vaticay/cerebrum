@@ -317,22 +317,47 @@ export function formatBibliography(sources, style) {
     .join(style === "bibtex" ? "\n\n" : "\n\n");
 }
 
-// 2026-10-12: Scite-style yellow keyword highlighting for student readability.
-// Highlights query terms in paper titles and abstracts.
-export function highlightKeywords(text, query) {
-  if (!text || !query) return text;
-  const terms = query.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+// 2026-10-12: Scite-style keyword highlighting for student readability.
+// The first version returned an HTML string, which would have forced
+// dangerouslySetInnerHTML on upstream paper metadata — exactly what
+// renderCleanTitle exists to avoid. This version is React safe: it
+// walks the node list renderCleanTitle produces (strings plus the
+// whitelisted tag elements) and wraps whole word matches in string
+// segments with <mark> elements. Existing elements pass through
+// untouched, so a species name keeps its italics and gains no nested
+// markup.
+const QUERY_STOPWORDS = new Set([
+  "what", "which", "when", "where", "with", "from", "that", "this",
+  "have", "been", "were", "they", "their", "does", "about", "into",
+  "than", "then", "also", "more", "most", "some", "such", "only",
+  "over", "under", "between", "using", "used", "effect", "effects",
+]);
+export function extractQueryTerms(query) {
+  if (!query) return [];
+  const terms = String(query).toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter(w => w.length >= 4)  // Only meaningful words
-    .filter(w => !['what','which','when','where','with','from','that','this','have','been','were','they','their'].includes(w));
-  if (!terms.length) return text;
-  let result = String(text);
-  // Sort by length descending to match longer phrases first
-  const sorted = [...new Set(terms)].sort((a, b) => b.length - a.length);
-  for (const term of sorted) {
-    const re = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    result = result.replace(re, '<mark class="kw-highlight">$1</mark>');
+    .filter((w) => w.length >= 4 && !QUERY_STOPWORDS.has(w));
+  return [...new Set(terms)].sort((a, b) => b.length - a.length);
+}
+export function highlightKeywords(nodes, terms) {
+  if (nodes == null || !terms || !terms.length) return nodes;
+  const esc = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp("\\b(" + esc.join("|") + ")\\b", "gi");
+  const list = Array.isArray(nodes) ? nodes : [nodes];
+  const out = [];
+  let key = 0;
+  for (const node of list) {
+    if (typeof node !== "string") { out.push(node); continue; }
+    let last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(node))) {
+      if (m.index > last) out.push(node.slice(last, m.index));
+      out.push(React.createElement("mark", { className: "kw-highlight", key: "kw" + (key++) }, m[0]));
+      last = m.index + m[0].length;
+    }
+    if (last < node.length) out.push(node.slice(last));
+    else if (last === 0) out.push(node);
   }
-  return result;
+  return out;
 }

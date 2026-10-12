@@ -80,7 +80,7 @@ import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
-import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography } from "./textUtils.js";
+import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography, extractQueryTerms, highlightKeywords } from "./textUtils.js";
 
 /* Flowchart/diagram components (extracted 2026-10-07, monolith split). */
 import {FlowchartStudio, MermaidStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome } from "./flowcharts.jsx";
@@ -20849,6 +20849,14 @@ function App() {
     const t = [...turns].reverse().find((x) => x && Array.isArray(x.sources) && x.sources.length);
     return t ? t.sources : [];
   }, [turns]);
+  // Query terms of that same turn, for Scite style keyword marks in
+  // the source titles below. Derived from the turn's own question so
+  // a multi turn thread highlights against the question that actually
+  // produced these sources, not whatever is in the composer now.
+  const activeQueryTerms = useMemo(() => {
+    const t = [...turns].reverse().find((x) => x && Array.isArray(x.sources) && x.sources.length);
+    return extractQueryTerms(t ? t.q : "");
+  }, [turns]);
   const panelSources = useMemo(() => activeTurnSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); }), [activeTurnSources, srcFilter]);
   const sortedSources = useMemo(() => [...panelSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); }), [panelSources, srcSort]);
   // Bug: SourceCard’s index used to be looked up via
@@ -20981,7 +20989,7 @@ function App() {
           safe, non-dangerouslySetInnerHTML parser already used at its other
           call site below) — a formula still reads clean AND a species name
           still reads like one. */}
-      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? renderCleanTitle(s.title) : s.url)}</a>
+      <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accent : P.ink }}>{(s.title ? highlightKeywords(renderCleanTitle(s.title), activeQueryTerms) : s.url)}</a>
       <div style={S.srcMeta}>{[s.authors, formatJournalName(s.journal)].filter(Boolean).join(" · ")}{(() => { const c = formatCitationCount(s.citations, s.year, "citation"); return c ? ` · ${c}` : ""; })()}</div>
       <div style={{ ...S.srcRow, gap: 2 }}>
         {/* Pass 5: pill toolbars become text actions — same handlers, no
@@ -25473,6 +25481,12 @@ button.cb-cite { min-height: 0; min-width: 0; }
   text-decoration-color: rgba(127,127,127,0.45);
 }
 .cb-textbtn:hover { color: var(--cb-ink, #fff); text-decoration-color: currentColor; }
+
+/* Query keyword marks in source titles (Scite style readability). */
+.kw-highlight {
+  background: rgba(250, 204, 21, 0.30); color: inherit;
+  border-radius: 3px; padding: 0 1px;
+}
 
 /* Quiet instrument kicker — replaces letterspaced all-caps eyebrows. */
 .cb-kicker {
