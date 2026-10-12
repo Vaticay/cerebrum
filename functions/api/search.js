@@ -14970,6 +14970,35 @@ async function runSearchPipeline(pctx) {
       }
     }
 
+    // RESCUE WAVE (2026-10-12; wave 5 in the attempt trail, since
+    // wave 4 is the extractive fallback below): waves 1 to 3 share
+    // one synthesis deadline, so a slow retrieval can strangle every
+    // wave before the one healthy provider gets a real chance, and
+    // the user is served the extractive papers list instead of an
+    // answer (the "6 papers found this" complaint). When every wave
+    // has failed, one last race runs OUTSIDE that deadline on the
+    // provider that has actually been carrying production (Groq),
+    // across two of its models with separate rate limit buckets, on
+    // the compact prompt. A slower real answer beats a fast list.
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {
+      const groqProvider = activeProviders.find((p) => p.id === "groq");
+      if (groqProvider) {
+        const rescueCall = callCompat(groqProvider);
+        const rescueMsgs = compactMessages || messages;
+        const rescueLegs = [
+          raceEntry(5, "groq:openai/gpt-oss-120b", rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000)),
+          raceEntry(5, "groq:meta-llama/llama-3.3-70b-versatile", rescueCall("meta-llama/llama-3.3-70b-versatile", rescueMsgs, maxTokens, 12000)),
+        ];
+        try {
+          const winner = await raceBest(rescueLegs, query, 1000);
+          answer = winner.answer; aiOK = true;
+          recordWin(winner.model);
+        } catch (agg) {
+          aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: errMsgs(agg) });
+        }
+      }
+    }
+
     // PRO TIER . charge the AI answer against the caller's monthly bucket.
     // Free/Lite are capped; Pro is unlimited but still counted (the Usage
     // page shows real numbers for Pro members — transparency, not a cap).

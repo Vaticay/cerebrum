@@ -858,10 +858,10 @@ await test("grant fails cleanly for unknown email; revoke refuses subscription P
 
 // ── Structural: the wiring exists where it must ───────────────────────────
 
-await test("search.js gates all three AI waves on the Pro gate", async () => {
+await test("search.js gates all four AI waves on the Pro gate", async () => {
   const src = await readFile(join(root, "functions/api/search.js"), "utf8");
   const waveGuards = src.match(/if \(!aiOK && aiSynthesisAllowed[^\n]*\)/g) || [];
-  assert.equal(waveGuards.length, 3, `expected 3 gated wave guards, found ${waveGuards.length}`);
+  assert.equal(waveGuards.length, 4, `expected 4 gated wave guards, found ${waveGuards.length}`);
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");
   assert.match(src, /consumeAiAnswer\(env, aiGate\.userId, aiGate\.aiCap\)/, "AI answers not metered atomically");
   // Wave 4 (deterministic fallback) must stay ungated — everyone gets it.
