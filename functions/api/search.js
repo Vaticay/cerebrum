@@ -11438,9 +11438,11 @@ async function runSearchPipeline(pctx) {
     //               EVERY AI surface (search waves, cached answers, follow-up
     //               transforms, persona chat) . the cache is an optimization,
     //               not an entitlement bypass
-    //   anonymous → no provider-backed AI; the pipeline falls through to the
-    //               deterministic Wave-4 extractive answer, and the client
-    //               nudges toward sign-in.
+    //   anonymous → provider-backed AI metered on the hashed-IP identity
+    //               (rlKey, computed for the rate limiter above), same free
+    //               cap as a signed-in free account. Past the cap the
+    //               pipeline falls through to the deterministic Wave-4
+    //               extractive answer, and the client nudges toward sign-in.
     let aiGate = null;
     let proLib = null;
     try {
@@ -11467,7 +11469,7 @@ async function runSearchPipeline(pctx) {
         }
       }
       const sessionUser = apiKeyIdentity ? { id: apiKeyIdentity.userId } : await proSessionUser(request, env);
-      aiGate = await proLib.resolveAiGate(env, sessionUser);
+      aiGate = await proLib.resolveAiGate(env, sessionUser, rlKey ? "anon:" + rlKey : null);
     } catch {
       proLib = null;
     }
@@ -11476,7 +11478,7 @@ async function runSearchPipeline(pctx) {
       // default, so the extractive fallback answers instead of inference.
       // aiCap mirrors FREE_AI_ANSWERS_PER_MONTH (functions/lib/proEntitlement.js)
       // so the quota payload reports a truthful cap; anonymous synthesis
-      // stays disallowed via aiSynthesisAllowed regardless.
+      // without a metered identity stays disallowed via aiSynthesisAllowed.
       aiGate = { kind: "anonymous", userId: null, aiUsed: 0, aiCap: 50, proSource: null };
     }
     const aiSynthesisAllowed = proLib ? proLib.aiSynthesisAllowed(aiGate) : false;
@@ -11518,7 +11520,8 @@ async function runSearchPipeline(pctx) {
         );
       }
     }
-    // Consume one AI answer from a metered account's bucket (free or Lite).
+    // Consume one AI answer from a metered caller's bucket (free, Lite, or
+    // an anonymous caller metered on their hashed-IP identity).
     // The cap check and the increment are ONE atomic statement
     // (consumeAiAnswer): concurrent requests can never overshoot the cap or
     // drive usage negative. If this request lost the race for the last slot
@@ -11534,7 +11537,7 @@ async function runSearchPipeline(pctx) {
             // Usage page shows real numbers. No cap check, ever.
             const n = await proLib.recordAiAnswer(env, aiGate.userId);
             if (typeof n === "number") aiGate.aiUsed = n;
-          } else if (aiGate.kind === "free" || aiGate.kind === "lite") {
+          } else if (aiGate.kind === "free" || aiGate.kind === "lite" || aiGate.kind === "anonymous") {
             const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGate.aiCap);
             if (consumed && typeof consumed.used === "number") aiGate.aiUsed = consumed.used;
           }

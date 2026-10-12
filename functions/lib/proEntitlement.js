@@ -376,8 +376,12 @@ export function intervalToPlan(interval) {
 //   "pro"       — unlimited AI synthesis
 //   "lite"      — AI synthesis until aiUsed >= aiCap this quota period (500)
 //   "free"      — AI synthesis until aiUsed >= aiCap this quota period (50)
-//   "anonymous" — no AI synthesis (no identity to meter)
-export async function resolveAiGate(env, sessionUser) {
+//   "anonymous" — AI synthesis metered by the caller's hashed-IP identity
+//                 (the same privacyKey identity the rate limiter uses) until
+//                 aiUsed >= aiCap, same free cap as a signed-in free account.
+//                 With no identity available it stays synthesis-free, since
+//                 there is still nothing to meter against.
+export async function resolveAiGate(env, sessionUser, anonId) {
   const base = {
     kind: "anonymous",
     userId: null,
@@ -385,7 +389,20 @@ export async function resolveAiGate(env, sessionUser) {
     aiCap: FREE_AI_ANSWERS_PER_MONTH,
     proSource: null,
   };
-  if (!sessionUser || !sessionUser.id) return base;
+  if (!sessionUser || !sessionUser.id) {
+    if (!anonId) return base;
+    let anonUsed = 0;
+    try {
+      await ensureProTables(env);
+      const u = await env.DB.prepare(
+        "SELECT ai_answers FROM pro_usage WHERE user_id = ? AND month = ?"
+      ).bind(anonId, periodKey()).first();
+      anonUsed = u && typeof u.ai_answers === "number" ? u.ai_answers : 0;
+    } catch {
+      anonUsed = 0;
+    }
+    return { ...base, userId: anonId, aiUsed: anonUsed };
+  }
   const row = await getUserProRow(env, sessionUser.id);
   if (isProRow(row)) {
     // Pro has no caps, but usage is still counted (transparency, not
@@ -426,6 +443,9 @@ export function aiSynthesisAllowed(gate) {
   if (!gate) return false;
   if (gate.kind === "pro") return true;
   if (gate.kind === "free" || gate.kind === "lite") return gate.aiUsed < gate.aiCap;
+  // Anonymous callers synthesize too, metered on their hashed-IP identity,
+  // until the same free cap a signed-in free account gets.
+  if (gate.kind === "anonymous") return !!gate.userId && gate.aiUsed < gate.aiCap;
   return false;
 }
 
