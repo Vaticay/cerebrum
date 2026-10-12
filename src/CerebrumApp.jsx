@@ -8685,7 +8685,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             border plus corner registration ticks in the accent, near-sharp
             corners instead of the generic rounded card. The entrance
             animation rides on the frame so the ticks arrive with it. */}
-        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "90ch", marginLeft: "auto", marginRight: "auto" }}>
+        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "1200px", marginLeft: "auto", marginRight: "auto" }}>
         <article style={{ ...S.answerCard, border: "none", borderRadius: RADIUS.viewport }} className="cb-article">
         <div style={S.answerCardEdge} aria-hidden="true" />
         {/* v34: the metadata badge and the action toolbar used to be two
@@ -24441,7 +24441,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
    paragraph sets in the title role via renderAnswer's lede flag (inline —
    a stylesheet :first-child rule can never beat the paragraph's own
    inline fontSize). The measure below keeps sustained prose at 45–75ch. */
-.cb-answer-body { max-width: 85ch; }
+.cb-answer-body { max-width: 1100px; }
 .cb-answer-enter strong { font-weight: 650; }
 .cb-answer-enter em { font-style: italic; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {
