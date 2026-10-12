@@ -13923,6 +13923,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const MARKER_TITLES = {
     founder: "Founder: built Cerebrum",
     verified: "Verified: this account's identity was confirmed",
+    cortex_contributor: "Cortex Contributor: publishes courses to the Cortex catalog, granted by the founder",
     early_adopter: "Early adopter: here since the public beta",
   };
   const markers = [
@@ -14089,8 +14090,35 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           from the workspace) so the name never slides under the button. */}
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 56px" : "18px 28px 72px" }}>
 
-        {/* Identity: name, standing, username. No photo, no badges, no
-            constellation — a researcher is their work, not their avatar. */}
+        {/* Cover and avatar: the social layer (2026-10-12 overhaul). The
+            cover is generated from the account's own accent, never a
+            stock photo, and the arcs on it are the Cortex mark at banner
+            scale: your research identity, drawn from your own colors. */}
+        <div aria-hidden="true" style={{
+          height: isMobile ? 116 : 148, borderRadius: 20, position: "relative", overflow: "hidden",
+          border: "1px solid " + P.line, background: P.raised,
+        }}>
+          <div style={{ position: "absolute", inset: 0, background:
+            "radial-gradient(120% 170% at 10% 0%, " + withAlpha(accent, 0.30) + ", rgba(0,0,0,0) 55%)," +
+            "radial-gradient(110% 150% at 90% 0%, " + withAlpha(accent, 0.18) + ", rgba(0,0,0,0) 52%)," +
+            "linear-gradient(155deg, " + P.raised + " 0%, " + P.bg + " 90%)" }} />
+          <svg viewBox="0 0 400 240" width="340" height="204" preserveAspectRatio="xMidYMid meet" aria-hidden="true"
+            style={{ position: "absolute", right: -30, top: -28, opacity: 0.55 }}>
+            <path d="M261 47 A95 95 0 1 0 261 193" fill="none" stroke={withAlpha(accent, 0.65)} strokeWidth="3" strokeLinecap="round" />
+            <path d="M240 79 A62 62 0 1 0 240 161" fill="none" stroke={withAlpha(accent, 0.4)} strokeWidth="3" strokeLinecap="round" />
+            <circle cx="196" cy="120" r="10" fill={withAlpha(accent, 0.8)} />
+          </svg>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: -36, marginBottom: 16, paddingLeft: 18, position: "relative" }}>
+          {profile.avatar_base64 && !avatarFailed ? (
+            <img src={profile.avatar_base64} alt="" onError={() => setAvatarFailed(true)}
+              style={{ width: 74, height: 74, borderRadius: "50%", objectFit: "cover", border: "3px solid " + P.bg, background: P.raised, flexShrink: 0 }} />
+          ) : (
+            <span aria-hidden="true" style={{ width: 74, height: 74, borderRadius: "50%", border: "3px solid " + P.bg, background: accent, color: at || "#101408", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 30, fontWeight: 700, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{displayInitial}</span>
+          )}
+        </div>
+
+        {/* Identity: name, standing, username. */}
 
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -14112,6 +14140,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             <div style={{ marginTop: 5, fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, fontFamily: "var(--cb-font)" }}>
               {displayUsername}
             </div>
+            {!editing && markers.length > 0 && <ProfileMarkers P={P} accent={accent} markers={markers} />}
             {!editing && contextLine && (
               <div style={{ marginTop: 6, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
             )}
@@ -14127,6 +14156,30 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             }}
           >{editing ? "Done" : "Edit"}</button>
         </div>
+
+        {/* Badge shelf: earned accolades as medallions. Every badge maps
+            to a row in the accolades table or a real count behind it;
+            the Cortex Contributor medallion carries the Cortex mark and
+            is granted by the founder, by email, from Cortex itself. */}
+        {!editing && markers.length > 0 && (
+          <div style={{ marginTop: 22 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 10 }}>BADGES</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {markers.map((m) => {
+                const d = BADGE_DISPLAY[m.key];
+                if (!d) return null;
+                return (
+                  <span key={m.key} title={m.title} style={{ display: "inline-flex", alignItems: "center", gap: 9, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "7px 15px 7px 8px" }}>
+                    <span style={{ width: 30, height: 30, borderRadius: "50%", background: withAlpha(d.tint, 0.16), color: d.tint, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Icon name={d.icon} size={16} />
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{d.label}</span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* -- Statement: what they work on, plain. */}
         <div style={{ marginTop: 18 }}>

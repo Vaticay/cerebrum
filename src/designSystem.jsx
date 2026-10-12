@@ -525,10 +525,26 @@ export const SHADOW = {
 export const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "award", tint: "#c9a227" },
   verified: { label: "Verified", icon: "check", tint: PRO.emerald },
+  cortex_contributor: { label: "Cortex Contributor", icon: "cortex", tint: "#A3B899" },
   early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
+  first_question: { label: "First question", icon: "history", tint: "#7ea6c9" },
+  ten_questions: { label: "Ten investigations", icon: "history", tint: "#7ea6c9" },
+  fifty_questions: { label: "Fifty investigations", icon: "history", tint: "#7ea6c9" },
+  first_save: { label: "First paper saved", icon: "bookmark", tint: "#c97e7e" },
+  ten_saves: { label: "Ten papers saved", icon: "bookmark", tint: "#c97e7e" },
+  fifty_saves: { label: "Fifty papers saved", icon: "bookmarkFilled", tint: "#c97e7e" },
+  first_collection: { label: "First collection", icon: "folder", tint: "#b39ddb" },
+  first_watch: { label: "First watched topic", icon: "eye", tint: "#8fb8a8" },
+  five_watches: { label: "Five watched topics", icon: "eye", tint: "#8fb8a8" },
+  first_follow: { label: "First researcher followed", icon: "network", tint: "#d0a35f" },
 };
 
-export const BADGE_ORDER = ["founder", "verified", "early_adopter"];
+export const BADGE_ORDER = [
+  "founder", "verified", "cortex_contributor", "early_adopter",
+  "first_question", "ten_questions", "fifty_questions",
+  "first_save", "ten_saves", "fifty_saves",
+  "first_collection", "first_watch", "five_watches", "first_follow",
+];
 
 export function VerifiedCheck({ size = 15, title = "Verified: the owner of Cerebrum" }) {
   return (

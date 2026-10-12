@@ -489,6 +489,23 @@ const CSS = `
 @keyframes lvPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.28); } 50% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
 .lv-node { transition: transform .15s; }
 .lv-node:hover { transform: translateY(-2px); }
+.lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
+.lv-topic { transition: transform .15s, border-color .15s; }
+.lv-topic:hover { transform: translateY(-2px); }
+.lv-chip { transition: background .15s, color .15s, border-color .15s; }
+@media (max-width: 680px) {
+  .lv-home { padding: 22px 16px 44px !important; }
+  .lv-head { flex-direction: column !important; gap: 12px !important; }
+  .lv-h1 { font-size: 29px !important; }
+  .lv-sub { font-size: 14.5px !important; }
+  .lv-pills { flex-wrap: nowrap !important; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+  .lv-pills::-webkit-scrollbar { display: none; }
+  .lv-catalog { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .lv-hero-title { font-size: 21px !important; }
+}
+@media (max-width: 430px) {
+  .lv-catalog { grid-template-columns: 1fr; }
+}
 `;
 
 /* Deterministic cover art for a course: deep paired tones chosen by a
@@ -499,7 +516,8 @@ const COVER_PAIRS = [
   ["#33233f", "#1c1226"], ["#173d3a", "#0a2422"], ["#42252b", "#281116"],
   ["#2c3a1c", "#18230c"], ["#1e3a4d", "#0e2432"], ["#3f3418", "#261e08"],
 ];
-function Cover({ title, height, radius = 16, fontSize }) {
+function Cover({ title, height, radius = 16, fontSize, cat }) {
+  if (cat) return <CategoryArt motif={cat.motif} pair={cat.pair} height={height} radius={radius} />;
   const h = hashStr(String(title || "Course"));
   const pair = COVER_PAIRS[h % COVER_PAIRS.length];
   const letter = String(title || "C").trim().replace(/^[^A-Za-z0-9]+/, "").charAt(0).toUpperCase() || "C";
@@ -521,6 +539,122 @@ function Cover({ title, height, radius = 16, fontSize }) {
         position: "absolute", left: 16, bottom: 12, width: 34, height: 3, borderRadius: 999,
         background: "rgba(255,255,255,.55)",
       }} />
+    </div>
+  );
+}
+
+/* ── the catalog ─────────────────────────────────────────────────────
+   Shelves of science a visitor can start without inventing a query,
+   the Imprint lesson applied to a literature engine: the catalog is
+   curated, but every course on it is built live from real papers when
+   tapped. Art is a small flat illustration system drawn in SVG, one
+   motif per shelf, in the shelf's own deep tones. */
+const CATALOG = [
+  { name: "Mind and Brain", motif: "brain", pair: ["#27354d", "#131e30"], topics: [
+    { t: "Sleep and Memory", q: "sleep memory consolidation", b: "Why a night of sleep decides what you keep." },
+    { t: "The Predicting Brain", q: "predictive processing brain perception", b: "Your brain guesses the world first, then checks." },
+    { t: "Attention Under Siege", q: "attention focus distraction cognition", b: "What focus actually is, and what steals it." },
+    { t: "Why We Dream", q: "dreaming REM sleep function", b: "The oldest open question in sleep science." },
+  ]},
+  { name: "Body and Health", motif: "pulse", pair: ["#42252b", "#281116"], topics: [
+    { t: "Exercise and Longevity", q: "exercise longevity mortality", b: "How much movement buys how much life, per the data." },
+    { t: "The Gut Immune Alliance", q: "gut microbiome immune system", b: "Your microbes are negotiating with your immune system." },
+    { t: "Fasting and Metabolism", q: "intermittent fasting metabolism", b: "What skipping meals does, and what it does not." },
+    { t: "Pain, Explained", q: "pain perception neuroscience", b: "Pain is an opinion the brain can revise." },
+  ]},
+  { name: "Life and Evolution", motif: "helix", pair: ["#1d3b2a", "#0e2417"], topics: [
+    { t: "Editing the Code of Life", q: "CRISPR gene editing", b: "Gene editing, from the first papers to the fights." },
+    { t: "Why We Age", q: "cellular aging senescence", b: "Cells keep time. Here is what the clocks look like." },
+    { t: "Minds of Other Animals", q: "animal cognition consciousness", b: "Which animals know what, and how we can tell." },
+    { t: "The First Life", q: "origin of life abiogenesis", b: "Chemistry that learned to copy itself." },
+  ]},
+  { name: "Earth and Climate", motif: "earth", pair: ["#173d3a", "#0a2422"], topics: [
+    { t: "Oceans in Motion", q: "ocean currents climate", b: "The conveyor that sets the weather." },
+    { t: "The Soil Beneath Us", q: "soil microbiome carbon", b: "A teaspoon of soil holds a civilization." },
+    { t: "Forests and Carbon", q: "forests carbon sequestration", b: "What trees actually do with carbon, measured." },
+    { t: "Extreme Weather", q: "extreme weather attribution climate change", b: "How scientists pin a storm to a warming world." },
+  ]},
+  { name: "Space and Physics", motif: "orbit", pair: ["#33233f", "#1c1226"], topics: [
+    { t: "Black Holes", q: "black hole event horizon", b: "The edge where physics files its complaints." },
+    { t: "The Shape of Spacetime", q: "space time general relativity", b: "Gravity is geometry. The papers that proved it." },
+    { t: "Quantum Machines", q: "quantum computing error correction", b: "Computers that borrow probability itself." },
+    { t: "Worlds Around Other Stars", q: "exoplanet atmospheres habitability", b: "Reading the air of planets we will never touch." },
+  ]},
+  { name: "The Living World", motif: "microbe", pair: ["#2c3a1c", "#18230c"], topics: [
+    { t: "The Insect Gut", q: "insect gut microbiome", b: "Tiny stomachs running serious chemistry." },
+    { t: "Fermentation", q: "fermentation microbes food", b: "The oldest food technology is alive." },
+    { t: "Microbes and Crops", q: "plant microbiome agriculture", b: "Farms are ecosystems, roots first." },
+    { t: "The Ocean's Smallest", q: "marine microbes phytoplankton", b: "Half your oxygen comes from these." },
+  ]},
+];
+
+function CategoryArt({ motif, pair, height, radius = 16 }) {
+  const line = "rgba(255,255,255,0.55)";
+  const soft = "rgba(255,255,255,0.26)";
+  let art = null;
+  if (motif === "helix") {
+    const pts = (phase) => Array.from({ length: 41 }, (_, i) => {
+      const x = 30 + i * 8.5;
+      const y = 120 + Math.sin(i / 4.6 + phase) * 52;
+      return x + "," + y.toFixed(1);
+    }).join(" ");
+    const rungs = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const x = 62 + i * 46;
+      const t = (x - 30) / 8.5 / 4.6;
+      return <line key={i} x1={x} y1={120 + Math.sin(t) * 52} x2={x} y2={120 + Math.sin(t + Math.PI) * 52} stroke={soft} strokeWidth="2" />;
+    });
+    art = (<>{rungs}<polyline points={pts(0)} fill="none" stroke={line} strokeWidth="2.5" /><polyline points={pts(Math.PI)} fill="none" stroke={soft} strokeWidth="2.5" /></>);
+  } else if (motif === "orbit") {
+    art = (<>
+      <ellipse cx="200" cy="120" rx="150" ry="52" fill="none" stroke={line} strokeWidth="2" />
+      <ellipse cx="200" cy="120" rx="150" ry="52" fill="none" stroke={soft} strokeWidth="2" transform="rotate(58 200 120)" />
+      <ellipse cx="200" cy="120" rx="150" ry="52" fill="none" stroke={soft} strokeWidth="2" transform="rotate(122 200 120)" />
+      <circle cx="200" cy="120" r="13" fill="#fff" opacity="0.85" />
+      <circle cx="308" cy="76" r="6" fill="#fff" opacity="0.8" />
+    </>);
+  } else if (motif === "pulse") {
+    art = (<>
+      <polyline points="10,120 118,120 146,120 168,72 198,170 220,120 390,120" fill="none" stroke={line} strokeWidth="3" strokeLinejoin="round" />
+      <circle cx="168" cy="72" r="6" fill="#fff" opacity="0.85" />
+      <circle cx="316" cy="120" r="3.5" fill="#fff" opacity="0.5" />
+    </>);
+  } else if (motif === "earth") {
+    art = (<>
+      <circle cx="176" cy="120" r="86" fill="none" stroke={line} strokeWidth="2.5" />
+      <path d="M96 96 Q176 132 256 92" fill="none" stroke={soft} strokeWidth="2.5" />
+      <path d="M92 150 Q180 108 260 148" fill="none" stroke={soft} strokeWidth="2.5" />
+      <circle cx="318" cy="60" r="17" fill="none" stroke={line} strokeWidth="2.5" />
+    </>);
+  } else if (motif === "microbe") {
+    const dots = [[90, 80, 26], [180, 140, 17], [262, 76, 21], [322, 150, 13], [130, 178, 11], [228, 190, 8], [70, 150, 8], [302, 202, 6]];
+    art = (<>{dots.map(([cx, cy, r], i) => (
+      <g key={i}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={i % 2 ? soft : line} strokeWidth="2.5" />
+        <circle cx={cx} cy={cy} r={Math.max(3, r / 3.4)} fill="#fff" opacity="0.5" />
+      </g>
+    ))}</>);
+  } else if (motif === "peaks") {
+    art = (<>
+      <polyline points="0,196 90,96 150,160 236,66 400,196" fill="none" stroke={line} strokeWidth="2.5" strokeLinejoin="round" />
+      <polyline points="0,214 120,140 210,196 300,128 400,214" fill="none" stroke={soft} strokeWidth="2.5" strokeLinejoin="round" />
+      <circle cx="330" cy="52" r="11" fill="#fff" opacity="0.8" />
+    </>);
+  } else {
+    art = (<>
+      <path d="M261 47 A95 95 0 1 0 261 193" fill="none" stroke={line} strokeWidth="3" strokeLinecap="round" />
+      <path d="M240 79 A62 62 0 1 0 240 161" fill="none" stroke={soft} strokeWidth="3" strokeLinecap="round" />
+      <circle cx="196" cy="120" r="11" fill="#fff" opacity="0.9" />
+      <circle cx="86" cy="70" r="3.5" fill="#fff" opacity="0.6" />
+      <circle cx="66" cy="168" r="3" fill="#fff" opacity="0.45" />
+    </>);
+  }
+  return (
+    <div aria-hidden="true" style={{
+      height, borderRadius: radius, position: "relative", overflow: "hidden", flexShrink: 0,
+      background: "radial-gradient(120% 150% at 18% 0%, " + pair[0] + " 0%, " + pair[1] + " 74%)",
+    }}>
+      <svg viewBox="0 0 400 240" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ display: "block" }}>{art}</svg>
+      <div style={{ position: "absolute", left: 16, bottom: 12, width: 34, height: 3, borderRadius: 999, background: "rgba(255,255,255,.55)" }} />
     </div>
   );
 }
@@ -1044,6 +1178,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
   const [soundOn, setSoundOn] = useState(() => loadJSON(SOUND_KEY, false));
+  const [access, setAccess] = useState({ signedIn: false, isFounder: false, isCreator: false, email: "" });
+  const [published, setPublished] = useState([]);
+  const [catFilter, setCatFilter] = useState("All");
+  const [buildingLabel, setBuildingLabel] = useState("");
+  const [creators, setCreators] = useState([]);
+  const [creatorEmail, setCreatorEmail] = useState("");
+  const [ownerMsg, setOwnerMsg] = useState("");
+  const [studio, setStudio] = useState({ title: "", category: "Mind and Brain", query: "", blurb: "" });
+  const [studioMsg, setStudioMsg] = useState("");
 
   const refresh = () => {
     setCourses(loadLearnCourses());
@@ -1053,6 +1196,45 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     refresh();
     setProfile(touchStreak(loadProfile()));
   }, []);
+
+  const cortexApi = async (action, body) => {
+    try {
+      const r = await fetch("/api/cortex", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...(body || {}) }),
+      });
+      return await r.json().catch(() => ({}));
+    } catch { return {}; }
+  };
+  useEffect(() => {
+    cortexApi("access").then((d) => { if (d && d.ok) setAccess(d); });
+    cortexApi("catalog-list").then((d) => { if (d && d.ok) setPublished(d.entries || []); });
+  }, []);
+  useEffect(() => {
+    if (access.isFounder) cortexApi("list-creators").then((d) => { if (d && d.ok) setCreators(d.creators || []); });
+  }, [access.isFounder]);
+
+  const grantCreator = async () => {
+    const d = await cortexApi("grant-creator", { email: creatorEmail });
+    if (d && d.ok) { setCreators(d.creators || []); setCreatorEmail(""); setOwnerMsg(d.email + " can now create for Cortex."); }
+    else setOwnerMsg("That did not go through. Check the email and try again.");
+  };
+  const revokeCreator = async (email) => {
+    const d = await cortexApi("revoke-creator", { email });
+    if (d && d.ok) setCreators(d.creators || []);
+  };
+  const publishEntry = async () => {
+    const d = await cortexApi("catalog-create", studio);
+    if (d && d.ok) {
+      setPublished((p) => [d.entry, ...p]);
+      setStudio({ title: "", category: studio.category, query: "", blurb: "" });
+      setStudioMsg("Published. It is on the shelf for everyone now.");
+    } else setStudioMsg("Publishing failed. " + ((d && d.message) || "Try again."));
+  };
+  const deleteEntry = async (id) => {
+    const d = await cortexApi("catalog-delete", { id });
+    if (d && d.ok) setPublished((p) => p.filter((e) => e.id !== id));
+  };
 
   const due = useMemo(() => dueClaims(claims), [claims]);
 
@@ -1075,10 +1257,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setClaims(loadClaims());
   };
 
-  const buildCourse = async () => {
-    const q = topic.trim();
+  const buildCourseFrom = async (q, displayTitle, categoryName) => {
     if (!q || building) return;
     setBuilding(true);
+    setBuildingLabel(displayTitle || q);
     setBuildError("");
     try {
       const data = await searchForCourse(q);
@@ -1087,6 +1269,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         setBuildError("That search did not return enough cited findings to build an honest course. Try a broader topic.");
         return;
       }
+      if (displayTitle) course.title = displayTitle;
+      if (categoryName) course.category = categoryName;
       saveLearnCourse(course);
       refresh();
       setTopic("");
@@ -1097,8 +1281,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       else setBuildError("The search did not come back. Check your connection and try again.");
     } finally {
       setBuilding(false);
+      setBuildingLabel("");
     }
   };
+  const buildCourse = () => buildCourseFrom(topic.trim());
 
   const startReview = () => {
     const cards = due.slice(0, 12).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
@@ -1167,15 +1353,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const nextCourse = courses.find((c) => (c.doneLessons || []).length < c.lessons.length) || courses[0];
 
   return (
-    <div style={{ maxWidth: 880, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)" }}>
+    <div className="lv-home" style={{ maxWidth: 880, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
-        <div>
+      <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ color: accent, display: "inline-flex", flexShrink: 0 }}><Icon name="cortex" size={36} /></span>
-            <h1 style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
+            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
           </div>
-          <p style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
+          <p className="lv-sub" style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
             Where papers become memory. Short courses built from the papers themselves. Every question is a real finding, every debate is a real disagreement, and reviews come back when your memory starts to fade.
           </p>
         </div>
@@ -1186,7 +1372,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </button>
       </div>
 
-      <div style={{ display: "flex", gap: 9, flexWrap: "wrap", margin: "20px 0 26px" }}>
+      <div className="lv-pills" style={{ display: "flex", gap: 9, flexWrap: "wrap", margin: "20px 0 26px" }}>
         {pill(flame, profile ? profile.streak || 0 : 0, "day streak" + (profile && profile.freezes ? " · " + profile.freezes + " freeze" + (profile.freezes === 1 ? "" : "s") : ""))}
         {pill(null, profile ? profile.xp : 0, "XP")}
         {pill(null, due.length, "due for review")}
@@ -1201,12 +1387,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             background: P.raised, border: "1px solid " + P.line, borderRadius: 22, overflow: "hidden",
             fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 24,
           }}>
-          <Cover title={nextCourse.title} height={128} radius={0} />
+          <Cover title={nextCourse.title} height={128} radius={0} cat={CATALOG.find((c) => c.name === nextCourse.category) || null} />
           <span style={{ display: "block", padding: "18px 22px 20px" }}>
             <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
               {(nextCourse.doneLessons || []).length > 0 ? "CONTINUE" : "START HERE"}
             </span>
-            <span style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{nextCourse.title}</span>
+            <span className="lv-hero-title" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{nextCourse.title}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
               <span style={{ flex: 1, height: 8, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
                 <span className="lv-fill" style={{
@@ -1219,6 +1405,82 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </span>
         </button>
       )}
+
+      {/* the catalog */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>THE CATALOG</div>
+        <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 16px" }}>
+          Shelves of science, ready when you are. Tap a course and Cortex builds it from the literature on the spot, papers and all.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          {["All", ...CATALOG.map((c) => c.name), ...(published.length ? ["From contributors"] : [])].map((name) => (
+            <button key={name} className="lv-chip" onClick={() => setCatFilter(name)}
+              style={{
+                borderRadius: 999, padding: "9px 15px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)",
+                background: catFilter === name ? accent : "transparent",
+                color: catFilter === name ? (at || "#101408") : P.ink,
+                border: "1px solid " + (catFilter === name ? accent : P.line),
+              }}>
+              {name}
+            </button>
+          ))}
+        </div>
+        <div className="lv-catalog">
+          {CATALOG.filter((c) => catFilter === "All" || catFilter === c.name).flatMap((cat) => cat.topics.map((t) => ({ cat, t }))).map(({ cat, t }) => {
+            const existing = courses.find((c) => c.title === t.t);
+            const isBuilding = building && buildingLabel === t.t;
+            return (
+              <button key={cat.name + t.t} className="lv-topic" disabled={building}
+                onClick={() => { if (existing) setScreen({ name: "path", courseId: existing.id }); else buildCourseFrom(t.q, t.t, cat.name); }}
+                style={{
+                  textAlign: "left", cursor: building ? "wait" : "pointer", padding: 0, overflow: "hidden",
+                  background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                  fontFamily: "var(--cb-font)", color: P.ink, opacity: building && !isBuilding ? 0.55 : 1,
+                }}>
+                <CategoryArt motif={cat.motif} pair={cat.pair} height={104} radius={0} />
+                <span style={{ display: "block", padding: "14px 16px 16px" }}>
+                  <span style={{ fontFamily: SERIF, fontSize: 17.5, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{t.t}</span>
+                  <span style={{ fontSize: 13, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
+                  <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: P.muted }}>{cat.name.toUpperCase()}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: accent }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          {published.filter((e) => catFilter === "All" || catFilter === "From contributors" || catFilter === e.category).map((e) => {
+            const cat = CATALOG.find((c) => c.name === e.category);
+            const existing = courses.find((c) => c.title === e.title);
+            const isBuilding = building && buildingLabel === e.title;
+            return (
+              <button key={e.id} className="lv-topic" disabled={building}
+                onClick={() => { if (existing) setScreen({ name: "path", courseId: existing.id }); else buildCourseFrom(e.query, e.title, e.category); }}
+                style={{
+                  textAlign: "left", cursor: building ? "wait" : "pointer", padding: 0, overflow: "hidden",
+                  background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                  fontFamily: "var(--cb-font)", color: P.ink, opacity: building && !isBuilding ? 0.55 : 1,
+                }}>
+                {cat ? <CategoryArt motif={cat.motif} pair={cat.pair} height={104} radius={0} /> : <Cover title={e.title} height={104} radius={0} />}
+                <span style={{ display: "block", padding: "14px 16px 16px" }}>
+                  <span style={{ fontFamily: SERIF, fontSize: 17.5, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{e.title}</span>
+                  <span style={{ fontSize: 13, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{e.blurb || e.query}</span>
+                  <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                    <span style={{ fontSize: 11.5, color: P.muted, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={12} /></span>
+                      by {String(e.createdBy || "").split("@")[0]}
+                    </span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: accent }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {buildError && catFilter !== null && buildingLabel === "" && (
+          <p style={{ color: "#FF8A8A", fontSize: 14, margin: "14px 0 0" }}>{buildError}</p>
+        )}
+      </div>
 
       {/* topic builder */}
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
@@ -1264,6 +1526,89 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
       )}
 
+      {/* contributor studio */}
+      {access.isCreator && (
+        <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
+          <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
+            You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Cortex builds it from the real literature, same as every course here.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input value={studio.title} onChange={(e) => setStudio({ ...studio, title: e.target.value })}
+              placeholder="Course title" aria-label="Catalog course title"
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+            <select value={studio.category} onChange={(e) => setStudio({ ...studio, category: e.target.value })}
+              aria-label="Catalog category"
+              style={{ flex: "0 1 200px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }}>
+              {CATALOG.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+            <input value={studio.query} onChange={(e) => setStudio({ ...studio, query: e.target.value })}
+              placeholder="Topic the course is built from, e.g. tardigrade desiccation" aria-label="Catalog course topic"
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+            <input value={studio.blurb} onChange={(e) => setStudio({ ...studio, blurb: e.target.value })}
+              placeholder="One line that sells it honestly" aria-label="Catalog course blurb"
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14, flexWrap: "wrap" }}>
+            <button className="lv-btn lv-btn-primary" onClick={publishEntry} disabled={!studio.title.trim() || !studio.query.trim()}
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !studio.title.trim() || !studio.query.trim() ? 0.55 : 1 }}>
+              Publish to catalog
+            </button>
+            {studioMsg && <span style={{ fontSize: 13.5, color: P.muted }}>{studioMsg}</span>}
+          </div>
+          {published.filter((e) => access.isFounder || e.createdBy === access.email).length > 0 && (
+            <div style={{ marginTop: 18, borderTop: "1px solid " + P.line, paddingTop: 14 }}>
+              {published.filter((e) => access.isFounder || e.createdBy === access.email).map((e) => (
+                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title} <span style={{ color: P.muted }}>· {e.category}</span></span>
+                  <button onClick={() => deleteEntry(e.id)}
+                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: 12.5, fontFamily: "var(--cb-font)" }}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* owner: creator access */}
+      {access.isFounder && (
+        <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CREATORS</div>
+          <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
+            Type an email and that account can create for Cortex: publishing catalog courses from the studio above. Creators also receive the Cortex Contributor badge on their profile.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input value={creatorEmail} onChange={(e) => setCreatorEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") grantCreator(); }}
+              placeholder="creator@example.com" aria-label="Creator email" type="email"
+              style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+            <button className="lv-btn lv-btn-primary" onClick={grantCreator} disabled={!creatorEmail.trim()}
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
+              Allow creator
+            </button>
+          </div>
+          {ownerMsg && <p style={{ fontSize: 13.5, color: P.muted, margin: "12px 0 0" }}>{ownerMsg}</p>}
+          {creators.length > 0 && (
+            <div style={{ marginTop: 16, borderTop: "1px solid " + P.line, paddingTop: 12 }}>
+              {creators.map((c) => (
+                <div key={c.email} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
+                  <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={15} /></span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</span>
+                  <button onClick={() => revokeCreator(c.email)}
+                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: 12.5, fontFamily: "var(--cb-font)" }}>
+                    Revoke
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* library */}
       {courses.length === 0 ? (
         <div style={{ border: "1px dashed " + P.line, borderRadius: 20, padding: "38px 28px", textAlign: "center" }}>
@@ -1290,7 +1635,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                     background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
                     fontFamily: "var(--cb-font)", color: P.ink,
                   }}>
-                  <Cover title={course.title} height={96} radius={0} fontSize={150} />
+                  <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} />
                   <span style={{ display: "block", padding: "15px 18px 17px" }}>
                     <span style={{ fontFamily: SERIF, fontSize: 18.5, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
                     <span style={{ fontSize: 12.5, color: P.muted, display: "block", marginTop: 4 }}>

@@ -248,6 +248,27 @@ async function ensureFounderBadges(env, userId, emailLower) {
   } catch (cbErr) { console.error("[Cerebrum] data.js for: for (const badge of ['founder', 'verified']) {:", cbErr); }
   return true;
 }
+// Cortex Contributor: granted by the founder, by email, through
+// /api/cortex (the cortex_creators table). The accolade lands here, on
+// the profile read, so an account created after the grant still picks
+// the badge up the first time its profile loads. INSERT OR IGNORE, so
+// the badge keeps the timestamp of the first grant, and revoking
+// creator access does not rewrite history: the badge records that the
+// person was a contributor, the creators table decides whether they
+// still are.
+async function ensureContributorBadge(env, userId, emailLower) {
+  if (!emailLower) return false;
+  try {
+    const row = await env.DB.prepare(
+      "SELECT email FROM cortex_creators WHERE email = ?"
+    ).bind(emailLower).first();
+    if (!row) return false;
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO accolades (id, user_id, badge_type, granted_at) VALUES (?, ?, ?, ?)"
+    ).bind(newId("acc"), userId, "cortex_contributor", Date.now()).run();
+    return true;
+  } catch { return false; }
+}
 async function founderRow(env) {
   const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
   if (!founderEmail) return null;
@@ -526,6 +547,7 @@ export async function onRequest(context) {
         // the first time they open their own profile rather than needing a
         // separate migration step.
         const isFounder = await ensureFounderBadges(env, row.id, (row.email_lower || row.email || "").toLowerCase());
+        await ensureContributorBadge(env, row.id, (row.email_lower || row.email || "").toLowerCase());
         const badgeRows = await env.DB.prepare(
           "SELECT badge_type FROM accolades WHERE user_id = ? ORDER BY granted_at ASC"
         ).bind(user.id).all();
