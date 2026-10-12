@@ -12923,13 +12923,26 @@ async function runSearchPipeline(pctx) {
     // exempt: relevance measures topical-term overlap, which is meaningless
     // for a person query (authorship matching is the signal there), and
     // follow-up answers anchor on previously retrieved papers.
-    // There is deliberately NO "if too few pass, take the top 8 anyway"
-    // fallback . that old line is what let junk into citations. When fewer
-    // than two papers clear the floor, the answer honestly says the evidence
-    // is thin instead of padding with weak sources.
-    let evidencePapers = (isNameSearch || isFollowupMode)
-      ? papers.slice(0, maxEvidence)
-      : applyRelevanceGate(papers).slice(0, maxEvidence);
+    // 2026-10-12: Guaranteed-evidence cascade (Rewrite 4).
+    // Dusty's contract: zero sources is unacceptable. If the relevance gate
+    // drops everything, keep the top 3 with a thin-evidence flag.
+    // The synthesis renders this honestly instead of claiming "no literature".
+    let evidencePapers;
+    if (isNameSearch || isFollowupMode) {
+      evidencePapers = papers.slice(0, maxEvidence);
+    } else {
+      const gated = applyRelevanceGate(papers);
+      if (gated.length >= 3) {
+        evidencePapers = gated.slice(0, maxEvidence);
+      } else if (papers.length > 0) {
+        // CASCADE: gate failed, fall back to best-available
+        const ranked = [...papers].sort((a, b) => (paperRelevance(b) - paperRelevance(a)));
+        evidencePapers = ranked.slice(0, 3);
+        evidencePapers.forEach(p => { p.thinEvidence = true; });
+      } else {
+        evidencePapers = [];
+      }
+    }
     // Papers the gate withheld: reported in the answer envelope as
     // relevanceGatedOut so the UI can say so honestly ("3 more papers were
     // too tangential to cite") instead of silently dropping them.
