@@ -294,22 +294,79 @@ function numbersIn(claims) {
 
 /* ── course generation ───────────────────────────────────────────── */
 let claimSeq = 0;
+
+/* Distractors used to be other papers' findings, so the right answer
+   was the one whose words matched the topic: a word matching game,
+   not recall. Distractors now come from the claim itself with one
+   fact changed (a scaled number, a flipped direction), so every
+   option shares the same words and only knowledge separates them.
+   Real findings remain as fallback, preferring the ones that share
+   the claim's vocabulary so topic matching still fails there. */
+const FLIP_WORDS = {
+  increased: "decreased", decreased: "increased", higher: "lower", lower: "higher",
+  more: "less", less: "more", improved: "declined", declined: "improved",
+  worsened: "improved", reduced: "increased", greater: "smaller", smaller: "greater",
+  stronger: "weaker", weaker: "stronger", faster: "slower", slower: "faster",
+  before: "after", after: "before", above: "below", below: "above",
+  rose: "fell", fell: "rose", gained: "lost", lost: "gained",
+};
+function flipDirection(text) {
+  const m = text.match(new RegExp("\\b(" + Object.keys(FLIP_WORDS).join("|") + ")\\b", "i"));
+  if (!m) return null;
+  const word = m[1];
+  const flipped = FLIP_WORDS[word.toLowerCase()];
+  const repl = word[0] === word[0].toUpperCase() ? flipped[0].toUpperCase() + flipped.slice(1) : flipped;
+  return text.replace(m[0], repl);
+}
+function scaleNumberIn(text, factor, salt) {
+  const m = text.match(NUMBER_RE);
+  if (!m) return null;
+  const raw = m[1];
+  const numMatch = raw.match(/[\d,]+(?:\.\d+)?/);
+  if (!numMatch) return null;
+  const orig = parseFloat(numMatch[0].replace(/,/g, ""));
+  if (!isFinite(orig) || orig === 0) return null;
+  let next = orig < 5 ? orig + 2 : orig * factor;
+  const decimals = (numMatch[0].split(".")[1] || "").length;
+  let formatted = decimals ? next.toFixed(decimals) : String(Math.round(next));
+  if (numMatch[0].includes(",") && next >= 1000) formatted = Number(formatted).toLocaleString("en-US");
+  if (formatted === numMatch[0]) return null;
+  return text.replace(raw, raw.replace(numMatch[0], formatted)) + (salt ? "" : "");
+}
+function mutatedVariants(claim, allClaims) {
+  const out = [];
+  const flipped = flipDirection(claim.text);
+  if (flipped && flipped !== claim.text) out.push(flipped);
+  const s1 = scaleNumberIn(claim.text, 1.5);
+  if (s1 && s1 !== claim.text && !out.includes(s1)) out.push(s1);
+  const s2 = scaleNumberIn(claim.text, 0.6);
+  if (s2 && s2 !== claim.text && !out.includes(s2)) out.push(s2);
+  return out;
+}
+function nearestClaims(claim, allClaims, n) {
+  const words = new Set((claim.text.toLowerCase().match(/[a-z]{5,}/g) || []));
+  const scored = allClaims
+    .filter((c) => c.text !== claim.text)
+    .map((c) => ({
+      c,
+      overlap: (c.text.toLowerCase().match(/[a-z]{5,}/g) || []).filter((w) => words.has(w)).length,
+    }))
+    .sort((a, b) => b.overlap - a.overlap);
+  const top = scored.slice(0, 6).map((x) => x.c);
+  return seededShuffle(top, hashStr(claim.text) + 3).slice(0, n).map((c) => c.text);
+}
 function quizCard(claim, allClaims, sources, opts = {}) {
   const source = sources[claim.sourceIdx - 1];
-  // Options are read at a glance, so distractors prefer the shorter
-  // real findings in the pool. The correct finding is never shortened:
-  // options quote papers, they do not paraphrase them.
-  const pool = allClaims
-    .filter((c) => c.sourceIdx !== claim.sourceIdx && c.text !== claim.text)
-    .sort((a, b) => a.text.length - b.text.length);
-  const shortPool = pool.filter((c) => c.text.length <= 230);
-  const distract = seededShuffle(shortPool.length >= 3 ? shortPool : pool, hashStr(claim.text))
-    .slice(0, 3).map((c) => c.text);
+  const variants = mutatedVariants(claim, allClaims);
+  let distract;
+  if (variants.length >= 3) distract = variants.slice(0, 3);
+  else if (variants.length > 0) distract = [...variants, ...nearestClaims(claim, allClaims, 3 - variants.length)];
+  else distract = nearestClaims(claim, allClaims, 3);
   const options = seededShuffle([claim.text, ...distract], hashStr(claim.text) + 7);
   return {
     kind: "quiz",
     claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
-    question: "What did " + shortCite(source) + " report?",
+    question: "Which of these matches what the evidence actually found?",
     options,
     correct: options.indexOf(claim.text),
     why: claim.text,
@@ -324,15 +381,23 @@ function clozeCard(claim, allClaims, sources) {
   if (!m) return null;
   const source = sources[claim.sourceIdx - 1];
   const value = m[1].replace(/\s+/g, " ").trim();
-  const others = numbersIn(allClaims).filter((n) => n !== value);
-  if (others.length < 2) return null;
-  const picks = seededShuffle(others, hashStr(claim.text)).slice(0, 3);
+  // Distractor values mix numbers from sibling claims with scaled
+  // variants of the true value, so recognizing a familiar number is
+  // not enough; the value itself has to be recalled.
+  const scaled = [scaleNumberIn(claim.text, 1.5), scaleNumberIn(claim.text, 0.6)]
+    .filter(Boolean)
+    .map((t) => { const mm = t.match(NUMBER_RE); return mm ? mm[1].replace(/\s+/g, " ").trim() : null; })
+    .filter((v) => v && v !== value);
+  const others = numbersIn(allClaims).filter((n) => n !== value && !scaled.includes(n));
+  const pool = [...new Set([...scaled, ...seededShuffle(others, hashStr(claim.text))])];
+  if (pool.length < 2) return null;
+  const picks = pool.slice(0, 3);
   const options = seededShuffle([value, ...picks], hashStr(claim.text) + 13);
   return {
     kind: "cloze",
     claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
     prompt: claim.text.replace(m[1], "_____"),
-    question: "Predict the result. What value did " + shortCite(source) + " report?",
+    question: "Predict the result: what value completes this finding?",
     options,
     correct: options.indexOf(value),
     why: claim.text,
@@ -340,6 +405,62 @@ function clozeCard(claim, allClaims, sources) {
     paperTitle: source ? source.title : "",
   };
 }
+/* Vocabulary, honestly: no invented definitions. Terms are pulled
+   from the findings themselves (capitalized names mid sentence,
+   scientific suffix words), and each is taught inside the sentence
+   that used it. The course complete screen lists them with their
+   findings, which is the context that makes a term stick. */
+const VOCAB_STOP = new Set([
+  "study", "studies", "results", "result", "effects", "group", "groups",
+  "compared", "analysis", "research", "patients", "participants",
+  "treatment", "control", "significant", "significantly", "however",
+  "showed", "found", "using", "based", "model", "models", "data",
+]);
+function extractVocab(claims) {
+  const byTerm = new Map();
+  const add = (term, claim) => {
+    const t = (term || "").trim();
+    if (t.length < 4 || t.length > 34) return;
+    if (VOCAB_STOP.has(t.toLowerCase())) return;
+    const key = t.toLowerCase();
+    if (!byTerm.has(key)) byTerm.set(key, { term: t, claim });
+  };
+  for (const claim of claims) {
+    for (const m of claim.text.matchAll(/(?<=[a-z,;] )([A-Z][a-z]{3,})(?:\s([A-Z][a-z]{3,}))?/g)) {
+      add(m[2] ? m[1] + " " + m[2] : m[1], claim);
+    }
+    for (const m of claim.text.matchAll(/\b([a-z]{5,}(?:tion|sis|ome|ase|itis|gen|some|phagy))\b/gi)) {
+      add(m[1].toLowerCase(), claim);
+    }
+  }
+  return [...byTerm.values()].slice(0, 6);
+}
+function vocabCard(entry, allTerms, sources) {
+  const claim = entry.claim;
+  const source = sources[claim.sourceIdx - 1];
+  const esc = entry.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const blanked = claim.text.replace(new RegExp(esc, "i"), "_____");
+  if (blanked === claim.text) return null;
+  const others = seededShuffle(
+    allTerms.filter((t) => t.term !== entry.term).map((t) => t.term),
+    hashStr(entry.term) + 5
+  ).slice(0, 3);
+  if (others.length < 2) return null;
+  const options = seededShuffle([entry.term, ...others], hashStr(entry.term) + 21);
+  return {
+    kind: "quiz",
+    claimId: "voc" + hashStr(entry.term + claim.text) + "-" + (claimSeq++),
+    question: "Which term completes this finding?",
+    prompt: blanked,
+    options,
+    correct: options.indexOf(entry.term),
+    why: claim.text,
+    cite: shortCite(source),
+    paperTitle: source ? source.title : "",
+    vocab: entry.term,
+  };
+}
+
 function paperCard(source, claim) {
   return {
     kind: "paper",
@@ -419,6 +540,17 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     lessons.push({ id: "evidence", title: "Key Evidence", subtitle: "The most cited findings", cards });
   }
 
+  // Vocabulary lesson: the field's terms, in the findings that use them.
+  const vocab = extractVocab(claims);
+  if (vocab.length >= 3) {
+    const cards = [{ kind: "note", kicker: "Vocabulary", title: "The language of the field", text: "Every field has words that carry whole ideas. These are this course's terms, each one inside the finding that used it. Fill in the term from the sense of the sentence." }];
+    for (const entry of vocab.slice(0, 4)) {
+      const vc = vocabCard(entry, vocab, srcs);
+      if (vc) cards.push(vc);
+    }
+    if (cards.length > 1) lessons.push({ id: "vocab", title: "Vocabulary", subtitle: "Terms in context", cards });
+  }
+
   // Lesson 4: real disagreements only.
   const realConflicts = (conflicts || []).filter((c) => c && c.claimA && c.claimB);
   if (realConflicts.length > 0) {
@@ -461,6 +593,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     lessons,
     doneLessons: [],
     xpEarned: 0,
+    vocab: vocab.map((v) => ({ term: v.term, text: v.claim.text, cite: shortCite(srcs[v.claim.sourceIdx - 1]) })),
   };
 
   // Register every interactive card's claim for spaced review.
@@ -857,6 +990,18 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           ) : (
             <p style={{ color: P.muted, fontSize: 14.5, margin: "0 auto 34px" }}>Clean run. Nothing missed.</p>
           )}
+          {course.vocab && course.vocab.length > 0 && (
+            <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORDS FROM THIS COURSE</div>
+              {course.vocab.map((v, i) => (
+                <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "14px 18px", marginBottom: 10 }}>
+                  <span style={{ fontFamily: SERIF, fontSize: 16.5, fontWeight: 700 }}>{v.term}</span>
+                  <div style={{ fontSize: 14, lineHeight: 1.55, color: P.muted, marginTop: 4 }}>{v.text}</div>
+                  {v.cite && <div style={{ fontSize: 12, color: P.muted, marginTop: 5 }}>{v.cite}</div>}
+                </div>
+              ))}
+            </div>
+          )}
           <button className="lv-btn lv-btn-primary" style={btnPrimary} onClick={onExit}>Back to your courses</button>
         </div>
       </div>
@@ -877,7 +1022,33 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <Cover title={course.title} height={150} radius={20} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
           <h2 style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 600, lineHeight: 1.2, margin: "30px 0 12px" }}>{lesson.title}</h2>
           <p style={{ color: P.muted, fontSize: 16.5, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
-          <p style={{ color: P.muted, fontSize: 13.5, margin: "0 0 38px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
+          <p style={{ color: P.muted, fontSize: 13.5, margin: "0 0 22px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
+          {(() => {
+            const purpose = {
+              pretest: "You guess before anything is taught. Wrong guesses here are the point: they make the real findings land harder when they arrive.",
+              foundations: "The earliest papers in this course, in the order the field itself learned them.",
+              evidence: "The most cited findings in the set. This is the core of what the field currently believes, and the part worth memorizing.",
+              vocab: "The field's own terms, each inside the finding that used it. Know the words and the papers get easier to read.",
+              battles: "Real published findings that do not agree. There is no correct side to pick; the skill is seeing why honest studies collide.",
+              wrap: "What the field still does not know, stated plainly by the papers themselves.",
+              "missed-review": "The questions you missed, once more while they are still fresh. This pass is where the correction happens.",
+            }[lesson.id] || "";
+            const papers = [...new Set(lesson.cards.map((c) => c.paperTitle || (c.kind === "paper" ? c.title : "")).filter(Boolean))].slice(0, 3);
+            if (!purpose && !papers.length) return null;
+            return (
+              <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+                {purpose && <p style={{ fontSize: 15, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>{purpose}</p>}
+                {papers.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 8 }}>FROM THESE PAPERS</div>
+                    {papers.map((t, i) => (
+                      <div key={i} style={{ fontFamily: SERIF, fontSize: 14.5, lineHeight: 1.45, color: P.muted, marginBottom: i < papers.length - 1 ? 6 : 0 }}>{t}</div>
+                    ))}
+                  </>
+                )}
+              </div>
+            );
+          })()}
           <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, width: "100%", maxWidth: 340 }}
             onClick={() => { xpAtLessonStart.current = sessionXp; setShowIntro(false); }}>
             Start lesson
@@ -953,6 +1124,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           </p>
         ) : (
           <>
+            {!isRight && card.options && picked !== null && picked !== undefined && (
+              <p style={{ fontSize: 14.5, lineHeight: 1.55, margin: "0 0 10px", color: "#5a2a2a" }}>
+                You picked: <span style={{ fontWeight: 600 }}>{card.options[picked]}</span>
+              </p>
+            )}
+            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", color: "#4a5a38", margin: "0 0 4px" }}>THE FINDING</p>
             <p style={{ fontFamily: SERIF, fontSize: 16.5, lineHeight: 1.6, margin: 0, color: "#1d2a10" }}>{card.why}</p>
             <p style={{ fontSize: 12.5, color: "#4a5a38", margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
           </>
@@ -1024,10 +1201,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           {(card.kind === "quiz" || card.kind === "cloze") && (
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>
-                {card.pretest ? "PRETEST · GUESS FIRST" : card.kind === "cloze" ? "PREDICT THE RESULT" : "RECALL"}
+                {card.pretest ? "PRETEST · GUESS FIRST" : card.vocab ? "VOCABULARY · TERMS IN CONTEXT" : card.kind === "cloze" ? "PREDICT THE RESULT" : "RECALL"}
               </div>
               <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
-              {card.kind === "cloze" && card.prompt && (
+              {card.prompt && (
                 <p style={{ fontFamily: SERIF, fontSize: 18.5, lineHeight: 1.6, margin: "0 0 8px", color: P.ink2 || P.muted }}>{card.prompt}</p>
               )}
               {card.pretest && !checked && (
