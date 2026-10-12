@@ -2774,6 +2774,41 @@ function constraintProximityRegex(phrase) {
 // load-bearing when 2+ content words appear adjacently after stripping
 // framing words and organism terms. "waste oil substrates" -> ["waste oil"]
 // ("substrates" is a generic descriptor, not part of the constraint).
+// Question verbs are framing, not concepts (2026-10-12). A constraint
+// phrase built around a verb ("insect gut degrade") can never match the
+// papers it describes, because papers nominalize verbs: they write
+// "conversion", "released from", "breakdown", never the question's verb
+// form next to the subject. The discriminating concepts in a mechanism
+// question are the subject and the object ("insect gut" +
+// "lignocellulose"); the verb between them is how the user asked, not
+// what a paper must say. Dropping these verbs from the token stream
+// lets the window join subject and object into a matchable phrase.
+// Noun forms (degradation, treatment, survival) are NOT in this set:
+// they are different tokens and often the actual topic.
+const QUESTION_VERBS = new Set([
+  "degrade", "degrades", "degraded", "degrading",
+  "survive", "survives", "survived", "surviving",
+  "protect", "protects", "protected", "protecting",
+  "cause", "causes", "caused", "causing",
+  "affect", "affects", "affected", "affecting",
+  "improve", "improves", "improved", "improving",
+  "increase", "increases", "increased", "increasing",
+  "decrease", "decreases", "decreased", "decreasing",
+  "reduce", "reduces", "reduced", "reducing",
+  "prevent", "prevents", "prevented", "preventing",
+  "help", "helps", "helped", "helping",
+  "happen", "happens", "happened",
+  "occur", "occurs", "occurred", "occurring",
+  "differ", "differs", "differed",
+  "kill", "kills", "killed", "killing",
+  "treat", "treats", "treated", "treating",
+  "produce", "produces", "produced", "producing",
+  "form", "forms", "formed", "forming",
+  "grow", "grows", "grew", "growing",
+  "develop", "develops", "developed", "developing",
+  "become", "becomes", "became", "becoming",
+]);
+
 function extractKeyPhrases(query, organismPhrases) {
   const norm = normalizeConstraintText(query);
   const orgSet = new Set((organismPhrases || []).map(normalizeConstraintText));
@@ -2783,7 +2818,7 @@ function extractKeyPhrases(query, organismPhrases) {
   for (const p of orgSet) for (const w of p.split(" ")) orgWords.add(w);
 
   const tokens = norm.split(" ").filter((t) =>
-    t.length > 2 && !QUERY_FRAMING_WORDS.has(t) && !orgSet.has(t) && !orgWords.has(t)
+    t.length > 2 && !QUERY_FRAMING_WORDS.has(t) && !QUESTION_VERBS.has(t) && !orgSet.has(t) && !orgWords.has(t)
     // 2026-10-10: life-stage words are organism descriptors, not topic
     // constraints, when the organism is already identified.
     && !(organismPhrases.length > 0 && LIFE_STAGE_WORDS.has(t))
@@ -2978,6 +3013,30 @@ export function verifyPaperConstraints(paper, analysis) {
     let hit = false;
     for (const v of variants) {
       if (textMentionsPhrase(text, v, [])) { hit = true; break; }
+    }
+    // Concept-set title match (2026-10-12): a constraint of 3+ terms is
+    // a set of concepts (subject + object), and a title is a dense
+    // concept statement. When every term appears in the title and at
+    // least one adjacent pair from the phrase survives adjacently,
+    // the paper is about that concept set even when the title orders
+    // the object before the subject ("Lignocellulose conversion by
+    // insect gut symbionts" vs the constraint "insect gut
+    // lignocellulose"). Two-term phrases stay phrase-only: order and
+    // proximity are what make "waste oil" a concept rather than two
+    // words, and that guard is load-bearing. Abstracts are untouched:
+    // distant co-occurrence there still does not count.
+    if (!hit && c.terms && c.terms.length >= 3 && p.title) {
+      const titleNorm = normalizeConstraintText(p.title);
+      const everyTerm = c.terms.every((t) => {
+        const re = constraintPhraseRegex(t);
+        return re && re.test(titleNorm);
+      });
+      if (everyTerm) {
+        for (let i = 0; i + 1 < c.terms.length; i++) {
+          const pairRe = constraintPhraseRegex(c.terms[i] + " " + c.terms[i + 1]);
+          if (pairRe && pairRe.test(titleNorm)) { hit = true; break; }
+        }
+      }
     }
     if (hit) matched.push(c.phrase);
     else missing.push(c.phrase);
@@ -6175,7 +6234,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     const uncitedCount = pool.length - items.length;
     if (uncitedCount > 0) {
       gaps.unshift(
-        uncitedCount + " of the " + pool.length + " relevant papers aren't cited in this summary . they're listed for further reading."
+        uncitedCount + " of the " + pool.length + " relevant papers aren't cited in this summary. They are listed for further reading."
       );
     }
     if (gaps.length > 0) md += "\n" + gaps.map((g) => "- " + g).join("\n") + "\n";
@@ -6194,7 +6253,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     md += "\n## What would change this\n\n" +
       (fals.length > 0
         ? fals.map((f) => "- " + f).join("\n")
-        : "*No specific falsification test is derivable from the cited sources . treat the findings above as provisional pending replication.*") +
+        : "*No specific falsification test is derivable from the cited sources. Treat the findings above as provisional pending replication.*") +
       "\n";
 
     // The closing line must name the true reason the extractive path ran.
@@ -6949,17 +7008,18 @@ export function buildConfidenceLine(papers, verdict) {
   // internal calibration only.
   const line =
     level === "strong"
-      ? "Cited above: " + n + " papers. " +
-        (status === "divided" ? "" : " See sources for details.")
+      ? (n === 1
+          ? "Strong confidence: 1 source backs this answer."
+          : "Strong confidence: " + n + " sources point the same way.")
       : level === "moderate"
         ? "Moderate confidence: " + n + " sources agree, but " +
           (status === "divided"
-            ? "they split on " + (verdict.conflictCount || "some") + " point" + (verdict.conflictCount === 1 ? "" : "s") + " . treat conclusions as provisional."
-            : "the evidence base is narrow . treat this as a starting point.")
+            ? "they split on " + (verdict.conflictCount || "some") + " point" + (verdict.conflictCount === 1 ? "" : "s") + ". Treat conclusions as provisional."
+            : "the evidence base is narrow. Treat this as a starting point.")
         : "Low confidence: " +
           (n <= 2
-            ? "only " + n + " source" + (n === 1 ? "" : "s") + " cleared the bar . treat this answer as provisional."
-            : "the sources are only tangentially related to this question . treat this answer as provisional.");
+            ? "only " + n + " source" + (n === 1 ? "" : "s") + " cleared the bar. Treat this answer as provisional."
+            : "the sources are only tangentially related to this question. Treat this answer as provisional.");
 
   return { level, score, line, factors };
 }
