@@ -196,12 +196,25 @@ function extractClaims(answerMd) {
   const claims = [];
   if (!answerMd) return claims;
   let skip = false;
-  for (const rawLine of String(answerMd).split("\n")) {
-    const line = rawLine.trim();
+  // Some answers arrive flattened onto one line with the headings
+  // inline. Give each heading its own line first, or the whole
+  // answer reads as a single heading and yields no claims at all.
+  const flattened = String(answerMd).replace(/\s+(#{1,6}\s+)/g, "\n$1");
+  for (const rawLine of flattened.split("\n")) {
+    let line = rawLine.trim();
     const head = line.match(/^#{1,4}\s+(.*)$/);
     if (head) {
-      skip = /sources|references|try asking|related topics/i.test(head[1]);
-      continue;
+      // Only the heading's own words decide skipping. On flattened
+      // lines the remainder carries body text, and a body mention of
+      // the word sources must not skip the whole section.
+      const headWords = head[1].split(/\s+/).slice(0, 8).join(" ");
+      if (/sources|references|try asking|related topics/i.test(headWords)) { skip = true; continue; }
+      skip = false;
+      // A flattened heading can share its line with real cited
+      // sentences. Keep the remainder; the bare heading words carry
+      // no citation and are filtered out below on their own.
+      line = head[1].trim();
+      if (!line) continue;
     }
     if (skip || !line) continue;
     const isBullet = /^[-•]\s+/.test(line);
@@ -233,7 +246,7 @@ function extractClaims(answerMd) {
   });
 }
 
-const NUMBER_RE = /(\d+(?:\.\d+)?\s?%|\d+(?:\.\d+)?\s?-fold|p\s?<\s?0\.\d+|\d+(?:\.\d+)?\s?(?:mg\/kg|mg|kg|°C|days|weeks|months|hours))/;
+const NUMBER_RE = /(\d[\d,]*(?:\.\d+)?\s?%|\d[\d,]*(?:\.\d+)?\s?-fold|p\s?<\s?0\.\d+|\d[\d,]*(?:\.\d+)?\s?(?:mg\/kg|mg|kg|°C|days|weeks|months|hours|participants|patients|subjects|volunteers|athletes|adults|children|men|women)|\d[\d,]*(?:\.\d+)?-(?:day|week|month|year|hour|minute))/;
 function numbersIn(claims) {
   const out = [];
   for (const c of claims) {
