@@ -144,16 +144,25 @@ function shortCite(source) {
   if (a) {
     const first = a.includes(",") ? a.split(",")[0].trim() : a.replace(/\s*et al\.?.*$/, "").trim();
     const words = first.split(/\s+/).filter(Boolean);
+    // A token is initials, not a surname, when it is one letter, or a
+    // short all caps run ("Q", "AR") in a string whose first word is
+    // a real mixed case surname.
+    const looksInitial = (tok) => {
+      const clean = String(tok || "").replace(/[^A-Za-z]/g, "");
+      if (clean.length <= 1) return true;
+      return clean.length <= 3 && /^[A-Z]+$/.test(clean);
+    };
     if (words.length === 0) name = "";
-    else if (words.length === 1) name = words[0];
+    else if (words.length === 1) name = looksInitial(words[0]) ? "" : words[0];
     else {
       // Author strings come in two shapes: "Firstname Surname" and
-      // "Surname F" (surname followed by a bare initial). Taking the
-      // last word of the second shape yields the initial, which reads
-      // as nonsense in a question ("What did Q et al. report?"). When
-      // the last word is a lone initial, the surname is the first word.
+      // "Surname F" (surname followed by initials). Taking the last
+      // word of the second shape yields the initials, which read as
+      // nonsense in a question ("What did Q et al. report?", "What
+      // did AR. report?"). When the last word is initials and the
+      // first word is a plausible surname, the surname is word one.
       const last = words[words.length - 1];
-      name = last.replace(/[^A-Za-z]/g, "").length <= 1 ? words[0] : last;
+      name = looksInitial(last) && /[a-z]/.test(words[0]) ? words[0] : last;
     }
     if (name && a.includes(",") || /et al/.test(a)) name += " et al.";
     if (name && name.replace(/[^A-Za-z]/g, "").length < 2) name = "";
@@ -208,6 +217,10 @@ function extractClaims(answerMd) {
       const text = cleanText(sent);
       if (text.length < 42 || text.length > 340) continue;
       if (/^(this|the) (answer|search|section)\b/i.test(text)) continue;
+      // Publisher page furniture sometimes travels with a citation
+      // (author page boilerplate, sign in prompts, rights lines). It
+      // is never a finding, so it never becomes a claim.
+      if (/oxford academic|all rights reserved|copyright|sign in|privacy policy|terms of use|cookie/i.test(text)) continue;
       claims.push({ text, sourceIdx: useCites[0] });
     }
   }
