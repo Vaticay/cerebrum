@@ -263,12 +263,34 @@ function paperDedupeKey(p) {
  * one record with DOI, one without", the duplicate that used to be cited as
  * [1] and [2]. Records with no key at all are never dropped blindly. */
 export function dedupePapers(list) {
-  const seen = new Set();
+  // 2026-10-12: Fixed - don't merge distinct papers with same title.
+  // Only merge if strong identifiers match, or if neither has identifiers.
+  const seenStrong = new Set();  // DOIs, PMIDs, etc.
+  const seenTitles = new Map();  // normalized title -> hasStrongId
   return (list || []).filter((p) => {
     const keys = paperDedupeKeys(p);
     if (keys.length === 0) return true;
-    for (const k of keys) if (seen.has(k)) return false;
-    for (const k of keys) seen.add(k);
+    // Check strong identifiers first
+    const strongKeys = keys.filter(k => !k.startsWith('title:'));
+    for (const k of strongKeys) {
+      if (seenStrong.has(k)) return false;  // Same DOI/PMID = same paper
+    }
+    // For title keys: only dedupe if neither has strong IDs
+    const titleKeys = keys.filter(k => k.startsWith('title:'));
+    const hasStrong = strongKeys.length > 0;
+    for (const tk of titleKeys) {
+      if (seenTitles.has(tk)) {
+        const prevHadStrong = seenTitles.get(tk);
+        // If both have strong IDs but they didn't match above, they're different papers
+        if (hasStrong && prevHadStrong) return true;  // Keep both
+        return false;  // Same title, at most one has ID = likely same paper
+      }
+    }
+    // Record
+    for (const k of strongKeys) seenStrong.add(k);
+    for (const tk of titleKeys) {
+      if (!seenTitles.has(tk)) seenTitles.set(tk, hasStrong);
+    }
     return true;
   });
 }

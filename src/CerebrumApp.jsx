@@ -2715,13 +2715,13 @@ function searchErrorInfo(kind, { status = 0, message = "", requestId = "", elaps
   const clean = String(message || "").trim();
   switch (kind) {
     case "timeout":
-      return { headline: "The search timed out.", body: "Two minutes passed without an answer — the literature databases are slow right now, not your question.", detail: ("timeout · " + detail).replace(/^timeout · $/, "timeout") };
+      return { headline: "The search timed out.", body: "Two minutes passed without an answer. The literature databases are slow right now, not your question.", detail: ("timeout · " + detail).replace(/^timeout · $/, "timeout") };
     case "network":
       return { headline: "Couldn't reach the research service.", body: "The connection dropped before the search finished. Check your connection and try again.", detail: ("network · " + detail).replace(/^network · $/, "network") };
     case "http429":
       return { headline: "Too many searches at once.", body: "The service asked for a breather. Wait a few seconds, then try again.", detail };
     case "http5xx":
-      return { headline: "The research service hit a problem.", body: clean || "Something went wrong on our end — nothing about your question caused this.", detail };
+      return { headline: "The research service hit a problem.", body: clean || "Something went wrong on our end. Nothing about your question caused this.", detail };
     case "badbody":
       return { headline: "The answer came back unreadable.", body: "The service responded, but the answer couldn't be read. Trying again usually works.", detail: ("unreadable response · " + detail).replace(/^unreadable response · $/, "unreadable response") };
     default:
@@ -5597,7 +5597,7 @@ function InfoPage({ page }) {
               <div className="cb-fadein" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {[
                   { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 flowchart every 5 days. No account needed.", recommended: false },
-                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7-day money-back guarantee — cancel anytime.", recommended: true },
+                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7-day money-back guarantee. Cancel anytime.", recommended: true },
                 ].map((tier) => (
                   <div key={tier.name} style={{
                     position: "relative", padding: "24px 24px 16px", borderRadius: RADIUS.lg,
@@ -6456,7 +6456,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 7 }}>
                 {[
                   "7-day money-back guarantee: a full refund on your first charge, no questions asked.",
-                  "Cancel anytime from the billing portal — you keep Pro until the end of the paid period.",
+                  "Cancel anytime from the billing portal. You keep Pro until the end of the paid period.",
                   "Free stays free: 50 AI answers, 3 document reads, 1 flowchart every 5 days, no account needed.",
                   "Secure checkout by Stripe. Your card details never touch Cerebrum's servers.",
                 ].map((line) => (
@@ -7880,14 +7880,14 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
       : `Cited ${cited} paper${cited === 1 ? "" : "s"}`,
   });
   if (t.synthesisMode === "extractive") {
-    rows.push({ k: "Synthesis", v: "Assembled deterministically from the retrieved papers — no AI synthesis ran for this answer." });
+    rows.push({ k: "Synthesis", v: "Assembled deterministically from the retrieved papers. No AI synthesis ran for this answer." });
   }
   for (const s of failedStages) {
     const ms = typeof s.ms === "number" && s.ms > 0 ? ` after ${Math.round(s.ms)} ms` : "";
     rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage did not complete${ms} — the answer was built without it.` });
   }
   if (t.degraded && failedStages.length === 0) {
-    rows.push({ k: "Pipeline", v: "Built under degraded conditions — part of the pipeline did not complete." });
+    rows.push({ k: "Pipeline", v: "Built under degraded conditions. Part of the pipeline did not complete." });
   }
   if (!rows.length) return null;
 
@@ -7997,9 +7997,9 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
       ? (s.uncitedReason || "Listed for further reading.")
       : (s.studyType ? s.studyType + " · " : "") +
         (rel === "conflicts"
-          ? "its findings push against the answer's claims — see where the literature disagrees."
+          ? "its findings push against the answer's claims. See where the literature disagrees."
           : rel === "qualifies"
-            ? "it both supports and complicates the answer — read it against the surrounding claims."
+            ? "it both supports and complicates the answer. Read it against the surrounding claims."
             : "its findings run with the answer's claims.");
     const isActive = activeCite === n;
     return (
@@ -12414,7 +12414,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           // between "the call feature is broken" and "why didn't Dusty's
           // deploy work" being knowable at all from the UI.
           if (!cancelled) {
-            setErrorReason("Video calling isn't available right now. Try again in a bit — if it keeps happening, let us know.");
+            setErrorReason("Video calling isn't available right now. Try again in a bit. If it keeps happening, let us know.");
             setStatus("error");
           }
           return;
@@ -12539,7 +12539,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           }
           setErrorReason(
             relayKind === "none" || !sawRelay
-              ? "This call couldn't connect — your network and theirs can't reach each other directly, and no relay server is available right now. Try again later, or switch networks (for example off VPN) and retry."
+              ? "This call couldn't connect. Your network and theirs can't reach each other directly, and no relay server is available right now. Try again later, or switch networks (for example off VPN) and retry."
               : iceErr
                 ? `The call couldn't connect through the relay server (code ${iceErr.code}). Try again in a bit — if it keeps happening, let us know.`
                 : "Couldn't establish a connection to the other person. This can happen on some restrictive networks."
