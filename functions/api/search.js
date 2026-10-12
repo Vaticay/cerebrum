@@ -5693,7 +5693,7 @@ export function buildDefinitionAnswer(term, papers, ctx = {}) {
   try {
     const cited = defs.map((d) => d.paper);
     const conf = buildConfidenceLine(cited, null);
-    if (conf && conf.line) md += "\n**How solid is this?** " + conf.line + "\n";
+    if (conf && conf.line) md += "\n**Evidence Strength** " + conf.line + "\n";
   } catch { /* instruments are best-effort */ }
   if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
     const interps = (ctx.ambiguity.interpretations || []).map((x) => x.label).filter(Boolean);
@@ -5881,7 +5881,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
     const unitWord = pool.length === 1 ? "source" : "sources";
-    let md = "## The short answer\n\n";
+    let md = "## Executive Summary\n\n";
     // The TLDR lede: 2–3 plain sentences, each carrying its own citation .
     // no meta-framing ("Across the N sources below, the clearest reported
     // findings are:"), no citation soup, no extraction tags. The old lede
