@@ -8840,8 +8840,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               <AnswerStateCard kicker="No synthesis available" tone="warn"
                 title={answerText.trim() ? "No citable literature surfaced." : "Synthesis isn't available right now."}
                 body={answerText.trim()
-                  ? "Every model is at capacity and no paper cleared the bar for this question, so there's no written synthesis. What follows is the honest record of the search instead."
-                  : "Every model is at capacity and no extractive fallback was possible, so there's no answer text to show."}
+                  ? "No paper cleared the relevance bar for this question, so there's no written synthesis. What follows is the honest record of the search instead."
+                  : "No paper cleared the relevance bar, and no extractive fallback was possible, so there's no answer text to show."}
                 actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
                 P={P} accent={accent}>
                 <QueryRetryForm P={P} accent={accent} onAsk={adjustQuery} id={`cb-retry-${t.answerId || "turn"}`} />
@@ -8860,7 +8860,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                are preserved untouched. */
             <>
               <AnswerStateCard kicker="Synthesis unavailable" tone="warn"
-                title="Every model is at capacity, so this isn't a written synthesis."
+                title="No paper cleared the relevance bar, so this isn't a written synthesis."
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>

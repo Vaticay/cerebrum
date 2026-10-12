@@ -2766,8 +2766,11 @@ function extractKeyPhrases(query, organismPhrases) {
   const phrases = [];
   // Sliding window: adjacent content words form candidate phrases.
   // Skip windows ending in a generic descriptor.
+  // 2026-10-11: Use non-overlapping windows to avoid nonsense phrases.
+  // "insect gut microbiome bile salt agar" should give ["insect gut microbiome", "bile salt agar"],
+  // not ["insect gut microbiome", "gut microbiome bile", "microbiome bile salt"].
   for (let len = 3; len >= 2; len--) {
-    for (let i = 0; i + len <= tokens.length; i++) {
+    for (let i = 0; i + len <= tokens.length; i += len) {
       const window = tokens.slice(i, i + len);
       const last = window[window.length - 1];
       const core = GENERIC_DESCRIPTORS.has(last) ? window.slice(0, -1) : window;
@@ -10140,7 +10143,22 @@ async function gatherPapers(rawQuery, opts) {
       // topic) rather than every word, so filler words in a long question can't
       // dilute a genuinely on-topic paper's score.
       const coreHitCount = gateTerms.filter(has).length;
-      const coreCoverage = gateTerms.length ? coreHitCount / gateTerms.length : 1;
+      // 2026-10-11: Use BEST phrase coverage, not overall term coverage.
+      // A paper matching "insect gut microbiome" fully should score high
+      // even if it misses "bile salt agar" (different concept).
+      // This fixes the multi-concept query penalty.
+      let bestPhraseCoverage = 0;
+      if (_qaGate && _qaGate.constraints && _qaGate.constraints.length > 0) {
+        for (const c of _qaGate.constraints) {
+          const phraseWords = String(c.phrase || "").toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+          if (phraseWords.length === 0) continue;
+          const phraseHits = phraseWords.filter(w => has(w)).length;
+          const phraseCov = phraseHits / phraseWords.length;
+          if (phraseCov > bestPhraseCoverage) bestPhraseCoverage = phraseCov;
+        }
+      }
+      // Fall back to overall coverage if no constraints (shouldn't happen)
+      const coreCoverage = bestPhraseCoverage > 0 ? bestPhraseCoverage : (gateTerms.length ? coreHitCount / gateTerms.length : 1);
       const coreTitleHits = gateTerms.filter(hasTitle).length;
       const periphHits = peripheralTerms.filter(has).length;
 
