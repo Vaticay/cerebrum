@@ -9462,7 +9462,6 @@ async function gatherPapers(rawQuery, opts) {
       semanticScholar(bare, 10, s2Key),
       doaj(bare, 8),
       biorxiv(bare, 8),
-      zenodo(bare, 6),
       plos(bare, 8),
       // Additional high-value sources (4 new)
       coreSearch(bare, 8),
