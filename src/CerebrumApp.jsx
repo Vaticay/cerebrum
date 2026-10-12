@@ -4078,7 +4078,7 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
     return { weight: 450, cls: "cb-ev-supported", status: best.status, label: null, labelTone: null };
   };
 }
-function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null) {
+function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null, queryTerms = null) {
   let clean = stripDanglingAsterisks(normalizeSectionHeaders(decodeHtmlEntities(text || "")))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
@@ -4155,17 +4155,17 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     // whole product's credibility.
     if (h2) {
       const { head, body } = splitGluedHeading(h2[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</div>
+        ? <div key={pi}>{h2Block(head, pi + "-h", P, accent)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}</div>
         : h2Block(head, pi, P, accent);
     }
     const h3 = para.match(/^###\s+(.+)$/);
     if (h3) {
       const { head, body } = splitGluedHeading(h3[1]);
-      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</React.Fragment>;
+      if (!head) return <React.Fragment key={pi}>{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}</React.Fragment>;
       return body
-        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</div>
+        ? <div key={pi}>{h3Block(head, pi + "-h", P)}{renderAnswer(body, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}</div>
         : h3Block(head, pi, P);
     }
 
@@ -4189,9 +4189,9 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       const title = split.head;
       const below = [split.body, (markedHead[3] || "").trim()].filter(Boolean).join("\n\n");
       const head = markedHead[1].length <= 2 ? h2Block(title, pi + "-h", P, accent) : h3Block(title, pi + "-h", P);
-      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</React.Fragment> : null;
+      if (!title) return below ? <React.Fragment key={pi}>{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}</React.Fragment> : null;
       return below
-        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}</div>
+        ? <div key={pi}>{head}{renderAnswer(below, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}</div>
         : <React.Fragment key={pi}>{head}</React.Fragment>;
     }
     // Bold-line headers (e.g., "**Mechanism**")
@@ -4252,7 +4252,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
         return (
           <div key={pi}>
             <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
-            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap)}
+            {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}
           </div>
         );
       }
@@ -4273,7 +4273,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
         <ul key={pi} style={{ margin: "0 0 24px", paddingLeft: 8, listStyle: "none" }}>
           {items.map((item, ii) => (
             <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.7, color: P.ink, marginBottom: 14, position: "relative", paddingLeft: 20, fontFamily: "var(--cb-font)", fontWeight: 500, borderLeft: `2px solid ${P.line}`, paddingTop: 2, paddingBottom: 2 }}>
-              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate)}
+              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, queryTerms)}
             </li>
           ))}
         </ul>
@@ -4290,7 +4290,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
           {items.map((item, ii) => (
             <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-font)", fontWeight: 500, counterIncrement: "cb-list" }}>
               <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{ii + 1}.</span>
-              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate)}
+              {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, queryTerms)}
             </li>
           ))}
         </ol>
@@ -4347,7 +4347,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     }}>
       {paraClean.split("\n").map((line, li) => (
         <React.Fragment key={li}>
-          {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate)}
+          {renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, queryTerms)}
           {li < paraClean.split("\n").length - 1 && <br />}
         </React.Fragment>
       ))}
@@ -4387,7 +4387,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
 }
 
 /** Inline segment renderer — handles bold, italic, underline, citations, and inline code */
-function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate = null) {
+function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate = null, queryTerms = null) {
   return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
     const b = seg.match(/^\*\*([^*]+)\*\*$/);
     if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 700 }}>{b[1]}</strong>;
@@ -4446,7 +4446,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
         style={{ color: accentInk(P, accent), textDecoration: "none", animationDelay: `${Math.min(si * 30, 300)}ms` }}
       >[{n}]</a>;
     }
-    return <span key={si}>{seg}</span>;
+    return <span key={si}>{queryTerms ? highlightKeywords(seg, queryTerms) : seg}</span>;
   });
 }
 
@@ -5687,7 +5687,8 @@ function InfoPage({ page }) {
    would double it. onRetry / onAdjustQuery wire the honest zero-sources
    empty state (the band always renders this component now; it used to be
    gated off entirely at zero sources — a silent gap). */
-function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {} }) {
+function Bibliography({ sources, answer = "", query = "", P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {} }) {
+  const bibTerms = useMemo(() => extractQueryTerms(query), [query]);
   const [copied, setCopied] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
@@ -5848,7 +5849,7 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
             return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={i === sources.length - 1}
               onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor}
               rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite}
-              tally={doi && tallies[doi] ? tallies[doi] : null} />;
+              tally={doi && tallies[doi] ? tallies[doi] : null} terms={bibTerms} />;
           });
         })()}
       </ol>
@@ -5990,7 +5991,7 @@ function ReceptionLine({ source, P, tally = null }) {
     </div>
   );
 }
-function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null }) {
+function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null, terms = null }) {
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
@@ -6090,7 +6091,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
         <ReceptionLine source={source} P={P} tally={tally} />
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
-            {source.tldr}
+            {terms ? highlightKeywords(source.tldr, terms) : source.tldr}
           </div>
         )}
       </div>
@@ -7868,7 +7869,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
             P={P} accent={accent} />
         )
       ) : (
-        <Bibliography bare sources={sources} answer={t.answer} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle}
+        <Bibliography bare sources={sources} answer={t.answer} query={t.q || ""} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle}
           onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery}
           relOf={relOf} activeCite={activeCite} onActivateCite={onActivateCite} />
       )}
@@ -8906,7 +8907,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               </AnswerStateCard>
               {answerText.trim() ? (
                 <div style={{ marginTop: 16 }}>
-                  {renderAnswer(tierText || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
+                  {renderAnswer(tierText || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap, extractQueryTerms(t.q || ""))}
                 </div>
               ) : null}
             </>
@@ -8922,7 +8923,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
-                {renderAnswer(stripFallbackChrome(tierText || shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)}
+                {renderAnswer(stripFallbackChrome(tierText || shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap, extractQueryTerms(t.q || ""))}
               </div>
             </>
           ) : evidenceView === "table" ? (
@@ -8931,7 +8932,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                answer — prose remains the default. */
             <EvidenceTableAnswerView t={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
           ) : (
-            renderAnswer(tierText || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap)
+            renderAnswer(tierText || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap, extractQueryTerms(t.q || ""))
           )}
         </div>
         {/* View switch: prose vs evidence table. Only once the answer has
