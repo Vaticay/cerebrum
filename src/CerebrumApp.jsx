@@ -86,7 +86,7 @@ import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities
 import {FlowchartStudio, MermaidStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome } from "./flowcharts.jsx";
 import { InboxView, ReportConductModal } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
-import LearnView, { generateCourseFromSearch } from "./LearnView.jsx";
+import LearnView from "./LearnView.jsx";
 
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
@@ -9312,6 +9312,41 @@ const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
 // Accepting keeps that data exactly where it is client-side (nothing new to
 // fetch) — it simply gets swept into the account by the normal sync effect
 // that already watches `saved`/`history` for changes once `user` is set.
+/* Public Beta 2 announcement (2026-10-12). Rendered from App off the
+   beta2Open boolean; see the state note in App for why the render and
+   the scroll lock share one boolean. Copy stays plain on purpose: no
+   hype, no dashes, nothing that sounds generated. */
+function Beta2Announcement({ P, accent, onClose, onTryLearn }) {
+  const items = [
+    { title: "Learn is new", body: "Any search can become a short course built from the papers it found, with quick quizzes and XP as you go. It lives in the sidebar, and on phones it has its own tab." },
+    { title: "Search got tougher", body: "Questions with several parts used to come back with no sources at all. They return real sources now, and an answer is never built on zero papers." },
+    { title: "Answers read easier", body: "Wider pages, calmer backgrounds, and plainer wording across the whole site." },
+    { title: "One intro clip is gone", body: "A background clip that should never have shipped was still playing behind the door. It is out, and every remaining clip has been checked frame by frame." },
+  ];
+  return (
+    <Dialog label="Public Beta 2" onClose={onClose}
+      zIndex={216} width={460}
+      panelStyle={{ background: P.bg, borderRadius: RADIUS.md, padding: 26, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>PUBLIC BETA 2</div>
+      <h2 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 700, color: P.ink }}>What changed</h2>
+      <p style={{ margin: "0 0 18px", fontSize: 14, color: P.muted, lineHeight: 1.55 }}>Four things since Beta 1.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
+        {items.map((it) => (
+          <div key={it.title}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: P.ink, marginBottom: 2 }}>{it.title}</div>
+            <div style={{ fontSize: 14, color: P.muted, lineHeight: 1.55 }}>{it.body}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "10px 18px", color: P.ink, fontSize: 14, cursor: "pointer" }}>Got it</button>
+        <button onClick={onTryLearn} style={{ background: accent, border: "none", borderRadius: RADIUS.sm, padding: "10px 18px", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Try Learn</button>
+      </div>
+    </Dialog>
+  );
+}
+
 function ImportLocalDataPrompt({ P, accent, at, savedCount, historyCount, onImport, onSkip }) {
   return (
     <Dialog label="Import your existing data" onClose={onSkip} dismissable={false}
@@ -18068,6 +18103,23 @@ function useDynamicFavicon({ accent, busy, unread }) {
 function App() {
   const isMobile = useIsMobile();
   const [entered, setEntered] = useState(false);
+  /* Public Beta 2 announcement (2026-10-12). Shows exactly once per
+     browser, right after the door, keyed off its own localStorage flag.
+     The Dialog render near the other overlays is gated on this same
+     boolean, so state and dialog can never diverge. That divergence is
+     what froze the page in Commit 92: v5Open had state and a scroll
+     lock entry but no render. */
+  const [beta2Open, setBeta2Open] = useState(false);
+  useEffect(() => {
+    if (!entered || beta2Open) return;
+    let seen = true;
+    try { seen = localStorage.getItem("cb_seen_beta2") === "1"; } catch { seen = true; }
+    if (!seen) setBeta2Open(true);
+  }, [entered, beta2Open]);
+  const dismissBeta2 = useCallback(() => {
+    setBeta2Open(false);
+    try { localStorage.setItem("cb_seen_beta2", "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx dismissBeta2:", cbErr); }
+  }, []);
 
   /* Attention, as a piece of state. The backdrop is at its most present
      when someone is looking around, and steps back the moment they start
@@ -20170,7 +20222,8 @@ function App() {
     // Background scroll bled through these modals on iOS (body never
     // locked): flowchart studio, Pro modal, profile viewer, provenance
     // panel, film credits, and incoming/active call overlays.
-    || flowchartOpen || proModalOpen || !!viewingProfileId || provenanceOpen || filmCreditsOpen || !!incomingCall || !!activeHuddle;
+    || flowchartOpen || proModalOpen || !!viewingProfileId || provenanceOpen || filmCreditsOpen || !!incomingCall || !!activeHuddle
+    || beta2Open;
   // Body scroll lock: one call, one system. useScrollLock is the unified
   // ref-counted lock from src/scrollLock.js — it pins the body at the exact
   // scroll offset (iOS-safe) and nests correctly with Dialog instances via
@@ -22307,6 +22360,13 @@ function App() {
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} P={P} accent={accent}
         query={cmdQuery} setQuery={setCmdQuery} groups={paletteGroups}
         active={cmdActive} setActive={setCmdActive} onKeyDown={onCmdKeyDown} inputRef={cmdRef} />
+      {beta2Open && (
+        <Beta2Announcement
+          P={P} accent={accent}
+          onClose={dismissBeta2}
+          onTryLearn={() => { dismissBeta2(); setView("learn"); }}
+        />
+      )}
       {networkSearchOpen && (
         <NetworkSearchModal
           P={P} accent={accent} at={at}
