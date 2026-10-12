@@ -12908,9 +12908,11 @@ async function runSearchPipeline(pctx) {
     try {
       const _cqa = analyzeQuery(searchQuery);
       if (_cqa && _cqa.constraints && _cqa.constraints.length > 0 && !_cqa.isNameSearch && !isFollowupMode) {
+        // 2026-10-12: OR semantics - paper must match at least one concept.
+        // The old AND logic (must match all) killed multi-concept queries.
         papers = papers.filter((pp) => {
           const v = verifyPaperConstraints(pp, _cqa);
-          return v.verdict === "on-topic";
+          return v.verdict === "on-topic" || v.verdict === "partial";
         });
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js constraint filter:", cbErr); }
