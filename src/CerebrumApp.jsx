@@ -87,6 +87,7 @@ import {FlowchartStudio, MermaidStudio, Dialog, cbMotionOff, ChromeHeader, Modal
 import { InboxView, ReportConductModal } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
+import { createCourseFromResults, saveLearnCourse } from "./LearnView.jsx";
 
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
@@ -8357,7 +8358,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
 
 function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null,
   /* #10/#15: contextual discovery + zero-result recovery wiring. */
-  onSaveInvestigation = null, onOpenDocumentMode = null, evidenceFilter = "all", onClearFilterAndRetry = null }) {
+  onSaveInvestigation = null, onOpenDocumentMode = null, onShowLearn = null, evidenceFilter = "all", onClearFilterAndRetry = null }) {
   /* ANSWER ASSEMBLY: paragraphs arrive with a stagger on fresh turns
      instead of character-by-character typing. History turns render
      complete. `done` follows the reveal — the toolbar lands when the
@@ -8602,6 +8603,16 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         { id: "yes", label: "Yes, useful", icon: "thumb-up", hint: vote === "up" ? "Marked" : undefined, onClick: () => castVote("up") },
         { id: "no", label: "No, missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
       ] : []),
+      ...(done && interactive && sources.length >= 2 && t.answer && t.answer.length > 200 ? [{
+        id: "course", label: "Turn into course", icon: "bookOpen", hint: "Learn",
+        onClick: () => {
+          const c = createCourseFromResults(t.q, t.sources, t.answer, t.literatureConflicts);
+          if (!c) { toast("Not enough cited findings in this answer to build a course yet", { tone: "error" }); return; }
+          saveLearnCourse(c);
+          toast("Course saved. Find it in Learn.");
+          if (onShowLearn) onShowLearn();
+        },
+      }] : []),
       ...(done && interactive && t.answer && t.answer.length > 200 ? [{
         id: "simplify",
         label: simplifying ? "Simplifying…" : readingLevel === "graduate" ? "Simplify" : readingLevel === "undergrad" ? "Simpler" : "Show original",
@@ -21508,7 +21519,7 @@ function App() {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -22308,7 +22319,7 @@ function App() {
       {view === "learn" && (
         <Reveal style={S.pageView} deps={[view]}>
           <LearnView
-            P={P} accent={accent}
+            P={P} accent={accent} at={at}
             onNavigate={(v) => setView(v)}
           />
         </Reveal>
