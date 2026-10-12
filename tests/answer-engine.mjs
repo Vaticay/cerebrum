@@ -157,15 +157,17 @@ test("normalizePaperTitle is case/punctuation/whitespace insensitive", () => {
 // ══════════════════════════════════════════════════════════════════════════
 group("applyRelevanceGate — the citation floor");
 
-test("RELEVANCE_FLOOR is 60 (strong + top of partial survive)", () => {
-  assert.equal(RELEVANCE_FLOOR, 60);
+test("RELEVANCE_FLOOR is 50 (strong + top of partial survive)", () => {
+  // Lowered from 60 to 50 on 2026-10-11 (650bad1) for multi-concept
+  // queries; the floor value is deliberate, not drift.
+  assert.equal(RELEVANCE_FLOOR, 50);
 });
 
-test("papers at or above 60 survive; below 60 never enter synthesis", () => {
+test("papers at or above 50 survive; below 50 never enter synthesis", () => {
   const papers = [
     { title: "A", relevance: 82 },
-    { title: "B", relevance: 60 },
-    { title: "C", relevance: 59.9 },
+    { title: "B", relevance: 50 },
+    { title: "C", relevance: 49.9 },
     { title: "D", relevance: 45 },
     { title: "E", relevance: 12 },
   ];
@@ -342,7 +344,8 @@ test("weak extraction is honest about the gate reason", () => {
 test("strong on-topic papers still get the five-section synthesis", () => {
   const md = buildExtractiveSynthesis([soilPaper()], [], { query: "desiccation cracking in clay soils" });
   assert.ok(md, "expected a synthesis");
-  assert.match(md, /## The short answer/, "good extraction lost the full synthesis");
+  // The five-section lede heading is "## Executive Summary" (1b3ec3a).
+  assert.match(md, /## Executive Summary/, "good extraction lost the full synthesis");
 });
 
 test("name search is exempt from the topicality gate", () => {
@@ -355,13 +358,13 @@ test("name search is exempt from the topicality gate", () => {
   }];
   const md = buildExtractiveSynthesis(papers, [], { query: "Jane Smith", isNameSearch: true });
   assert.ok(md, "expected a synthesis");
-  assert.match(md, /## The short answer/, "name search wrongly gated");
+  assert.match(md, /## Executive Summary/, "name search wrongly gated");
 });
 
 test("follow-up mode is exempt from the query-addressing check", () => {
   const md = buildExtractiveSynthesis([soilPaper()], [], { query: "tell me more", isFollowupMode: true });
   assert.ok(md, "expected a synthesis");
-  assert.match(md, /## The short answer/, "follow-up wrongly gated on phrasing");
+  assert.match(md, /## Executive Summary/, "follow-up wrongly gated on phrasing");
 });
 
 test("title-only papers cannot support a short answer", () => {
@@ -395,9 +398,18 @@ test("fingerprintClaim normalizes case, bold, citations, punctuation", () => {
 // ══════════════════════════════════════════════════════════════════════════
 group("structural — the gate and the counts are wired end to end");
 
-test("selection applies the gate with NO ungated top-8 fallback", () => {
-  assert.ok(searchSrc.includes("applyRelevanceGate(papers).slice(0, maxEvidence)"));
-  assert.ok(!searchSrc.includes("papers.slice(0, 8)"), "ungated fallback still present");
+test("selection applies the gate, then the guaranteed-evidence cascade", () => {
+  // 2026-10-12 (b501e98): the gate is real, but zero sources is
+  // unacceptable — when the gate keeps fewer than 3 papers, selection
+  // falls back to the top 3 ranked papers flagged thinEvidence, and the
+  // synthesis renders that honestly. Name search and follow-up modes
+  // stay exempt (handled by their own branch).
+  assert.ok(searchSrc.includes("const gated = applyRelevanceGate(papers);"), "gate not applied in selection");
+  assert.ok(searchSrc.includes("if (gated.length >= 3)"), "gated fast path missing");
+  assert.ok(searchSrc.includes("evidencePapers = gated.slice(0, maxEvidence)"), "gated papers not selected");
+  assert.ok(searchSrc.includes("evidencePapers = ranked.slice(0, 3)"), "cascade top-3 fallback missing");
+  assert.ok(searchSrc.includes("p.thinEvidence = true"), "cascade papers not flagged thinEvidence");
+  assert.ok(!searchSrc.includes("papers.slice(0, 8)"), "old ungated top-8 fallback still present");
 });
 
 test("synthesis layer re-applies the gate after validation (supplementary fetches)", () => {
@@ -764,7 +776,7 @@ test("extractive synthesis emits the shared five-section structure", () => {
     relevanceGatedOut: 2,
     ambiguity: { ambiguous: false, interpretations: [] },
   });
-  for (const h of ["## The short answer", "## What the research shows", "## Where researchers disagree", "## How solid is this?", "## What would change this"]) {
+  for (const h of ["## Executive Summary", "## What the research shows", "## Where researchers disagree", "## How solid is this?", "## What would change this"]) {
     assert.ok(md.includes(h), "missing section: " + h);
   }
   assert.match(md, /Drafted directly from the sources/);
@@ -835,7 +847,8 @@ test("'NOT CHECKED' is gone; empty states say what is actually true", () => {
 
 test("disagreement fallback uses the computed verdict, not a default", () => {
   assert.ok(appSrc.includes("t.disagreementVerdict"), "verdict not read");
-  assert.ok(appSrc.includes('"THIN EVIDENCE"'), "thin kicker missing");
+  // Kickers are normal case now (the caps purge): "Thin evidence".
+  assert.ok(appSrc.includes('"Thin evidence"'), "thin kicker missing");
   assert.ok(!appSrc.includes('kicker="NO CLEAR DIVIDE"'), "default NO CLEAR DIVIDE still present");
 });
 
@@ -859,7 +872,7 @@ test("degraded pipeline states are visible, not silent", () => {
 });
 
 test("connection-failure panel offers rephrasing, not just retry", () => {
-  const idx = appSrc.indexOf('kicker="CONNECTION FAILED"');
+  const idx = appSrc.indexOf('kicker="Connection failed"');
   assert.ok(idx > 0);
   assert.ok(appSrc.indexOf("QueryRetryForm", idx) > 0 && appSrc.indexOf("QueryRetryForm", idx) < idx + 1200,
     "no rephrase form on the connection-failure panel");

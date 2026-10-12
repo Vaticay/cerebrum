@@ -97,8 +97,11 @@ await test("single CTA reads \"Start researching\"", () => {
 group("Rotation — timed, pausable, directly selectable");
 
 await test("rotation advances on a 9s interval", () => {
-  assert.ok(src.includes("setInterval(() => setSpecimenIdx"), "no rotation interval");
-  assert.ok(src.includes("9000"), "rotation interval not 9s");
+  // The interval is written in updater form, advancing a full set of
+  // three: setSpecimenIdx((i) => (i + setSize) % specimenCount).
+  assert.ok(/setInterval\(\s*\(\) => setSpecimenIdx\(\(i\) => \(i \+ setSize\) % specimenCount\)/.test(src), "no rotation interval in set updater form");
+  assert.ok(src.includes("9000"), "rotation interval not 9s on desktop");
+  assert.ok(src.includes("12000"), "rotation interval not 12s on mobile");
 });
 
 await test("rotation pauses while held, in dialogs, or under reduced motion", () => {
@@ -111,10 +114,11 @@ await test("rotation pauses while held, in dialogs, or under reduced motion", ()
 });
 
 await test("stepper moves between specimens", () => {
-  assert.ok(src.includes('aria-label="Previous claim"'), "prev button missing");
-  assert.ok(src.includes('aria-label="Next claim"'), "next button missing");
-  assert.ok(src.includes("(i - 1 + specimenCount) % specimenCount"), "prev wrap not wired");
-  assert.ok(src.includes("(i + 1) % specimenCount"), "next wrap not wired");
+  // The stepper moves by a full set of three claims.
+  assert.ok(src.includes('aria-label="Previous three claims"'), "prev button missing");
+  assert.ok(src.includes('aria-label="Next three claims"'), "next button missing");
+  assert.ok(src.includes("(i - setSize + specimenCount) % specimenCount"), "prev set wrap not wired");
+  assert.ok(src.includes("(i + setSize) % specimenCount"), "next set wrap not wired");
   assert.ok(!src.includes('role="tablist"'), "tab wall should be gone");
 });
 
@@ -167,14 +171,15 @@ await test("no inferred autoplay-blocked flag survives", () => {
   assert.ok(!src.includes("autoplayBlocked"), "inferred autoplay flag still present");
 });
 
-await test("intro background is the static calibration bed, not footage", () => {
-  assert.ok(src.includes("cb-instr-bed"), "instrument bed missing from intro");
-  assert.ok(cssSrc.includes(".cb-instr-bed"), "instrument bed CSS missing");
+await test("intro background is footage, not the static calibration bed", () => {
+  // Superseded by the cinema's return (see the CinematicFilm test
+  // above): the door no longer renders the static instrument bed.
+  assert.ok(!src.includes("cb-instr-bed"), "static calibration bed still used on the intro");
 });
 
-await test("viewport corner ticks frame the screen", () => {
-  assert.ok(src.includes("cb-instr-viewport"), "viewport tick frame missing from intro");
-  assert.ok(src.includes("TickFrame"), "TickFrame not used on the intro");
+await test("viewport corner ticks are gone from the intro", () => {
+  assert.ok(!src.includes("cb-instr-viewport"), "viewport tick frame still on the intro");
+  assert.ok(!src.includes("TickFrame"), "TickFrame still used on the intro");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -196,11 +201,12 @@ await test("old fade-and-rise entrance is fully gone", () => {
   assert.ok(!src.includes("cbTitleIn"), "cbTitleIn keyframes still referenced");
 });
 
-await test("kicker is tiny tracked caps", () => {
-  assert.ok(
-    src.includes('letterSpacing: "0.42em"') || src.includes('letterSpacing: "0.32em"'),
-    "kicker tracking not at the tiny-caps scale"
-  );
+await test("wordmark is small with quiet tracking", () => {
+  // The wide tracked-caps scale (0.32em/0.42em) is gone with the caps
+  // purge; the wordmark keeps a quiet 0.1em.
+  assert.ok(src.includes('letterSpacing: "0.1em"'), "wordmark tracking not at the quiet scale");
+  assert.ok(!src.includes('letterSpacing: "0.42em"') && !src.includes('letterSpacing: "0.32em"'),
+    "tiny tracked caps scale still present");
 });
 
 await test("CTA is a whisper outline, not a chunky pill", () => {
@@ -209,7 +215,14 @@ await test("CTA is a whisper outline, not a chunky pill", () => {
     !src.includes("0 14px 34px rgba(163,184,153,0.30)"),
     "old chunky sage CTA shadow still present"
   );
-  assert.ok(src.includes('textTransform: "uppercase"'), "CTA not set as tracked caps");
+  // The CTA is set in normal case (textTransform "none"), not tracked caps.
+  // (Slice a fixed window: "Start researching" also appears in an
+  // earlier comment, so it cannot anchor the end of the slice.)
+  const ctaAt = src.indexOf('className="cb-intro-go"');
+  assert.ok(ctaAt > 0, "CTA button missing");
+  const cta = src.slice(ctaAt, ctaAt + 700);
+  assert.ok(cta.includes('textTransform: "none"'), "CTA not set in normal case");
+  assert.ok(!cta.includes('textTransform: "uppercase"'), "CTA still set as tracked caps");
 });
 
 await test("reduced motion kills the focus-pull", () => {

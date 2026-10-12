@@ -501,14 +501,23 @@ await test("header New investigation renders with records present", async () => 
   assert.match(src, /\}>\s*Ask something\s*</, "empty-state Ask something CTA missing");
 });
 
-await test("sidebar carries New investigation next to Investigations", async () => {
+await test("sidebar is the flat toolbelt: no New investigation row by design", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The flat toolbelt nav carries destinations only — "New investigation"
+  // duplicated "Search" (both land on the search view), so it lives in
+  // the Investigations header instead (covered by the header test
+  // above), not as a sidebar row.
   const navAt = src.indexOf('["investigations", "Investigations", "history"');
-  const navBlock = src.slice(navAt, navAt + 400);
-  assert.match(navBlock, /\["new", "New investigation", "plus"/, "sidebar New investigation item missing or misplaced");
+  assert.ok(navAt > 0, "Investigations nav item missing");
+  const navBlock = src.slice(src.indexOf("const NAV_ITEMS"), src.indexOf("const NAV_ITEMS") + 900);
+  assert.ok(!/\["new", "New investigation"/.test(navBlock), "flat nav must not carry a New investigation row");
+  for (const item of ['["search", "Search"', '["document", "Document Mode"', '["library", "Library"', '["learn", "Cortex"']) {
+    assert.ok(navBlock.includes(item), `flat nav missing ${item}`);
+  }
   // All nav rows get 44px targets via S.sidebarItem (no per-row override needed).
   assert.match(src, /sidebarItem: \{[^}]*minHeight: 44/, "sidebar rows missing 44px target");
-  // The nav key is wired: handleSidebarNavigate runs newSession + Search.
+  // The nav key stays wired for the header button and command palette:
+  // handleSidebarNavigate runs newSession + Search.
   assert.match(src, /case "new": newSession\(\); setView\("search"\); break;/, '"new" nav case missing');
 });
 

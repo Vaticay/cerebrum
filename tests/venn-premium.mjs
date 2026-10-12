@@ -1,10 +1,14 @@
 /**
- * Venn premium redesign — the diagram is a research instrument, not a toy.
+ * Stance ledger — the venn diagram's replacement.
  *
- * Asserts the premium pass: no wobble filter, no drift animation, no
- * "creature" naming, muted clay/rust contests color, quiet tracked
- * labels, subtle dot sizing. The classification logic itself is covered
- * in tests/answer-insights.mjs and is untouched by the redesign.
+ * The premium venn pass asserted a calmer diagram (no wobble, no
+ * drift, muted clay, quiet labels). The diagram itself is gone now:
+ * two overlapping circles with colored dots read as a dashboard
+ * widget, not a reading room. StanceLedger groups the same classified
+ * papers under plain stance headings; a contesting paper gets a clay
+ * numeral, never a red card. These tests assert the ledger contract
+ * and that no diagram machinery survives. The classification logic
+ * itself is covered in tests/answer-insights.mjs.
  *
  * Run with: node tests/venn-premium.mjs
  */
@@ -34,70 +38,72 @@ function group(name) {
   console.log(`\n${name}`);
 }
 
-group("Venn premium redesign");
+group("Stance ledger — the venn replacement");
 
 const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-const utilsSrc = await readFile(join(root, "src/appUtils.js"), "utf8");
 
-await test("no creature naming remains", () => {
+const ledgerStart = src.indexOf("function StanceLedger");
+const ledger = src.slice(ledgerStart, src.indexOf("QUERY AUTOPSY", ledgerStart));
+
+await test("no creature naming remains; the diagram is gone, the ledger stands", () => {
   assert.ok(!/VennCreature/.test(src), "VennCreature still referenced");
   assert.ok(!/venn creature/i.test(src), "venn creature comment still present");
-  assert.ok(/function VennDiagram/.test(src), "VennDiagram component missing");
+  assert.ok(!/function VennDiagram/.test(src), "VennDiagram component resurrected");
+  assert.ok(/The venn diagram is gone/.test(src), "removal design note missing");
+  assert.ok(/function StanceLedger/.test(src), "StanceLedger component missing");
 });
 
 await test("wobble filter and drift animation fully removed", () => {
-  // feTurbulence survives elsewhere (film grain) — scope the check to the Venn component.
-  const start = src.indexOf("function VennDiagram");
-  const end = src.indexOf("QUERY AUTOPSY", start);
-  const venn = src.slice(start, end);
+  // feTurbulence survives elsewhere (film grain) — scope the check to
+  // the ledger, which must carry no diagram machinery at all.
   for (const s of ["feTurbulence", "feDisplacementMap", "vennWobble", "venn-drift", "vennDriftA", "vennDriftB"]) {
-    assert.ok(!venn.includes(s), `${s} still present in VennDiagram`);
+    assert.ok(!ledger.includes(s), `${s} still present in StanceLedger`);
   }
-  assert.ok(!/<defs>/.test(venn), "filter defs still present in VennDiagram");
-  assert.ok(/nothing on this diagram moves/i.test(src),
-    "static-instrument comment missing");
-});
-
-await test("neon middle purple is gone; muted clay defined", () => {
-  assert.ok(!src.includes("#a78bfa"), "neon #a78bfa still present");
-  assert.ok(!/VENN_MIDDLE/.test(src), "VENN_MIDDLE still referenced");
-  assert.ok(/VENN_CLAY\s*=\s*"#9e7350"/.test(src), "VENN_CLAY constant missing");
-  assert.ok(/function mixHex/.test(utilsSrc), "mixHex helper missing from appUtils.js");
-  assert.ok(/mixHex/.test(src), "mixHex not used by the app");
-});
-
-await test("lobes are static hairline circles", () => {
-  const lobeBlock = src.slice(src.indexOf("Two perfect static circles"));
-  assert.ok(/strokeWidth=\{1\}/.test(lobeBlock), "lobe strokeWidth is not 1px hairline");
+  assert.ok(!/<svg/.test(ledger), "ledger still draws SVG geometry");
   assert.ok(!/className="venn-drift/.test(src), "drift wrapper still present");
 });
 
-await test("region labels are quiet lowercase kickers, not tracked caps", () => {
-  // Pass 6: the stance labels dropped the letterspaced-caps treatment for
-  // the quiet lowercase instrument kicker — same data, no chrome.
-  const labelBlock = src.slice(src.indexOf("const regionLabel"), src.indexOf("const regionLabel") + 400);
-  assert.ok(/text\.toLowerCase\(\)/.test(labelBlock), "region labels are not lowercase kickers");
-  assert.ok(!/letterSpacing/.test(labelBlock), "region labels still use tracked caps styling");
-  assert.ok(/fill=\{P\.faint\}/.test(labelBlock), "region labels lost the quiet faint fill");
+await test("neon middle purple is gone; the contesting color is muted clay", () => {
+  assert.ok(!src.includes("#a78bfa"), "neon #a78bfa still present");
+  assert.ok(!/VENN_MIDDLE/.test(src), "VENN_MIDDLE still referenced");
+  assert.ok(!/VENN_CLAY/.test(src), "VENN_CLAY still referenced");
+  // The clay lives in STANCE_COLORS now: a muted rust for contesting.
+  assert.ok(/STANCE_COLORS\s*=\s*\{[^}]*contrasting: "#B0472B"/.test(src), "muted clay contrasting color missing");
+  assert.ok(/numColor: STANCE_COLORS\.contrasting/.test(ledger), "contesting group not on the clay numeral");
 });
 
-await test("dot sizing is subtle (4.5–8px range)", () => {
-  assert.ok(/return 4\.5;/.test(src), "dot base radius not 4.5");
-  assert.ok(/4 \+ Math\.min\(4,/.test(src), "dot sizing range not subtle");
+await test("lobes replaced by grouped stance rows under plain headings", () => {
+  assert.ok(!src.includes("Two perfect static circles"), "lobe geometry comment still present");
+  assert.ok(/eyebrow="Where the papers stand"/.test(ledger), "ledger eyebrow missing");
+  for (const label of ["Supports the direction", "Qualifies it", "Contests it"]) {
+    assert.ok(ledger.includes(`label: "${label}"`), `stance group missing: ${label}`);
+  }
+});
+
+await test("group labels are quiet faint rows, not tracked caps", () => {
+  assert.ok(!/letterSpacing/.test(ledger), "ledger still uses tracked caps styling");
+  assert.ok(/color: P\.faint/.test(ledger), "group labels lost the quiet faint color");
+});
+
+await test("citation rows are quiet numbered buttons, not dots on a diagram", () => {
+  assert.ok(/\[{n}\]/.test(ledger) || ledger.includes("[{n}]"), "numbered citation rows missing");
+  assert.ok(/fontVariantNumeric: "tabular-nums"/.test(ledger), "citation numerals not tabular");
+  assert.ok(!/return 4\.5;/.test(src), "venn dot sizing still present");
 });
 
 await test("classification logic entry point untouched", () => {
   // 2026-10-08: conflicts param added so literature conflict pairs are
-  // visible in the Venn instead of contradicting it.
+  // visible in the classification instead of contradicting it.
   assert.ok(/classifyVennPapers\(\{ answer: turn\.answer, sources: turn\.sources, factCheck: turn\.factCheck, conflicts: turn\.literatureConflicts \}\)/.test(src),
     "classifyVennPapers call changed");
   assert.ok(/if \(classifiable < 2\) return null;/.test(src), "render guard changed");
 });
 
-await test("hover readout and unclear row copy preserved", () => {
-  assert.ok(/Placed from the fact-check and the disagreement section — never guessed/.test(src),
+await test("unclear row copy preserved: placement is honest, never guessed", () => {
+  assert.ok(/No clear signal/.test(ledger), "no-clear-signal row missing");
+  assert.ok(/Placed from the fact-check and the disagreement section/.test(ledger),
     "honest placement copy missing");
-  assert.ok(/No clear signal/.test(src), "no-clear-signal row missing");
+  assert.ok(/never guessed/.test(ledger), "never-guessed copy missing");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

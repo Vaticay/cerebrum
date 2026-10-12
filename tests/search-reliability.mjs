@@ -185,13 +185,21 @@ test("broadening triggers on zero, thin, and encyclopedia-only results", () => {
     "must define a minimum real-paper threshold");
 });
 
-test("broadening uses three strategies in order", () => {
+test("broadening uses two strategies in order, and never drops the topic constraint", () => {
   assert.ok(src.includes('"bare_terms"'),
     "strategy 1: bare significant terms must exist");
   assert.ok(src.includes('"synonym_expanded"'),
     "strategy 2: synonym-expanded query must exist");
-  assert.ok(src.includes('"organism_only"'),
-    "strategy 3: organism-alone broadest net must exist");
+  assert.ok(src.indexOf('"bare_terms"') < src.indexOf('"synonym_expanded"'),
+    "strategies must run bare-terms first, synonym-expanded second");
+  // Strategy 3 (organism alone) was REMOVED on 2026-10-09: for the BSFL
+  // waste-oil query it dropped the load-bearing 'waste oil' constraint
+  // and answered an adjacent question. It must never come back as a
+  // broadening candidate.
+  assert.ok(!src.includes('_pushCand("organism_only"'),
+    "organism_only must not be a broadening candidate — it drops the topic constraint");
+  assert.ok(src.includes("Strategy 3 (REMOVED 2026-10-09"),
+    "the removal rationale must stay recorded next to the strategies");
 });
 
 test("broadening adopts only strictly-better results", () => {
@@ -215,14 +223,18 @@ test("broadening counts real papers via isEncyclopediaSource", () => {
   assert.ok(helper.includes("Reference"), "must detect Reference type");
 });
 
-test("broadening prefers the scientific name for organism-only strategy", () => {
-  assert.ok(src.includes("organism_only"),
-    "organism_only strategy must exist");
-  // The scientific (two-word latin) phrase is preferred over common names.
-  const idx = src.indexOf("organism_only");
-  const window = src.slice(idx - 600, idx + 200);
-  assert.ok(/\[a-z\]\+ \[a-z\]\+/.test(window) || /sci/.test(window),
-    "organism_only should prefer the scientific name phrase");
+test("broadening prefers the scientific name via synonym expansion", () => {
+  // The scientific-name preference moved into strategy 2 when the
+  // organism_only strategy was removed: expansionsFor maps a common
+  // name (BSFL) to the scientific name plus topic words as plain
+  // keywords, without dropping the topic constraint.
+  const idx = src.indexOf('_pushCand("synonym_expanded"');
+  assert.ok(idx > 0, "synonym_expanded candidate missing");
+  const window = src.slice(idx - 700, idx + 200);
+  assert.ok(/scientific name/.test(window),
+    "synonym expansion should prefer the scientific name phrase");
+  assert.ok(/expansionsFor\(/.test(window),
+    "synonym expansion must run through expansionsFor");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

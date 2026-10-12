@@ -865,7 +865,8 @@ await test("search.js gates all three AI waves on the Pro gate", async () => {
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");
   assert.match(src, /consumeAiAnswer\(env, aiGate\.userId, aiGate\.aiCap\)/, "AI answers not metered atomically");
   // Wave 4 (deterministic fallback) must stay ungated — everyone gets it.
-  assert.match(src, /WAVE 4 — DETERMINISTIC EXTRACTIVE SYNTHESIS/, "wave 4 marker moved?");
+  // The marker uses a spaced period since the dash sweep (ede6e38).
+  assert.match(src, /WAVE 4 \. DETERMINISTIC EXTRACTIVE SYNTHESIS/, "wave 4 marker moved?");
 });
 
 await test("pro.js verifies webhooks before parsing the body, and gates grants on the founder", async () => {
@@ -942,8 +943,12 @@ await test("Pro palette exists and is gated to Pro members", async () => {
 await test("Pro badge renders on profile and in the account menu", async () => {
   const src = await readUiSrc();
   assert.match(src, /function ProBadge/, "ProBadge component missing");
-  assert.match(src, /\{user\?\.isPro && <ProBadge/, "profile badge wiring missing");
+  // Render sites use local receiver shapes now (the badge renders at 8+
+  // sites): the Usage/profile header reads a local isPro, the account
+  // chip reads user.isPro, member rows read their row object.
+  assert.match(src, /\{isPro && <ProBadge/, "profile badge wiring missing");
   assert.match(src, /\{user\.isPro && <ProBadge/, "account menu badge wiring missing");
+  assert.match(src, /\{u\.isPro && <ProBadge/, "member-row badge wiring missing");
 });
 
 await test("workspace film is back without the Pro reel toggle", async () => {
@@ -1037,8 +1042,12 @@ await test("Pro surfaces stay inside 320px: no fixed-width traps", async () => {
   // Grant panel input: fluid, wraps with its button.
   assert.ok(!src.includes('fontFamily: "var(--cb-body)", width: 200'), "grant email input must not be a fixed 200px");
   assert.match(src, /flex: "1 1 160px"[\s\S]{0,80}maxWidth: 260/, "grant input must flex within a max width");
-  // Pricing plan cards: stack on narrow screens.
-  assert.match(src, /flex: "1 1 200px"/, "plan cards must wrap at 200px basis");
+  // Pricing plans on narrow screens: the desktop comparison table is
+  // hidden and the plans render as a vertical stack of full-width tier
+  // cards (.cb-usage-cards) — the old flex-basis card row is gone, and
+  // with it the 200px basis this test used to pin.
+  assert.match(src, /className="cb-usage-cards"/, "stacked plan cards missing");
+  assert.match(src, /\.cb-usage-table-desktop \{ display: none; \}[\s\S]{0,120}\.cb-usage-cards \{ display: flex; flex-direction: column/, "plan cards must stack in a column on narrow screens");
   // Usage meter row: renders through the Row/UIRow anatomy (labels wrap via
   // overflowWrap:anywhere above) with a real progressbar and used-of-cap text.
   assert.match(src, /const meterRow = \(label, used, cap/, "usage meterRow helper missing");

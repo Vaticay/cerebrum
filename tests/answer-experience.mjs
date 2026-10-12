@@ -122,7 +122,7 @@ await test("bibliography keeps its ledger contract", () => {
 });
 
 await test("zero sources get an honest empty state with retry, not a silent gap", () => {
-  assert.match(appSrc, /NO SOURCES CITED/, "zero-source empty state missing");
+  assert.match(appSrc, /kicker="No sources cited"/, "zero-source empty state missing");
   assert.match(appSrc, /label: "Retry search", primary: true, onClick: onRetry/, "retry not wired to the empty state");
 });
 
@@ -133,7 +133,7 @@ await test("failed synthesis is keyed from synthesisMode, never prose", () => {
 
 await test("connection failure is narrowed to all-databases-failed", () => {
   assert.match(appSrc, /const allDbFailed =/, "allDbFailed derivation missing");
-  assert.match(appSrc, /CONNECTION FAILED/, "connection-failed state missing");
+  assert.match(appSrc, /kicker="Connection failed"/, "connection-failed state missing");
   assert.match(appSrc, /The databases couldn't be reached\./, "connection-failed copy missing");
 });
 
@@ -225,13 +225,20 @@ await test("error copy is plain — no sorry language", () => {
 });
 
 await test("fact-check always renders a section with failed/empty shells", () => {
-  assert.match(appSrc, /CHECK FAILED/, "fact-check failed shell missing");
+  assert.match(appSrc, /"Check failed"/, "fact-check failed shell missing");
   assert.match(appSrc, /No scientific claims to verify\./, "fact-check honest empty state missing");
   assert.ok(!/kicker=\{[^}]*"NOT CHECKED"/.test(appSrc) && !appSrc.includes('kicker="NOT CHECKED"'), "NOT CHECKED still present");
 });
 
-await test("venn section renders an honest shell when claims don't divide", () => {
-  assert.match(appSrc, /NO CLEAR DIVIDE/, "venn empty shell missing");
+await test("stance section is the StanceLedger; under two classifiable papers it renders nothing", () => {
+  // The venn diagram was removed and replaced by StanceLedger (design
+  // note above the component). By design there is no empty shell: with
+  // fewer than two classifiable papers the ledger renders nothing, and
+  // the old "NO CLEAR DIVIDE" shell is gone with the diagram.
+  assert.match(appSrc, /function StanceLedger/, "StanceLedger component missing");
+  assert.match(appSrc, /if \(classifiable < 2\) return null;/, "ledger must stay home under two classifiable papers");
+  assert.match(appSrc, /eyebrow="Where the papers stand"/, "ledger section eyebrow missing");
+  assert.ok(!/NO CLEAR DIVIDE/.test(appSrc), "venn-era NO CLEAR DIVIDE shell still present");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -283,7 +290,7 @@ await test("sections follow the reading order: evidence, fact-check, disagreemen
 });
 
 await test("compare section owns an honest shell instead of returning null", () => {
-  assert.match(appSrc, /NOTHING TO COMPARE/, "compare empty shell missing");
+  assert.match(appSrc, /kicker="Nothing to compare"/, "compare empty shell missing");
   assert.ok(!/if \(!sources\.length\) return null/.test(appSrc), "EvidenceSection still returns null");
 });
 
@@ -324,9 +331,14 @@ await test("answer surface is one wide article column; evidence is a drawer", ()
   assert.ok(!/cb-answer-grid/.test(appSrc), "old two-column answer grid still referenced");
   assert.match(appSrc, /<TickFrame P=\{P\} accent=\{accent\} className="cb-answer-enter"/, "answer not framed by TickFrame on the answer-enter contract");
   assert.match(appSrc, /<article style=\{\{[^}]*\.\.\.S\.answerCard[^}]*border: "none"[^}]*borderRadius: RADIUS\.viewport/, "article not on the tick-viewport contract");
-  // Article measure stays in the 65–75ch readability band.
+  // Widened surface (cb99ac5): the article fills its wrap rather than
+  // sitting in a 65–75ch column; the wrap caps at 1480px inside the
+  // 1760px search-view container.
+  const wrapRule = appSrc.slice(appSrc.indexOf(".cb-answer-wrap {"));
+  assert.match(wrapRule.slice(0, 160), /max-width: 1480px/, "answer wrap not on the widened measure");
   const articleRule = appSrc.slice(appSrc.indexOf(".cb-answer-wrap .cb-article"));
-  assert.match(articleRule.slice(0, 160), /max-width: 7[0-5]ch/, "article measure outside 65–75ch");
+  assert.match(articleRule.slice(0, 160), /max-width: 100%/, "article not filling the widened wrap");
+  assert.match(appSrc, /maxWidth: 1760/, "search view container not widened to 1760");
   assert.match(appSrc, /function AnswerDiagnostics/, "AnswerDiagnostics missing");
   assert.match(appSrc, /className="cb-diag"/, "diagnostics disclosure not on the contract");
   assert.match(appSrc, /Answer diagnostics/, "diagnostics disclosure title missing");

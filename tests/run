@@ -386,10 +386,13 @@ await test("title-only papers get the honest weak-evidence answer (honesty gate 
 
 await test("papers with abstracts get clustered themes and extracted findings", () => {
   const out = buildExtractiveSynthesis(ABSTRACT_PAPERS);
-  assert.ok(out.includes("### "), "no theme sections produced");
+  // Themes render as plain "Findings on ..." lines (2026-10-12 restyle,
+  // 1c0de1a + 6d94992), not "### " headings.
+  const themeLines = out.split("\n").filter((l) => l.startsWith("Findings on "));
+  assert.ok(themeLines.length >= 2, "no theme lines produced");
   // The two microbiome papers share vocabulary and must cluster apart from physics.
-  assert.ok(/Gut ·|Microbiome|Larval/i.test(out), "microbiome theme missing");
-  assert.ok(/Quantum/i.test(out), "physics theme missing");
+  assert.ok(themeLines.some((l) => /microbiome|gut/i.test(l)), "microbiome theme missing");
+  assert.ok(themeLines.some((l) => /quantum/i.test(l)), "physics theme missing");
   assert.ok(out.includes("**62%**"), "quantities are not bolded");
   assert.ok(out.includes("**p < 0.01**"), "p-value was mangled by sentence splitting");
 });
@@ -491,8 +494,12 @@ await test("evidence brief is launched lazily and consumed by waves 2+", () => {
   // rather than speculative (briefPromise alongside wave 1) — no wave-1
   // budget contention.
   assert.match(searchSrc, /startBrief\(\)/, "lazy brief launch missing");
-  assert.match(searchSrc, /buildBriefMessages\(briefText\)/, "wave 2 does not consume the brief");
-  assert.match(searchSrc, /EVIDENCE BRIEF \(pre-extracted claims — lead with these/, "wave 3 does not consume the brief");
+  // 2026-10-12: wave 2 races on the compact prompt and folds the brief
+  // into its last message; buildBriefMessages (full prompt + brief) was
+  // retired because it inherited wave 1's size rejections.
+  assert.match(searchSrc, /const wave2Messages/, "wave 2 messages not derived");
+  assert.match(searchSrc, /Pre-extracted claims from the sources above\. Lead with these and cite the \[n\] shown/, "wave 2 does not fold the brief into the compact prompt");
+  assert.match(searchSrc, /EVIDENCE BRIEF \(pre-extracted claims \. lead with these, cite the \[n\] shown\)/, "wave 3 does not consume the brief");
 });
 await test("speculative brief fan-out is capped and wave 2 waits boundedly", () => {
   // The brief must not drain the rate-limit buckets waves 1-3 need:

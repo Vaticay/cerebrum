@@ -142,7 +142,8 @@ const poisonedBrief = [
 
 await test("lede is a TLDR, not the robotic meta-framing", () => {
   const md = buildExtractiveSynthesis(soilPapers, []);
-  assert.ok(md.includes("## The short answer"), "missing The short answer section");
+  // The extractive lede heading is "## Executive Summary" (1b3ec3a).
+  assert.ok(md.includes("## Executive Summary"), "missing Executive Summary section");
   assert.ok(!md.includes("Across the"), "robotic 'Across the N sources' framing still present");
   assert.ok(!md.includes("clearest reported findings"), "old lede phrasing still present");
   assert.ok(!md.includes("[Results]"), "[Results] tag leaked into output");
@@ -157,7 +158,7 @@ await test("provider error text never surfaces as a claim, even when briefed", (
   assert.ok(!/api key/i.test(md), "api key error leaked into the summary");
   assert.ok(!/wallet/i.test(md), "wallet error leaked into the summary");
   assert.ok(!md.includes("[Results]"), "[Results] tag leaked into output");
-  assert.ok(md.includes("## The short answer"), "missing The short answer section");
+  assert.ok(md.includes("## Executive Summary"), "missing Executive Summary section");
 });
 
 await test("old robotic lede is gone from search.js", () => {

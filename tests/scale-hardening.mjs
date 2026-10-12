@@ -150,19 +150,21 @@ await test("source: wave-1 aborts losers in a finally (win AND deadline paths)",
 });
 
 await test("source: every HTTP leg (OR, compat, fastpath) receives w1Abort.signal", () => {
+  // Wave 1 races on the compact prompt since 821fcd0: legs receive
+  // compactMessages (the fallback full `messages` is also accepted).
   assert.match(
     src,
-    /callOR\(m, messages, maxTokens, wave1Timeout, w1Abort\.signal\)/,
+    /callOR\(m, (?:compactMessages|messages), maxTokens, wave1Timeout, w1Abort\.signal\)/,
     "OpenRouter legs get the signal"
   );
   assert.match(
     src,
-    /compatLegs\(1, "w1", messages, maxTokens, wave1Timeout, w1Abort\.signal\)/,
+    /compatLegs\(1, "w1", (?:compactMessages|messages), maxTokens, wave1Timeout, w1Abort\.signal\)/,
     "compat legs get the signal"
   );
   assert.match(
     src,
-    /callOR\(fastpathModel, messages, maxTokens, clampLegTimeout\(8000\), w1Abort\.signal\)/,
+    /callOR\(fastpathModel, (?:compactMessages|messages), maxTokens, clampLegTimeout\(8000\), w1Abort\.signal\)/,
     "fastpath leg gets the signal"
   );
 });
@@ -229,7 +231,7 @@ await test("source: key threaded from env through gatherPapers to every S2 call"
   assert.ok(src.includes("const s2Key = (opts && opts.s2Key) ||"), "gatherPapers reads opts.s2Key");
   // line-based scan: the paren regex chokes on rawQuery.slice(0, 200)'s nested paren
   const callLines = src.split("\n").filter((l) => l.includes("semanticScholar(") && !l.includes("async function"));
-  assert.equal(callLines.length, 8, `expected 8 call sites, found ${callLines.length}`);
+  assert.equal(callLines.length, 10, `expected 10 call sites, found ${callLines.length}`);
   for (const l of callLines) {
     assert.ok(
       l.includes("s2Key") || l.includes("SEMANTIC_SCHOLAR_KEY"),
@@ -237,7 +239,7 @@ await test("source: key threaded from env through gatherPapers to every S2 call"
     );
   }
   const envWired = (src.match(/s2Key: env\.SEMANTIC_SCHOLAR_KEY \|\| ""/g) || []).length;
-  assert.equal(envWired, 2, `expected 2 gatherPapers call sites wiring env, found ${envWired}`);
+  assert.equal(envWired, 3, `expected 3 gatherPapers call sites wiring env, found ${envWired}`);
 });
 
 // ══════════════════════════════════════════════════════════════════════════
