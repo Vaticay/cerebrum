@@ -766,6 +766,12 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const introAccent = (accent && relLuminance(accent) >= 0.15 && relLuminance(accent) <= 0.82)
     ? accent
     : "#A3B899";
+  /* The accent at low alpha, for card glows and chip fills. */
+  const accentA = (a) => {
+    const h = String(introAccent).replace("#", "");
+    const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+  };
 
   /* Specimen rotation: three cards as a set, advancing every 9s (desktop)
      or 12s (mobile), paused while a dialog is open, while the visitor holds
@@ -932,14 +938,21 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 key={specimenIdx + "-" + k}
                 className={animate ? "cb-specimen-in" : undefined}
                 style={{
+                  position: "relative",
+                  overflow: "hidden",
                   flex: isMobile ? "1 1 auto" : isHero ? "1 1 470px" : "1 1 330px",
                   maxWidth: isMobile ? 560 : isHero ? 490 : 350,
                   width: isMobile ? "100%" : undefined,
                   margin: isMobile ? "0 auto" : undefined,
                   padding: isMobile ? "26px 24px 24px" : isHero ? "40px 44px 36px" : "30px 30px 28px",
-                  background: k === 0 ? "#0c0e0b" : k === 1 ? "#0d0e0b" : "#0b0d0c",
-                  border: "1px solid " + hairline,
-                  borderRadius: 2,
+                  background:
+                    "radial-gradient(130% 95% at 16% 0%, " + accentA(isHero ? 0.14 : 0.08) + " 0%, rgba(255,255,255,0.02) 46%, rgba(0,0,0,0) 72%), " +
+                    "linear-gradient(165deg, #141610 0%, #0b0d0c 56%, #07080a 100%)",
+                  border: "1px solid rgba(255,255,255,0.11)",
+                  borderRadius: 18,
+                  boxShadow: isHero
+                    ? "0 34px 70px rgba(0,0,0,0.62), 0 6px 18px rgba(0,0,0,0.45), 0 0 90px " + accentA(0.10) + ", inset 0 1px 0 rgba(255,255,255,0.10)"
+                    : "0 22px 48px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.07)",
                   opacity: isMobile ? 1 : isFlank ? (k === 0 ? 0.58 : 0.5) : 1,
                   transform: isMobile
                     ? "translateX(" + (k * 12) + "px) rotate(" + (k === 1 ? -0.4 : k === 2 ? 0.5 : 0) + "deg)"
@@ -949,6 +962,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                   transition: "opacity 500ms ease, transform 500ms ease",
                 }}
               >
+                {animate && <div className="cb-spec-sheen" style={{ animationDelay: (k * 0.9) + "s" }} aria-hidden="true" />}
+                <div
+                  className={animate ? "cb-spec-rise" : undefined}
+                  style={{ position: "relative", animationDelay: (0.08 + k * 0.12) + "s" }}
+                >
                 <p style={{
                   fontFamily: serif,
                   fontSize: isMobile
@@ -962,10 +980,26 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 }}>
                   &ldquo;{spec.claim}&rdquo;
                 </p>
+                <div
+                  className={animate ? "cb-spec-rule" : undefined}
+                  aria-hidden="true"
+                  style={{
+                    marginTop: isHero ? 22 : 17, width: 44, height: 2, borderRadius: 2,
+                    background: "linear-gradient(90deg, " + introAccent + ", " + accentA(0) + ")",
+                  }}
+                />
                 <div style={{
-                  marginTop: isHero ? 22 : 16, display: "flex", alignItems: "center",
-                  justifyContent: "flex-start", gap: 10,
+                  marginTop: 13, display: "flex", alignItems: "center",
+                  justifyContent: "flex-start", gap: 9,
                 }}>
+                  <span
+                    className={animate ? "cb-spec-dot" : undefined}
+                    aria-hidden="true"
+                    style={{
+                      width: 7, height: 7, borderRadius: "50%", flex: "0 0 auto",
+                      background: introAccent, ["--cb-spec-dot"]: introAccent,
+                    }}
+                  />
                   <span style={{
                     fontFamily: serif, fontSize: 11, fontWeight: 500,
                     letterSpacing: "normal",
@@ -981,10 +1015,17 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 }}>
                   {spec.paper}{" "}
                   <a href={spec.doi} target="_blank" rel="noopener noreferrer"
-                    style={{ color: introAccent, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      marginLeft: 6, padding: "5px 12px", borderRadius: 999,
+                      border: "1px solid " + accentA(0.38), background: accentA(0.09),
+                      color: introAccent, fontSize: 12, fontWeight: 600,
+                      textDecoration: "none", whiteSpace: "nowrap", verticalAlign: "middle",
+                    }}>
                     Open the paper &#8599;
                   </a>
                 </p>
+                </div>
               </div>
             );
           })}
@@ -999,20 +1040,26 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             <button type="button" aria-label="Previous three claims"
               onClick={() => setSpecimenIdx((i) => (i - setSize + specimenCount) % specimenCount)}
               style={{
-                padding: "12px 14px", cursor: "pointer",
+                width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
                 fontFamily: serif, fontSize: 17,
-                color: "rgba(238,241,238,0.4)",
-                background: "none", border: "none",
+                color: "rgba(238,241,238,0.62)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                transition: "background 200ms ease, color 200ms ease, transform 200ms ease",
               }}>
               &#8592;
             </button>
             <button type="button" aria-label="Next three claims"
               onClick={() => setSpecimenIdx((i) => (i + setSize) % specimenCount)}
               style={{
-                padding: "12px 14px", cursor: "pointer",
+                width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
                 fontFamily: serif, fontSize: 17,
-                color: "rgba(238,241,238,0.4)",
-                background: "none", border: "none",
+                color: "rgba(238,241,238,0.62)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                transition: "background 200ms ease, color 200ms ease, transform 200ms ease",
               }}>
               &#8594;
             </button>

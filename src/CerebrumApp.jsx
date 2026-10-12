@@ -5741,6 +5741,13 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     }
     return seen.length > 1 ? seen.sort() : null;
   }, [sources]);
+  // Real stance tallies, batched: one request per bibliography render,
+  // not one per row. Papers without a DOI or without scite.ai data keep
+  // the honest empty tally. These declarations used to sit inside the
+  // ledger JSX as literal text, which left tallies unbound at its use
+  // site and printed code in the rendered bibliography.
+  const tallyDois = useMemo(() => (sources || []).map(normalizeSourceDoi), [sources]);
+  const tallies = useTallies(tallyDois);
   /* Pass 6: a plain quiet text action — never a letterspaced caps button. */
   const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
@@ -5831,11 +5838,6 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
       {/* Hanging-indent typography lives inside each row's content column —
          the numeral sits in the contract's number gutter, wrapped lines
          align under the text. */}
-  /* Real stance tallies, batched: one request per bibliography render, not
-     one per row. Papers without a DOI or without scite.ai data keep the
-     honest dashes. */
-  const tallyDois = useMemo(() => (sources || []).map(normalizeSourceDoi), [sources]);
-  const tallies = useTallies(tallyDois);
       <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column" }}>
         {(() => {
           const seen = new Set();
@@ -22994,12 +22996,49 @@ summary::-webkit-details-marker { display: none; }
    focus-pull language as the entrance, quicker (0.7s) so rotation feels
    like turning a page, not a scene change. Transform + opacity only. */
 @keyframes cbSpecimenIn {
-  from { opacity: 0; filter: blur(10px); transform: translateY(14px); }
-  to   { opacity: 1; filter: none; transform: translateY(0); }
+  from { opacity: 0; filter: blur(10px); }
+  to   { opacity: 1; filter: none; }
 }
 .cb-specimen-in {
   animation: cbSpecimenIn 0.7s var(--cb-ease-out) both;
-  will-change: transform, opacity;
+  will-change: opacity;
+}
+/* Specimen cards, 2026-10-12 restyle: the rise moved to an inner wrapper
+   so the entrance never fights the fan transform on the card itself, a
+   slow light sweep crosses the surface, the evidence rule draws itself
+   in, and the traced dot breathes. Motion stays quiet: one sweep per
+   several seconds, no loops on touch devices. */
+@keyframes cbSpecRise {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cb-spec-rise { animation: cbSpecRise 0.85s var(--cb-ease-out) both; }
+@keyframes cbSheen {
+  0% { transform: translateX(-130%) skewX(-8deg); }
+  24% { transform: translateX(130%) skewX(-8deg); }
+  100% { transform: translateX(130%) skewX(-8deg); }
+}
+.cb-spec-sheen {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, rgba(255,255,255,0) 32%, rgba(255,255,255,0.05) 46%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.05) 54%, rgba(255,255,255,0) 68%);
+  animation: cbSheen 7.5s ease-in-out infinite;
+}
+@keyframes cbSpecRule {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.cb-spec-rule { transform-origin: left center; animation: cbSpecRule 0.9s var(--cb-ease-out) 0.3s both; }
+@keyframes cbSpecDot {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cb-spec-dot, #A3B899) 45%, transparent); }
+  55% { box-shadow: 0 0 0 7px transparent; }
+}
+.cb-spec-dot { animation: cbSpecDot 2.4s ease-out infinite; }
+@media (hover: none), (pointer: coarse) {
+  .cb-spec-rise { animation: none; }
+  .cb-spec-sheen { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-spec-rise, .cb-spec-sheen, .cb-spec-rule, .cb-spec-dot { animation: none; }
 }
 @media (hover: none), (pointer: coarse) {
   .cb-specimen-in { animation: none; filter: none; opacity: 1; transform: none; }
