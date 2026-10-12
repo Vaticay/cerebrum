@@ -677,7 +677,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     const journals = [...new Set(list.map((s) => s.journal).filter(Boolean))];
     const totalCites = list.reduce((a, s) => a + (typeof s.citations === "number" ? s.citations : 0), 0);
     const figs = [`${cited} paper${cited === 1 ? "" : "s"} underpin this answer`];
-    if (years.length) figs.push(years.length > 1 ? `published ${Math.min(...years)}–${Math.max(...years)}` : `published ${years[0]}`);
+    if (years.length) figs.push(years.length > 1 ? `published ${Math.min(...years)} to ${Math.max(...years)}` : `published ${years[0]}`);
     if (journals.length) figs.push(`across ${journals.length} journal${journals.length === 1 ? "" : "s"}`);
     if (totalCites > 0) figs.push(`${totalCites.toLocaleString()} combined citations`);
     need(20);
@@ -705,8 +705,8 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
         doc.setFont("times", "normal"); doc.setFontSize(9); doc.setTextColor(40, 40, 40);
         doc.text(tLines, cTitle, y);
         doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
-        doc.text(String(s.year || "—"), cYear, y);
-        doc.text(typeof s.citations === "number" ? s.citations.toLocaleString() : "—", cCite, y);
+        doc.text(String(s.year || "n/a"), cYear, y);
+        doc.text(typeof s.citations === "number" ? s.citations.toLocaleString() : "n/a", cCite, y);
         y += rh + 6;
       });
       y += 8;
@@ -6482,7 +6482,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {[1, 2].map((i) => (
                   <div key={i} style={{ padding: "12px 16px", borderRadius: RADIUS.lg, border: `1px dashed ${P.line2}`, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                    Quote slot {i} — pending owner quote. (A real researcher's name and outcome go here.)
+                    Quote slot {i}: pending owner quote. (A real researcher's name and outcome go here.)
                   </div>
                 ))}
               </div>
@@ -7768,7 +7768,7 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
         })}
       </div>
       <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 8, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-        Read from the answer's own citations — the claims it leans on hardest, and the papers under each one.
+        Read from the answer's own citations, the claims it leans on hardest, and the papers under each one.
       </div>
     </AnswerSection>
   );
@@ -7873,7 +7873,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
       k: "Databases",
       v: t.coverageNote ||
         `${okCount} of ${dbOutcomes.length} answered` +
-        (missing.length ? ` — no answer from ${missing.join(", ")}` : ""),
+        (missing.length ? `, no answer from ${missing.join(", ")}` : ""),
     });
   }
   if (typeof t.answerSeconds === "number" && t.answerSeconds > 0) {
@@ -7891,7 +7891,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   }
   for (const s of failedStages) {
     const ms = typeof s.ms === "number" && s.ms > 0 ? ` after ${Math.round(s.ms)} ms` : "";
-    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage did not complete${ms} — the answer was built without it.` });
+    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage did not complete${ms}, the answer was built without it.` });
   }
   if (t.degraded && failedStages.length === 0) {
     rows.push({ k: "Pipeline", v: "Built under degraded conditions. Part of the pipeline did not complete." });
@@ -8203,7 +8203,7 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
       </div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 12, maxWidth: 620 }}>
         {filtered
-          ? <>No papers matched with the <strong style={{ color: P.ink }}>{tierLabel}</strong> filter on{t.evidenceFilteredOut > 0 ? <> — it removed all {t.evidenceFilteredOut} candidate{t.evidenceFilteredOut === 1 ? "" : "s"}</> : " — it removed every candidate"}. Clear it to search the full literature, or try a rephrasing.</>
+          ? <>No papers matched with the <strong style={{ color: P.ink }}>{tierLabel}</strong> filter on{t.evidenceFilteredOut > 0 ? <>, it removed all {t.evidenceFilteredOut} candidate{t.evidenceFilteredOut === 1 ? "" : "s"}</> : ", it removed every candidate"}. Clear it to search the full literature, or try a rephrasing.</>
           : <>No papers in the literature matched this question. Each suggestion below changes the search strategy, not just the wording.</>}
       </div>
       {suggestions.length > 0 && (
@@ -15195,7 +15195,7 @@ function detectDocIdentifier(text) {
 }
 /* Extracted metadata preview, shown before analysis. Title from the
    document's own first line; identifier from the patterns above; authors
-   and year from conservative heuristics — unknown fields render as "—"
+   and year from conservative heuristics — unknown fields render as "n/a"
    rather than guessed. */
 function docMetaPreview(text) {
   const lines = String(text || "").split("\n").map((l) => l.trim()).filter(Boolean);
@@ -16032,7 +16032,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             {/* Detected identifier, before analysis. The old heuristic table
                 (title/authors/journal/year guessed from line shapes) is gone:
                 it duplicated what the analysis itself produces, and three of
-                its five rows routinely read "—". Only the identifier — the
+                its five rows routinely read "n/a". Only the identifier — the
                 one thing the analysis can't derive — is shown. */}
             {docMeta && docMeta.ident && (
               <div style={{ marginTop: 12, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: P.surface, overflow: "hidden", boxShadow: SHADOW.xs(P) }}>
@@ -20597,7 +20597,7 @@ function App() {
     setPinnedSources([]); setCorrections([]); setError("");
     /* Pass 4: the investigations ledger shows "last opened". It is recorded
        here — the single point every open flows through — and items that
-       predate it honestly show "—". */
+       predate it honestly show "n/a". */
     setHistory((prev) => prev.map((x) => x.id === entry.id ? { ...x, lastOpened: Date.now() } : x));
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, left: 0, behavior: "instant" }), 60);
   }
@@ -21789,8 +21789,8 @@ function App() {
                         const collName = sv.collectionId ? (collections.find((c) => c.id === sv.collectionId)?.name || null) : null;
                         const usedIn = savedUsage.get(key) || [];
                         const savedDate = sv.savedAt || sv.createdAt;
-                        const typeLabel = sv.type || "—";
-                        const journalLabel = sv.journal || sv.source || "—";
+                        const typeLabel = sv.type || "n/a";
+                        const journalLabel = sv.journal || sv.source || "n/a";
                         return (
                           <div key={key} role="listitem"
                             style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780 }}>
@@ -21815,7 +21815,7 @@ function App() {
                                   It says so permanently, in plain words. */}
                               {sv.zkMigrated && (
                                 <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
-                                  Saved before Private Vault was turned on — it was visible to Cerebrum's servers.
+                                  Saved before Private Vault was turned on, so it was visible to Cerebrum's servers.
                                 </span>
                               )}
                               {isMobile && (
@@ -21829,11 +21829,11 @@ function App() {
                                 <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sv.type || undefined}>{typeLabel}</span>
                                 <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={journalLabel}>{journalLabel}</span>
                                 <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                  {savedDate ? new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                  {savedDate ? new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "n/a"}
                                 </span>
                                 <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)" }}
                                   title={usedIn.length ? usedIn.map((h) => h.title).join("\n") : undefined}>
-                                  {usedIn.length ? `${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : "—"}
+                                  {usedIn.length ? `${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : "n/a"}
                                 </span>
                                 <span style={{ width: 76, flexShrink: 0, display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
                                   {sv.authors && (
@@ -21913,12 +21913,12 @@ function App() {
             <WorkspacePage
               P={P} accent={accent} isMobile={isMobile} wide
               title="Exports" count={exportLog.length}
-              description="Every export Cerebrum has produced in this browser — the format, the file, and when it left."
+              description="Every export Cerebrum has produced in this browser: the format, the file, and when it left."
             >
               {exportLog.length === 0 ? (
                 <WorkspaceEmpty P={P} accent={accent} icon="download" size="sm"
                   title="Nothing exported yet"
-                  body="Export a bibliography, your saved papers, an investigation, or a diagram — the receipt lands here."
+                  body="Export a bibliography, your saved papers, an investigation, or a diagram. The receipt lands here."
                   actionLabel="Browse saved papers" onAction={() => scrollToLibSection("lib-papers")} />
               ) : (
                 <div role="list" aria-label="Export history" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
@@ -21954,7 +21954,7 @@ function App() {
             <h2 style={{ fontSize: 20, fontWeight: 700, color: P.ink, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>Import citations</h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.faint, margin: "0 0 16px", fontFamily: "var(--cb-font)" }}>
               From Zotero, Mendeley, or any reference manager. Export as BibTeX (.bib) or RIS (.ris), then drop the file here.
-              Imported papers arrive without abstracts — those formats don't carry them.
+              Imported papers arrive without abstracts. Those formats don't carry them.
             </p>
             {!importPreview ? (
               <label style={{
@@ -22121,7 +22121,7 @@ function App() {
                       const qCount = (h.turns || []).length;
                       const pCount = (h.allSources || []).length;
                       const mCount = (h.turns || []).filter((t) => t && t.evidenceStructure).length;
-                      const accession = accessionById.get(h.id) || "—";
+                      const accession = accessionById.get(h.id) || "n/a";
                       const invTitle = h.title || ((h.turns || [])[0] && (h.turns || [])[0].q) || "Untitled";
                       const statusTone = status === "Answered" ? accent : status === "Needs review" ? STATUS.warn : P.faint;
                       return (
@@ -22175,7 +22175,7 @@ function App() {
                                       byte-for-byte the original disclosure. */}
                                   {h.zkMigrated && (
                                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>
-                                      Saved before Private Vault was turned on — it was visible to Cerebrum's servers.
+                                      Saved before Private Vault was turned on, so it was visible to Cerebrum's servers.
                                     </span>
                                   )}
                                   {(h.allSources || []).length > 0 && h.allSources[0] && h.allSources[0].title && (
@@ -22191,7 +22191,7 @@ function App() {
                                 {!isMobile && (
                                   <>
                                     <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                      {h.ts ? new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                      {h.ts ? new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "n/a"}
                                     </span>
                                     <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
                                       {qCount} Q · {pCount} papers · {mCount} map{mCount === 1 ? "" : "s"}
@@ -22200,7 +22200,7 @@ function App() {
                                       <span style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: statusTone, border: `1px solid ${withAlpha(statusTone, 0.45)}`, borderRadius: 2, padding: "3px 12px", fontFamily: "var(--cb-font)", lineHeight: 1.4, whiteSpace: "nowrap" }}>{status}</span>
                                     </span>
                                     <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                      {h.lastOpened ? new Date(h.lastOpened).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                      {h.lastOpened ? new Date(h.lastOpened).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "n/a"}
                                     </span>
                                   </>
                                 )}

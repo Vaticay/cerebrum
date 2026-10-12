@@ -361,14 +361,14 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
       await navigator.clipboard.writeText(newKey.key);
       setCopied(true);
     } catch {
-      setMsg({ tone: "bad", text: "Copy failed — select the key text manually." });
+      setMsg({ tone: "bad", text: "Copy failed. Select the key text manually." });
     }
   };
 
-  const fmtDate = (ts) => ts ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+  const fmtDate = (ts) => ts ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "n/a";
 
   return (
-    <Section title="API access" footer="Pro members can call /api/search with an API key instead of a browser session. Keys inherit your Pro quota (unlimited) and stop working if Pro lapses. Never share a key — it acts as you.">
+    <Section title="API access" footer="Pro members can call /api/search with an API key instead of a browser session. Keys inherit your Pro quota (unlimited) and stop working if Pro lapses. Never share a key. It acts as you.">
       {newKey && (
         <div style={{ margin: "0 0 12px", padding: 14, borderRadius: 12, border: `1px solid ${STATUS.good}`, background: withAlpha(STATUS.good, 0.07) }}>
           <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
@@ -503,7 +503,7 @@ function RestorePhrasePanel({ P, accent, backups, restoreDeviceId, setRestoreDev
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Which device's backup is this for?</div>
           <UISelect P={P} accent={accent} value={restoreDeviceId} onChange={(v) => { sfx(); setRestoreDeviceId(v); }}
-            options={backups.map((b) => ({ value: b.deviceId, label: `${b.label} — backed up ${relativeTime(b.updatedAt)}` }))}
+            options={backups.map((b) => ({ value: b.deviceId, label: `${b.label}, backed up ${relativeTime(b.updatedAt)}` }))}
             ariaLabel="Which device's backup is this for" style={{ width: "100%", fontSize: 16 }} />
         </div>
       )}
@@ -813,14 +813,14 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   return (<>
     <Section
       title="Encrypted messaging"
-      footer="Encrypted conversations can only be read on your devices — not by Cerebrum, not by anyone in between. Your recovery phrase is the only way back in if you lose a device, so write it down."
+      footer="Encrypted conversations can only be read on your devices, not by Cerebrum, not by anyone in between. Your recovery phrase is the only way back in if you lose a device, so write it down."
     >
       {loading ? (
         <Row label="Checking this device…" last />
       ) : !setUp ? (<>
         <Row
           label="Encrypted messaging"
-          desc="Set it up on this device to start private conversations. You'll get a recovery phrase — the only way to get back in if you lose this device."
+          desc="Set it up on this device to start private conversations. You'll get a recovery phrase, the only way to get back in if you lose this device."
           control={<button onClick={doSetup} disabled={busy === "setup"} style={pillBtn}>{busy === "setup" ? "Setting up…" : "Set up"}</button>}
         />
         <Row
@@ -877,7 +877,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
     {setUp && !loading && (
       <Section
         title="Devices"
-        footer="Every device you use gets its own keys. Removing a device stops it from reading new messages right away — it can't sneak back in later."
+        footer="Every device you use gets its own keys. Removing a device stops it from reading new messages right away. It can't sneak back in later."
       >
         {devices.length === 0 && <Row label="No other devices yet" desc="Set up encrypted messaging on another device and it will appear here." last />}
         {devices.map((d, i) => (
@@ -1129,7 +1129,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     const phrase = await getRecoveryPhrase().catch(() => null);
     if (!phrase) {
       vaultCtl.setMode("locked");
-      toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.");
+      toast("Private Vault is locked on this device. Confirm your recovery phrase in Settings to resume syncing.");
       return;
     }
     setBusy("rotate");
@@ -1219,7 +1219,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
       throw new Error(
         "Couldn't write back " + failedCols.length + " collection" + (failedCols.length === 1 ? "" : "s") +
         " (" + failedCols.slice(0, 3).join(", ") + (failedCols.length > 3 ? ", …" : "") +
-        "). Your saved items are untouched — try again in a moment."
+        "). Your saved items are untouched. Try again in a moment."
       );
     }
     const remap = (s) => {
@@ -1256,7 +1256,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         // syncing is paused until it's explicitly resumed in Settings —
         // nothing is written back as plaintext on its own.
         vaultCtl.setLocalOnly(true);
-        toast("Private Vault is off. Your library stays in this browser only — resume readable syncing in Settings if you want it on Cerebrum's servers.");
+        toast("Private Vault is off. Your library stays in this browser only. Resume readable syncing in Settings if you want it on Cerebrum's servers.");
       }
       setDisableStep(false);
       setDisableConsent(false);
@@ -1332,7 +1332,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
               <span>Server backups may keep old readable copies until the backup retention window passes.</span>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <UIButton P={P} variant="ghost" onClick={() => { sfx(); setEnableStep("phrase"); }} style={pillBtn}>I understand — continue</UIButton>
+              <UIButton P={P} variant="ghost" onClick={() => { sfx(); setEnableStep("phrase"); }} style={pillBtn}>I understand, continue</UIButton>
               <UIButton P={P} variant="ghost" onClick={() => { sfx(); setEnableStep(null); }} style={ghostBtn}>Not now</UIButton>
             </div>
           </div>
@@ -1376,7 +1376,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         {vaultCtl.migPending && (
           <Row
             label="Finish turning on Private Vault"
-            desc="The vault was created but your library didn't finish moving into it. Finish now — your library stays exactly as it is until the encrypted upload succeeds."
+            desc="The vault was created but your library didn't finish moving into it. Finish now. Your library stays exactly as it is until the encrypted upload succeeds."
             control={<button onClick={doFinishMigration} disabled={busy === "finish"} style={pillBtn}>{busy === "finish" ? "Finishing…" : "Finish"}</button>}
           />
         )}
@@ -1411,7 +1411,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         />
         <Row
           label="Rotate vault key"
-          desc="Generates a fresh key and re-encrypts everything. Do this if you think a device was compromised — the old key stops working immediately."
+          desc="Generates a fresh key and re-encrypts everything. Do this if you think a device was compromised. The old key stops working immediately."
           control={<button onClick={doRotate} disabled={busy === "rotate"} style={pillBtn}>{busy === "rotate" ? "Rotating…" : "Rotate"}</button>}
           last={!purgeNeeded && !disableStep}
         />
@@ -2834,7 +2834,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             {/* Wave 3 — the old "Storage" section's Clear-all-data row used
                 the same inline Delete/Cancel expander pattern as the other
                 destructive confirmations. It is a Dialog sheet now. */}
-            <Section title="Erase" footer="Clears conversations, saved articles, and search history — in this browser and in your account's synced copy. Preferences, watched topics, collections, documents, and device encryption keys are kept.">
+            <Section title="Erase" footer="Clears conversations, saved articles, and search history, in this browser and in your account's synced copy. Preferences, watched topics, collections, documents, and device encryption keys are kept.">
               <Row label="Clear all data" destructive onClick={() => setClearOpen(true)} last />
             </Section>
 
@@ -2874,7 +2874,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               </Section>
             )}
 
-            <Section title="Workspace" footer="Everything, as JSON. Reimport it anywhere. Note: this exports your data decrypted — if Private Vault is on, the file is readable by anyone who gets it.">
+            <Section title="Workspace" footer="Everything, as JSON. Reimport it anywhere. Note: this exports your data decrypted. If Private Vault is on, the file is readable by anyone who gets it.">
               <Row label="Export workspace" desc="Download all your data as JSON" control={
                 <button onClick={() => {
                   let ttsVoice = "";
@@ -2909,7 +2909,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       // file can't silently install garbage preferences.
                       let data;
                       try { data = JSON.parse(reader.result); }
-                      catch { toast("Couldn't import that file — it isn't valid workspace JSON.", { tone: "error" }); return; }
+                      catch { toast("Couldn't import that file. It isn't valid workspace JSON.", { tone: "error" }); return; }
                       if (!window.confirm("Replace your current workspace (library, history, preferences) with this file? This can't be undone.")) return;
                       try {
                         if (data.saved && Array.isArray(data.saved)) setSaved(data.saved);
@@ -2945,7 +2945,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                         sfx();
                         toast("Workspace imported.");
                       } catch {
-                        toast("Couldn't import that file — it isn't valid workspace JSON.", { tone: "error" });
+                        toast("Couldn't import that file. It isn't valid workspace JSON.", { tone: "error" });
                       }
                     };
                     reader.readAsText(file);
@@ -3008,7 +3008,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {clearOpen && (
         <Dialog label="Clear all data" onClose={() => setClearOpen(false)} zIndex={240}>
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
-            Clear your conversations, saved articles, and search history — in this browser and in your account's synced copy.
+            Clear your conversations, saved articles, and search history, in this browser and in your account's synced copy.
           </p>
           <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Preferences, watched topics, collections, documents, and this device's encryption keys are kept. This can't be undone.
