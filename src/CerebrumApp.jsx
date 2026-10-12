@@ -100,8 +100,8 @@ import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTempl
 /* Intro + film helpers (extracted 2026-10-07, monolith split). */
 import {
   InvestigationOpening, usePrefersReducedMotion, useReducedMotion,
-  FILM_CLIPS_LANDSCAPE, FILM_CLIPS_PORTRAIT, FILM_CLIPS_PRO_LANDSCAPE,
-  FILM_CLIPS_PRO_PORTRAIT, videoUrl, filmReel, FILM_POSTER, FILM_HOLD_MS,
+  FILM_CLIPS_LANDSCAPE, FILM_CLIPS_PORTRAIT,
+  videoUrl, filmReel, FILM_POSTER, FILM_HOLD_MS,
   FILM_CREDITS, FILM_MODIFICATIONS, FilmCreditsDialog, FILM_SCENES,
   FILM_POSTER_CLIP, DOC_FILM_SRC, FILM_OPT_IN_KEY, filmForcedOn,
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,

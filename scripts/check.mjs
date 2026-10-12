@@ -193,6 +193,55 @@ for (const file of ["src/CerebrumApp.jsx", "src/main.jsx"]) {
   }
 }
 
+// ── 8. Film guard: only frame-checked clips may ever ship ────────────────
+/* 2026-10-12. The burning book incident: Mixkit 52298 was labelled "storm
+ * clouds" in a comment while the file it serves is a book on fire, and it
+ * survived a dozen removal orders because every cleanup audited one list
+ * and the clip lived in another. So the rule is now mechanical, and this
+ * section is the compensation: no video reference ships unless it is on
+ * the frame-checked allowlist below. To add a clip, pull a frame, look
+ * at it, and add it here in the same commit. A comment is not
+ * verification. Comments are stripped before scanning, because the
+ * warning text above legitimately names the banned ids. */
+{
+  const { readdir } = await import("node:fs/promises");
+  const BANNED_MIXKIT = ["52298", "5774"];
+  const ALLOWED_MIXKIT = new Set(["30563", "20231", "15711", "10011", "3147", "35007"]);
+  const ALLOWED_FILES = new Set([
+    ...Array.from({ length: 7 }, (_, i) => `ambient-0${i + 1}.mp4`),
+    ...Array.from({ length: 7 }, (_, i) => `posters/ambient-0${i + 1}.jpg`),
+  ]);
+  const srcFiles = [];
+  const walk = async (dir) => {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (/\.(jsx?|mjs)$/.test(e.name)) srcFiles.push(p);
+    }
+  };
+  await walk(join(root, "src"));
+  srcFiles.push(join(root, "index.html"));
+  for (const file of srcFiles) {
+    const raw = await readFile(file, "utf8");
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+    const rel = file.replace(root + "/", "");
+    for (const m of code.matchAll(/assets\.mixkit\.co\/videos\/(\d+)\//g)) {
+      check(!BANNED_MIXKIT.includes(m[1]),
+        `${rel}: Mixkit ${m[1]} is BANNED (burning book / bright literal footage, 2026-10-12). It may never ship again.`);
+      check(ALLOWED_MIXKIT.has(m[1]),
+        `${rel}: Mixkit ${m[1]} is not on the frame-checked allowlist in scripts/check.mjs section 8. Pull a frame and look at it before adding it.`);
+    }
+    for (const m of code.matchAll(/\/assets\/cinematic\/([A-Za-z0-9._/-]+)/g)) {
+      const name = m[1];
+      if (name === "posters/") continue; // dynamic poster path built by posterFor()
+      check(ALLOWED_FILES.has(name),
+        `${rel}: /assets/cinematic/${name} is not on the frame-checked allowlist in scripts/check.mjs section 8. Pull a frame and look at it before adding it.`);
+    }
+  }
+}
+
 // ── Report ────────────────────────────────────────────────────────────────
 for (const n of notes) console.log(`note: ${n}`);
 if (failures.length) {

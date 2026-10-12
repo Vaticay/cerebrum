@@ -129,30 +129,10 @@ const FILM_CLIPS_CALM = [
   "https://assets.mixkit.co/videos/35007/35007-720.mp4", // Moon behind a cloudy night sky — Mixkit
 ];
 
-/* Pro reel (2026-09-15) — the members' backdrop. Ten landscape and two
-   portrait clips moved OUT of the free lists above, so they play only for
-   Pro members. These are the strongest frames in the set — aurora, nebula,
-   eclipse, DNA, lightning — which is exactly why they're the perk, not the
-   default. The reel switches automatically from user.isPro (2026-10-07);
-   there is no manual toggle. Attribution for every clip still lives in
-   FILM_CREDITS below; moving a clip between lists does not move its credit
-   row. */
-const FILM_CLIPS_PRO_LANDSCAPE = [
-  videoUrl("/assets/cinematic/science-12.mp4"), // Jellyfish — Chris Munnik
-  videoUrl("/assets/cinematic/science-35.mp4"), // Northern lights timelapse — T Honkamies
-  videoUrl("/assets/cinematic/science-37.mp4"), // Nebula field with stars — Adis Resic
-  videoUrl("/assets/cinematic/science-40.mp4"), // Glowing blue DNA strand — Pressmaster
-  videoUrl("/assets/cinematic/science-41.mp4"), // Sun illuminating Earth's surface — Ingrid
-  videoUrl("/assets/cinematic/science-44.mp4"), // Milky Way over mountain lake — Dmitry Varennikov
-  videoUrl("/assets/cinematic/science-64.mp4"), // Aurora borealis, red and green (replaces 46)
-  videoUrl("/assets/cinematic/science-50.mp4"), // Orange lunar eclipse — Kindel Media
-  videoUrl("/assets/cinematic/science-54.mp4"), // Grayscale cloud timelapse — CESAR A RAMIREZ VALLEJO TRAPHITHO
-  videoUrl("/assets/cinematic/science-67.mp4"), // Lava flow aerial at night (replaces 55)
-];
-const FILM_CLIPS_PRO_PORTRAIT = [
-  videoUrl("/assets/cinematic/science-57.mp4"), // Moon behind clouds — ren lavsad
-  videoUrl("/assets/cinematic/science-58.mp4"), // Ice cave — Nadezhda Moryak
-];
+/* Pro reel: retired 2026-10-12. The science-* files these lists pointed
+   at were never uploaded to the CDN (every one 404s), and dead references
+   are loaded guns: if a file ever lands under one of those names it would
+   play unvetted. Pro members get the ambient reel (see filmReel). */
 
 /* What the component actually reads. Landscape is the fallback when the
    orientation cannot be determined, because a landscape clip cropped on a
@@ -184,7 +164,7 @@ function videoUrl(path) {
   return base ? String(base).replace(/\/+$/, "") + path : path;
 }
 
-const FILM_POSTER = videoUrl("/assets/cinematic/poster.webp");
+const FILM_POSTER = videoUrl("/assets/cinematic/posters/ambient-01.jpg");
 const FILM_HOLD_MS = 11000;
 
 /* Attribution for the reel.
@@ -357,68 +337,30 @@ function FilmCreditsDialog({ onClose, accent }) {
    the 4:3 and 1.9:1 clips, where the crop is real and the subject can end
    up behind the headline. */
 const FILM_SCENES = {
-      [videoUrl("/assets/cinematic/science-03.mp4")]: { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "58% 55%", posMobile: "50% 62%" },
-  [videoUrl("/assets/cinematic/science-04.mp4")]: { subject: "Plant science", question: "How efficient is photosynthesis compared with a solar panel?" },
-  [videoUrl("/assets/cinematic/science-07.mp4")]: { subject: "Chemistry", question: "What makes a chemical reaction speed up or stall?", pos: "50% 42%" },
-  [videoUrl("/assets/cinematic/science-08.mp4")]: { subject: "Fluid dynamics", question: "Why does a drop of dye spread through water the way it does?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-09.mp4")]: { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?" },
-  [videoUrl("/assets/cinematic/science-10.mp4")]: { subject: "Volcanology", question: "How far does volcanic ash travel, and what does it do to the atmosphere?" },
-  [videoUrl("/assets/cinematic/science-11.mp4")]: { subject: "Glaciology", question: "How fast is the Greenland ice sheet losing mass?" },
-  [videoUrl("/assets/cinematic/science-12.mp4")]: { subject: "Marine biology", question: "How do jellyfish move without a brain?" },
-  [videoUrl("/assets/cinematic/science-13.mp4")]: { subject: "Marine biology", question: "What makes coral bleach, and can it recover?", pos: "50% 45%" },
-    [videoUrl("/assets/cinematic/science-15.mp4")]: { subject: "Research methods", question: "How do labs tell a real result from a fluke?" },
-  [videoUrl("/assets/cinematic/science-16.mp4")]: { subject: "Physics", question: "What is plasma, and where does it occur naturally?" },
-  [videoUrl("/assets/cinematic/science-20.mp4")]: { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
-  [videoUrl("/assets/cinematic/science-21.mp4")]: { subject: "Mycology", question: "How do fungi move nutrients through a forest?" },
-  [videoUrl("/assets/cinematic/science-22.mp4")]: { subject: "Plant science", question: "Why does water bead up on some leaves and not others?" },
-  [videoUrl("/assets/cinematic/science-24.mp4")]: { subject: "Marine biology", question: "What lives on a coral reef besides the coral?" },
-  [videoUrl("/assets/cinematic/science-25.mp4")]: { subject: "Geothermal science", question: "What makes a geyser erupt on a schedule?" },
-      [videoUrl("/assets/cinematic/science-27.mp4")]: { subject: "Hydrology", question: "How does flowing water reshape the rock beneath it?" },
-  [videoUrl("/assets/cinematic/science-28.mp4")]: { subject: "Entomology", question: "How do pollinators find the flowers they visit?" },
-  [videoUrl("/assets/cinematic/science-29.mp4")]: { subject: "Entomology", question: "How does an ant colony make decisions without a leader?" },
-    [videoUrl("/assets/cinematic/science-31.mp4")]: { subject: "Oceanography", question: "How do waves carry energy across an entire ocean?" },
-    [videoUrl("/assets/cinematic/science-33.mp4")]: { subject: "Volcanology", question: "How hot is lava, and how is that measured safely?" },
-  [videoUrl("/assets/cinematic/science-34.mp4")]: { subject: "Physics", question: "How does a magnetic field sculpt a liquid into spikes?" },
-  [videoUrl("/assets/cinematic/science-35.mp4")]: { subject: "Atmospheric science", question: "What paints the aurora's curtains of light across the sky?" },
-  [videoUrl("/assets/cinematic/science-36.mp4")]: { subject: "Thermodynamics", question: "What decides the exact moment water becomes ice?" },
-  [videoUrl("/assets/cinematic/science-37.mp4")]: { subject: "Astronomy", question: "What is a nebula made of, and how are stars born inside one?" },
-  [videoUrl("/assets/cinematic/science-38.mp4")]: { subject: "Entomology", question: "How do ants coordinate without a leader or words?" },
-  [videoUrl("/assets/cinematic/science-59.mp4")]: { subject: "Plant science", question: "How does a seedling know which way is up?", pos: "50% 55%" },
-  [videoUrl("/assets/cinematic/science-60.mp4")]: { subject: "Zoology", question: "How do grazing animals shape a grassland?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-61.mp4")]: { subject: "Geology", question: "What sculpted these desert mesas?", pos: "50% 40%" },
-  [videoUrl("/assets/cinematic/science-62.mp4")]: { subject: "Oceanography", question: "How do waves carry energy across an ocean?", pos: "50% 50%" },
-  [videoUrl("/assets/cinematic/science-63.mp4")]: { subject: "Volcanology", question: "What decides whether an eruption flows or explodes?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-64.mp4")]: { subject: "Atmospheric science", question: "What paints the aurora\u2019s curtains of light across the sky?", pos: "50% 40%" },
-  [videoUrl("/assets/cinematic/science-65.mp4")]: { subject: "Earth science", question: "How does elevation reshape climate, light, and life?", pos: "50% 45%" },
-  [videoUrl("/assets/cinematic/science-66.mp4")]: { subject: "Volcanology", question: "How does a lake form inside a volcano\u2019s crater?", pos: "50% 50%" },
-  [videoUrl("/assets/cinematic/science-67.mp4")]: { subject: "Volcanology", question: "What drives lava fountains hundreds of meters into the air?", pos: "50% 50%" },
-  [videoUrl("/assets/cinematic/science-39.mp4")]: { subject: "Genetics", question: "How does DNA store the instructions for a cell?" },
-  [videoUrl("/assets/cinematic/science-40.mp4")]: { subject: "Genetics", question: "What does DNA look like at the molecular scale?" },
-  [videoUrl("/assets/cinematic/science-41.mp4")]: { subject: "Earth observation", question: "What does artificial light at night do to ecosystems?" },
-  [videoUrl("/assets/cinematic/science-42.mp4")]: { subject: "Planetary science", question: "How does Earth\u2019s rotation shape its climate?" },
-  [videoUrl("/assets/cinematic/science-43.mp4")]: { subject: "Astronomy", question: "How many stars are in the Milky Way?" },
-  [videoUrl("/assets/cinematic/science-44.mp4")]: { subject: "Astronomy", question: "Why do some mountain lakes mirror the night sky?" },
-  [videoUrl("/assets/cinematic/science-45.mp4")]: { subject: "Astronomy", question: "How dark does the sky get far from city lights?" },
-  [videoUrl("/assets/cinematic/science-48.mp4")]: { subject: "Atmospheric science", question: "What triggers a lightning strike?" },
-  [videoUrl("/assets/cinematic/science-50.mp4")]: { subject: "Astronomy", question: "Why does the Moon look bigger near the horizon?" },
-  [videoUrl("/assets/cinematic/science-51.mp4")]: { subject: "Astronomy", question: "What turns the Moon red during a lunar eclipse?" },
-  [videoUrl("/assets/cinematic/science-52.mp4")]: { subject: "Astronomy", question: "What is happening during a partial lunar eclipse?" },
-  [videoUrl("/assets/cinematic/science-53.mp4")]: { subject: "Marine biology", question: "How do sharks sense prey they cannot see?" },
-  [videoUrl("/assets/cinematic/science-54.mp4")]: { subject: "Atmospheric science", question: "How do storm clouds build into thunderheads?" },
-  [videoUrl("/assets/cinematic/science-56.mp4")]: { subject: "Fluid dynamics", question: "Why does ink bloom into smoke-like tendrils in water?" },
-  [videoUrl("/assets/cinematic/science-57.mp4")]: { subject: "Astronomy", question: "Why does the Moon glow through thin cloud?" },
-  [videoUrl("/assets/cinematic/science-58.mp4")]: { subject: "Glaciology", question: "How do ice caves form inside glaciers?" },
+  [videoUrl("/assets/cinematic/ambient-01.mp4")]: { subject: "Oceanography", question: "How does light scatter across a moving sea surface?" },
+  [videoUrl("/assets/cinematic/ambient-02.mp4")]: { subject: "Fluid dynamics", question: "Why do liquid metals bead and flow the way they do?" },
+  [videoUrl("/assets/cinematic/ambient-03.mp4")]: { subject: "Fluid dynamics", question: "Why does ink bloom into tendrils as it spreads through water?" },
+  [videoUrl("/assets/cinematic/ambient-04.mp4")]: { subject: "Atmospheric science", question: "What decides whether smoke rises, curls, or disperses?" },
+  [videoUrl("/assets/cinematic/ambient-05.mp4")]: { subject: "Physics", question: "Why do bubbles speed up as they rise through water?" },
+  [videoUrl("/assets/cinematic/ambient-06.mp4")]: { subject: "Physics", question: "How do small disturbances grow into patterns in a fluid?" },
+  [videoUrl("/assets/cinematic/ambient-07.mp4")]: { subject: "Atmospheric science", question: "How do clouds form, drift, and dissolve overnight?" },
+  "https://assets.mixkit.co/videos/30563/30563-720.mp4": { subject: "Astronomy", question: "What fills the space between the stars?" },
+  "https://assets.mixkit.co/videos/20231/20231-720.mp4": { subject: "Atmospheric science", question: "How do storm clouds build and turn?" },
+  "https://assets.mixkit.co/videos/15711/15711-720.mp4": { subject: "Atmospheric science", question: "Why do clouds at different heights move at different speeds?" },
+  "https://assets.mixkit.co/videos/10011/10011-720.mp4": { subject: "Astronomy", question: "Why do the stars appear to wheel across the night sky?" },
+  "https://assets.mixkit.co/videos/3147/3147-1080.mp4": { subject: "Astronomy", question: "What is the Moon's surface actually made of?" },
+  "https://assets.mixkit.co/videos/35007/35007-720.mp4": { subject: "Atmospheric science", question: "How does thin cloud scatter moonlight?" },
 };
 
 /* The poster is a frame of this clip, so when the reel is blocked and the
    still is all anyone sees, the prompt on screen is the prompt for the
    picture on screen. Checked against the file, not assumed. */
-const FILM_POSTER_CLIP = videoUrl("/assets/cinematic/science-61.mp4");
+const FILM_POSTER_CLIP = videoUrl("/assets/cinematic/ambient-03.mp4");
 
 /* RESTORED 2026-09-17: Document Mode's film — the door's opening clip, so
    stepping from the intro into a document keeps the same frame. The scrim
    does the legibility work; the clip just has to be calm. */
-const DOC_FILM_SRC = videoUrl("/assets/cinematic/science-66.mp4");
+const DOC_FILM_SRC = videoUrl("/assets/cinematic/ambient-07.mp4");
 
 /* Motion on a phone is opt-in, and the choice survives a reload — a
    preference someone has to set on every visit is not a preference. */
@@ -1898,8 +1840,6 @@ export {
   // Film block (4076-4465): constants + helpers
   FILM_CLIPS_LANDSCAPE,
   FILM_CLIPS_PORTRAIT,
-  FILM_CLIPS_PRO_LANDSCAPE,
-  FILM_CLIPS_PRO_PORTRAIT,
   FILM_CLIPS_INTRO,
   FILM_CLIPS_CALM,
   videoUrl,
