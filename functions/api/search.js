@@ -6423,7 +6423,7 @@ export function buildDisagreementVerdict(conflicts, nSources) {
       status: "divided",
       conflictCount: list.length,
       summary: list.length === 1
-        ? "The sources genuinely split on one point" + topic + " . both sides are cited below."
+        ? "The sources genuinely split on one point" + topic + ". Both sides are cited below."
         : "The sources genuinely split on " + list.length + " points . the sharpest is " + sharpest + ". Both sides are cited below.",
     };
   }
@@ -6610,8 +6610,8 @@ export function verifyExtractiveAlignment(answer, papers) {
     }
     let note;
     if (best.status === "supported") note = "The claim's wording traces to the cited paper's title/abstract.";
-    else if (best.status === "thin") note = "Only weakly overlaps the cited paper's title/abstract . open the source before relying on it.";
-    else note = best.note || "Doesn't match the title or abstract of the paper it cites . open the source before relying on it.";
+    else if (best.status === "thin") note = "Only weakly overlaps the cited paper's title/abstract. Open the source before relying on it.";
+    else note = best.note || "Doesn't match the title or abstract of the paper it cites. Open the source before relying on it.";
     claims.push({ claim: clean.slice(0, 240), status: best.status, note });
   }
   const nSup = claims.filter((c) => c.status === "supported").length;
@@ -6808,7 +6808,7 @@ export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut })
 // for the UI; `factors` explains the number for anyone who asks "why".
 export function buildConfidenceLine(papers, verdict) {
   const n = (papers || []).length;
-  if (n === 0) return { level: "thin", score: 0, line: "No evidence to assess . confidence can't be computed.", factors: [] };
+  if (n === 0) return { level: "thin", score: 0, line: "No evidence to check, so no confidence score.", factors: [] };
   const status = verdict && verdict.status;
   const factors = [];
   let score = 0;
@@ -11273,7 +11273,7 @@ export async function onRequest(context) {
   const rlKey = await _privacyKey("search", _clientIp(request), env);
   if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
     return new Response(
-      JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }),
+      JSON.stringify({ error: "Too many requests. Wait a moment and try again." }),
       { status: 429, headers: { ...secureCors, "Retry-After": "30" } }
     );
   }
@@ -11547,7 +11547,7 @@ async function runSearchPipeline(pctx) {
         }), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
       }
       const contextual = await answerFromContext(query, body.history, env, action);
-      if (!contextual) return new Response(JSON.stringify({ error: "I couldn't process that follow-up right now. Please retry; no new paper search was performed." }), { status: 503, headers: { ...cors, "Cache-Control": "no-store" } });
+      if (!contextual) return new Response(JSON.stringify({ error: "Couldn't process that follow-up. Try again, no new search ran." }), { status: 503, headers: { ...cors, "Cache-Control": "no-store" } });
       contextual.answer = cleanAIResponse(contextual.answer);
       if (burnsInference) {
         await meterAiAnswer();

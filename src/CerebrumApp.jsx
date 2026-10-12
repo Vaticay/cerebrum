@@ -5750,10 +5750,10 @@ function Bibliography({ sources, answer = "", P, accent, citationStyle, setCitat
     cursor: "pointer", whiteSpace: "nowrap",
   };
   const exportFormats = [
-    { key: "bibtex", label: "BibTeX", desc: ".bib — reference managers" },
-    { key: "ris", label: "RIS", desc: ".ris — Zotero, Mendeley, EndNote" },
-    { key: "csv", label: "CSV", desc: ".csv — spreadsheets" },
-    { key: "excel", label: "Excel", desc: ".xlsx — top 20, branded workbook" },
+    { key: "bibtex", label: "BibTeX", desc: ".bib for reference managers" },
+    { key: "ris", label: "RIS", desc: ".ris for Zotero, Mendeley, EndNote" },
+    { key: "csv", label: "CSV", desc: ".csv for spreadsheets" },
+    { key: "excel", label: "Excel", desc: ".xlsx top 20, branded workbook" },
     { key: "zotero", label: "Send to Zotero", desc: "push to your Zotero library" },
   ];
   const controls = (
@@ -6365,7 +6365,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 ["Read as many documents as you want", "Free: 3 every 5 days"],
                 ["Save as many flowcharts as you want", "Free: 1 every 5 days"],
                 ["A Pro badge on your profile", "Shows wherever your name appears"],
-                ["Four Pro themes", "Pro, Pro Violet, Pro Abyss, Pro Ember — members only"],
+                ["Four Pro themes", "Pro, Pro Violet, Pro Abyss, Pro Ember. Members only."],
                 ["Deeper Pro search", "2x semantic rerank pool, 50 papers, stronger models, no cheap-first"],
                 ["Answer PDF export", "Clean PDFs with citations for your thesis"],
               ]).map(([t, d]) => (
@@ -13937,7 +13937,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     // Private Vault: a rating is library content. Unlocked -> it rides
     // the debounced encrypted library push, never a separate plaintext
     // write. Locked -> the edit is blocked outright (fail-closed).
-    if (vaultMode === "locked") { toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.", { tone: "error" }); return; }
+    if (vaultMode === "locked") { toast("Private Vault is locked on this device. Confirm your recovery phrase in Settings to resume syncing.", { tone: "error" }); return; }
     setRatingSaving(paperId);
     const prevSaved = saved;
     // Optimistic: update the rating in the local saved array.
@@ -15280,7 +15280,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       throw new Error("That file is too large to read (over 5MB). Try a shorter excerpt, or paste the text directly instead.");
     }
     if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || /\.docx$/i.test(name)) {
-      throw new Error("Word documents (.docx) aren't supported yet — export the text or copy it and paste it directly instead.");
+      throw new Error("Word documents (.docx) aren't supported yet. Export the text or copy it and paste it directly instead.");
     }
     const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(name);
     if (isPdf) {
@@ -15535,7 +15535,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       else if (code === "upstream_rate_limited") setError("The analysis service is busy right now. Try again in a moment.");
       else if (code === "analysis_failed") setError("The analysis didn't complete. Try again in a moment.");
       else if (code === "token_budget_exhausted") setError("That document is too long to analyze. Try a shorter excerpt.");
-      else if (code === "incomplete_stream") setError("The analysis was interrupted before it finished. Nothing was saved — try again.");
+      else if (code === "incomplete_stream") setError("The analysis was interrupted before it finished. Nothing was saved. Try again.");
       else setError(e.message || "Something went wrong. Try again in a moment.");
     } finally {
       if (analyzeAbort.current === ctrl) analyzeAbort.current = null;
@@ -15597,8 +15597,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         if (onOpenPro) onOpenPro();
       } else {
         const msg = code === "aborted" ? "Stopped."
-          : code === "timeout" ? "The answer took too long — try asking again."
-          : code === "incomplete_stream" ? "The answer was interrupted before it finished — nothing was saved."
+          : code === "timeout" ? "The answer took too long. Try asking again."
+          : code === "incomplete_stream" ? "The answer was interrupted before it finished. Nothing was saved."
           : e.message || "Something went wrong. Try asking again.";
         // Clear the streaming flag on failure: the persistence filter drops
         // streaming entries, so a failed question must not keep the flag or
@@ -15968,7 +15968,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 value={documentText}
                 onChange={(e) => setDocumentText(e.target.value)}
                 aria-label="Document: DOI, PMID, arXiv ID, URL, or the full text of a paper, report, or document"
-                placeholder="DOI, PMID, arXiv ID, or URL — or paste the full text"
+                placeholder="DOI, PMID, arXiv ID, or URL. Or paste the full text"
                 rows={docIdentMode ? 2 : 8}
                 style={{ ...textareaStyle, border: "none", background: "transparent", borderRadius: 0, outline: "none", ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
               />
@@ -18618,7 +18618,7 @@ function App() {
         if (!cancelled && tries < 6) {
           setTimeout(poll, 2500);
         } else if (!cancelled) {
-          toast("Payment received — your membership is still being confirmed. It usually appears within a minute; if it doesn't, check Settings → Account.", { tone: "error" });
+          toast("Payment received. Your membership is still being confirmed. It usually appears within a minute. If it doesn't, check Settings → Account.", { tone: "error" });
         }
       };
       poll();
@@ -18717,7 +18717,7 @@ function App() {
     ];
     (h.turns || []).forEach((t, i) => {
       lines.push(`Q${i + 1}: ${t.q || ""}`);
-      if (t.answer) { const plain = t.answer.replace(/<[^>]+>/g, ""); lines.push(plain.slice(0, 2000) + (plain.length > 2000 ? "\n[…answer truncated at 2,000 characters — the full answer is in the investigation]" : "")); }
+      if (t.answer) { const plain = t.answer.replace(/<[^>]+>/g, ""); lines.push(plain.slice(0, 2000) + (plain.length > 2000 ? "\n[…answer truncated at 2,000 characters. The full answer is in the investigation]" : "")); }
       lines.push("");
     });
     if ((h.allSources || []).length) {
@@ -19171,7 +19171,7 @@ function App() {
         zkSessionRef.current = session;
         clearForLocked();
         setVaultMode("locked");
-        toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.");
+        toast("Private Vault is locked on this device. Confirm your recovery phrase in Settings to resume syncing.");
         return;
       }
       try {
@@ -19195,7 +19195,7 @@ function App() {
         zkSessionRef.current = session;
         clearForLocked();
         setVaultMode("locked");
-        toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.");
+        toast("Private Vault is locked on this device. Confirm your recovery phrase in Settings to resume syncing.");
       }
     } finally {
       vaultTransitionRef.current = false;
@@ -20447,9 +20447,9 @@ function App() {
   // of plaintext server rows; while locked, mutating collections is
   // blocked outright — a local-only collection would silently vanish on
   // reload, and a plaintext write would break the vault's promise.
-  const zkVaultLockedToast = () => toast("Private Vault is locked on this device — confirm your recovery phrase in Settings to resume syncing.", { tone: "error" });
+  const zkVaultLockedToast = () => toast("Private Vault is locked on this device. Confirm your recovery phrase in Settings to resume syncing.", { tone: "error" });
   async function createCollection(name) {
-    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused — resume it in Settings to change collections.", { tone: "error" }); return; }
+    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused. Resume it in Settings to change collections.", { tone: "error" }); return; }
     const mode = vaultModeRef.current;
     if (mode === "locked" || vaultTransitionRef.current) { zkVaultLockedToast(); return; }
     if (mode === "unlocked") {
@@ -20469,7 +20469,7 @@ function App() {
     catch (e) { toast(e.message || "Couldn't create that collection.", { tone: "error" }); }
   }
   async function renameCollection(id, name) {
-    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused — resume it in Settings to change collections.", { tone: "error" }); return; }
+    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused. Resume it in Settings to change collections.", { tone: "error" }); return; }
     // 2026-09-14: Reject empty names. An empty rename field was pushing ""
     // to the server, corrupting the collection name.
     const cleanName = String(name || "").trim();
@@ -20492,7 +20492,7 @@ function App() {
     try { await apiDataPost("collections", { action: "rename", id, name: cleanName }); } catch (e) { toast(e.message || "Couldn't rename that collection.", { tone: "error" }); }
   }
   async function deleteCollection(id) {
-    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused — resume it in Settings to change collections.", { tone: "error" }); return; }
+    if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused. Resume it in Settings to change collections.", { tone: "error" }); return; }
     const mode = vaultModeRef.current;
     if (mode === "locked" || vaultTransitionRef.current) { zkVaultLockedToast(); return; }
     if (mode === "unlocked") {
@@ -21624,7 +21624,7 @@ function App() {
                   title="Import papers from Zotero, Mendeley, or any reference manager (BibTeX .bib or RIS .ris)">Import</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" disabled={excelBusy}
                   title="Export your top 20 saved papers to a branded Excel workbook"
-                  onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum — Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); logExport("Excel", "cerebrum-saved-papers.xlsx"); bumpExports(); } catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); } setExcelBusy(false); }}>
+                  onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); logExport("Excel", "cerebrum-saved-papers.xlsx"); bumpExports(); } catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); } setExcelBusy(false); }}>
                   {excelBusy ? "Building…" : "Excel"}
                 </UIButton>
                 {confirmClearSaved ? (
