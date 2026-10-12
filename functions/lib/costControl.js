@@ -41,7 +41,11 @@ export const DEFAULT_BUDGETS = {
   anonymous: 60_000,   // shared pool across all anonymous callers
 };
 
-const CHEAP_MODEL = "nex-agi/nex-n2.5-mini:free";
+// 2026-10-12: was nex-agi/nex-n2.5-mini:free, which OpenRouter now 404s
+// ("unavailable for free") . the cheap-first lead leg died instantly on
+// every low-complexity search. gemma-4-31b is the same model the
+// relevance validator already runs on successfully.
+const CHEAP_MODEL = "google/gemma-4-31b-it:free";
 const PRIMARY_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
 
 let budgetTableReady = null;
