@@ -251,7 +251,10 @@ export async function semanticRerank(env, query, papers, opts = {}) {
     const semanticScore = Math.max(0, Math.min(100, Math.round(sim * 100)));
     const keywordScore = Math.max(0, Math.min(100, Math.round(Number(p.score ?? p.relevance ?? 50))));
     const blendedScore = Math.round(alpha * semanticScore + (1 - alpha) * keywordScore);
-    return { ...p, keywordScore, semanticScore, blendedScore, score: blendedScore, relevance: blendedScore };
+    // 2026-10-12: Rewrite 5 - reorder only, never overwrite.
+    // The original keyword score/relevance is preserved for gating.
+    // blendedScore is used for sorting only.
+    return { ...p, keywordScore, semanticScore, blendedScore };
   });
 
   reranked.sort((a, b) => b.blendedScore - a.blendedScore);
