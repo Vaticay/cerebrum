@@ -17508,7 +17508,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["trending", "Trending", "chart"],
     ["investigations", "Investigations", "history"],
     ["library", "Library", "bookmark"],
-    ["learn", "Learn", "graduation"],
+    ["learn", "Learn", "bookOpen"],
     ...(user ? [["collections", "Collections", "folder"]] : []),
     ...(user ? [["usage", "Usage", "gauge"]] : []),
     ...(user ? [["inbox", "Inbox", "mail"]] : []),
@@ -21167,7 +21167,7 @@ function App() {
               {[
                 { key: "search", label: "Home", icon: "search" },
                 { key: "library", label: "Library", icon: "bookmark" },
-                { key: "learn", label: "Learn", icon: "graduation" },
+                { key: "learn", label: "Learn", icon: "bookOpen" },
                 { key: "new", label: "Create", icon: "plus", fab: true },
                 { key: "inbox", label: "Inbox", icon: "mail", badge: unreadCount },
                 { key: "profile", label: "Account", icon: "user" },
