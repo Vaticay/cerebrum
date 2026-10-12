@@ -9,7 +9,7 @@
  * - Living Lessons: update when science updates
  */
 
-import React, { useState, useEffect, useMemo } from "";
+import React, { useState, useEffect, useMemo } from "react";
 
 // Lesson card types
 const CARD_TYPES = {

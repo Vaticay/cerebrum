@@ -100,16 +100,22 @@ const FILM_CLIPS_PORTRAIT = [
   videoUrl("/assets/cinematic/ambient-07.mp4"),
 ];
 
-/* Intro reel (2026-10-09, burning books clip removed per Dusty):
-   Dramatic cinematic clips for the ceremonial door. All clips are Mixkit
-   (free for commercial use, no watermark). Dark, slow, dramatic.
-   The burning books clip (previously in this list) was removed 2026-10-09:
-   "Burning books is bad" — Dusty. Replaced with 3D brain scan. */
+/* Intro reel for the ceremonial door. Dark, slow, atmospheric only.
+   No literal footage of people, no bright scenes, and never, under any
+   circumstances, fire or burning books. Dusty has ordered the burning
+   books clip gone repeatedly; it kept surviving because the Mixkit URL
+   below was labelled "storm clouds" in this file while the file it
+   actually serves is a book on fire. Verified by pulling real frames
+   from every clip on 2026-10-12:
+   - Mixkit 52298 serves a BURNING BOOK. Never re add it, whatever any
+     listing or comment claims it shows.
+   - Mixkit 5774 is a bright lab scene with a man in a VR headset.
+     Removed the same day: literal, bright, recognizable footage.
+   Rule for anyone editing this list: pull a frame and look at it
+   before the clip ships. A comment is not verification. */
 const FILM_CLIPS_INTRO = [
-  "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space — Mixkit
-  "https://assets.mixkit.co/videos/5774/5774-720.mp4", // Doctor uses VR to explore 3D brain — Mixkit
-  "https://assets.mixkit.co/videos/20231/20231-720.mp4", // Swirling dark clouds — Mixkit
-  "https://assets.mixkit.co/videos/52298/52298-1080.mp4", // Dense storm clouds before a storm — Mixkit
+  "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space. Frame checked 2026-10-12.
+  "https://assets.mixkit.co/videos/20231/20231-720.mp4", // Swirling dark clouds. Frame checked 2026-10-12.
 ];
 
 /* Calm reel (2026-10-08, refreshed): quieter clips for the main search page.
