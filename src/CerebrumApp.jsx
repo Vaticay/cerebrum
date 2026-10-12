@@ -562,9 +562,14 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       y += 12;
     }
     function bulletBlock(text) {
+      // 2026-10-12: Fixed text overlap. The bullet is drawn in the left margin,
+      // text starts indented. Both at the same baseline y.
       need(16);
       doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
-      doc.text("•", ML, y);
+      const startY = y;
+      // Draw bullet first at the baseline
+      doc.text("•", ML, startY + 11);  // +11 to align with 11pt text baseline
+      // Render text indented, starting at same logical y
       richPara(pdfInlineRuns(text), { indent: 18 });
       y += 4;
     }
@@ -755,7 +760,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
         try {
           const S = 340;
           doc.saveGraphicsState();
-          doc.setGState(new doc.GState({ opacity: 0.05 }));
+          doc.setGState(new doc.GState({ opacity: 0.08 }));  // 2026-10-12: Increased from 0.05 (was invisible)
           doc.addImage(wm, "PNG", (W - S) / 2, (H - S) / 2, S, S);
           doc.restoreGraphicsState();
         } catch (e) { /* watermark is decorative; never fail the export */ }
