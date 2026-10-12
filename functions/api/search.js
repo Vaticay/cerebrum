@@ -2778,6 +2778,13 @@ function extractKeyPhrases(query, organismPhrases) {
       const phrase = core.join(" ");
       if (!phrases.includes(phrase)) phrases.push(phrase);
     }
+    // 2026-10-12: Handle trailing tokens (e.g. "media" in 7-token query)
+    const consumed = Math.floor(tokens.length / len) * len;
+    const trailing = tokens.slice(consumed);
+    if (trailing.length >= 2) {
+      const phrase = trailing.join(" ");
+      if (!phrases.includes(phrase)) phrases.push(phrase);
+    }
     // Prefer longer phrases: once we have 3-word phrases, 2-word
     // sub-phrases of them are redundant.
     if (phrases.length > 0 && len === 3) break;
@@ -10004,9 +10011,13 @@ async function gatherPapers(rawQuery, opts) {
   // the user asked for — the constraint is "waste oil". Papers about waste oil
   // that don't mention "substrates" were wrongly gated out. The constraints
   // ARE the topic; specificity ranking is only a fallback when there are none.
+  // 2026-10-12: _qaGateConstraints hoisted outside try (was ReferenceError: const in try-block
+  // not visible at line 10151, crashed scoring for every query -> 0 sources).
+  let _qaGateConstraints = null;
   try {
     const _qaGate = analyzeQuery(rawQuery);
     if (_qaGate && _qaGate.constraints && _qaGate.constraints.length > 0 && !_qaGate.isNameSearch) {
+      _qaGateConstraints = _qaGate.constraints;
       const constraintWords = [];
       for (const c of _qaGate.constraints) {
         for (const w of String(c.phrase || "").toLowerCase().split(/\s+/)) {
@@ -10148,8 +10159,8 @@ async function gatherPapers(rawQuery, opts) {
       // even if it misses "bile salt agar" (different concept).
       // This fixes the multi-concept query penalty.
       let bestPhraseCoverage = 0;
-      if (_qaGate && _qaGate.constraints && _qaGate.constraints.length > 0) {
-        for (const c of _qaGate.constraints) {
+      if (_qaGateConstraints && _qaGateConstraints.length > 0) {
+        for (const c of _qaGateConstraints) {
           const phraseWords = String(c.phrase || "").toLowerCase().split(/\s+/).filter(w => w.length >= 3);
           if (phraseWords.length === 0) continue;
           const phraseHits = phraseWords.filter(w => has(w)).length;
