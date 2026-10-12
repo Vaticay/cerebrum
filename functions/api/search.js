@@ -11439,8 +11439,8 @@ async function runSearchPipeline(pctx) {
     //               transforms, persona chat) . the cache is an optimization,
     //               not an entitlement bypass
     //   anonymous → provider-backed AI metered on the hashed-IP identity
-    //               (rlKey, computed for the rate limiter above), same free
-    //               cap as a signed-in free account. Past the cap the
+    //               (the rate limiter's privacyKey, recomputed below), same
+    //               free cap as a signed-in free account. Past the cap the
     //               pipeline falls through to the deterministic Wave-4
     //               extractive answer, and the client nudges toward sign-in.
     let aiGate = null;
@@ -11469,7 +11469,17 @@ async function runSearchPipeline(pctx) {
         }
       }
       const sessionUser = apiKeyIdentity ? { id: apiKeyIdentity.userId } : await proSessionUser(request, env);
-      aiGate = await proLib.resolveAiGate(env, sessionUser, rlKey ? "anon:" + rlKey : null);
+      // The anonymous metering identity is the rate limiter's hashed-IP
+      // key, recomputed here: the limiter's own rlKey is scoped to
+      // onRequest and does not exist inside this pipeline function.
+      // Referencing it here threw a ReferenceError that the catch below
+      // swallowed, failing the gate closed for every caller.
+      let anonGateId = null;
+      try {
+        const { clientIp: _gateIp, privacyKey: _gateKey } = await import("../lib/http.js");
+        anonGateId = "anon:" + (await _gateKey("search", _gateIp(request), env));
+      } catch { anonGateId = null; }
+      aiGate = await proLib.resolveAiGate(env, sessionUser, anonGateId);
     } catch {
       proLib = null;
     }
