@@ -32,7 +32,7 @@ function relativeTime(ms) {
 }
 
 const APP_VERSION = "6.20.0";
-const APP_VERSION_LABEL = "Public Beta 1";
+const APP_VERSION_LABEL = "Public Beta 2";
 
 async function apiAuth(action, payload) {
   let res;

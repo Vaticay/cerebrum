@@ -5644,10 +5644,8 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
     for (const p of picked) delete p.ws;
     if (picked.length > 0) {
       const n = paperItems.length;
-      const total = all.length;
       let md = "## What the sources say\n\n";
-      md += total + " paper" + (total === 1 ? "" : "s") + " turned up" + (q ? " for \"" + q + "\"" : "") +
-        ", and " + n + " had abstracts detailed enough to draw findings from directly. " +
+      md += n + " of the papers above had abstracts detailed enough to draw findings from directly" + (q ? " for \"" + q + "\"" : "") + ". " +
         "The sentences below are the ones that speak to the question most closely.\n\n";
       for (const p of picked) {
         md += p.text + " [" + p.idx + "]\n\n";

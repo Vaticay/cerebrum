@@ -8693,7 +8693,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             border plus corner registration ticks in the accent, near-sharp
             corners instead of the generic rounded card. The entrance
             animation rides on the frame so the ticks arrive with it. */}
-        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "1360px", marginLeft: "auto", marginRight: "auto" }}>
+        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "1440px", marginLeft: "auto", marginRight: "auto" }}>
         <article style={{ ...S.answerCard, border: "none", borderRadius: RADIUS.viewport }} className="cb-article">
         <div style={S.answerCardEdge} aria-hidden="true" />
         {/* v34: the metadata badge and the action toolbar used to be two
@@ -17033,7 +17033,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // itself (rather than the FAB or some wrapper) guarantees real content
     // never lands in that reserved strip regardless of how long the answer
     // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? "calc(152px + env(safe-area-inset-bottom, 0px))" : 48, flex: 1, maxWidth: 980, margin: "0 auto", width: "100%" },
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? "calc(152px + env(safe-area-inset-bottom, 0px))" : 48, flex: 1, maxWidth: 1240, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -17041,7 +17041,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // one drawer pattern doing double duty. Widening the row and giving the
     // sidebar its own fixed column turns "tap to see your sources" into
     // "they're just there," which is the whole point of a research tool.
-    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 44, maxWidth: 1320 },
+    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 44, maxWidth: 1680 },
     sidebarCol: { width: 340, flexShrink: 0 },
 
     /* ── Turn: clean editorial brief ── */
@@ -18116,12 +18116,12 @@ function App() {
   useEffect(() => {
     if (!entered || beta2Open) return;
     let seen = true;
-    try { seen = localStorage.getItem("cb_seen_beta2") === "1"; } catch { seen = true; }
+    try { seen = localStorage.getItem("cb_seen_beta2_v2") === "1"; } catch { seen = true; }
     if (!seen) setBeta2Open(true);
   }, [entered, beta2Open]);
   const dismissBeta2 = useCallback(() => {
     setBeta2Open(false);
-    try { localStorage.setItem("cb_seen_beta2", "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx dismissBeta2:", cbErr); }
+    try { localStorage.setItem("cb_seen_beta2_v2", "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx dismissBeta2:", cbErr); }
   }, []);
 
   /* Attention, as a piece of state. The backdrop is at its most present
@@ -24523,7 +24523,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
    paragraph sets in the title role via renderAnswer's lede flag (inline —
    a stylesheet :first-child rule can never beat the paragraph's own
    inline fontSize). The measure below keeps sustained prose at 45–75ch. */
-.cb-answer-body { max-width: 1240px; }
+.cb-answer-body { max-width: 1320px; }
 .cb-answer-enter strong { font-weight: 650; }
 .cb-answer-enter em { font-style: italic; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {
@@ -25383,7 +25383,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
    index lives in a drawer now (EvidenceRail): portaled, secondary, and
    closed by default. One layout at every width — the column is the column
    everywhere, drawer or not. */
-.cb-answer-wrap { width: 100%; max-width: 1400px; margin: 0 auto; padding-left: max(24px, 4vw); padding-right: max(24px, 4vw); }
+.cb-answer-wrap { width: 100%; max-width: 1480px; margin: 0 auto; padding-left: max(24px, 3vw); padding-right: max(24px, 3vw); }
 .cb-answer-wrap .cb-article { max-width: 100%; min-width: 0; margin-left: 0; margin-right: auto; }
 /* Mobile readability (2026-10-08): Dusty reported the answer view is hard
    to read on phones. Larger type, looser leading, more air between
