@@ -154,7 +154,7 @@ function cbMotionCacheSet(v) { __cbMotionCache = v; }
 
 function cbBlip(freq, dur = 0.07, gain = 0.05) {
   try {
-    if (getCookie("cb_muted") === "1") return;
+    if (getCookie("cb_muted") !== "0") return;
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const ctx = new AC();

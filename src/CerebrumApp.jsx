@@ -1221,7 +1221,7 @@ function Reveal({ children, deps = [], y, stagger, duration, delay, descend, sty
 function useCallTone(kind, active) {
   useEffect(() => {
     if (!active) return;
-    try { if (getCookie("cb_muted") === "1") return; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx useCallTone: if (getCookie('cb_muted') === '1') return; }:", cbErr); }
+    try { if (getCookie("cb_muted") !== "0") return; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx useCallTone: if (getCookie('cb_muted') !== '0') return; }:", cbErr); }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     let ctx;
@@ -19506,7 +19506,7 @@ function App() {
   const [srcFilter, setSrcFilter] = useState("");
   const [answerLength, setAnswerLength] = useState(() => getCookie("cb_len") || "medium");
   const [factCheck, setFactCheck] = useState(() => getCookie("cb_fc") !== "0");
-  const [muted, setMuted] = useState(() => getCookie("cb_muted") === "1");
+  const [muted, setMuted] = useState(() => getCookie("cb_muted") !== "0");
   const [soundMode, setSoundMode] = useState(() => getCookie("cb_snd") || "pulse");
   const [citationStyle, setCitationStyle] = useState(() => getCookie("cb_cite") || "vancouver");
   // v6.6: this used to default every first-time visitor into "cinematic" —

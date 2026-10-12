@@ -1946,7 +1946,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setCustomAccent("");            // cb_ca
     setAnswerLength("medium");      // cb_len
     setFactCheck(true);             // cb_fc !== "0"
-    setMuted(false);                // cb_muted !== "1"
+    setMuted(true);                 // cb_muted !== "0"
     setSoundMode("pulse");          // cb_snd
     setAnimationMode("cinematic");  // cb_anim2
     setAnimSpeed(1);                // cb_animS

@@ -410,7 +410,7 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
-const CACHE_SCHEMA_VERSION = "v8";
+const CACHE_SCHEMA_VERSION = "v9";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -14604,7 +14604,7 @@ async function runSearchPipeline(pctx) {
         llmBudget = await authorizeLlmCall(env, {
           userId: (aiGate && aiGate.userId) || "anonymous",
           tier: (aiGate && aiGate.kind) || "anonymous",
-          promptChars: messagesChars(messages),
+          promptChars: messagesChars(compactMessages || messages),
           complexity: {
             queryLength: query.length,
             historyTurns: Array.isArray(body.history) ? body.history.length : 0,
@@ -14929,12 +14929,12 @@ async function runSearchPipeline(pctx) {
         await spendTokens(
           env,
           (aiGate && aiGate.userId) || "anonymous",
-          estimateTokensFromChars(messagesChars(messages)) + estimateTokensFromChars(completionChars)
+          estimateTokensFromChars(messagesChars(compactMessages || messages)) + estimateTokensFromChars(completionChars)
         );
         await recordLlmUsage(env, {
           userId: (aiGate && aiGate.userId) || "anonymous",
           model: (winLeg && winLeg.model) || routedModel || "unknown",
-          promptChars: messagesChars(messages),
+          promptChars: messagesChars(compactMessages || messages),
           completionChars,
         });
       } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
@@ -14954,9 +14954,17 @@ async function runSearchPipeline(pctx) {
     // No keys or request internals, just model labels, timings, errors.)
     const synthLegs = aiAttempts.filter((a) => a && typeof a.wave === "number" && typeof a.model === "string");
     const synthWinner = synthLegs.find((a) => a.ok === true);
+    const synthSkipReason = aiOK ? null
+      : !aiSynthesisAllowed ? "gate"
+      : skipWavesForDefinition ? "definition"
+      : budgetDenied ? "budget"
+      : synthLegs.length === 0 ? "no legs recorded"
+      : "all legs failed";
     stageHealth.push({
       name: "synthesis",
       ok: aiOK,
+      skipReason: synthSkipReason,
+      deadlineInMs: synthesisDeadline - synthesisStageT0,
       ms: Date.now() - synthesisStageT0,
       winner: synthWinner ? String(synthWinner.model) : null,
       winnerMs: synthWinner && synthWinner.ms != null ? synthWinner.ms : null,
