@@ -2876,7 +2876,9 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
      progress frame — or on the single-fetch fallback where stream is
      null — the real total stands in. */
   const dbTotal = stream && stream.dbTotal != null ? stream.dbTotal : SCHOLARLY_SOURCES.length;
-  const dbAnswered = stream && stream.dbAnswered != null ? stream.dbAnswered : null;
+  const _dbAnsweredRaw = stream && stream.dbAnswered != null ? stream.dbAnswered : null;
+  // 2026-10-11: Clamp dbAnswered to dbTotal (backend sometimes reports 16 of 15)
+  const dbAnswered = _dbAnsweredRaw != null ? Math.min(_dbAnsweredRaw, dbTotal) : null;
   const countLine = dbAnswered != null
     ? `${dbAnswered} of ${dbTotal} databases answered`
     : `Searching ${dbTotal} databases in parallel`;
