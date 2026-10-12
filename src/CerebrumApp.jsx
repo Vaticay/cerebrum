@@ -8693,7 +8693,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             border plus corner registration ticks in the accent, near-sharp
             corners instead of the generic rounded card. The entrance
             animation rides on the frame so the ticks arrive with it. */}
-        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "1200px", marginLeft: "auto", marginRight: "auto" }}>
+        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "1360px", marginLeft: "auto", marginRight: "auto" }}>
         <article style={{ ...S.answerCard, border: "none", borderRadius: RADIUS.viewport }} className="cb-article">
         <div style={S.answerCardEdge} aria-hidden="true" />
         {/* v34: the metadata badge and the action toolbar used to be two
@@ -9316,7 +9316,7 @@ const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
    beta2Open boolean; see the state note in App for why the render and
    the scroll lock share one boolean. Copy stays plain on purpose: no
    hype, no dashes, nothing that sounds generated. */
-function Beta2Announcement({ P, accent, onClose, onTryLearn }) {
+function Beta2Announcement({ P, accent, at, onClose, onTryLearn }) {
   const items = [
     { title: "Learn is new", body: "Any search can become a short course built from the papers it found, with quick quizzes and XP as you go. It lives in the sidebar, and on phones it has its own tab." },
     { title: "Search got tougher", body: "Questions with several parts used to come back with no sources at all. They return real sources now, and an answer is never built on zero papers." },
@@ -9325,23 +9325,26 @@ function Beta2Announcement({ P, accent, onClose, onTryLearn }) {
   ];
   return (
     <Dialog label="Public Beta 2" onClose={onClose}
-      zIndex={216} width={460}
-      panelStyle={{ background: P.bg, borderRadius: RADIUS.md, padding: 26, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none" }}
+      zIndex={216} width={440}
+      panelStyle={{ background: P.bg, borderRadius: RADIUS.md, padding: 28, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", border: `1px solid ${P.line}`, outline: "none", fontFamily: "var(--cb-font)" }}
     >
-      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>PUBLIC BETA 2</div>
-      <h2 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 700, color: P.ink }}>What changed</h2>
-      <p style={{ margin: "0 0 18px", fontSize: 14, color: P.muted, lineHeight: 1.55 }}>Four things since Beta 1.</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 22 }}>
-        {items.map((it) => (
-          <div key={it.title}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: P.ink, marginBottom: 2 }}>{it.title}</div>
-            <div style={{ fontSize: 14, color: P.muted, lineHeight: 1.55 }}>{it.body}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>PUBLIC BETA 2</div>
+      <h2 style={{ margin: "0 0 6px", fontSize: 21, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>What changed</h2>
+      <p style={{ margin: "0 0 20px", fontSize: 13.5, color: P.muted, lineHeight: 1.55 }}>Four things since Beta 1.</p>
+      <div style={{ display: "flex", flexDirection: "column", marginBottom: 24 }}>
+        {items.map((it, i) => (
+          <div key={it.title} style={{ display: "flex", gap: 14, padding: "12px 0", borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+            <div aria-hidden="true" style={{ fontSize: 12, fontWeight: 700, color: accent, paddingTop: 2, minWidth: 18 }}>{String(i + 1).padStart(2, "0")}</div>
+            <div>
+              <div style={{ fontSize: 14.5, fontWeight: 600, color: P.ink, marginBottom: 3 }}>{it.title}</div>
+              <div style={{ fontSize: 13.5, color: P.muted, lineHeight: 1.6 }}>{it.body}</div>
+            </div>
           </div>
         ))}
       </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "10px 18px", color: P.ink, fontSize: 14, cursor: "pointer" }}>Got it</button>
-        <button onClick={onTryLearn} style={{ background: accent, border: "none", borderRadius: RADIUS.sm, padding: "10px 18px", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Try Learn</button>
+        <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "10px 18px", color: P.ink, fontSize: 14, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Got it</button>
+        <button onClick={onTryLearn} style={{ background: accent, border: "none", borderRadius: RADIUS.sm, padding: "10px 18px", color: at, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Try Learn</button>
       </div>
     </Dialog>
   );
@@ -20615,6 +20618,7 @@ function App() {
          dialog form deliberately — there, interrupting you is correct. */
       case "investigations": setView("investigations"); break;
       case "library": setView("library"); break;
+      case "learn": setView("learn"); break;
       case "usage": if (user) setView("usage"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "collections": if (user) setView("collections"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "settings": setSettingsInitialTab("answers"); setView("settings"); break;
@@ -22362,7 +22366,7 @@ function App() {
         active={cmdActive} setActive={setCmdActive} onKeyDown={onCmdKeyDown} inputRef={cmdRef} />
       {beta2Open && (
         <Beta2Announcement
-          P={P} accent={accent}
+          P={P} accent={accent} at={at}
           onClose={dismissBeta2}
           onTryLearn={() => { dismissBeta2(); setView("learn"); }}
         />
@@ -24519,7 +24523,7 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
    paragraph sets in the title role via renderAnswer's lede flag (inline —
    a stylesheet :first-child rule can never beat the paragraph's own
    inline fontSize). The measure below keeps sustained prose at 45–75ch. */
-.cb-answer-body { max-width: 1100px; }
+.cb-answer-body { max-width: 1240px; }
 .cb-answer-enter strong { font-weight: 650; }
 .cb-answer-enter em { font-style: italic; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {
@@ -25379,8 +25383,8 @@ button.cb-cite { min-height: 0; min-width: 0; }
    index lives in a drawer now (EvidenceRail): portaled, secondary, and
    closed by default. One layout at every width — the column is the column
    everywhere, drawer or not. */
-.cb-answer-wrap { width: 100%; max-width: 1320px; margin: 0 auto; padding-left: max(24px, 6vw); }
-.cb-answer-wrap .cb-article { max-width: 72ch; min-width: 0; margin-left: 0; margin-right: auto; }
+.cb-answer-wrap { width: 100%; max-width: 1400px; margin: 0 auto; padding-left: max(24px, 4vw); padding-right: max(24px, 4vw); }
+.cb-answer-wrap .cb-article { max-width: 100%; min-width: 0; margin-left: 0; margin-right: auto; }
 /* Mobile readability (2026-10-08): Dusty reported the answer view is hard
    to read on phones. Larger type, looser leading, more air between
    sections, smaller citation chips, stacked buttons. */

@@ -5589,22 +5589,66 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
   // ── TIER 2: limited paper abstracts ──
   const paperItems = all.filter((it) => !isEncyclopediaSource(it && it.p) && usableAbstract(it.p));
   if (paperItems.length > 0 && qTerms.length > 0) {
-    const picked = [];
+    /* 2026-10-12: global sentence ranking. The old loop filled four
+       slots from the first papers in line and weighted every query word
+       equally, so background sentences matching framing words ("insect",
+       "gut") beat the sentences that actually answered the question
+       ("bile salt hydrolase ..."). Now every sentence from every paper
+       is scored: rare query terms weigh more than common ones, and a
+       sentence matching several distinct query terms beats several
+       sentences matching one. Per paper cap and near duplicate
+       suppression keep one paper from flooding the answer. */
+    const candidates = [];
     for (const it of paperItems) {
-      const sents = pickSentences(usableAbstract(it.p), 2);
-      for (const { s } of sents) {
-        const t = tidy(s);
-        if (t && isWellFormedClaim(t)) picked.push({ text: t, idx: it.idx });
-        if (picked.length >= 4) break;
+      for (const raw of extractSentences(usableAbstract(it.p))) {
+        const s = String(raw || "").trim();
+        if (s.length < 30 || s.length > 420) continue;
+        const sl = s.toLowerCase();
+        const matched = qTerms.filter((t) => sl.indexOf(t) >= 0);
+        if (matched.length === 0) continue;
+        candidates.push({ s, idx: it.idx, matched });
       }
-      if (picked.length >= 4) break;
     }
+    const df = {};
+    for (const c of candidates) for (const t of c.matched) df[t] = (df[t] || 0) + 1;
+    const termWeight = (t) => 1 / Math.sqrt(df[t] || 1);
+    const scoreCandidate = (c) => {
+      let sc = 0;
+      for (const t of c.matched) sc += termWeight(t);
+      sc += 0.75 * (c.matched.length - 1); // multi concept sentences answer questions
+      if (/\b(is|are|refers to|occurs when|caused by|results from|known as|found|showed|show|increased|reduced|produced)\b/i.test(c.s)) sc += 0.5;
+      return sc;
+    };
+    const wordSet = (s) => new Set(s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2));
+    const ranked = candidates
+      .map((c) => ({ ...c, score: scoreCandidate(c) }))
+      .sort((a, b) => b.score - a.score);
+    const picked = [];
+    const perPaper = {};
+    for (const c of ranked) {
+      if (picked.length >= 5) break;
+      if ((perPaper[c.idx] || 0) >= 2) continue;
+      const t = tidy(c.s);
+      if (!t || !isWellFormedClaim(t)) continue;
+      const ws = wordSet(t);
+      let dup = false;
+      for (const p of picked) {
+        const inter = [...ws].filter((w) => p.ws.has(w)).length;
+        const union = ws.size + p.ws.size - inter;
+        if (union > 0 && inter / union > 0.7) { dup = true; break; }
+      }
+      if (dup) continue;
+      perPaper[c.idx] = (perPaper[c.idx] || 0) + 1;
+      picked.push({ text: t, idx: c.idx, ws });
+    }
+    for (const p of picked) delete p.ws;
     if (picked.length > 0) {
       const n = paperItems.length;
-      let md = "## What the limited sources say\n\n";
-      md += "Only " + n + " paper" + (n === 1 ? "" : "s") + " with usable " +
-        (n === 1 ? "abstract" : "abstracts") + " turned up" + (q ? " for \"" + q + "\"" : "") +
-        ". This is a starting point, not a conclusion.\n\n";
+      const total = all.length;
+      let md = "## What the sources say\n\n";
+      md += total + " paper" + (total === 1 ? "" : "s") + " turned up" + (q ? " for \"" + q + "\"" : "") +
+        ", and " + n + " had abstracts detailed enough to draw findings from directly. " +
+        "The sentences below are the ones that speak to the question most closely.\n\n";
       for (const p of picked) {
         md += p.text + " [" + p.idx + "]\n\n";
       }
