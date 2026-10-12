@@ -14612,13 +14612,16 @@ async function runSearchPipeline(pctx) {
         }
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js definition fast path:", cbErr); }
-    const skipWavesForDefinition = !!definitionFastPathAnswer;
-    if (skipWavesForDefinition) {
-      answer = definitionFastPathAnswer;
-      extractiveOK = true; // deterministic answer: LLM-only downstream steps stay off
-      aiOK = false;
-      try { console.log("Cerebrum: definition fast path served for", JSON.stringify(searchQuery.slice(0, 80))); } catch {}
-    }
+    // 2026-10-12 amendment: the fast path no longer SKIPS synthesis.
+    // The standing rule is that every answer is a structured AI answer
+    // first; the old skip meant every "what is X" query silently got
+    // the quoted sentences tier (the "papers found" complaint, caught
+    // live on "what is dark matter"). The waves now always run. The
+    // definition answer survives as the preferred fallback in the
+    // wave 4 block below: if every wave and the rescue fail, a solid
+    // definition still beats generic extraction for this question
+    // type.
+    const skipWavesForDefinition = false;
 
     if (emitStage) await emitStage("synthesizing", {
       sources: evidencePapers.length,
@@ -15088,7 +15091,13 @@ async function runSearchPipeline(pctx) {
       // only returns null when there is nothing to synthesize from at
       // all, in which case the honest fallback below still runs.
       // ════════════════════════════════════════════════════════════════
-      try {
+      if (definitionFastPathAnswer) {
+        // A solid definition answer outranks generic extraction for a
+        // "what is X" question: it only quotes defining sentences from
+        // the papers themselves.
+        answer = definitionFastPathAnswer;
+        extractiveOK = true;
+      } else try {
         const extPool = useEvidence ? evidencePapers : useWeb ? webRefs : [];
         // NEXT-GEN: the extractive path emits the same five-section
         // structure as the AI path, with computed disagreement /
@@ -15847,6 +15856,35 @@ async function runSearchPipeline(pctx) {
         // the footer can label it honestly ("Drafted from sources" vs
         // "AI-synthesized") instead of the UI having to guess.
         synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
+        /* IMPACT (2026-10-12, restored at Dusty's ask): what this search
+         * cost in electricity and water. Providers do not report actual
+         * usage, so this is an ESTIMATE built from the real work this
+         * run did: the synthesis token count (the same estimate the
+         * token budget meters) priced at published per token inference
+         * energy for large models on modern serving hardware
+         * (0.1 to 0.5 joules per token), a 1.3x facility overhead
+         * factor, plus a small flat cost per database queried and for
+         * the worker itself. Water applies a total water usage figure
+         * of 1.8 mL per Wh (data center cooling plus the water used
+         * generating the electricity). Ranges, not a fake precise
+         * point: the UI labels it an estimate and shows the method. */
+        impact: (() => {
+          const tokens = aiOK
+            ? estimateTokensFromChars(messagesChars(compactMessages || messages)) + estimateTokensFromChars(typeof answer === "string" ? answer.length : 0)
+            : 0;
+          const dbs = publicSourcesQueried().length;
+          const retrievalWh = 0.04 + dbs * 0.005;
+          const low = (tokens * 0.1) / 3600 * 1.3 + retrievalWh;
+          const high = (tokens * 0.5) / 3600 * 1.3 + retrievalWh;
+          const r3 = (n) => Math.round(n * 1000) / 1000;
+          return {
+            estimated: true,
+            llmTokens: tokens,
+            databasesQueried: dbs,
+            energyWh: { low: r3(low), high: r3(high) },
+            waterMl: { low: r3(low * 1.8), high: r3(high * 1.8) },
+          };
+        })(),
         /* PRO TIER . what the UI needs to render quota honestly: the
          * caller's tier, AI answers used this quota period, the cap (null =
          * unlimited on Pro), and why AI synthesis was skipped when it was
