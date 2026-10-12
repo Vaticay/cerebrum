@@ -10467,11 +10467,14 @@ async function gatherPapers(rawQuery, opts) {
     p.relevance = Math.max(0, Math.min(100, Math.round(p.score)));
     // 2026-10-11: Cap papers with missing/short abstracts AND non-English
     // titles. An uncheckable citation (no abstract to verify claims against)
-    // from a paper the reader cannot read should never be cited as evidence.
-    // Uses the same 45-cap pattern as the constraint cap.
+    // 2026-10-11: Only cap non-English/mistranslated titles, not English papers with missing abstracts.
+    // Dusty: Cerebrum needs MULTIPLE sources for synthesis. English papers with empty abstracts
+    // are allowed; the synthesis must not invent claims from them. The Indonesian (slash) and
+    // truly non-English titles are still capped.
     const _absLen = (p.abstract || "").length;
     const _title = (p.title || "");
-    if (_absLen < 100 && _title) {
+    // Only apply non-English check when abstract is missing AND title shows translation signals
+    if (_absLen < 100 && _title && _title.includes(" / ")) {
       const _nonLatin = (_title.match(/[^\u0000-\u024F\u1E00-\u1EFF\s\d\-.,;:()[\]{}'"!?@#$%^&*+=/<>]/g) || []).length;
       const _nonLatinRatio = _nonLatin / _title.length;
       // Check for >40% non-English words (simple heuristic: words with non-ASCII chars)
