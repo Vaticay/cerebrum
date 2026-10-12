@@ -953,6 +953,60 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
   );
 }
 
+/* Run the search the same way the main search box does: streamed.
+   A streamed search sends stage frames while it works, which keeps
+   the connection warm; a silent single fetch can be cut by the
+   network path before a long search finishes, and the builder then
+   reports a failure for a search that was fine. Falls back to the
+   plain fetch once when the stream path is unavailable. */
+async function searchForCourse(query) {
+  const body = { query, settings: { answerLength: "standard", factCheck: true } };
+  try {
+    const res = await fetch("/api/search?stream=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = new Error("http"); e.status = res.status; throw e; }
+    const ctype = res.headers.get("content-type") || "";
+    if (!ctype.includes("text/event-stream") || !res.body) throw new Error("nostream");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let doneData = null;
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      buf += decoder.decode(part.value, { stream: true });
+      let cut = buf.search(/\r?\n\r?\n/);
+      while (cut >= 0) {
+        const frame = buf.slice(0, cut);
+        buf = buf.slice(cut + (buf[cut] === "\r" ? 4 : 2));
+        let ev = "message";
+        const lines = [];
+        for (const rawLine of frame.split(/\r?\n/)) {
+          if (rawLine.startsWith("event:")) ev = rawLine.slice(6).trim();
+          else if (rawLine.startsWith("data:")) lines.push(rawLine.slice(5).trim());
+        }
+        if (ev === "done" && lines.length) doneData = lines.join("\n");
+        else if (ev === "error") throw new Error("backend");
+        cut = buf.search(/\r?\n\r?\n/);
+      }
+    }
+    if (!doneData) throw new Error("nodone");
+    return JSON.parse(doneData);
+  } catch (e) {
+    if (e && e.status) throw e;
+    const res = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e2 = new Error("http"); e2.status = res.status; throw e2; }
+    return res.json();
+  }
+}
+
 /* ── Learn home ──────────────────────────────────────────────────── */
 export default function LearnView({ P, accent, at, onNavigate }) {
   const [courses, setCourses] = useState([]);
@@ -1000,13 +1054,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setBuilding(true);
     setBuildError("");
     try {
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, settings: { answerLength: "standard", factCheck: true } }),
-      });
-      if (!res.ok) throw new Error("search failed");
-      const data = await res.json();
+      const data = await searchForCourse(q);
       const course = createCourseFromResults(q, data.sources || [], data.answer || "", data.literature_conflicts || []);
       if (!course) {
         setBuildError("That search did not return enough cited findings to build an honest course. Try a broader topic.");
@@ -1016,8 +1064,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       refresh();
       setTopic("");
       setScreen({ name: "path", courseId: course.id });
-    } catch {
-      setBuildError("The search did not come back. Check your connection and try again.");
+    } catch (e) {
+      if (e && e.status === 429) setBuildError("The literature databases are rate limiting right now. Wait a minute and try again.");
+      else if (e && e.status) setBuildError("The search hit a server error (status " + e.status + "). Try again in a moment.");
+      else setBuildError("The search did not come back. Check your connection and try again.");
     } finally {
       setBuilding(false);
     }
