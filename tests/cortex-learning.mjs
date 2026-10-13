@@ -54,6 +54,8 @@ const WANTED = [
   "LEARNING_PATHS", "INTERACTIVE_KINDS", "isInteractiveCard",
   "flattenPathLessons", "isLessonUnlocked", "pathProgress",
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
+  "MASTERY_MIN_PCT", "isLessonMastered", "orderScore", "parseRichText",
+  "TOUR_STEPS",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -80,6 +82,7 @@ vm.runInContext(js, context);
 const {
   LEARNING_PATHS, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
   pathProgress, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
+  MASTERY_MIN_PCT, isLessonMastered, orderScore, parseRichText, TOUR_STEPS,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -207,6 +210,7 @@ await test("no dashes in any authored lesson copy", () => {
       }
     }
   }
+  for (const s of TOUR_STEPS) { walk(s.title); walk(s.body); }
   assert.ok(strings.length > 200, `suspiciously little copy collected: ${strings.length}`);
   for (const s of strings) {
     assert.ok(!s.includes("-") && !s.includes("—") && !s.includes("–"), `dash in copy: ${s}`);
@@ -256,6 +260,63 @@ await test("finishing every lesson completes the path", () => {
 });
 
 // ─═════════════════════════════════════════════════════════════════
+group("Mastery: done is generous, mastered is earned");
+
+await test("finishing under the bar completes but does not master", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, MASTERY_MIN_PCT - 30);
+  const rec = prog.lessons[flat0[0].id];
+  assert.equal(rec.done, true, "completion stays generous at any score");
+  assert.equal(rec.mastered, false);
+  assert.equal(isLessonMastered(rec), false);
+  assert.equal(isLessonUnlocked(path0, flat0[1].id, prog), true, "completion still unlocks the next lesson");
+});
+
+await test("finishing at or over the bar masters the lesson", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, MASTERY_MIN_PCT);
+  assert.equal(prog.lessons[flat0[0].id].mastered, true);
+  assert.equal(isLessonMastered(prog.lessons[flat0[0].id]), true);
+});
+
+await test("a worse replay never unmasters a lesson", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 100);
+  prog = applyLessonResult(prog, path0, flat0[0].id, 10);
+  assert.equal(prog.lessons[flat0[0].id].mastered, true);
+  assert.equal(prog.lessons[flat0[0].id].best, 100);
+});
+
+await test("completing a miss review masters a low scoring lesson", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 30);
+  assert.equal(isLessonMastered(prog.lessons[flat0[0].id]), false);
+  prog = applyLessonResult(prog, path0, flat0[0].id, 30, { review: true });
+  const rec = prog.lessons[flat0[0].id];
+  assert.equal(rec.mastered, true);
+  assert.equal(rec.reviewMastered, true);
+  assert.equal(rec.best, 30, "the review masters the lesson, it does not rewrite its score");
+});
+
+await test("records written before mastery existed still load and read", () => {
+  assert.equal(isLessonMastered({ done: true, best: 85, completedAt: "2026-10-13T00:00:00.000Z" }), true);
+  assert.equal(isLessonMastered({ done: true, best: 20, completedAt: "2026-10-13T00:00:00.000Z" }), false);
+  assert.equal(isLessonMastered({ done: true, best: 20, reviewMastered: true }), true);
+  assert.equal(isLessonMastered({}), false);
+  assert.equal(isLessonMastered(null), false);
+  assert.equal(isLessonMastered(undefined), false);
+});
+
+await test("pathProgress counts mastered lessons separately from done", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 100);
+  prog = applyLessonResult(prog, path0, flat0[1].id, 20);
+  const pp = pathProgress(path0, prog);
+  assert.equal(pp.done, 2);
+  assert.equal(pp.mastered, 1);
+});
+
+// ─═════════════════════════════════════════════════════════════════
 group("Daily practice: only what was learned, plus what is due");
 
 await test("nothing started and nothing due means an empty session", () => {
@@ -285,6 +346,84 @@ await test("activities are sampled only from finished lessons of started paths",
   for (const c of out) assert.ok(!untouchedCards.has(c), "sampled from a path never started");
 });
 
+await test("unmastered finished lessons are practice material with priority", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 100);
+  prog = applyLessonResult(prog, path0, flat0[1].id, 20);
+  const weakCards = flat0[1].cards.filter(isInteractiveCard);
+  const strongCards = new Set(flat0[0].cards.filter(isInteractiveCard));
+  const out = buildDailyPracticeCards({ progress: prog, dueCards: [], seed: 3, limit: weakCards.length });
+  assert.equal(out.length, weakCards.length);
+  for (const c of out) {
+    assert.ok(weakCards.includes(c), "the session should fill from the unmastered lesson first");
+    assert.ok(!strongCards.has(c), "mastered cards only enter once the priority pool runs out");
+  }
+  const wide = buildDailyPracticeCards({ progress: prog, dueCards: [], seed: 3, limit: 8 });
+  assert.ok(wide.some((c) => strongCards.has(c)), "mastered cards still appear in a longer session");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Order cards: per position credit");
+
+await test("a clean full sequence earns full marks", () => {
+  const items = ["a", "b", "c", "d"];
+  const res = orderScore([...items], items);
+  assert.equal(res.correctPositions, 4);
+  assert.equal(res.total, 4);
+  assert.equal(res.xp, 10);
+  assert.equal(res.perfect, true);
+});
+
+await test("each step in its right place earns its share", () => {
+  const items = ["a", "b", "c", "d"];
+  const half = orderScore(["a", "b", "d", "c"], items);
+  assert.equal(half.correctPositions, 2);
+  assert.equal(half.perfect, false);
+  assert.equal(half.xp, 5, "half the positions right earns half the marks");
+  const three = orderScore(["a", "b", "c", "x"], ["a", "b", "c", "d"]);
+  assert.equal(three.correctPositions, 3);
+  assert.equal(three.xp, 8);
+});
+
+await test("a checked attempt with nothing in place keeps the house floor", () => {
+  const res = orderScore(["d", "c", "b", "a"], ["a", "b", "c", "d"]);
+  assert.equal(res.correctPositions, 0);
+  assert.equal(res.xp, 4, "wrong answers earn 4 XP on every other card kind");
+  const empty = orderScore([], []);
+  assert.equal(empty.correctPositions, 0);
+  assert.equal(empty.total, 0);
+  assert.equal(empty.xp, 0);
+  assert.equal(empty.perfect, false);
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Rich text: one markup convention, everything else plain");
+
+await test("an asterisk pair becomes an italic segment", () => {
+  const segs = parseRichText("studies of *Homo sapiens* show");
+  assert.equal(JSON.stringify(segs), JSON.stringify([
+    { text: "studies of ", italic: false },
+    { text: "Homo sapiens", italic: true },
+    { text: " show", italic: false },
+  ]));
+});
+
+await test("a lone asterisk stays literal and plain text stays whole", () => {
+  const seg = (t) => JSON.stringify(parseRichText(t));
+  assert.equal(seg("2 * 3 makes 6"), JSON.stringify([{ text: "2 * 3 makes 6", italic: false }]));
+  assert.equal(seg("plain words"), JSON.stringify([{ text: "plain words", italic: false }]));
+  assert.equal(seg(""), "[]");
+  const two = parseRichText("*one* and *two*");
+  assert.equal(JSON.stringify(two.filter((s) => s.italic).map((s) => s.text)), JSON.stringify(["one", "two"]));
+});
+
+await test("the species name in the deepen card is marked for italics", () => {
+  const deepen = allCards.filter((c) => c.kind === "deepen" && c.text.includes("Homo"));
+  assert.ok(deepen.length >= 1, "the Homo sapiens deepen card is missing");
+  const segs = parseRichText(deepen[0].text);
+  assert.ok(segs.some((s) => s.italic && s.text === "Homo sapiens"), "Homo sapiens must be an italic segment");
+});
+
 // ─═════════════════════════════════════════════════════════════════
 group("Player and home wiring (source pins)");
 
@@ -295,6 +434,67 @@ await test("the Player renders the new card kinds", () => {
   assert.ok(learnSrc.includes("Match every pair to finish"), "match completion bar missing");
   assert.ok(learnSrc.includes("Check order"), "order check button missing");
   assert.ok(learnSrc.includes("TRUE OR FALSE"), "true or false stage missing");
+});
+
+await test("the Player announces feedback through one live region", () => {
+  assert.ok(learnSrc.includes('aria-live="polite"'), "no polite live region in the Player");
+  assert.ok(learnSrc.includes('role="status"'), "live region needs the status role");
+  assert.ok(learnSrc.includes("Right. Plus 10 XP."), "right answers are not announced");
+  assert.ok(learnSrc.includes("Matched ") && learnSrc.includes("does not match."), "match progress is not announced");
+  assert.ok(learnSrc.includes("Lesson complete. Plus 20 XP for finishing."), "lesson completion is not announced");
+});
+
+await test("the Player manages focus and Escape", () => {
+  assert.ok(learnSrc.includes("tabIndex={-1}"), "the Player shell is not a focus target");
+  assert.ok(learnSrc.includes("shellRef"), "the Player shell has no ref for focus");
+  assert.ok(learnSrc.includes('e.key === "Escape"'), "Escape does not close the Player");
+});
+
+await test("match pair buttons expose their selection state", () => {
+  assert.ok(learnSrc.includes("aria-pressed={selected || donePair}"), "left match buttons lack aria-pressed");
+  assert.ok(learnSrc.includes("aria-pressed={donePair}"), "right match buttons lack aria-pressed");
+});
+
+await test("motion respects prefers reduced motion", () => {
+  const css = learnSrc.slice(learnSrc.indexOf("@media (prefers-reduced-motion: reduce)"));
+  assert.ok(css.length > 0, "no reduced motion block in the stylesheet");
+  for (const cls of [".lv-shake", ".lv-pulse", ".lv-rise"]) {
+    assert.ok(css.includes(cls), `reduced motion block does not gate ${cls}`);
+  }
+});
+
+await test("shuffles are seeded per attempt, not per card", () => {
+  assert.ok(learnSrc.includes("attempt * 131"), "match and order shuffles do not vary by attempt");
+  assert.ok(learnSrc.includes("shuffleSalt"), "shuffles are not salted per mount");
+});
+
+await test("order checks score through the per position helper", () => {
+  assert.ok(learnSrc.includes("orderScore(orderPlaced, card.items)"), "checkOrder does not use orderScore");
+  assert.ok(learnSrc.includes("steps in the right place."), "the sheet does not report per position credit");
+});
+
+await test("feedback tones come from the design system, not borrowed brand colours", () => {
+  for (const hex of ["#58CC02", "#FF4B4B", "#D7FFB8", "#FFDFE0"]) {
+    assert.ok(!learnSrc.includes(hex), `borrowed palette literal still present: ${hex}`);
+  }
+  assert.ok(learnSrc.includes("STATUS.good") && learnSrc.includes("STATUS.bad"), "STATUS tones are not used");
+  assert.ok(learnSrc.includes("withAlpha(STATUS.good"), "no STATUS wash fills");
+});
+
+await test("mastery shows on the path, distinctly from done", () => {
+  assert.ok(learnSrc.includes('"MASTERED"'), "the path view has no mastered state");
+  assert.ok(learnSrc.includes("not mastered yet"), "done but unmastered lessons are not explained");
+  assert.ok(learnSrc.includes("onReviewDone"), "review completion is not wired to mastery");
+});
+
+await test("note, deepen, and summary text render through RichText", () => {
+  assert.ok(learnSrc.includes("<RichText text={card.text} />"), "card text is not rendered through RichText");
+});
+
+await test("the tour opens with the learning paths", () => {
+  assert.ok(TOUR_STEPS[0].title.includes("path"), `first tour step is not about paths: ${TOUR_STEPS[0].title}`);
+  assert.ok(TOUR_STEPS[0].body.includes("learning paths"), "first tour step does not name the learning paths");
+  assert.ok(!learnSrc.includes("Pick a course, or build one"), "the old course first tour step survived");
 });
 
 await test("home leads with learning and shelves come after", () => {

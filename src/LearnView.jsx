@@ -23,7 +23,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Icon } from "./designSystem.jsx";
+import { Icon, STATUS, withAlpha, accentText } from "./designSystem.jsx";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -507,6 +507,31 @@ function emphasizeFinding(text, accent) {
   });
 }
 
+/* Minimal rich text for note, deepen, and summary cards. The one
+   markup convention: a pair of single asterisks wraps an italic span,
+   which is how authored copy marks species names (*Homo sapiens*).
+   Everything else is plain text, a lone asterisk stays literal, and
+   the segments render as React text, so nothing authored can inject
+   markup. Returns segments of { text, italic } for the renderers. */
+export function parseRichText(text) {
+  const s = String(text || "");
+  const out = [];
+  const re = /\*([^*]+)\*/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) out.push({ text: s.slice(last, m.index), italic: false });
+    out.push({ text: m[1], italic: true });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push({ text: s.slice(last), italic: false });
+  return out;
+}
+
+function RichText({ text }) {
+  return parseRichText(text).map((seg, i) => (seg.italic ? <em key={i}>{seg.text}</em> : seg.text));
+}
+
 function paperCard(source, claim) {
   const year = formatYearValue(source && source.year);
   return {
@@ -706,6 +731,10 @@ const CSS = `
 @keyframes lvPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.28); } 50% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
 .lv-node { transition: transform .15s; }
 .lv-node:hover { transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) {
+  .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse { animation: none !important; }
+  .lv-btn, .lv-opt, .lv-fill, .lv-node, .lv-topic, .lv-chip { transition: none !important; }
+}
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
 .lv-topic { transition: transform .15s, border-color .15s; }
 .lv-topic:hover { transform: translateY(-2px); }
@@ -1122,7 +1151,7 @@ export const LEARNING_PATHS = [
                 ["the tongue alone", "smell, working with the tongue", "the teeth", "memory"],
                 1,
                 "Hold your nose and an apple and an onion start to taste alike. Smell does most of the work we credit to taste."),
-              mkDeepen("Go deeper: studies of Homo sapiens show taste and smell acting as one system, and super tasters carrying extra taste buds. Search for either topic and build a course from the findings."),
+              mkDeepen("Go deeper: studies of *Homo sapiens* show taste and smell acting as one system, and super tasters carrying extra taste buds. Search for either topic and build a course from the findings."),
             ],
           },
         ],
@@ -1367,33 +1396,57 @@ export function isLessonUnlocked(path, lessonId, progress) {
   return !!(prev && prev.done);
 }
 
+/* The mastery bar. Finishing a lesson completes it at any score:
+   completion is generous, and it is what unlocks the staircase. A
+   lesson counts as mastered only at MASTERY_MIN_PCT or better, or
+   when the learner later completes a Review what you missed pass
+   for that lesson. Mastery, not mere completion, is what daily
+   practice treats as learned. */
+export const MASTERY_MIN_PCT = 70;
+
+export function isLessonMastered(rec) {
+  if (!rec || !rec.done) return false;
+  if (rec.mastered === true || rec.reviewMastered === true) return true;
+  /* Records written before mastery existed carry no mastered field;
+     they are read off the best score, which is all they ever had. */
+  return (rec.best || 0) >= MASTERY_MIN_PCT;
+}
+
 export function pathProgress(path, progress) {
   const flat = flattenPathLessons(path);
   const store = (progress && progress.lessons) || {};
   const done = flat.filter((l) => store[l.id] && store[l.id].done).length;
+  const mastered = flat.filter((l) => isLessonMastered(store[l.id])).length;
   const next = flat.find((l) => !(store[l.id] && store[l.id].done)) || null;
   return {
-    done, total: flat.length,
+    done, mastered, total: flat.length,
     pct: flat.length ? Math.round((done / flat.length) * 100) : 0,
     complete: flat.length > 0 && done === flat.length,
     nextLessonId: next ? next.id : null,
   };
 }
 
-/* Record a finished built in lesson: best score kept, the path's
-   continue pointer moved to the next unfinished lesson. Pure: takes
-   a progress object, returns the next one. */
-export function applyLessonResult(progress, path, lessonId, pct) {
+/* Record a finished built in lesson: best score kept, mastery
+   recomputed, the path's continue pointer moved to the next
+   unfinished lesson. Pure: takes a progress object, returns the
+   next one. Pass opts.review when the result comes from completing
+   a Review what you missed pass for the lesson: that masters the
+   lesson at whatever score it already holds. */
+export function applyLessonResult(progress, path, lessonId, pct, opts) {
   const next = {
     lessons: { ...((progress && progress.lessons) || {}) },
     lastPathId: path.id,
     lastLessonId: lessonId,
   };
   const prev = next.lessons[lessonId] || {};
+  const best = Math.max(prev.best || 0, Math.round(pct || 0));
+  const reviewMastered = !!(prev.reviewMastered || (opts && opts.review));
   next.lessons[lessonId] = {
     done: true,
-    best: Math.max(prev.best || 0, Math.round(pct || 0)),
+    best,
     completedAt: prev.completedAt || new Date().toISOString(),
+    reviewMastered,
+    mastered: isLessonMastered({ done: true, best, reviewMastered }),
   };
   const pp = pathProgress(path, next);
   if (pp.nextLessonId) next.lastLessonId = pp.nextLessonId;
@@ -1402,22 +1455,32 @@ export function applyLessonResult(progress, path, lessonId, pct) {
 
 /* Daily practice: due review cards first in spirit, then activities
    sampled from lessons already finished in paths the learner has
-   started. Deterministic for a given seed, so a day is stable. */
+   started. Finished but unmastered lessons are practice material
+   with priority: their cards fill the session before mastered
+   lessons, which are the learned pool. Deterministic for a given
+   seed, so a day is stable. */
 export function buildDailyPracticeCards({ progress, dueCards = [], seed = 1, limit = 8, paths = LEARNING_PATHS } = {}) {
   const store = (progress && progress.lessons) || {};
-  const pool = [];
+  const priorityPool = [];
+  const learnedPool = [];
   for (const path of paths) {
     const flat = flattenPathLessons(path);
     const started = flat.some((l) => store[l.id] && store[l.id].done);
     if (!started) continue;
     for (const l of flat) {
-      if (store[l.id] && store[l.id].done) {
-        for (const c of l.cards) if (isInteractiveCard(c)) pool.push(c);
+      const rec = store[l.id];
+      if (rec && rec.done) {
+        const bucket = isLessonMastered(rec) ? learnedPool : priorityPool;
+        for (const c of l.cards) if (isInteractiveCard(c)) bucket.push(c);
       }
     }
   }
   const duePart = dueCards.slice(0, 6);
-  const picks = seededShuffle(pool, seed || 1).slice(0, Math.max(0, limit - duePart.length));
+  const room = Math.max(0, limit - duePart.length);
+  const picks = [
+    ...seededShuffle(priorityPool, seed || 1),
+    ...seededShuffle(learnedPool, (seed || 1) + 7),
+  ].slice(0, room);
   return seededShuffle([...duePart, ...picks], (seed || 1) + 13).slice(0, limit);
 }
 
@@ -1502,8 +1565,21 @@ function courseFromPath(path, progress) {
   };
 }
 
+/* Per position credit for order cards. Every step sitting in its
+   correct slot earns its share of the card's 10 XP, a clean full
+   sequence always earns the full 10, and any checked attempt keeps
+   the house floor of 4 XP that wrong answers earn on other cards. */
+export function orderScore(placed, items) {
+  const total = (items || []).length;
+  if (!total) return { correctPositions: 0, total: 0, xp: 0, perfect: false };
+  const correctPositions = (placed || []).reduce((n, v, i) => n + (v === items[i] ? 1 : 0), 0);
+  const perfect = correctPositions === total;
+  const xp = perfect ? 10 : Math.max(4, Math.round((correctPositions / total) * 10));
+  return { correctPositions, total, xp, perfect };
+}
+
 /* ── lesson player (full screen) ─────────────────────────────────── */
-function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress, onLessonDone }) {
+function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress, onLessonDone, onReviewDone }) {
   const [lessonIdx, setLessonIdx] = useState(startLesson || 0);
   const [cardIdx, setCardIdx] = useState(0);
   const [picked, setPicked] = useState(null);
@@ -1522,9 +1598,39 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [showLessonDone, setShowLessonDone] = useState(false);
   const [misses, setMisses] = useState([]);
   const [reviewCards, setReviewCards] = useState(null);
+  const [reviewForId, setReviewForId] = useState(null);
+  const [attempt, setAttempt] = useState(0);
+  const [lastAward, setLastAward] = useState(0);
+  const [orderResult, setOrderResult] = useState(null);
+  const [announce, setAnnounce] = useState({ n: 0, text: "" });
   const xpAtLessonStart = useRef(0);
   const claimsRef = useRef(null);
   if (!claimsRef.current) claimsRef.current = loadClaims();
+
+  /* Shuffles are salted per mount and per attempt, so a retried
+     card never shows the layout the learner just memorized. */
+  const shuffleSalt = useRef(Math.floor(Math.random() * 100000));
+  const shellRef = useRef(null);
+  const exitRef = useRef(onExit);
+  exitRef.current = onExit;
+
+  /* The Player is a full screen layer: focus moves into it on open
+     and back to whatever held it on close, and Escape closes it. */
+  useEffect(() => {
+    const prevFocus = typeof document !== "undefined" ? document.activeElement : null;
+    const node = shellRef.current;
+    if (node && node.focus) node.focus({ preventScroll: true });
+    const onKey = (e) => { if (e.key === "Escape" && exitRef.current) exitRef.current(); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (prevFocus && prevFocus !== document.body && document.contains(prevFocus) && prevFocus.focus) {
+        prevFocus.focus({ preventScroll: true });
+      }
+    };
+  }, []);
+
+  const say = (text) => setAnnounce((a) => ({ n: a.n + 1, text }));
 
   const lesson = reviewCards
     ? { id: "missed-review", title: "Review what you missed", cards: reviewCards }
@@ -1538,25 +1644,26 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   );
   const lessonPct = lesson ? Math.round(((cardIdx + (checked ? 1 : 0)) / lesson.cards.length) * 100) : 0;
 
-  /* Display orders for the tap activities, shuffled once per card so
+  /* Display orders for the tap activities, shuffled per attempt so
      the right column and the item pool are not just the answer key
-     read aloud. */
+     read aloud, and a retry never repeats the layout. */
   const matchRights = useMemo(() => {
     if (!card || card.kind !== "match") return [];
-    return seededShuffle(card.pairs.map((_, i) => i), hashStr(card.prompt || "") + 31);
-  }, [card]);
+    return seededShuffle(card.pairs.map((_, i) => i), hashStr(card.prompt || "") + 31 + shuffleSalt.current + attempt * 131);
+  }, [card, attempt]);
   const orderDisplay = useMemo(() => {
     if (!card || card.kind !== "order") return [];
-    return seededShuffle(card.items, hashStr(card.prompt || "") + 47);
-  }, [card]);
+    return seededShuffle(card.items, hashStr(card.prompt || "") + 47 + shuffleSalt.current + attempt * 131);
+  }, [card, attempt]);
 
   const resetCardState = () => {
     setPicked(null); setChecked(false);
     setMatchSel(null); setMatchDone([]); setMatchMistakes(0); setMatchFlash(null);
-    setOrderPlaced([]); setOrderCorrect(false);
+    setOrderPlaced([]); setOrderCorrect(false); setOrderResult(null);
+    setAttempt((n) => n + 1);
   };
 
-  const award = (xp) => { setSessionXp((x) => x + xp); };
+  const award = (xp) => { setSessionXp((x) => x + xp); setLastAward(xp); };
 
   const noteMiss = () => {
     const origin = course.lessons[lessonIdx];
@@ -1592,18 +1699,23 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         if (clean) setRight((n) => n + 1); else noteMiss();
         award(clean ? 10 : 4);
         onProgress && onProgress(clean ? 10 : 4, course);
+        say(clean ? "All pairs matched, first try. Plus 10 XP." : "All pairs matched. Plus 4 XP.");
+      } else {
+        say("Matched " + doneNow.length + " of " + card.pairs.length + ".");
       }
     } else {
       setMatchMistakes((m) => m + 1);
       setMatchFlash(pairIdx);
       playSound("wrong", soundOn);
+      say("That pair does not match.");
       setTimeout(() => setMatchFlash(null), 480);
     }
   };
 
   /* Order play: tap items in the sequence you believe, tap a placed
-     item to take it back, then check. The whole sequence is scored
-     at once, and the explanation carries the right order. */
+     item to take it back, then check. Each step in its right place
+     earns its share of the marks, and the explanation carries the
+     right order. */
   const orderTap = (item) => {
     if (checked) return;
     setOrderPlaced((placed) => placed.includes(item) ? placed.filter((x) => x !== item) : [...placed, item]);
@@ -1612,14 +1724,20 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const checkOrder = () => {
     if (!card || card.kind !== "order" || checked) return;
     if (orderPlaced.length !== card.items.length) return;
-    const ok = orderPlaced.every((v, i) => v === card.items[i]);
-    setOrderCorrect(ok);
+    const res = orderScore(orderPlaced, card.items);
+    setOrderResult(res);
+    setOrderCorrect(res.perfect);
     setChecked(true);
     setAnswered((n) => n + 1);
-    if (ok) setRight((n) => n + 1); else noteMiss();
-    award(ok ? 10 : 4);
-    playSound(ok ? "correct" : "wrong", soundOn);
-    onProgress && onProgress(ok ? 10 : 4, course);
+    if (res.perfect) setRight((n) => n + 1); else noteMiss();
+    award(res.xp);
+    playSound(res.perfect ? "correct" : "wrong", soundOn);
+    onProgress && onProgress(res.xp, course);
+    say(res.perfect
+      ? "In the right order. Plus 10 XP."
+      : res.correctPositions > 0
+        ? res.correctPositions + " of " + res.total + " steps in the right place. Plus " + res.xp + " XP."
+        : "Not the right order. Plus " + res.xp + " XP.");
   };
 
   const check = () => {
@@ -1631,6 +1749,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       award(6);
       playSound("tick", soundOn);
       onProgress && onProgress(6, course);
+      say("Both sides are real published findings. Plus 6 XP.");
       return;
     }
     const correct = picked === card.correct;
@@ -1641,6 +1760,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }
     award(correct ? 10 : 4);
     playSound(correct ? "correct" : "wrong", soundOn);
+    say(correct ? "Right. Plus 10 XP." : "Not quite. Plus 4 XP.");
     if (card.claimId && claimsRef.current[card.claimId]) {
       gradeClaim(claimsRef.current, card.claimId, correct);
       saveClaims(claimsRef.current);
@@ -1652,6 +1772,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     if (markDone) {
       const done = [...new Set([...(course.doneLessons || []), lesson.id])];
       onProgress && onProgress(20, course, done);
+      say("Lesson complete. Plus 20 XP for finishing.");
       if (onLessonDone) {
         onLessonDone(lesson, answered ? Math.round((right / answered) * 100) : 100);
       }
@@ -1664,11 +1785,19 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     if (!interactive) { award(2); onProgress && onProgress(2, course); }
     resetCardState();
     if (cardIdx < lesson.cards.length - 1) { setCardIdx(cardIdx + 1); return; }
-    if (reviewCards) { setReviewCards(null); setCardIdx(0); setShowLessonDone(true); return; }
+    if (reviewCards) {
+      /* Completing the miss review is what masters the lesson it
+         came from; the parent records it through onReviewDone. */
+      if (onReviewDone && reviewForId) onReviewDone(reviewForId);
+      say(onReviewDone && reviewForId ? "Review complete. That lesson counts as mastered now." : "Review complete.");
+      setReviewCards(null); setReviewForId(null); setCardIdx(0); setShowLessonDone(true);
+      return;
+    }
     finishLesson(true);
   };
 
   const startMissReview = (cards) => {
+    setReviewForId(lesson ? lesson.id : null);
     setReviewCards(cards);
     setCardIdx(0);
     resetCardState();
@@ -1684,6 +1813,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     } else {
       setFinished(true);
       playSound("complete", soundOn);
+      say("Course complete. Plus " + sessionXp + " XP this session.");
     }
   };
 
@@ -1694,11 +1824,21 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   };
 
   const shell = (children) => (
-    <div style={{
+    <div ref={shellRef} tabIndex={-1} style={{
       position: "fixed", inset: 0, zIndex: 210, background: P.bg, color: P.ink,
       overflowY: "auto", fontFamily: "var(--cb-font)", WebkitOverflowScrolling: "touch",
+      outline: "none",
     }}>
       <style>{CSS}</style>
+      {/* One polite live region for the whole Player: right and wrong
+          verdicts, matched counts, and completion are announced,
+          never left as colour alone. */}
+      <div aria-live="polite" role="status" style={{
+        position: "absolute", width: 1, height: 1, margin: -1, padding: 0,
+        overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0,
+      }}>
+        <span key={announce.n}>{announce.text}</span>
+      </div>
       {children}
     </div>
   );
@@ -1875,46 +2015,59 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const lessonYears = lessonPapers.map(paperYearOf).filter((y) => y != null);
   const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
 
+  /* Feedback tones are Cerebrum's own, from the design system's
+     STATUS palette: the strong hue for borders and the sheet button,
+     a wash of it for fills, and the theme aware ink pairing the rest
+     of the app uses for status text. No borrowed brand colours. */
+  const toneGood = STATUS.good;
+  const toneBad = STATUS.bad;
+  const goodInk = P.dark ? STATUS.good : "#047857";
+  const badInk = P.dark ? STATUS.bad : "#b92c31";
+  const goodWash = withAlpha(STATUS.good, P.dark ? 0.2 : 0.13);
+  const badWash = withAlpha(STATUS.bad, P.dark ? 0.2 : 0.13);
+
   const sheetGood = checked && (card.kind === "battle" || isRight);
   const sheet = checked ? (
     <div className="lv-sheet" style={{
       position: "sticky", bottom: 0, marginTop: 28,
-      background: sheetGood ? "#D7FFB8" : "#FFDFE0",
-      borderTop: "2px solid " + (sheetGood ? "#58CC02" : "#FF4B4B"),
-      borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: "#14240a",
+      background: sheetGood ? goodWash : badWash,
+      borderTop: "2px solid " + (sheetGood ? toneGood : toneBad),
+      borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: P.ink,
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        <div style={{ fontSize: 16.5, fontWeight: 800, marginBottom: 6, color: sheetGood ? "#2c5a00" : "#8f1216" }}>
+        <div style={{ fontSize: 16.5, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Both sides are real. That is the point."
             : card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
-            : card.kind === "order" ? (isRight ? "In the right order." : "Not the right order.")
+            : card.kind === "order" ? (orderResult && orderResult.perfect ? "In the right order."
+              : orderResult && orderResult.correctPositions > 0 ? orderResult.correctPositions + " of " + orderResult.total + " steps in the right place."
+              : "Not the right order.")
             : card.pretest ? (isRight ? "Right, before you even read it." : "Good guess. Here is what the paper says.")
             : isRight ? "Right." : "Not quite."}
-          <span style={{ float: "right", fontSize: 14, fontWeight: 700, color: sheetGood ? "#2c5a00" : "#8f1216" }}>
-            {card.kind === "battle" ? "+6 XP" : isRight ? "+10 XP" : "+4 XP"}
+          <span style={{ float: "right", fontSize: 14, fontWeight: 700, color: sheetGood ? goodInk : badInk }}>
+            {"+" + lastAward + " XP"}
           </span>
         </div>
         {card.kind === "battle" ? (
-          <p style={{ fontSize: 15, lineHeight: 1.6, margin: 0, color: "#24300f" }}>
+          <p style={{ fontSize: 15, lineHeight: 1.6, margin: 0, color: P.ink2 || P.ink }}>
             Both of these are real published findings, and they do not agree. There is no correct side to pick here. Disagreement at this level usually means the answer depends on conditions neither study fully controlled.
           </p>
         ) : (
           <>
             {!isRight && card.options && picked !== null && picked !== undefined && (
-              <p style={{ fontSize: 14.5, lineHeight: 1.55, margin: "0 0 10px", color: "#5a2a2a" }}>
+              <p style={{ fontSize: 14.5, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
                 You picked: <span style={{ fontWeight: 600 }}>{card.options[picked]}</span>
               </p>
             )}
-            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", color: "#4a5a38", margin: "0 0 4px" }}>{card.cite || card.paperTitle ? "THE FINDING" : "WHY"}</p>
-            <p style={{ fontFamily: SERIF, fontSize: 16.5, lineHeight: 1.6, margin: 0, color: "#1d2a10" }}>{card.why}</p>
+            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>{card.cite || card.paperTitle ? "THE FINDING" : "WHY"}</p>
+            <p style={{ fontFamily: SERIF, fontSize: 16.5, lineHeight: 1.6, margin: 0, color: P.ink }}>{card.why}</p>
             {(card.cite || card.paperTitle) && (
-              <p style={{ fontSize: 12.5, color: "#4a5a38", margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
+              <p style={{ fontSize: 12.5, color: P.faint, margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
             )}
           </>
         )}
         <button className="lv-btn" onClick={advance}
           style={{
-            marginTop: 18, width: "100%", background: sheetGood ? "#58CC02" : "#FF4B4B", color: "#fff",
+            marginTop: 18, width: "100%", background: sheetGood ? toneGood : toneBad, color: accentText(sheetGood ? toneGood : toneBad),
             border: "none", borderRadius: 14, padding: "15px 24px", fontSize: 16, fontWeight: 800,
             cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54, boxShadow: "0 4px 0 rgba(0,0,0,.25)",
           }}>
@@ -1972,11 +2125,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
               {card.cite ? (
                 <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "18px 20px" }}>
-                  <p style={{ fontFamily: SERIF, fontSize: 18.5, lineHeight: 1.6, margin: 0 }}>{card.text}</p>
+                  <p style={{ fontFamily: SERIF, fontSize: 18.5, lineHeight: 1.6, margin: 0 }}><RichText text={card.text} /></p>
                   <p style={{ fontSize: 13, color: P.muted, margin: "12px 0 0" }}>{card.cite}</p>
                 </div>
               ) : (
-                <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+                <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               )}
               {followingPapers.length > 0 && (
                 <div style={{ marginTop: 28 }}>
@@ -2096,8 +2249,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 : { display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
                 {card.options.map((opt, i) => {
                   let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                  if (checked && i === card.correct) { bg = "#D7FFB8"; border = "#58CC02"; color = "#224d00"; }
-                  else if (checked && i === picked) { bg = "#FFDFE0"; border = "#FF4B4B"; color = "#6e0f13"; }
+                  if (checked && i === card.correct) { bg = goodWash; border = toneGood; color = P.ink; }
+                  else if (checked && i === picked) { bg = badWash; border = toneBad; color = P.ink; }
                   else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
                   return (
                     <button key={i} className={"lv-opt" + (checked && picked === i && i !== card.correct ? " lv-shake" : "")}
@@ -2111,9 +2264,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       }}>
                       <span aria-hidden="true" style={{
                         flexShrink: 0, width: 26, height: 26, borderRadius: 8, marginTop: 1,
-                        border: "1.5px solid " + (checked && i === card.correct ? "#58CC02" : checked && i === picked ? "#FF4B4B" : border),
+                        border: "1.5px solid " + (checked && i === card.correct ? toneGood : checked && i === picked ? toneBad : border),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 13, fontWeight: 700, color: checked && i === card.correct ? "#2c5a00" : color, opacity: 0.9,
+                        fontSize: 13, fontWeight: 700, color: checked && i === card.correct ? goodInk : color, opacity: 0.9,
                       }}>{checked && i === card.correct ? "✓" : "ABCD"[i] || ""}</span>
                       <span style={{ minWidth: 0, overflowWrap: "break-word" }}>{opt}</span>
                     </button>
@@ -2166,8 +2319,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {["True", "False"].map((label, i) => {
                   let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                  if (checked && i === card.correct) { bg = "#D7FFB8"; border = "#58CC02"; color = "#224d00"; }
-                  else if (checked && i === picked) { bg = "#FFDFE0"; border = "#FF4B4B"; color = "#6e0f13"; }
+                  if (checked && i === card.correct) { bg = goodWash; border = toneGood; color = P.ink; }
+                  else if (checked && i === picked) { bg = badWash; border = toneBad; color = P.ink; }
                   else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
                   return (
                     <button key={label} className={"lv-opt" + (checked && picked === i && i !== card.correct ? " lv-shake" : "")}
@@ -2198,13 +2351,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                     const selected = matchSel === i;
                     return (
                       <button key={"l" + i} onClick={() => matchLeftTap(i)} disabled={donePair || checked}
-                        className="lv-opt"
+                        className="lv-opt" aria-pressed={selected || donePair}
                         style={{
                           appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
-                          background: donePair ? "#D7FFB8" : selected ? (P.dark ? "#274b63" : "#DDF4FF") : (P.dark ? "#242b24" : "#ffffff"),
-                          border: "2px solid " + (donePair ? "#58CC02" : selected ? "#84D8FF" : P.line), borderRadius: 14,
+                          background: donePair ? goodWash : selected ? (P.dark ? "#274b63" : "#DDF4FF") : (P.dark ? "#242b24" : "#ffffff"),
+                          border: "2px solid " + (donePair ? toneGood : selected ? "#84D8FF" : P.line), borderRadius: 14,
                           padding: "13px 14px", fontSize: 15.5, fontWeight: 700, lineHeight: 1.45, textAlign: "left",
-                          color: donePair ? "#224d00" : P.ink, cursor: donePair || checked ? "default" : "pointer",
+                          color: P.ink, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
                         {pair.left}{donePair ? " ✓" : ""}
@@ -2218,13 +2371,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                     const flash = matchFlash === pairIdx;
                     return (
                       <button key={"r" + pairIdx} onClick={() => matchRightTap(pairIdx)} disabled={donePair || checked}
-                        className={"lv-opt" + (flash ? " lv-shake" : "")}
+                        className={"lv-opt" + (flash ? " lv-shake" : "")} aria-pressed={donePair}
                         style={{
                           appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
-                          background: donePair ? "#D7FFB8" : flash ? "#FFDFE0" : (P.dark ? "#242b24" : "#ffffff"),
-                          border: "2px solid " + (donePair ? "#58CC02" : flash ? "#FF4B4B" : P.line), borderRadius: 14,
+                          background: donePair ? goodWash : flash ? badWash : (P.dark ? "#242b24" : "#ffffff"),
+                          border: "2px solid " + (donePair ? toneGood : flash ? toneBad : P.line), borderRadius: 14,
                           padding: "13px 14px", fontSize: 15, lineHeight: 1.5, textAlign: "left",
-                          color: donePair ? "#224d00" : flash ? "#6e0f13" : P.ink, cursor: donePair || checked ? "default" : "pointer",
+                          color: P.ink, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
                         {card.pairs[pairIdx].right}
@@ -2257,15 +2410,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                         display: "flex", gap: 12, alignItems: "center", textAlign: "left",
-                        background: rightHere ? "#D7FFB8" : wrongHere ? "#FFDFE0" : withAlphaSafe(accent, P.dark ? 0.2 : 0.12),
-                        border: "2px solid " + (rightHere ? "#58CC02" : wrongHere ? "#FF4B4B" : accent), borderRadius: 14,
+                        background: rightHere ? goodWash : wrongHere ? badWash : withAlphaSafe(accent, P.dark ? 0.2 : 0.12),
+                        border: "2px solid " + (rightHere ? toneGood : wrongHere ? toneBad : accent), borderRadius: 14,
                         padding: "12px 15px", fontSize: 15.5, lineHeight: 1.45,
-                        color: rightHere ? "#224d00" : wrongHere ? "#6e0f13" : P.ink,
+                        color: P.ink,
                         cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 52,
                       }}>
                       <span aria-hidden="true" style={{
                         flexShrink: 0, width: 26, height: 26, borderRadius: "50%",
-                        background: rightHere ? "#58CC02" : wrongHere ? "#FF4B4B" : accent, color: "#fff",
+                        background: rightHere ? toneGood : wrongHere ? toneBad : accent, color: rightHere ? accentText(toneGood) : "#fff",
                         display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, fontWeight: 800,
                       }}>{i + 1}</span>
                       <span style={{ minWidth: 0 }}>{item}</span>
@@ -2304,7 +2457,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
               <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "20px 22px" }}>
-                <p style={{ fontSize: 17, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+                <p style={{ fontSize: 17, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               </div>
               <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.55, margin: "16px 0 0" }}>
                 This lesson stands on its own. The papers are there when you want them, under Courses from your searches on the Cortex home.
@@ -2316,7 +2469,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
               <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
-              <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+              <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.sourceCount} papers in this course</span>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
@@ -2448,7 +2601,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
         {confirmDelete ? (
           <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <span style={{ fontSize: 14, color: P.muted }}>Delete this course and its review schedule?</span>
-            <button onClick={onDelete} style={{ background: "#FF4B4B", color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
+            <button onClick={onDelete} style={{ background: STATUS.bad, color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
             <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.muted, border: "1px solid " + P.line, borderRadius: 9, padding: "8px 14px", fontSize: 13.5, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
           </span>
         ) : (
@@ -2484,7 +2637,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
         </p>
         <div style={{ margin: "16px 0 6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: P.muted, marginBottom: 6 }}>
-            <span>Path progress</span><span>{pp.done} of {pp.total} lessons</span>
+            <span>Path progress</span><span>{pp.done} of {pp.total} done · {pp.mastered} mastered</span>
           </div>
           <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
             <div className="lv-fill" style={{ width: pp.pct + "%", height: "100%", background: accent, borderRadius: 999 }} />
@@ -2506,6 +2659,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             const flatIdx = flattenPathLessons(path).findIndex((l) => l.id === lesson.id);
             const rec = store[lesson.id];
             const isDone = !!(rec && rec.done);
+            const mastered = isLessonMastered(rec);
             const unlocked = isLessonUnlocked(path, lesson.id, progress);
             const isCurrent = unlocked && !isDone;
             const offset = offsets[(flatIdx + li) % offsets.length];
@@ -2514,10 +2668,10 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                 <div aria-hidden="true" className={isCurrent ? "lv-pulse" : ""}
                   style={{
                     flexShrink: 0, width: 56, height: 56, borderRadius: "50%",
-                    background: isDone ? accent : P.raised,
-                    border: "2px solid " + (isDone || isCurrent ? accent : P.line),
+                    background: mastered ? accent : P.raised,
+                    border: "2px solid " + (mastered || isDone || isCurrent ? accent : P.line),
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    color: isDone ? at : isCurrent ? accent : P.muted,
+                    color: mastered ? at : isDone || isCurrent ? accent : P.muted,
                     fontWeight: 800, fontSize: 17, fontFamily: "var(--cb-font)",
                   }}>
                   {isDone ? (
@@ -2539,17 +2693,19 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                   }}>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                     <span style={{ fontFamily: SERIF, fontSize: 19, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.06em", color: isDone || isCurrent ? accent : P.muted, flexShrink: 0 }}>
-                      {isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
+                    <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.06em", color: mastered || isDone || isCurrent ? accent : P.muted, flexShrink: 0 }}>
+                      {mastered ? "MASTERED" : isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
                     </span>
                   </span>
                   <span style={{ display: "block", color: P.muted, fontSize: 14, lineHeight: 1.5, marginTop: 5 }}>{lesson.subtitle}</span>
                   <span style={{ display: "block", fontSize: 12.5, color: P.muted, marginTop: 8 }}>
-                    {isDone
-                      ? "Best score " + (rec.best || 0) + "% · tap to play again"
-                      : unlocked
-                        ? lesson.cards.length + " cards · about " + Math.max(1, Math.round(lesson.cards.length * 0.4)) + " min"
-                        : "Finish the lesson before this one to unlock it"}
+                    {mastered
+                      ? "Mastered · best score " + (rec.best || 0) + "% · tap to play again"
+                      : isDone
+                        ? "Best score " + (rec.best || 0) + "% · done, not mastered yet. Reach " + MASTERY_MIN_PCT + "% or clear the review of your misses to master it"
+                        : unlocked
+                          ? lesson.cards.length + " cards · about " + Math.max(1, Math.round(lesson.cards.length * 0.4)) + " min"
+                          : "Finish the lesson before this one to unlock it"}
                   </span>
                 </button>
               </div>
@@ -2619,12 +2775,12 @@ async function searchForCourse(query) {
 /* ── the tour ────────────────────────────────────────────────────────
    Thirty seconds, four steps, shown once on a first visit and
    replayable from the header. It teaches the loop, not the buttons:
-   pick, guess first, check against the paper, review on schedule. */
+   follow a path, guess first, check, review on schedule. */
 const TOUR_STEPS = [
   {
     icon: "grid",
-    title: "Pick a course, or build one",
-    body: "Start from the catalog shelves, or type any topic and Cortex builds a course from the real literature on the spot. Every question in it is a finding from a real paper, never filler written to look like one.",
+    title: "Follow a path, step by step",
+    body: "Cortex opens with learning paths: whole subjects taught directly in small lessons, with activities and no papers or searching needed. Each finished lesson unlocks the next, and finishing at 70 percent or better masters it. Below the paths sit the courses built from real papers, for when you want the evidence itself.",
   },
   {
     icon: "zap",
@@ -2826,9 +2982,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const buildCourse = () => buildCourseFrom(topic.trim());
 
   /* Daily practice: one mixed session. Due findings from search
-     courses come back first in spirit, and activities are sampled
-     from built in lessons already finished, so practice is always
-     review of things actually learned. */
+     courses come back first in spirit, then activities from built
+     in lessons already finished, with finished but unmastered
+     lessons sampled first as practice material. */
   const startDaily = () => {
     const dueCards = due.slice(0, 10).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
     const seed = Number(todayKey().replace(/[^0-9]/g, "")) || 1;
@@ -2863,6 +3019,19 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setBuiltinProgress(next);
   };
 
+  /* Completing a Review what you missed pass masters the lesson it
+     came from, at whatever score the lesson already holds. */
+  const handleBuiltinReviewDone = (pathId, lessonId) => {
+    const path = LEARNING_PATHS.find((p) => p.id === pathId);
+    if (!path || !lessonId) return;
+    const cur = loadBuiltinProgress();
+    const rec = cur.lessons[lessonId];
+    if (!rec || !rec.done) return;
+    const next = applyLessonResult(cur, path, lessonId, rec.best || 0, { review: true });
+    saveBuiltinProgress(next);
+    setBuiltinProgress(next);
+  };
+
   const removeCourse = (id) => {
     const all = loadLearnCourses().filter((c) => c.id !== id);
     saveJSON(COURSES_KEY, all);
@@ -2891,6 +3060,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         onProgress={handleProgress}
         onLessonDone={screen.course && screen.course.builtin
           ? (lesson, pct) => handleBuiltinLessonDone(screen.course.pathId, lesson, pct)
+          : undefined}
+        onReviewDone={screen.course && screen.course.builtin
+          ? (lessonId) => handleBuiltinReviewDone(screen.course.pathId, lessonId)
           : undefined}
       />
     );
