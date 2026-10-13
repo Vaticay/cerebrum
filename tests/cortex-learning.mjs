@@ -597,5 +597,22 @@ await test("home leads with learning and shelves come after", () => {
   assert.ok(learnSrc.includes("Start daily practice"), "daily practice entry missing");
 });
 
+group("Typography: design tokens, not raw sizes");
+
+await test("LearnView takes its sizes from FONT_SIZES", () => {
+  assert.match(learnSrc, /import \{[^}]*\bFONT_SIZES\b[^}]*\} from "\.\/designSystem\.jsx"/, "FONT_SIZES is not imported from the design system");
+  const uses = (learnSrc.match(/FONT_SIZES\.(caption|label|body|title|display|hero)/g) || []).length;
+  assert.ok(uses >= 150, `expected at least 150 token sizes in LearnView, found ${uses}`);
+});
+
+await test("raw numeric fontSize literals stay at the named one offs", () => {
+  // The only raw sizes allowed are the two close glyphs and the decorative
+  // quote mark: optical glyph sizing, not text roles. Everything else must
+  // come from the FONT_SIZES scale so the same role cannot drift by a pixel
+  // or two from screen to screen.
+  const raw = learnSrc.match(/fontSize: \d+(\.\d+)?/g) || [];
+  assert.ok(raw.length <= 3, `expected at most 3 raw fontSize literals, found ${raw.length}: ${raw.join(", ")}`);
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

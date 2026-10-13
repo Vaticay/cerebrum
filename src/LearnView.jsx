@@ -23,7 +23,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Icon, STATUS, withAlpha, accentText } from "./designSystem.jsx";
+import { Icon, STATUS, FONT_SIZES, withAlpha, accentText } from "./designSystem.jsx";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -2015,7 +2015,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const btnPrimary = {
     background: accent, color: at, border: "none", borderRadius: 14,
-    padding: "15px 30px", fontSize: 16, fontWeight: 700, cursor: "pointer",
+    padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer",
     fontFamily: "var(--cb-font)", minHeight: 54,
   };
 
@@ -2047,54 +2047,54 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>{course.builtin ? "PATH COMPLETE" : "COURSE COMPLETE"}</div>
-          <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
-          <p style={{ color: P.muted, fontSize: 16, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 440 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>{course.builtin ? "PATH COMPLETE" : "COURSE COMPLETE"}</div>
+          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
+          <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 440 }}>
             {course.builtin
               ? "Every lesson on this path is done. Your progress is saved on the path, and daily practice will keep pulling activities from it so the ideas stay fresh."
               : "Every finding you answered is on your review schedule now. It comes back when it starts to fade, not before."}
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 26px" }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: accent }}>+{sessionXp}</div>
-              <div style={{ fontSize: 12, color: P.muted }}>XP this session</div>
+              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700, color: accent }}>+{sessionXp}</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.muted }}>XP this session</div>
             </div>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 26px" }}>
-              <div style={{ fontSize: 28, fontWeight: 700 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
-              <div style={{ fontSize: 12, color: P.muted }}>First try accuracy</div>
+              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.muted }}>First try accuracy</div>
             </div>
           </div>
           {misses.length > 0 ? (
             <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
               {misses.map((m, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 18px", marginBottom: 10 }}>
-                  <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement}</div>
-                  <div style={{ fontSize: 14.5, lineHeight: 1.55, color: P.muted }}>
+                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement}</div>
+                  <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.muted }}>
                     {m.card.cite || m.card.paperTitle ? "The finding: " : "The idea: "}<span style={{ color: P.ink }}>{m.card.why}</span>
                   </div>
                   {m.card.paperTitle && (
-                    <div style={{ fontSize: 12.5, color: P.muted, marginTop: 6 }}>{m.card.cite} · {m.card.paperTitle}</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.muted, marginTop: 6 }}>{m.card.cite} · {m.card.paperTitle}</div>
                   )}
                 </div>
               ))}
-              <p style={{ fontSize: 13.5, color: P.muted, lineHeight: 1.55, textAlign: "center", margin: "14px 0 0" }}>
+              <p style={{ fontSize: FONT_SIZES.label, color: P.muted, lineHeight: 1.55, textAlign: "center", margin: "14px 0 0" }}>
                 {course.builtin
                   ? "Daily practice pulls from lessons you have finished, so these will come back around."
                   : "These are already on your review schedule, so they will come back while they are still fresh enough to fix."}
               </p>
             </div>
           ) : (
-            <p style={{ color: P.muted, fontSize: 14.5, margin: "0 auto 34px" }}>Clean run. Nothing missed.</p>
+            <p style={{ color: P.muted, fontSize: FONT_SIZES.body, margin: "0 auto 34px" }}>Clean run. Nothing missed.</p>
           )}
           {course.vocab && course.vocab.length > 0 && (
             <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORDS FROM THIS COURSE</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORDS FROM THIS COURSE</div>
               {course.vocab.map((v, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "14px 18px", marginBottom: 10 }}>
-                  <span style={{ fontFamily: SERIF, fontSize: 16.5, fontWeight: 700 }}>{v.term}</span>
-                  <div style={{ fontSize: 14, lineHeight: 1.55, color: P.muted, marginTop: 4 }}>{v.text}</div>
-                  {v.cite && <div style={{ fontSize: 12, color: P.muted, marginTop: 5 }}>{v.cite}</div>}
+                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 700 }}>{v.term}</span>
+                  <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.muted, marginTop: 4 }}>{v.text}</div>
+                  {v.cite && <div style={{ fontSize: FONT_SIZES.caption, color: P.muted, marginTop: 5 }}>{v.cite}</div>}
                 </div>
               ))}
             </div>
@@ -2112,14 +2112,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       <div style={{ maxWidth: 620, margin: "0 auto", padding: "26px 24px 48px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}>
           <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 6 }}>✕</button>
-          <span style={{ fontSize: 12.5, color: P.muted, letterSpacing: "0.05em" }}>LESSON {lessonIdx + 1} OF {course.lessons.length}</span>
+          <span style={{ fontSize: FONT_SIZES.caption, color: P.muted, letterSpacing: "0.05em" }}>LESSON {lessonIdx + 1} OF {course.lessons.length}</span>
           <span style={{ width: 34 }} />
         </div>
         <div className="lv-rise" style={{ textAlign: "center", paddingTop: "6vh" }}>
           <Cover title={course.title} height={150} radius={20} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
-          <h2 style={{ fontFamily: SERIF, fontSize: 34, fontWeight: 600, lineHeight: 1.2, margin: "30px 0 12px" }}>{lesson.title}</h2>
-          <p style={{ color: P.muted, fontSize: 16.5, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
-          <p style={{ color: P.muted, fontSize: 13.5, margin: "0 0 22px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
+          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.2, margin: "30px 0 12px" }}>{lesson.title}</h2>
+          <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
+          <p style={{ color: P.muted, fontSize: FONT_SIZES.label, margin: "0 0 22px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
           {(() => {
             const purpose = {
               pretest: "You guess before anything is taught. Wrong guesses here are the point: they make the real findings land harder when they arrive.",
@@ -2134,12 +2134,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             if (!purpose && !papers.length) return null;
             return (
               <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
-                {purpose && <p style={{ fontSize: 15, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>{purpose}</p>}
+                {purpose && <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>{purpose}</p>}
                 {papers.length > 0 && (
                   <>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 8 }}>FROM THESE PAPERS</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 8 }}>FROM THESE PAPERS</div>
                     {papers.map((t, i) => (
-                      <div key={i} style={{ fontFamily: SERIF, fontSize: 14.5, lineHeight: 1.45, color: P.muted, marginBottom: i < papers.length - 1 ? 6 : 0 }}>{t}</div>
+                      <div key={i} style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.45, color: P.muted, marginBottom: i < papers.length - 1 ? 6 : 0 }}>{t}</div>
                     ))}
                   </>
                 )}
@@ -2165,9 +2165,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>LESSON COMPLETE</div>
-          <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
-          <p style={{ color: P.muted, fontSize: 16, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>LESSON COMPLETE</div>
+          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
+          <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
             {course.builtin
               ? "+" + lessonXp + " XP. This lesson is marked on your path, and the next one is unlocked."
               : "+" + lessonXp + " XP. The findings from this lesson are on your review schedule now."}
@@ -2180,7 +2180,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 style={{
                   width: "100%", maxWidth: 340, marginBottom: 12, background: "transparent",
                   border: "1.5px solid " + accent, color: accent, borderRadius: 14,
-                  padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer",
+                  padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer",
                   fontFamily: "var(--cb-font)", minHeight: 50,
                 }}>
                 Review what you missed ({lessonMisses.length})
@@ -2191,7 +2191,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             {lessonIdx === course.lessons.length - 1 ? "Finish course" : "Next lesson"}
           </button>
           <div style={{ marginTop: 16 }}>
-            <button onClick={onExit} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 14.5, fontFamily: "var(--cb-font)", padding: 8 }}>
+            <button onClick={onExit} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: 8 }}>
               Back to the path
             </button>
           </div>
@@ -2231,7 +2231,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: P.ink,
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        <div style={{ fontSize: 16.5, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
+        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Both sides are real. That is the point."
             : card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
             : card.kind === "order" ? (orderResult && orderResult.perfect ? "In the right order."
@@ -2239,32 +2239,32 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               : "Not the right order.")
             : card.pretest ? (isRight ? "Right, before you even read it." : "Good guess. Here is what the paper says.")
             : isRight ? "Right." : "Not quite."}
-          <span style={{ float: "right", fontSize: 14, fontWeight: 700, color: sheetGood ? goodInk : badInk }}>
+          <span style={{ float: "right", fontSize: FONT_SIZES.label, fontWeight: 700, color: sheetGood ? goodInk : badInk }}>
             {"+" + lastAward + " XP"}
           </span>
         </div>
         {card.kind === "battle" ? (
-          <p style={{ fontSize: 15, lineHeight: 1.6, margin: 0, color: P.ink2 || P.ink }}>
+          <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink2 || P.ink }}>
             Both of these are real published findings, and they do not agree. There is no correct side to pick here. Disagreement at this level usually means the answer depends on conditions neither study fully controlled.
           </p>
         ) : (
           <>
             {!isRight && card.options && picked !== null && picked !== undefined && (
-              <p style={{ fontSize: 14.5, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
+              <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
                 You picked: <span style={{ fontWeight: 600 }}>{card.options[picked]}</span>
               </p>
             )}
-            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>{card.cite || card.paperTitle ? "THE FINDING" : "WHY"}</p>
-            <p style={{ fontFamily: SERIF, fontSize: 16.5, lineHeight: 1.6, margin: 0, color: P.ink }}>{card.why}</p>
+            <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>{card.cite || card.paperTitle ? "THE FINDING" : "WHY"}</p>
+            <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}>{card.why}</p>
             {(card.cite || card.paperTitle) && (
-              <p style={{ fontSize: 12.5, color: P.faint, margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
+              <p style={{ fontSize: FONT_SIZES.caption, color: P.faint, margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
             )}
           </>
         )}
         <button className="lv-btn" onClick={advance}
           style={{
             marginTop: 18, width: "100%", background: sheetGood ? toneGood : toneBad, color: accentText(sheetGood ? toneGood : toneBad),
-            border: "none", borderRadius: 14, padding: "15px 24px", fontSize: 16, fontWeight: 800,
+            border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 800,
             cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54, boxShadow: "0 4px 0 rgba(0,0,0,.25)",
           }}>
           {cardIdx === lesson.cards.length - 1 ? "Finish lesson" : "Continue"}
@@ -2290,9 +2290,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
             ))}
           </div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: accent, minWidth: 52, textAlign: "right" }}>{sessionXp > 0 ? "+" + sessionXp + " XP" : ""}</span>
+          <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, minWidth: 52, textAlign: "right" }}>{sessionXp > 0 ? "+" + sessionXp + " XP" : ""}</span>
         </div>
-        <div style={{ fontSize: 12, color: P.muted, letterSpacing: "0.05em", marginTop: 12 }}>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.muted, letterSpacing: "0.05em", marginTop: 12 }}>
           {lesson.title.toUpperCase()} · CARD {cardIdx + 1} OF {lesson.cards.length}
         </div>
       </div>
@@ -2304,7 +2304,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ position: "relative", height: 92, borderRadius: 18, overflow: "hidden", marginBottom: 22, border: "1px solid " + P.line }}>
               <img src={course.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
               <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(6,10,6,0.05), rgba(6,10,6,0.72))" }} />
-              <span style={{ position: "absolute", left: 16, bottom: 10, color: "#fff", fontFamily: SERIF, fontSize: 16, fontWeight: 600 }}>{lesson.title}</span>
+              <span style={{ position: "absolute", left: 16, bottom: 10, color: "#fff", fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600 }}>{lesson.title}</span>
             </div>
           )}
           {card.kind === "note" && (
@@ -2315,51 +2315,51 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 {course.img && <img src={course.img} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
                 <div style={{ position: "absolute", inset: 0, background: course.img ? "linear-gradient(180deg, rgba(6,10,6,0.16), rgba(6,10,6,0.85))" : "linear-gradient(135deg, " + withAlphaSafe(accent, 0.22) + ", transparent 65%)" }} />
                 <div style={{ position: "relative", padding: "64px 22px 20px" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: course.img ? "#cfe8b8" : accent, marginBottom: 10 }}>{(card.kicker || "").toUpperCase()}</div>
-                  <h2 style={{ fontFamily: SERIF, fontSize: 31, fontWeight: 600, lineHeight: 1.22, margin: 0, color: course.img ? "#fff" : P.ink }}>{card.title}</h2>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: course.img ? "#cfe8b8" : accent, marginBottom: 10 }}>{(card.kicker || "").toUpperCase()}</div>
+                  <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.22, margin: 0, color: course.img ? "#fff" : P.ink }}>{card.title}</h2>
                 </div>
               </div>
               {card.cite ? (
                 <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "18px 20px" }}>
-                  <p style={{ fontFamily: SERIF, fontSize: 18.5, lineHeight: 1.6, margin: 0 }}><RichText text={card.text} /></p>
-                  <p style={{ fontSize: 13, color: P.muted, margin: "12px 0 0" }}>{card.cite}</p>
+                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}><RichText text={card.text} /></p>
+                  <p style={{ fontSize: FONT_SIZES.label, color: P.muted, margin: "12px 0 0" }}>{card.cite}</p>
                 </div>
               ) : (
-                <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
+                <p style={{ fontSize: FONT_SIZES.title, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               )}
               {followingPapers.length > 0 && (
                 <div style={{ marginTop: 28 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>COMING UP IN THIS CHAPTER</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>COMING UP IN THIS CHAPTER</div>
                   {followingPapers.slice(0, 3).map((p, i) => (
                     <div key={i} style={{ display: "flex", gap: 13, alignItems: "flex-start", background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "14px 16px", marginBottom: 9 }}>
-                      <span style={{ flexShrink: 0, width: 27, height: 27, borderRadius: 9, background: withAlphaSafe(accent, 0.16), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, fontWeight: 800 }}>{i + 1}</span>
+                      <span style={{ flexShrink: 0, width: 27, height: 27, borderRadius: 9, background: withAlphaSafe(accent, 0.16), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 800 }}>{i + 1}</span>
                       <span style={{ minWidth: 0 }}>
-                        <span style={{ display: "block", fontFamily: SERIF, fontSize: 16, fontWeight: 600, lineHeight: 1.4 }}>{p.title}</span>
-                        <span style={{ display: "block", fontSize: 12.5, color: P.muted, marginTop: 3 }}>{displayMeta(p.meta)}{p.citations != null ? " · " + p.citations + " citations" : " · citation count not reported"}</span>
+                        <span style={{ display: "block", fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.4 }}>{p.title}</span>
+                        <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.muted, marginTop: 3 }}>{displayMeta(p.meta)}{p.citations != null ? " · " + p.citations + " citations" : " · citation count not reported"}</span>
                       </span>
                     </div>
                   ))}
-                  <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.55, margin: "14px 0 0" }}>
+                  <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "14px 0 0" }}>
                     In this chapter: read {lessonPapers.length} {lessonPapers.length === 1 ? "finding" : "findings"}, answer {lessonChecks} {lessonChecks === 1 ? "check" : "checks"}.
                   </p>
                 </div>
               )}
               {lesson.id === "vocab" && course.vocab && course.vocab.length > 0 && (
                 <div style={{ marginTop: 26 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>THE WORDS AHEAD</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>THE WORDS AHEAD</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {course.vocab.map((v, i) => (
-                      <span key={i} style={{ fontFamily: SERIF, fontSize: 15.5, fontWeight: 600, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "7px 14px" }}>{v.term}</span>
+                      <span key={i} style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "7px 14px" }}>{v.term}</span>
                     ))}
                   </div>
                 </div>
               )}
               <div style={{ marginTop: 28 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>THE SHAPE OF THIS LESSON</div>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>THE SHAPE OF THIS LESSON</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" }}>
                   {lesson.cards.map((c, i) => (
                     <span key={i} style={{
-                      fontSize: 12.5, fontWeight: i === cardIdx ? 800 : 600, borderRadius: 999, padding: "6px 12px",
+                      fontSize: FONT_SIZES.label, fontWeight: i === cardIdx ? 800 : 600, borderRadius: 999, padding: "6px 12px",
                       color: i === cardIdx ? "#14240a" : P.muted,
                       background: i === cardIdx ? accent : "transparent",
                       border: "1.5px solid " + (i === cardIdx ? accent : P.line),
@@ -2373,28 +2373,28 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           {card.kind === "paper" && (
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent }}>FROM THE LITERATURE</span>
+                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent }}>FROM THE LITERATURE</span>
                 {lessonPapers.length > 1 && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>
                     Paper {lessonPapers.indexOf(card) + 1} of {lessonPapers.length} in this lesson
                   </span>
                 )}
                 {paperYearOf(card) != null && (
-                  <span style={{ fontSize: 12, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>{paperYearOf(card)}</span>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>{paperYearOf(card)}</span>
                 )}
               </div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 600, lineHeight: 1.35, margin: "0 0 10px" }}>{card.title}</h2>
-              <p style={{ fontSize: 13.5, color: P.muted, margin: "0 0 22px" }}>{displayMeta(card.meta)}</p>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.35, margin: "0 0 10px" }}>{card.title}</h2>
+              <p style={{ fontSize: FONT_SIZES.label, color: P.muted, margin: "0 0 22px" }}>{displayMeta(card.meta)}</p>
               {card.text && (
                 <div style={{ position: "relative", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "24px 24px 22px", overflow: "hidden" }}>
                   <span aria-hidden="true" style={{ position: "absolute", top: -14, right: 14, fontFamily: SERIF, fontSize: 110, lineHeight: 1, color: withAlphaSafe(accent, 0.14), pointerEvents: "none" }}>”</span>
-                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 10 }}>THE FINDING</div>
-                  <p style={{ fontFamily: SERIF, fontSize: 20, lineHeight: 1.62, margin: 0, position: "relative" }}>{emphasizeFinding(card.text, accent)}</p>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 10 }}>THE FINDING</div>
+                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.62, margin: 0, position: "relative" }}>{emphasizeFinding(card.text, accent)}</p>
                 </div>
               )}
               {card.citations != null && (
                 <div style={{ marginTop: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: P.muted, marginBottom: 7 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.muted, marginBottom: 7 }}>
                     <span>Cited {card.citations} times</span>
                     <span>{card.citations >= maxCites && maxCites > 1 ? "The most cited paper in this lesson" : "Relative to this lesson"}</span>
                   </div>
@@ -2404,11 +2404,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 </div>
               )}
               {card.citations == null && (
-                <p style={{ fontSize: 12.5, color: P.muted, lineHeight: 1.5, margin: "18px 0 0" }}>Citation count was not reported for this record. Its date and place in the lesson still come from the record itself.</p>
+                <p style={{ fontSize: FONT_SIZES.caption, color: P.muted, lineHeight: 1.5, margin: "18px 0 0" }}>Citation count was not reported for this record. Its date and place in the lesson still come from the record itself.</p>
               )}
               {lessonYears.length >= 2 && Math.max(...lessonYears) > Math.min(...lessonYears) && paperYearOf(card) != null && (
                 <div style={{ marginTop: 22 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: P.muted, marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.muted, marginBottom: 8 }}>
                     <span>{Math.min(...lessonYears)}</span>
                     <span>Where this paper sits in the lesson</span>
                     <span>{Math.max(...lessonYears)}</span>
@@ -2422,23 +2422,23 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   </div>
                 </div>
               )}
-              <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.55, margin: "24px 0 0" }}>Read it once, slowly. The next card asks you to recall it.</p>
+              <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "24px 0 0" }}>Read it once, slowly. The next card asks you to recall it.</p>
             </div>
           )}
 
           {(card.kind === "quiz" || card.kind === "cloze") && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>
                 {card.pretest ? "PRETEST · GUESS FIRST" : card.vocab ? "VOCABULARY · TERMS IN CONTEXT" : card.kind === "cloze" ? "PREDICT THE RESULT" : "RECALL"}
               </div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
               {card.prompt && (
                 <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "17px 19px", margin: "4px 0 10px" }}>
-                  <p style={{ fontFamily: SERIF, fontSize: 19, lineHeight: 1.6, margin: 0 }}>{card.prompt}</p>
+                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}>{card.prompt}</p>
                 </div>
               )}
               {card.pretest && !checked && (
-                <p style={{ fontSize: 14, color: P.muted, margin: "0 0 6px", lineHeight: 1.55 }}>You have not been taught this yet. That is the point. A real guess now makes the finding stick later.</p>
+                <p style={{ fontSize: FONT_SIZES.body, color: P.muted, margin: "0 0 6px", lineHeight: 1.55 }}>You have not been taught this yet. That is the point. A real guess now makes the finding stick later.</p>
               )}
               <div style={card.vocab
                 ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }
@@ -2454,7 +2454,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                         background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: 16,
-                        padding: "15px 18px", fontSize: card.kind === "cloze" ? 17.5 : 15.5, lineHeight: 1.5,
+                        padding: "15px 18px", fontSize: card.kind === "cloze" ? FONT_SIZES.title : FONT_SIZES.body, lineHeight: 1.5,
                         color, cursor: checked ? "default" : "pointer", textAlign: "left",
                         fontFamily: "var(--cb-font)", minHeight: 54, display: "flex", gap: 12, alignItems: "flex-start",
                       }}>
@@ -2462,7 +2462,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         flexShrink: 0, width: 26, height: 26, borderRadius: 8, marginTop: 1,
                         border: "1.5px solid " + (checked && i === card.correct ? toneGood : checked && i === picked ? toneBad : border),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 13, fontWeight: 700, color: checked && i === card.correct ? goodInk : color, opacity: 0.9,
+                        fontSize: FONT_SIZES.label, fontWeight: 700, color: checked && i === card.correct ? goodInk : color, opacity: 0.9,
                       }}>{checked && i === card.correct ? "✓" : "ABCD"[i] || ""}</span>
                       <span style={{ minWidth: 0, overflowWrap: "break-word" }}>{opt}</span>
                     </button>
@@ -2474,8 +2474,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "battle" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>CLAIM BATTLE · REAL FINDINGS</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 20px" }}>{card.question}</h2>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>CLAIM BATTLE · REAL FINDINGS</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 20px" }}>{card.question}</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
                 {[{ claim: card.claimA, src: card.sourceA, tag: "POSITION A" }, { claim: card.claimB, src: card.sourceB, tag: "POSITION B" }].flatMap((side, i) => {
                   const btn = (
@@ -2486,9 +2486,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         background: P.raised, border: "2px solid " + (!checked && picked === i ? accent : P.line), borderRadius: 18,
                         padding: "18px 20px", cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)",
                       }}>
-                      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 9 }}>{side.tag}</div>
-                      <p style={{ fontFamily: SERIF, fontSize: 17.5, lineHeight: 1.55, margin: 0 }}>{side.claim}</p>
-                      <p style={{ fontSize: 12.5, color: P.muted, margin: "10px 0 0" }}>{side.src}</p>
+                      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 9 }}>{side.tag}</div>
+                      <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}>{side.claim}</p>
+                      <p style={{ fontSize: FONT_SIZES.caption, color: P.muted, margin: "10px 0 0" }}>{side.src}</p>
                     </button>
                   );
                   if (i === 0) return [btn];
@@ -2497,7 +2497,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       <span style={{
                         width: 40, height: 40, borderRadius: "50%", background: accent, color: "#14240a",
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 13.5, fontWeight: 800, border: "3px solid " + P.bg, boxSizing: "border-box",
+                        fontSize: FONT_SIZES.label, fontWeight: 800, border: "3px solid " + P.bg, boxSizing: "border-box",
                       }}>VS</span>
                     </div>
                   ), btn];
@@ -2508,9 +2508,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "truefalse" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>TRUE OR FALSE</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>TRUE OR FALSE</div>
               <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "19px 21px", marginBottom: 20 }}>
-                <p style={{ fontFamily: SERIF, fontSize: 21, lineHeight: 1.55, margin: 0 }}>{card.statement}</p>
+                <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}>{card.statement}</p>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {["True", "False"].map((label, i) => {
@@ -2524,7 +2524,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       style={{
                         appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
                         border: "2px solid " + border, borderRadius: 16, padding: "18px 12px",
-                        fontSize: 18, fontWeight: 700, color, cursor: checked ? "default" : "pointer",
+                        fontSize: FONT_SIZES.title, fontWeight: 700, color, cursor: checked ? "default" : "pointer",
                         fontFamily: "var(--cb-font)", minHeight: 62,
                       }}>
                       {label}
@@ -2537,9 +2537,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "match" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>MATCH THE PAIRS</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
-              <p style={{ fontSize: 14.5, color: P.muted, margin: "0 0 4px", lineHeight: 1.55 }}>Tap a word on the left, then tap the meaning it belongs with on the right.</p>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>MATCH THE PAIRS</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <p style={{ fontSize: FONT_SIZES.body, color: P.muted, margin: "0 0 4px", lineHeight: 1.55 }}>Tap a word on the left, then tap the meaning it belongs with on the right.</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {card.pairs.map((pair, i) => {
@@ -2552,7 +2552,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                           appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                           background: donePair ? goodWash : selected ? (P.dark ? "#274b63" : "#DDF4FF") : (P.dark ? "#242b24" : "#ffffff"),
                           border: "2px solid " + (donePair ? toneGood : selected ? "#84D8FF" : P.line), borderRadius: 14,
-                          padding: "13px 14px", fontSize: 15.5, fontWeight: 700, lineHeight: 1.45, textAlign: "left",
+                          padding: "13px 14px", fontSize: FONT_SIZES.body, fontWeight: 700, lineHeight: 1.45, textAlign: "left",
                           color: P.ink, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
@@ -2572,7 +2572,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                           appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                           background: donePair ? goodWash : flash ? badWash : (P.dark ? "#242b24" : "#ffffff"),
                           border: "2px solid " + (donePair ? toneGood : flash ? toneBad : P.line), borderRadius: 14,
-                          padding: "13px 14px", fontSize: 15, lineHeight: 1.5, textAlign: "left",
+                          padding: "13px 14px", fontSize: FONT_SIZES.body, lineHeight: 1.5, textAlign: "left",
                           color: P.ink, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
@@ -2582,7 +2582,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   })}
                 </div>
               </div>
-              <p style={{ fontSize: 13.5, color: P.muted, margin: "16px 0 0" }}>
+              <p style={{ fontSize: FONT_SIZES.label, color: P.muted, margin: "16px 0 0" }}>
                 {matchDone.length} of {card.pairs.length} matched{matchMistakes > 0 ? " · " + matchMistakes + (matchMistakes === 1 ? " miss" : " misses") : ""}
               </p>
             </div>
@@ -2590,12 +2590,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "order" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>PUT IT IN ORDER</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
-              <p style={{ fontSize: 14.5, color: P.muted, margin: "0 0 4px", lineHeight: 1.55 }}>Tap the steps in the order they happen. Tap a placed step to take it back.</p>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>PUT IT IN ORDER</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <p style={{ fontSize: FONT_SIZES.body, color: P.muted, margin: "0 0 4px", lineHeight: 1.55 }}>Tap the steps in the order they happen. Tap a placed step to take it back.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 9, margin: "20px 0 18px" }}>
                 {orderPlaced.length === 0 && (
-                  <p style={{ fontSize: 14.5, color: P.muted, margin: 0, border: "1.5px dashed " + P.line, borderRadius: 14, padding: "15px 16px" }}>Your order will appear here.</p>
+                  <p style={{ fontSize: FONT_SIZES.body, color: P.muted, margin: 0, border: "1.5px dashed " + P.line, borderRadius: 14, padding: "15px 16px" }}>Your order will appear here.</p>
                 )}
                 {orderPlaced.map((item, i) => {
                   const rightHere = checked && card.items[i] === item;
@@ -2608,14 +2608,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         display: "flex", gap: 12, alignItems: "center", textAlign: "left",
                         background: rightHere ? goodWash : wrongHere ? badWash : withAlphaSafe(accent, P.dark ? 0.2 : 0.12),
                         border: "2px solid " + (rightHere ? toneGood : wrongHere ? toneBad : accent), borderRadius: 14,
-                        padding: "12px 15px", fontSize: 15.5, lineHeight: 1.45,
+                        padding: "12px 15px", fontSize: FONT_SIZES.body, lineHeight: 1.45,
                         color: P.ink,
                         cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 52,
                       }}>
                       <span aria-hidden="true" style={{
                         flexShrink: 0, width: 26, height: 26, borderRadius: "50%",
                         background: rightHere ? toneGood : wrongHere ? toneBad : accent, color: rightHere ? accentText(toneGood) : "#fff",
-                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, fontWeight: 800,
+                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 800,
                       }}>{i + 1}</span>
                       <span style={{ minWidth: 0 }}>{item}</span>
                     </button>
@@ -2624,7 +2624,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
               {orderDisplay.filter((item) => !orderPlaced.includes(item)).length > 0 && (
                 <>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 10 }}>THE STEPS</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 10 }}>THE STEPS</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
                     {orderDisplay.filter((item) => !orderPlaced.includes(item)).map((item) => (
                       <button key={"pool" + item} onClick={() => orderTap(item)} disabled={checked}
@@ -2632,7 +2632,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         style={{
                           appearance: "none", WebkitAppearance: "none", boxSizing: "border-box",
                           background: P.dark ? "#242b24" : "#ffffff", border: "2px solid " + P.line, borderRadius: 999,
-                          padding: "10px 16px", fontSize: 15, fontWeight: 600, lineHeight: 1.4,
+                          padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.4,
                           color: P.ink, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 46,
                         }}>
                         {item}
@@ -2642,7 +2642,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 </>
               )}
               {checked && !orderCorrect && (
-                <p style={{ fontSize: 14.5, color: P.muted, margin: "18px 0 0", lineHeight: 1.6 }}>
+                <p style={{ fontSize: FONT_SIZES.body, color: P.muted, margin: "18px 0 0", lineHeight: 1.6 }}>
                   The right order: {card.items.join(", then ")}.
                 </p>
               )}
@@ -2651,11 +2651,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "deepen" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
               <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "20px 22px" }}>
-                <p style={{ fontSize: 17, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
+                <p style={{ fontSize: FONT_SIZES.title, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               </div>
-              <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.55, margin: "16px 0 0" }}>
+              <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "16px 0 0" }}>
                 This lesson stands on its own. The papers are there when you want them, under Courses from your searches on the Cortex home.
               </p>
             </div>
@@ -2663,14 +2663,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "summary" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
-              <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
+              <p style={{ fontSize: FONT_SIZES.title, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.sourceCount} papers in this course</span>
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.sourceCount} papers in this course</span>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
                 {course.vocab && course.vocab.length > 0 && (
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.vocab.length} terms met</span>
+                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.vocab.length} terms met</span>
                 )}
               </div>
             </div>
@@ -2734,17 +2734,17 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 14.5, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
         ← All courses
       </button>
       <div className="lv-rise">
         <Cover title={course.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
-        <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
-        <p style={{ color: P.muted, fontSize: 14.5, margin: "0 0 6px" }}>
+        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
+        <p style={{ color: P.muted, fontSize: FONT_SIZES.body, margin: "0 0 6px" }}>
           {course.lessons.length} lessons · {course.sourceCount || 0} papers · {course.xpEarned || 0} XP earned
         </p>
         <div style={{ margin: "14px 0 30px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: P.muted, marginBottom: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.muted, marginBottom: 6 }}>
             <span>Memory strength</span><span>{mem.label}</span>
           </div>
           <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
@@ -2768,7 +2768,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
                 border: "2px solid " + (isDone || isNext ? accent : P.line),
                 display: "flex", alignItems: "center", justifyContent: "center",
                 color: isDone ? at : isNext ? accent : P.muted,
-                fontWeight: 800, fontSize: 16, fontFamily: "var(--cb-font)",
+                fontWeight: 800, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)",
               }} className={isNext ? "lv-pulse" : ""}>
                 {isDone ? (
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -2781,12 +2781,12 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
                   padding: "16px 18px", fontFamily: "var(--cb-font)", color: P.ink,
                 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                  <span style={{ fontFamily: SERIF, fontSize: 19.5, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", color: isDone ? accent : P.muted, flexShrink: 0 }}>
+                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", color: isDone ? accent : P.muted, flexShrink: 0 }}>
                     {isDone ? "DONE" : isNext ? "UP NEXT" : lesson.cards.length + " CARDS"}
                   </span>
                 </div>
-                <p style={{ color: P.muted, fontSize: 14, lineHeight: 1.5, margin: "5px 0 0" }}>{lesson.subtitle}</p>
+                <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.5, margin: "5px 0 0" }}>{lesson.subtitle}</p>
               </button>
             </div>
           );
@@ -2796,12 +2796,12 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
       <div style={{ marginTop: 8, borderTop: "1px solid " + P.line, paddingTop: 20 }}>
         {confirmDelete ? (
           <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <span style={{ fontSize: 14, color: P.muted }}>Delete this course and its review schedule?</span>
-            <button onClick={onDelete} style={{ background: STATUS.bad, color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: 13.5, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
-            <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.muted, border: "1px solid " + P.line, borderRadius: 9, padding: "8px 14px", fontSize: 13.5, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
+            <span style={{ fontSize: FONT_SIZES.body, color: P.muted }}>Delete this course and its review schedule?</span>
+            <button onClick={onDelete} style={{ background: STATUS.bad, color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
+            <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.muted, border: "1px solid " + P.line, borderRadius: 9, padding: "8px 14px", fontSize: FONT_SIZES.label, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
           </span>
         ) : (
-          <button onClick={() => setConfirmDelete(true)} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 13.5, fontFamily: "var(--cb-font)", padding: 0 }}>
+          <button onClick={() => setConfirmDelete(true)} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", padding: 0 }}>
             Delete course
           </button>
         )}
@@ -2821,18 +2821,18 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 14.5, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
         ← Cortex home
       </button>
       <div className="lv-rise">
         <Cover title={path.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === path.category) || null} />
-        <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
-        <p style={{ color: P.muted, fontSize: 15, lineHeight: 1.55, margin: "0 0 6px" }}>{path.blurb}</p>
-        <p style={{ color: P.muted, fontSize: 14, margin: 0 }}>
+        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
+        <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 6px" }}>{path.blurb}</p>
+        <p style={{ color: P.muted, fontSize: FONT_SIZES.body, margin: 0 }}>
           {pp.total} lessons · {path.units.length} units · taught directly, no papers needed
         </p>
         <div style={{ margin: "16px 0 6px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: P.muted, marginBottom: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.muted, marginBottom: 6 }}>
             <span>Path progress</span><span>{pp.done} of {pp.total} done · {pp.mastered} mastered</span>
           </div>
           <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
@@ -2847,9 +2847,9 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             background: withAlphaSafe(accent, P.dark ? 0.16 : 0.1), border: "1px solid " + P.line,
             borderRadius: 18, padding: "16px 20px", marginBottom: 26,
           }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}</div>
-            <div style={{ fontFamily: SERIF, fontSize: 21, fontWeight: 600, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
-            <p style={{ color: P.muted, fontSize: 14, lineHeight: 1.5, margin: "4px 0 0" }}>{unit.subtitle}</p>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}</div>
+            <div style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
+            <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.5, margin: "4px 0 0" }}>{unit.subtitle}</p>
           </div>
           {unit.lessons.map((lesson, li) => {
             const flatIdx = flattenPathLessons(path).findIndex((l) => l.id === lesson.id);
@@ -2868,7 +2868,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                     border: "2px solid " + (mastered || isDone || isCurrent ? accent : P.line),
                     display: "flex", alignItems: "center", justifyContent: "center",
                     color: mastered ? at : isDone || isCurrent ? accent : P.muted,
-                    fontWeight: 800, fontSize: 17, fontFamily: "var(--cb-font)",
+                    fontWeight: 800, fontSize: FONT_SIZES.title, fontFamily: "var(--cb-font)",
                   }}>
                   {isDone ? (
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -2888,13 +2888,13 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                     opacity: unlocked ? 1 : 0.55,
                   }}>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                    <span style={{ fontFamily: SERIF, fontSize: 19, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.06em", color: mastered || isDone || isCurrent ? accent : P.muted, flexShrink: 0 }}>
+                    <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", color: mastered || isDone || isCurrent ? accent : P.muted, flexShrink: 0 }}>
                       {mastered ? "MASTERED" : isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
                     </span>
                   </span>
-                  <span style={{ display: "block", color: P.muted, fontSize: 14, lineHeight: 1.5, marginTop: 5 }}>{lesson.subtitle}</span>
-                  <span style={{ display: "block", fontSize: 12.5, color: P.muted, marginTop: 8 }}>
+                  <span style={{ display: "block", color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.5, marginTop: 5 }}>{lesson.subtitle}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.muted, marginTop: 8 }}>
                     {mastered
                       ? "Mastered · best score " + (rec.best || 0) + "% · tap to play again"
                       : isDone
@@ -3016,11 +3016,11 @@ function CortexTour({ P, accent, at, onClose }) {
         }}>
           <Icon name={s.icon} size={26} />
         </div>
-        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 8 }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 8 }}>
           HOW CORTEX WORKS · {step + 1} OF {TOUR_STEPS.length}
         </div>
-        <h2 style={{ fontFamily: SERIF, fontSize: 25, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{s.title}</h2>
-        <p style={{ fontSize: 15.5, lineHeight: 1.65, color: P.muted, margin: "0 0 24px" }}>{s.body}</p>
+        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{s.title}</h2>
+        <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.65, color: P.muted, margin: "0 0 24px" }}>{s.body}</p>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
           {TOUR_STEPS.map((_, i) => (
             <span key={i} style={{
@@ -3032,17 +3032,17 @@ function CortexTour({ P, accent, at, onClose }) {
         <div style={{ display: "flex", gap: 10 }}>
           {step > 0 && (
             <button className="lv-btn" onClick={() => setStep(step - 1)}
-              style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: 12, padding: "13px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
+              style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: 12, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
               Back
             </button>
           )}
           <button className="lv-btn lv-btn-primary" onClick={() => (last ? onClose() : setStep(step + 1))}
-            style={{ flex: 1, background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "13px 20px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
+            style={{ flex: 1, background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
             {last ? "Start learning" : "Next"}
           </button>
         </div>
         {!last && (
-          <button onClick={onClose} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 13.5, fontFamily: "var(--cb-font)", padding: "12px 0 0", display: "block", margin: "0 auto" }}>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", padding: "12px 0 0", display: "block", margin: "0 auto" }}>
             Skip the tour
           </button>
         )}
@@ -3292,10 +3292,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   const pill = (icon, value, label) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 14px", fontSize: 14, color: P.ink }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 14px", fontSize: FONT_SIZES.label, color: P.ink }}>
       {icon}
       <strong style={{ fontWeight: 700 }}>{value}</strong>
-      <span style={{ color: P.muted, fontSize: 13 }}>{label}</span>
+      <span style={{ color: P.muted, fontSize: FONT_SIZES.label }}>{label}</span>
     </span>
   );
   const flame = (
@@ -3325,19 +3325,19 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ color: accent, display: "inline-flex", flexShrink: 0 }}><Icon name="cortex" size={36} /></span>
-            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
+            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
           </div>
-          <p className="lv-sub" style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
+          <p className="lv-sub" style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
             Where papers become memory, and where anyone can simply learn. Follow a path and Cortex teaches the subject in small steps, with activities. Or build a course from real papers, where every question is a real finding and reviews come back when your memory starts to fade.
           </p>
           <button onClick={() => setTourOpen(true)}
-            style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: 13.5, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "8px 0 0", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "8px 0 0", display: "inline-flex", alignItems: "center", gap: 6 }}>
             How Cortex works <Icon name="arrowRight" size={13} />
           </button>
         </div>
         <button onClick={() => { const v = !soundOn; setSoundOn(v); saveJSON(SOUND_KEY, v); }}
           aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"}
-          style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: 13, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+          style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
           Sound {soundOn ? "on" : "off"}
         </button>
       </div>
@@ -3392,16 +3392,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             }}>
             <Cover title={hero.coverTitle} height={128} radius={0} cat={hero.cat} img={hero.img} />
             <span style={{ display: "block", padding: "18px 22px 20px" }}>
-              <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
+              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
                 {hero.kicker}
               </span>
-              <span className="lv-hero-title" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{hero.title}</span>
-              {hero.sub && <span style={{ display: "block", fontSize: 13.5, color: P.muted, marginTop: 5 }}>{hero.sub}</span>}
+              <span className="lv-hero-title" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{hero.title}</span>
+              {hero.sub && <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.muted, marginTop: 5 }}>{hero.sub}</span>}
               <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
                 <span style={{ flex: 1, height: 8, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
                   <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: hero.pct + "%" }} />
                 </span>
-                <span style={{ fontSize: 13, color: P.muted }}>{hero.count}</span>
+                <span style={{ fontSize: FONT_SIZES.label, color: P.muted }}>{hero.count}</span>
               </span>
             </span>
           </button>
@@ -3410,19 +3410,19 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* daily practice */}
       <div style={{ border: "1px solid " + (dailyReady ? accent : P.line), borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DAILY PRACTICE</div>
-        <p style={{ fontSize: 15, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DAILY PRACTICE</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
           {dailyReady
             ? "A short mixed session: " + (due.length > 0 ? due.length + " fading finding" + (due.length === 1 ? "" : "s") + " and " : "") + "activities from the paths you have started."
             : "Finish any lesson on a path and daily practice unlocks: a short mixed session that keeps what you learned from fading."}
         </p>
-        <p style={{ fontSize: 13.5, color: P.muted, lineHeight: 1.5, margin: "0 0 14px" }}>
+        <p style={{ fontSize: FONT_SIZES.label, color: P.muted, lineHeight: 1.5, margin: "0 0 14px" }}>
           {totalPathDone} of {totalPathLessons} path lessons done so far.
         </p>
         <button className="lv-btn lv-btn-primary" onClick={startDaily} disabled={!dailyReady}
           style={{
             background: accent, color: at || "#101408", border: "none", borderRadius: 12,
-            padding: "13px 24px", fontSize: 15, fontWeight: 700,
+            padding: "13px 24px", fontSize: FONT_SIZES.body, fontWeight: 700,
             cursor: dailyReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
             opacity: dailyReady ? 1 : 0.5,
           }}>
@@ -3432,8 +3432,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* learning paths */}
       <div style={{ marginBottom: 30 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEARNING PATHS</div>
-        <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 16px" }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEARNING PATHS</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "0 0 16px" }}>
           Whole subjects, taught step by step. Lessons are short, the activities are the teaching, and nothing here needs a paper or a search. Papers wait at the end of a lesson, as a way deeper, never as a gate.
         </p>
         <div className="lv-catalog">
@@ -3449,13 +3449,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 }}>
                 <Cover title={path.title} height={104} radius={0} cat={cat} />
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SERIF, fontSize: 17.5, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{path.title}</span>
-                  <span style={{ fontSize: 13, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{path.blurb}</span>
+                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{path.title}</span>
+                  <span style={{ fontSize: FONT_SIZES.label, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{path.blurb}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
                     <span style={{ flex: 1, height: 7, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
                       <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: pp.pct + "%" }} />
                     </span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: accent }}>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>
                       {pp.complete ? "Complete" : pp.done > 0 ? pp.done + " of " + pp.total : pp.total + " lessons"}
                     </span>
                   </span>
@@ -3468,23 +3468,23 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* courses from searches: heading for everything below */}
       <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
-        <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
           The other way Cortex teaches: pick a topic and it builds a course from the real literature, findings, debates, and all.
         </p>
       </div>
 
       {/* the catalog */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>THE CATALOG</div>
-        <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 16px" }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>THE CATALOG</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "0 0 16px" }}>
           Shelves of science, ready when you are. Tap a course and Cortex builds it from the literature on the spot, papers and all.
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
           {["All", ...CATALOG.map((c) => c.name), ...(published.length ? ["From contributors"] : [])].map((name) => (
             <button key={name} className="lv-chip" onClick={() => setCatFilter(name)}
               style={{
-                borderRadius: 999, padding: "9px 15px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)",
+                borderRadius: 999, padding: "9px 15px", fontSize: FONT_SIZES.label, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)",
                 background: catFilter === name ? accent : "transparent",
                 color: catFilter === name ? (at || "#101408") : P.ink,
                 border: "1px solid " + (catFilter === name ? accent : P.line),
@@ -3507,11 +3507,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 }}>
                 <Cover title={t.t} height={104} radius={0} cat={cat} img={t.img} />
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SERIF, fontSize: 17.5, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{t.t}</span>
-                  <span style={{ fontSize: 13, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
+                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{t.t}</span>
+                  <span style={{ fontSize: FONT_SIZES.label, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: P.muted }}>{cat.name.toUpperCase()}</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: accent }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", color: P.muted }}>{cat.name.toUpperCase()}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
                   </span>
                 </span>
               </button>
@@ -3531,30 +3531,30 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 }}>
                 {cat ? <CategoryArt motif={cat.motif} pair={cat.pair} height={104} radius={0} /> : <Cover title={e.title} height={104} radius={0} />}
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SERIF, fontSize: 17.5, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{e.title}</span>
-                  <span style={{ fontSize: 13, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{e.blurb || e.query}</span>
+                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{e.title}</span>
+                  <span style={{ fontSize: FONT_SIZES.label, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{e.blurb || e.query}</span>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-                    <span style={{ fontSize: 11.5, color: P.muted, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ fontSize: FONT_SIZES.caption, color: P.muted, display: "inline-flex", alignItems: "center", gap: 5 }}>
                       <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={12} /></span>
                       by {String(e.createdBy || "").split("@")[0]}
                     </span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: accent }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
                   </span>
                 </span>
               </button>
             );
           })}
         </div>
-        <p style={{ fontSize: 12, color: P.muted, margin: "14px 0 0" }}>Cover photos are free stock matched to each topic, from Pexels, Unsplash, and Wikimedia Commons.</p>
+        <p style={{ fontSize: FONT_SIZES.caption, color: P.muted, margin: "14px 0 0" }}>Cover photos are free stock matched to each topic, from Pexels, Unsplash, and Wikimedia Commons.</p>
         {buildError && catFilter !== null && buildingLabel === "" && (
-          <p style={{ color: "#FF8A8A", fontSize: 14, margin: "14px 0 0" }}>{buildError}</p>
+          <p style={{ color: "#FF8A8A", fontSize: FONT_SIZES.body, margin: "14px 0 0" }}>{buildError}</p>
         )}
       </div>
 
       {/* topic builder */}
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>BUILD A COURSE</div>
-        <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>BUILD A COURSE</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum searches the literature and turns the findings into a course on the spot.
         </p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -3566,60 +3566,60 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             aria-label="Course topic"
             style={{
               flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: 14,
-              padding: "14px 16px", fontSize: 15.5, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
+              padding: "14px 16px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
             }}
           />
           <button className="lv-btn lv-btn-primary" onClick={buildCourse} disabled={building || !topic.trim()}
             style={{
               background: accent, color: at || "#101408", border: "none", borderRadius: 14,
-              padding: "14px 26px", fontSize: 15.5, fontWeight: 700, cursor: building ? "wait" : "pointer",
+              padding: "14px 26px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: building ? "wait" : "pointer",
               fontFamily: "var(--cb-font)", minHeight: 54, opacity: building || !topic.trim() ? 0.55 : 1,
             }}>
             {building ? "Searching the literature..." : "Build course"}
           </button>
         </div>
-        {buildError && <p style={{ color: "#FF8A8A", fontSize: 14, margin: "12px 0 0" }}>{buildError}</p>}
+        {buildError && <p style={{ color: "#FF8A8A", fontSize: FONT_SIZES.body, margin: "12px 0 0" }}>{buildError}</p>}
       </div>
 
       {/* contributor studio */}
       {access.isCreator && (
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
-          <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
             You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Cortex builds it from the real literature, same as every course here.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={studio.title} onChange={(e) => setStudio({ ...studio, title: e.target.value })}
               placeholder="Course title" aria-label="Catalog course title"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <select value={studio.category} onChange={(e) => setStudio({ ...studio, category: e.target.value })}
               aria-label="Catalog category"
-              style={{ flex: "0 1 200px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }}>
+              style={{ flex: "0 1 200px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }}>
               {CATALOG.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
             <input value={studio.query} onChange={(e) => setStudio({ ...studio, query: e.target.value })}
               placeholder="Topic the course is built from, e.g. tardigrade desiccation" aria-label="Catalog course topic"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <input value={studio.blurb} onChange={(e) => setStudio({ ...studio, blurb: e.target.value })}
               placeholder="One line that sells it honestly" aria-label="Catalog course blurb"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14, flexWrap: "wrap" }}>
             <button className="lv-btn lv-btn-primary" onClick={publishEntry} disabled={!studio.title.trim() || !studio.query.trim()}
-              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !studio.title.trim() || !studio.query.trim() ? 0.55 : 1 }}>
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !studio.title.trim() || !studio.query.trim() ? 0.55 : 1 }}>
               Publish to catalog
             </button>
-            {studioMsg && <span style={{ fontSize: 13.5, color: P.muted }}>{studioMsg}</span>}
+            {studioMsg && <span style={{ fontSize: FONT_SIZES.label, color: P.muted }}>{studioMsg}</span>}
           </div>
           {published.filter((e) => access.isFounder || e.createdBy === access.email).length > 0 && (
             <div style={{ marginTop: 18, borderTop: "1px solid " + P.line, paddingTop: 14 }}>
               {published.filter((e) => access.isFounder || e.createdBy === access.email).map((e) => (
                 <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title} <span style={{ color: P.muted }}>· {e.category}</span></span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.body, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title} <span style={{ color: P.muted }}>· {e.category}</span></span>
                   <button onClick={() => deleteEntry(e.id)}
-                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: 12.5, fontFamily: "var(--cb-font)" }}>
+                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
                     Remove
                   </button>
                 </div>
@@ -3632,29 +3632,29 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* owner: creator access */}
       {access.isFounder && (
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CREATORS</div>
-          <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CREATORS</div>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "0 0 14px" }}>
             Type an email and that account can create for Cortex: publishing catalog courses from the studio above. Creators also receive the Cortex Contributor badge on their profile.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={creatorEmail} onChange={(e) => setCreatorEmail(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") grantCreator(); }}
               placeholder="creator@example.com" aria-label="Creator email" type="email"
-              style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: 15, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <button className="lv-btn lv-btn-primary" onClick={grantCreator} disabled={!creatorEmail.trim()}
-              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
               Allow creator
             </button>
           </div>
-          {ownerMsg && <p style={{ fontSize: 13.5, color: P.muted, margin: "12px 0 0" }}>{ownerMsg}</p>}
+          {ownerMsg && <p style={{ fontSize: FONT_SIZES.label, color: P.muted, margin: "12px 0 0" }}>{ownerMsg}</p>}
           {creators.length > 0 && (
             <div style={{ marginTop: 16, borderTop: "1px solid " + P.line, paddingTop: 12 }}>
               {creators.map((c) => (
                 <div key={c.email} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
                   <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={15} /></span>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.body, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</span>
                   <button onClick={() => revokeCreator(c.email)}
-                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: 12.5, fontFamily: "var(--cb-font)" }}>
+                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
                     Revoke
                   </button>
                 </div>
@@ -3667,18 +3667,18 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* library */}
       {courses.length === 0 ? (
         <div style={{ border: "1px dashed " + P.line, borderRadius: 20, padding: "38px 28px", textAlign: "center" }}>
-          <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: 22, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
-          <p style={{ color: P.muted, fontSize: 14.5, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
+          <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
+          <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
             Build one above, or open any answer in Search and choose Turn into course. Either way, the course is made from the papers that search found.
           </p>
           <button onClick={() => onNavigate && onNavigate("search")}
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 12, padding: "12px 22px", color: P.ink, fontSize: 15, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 12, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
             Go to Search
           </button>
         </div>
       ) : (
         <>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, margin: "6px 0 14px" }}>YOUR COURSES</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, margin: "6px 0 14px" }}>YOUR COURSES</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
             {courses.map((course) => {
               const mem = memoryState(course, claims);
@@ -3692,15 +3692,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   }}>
                   <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
                   <span style={{ display: "block", padding: "15px 18px 17px" }}>
-                    <span style={{ fontFamily: SERIF, fontSize: 18.5, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
-                    <span style={{ fontSize: 12.5, color: P.muted, display: "block", marginTop: 4 }}>
+                    <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, color: P.muted, display: "block", marginTop: 4 }}>
                       {course.lessons.length} lessons · {course.sourceCount || 0} papers
                     </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
                       <span style={{ flex: 1, height: 7, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
                         <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: (course.lessons.length ? Math.round((doneCount / course.lessons.length) * 100) : 0) + "%" }} />
                       </span>
-                      <span style={{ fontSize: 12, color: mem.pct > 0 || doneCount > 0 ? accent : P.muted, fontWeight: 600 }}>{mem.label}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: mem.pct > 0 || doneCount > 0 ? accent : P.muted, fontWeight: 600 }}>{mem.label}</span>
                     </span>
                   </span>
                 </button>
