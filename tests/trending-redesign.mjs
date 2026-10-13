@@ -52,8 +52,15 @@ await test("a filter that matches nothing gets a real empty state", () => {
 
 await test("the briefing band ranks the edition", () => {
   assert.ok(appSrc.includes("TrendRailList"), "rail component missing");
-  assert.ok(appSrc.includes("Most cited in this edition"), "most cited rail missing");
   assert.ok(appSrc.includes("Newest in this edition"), "newest rail missing");
+});
+
+await test("the most cited rail stays hidden while the feed sends no counts", () => {
+  // The live edition payload carries citedByCount 0 on every record
+  // (verified 2026-10-13). A rail ranking by a signal that is not
+  // there would be decoration pretending to be data, so the band
+  // renders only the newest rail until real counts arrive.
+  assert.ok(!appSrc.includes("Most cited in this edition"), "most cited rail is rendered without data");
 });
 
 await test("section pills carry story counts", () => {

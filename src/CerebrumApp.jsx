@@ -10751,9 +10751,10 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
 
 /* One rail of the briefing band: a short ranked list (most cited,
    newest) drawn from the same edition the digest shows, so a reader
-   in a hurry gets the shape of the day without scanning every row. */
+   in a hurry gets the shape of the day without scanning every row.
+   A single entry is not a ranking, so a rail needs at least two. */
 function TrendRailList({ P, title, items, onExpand, generatedAt, mode }) {
-  if (!items || items.length === 0) return null;
+  if (!items || items.length < 2) return null;
   return (
     <section aria-label={title} style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: "16px 18px 8px" }}>
       <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, marginBottom: 4 }}>{title}</div>
@@ -11420,14 +11421,20 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   const visibleItems = trendSort === "edition"
     ? filteredItems
     : [...filteredItems].sort((a, b) => trendSort === "cited"
-      ? (b.citedByCount || 0) - (a.citedByCount || 0)
+      ? citedOf(b) - citedOf(a)
       : new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
   const [hero, ...rest] = visibleItems;
   const categories = ["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))];
   const categoryCount = (cat) => (cat === "All" ? deduped.length : deduped.filter((x) => x.category === cat).length);
   const paperCount = deduped.filter((x) => trendKind(x) !== "Press item").length;
   const pressCount = deduped.length - paperCount;
-  const mostCited = [...deduped].filter((x) => (x.citedByCount || 0) > 0).sort((a, b) => (b.citedByCount || 0) - (a.citedByCount || 0)).slice(0, 4);
+  /* The edition feed carries citedByCount 0 on every record (checked
+     against the live payload), so the most cited rail and sort have
+     no data today: they stay hidden and inert rather than ranking by
+     a signal that is not there. If the feed starts sending real
+     counts, citedOf revives and both come back on their own. */
+  const citedOf = (x) => (x.citedByCount || 0);
+  const mostCited = [...deduped].map((x) => ({ x, c: citedOf(x) })).filter((r) => r.c > 0).sort((a, b) => b.c - a.c).slice(0, 4).map((r) => r.x);
   const newest = [...deduped].filter((x) => x.publishedAt).sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()).slice(0, 4);
 
   // A newspaper dateline, not a "Live" badge. The feed refreshes on a real
@@ -11578,9 +11585,8 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             {/* The lead story, full width. The digest below is the index;
                 this is the front-page feature. */}
             {hero && <div style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} /></div>}
-            {visibleItems.length > 0 && (mostCited.length > 0 || newest.length > 0) && (
-              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 28 }}>
-                <TrendRailList P={P} title="Most cited in this edition" items={mostCited} onExpand={setExpanded} generatedAt={generatedAt} mode="cited" />
+            {visibleItems.length > 0 && newest.length > 1 && (
+              <div style={{ marginBottom: 28 }}>
                 <TrendRailList P={P} title="Newest in this edition" items={newest} onExpand={setExpanded} generatedAt={generatedAt} mode="newest" />
               </div>
             )}
