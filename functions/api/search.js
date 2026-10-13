@@ -410,6 +410,12 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
+// v20 (2026-10-13, organism topic filter): the organism branch's
+// topic list is no longer every leftover token verbatim (why, into,
+// for, how, the shipped as an OR list against the resolved binomial);
+// splitOrganismTopic now filters it through STOPWORDS,
+// QUERY_FRAMING_WORDS, and EXPANSION_FRAMING_WORDS and strips token
+// punctuation, so shipped queries change for organism questions.
 // v19 (2026-10-13, anchor subject representation): the structured
 // query anchor race now guarantees the question's subject terms a
 // rung before boost reliant everyday words (break, while, sandy)
@@ -439,7 +445,7 @@ function isNonLiterature(p) {
 // longer become structured query anchors and preparation phrasings
 // now bridge to the homogenate concept group, so both the shipped
 // queries and the filtered shelves change for cached questions.
-const CACHE_SCHEMA_VERSION = "v19";
+const CACHE_SCHEMA_VERSION = "v20";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -2323,7 +2329,33 @@ function splitOrganismTopic(query) {
       for (const s of (SYNONYMS[t] || [])) orgPhrases.add(s);
     }
   }
-  const topic = toks.filter((t) => !ORGANISM_WORDS.has(t) && !SYNONYMS[t]);
+  // 2026-10-13: the topic side of the organism branch used to take
+  // every leftover token verbatim, so "Why do grain mills grind wheat
+  // berries into flour for baking?" shipped the topic list (why OR
+  // grain OR mills OR grind OR berries OR into OR flour OR for OR
+  // baking?) — interrogatives, prepositions, and half the sentence,
+  // punctuation still attached, ANDed against a precise organism
+  // phrase. The organism side was exact and the topic side was noise.
+  // Filter the topic through the same word sets the rest of the file
+  // already trusts for "this word frames the question rather than
+  // naming the topic": STOPWORDS, QUERY_FRAMING_WORDS, and
+  // EXPANSION_FRAMING_WORDS. (All three sets are module level consts;
+  // like buildStructuredQuery's own use of STOPWORDS above, they are
+  // only read at call time, after the module has loaded.) Membership
+  // is checked on the raw token and on its punctuation stripped form,
+  // so "how?" is caught by "how" and "doesn't" by "doesn't", and the
+  // topic carries the stripped form ("baking?" becomes "baking").
+  const topic = [];
+  for (const raw of toks) {
+    const t = raw.replace(/[^\w-]/g, "");
+    if (!t) continue;
+    if (ORGANISM_WORDS.has(raw) || ORGANISM_WORDS.has(t)) continue;
+    if (SYNONYMS[raw] || SYNONYMS[t]) continue;
+    if (STOPWORDS.has(raw) || STOPWORDS.has(t)) continue;
+    if (QUERY_FRAMING_WORDS.has(raw) || QUERY_FRAMING_WORDS.has(t)) continue;
+    if (EXPANSION_FRAMING_WORDS.has(raw) || EXPANSION_FRAMING_WORDS.has(t)) continue;
+    topic.push(t);
+  }
   return {
     orgPhrases: [...orgPhrases],
     topic,

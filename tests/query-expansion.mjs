@@ -922,5 +922,96 @@ await test("frog controls stay clean under the new race", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("buildStructuredQuery — organism branch topic list carries content terms only (2026-10-13)");
+
+// Found by the anchor pass, out of its scope: the organism branch
+// resolved the organism exactly (wheat to Triticum aestivum) and
+// then ANDed it against a topic list built from every leftover
+// token verbatim. The grain mills question shipped
+//   ("triticum aestivum" OR "Triticum aestivum" OR wheat) AND
+//   (why OR grain OR mills OR grind OR berries OR into OR flour OR
+//    for OR baking?)
+// — interrogatives, prepositions, and half the sentence, punctuation
+// still attached. splitOrganismTopic's topic now runs through the
+// same word sets the rest of the file trusts (STOPWORDS,
+// QUERY_FRAMING_WORDS, EXPANSION_FRAMING_WORDS), with membership
+// checked on the raw and punctuation stripped token forms, and the
+// topic carries the stripped form. The organism resolution and the
+// natural language branch are untouched; the gut and frog control
+// pins above stand unmodified under the change.
+
+// The topic side of an organism branch query is its final
+// parenthesized OR group.
+const topicListOf = (out) => {
+  const m = out.match(/ AND \(([^()]*)\)$/);
+  return m ? m[1].split(" OR ").map((s) => s.trim()) : [];
+};
+
+const ORGANISM_PROBES = [
+  {
+    q: "Why do grain mills grind wheat berries into flour for baking?",
+    binomial: "Triticum aestivum",
+    expected:
+      '("triticum aestivum" OR "Triticum aestivum" OR wheat) AND ' +
+      "(grain OR mills OR grind OR berries OR flour OR baking)",
+  },
+  {
+    q: "How does the wood frog survive being frozen all winter?",
+    binomial: "Rana sylvatica",
+    expected:
+      '("rana sylvatica" OR "lithobates sylvaticus" OR "Rana sylvatica" OR "wood frog") AND ' +
+      "(wood OR frog OR survive OR frozen OR winter)",
+  },
+  {
+    q: "How do honey bees keep the hive warm through the winter?",
+    binomial: "Apis mellifera",
+    expected:
+      '("apis mellifera" OR "Apis mellifera" OR "honey bee" OR "honey bees") AND ' +
+      "(hive OR warm OR winter)",
+  },
+  {
+    q: "Why does maize wilt so fast under drought in the summer?",
+    binomial: "Zea mays",
+    expected:
+      '("zea mays" OR "Zea mays" OR maize) AND ' +
+      "(wilt OR fast OR drought OR summer)",
+  },
+];
+
+await test("organism probes ship the resolved binomial against a content only topic list", () => {
+  for (const p of ORGANISM_PROBES) {
+    const out = buildStructuredQuery(p.q);
+    assert.equal(out, p.expected, `shipped query changed shape for: ${p.q}`);
+    assert.ok(out.includes(p.binomial), `organism no longer resolves for: ${p.q}`);
+  }
+});
+
+await test("no interrogative, preposition, or framing token enters an organism topic list", () => {
+  const closedClass = [
+    "why", "how", "what", "does", "do", "the", "a", "an",
+    "into", "for", "from", "through", "under", "over", "with",
+    "being", "all", "any", "keep", "lets", "make", "anyone",
+  ];
+  for (const p of ORGANISM_PROBES) {
+    const topic = topicListOf(buildStructuredQuery(p.q));
+    assert.ok(topic.length > 0, `topic list vanished for: ${p.q}`);
+    for (const tok of topic) {
+      assert.ok(!closedClass.includes(tok), `closed class token "${tok}" in topic list for: ${p.q}`);
+      assert.ok(!/[^\w-]/.test(tok), `punctuation still attached to topic token "${tok}" for: ${p.q}`);
+    }
+  }
+});
+
+await test("an organism question with no content topic left ships the organism phrases alone", () => {
+  // "tell" and "about" are framing; once they are filtered the topic
+  // is empty and the branch falls back to the organism side only,
+  // instead of ANDing the binomial against (tell OR about).
+  const out = buildStructuredQuery("Tell me about honey bees");
+  assert.ok(out.includes('"apis mellifera"'), `organism no longer resolves: ${out}`);
+  assert.ok(!out.includes("tell"), `framing verb shipped in: ${out}`);
+  assert.ok(!out.includes("about"), `framing word shipped in: ${out}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
