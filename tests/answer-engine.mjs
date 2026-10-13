@@ -1131,17 +1131,20 @@ test("synthesis deadline is derived from the global request budget", () => {
     "flat 90s synthesis deadline must be gone"
   );
   // Fastpath must race concurrently with wave 1 (no sequential await).
-  const fpIdx = apiSrc.indexOf("const fastpathCalls = ");
+  // CORRECTED CONTRACT (2026-10-13, subrequest ledger): wave legs are
+  // built as descriptors and fired through fireWaveLegs, which funnels
+  // every selected leg through guardedRaceEntry (the park check) at
+  // fire time. The fastpath is a wave 0 descriptor at the head of the
+  // wave 1 descriptor array . still concurrent, still guarded, still
+  // recorded in the attempt trail like every other leg.
+  const fpIdx = apiSrc.indexOf('label: "fastpath:" + fastpathModel');
   assert.ok(fpIdx > 0, "concurrent fastpath not found");
-  const fpBlock = apiSrc.slice(fpIdx, fpIdx + 1500);
-  // 2026-10-13 (fleet hardening): the fastpath is constructed through
-  // guardedRaceEntry, which wraps raceEntry with the per-leg park
-  // check . the contract this pin protects (fastpath outcomes are
-  // recorded in the attempt trail like every other leg) is unchanged
-  // and now also covers parked fastpath legs.
-  assert.ok(fpBlock.includes("guardedRaceEntry(0,"), "fastpath should go through guardedRaceEntry");
-  // Wave 1 must include the fastpath calls in its race.
-  assert.ok(apiSrc.includes("...fastpathCalls,"), "wave 1 should race fastpath concurrently");
+  const fpBlock = apiSrc.slice(fpIdx, fpIdx + 800);
+  assert.ok(fpBlock.includes("wave: 0"), "fastpath descriptor should carry wave 0");
+  assert.ok(fpBlock.includes("w1Abort.signal"), "fastpath descriptor should fire with the wave 1 abort signal");
+  assert.ok(apiSrc.includes("guardedRaceEntry(d.wave, d.label, d.fire)"), "fireWaveLegs should funnel legs through guardedRaceEntry");
+  // Wave 1 must include the fastpath descriptor in its race.
+  assert.ok(apiSrc.includes("const wave1Calls = fireWaveLegs(["), "wave 1 should race through the budget planner");
   // Waves 2/3 must be budget-gated.
   assert.ok(apiSrc.includes("msLeft() > 6000"), "wave 2 budget gate missing");
   assert.ok(apiSrc.includes("msLeft() > 4000"), "wave 3 budget gate missing");

@@ -503,8 +503,16 @@ await test("the cache schema carries the wave two bump", () => {
   // the gate group precedence fix at the end of this file (gating
   // counts curated hand table groups first and model groups only
   // when the hand table is thin, so cited sets and shipped lists
-  // change for questions whose expansion minted extra groups).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v27"'), "CACHE_SCHEMA_VERSION must be v27");
+  // change for questions whose expansion minted extra groups),
+  // then to v28 by the subrequest ledger (retrieval and the answer
+  // stages share one counted invocation budget with a protected
+  // synthesis reserve, so for the same stored inputs speculative
+  // retrieval rounds may be trimmed and expansion, validation and
+  // fact check may be budget skipped with the reason recorded).
+  // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
+  // it exists to force this comment chain to be written, not to
+  // freeze the version.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v28"'), "CACHE_SCHEMA_VERSION must be v28");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

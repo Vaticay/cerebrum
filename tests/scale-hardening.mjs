@@ -157,9 +157,13 @@ await test("source: every HTTP leg (OR, compat, fastpath) receives w1Abort.signa
     /callOR\(m, (?:compactMessages|messages), maxTokens, wave1Timeout, w1Abort\.signal\)/,
     "OpenRouter legs get the signal"
   );
+  // CORRECTED CONTRACT (2026-10-13, subrequest ledger): compat legs are
+  // built by compatLegDescriptors (descriptors fired through
+  // fireWaveLegs); the wave signal still reaches every compat leg's
+  // fire closure through the same argument.
   assert.match(
     src,
-    /compatLegs\(1, "w1", (?:compactMessages|messages), maxTokens, wave1Timeout, w1Abort\.signal\)/,
+    /compatLegDescriptors\(1, "w1", (?:compactMessages|messages), maxTokens, wave1Timeout, w1Abort\.signal\)/,
     "compat legs get the signal"
   );
   assert.match(

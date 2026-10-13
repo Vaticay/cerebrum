@@ -152,8 +152,21 @@ export function legHealthKey(label) {
  * the providers' own). Daily-cap wording is checked FIRST: OpenRouter's
  * daily message also says "rate limit", and misreading it as a minute
  * scale limit would re-fire a dead-for-the-day leg every minute. */
+/* True when an error is the Workers runtime refusing a fetch because
+ * THIS invocation already spent its subrequest allowance ("Too many
+ * subrequests by single Worker invocation"). That is our own budget
+ * running out, not a provider being sick: it says nothing about the
+ * leg's near future, so it gets its own failure class below, it never
+ * parks a leg, and it never counts toward the delayed rescue (waiting
+ * cannot refill an invocation budget). */
+export function isSubrequestBudgetError(error) {
+  const msg = String((error && error.message) || error || "");
+  return /too many subrequests/i.test(msg);
+}
+
 export function classifyLegFailure(error) {
   const msg = String((error && error.message) || error || "");
+  if (/too many subrequests/i.test(msg)) return "subrequest-budget";
   if (/circuit open/i.test(msg)) return "circuit-open";
   if (/per[-\s]?day|daily/i.test(msg)) return "daily-cap";
   if (/timed out|timeout/i.test(msg)) return "timeout";
@@ -199,6 +212,12 @@ export function recordLegOutcome(label, ok, error, nowMs = Date.now()) {
       h.parkClass = cls;
       h.timeoutStreak = 0;
     }
+  } else if (cls === "subrequest-budget") {
+    // Our own invocation budget ran out mid race. The provider never
+    // got a fair call, so nothing about its health changed: no park,
+    // no streak. The class is still recorded (lastFailureClass) so
+    // the trail can tell a budget death from a fleet outage.
+    h.timeoutStreak = 0;
   } else {
     h.timeoutStreak = 0;
   }
@@ -321,6 +340,136 @@ export function planDelayedRescue(attempts, opts = {}) {
     return { action: "skip", reason: "no eligible leg", summary: "delayed rescue skipped: no leg will be unparked by the end of the wait" };
   }
   return { action: "wait", waitMs, chosen: eligible.slice(0, 2) };
+}
+
+// ── Per-request subrequest ledger (2026-10-13, third rescore) ────
+// Cloudflare allows 50 subrequests per Worker invocation on this
+// plan, and EVERY outbound fetch in this handler spends from that
+// one allowance: the retrieval fanout (~15 fetcher calls per ladder
+// rung, pubmed and europePMC multiplying internally), the fallback
+// rounds, model assisted expansion, paper validation, the synthesis
+// waves, the deep fact check, and the post answer extras. The 2026
+// 10-13 panel rescore caught the structural failure: on hard
+// questions retrieval spent the whole allowance before the answer
+// stages ran, so synthesis races died wholesale at millisecond 0
+// with "Too many subrequests", expansion fired on 0 of 8 probes,
+// and validation reported "no leg answered" on effectively every
+// probe . and because the failure classifier mapped that message to
+// "other", the fleet hardening never even saw it.
+//
+// The ledger is the fix's bookkeeping. One ledger per request,
+// created in runSearchPipeline and threaded the way dynLookup is
+// threaded (an opts field into gatherPapers, a trailing parameter
+// into the stage helpers). Module state is forbidden: isolates serve
+// concurrent requests, so a shared counter would be a race. Every
+// outbound fetch on the handler path increments it at its choke
+// point (getJSON/getText for the database legs, the stage adapters
+// for the model calls), retries included: a leg with 3 attempts
+// costs 3.
+//
+// Two rules spend against it:
+//   1. A protected reserve for the answer stages. Retrieval work
+//      beyond the primary rung may only START while what remains
+//      exceeds SUBREQUEST_ANSWER_RESERVE; the speculative fallback
+//      rounds must clear the reserve PLUS one rung's cost, so as
+//      the budget tightens the lowest value rounds are cut first,
+//      then the extra ladder rungs, and the primary rung never.
+//   2. The synthesis waves trim to the fetches that remain (minus a
+//      small tail reserve for the fact check and evidence structure
+//      calls), breadth across provider buckets first, so a tight
+//      budget degrades a race to fewer legs instead of every leg
+//      dying at zero. Validation, expansion, and fact check check
+//      the budget before firing and record a named skipReason when
+//      the budget, not the provider, is why they did not run.
+// When the budget is plentiful none of this binds and behavior is
+// exactly as before.
+export const SUBREQUEST_LIMIT = 50;
+export const SUBREQUEST_ANSWER_RESERVE = 18;
+export const SUBREQUEST_RUNG_COST = 17;
+export const SUBREQUEST_TAIL_RESERVE = 2;
+export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
+export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
+
+export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
+  const cap = Math.max(1, Math.floor(Number(limit) || SUBREQUEST_LIMIT));
+  let usedCount = 0;
+  let stage = "other";
+  const byStage = {};
+  return {
+    limit: cap,
+    /* Record one outbound fetch under the current stage label. */
+    spend() {
+      usedCount++;
+      byStage[stage] = (byStage[stage] || 0) + 1;
+      return usedCount;
+    },
+    /* Label subsequent spends (the audit tally in _diag). */
+    setStage(name) { stage = String(name || "other"); },
+    used() { return usedCount; },
+    remaining() { return Math.max(0, cap - usedCount); },
+    /* Retrieval beyond the primary rung may start only while what
+     * remains exceeds the answer reserve plus `margin` extra
+     * fetches (the speculative rounds pass one rung's cost, so they
+     * are cut before the rungs themselves are). */
+    retrievalRoom(margin = 0) {
+      return cap - usedCount > SUBREQUEST_ANSWER_RESERVE + Math.max(0, margin);
+    },
+    /* Numbers only snapshot for the diag record: how much of the
+     * invocation allowance this request spent, and where. */
+    snapshot() {
+      return { used: usedCount, limit: cap, remaining: Math.max(0, cap - usedCount), byStage: { ...byStage } };
+    },
+  };
+}
+
+/* Breadth-first wave trimming. `descriptors` is a wave's legs as
+ * { label, bucket, fetchCost, fire } in construction order (fire is
+ * a thunk: constructing a leg starts its fetch, so an unselected
+ * leg must never be fired). Selection walks the legs round robin by
+ * bucket, first appearance order: one leg per bucket before any
+ * bucket's second leg, so a trimmed race still spans every provider
+ * bucket instead of collapsing onto whichever provider happened to
+ * be listed first. Zero cost legs (Workers AI binding calls spend
+ * no fetch) are always selected. Selection stops when the next
+ * fetch leg would exceed `fetchAllowance`; every unselected leg is
+ * returned in `skipped` so the caller can record the skip by name.
+ * Pure over its inputs: the caller owns the ledger and the firing. */
+export function planWaveLegs(descriptors, fetchAllowance) {
+  const legs = Array.isArray(descriptors) ? descriptors : [];
+  const allowance = Math.max(0, Math.floor(Number(fetchAllowance) || 0));
+  const buckets = [];
+  const byBucket = new Map();
+  legs.forEach((d, i) => {
+    const b = String((d && d.bucket) || "other");
+    if (!byBucket.has(b)) { byBucket.set(b, []); buckets.push(b); }
+    byBucket.get(b).push(i);
+  });
+  const chosen = new Set();
+  let spent = 0;
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const b of buckets) {
+      const queue = byBucket.get(b);
+      // The first leg in this bucket that fits the remaining
+      // allowance (a zero cost leg always fits, even behind a fetch
+      // leg that no longer does).
+      const pos = queue.findIndex((idx) => {
+        const cost = Math.max(0, Math.floor(Number(legs[idx].fetchCost) || 0));
+        return cost === 0 || spent + cost <= allowance;
+      });
+      if (pos < 0) continue;
+      const idx = queue[pos];
+      spent += Math.max(0, Math.floor(Number(legs[idx].fetchCost) || 0));
+      chosen.add(idx);
+      queue.splice(pos, 1);
+      progressed = true;
+    }
+  }
+  const selected = [];
+  const skipped = [];
+  legs.forEach((d, i) => { if (chosen.has(i)) selected.push(d); else skipped.push(d); });
+  return { selected, skipped };
 }
 
 function stripTags(s) {
@@ -759,7 +908,16 @@ export function isNonLiterature(p) {
 // satisfy the two group standard on the baby belly question.
 // Cited sets and shipped lists change for multi concept questions
 // whose expansion proposed extra groups; retrieval is unchanged.
-const CACHE_SCHEMA_VERSION = "v27";
+// v28 (2026-10-13, subrequest ledger): retrieval and the answer
+// stages now share one counted invocation budget with a protected
+// synthesis reserve. For the same stored inputs the pipeline may
+// trim speculative retrieval rounds it previously fired, expansion,
+// validation and fact check may be budget skipped with the reason
+// recorded in stage health, and synthesis waves fire fewer legs
+// rather than all legs dying at the runtime cap. Cached payloads
+// written before the ledger existed must not be served as though
+// they were produced under it.
+const CACHE_SCHEMA_VERSION = "v28";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -793,10 +951,13 @@ export function linkWaveAbort(internal, waveSignal) {
   return () => waveSignal.removeEventListener("abort", onWaveAbort);
 }
 
-async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1) {  for (let attempt = 0; attempt <= retries; attempt++) {
+async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1, ledger = null) {  for (let attempt = 0; attempt <= retries; attempt++) {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), timeoutMs);
     try {
+      // Subrequest ledger: every attempt is a real fetch against the
+      // invocation allowance, retries included.
+      if (ledger) ledger.spend();
       const res = await fetch(url, {
         headers: { "User-Agent": POLITE_UA, Accept: "application/json", ...headers },
         signal: c.signal,
@@ -838,11 +999,12 @@ async function getJSON(url, headers = {}, timeoutMs = 4000, retries = 1) {  for 
   }
 }
 
-async function getText(url, headers = {}, timeoutMs = 4000, retries = 1) {
+async function getText(url, headers = {}, timeoutMs = 4000, retries = 1, ledger = null) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), timeoutMs);
     try {
+      if (ledger) ledger.spend();
       const res = await fetch(url, {
         headers: { "User-Agent": POLITE_UA, ...headers },
         signal: c.signal,
@@ -873,14 +1035,16 @@ async function getText(url, headers = {}, timeoutMs = 4000, retries = 1) {
 // Check if a DOI has been retracted or has expressions of concern.
 // Uses Crossref's crossmark data, which is authoritative. Keyless.
 // Returns { retracted: bool, concern: bool, updateType: string|null }.
-async function checkRetraction(doi) {
+async function checkRetraction(doi, ledger = null) {
   if (!doi) return { retracted: false, concern: false, updateType: null };
   try {
     const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
     const res = await getJSON(
       "https://api.crossref.org/works/" + encodeURIComponent(clean),
       {},
-      2500
+      2500,
+      1,
+      ledger
     );
     const msg = res && res.message;
     if (!msg) return { retracted: false, concern: false, updateType: null };
@@ -901,14 +1065,23 @@ async function checkRetraction(doi) {
 
 // Flag the top N papers with retraction/concern status. Runs in parallel with a
 // short timeout so it never blocks the answer. Papers without a DOI are skipped.
-async function flagRetractions(papers, topN = 8) {
-  const targets = papers.slice(0, topN).filter((p) => {
+async function flagRetractions(papers, topN = 8, ledger = null) {
+  let targets = papers.slice(0, topN).filter((p) => {
     const doi = extractDoi(p.url);
     return !!doi;
   });
+  // Subrequest budget: each check is a fetch. When the invocation
+  // allowance is nearly spent, check only what fits above the tail
+  // reserve . the title marker screen upstream already caught the
+  // declared retractions; this Crossref round is the second net,
+  // and it must not eat the fact check's budget.
+  if (ledger) {
+    const fits = Math.max(0, ledger.remaining() - SUBREQUEST_TAIL_RESERVE);
+    if (fits < targets.length) targets = targets.slice(0, fits);
+  }
   await Promise.allSettled(targets.map(async (p) => {
     const doi = extractDoi(p.url);
-    const flag = await checkRetraction(doi);
+    const flag = await checkRetraction(doi, ledger);
     if (flag.retracted) p.retracted = true;
     if (flag.concern) p.concern = true;
     if (flag.updateType) p.updateType = flag.updateType;
@@ -2161,7 +2334,7 @@ export function clampStageLegTimeout({ startedAt, now, budgetMs, wantMs, legsAft
 // the synthesis wave 2 roster uses), so the expansion does not depend
 // on a single capped pool. diag.llmExpandedVia records which leg
 // answered, so a live check can prove the mechanism ran.
-export async function defaultConceptGroupCall(query, env, timing) {
+export async function defaultConceptGroupCall(query, env, timing, ledger = null) {
   // Stage budget: llmConceptGroups races this whole call against
   // 6500ms. Legs are clamped against that remaining budget (see
   // clampStageLegTimeout): a hung OpenRouter leg used to hold its
@@ -2210,6 +2383,10 @@ export async function defaultConceptGroupCall(query, env, timing) {
   });
   for (let li = 0; li < legs.length; li++) {
     const leg = legs[li];
+    // Subrequest budget: a leg that cannot be afforded is not fired
+    // at all . the stage fails open exactly as if the leg had errored,
+    // and the caller records the budget as the reason.
+    if (ledger && ledger.remaining() <= 0) return null;
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), clampStageLegTimeout({
       startedAt: stageStartedAt, now: Date.now(), budgetMs: stageBudgetMs,
@@ -2219,6 +2396,7 @@ export async function defaultConceptGroupCall(query, env, timing) {
       ...(timing && timing.floorMs != null ? { floorMs: timing.floorMs } : {}),
     }));
     try {
+      if (ledger) ledger.spend();
       const r = await fetch(leg.url, {
         method: "POST",
         headers: leg.headers,
@@ -2249,7 +2427,7 @@ export async function defaultConceptGroupCall(query, env, timing) {
 // injectable for tests; it receives (query, env) and may return the
 // reply as raw text or an already-parsed value. Fails open to [] on
 // any error, timeout, or rate limit. Never throws.
-export async function llmConceptGroups(query, env, callImpl) {
+export async function llmConceptGroups(query, env, callImpl, ledger = null) {
   let timer = null;
   try {
     const doCall = typeof callImpl === "function" ? callImpl : defaultConceptGroupCall;
@@ -2257,7 +2435,7 @@ export async function llmConceptGroups(query, env, callImpl) {
       timer = setTimeout(() => resolve(null), 6500);
     });
     const raw = await Promise.race([
-      Promise.resolve().then(() => doCall(query, env)),
+      Promise.resolve().then(() => doCall(query, env, undefined, ledger)),
       timeout,
     ]);
     if (raw == null) return [];
@@ -3166,7 +3344,7 @@ function cleanQuery(raw) {
 // ============ SCHOLARLY DATABASE SOURCES ============
 // Each source returns [] on any failure, never throws. Timeouts keep them fast.
 
-async function europePMC(query, limit = 8) {
+async function europePMC(query, limit = 8, ledger = null) {
   // Trust the query we were given. The retrieval ladder passes progressively
   // simpler forms . if this function silently rebuilds them, the ladder can't
   // work. Only fall back to the structured/organism forms if the given query
@@ -3189,7 +3367,7 @@ async function europePMC(query, limit = 8) {
         // function's bare catch would have turned into an empty result set .
         // i.e. a whole source silently contributing nothing.
       });
-    const data = await getJSON(url);
+    const data = await getJSON(url, {}, 4000, 1, ledger);
     return data && data.resultList && data.resultList.result ? data.resultList.result : [];
   };
   try {
@@ -3279,7 +3457,7 @@ function parsePubmedXML(xmlText) {
   });
 }
 
-async function pubmed(query, limit = 10, apiKey = "") {
+async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
   const keyParam = apiKey ? "&api_key=" + apiKey : "";
   const tool = "&tool=cerebrum&email=contact@askcerebrum.org" + keyParam;
   try {
@@ -3297,14 +3475,14 @@ async function pubmed(query, limit = 10, apiKey = "") {
       tool;
 
     // Try the query we were given first (the ladder is calibrated for it).
-    const es = await getJSON(esUrl(query)).catch(() => null);
+    const es = await getJSON(esUrl(query), {}, 4000, 1, ledger).catch(() => null);
     ids = (es && es.esearchresult && es.esearchresult.idlist) || [];
 
     // Fallback ladder: structured, then organism-focused
     if (!ids.length) {
       const structured = buildStructuredQuery(query);
       if (structured && structured !== query) {
-        const es2 = await getJSON(esUrl(structured)).catch(() => null);
+        const es2 = await getJSON(esUrl(structured), {}, 4000, 1, ledger).catch(() => null);
         ids = (es2 && es2.esearchresult && es2.esearchresult.idlist) || [];
       }
     }
@@ -3314,7 +3492,7 @@ async function pubmed(query, limit = 10, apiKey = "") {
         const orgOnly = orgPhrases
           .map((e) => (e.includes(" ") ? '"' + e + '"' : e))
           .join(" OR ");
-        const es3 = await getJSON(esUrl(orgOnly)).catch(() => null);
+        const es3 = await getJSON(esUrl(orgOnly), {}, 4000, 1, ledger).catch(() => null);
         ids = (es3 && es3.esearchresult && es3.esearchresult.idlist) || [];
       }
     }
@@ -3325,12 +3503,20 @@ async function pubmed(query, limit = 10, apiKey = "") {
       getText(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
           new URLSearchParams({ db: "pubmed", id: idStr, retmode: "xml" }) +
-          tool
+          tool,
+        {},
+        4000,
+        1,
+        ledger
       ).catch(() => ""),
       getJSON(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?" +
           new URLSearchParams({ db: "pubmed", id: idStr, retmode: "json" }) +
-          tool
+          tool,
+        {},
+        4000,
+        1,
+        ledger
       ).catch(() => null),
     ]);
 
@@ -4385,11 +4571,11 @@ function extractPersonNameFromQuery(raw) {
 // Direct bioRxiv API: pulls up to 100 recent preprints and filters by author
 // name. Only finds someone if their preprint is public on bioRxiv itself. Not
 // mirrored through OpenAlex or PubMed, so this catches things those miss.
-async function biorxivDirectAuthor(fullName) {
-  return preprintServerAuthor("biorxiv", fullName);
+async function biorxivDirectAuthor(fullName, ledger = null) {
+  return preprintServerAuthor("biorxiv", fullName, ledger);
 }
-async function medrxivDirectAuthor(fullName) {
-  return preprintServerAuthor("medrxiv", fullName);
+async function medrxivDirectAuthor(fullName, ledger = null) {
+  return preprintServerAuthor("medrxiv", fullName, ledger);
 }
 /* ══════════════════════════════════════════════════════════════════
    Commit 94 . author search could not see preprints.
@@ -4406,7 +4592,7 @@ async function medrxivDirectAuthor(fullName) {
    This is the author-side equivalent. It is an index lookup rather than
    the brute-force scan below, so it finds a preprint regardless of how
    many were posted that week. */
-async function europePMCPreprintAuthor(fullName, limit = 15) {
+async function europePMCPreprintAuthor(fullName, limit = 15, ledger = null) {
   try {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       new URLSearchParams({
@@ -4415,7 +4601,7 @@ async function europePMCPreprintAuthor(fullName, limit = 15) {
         pageSize: String(limit),
         format: "json",
       });
-    const data = await getJSON(url, {}, 6000);
+    const data = await getJSON(url, {}, 6000, 1, ledger);
     const rows = (data && data.resultList && data.resultList.result) || [];
     return rows.filter((r) => r.title).map((r) => {
       const server =
@@ -4436,7 +4622,7 @@ async function europePMCPreprintAuthor(fullName, limit = 15) {
   } catch { return []; }
 }
 
-async function preprintServerAuthor(server, fullName) {
+async function preprintServerAuthor(server, fullName, ledger = null) {
   try {
     /* Commit 94 . this comment used to claim it pulled "up to ~1000 items".
        It pulled 100. The bioRxiv details endpoint returns one page of 100
@@ -4458,7 +4644,7 @@ async function preprintServerAuthor(server, fullName) {
     const MAX_PAGES = 12; // 1200 records . a real budget, not an accident
     let items = [];
     for (let page = 0; page < MAX_PAGES; page++) {
-      const data = await getJSON(base + (page * 100), {}, 5000);
+      const data = await getJSON(base + (page * 100), {}, 5000, 1, ledger);
       const batch = (data && data.collection) || [];
       if (!batch.length) break;
       items = items.concat(batch);
@@ -4492,7 +4678,7 @@ async function preprintServerAuthor(server, fullName) {
 
 // Generic web search fallback via a keyless search index. Used only when
 // scholarly + author + wiki all come up empty, so we never return "nothing."
-async function genericWebSearch(query) {
+async function genericWebSearch(query, ledger = null) {
   try {
     // Wikipedia opensearch: fast, no auth, returns page titles and short descriptions
     const url =
@@ -4505,7 +4691,7 @@ async function genericWebSearch(query) {
         format: "json",
         origin: "*",
       });
-    const data = await getJSON(url, {}, 4000);
+    const data = await getJSON(url, {}, 4000, 1, ledger);
     if (!Array.isArray(data) || data.length < 4) return [];
     const [, titles, descs, urls] = data;
     const out = [];
@@ -4528,7 +4714,7 @@ async function genericWebSearch(query) {
   }
 }
 
-async function openAlex(query, limit = 10, key = "") {
+async function openAlex(query, limit = 10, key = "", ledger = null) {
   try {
 
 
@@ -4558,7 +4744,7 @@ async function openAlex(query, limit = 10, key = "") {
       mailto: "contact@askcerebrum.org",
     });
     if (key) params.set("api_key", key);
-    const data = await getJSON("https://api.openalex.org/works?" + params);
+    const data = await getJSON("https://api.openalex.org/works?" + params, {}, 4000, 1, ledger);
     return (data.results || [])
       .map((w) => {
         const first =
@@ -4603,7 +4789,7 @@ async function openAlex(query, limit = 10, key = "") {
   }
 }
 
-async function crossref(query, limit = 8) {
+async function crossref(query, limit = 8, ledger = null) {
   try {
     const url =
       "https://api.crossref.org/works?" +
@@ -4622,7 +4808,7 @@ async function crossref(query, limit = 8) {
           "title,author,container-title,published,DOI,abstract,is-referenced-by-count,type",
       }) +
       "&mailto=contact@askcerebrum.org";
-    const data = await getJSON(url);
+    const data = await getJSON(url, {}, 4000, 1, ledger);
     const items = (data && data.message && data.message.items) || [];
     return items
       .map((it) => ({
@@ -4659,7 +4845,7 @@ async function crossref(query, limit = 8) {
   }
 }
 
-async function arxiv(query, limit = 6) {
+async function arxiv(query, limit = 6, ledger = null) {
   try {
     // 2026-10-10: the caller (fanout) already builds the "all:X AND all:Y"
     // syntax in `arx`. Do NOT prepend another "all:" here — that produced
@@ -4671,7 +4857,7 @@ async function arxiv(query, limit = 6) {
         max_results: String(limit),
         sortBy: "relevance",
       });
-    const xml = await getText(url);
+    const xml = await getText(url, {}, 4000, 1, ledger);
     const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || [];
     return entries
       .map((e) => {
@@ -4723,7 +4909,7 @@ const S2_LITERATURE_TYPES = [
   "BookSection",
 ].join(",");
 
-export async function semanticScholar(query, limit = 8, apiKey = "") {
+export async function semanticScholar(query, limit = 8, apiKey = "", ledger = null) {
   try {
     const url =
       "https://api.semanticscholar.org/graph/v1/paper/search?" +
@@ -4739,7 +4925,7 @@ export async function semanticScholar(query, limit = 8, apiKey = "") {
     // silently drops out of every answer. Key is opt-in via
     // SEMANTIC_SCHOLAR_KEY env (free); absent key = previous behavior.
     const headers = apiKey ? { "x-api-key": apiKey } : {};
-    const data = await getJSON(url, headers);
+    const data = await getJSON(url, headers, 4000, 1, ledger);
     return ((data && data.data) || [])
       .filter((r) => r.title)
       .map((r) => {
@@ -4770,14 +4956,14 @@ export async function semanticScholar(query, limit = 8, apiKey = "") {
   }
 }
 
-async function doaj(query, limit = 6) {
+async function doaj(query, limit = 6, ledger = null) {
   try {
     const url =
       "https://doaj.org/api/search/articles/" +
       encodeURIComponent(query) +
       "?pageSize=" +
       limit;
-    const data = await getJSON(url);
+    const data = await getJSON(url, {}, 4000, 1, ledger);
     return ((data && data.results) || [])
       .map((r) => {
         const b = r.bibjson || {};
@@ -4816,7 +5002,7 @@ async function doaj(query, limit = 6) {
 // file already uses. Preprints are labelled as such in `journal` so the
 // answer layer and the UI can weight them below peer-reviewed work rather
 // than presenting them as equivalent evidence.
-async function preprintSearch(query, limit = 8) {
+async function preprintSearch(query, limit = 8, ledger = null) {
   try {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       new URLSearchParams({
@@ -4831,7 +5017,7 @@ async function preprintSearch(query, limit = 8) {
         // function's bare catch would have turned into an empty result set .
         // i.e. a whole source silently contributing nothing.
       });
-    const data = await getJSON(url, {}, 6000);
+    const data = await getJSON(url, {}, 6000, 1, ledger);
     const rows = (data && data.resultList && data.resultList.result) || [];
     return rows.filter((r) => r.title).map((r) => {
       // bookOrReportDetails.publisher carries the actual server name
@@ -4855,7 +5041,7 @@ async function preprintSearch(query, limit = 8) {
   } catch { return []; }
 }
 
-async function biorxiv(query, limit = 6) {
+async function biorxiv(query, limit = 6, ledger = null) {
   try {
     const params = new URLSearchParams({
       search: query,
@@ -4866,7 +5052,7 @@ async function biorxiv(query, limit = 6) {
         "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
       mailto: "contact@askcerebrum.org",
     });
-    const data = await getJSON("https://api.openalex.org/works?" + params);
+    const data = await getJSON("https://api.openalex.org/works?" + params, {}, 4000, 1, ledger);
     const out = [];
     for (const w of (data.results || [])) {
       if (!w.title) continue;
@@ -4908,12 +5094,12 @@ async function biorxiv(query, limit = 6) {
 // is a bigger, riskier change than the data-quality bug actually required,
 // and this comment is here so the next person who notices "zenodo never
 // shows results" understands why without re-deriving it.
-async function zenodo(query, limit = 4) {
+async function zenodo(query, limit = 4, ledger = null) {
   try {
     const url =
       "https://zenodo.org/api/records?" +
       new URLSearchParams({ q: query, size: String(limit), sort: "mostrecent" });
-    const data = await getJSON(url);
+    const data = await getJSON(url, {}, 4000, 1, ledger);
     return ((data && data.hits && data.hits.hits) || [])
       .map((r) => {
         const md = r.metadata || {};
@@ -4939,7 +5125,7 @@ async function zenodo(query, limit = 4) {
   }
 }
 
-async function plos(query, limit = 6) {
+async function plos(query, limit = 6, ledger = null) {
   try {
     const url =
       "https://api.plos.org/search?" +
@@ -4949,7 +5135,7 @@ async function plos(query, limit = 6) {
         wt: "json",
         rows: String(limit),
       });
-    const data = await getJSON(url);
+    const data = await getJSON(url, {}, 4000, 1, ledger);
     return ((data && data.response && data.response.docs) || [])
       .map((d) => ({
         title: Array.isArray(d.title_display)
@@ -4974,11 +5160,11 @@ async function plos(query, limit = 6) {
 
 // ---- ADDITIONAL SCHOLARLY APIs ----
 
-async function coreSearch(query, limit = 8) {
+async function coreSearch(query, limit = 8, ledger = null) {
   try {
     const url = "https://api.core.ac.uk/v3/search/works?" +
       new URLSearchParams({ q: query, limit: String(limit) });
-    const data = await getJSON(url, {}, 6000);
+    const data = await getJSON(url, {}, 6000, 1, ledger);
     return ((data && data.results) || []).filter((r) => r.title).map((r) => ({
       title: r.title || "Untitled",
       url: r.doi ? "https://doi.org/" + r.doi : (r.downloadUrl || ""),
@@ -4992,11 +5178,11 @@ async function coreSearch(query, limit = 8) {
   } catch { return []; }
 }
 
-async function baseSearch(query, limit = 8) {
+async function baseSearch(query, limit = 8, ledger = null) {
   try {
     const url = "https://api.base-search.net/cgi-bin/BaseHttpSearchInterface.fcgi?" +
       new URLSearchParams({ func: "PerformSearch", query: query, format: "json", hits: String(limit) });
-    const data = await getJSON(url, {}, 6000);
+    const data = await getJSON(url, {}, 6000, 1, ledger);
     return ((data && data.response && data.response.docs) || []).filter((d) => d.dctitle).map((d) => ({
       title: Array.isArray(d.dctitle) ? d.dctitle[0] : (d.dctitle || "Untitled"),
       url: (Array.isArray(d.dcidentifier) ? d.dcidentifier.find((u) => (u||"").startsWith("http")) : d.dcidentifier) || "",
@@ -5010,13 +5196,13 @@ async function baseSearch(query, limit = 8) {
   } catch { return []; }
 }
 
-async function pmcFullText(query, limit = 8) {
+async function pmcFullText(query, limit = 8, ledger = null) {
   try {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       // Commit 94 . see the note in europePMC(): "relevance" is not a
       // documented Europe PMC sort value and relevance is the default.
       new URLSearchParams({ query: '(BODY:"' + query + '")', resultType: "core", pageSize: String(limit), format: "json" });
-    const data = await getJSON(url, {}, 6000);
+    const data = await getJSON(url, {}, 6000, 1, ledger);
     return ((data && data.resultList && data.resultList.result) || []).filter((r) => r.title).map((r) => ({
       title: r.title || "Untitled",
       url: r.doi ? "https://doi.org/" + r.doi : "https://europepmc.org/article/" + r.source + "/" + r.id,
@@ -5030,11 +5216,11 @@ async function pmcFullText(query, limit = 8) {
   } catch { return []; }
 }
 
-async function openAire(query, limit = 8) {
+async function openAire(query, limit = 8, ledger = null) {
   try {
     const url = "https://api.openaire.eu/search/publications?" +
       new URLSearchParams({ keywords: query, size: String(limit), format: "json" });
-    const data = await getJSON(url, {}, 6000);
+    const data = await getJSON(url, {}, 6000, 1, ledger);
     const results = data?.response?.results?.result || [];
     return results.filter((r) => r?.metadata?.["oaf:entity"]?.["oaf:result"]?.title).map((r) => {
       const m = r.metadata["oaf:entity"]["oaf:result"];
@@ -5064,7 +5250,7 @@ async function openAire(query, limit = 8) {
 }
 
 
-async function wikipedia(query, limit = 2) {
+async function wikipedia(query, limit = 2, ledger = null) {
   try {
     const searchUrl =
       "https://en.wikipedia.org/w/api.php?" +
@@ -5076,7 +5262,7 @@ async function wikipedia(query, limit = 2) {
         format: "json",
         origin: "*",
       });
-    const sdata = await getJSON(searchUrl, {}, 4000);
+    const sdata = await getJSON(searchUrl, {}, 4000, 1, ledger);
     const hits = (sdata && sdata.query && sdata.query.search) || [];
     const out = [];
     for (const h of hits) {
@@ -5093,7 +5279,7 @@ async function wikipedia(query, limit = 2) {
             format: "json",
             origin: "*",
           });
-        const ex = await getJSON(exUrl, {}, 4000);
+        const ex = await getJSON(exUrl, {}, 4000, 1, ledger);
         const pages = (ex && ex.query && ex.query.pages) || {};
         const page = Object.values(pages)[0] || {};
         const extract = (page.extract || "").replace(/\s+/g, " ").trim();
@@ -5119,7 +5305,7 @@ async function wikipedia(query, limit = 2) {
   }
 }
 
-async function duckduckgo(query) {
+async function duckduckgo(query, ledger = null) {
   try {
     const url =
       "https://api.duckduckgo.com/?" +
@@ -5129,7 +5315,7 @@ async function duckduckgo(query) {
         no_html: "1",
         skip_disambig: "1",
       });
-    const data = await getJSON(url, {}, 4000);
+    const data = await getJSON(url, {}, 4000, 1, ledger);
     const abstract = ((data && data.AbstractText) || "").trim();
     if (!abstract) return [];
     return [
@@ -5357,11 +5543,12 @@ async function fetchVideos(query, maxMs = 3000) {
 //
 // Returns an array of 3-5 search query strings optimized for scholarly databases.
 // Falls back to empty array on any failure (timeout, rate limit, etc).
-async function llmGenerateSearchQueries(rawQuery, token) {
+async function llmGenerateSearchQueries(rawQuery, token, ledger = null) {
   if (!token) return [];
   try {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 5000); // 5s max . this runs in parallel
+    if (ledger) ledger.spend();
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
@@ -5756,7 +5943,7 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
 // { text, via } from the first leg that answers, or null when both
 // fail; the caller fails open to the unvalidated survivors, exactly
 // the old single leg behavior, only then.
-export async function defaultValidationCall(messages, token, env, timing) {
+export async function defaultValidationCall(messages, token, env, timing, ledger = null) {
   // Stage budget: the handler's runStage backstop for validation is
   // 6000ms. Legs are clamped against that remaining budget (see
   // clampStageLegTimeout), so the pair always fits inside the
@@ -5790,6 +5977,9 @@ export async function defaultValidationCall(messages, token, env, timing) {
   });
   for (let li = 0; li < legs.length; li++) {
     const leg = legs[li];
+    // Subrequest budget: see defaultConceptGroupCall . an unaffordable
+    // leg is not fired; the stage fails open and names the budget.
+    if (ledger && ledger.remaining() <= 0) return null;
     const c = new AbortController();
     // 4000ms per leg, the sizing the single leg call always had
     // (OR_VALIDATE returns 400 JSON tokens in ~2s; see the 2026-09-12
@@ -5808,6 +5998,7 @@ export async function defaultValidationCall(messages, token, env, timing) {
       ...(timing && timing.floorMs != null ? { floorMs: timing.floorMs } : {}),
     }));
     try {
+      if (ledger) ledger.spend();
       const r = await fetch(leg.url, {
         method: "POST",
         headers: leg.headers,
@@ -5850,7 +6041,12 @@ export function finalizeValidationHealth(rec, validationDiag) {
   rec.via = via;
   if (!via) {
     rec.ok = false;
-    rec.skipReason = "no leg answered";
+    // A budget skip is not a leg failure: the legs were never fired
+    // because the invocation's subrequest allowance was spent, and
+    // the record must say so rather than reading as a fleet outage.
+    rec.skipReason = (validationDiag && validationDiag.llmBudgetSkipped)
+      ? SUBREQUEST_EXHAUSTED_REASON
+      : "no leg answered";
   }
   return rec;
 }
@@ -5891,7 +6087,7 @@ export function programmaticValidationPasses(rawQuery, papers, dynLookup) {
   return survivors;
 }
 
-export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env, diagOut, callImpl) {
+export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env, diagOut, callImpl, ledger = null) {
   if (!papers.length) return papers;
 
   // PASS 1A + 1B: the programmatic passes (free, instant), shared
@@ -5918,6 +6114,16 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
   // that Groq is a leg in its own right.
   const hasGroqLeg = !!(env && (env.GROQ_KEY || env.GROQ_API_KEY));
   if ((!token && !hasGroqLeg) || survivors.length > 20) return survivors;
+
+  // Subrequest budget: when the invocation allowance is spent, the
+  // LLM pass does not fire at all . the programmatic survivors are
+  // used, exactly the fail open shape, but the diag names the budget
+  // (not a silent "no leg answered") so the stage record can tell a
+  // budget skip from a provider failure.
+  if (ledger && ledger.remaining() <= 0) {
+    if (diagOut) diagOut.llmBudgetSkipped = true;
+    return survivors;
+  }
 
   // Detect the primary organism from the query for the LLM prompt
   const qLower = rawQuery.toLowerCase();
@@ -5963,7 +6169,7 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
     // unparseable reply, fails open to the survivors below, exactly the
     // old single leg behavior.
     const doCall = typeof callImpl === "function" ? callImpl : defaultValidationCall;
-    const legResult = await doCall(messages, token, env);
+    const legResult = await doCall(messages, token, env, undefined, ledger);
     if (!legResult) return survivors;
     // The default call reports which leg answered as { text, via };
     // injected calls may return raw text instead.
@@ -6116,7 +6322,7 @@ function parseDeepFactCheckJSON(raw) {
   return claims;
 }
 
-async function deepFactCheck(answer, papers, env) {
+async function deepFactCheck(answer, papers, env, ledger = null) {
   if (!answer || !papers || papers.length === 0) return null;
   const sourceBlock = buildFactCheckSourceBlock(papers);
   const userContent =
@@ -6159,10 +6365,14 @@ async function deepFactCheck(answer, papers, env) {
   // 2026-09-12: was OR_PRIMARY (550B . the slowest model in the catalog
   // doing a 1900-token JSON job). Now OR_VALIDATE (gemma-4-31b), same
   // verdicts in ~2s.
-  if (openRouterKey(env)) {
+  // Subrequest budget: tier 2 is a fetch. When the allowance is
+  // spent it is skipped, not fired to die at the runtime . the
+  // caller falls back to the zero network heuristic either way.
+  if (openRouterKey(env) && !(ledger && ledger.remaining() <= 0)) {
     try {
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 4000);
+      if (ledger) ledger.spend();
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + openRouterKey(env), "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
@@ -10373,7 +10583,7 @@ export function buildFalsificationBullets({ papers, verdict, newestYear }) {
  * validation (short, non-empty . NOT the multi-thousand-char answer floors
  * that would reject a 200-token claim list) and a short timeout.
  */
-export async function postChatCompletion({ url, key, model, messages, maxTokens, timeoutMs = 10000, extraHeaders = {} }) {
+export async function postChatCompletion({ url, key, model, messages, maxTokens, timeoutMs = 10000, extraHeaders = {}, ledger = null }) {
   // Nuance #28: prompt-size cap at the single choke point every OpenAI-
   // shaped call in this file funnels through. A token bomb is truncated
   // (never silently . the caller is told) before it can buy inference.
@@ -10389,15 +10599,18 @@ export async function postChatCompletion({ url, key, model, messages, maxTokens,
   const breaker = getBreaker("llm:" + providerId, { failureThreshold: 5, openTimeoutMs: 60000 });
   return callWithCircuit(
     breaker,
-    (attempt) => postChatCompletionOnce({ url, key, model, messages: clamped, maxTokens, timeoutMs, extraHeaders }),
+    (attempt) => postChatCompletionOnce({ url, key, model, messages: clamped, maxTokens, timeoutMs, extraHeaders, ledger }),
     { maxAttempts: 3, baseMs: 400, capMs: 4000 }
   );
 }
 
-async function postChatCompletionOnce({ url, key, model, messages, maxTokens, timeoutMs = 10000, extraHeaders = {} }) {
+async function postChatCompletionOnce({ url, key, model, messages, maxTokens, timeoutMs = 10000, extraHeaders = {}, ledger = null }) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), timeoutMs);
   try {
+    // One spend per network attempt: callWithCircuit may retry a
+    // transient failure, and every retry is a real subrequest.
+    if (ledger) ledger.spend();
     const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + key, ...(extraHeaders || {}) },
@@ -11323,11 +11536,15 @@ export async function raceBest(calls, query, graceMs = 1500, maxFinishers = 3, o
 // hard timeout . the judge is a tie-breaker, not a second synthesis pass.
 // Returns an async (answerA, answerB, query) => 0|1|-1 (-1 = abstain).
 // Any failure abstains, so the heuristic winner stands.
-export function buildLlmJudge({ token, model, timeoutMs = 4000 } = {}) {
+export function buildLlmJudge({ token, model, timeoutMs = 4000, ledger = null } = {}) {
   const t = token;
   const m = model || CHEAP_MODEL;
   return async (answerA, answerB, query) => {
     if (!t) return -1;
+    // Subrequest budget: a tie break is the most expendable call in
+    // the request. When the allowance is spent it abstains, exactly
+    // like any other judge failure, and the heuristic winner stands.
+    if (ledger && ledger.remaining() <= 0) return -1;
     const a = String(answerA || "").slice(0, 1500);
     const b = String(answerB || "").slice(0, 1500);
     if (!a.trim() || !b.trim()) return -1;
@@ -11346,6 +11563,7 @@ export function buildLlmJudge({ token, model, timeoutMs = 4000 } = {}) {
         messages: [{ role: "user", content: prompt }],
         maxTokens: 8,
         timeoutMs,
+        ledger,
       });
       const text = String((res && (res.text || res.content)) || "").trim();
       const mm = text.match(/[12]/);
@@ -11416,7 +11634,7 @@ const QUERY_RESOLVER_PROMPT =
   "resembling a search expression here breaks retrieval instead of improving it.";
 
 
-async function llmResolveQuery(query, history, prevSources, token) {
+async function llmResolveQuery(query, history, prevSources, token, ledger = null) {
   if (!token) return null;
 
   const recentHistory = (history || []).slice(-8);
@@ -11436,6 +11654,7 @@ async function llmResolveQuery(query, history, prevSources, token) {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), 4000);
   try {
+    if (ledger) ledger.spend();
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -11553,7 +11772,7 @@ function buildConversationContext(history, prevSources) {
 // decomposes complex questions, identifies sub-questions, and plans the most
 // effective search strategy. The reasoning output enriches both the search
 // queries and the final answer's system prompt.
-async function selfReason(query, history, token) {
+async function selfReason(query, history, token, ledger = null) {
   if (!token) return null;
 
   const historyText = (history || [])
@@ -11566,6 +11785,7 @@ async function selfReason(query, history, token) {
   try {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 5000);
+    if (ledger) ledger.spend();
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -11657,13 +11877,14 @@ async function selfReason(query, history, token) {
 // themselves. Every downstream system (MeSH expansion, organism detection,
 // evidence scoring, citation synthesis) works unmodified because as far as
 // it's concerned, it's still just looking at text.
-async function describeImage(dataUrl, question, token) {
+async function describeImage(dataUrl, question, token, ledger = null) {
   if (!token || !dataUrl) return null;
   const visionModels = OR_VISION_MODELS;
   for (const model of visionModels) {
     try {
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 9000);
+      if (ledger) ledger.spend();
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -11865,6 +12086,16 @@ async function gatherPapers(rawQuery, opts) {
   const ncbiKey = (opts && opts.ncbiKey) || "";
   const s2Key = (opts && opts.s2Key) || "";
   const limit = (opts && opts.limit) || 25;
+  // Subrequest ledger (request scoped, owned by the pipeline; see
+  // createSubrequestLedger). Every fetcher below receives it and
+  // every fallback gate consults it: retrieval beyond the primary
+  // rung may only start while the answer stages' reserve is intact.
+  // Null when a caller outside the pipeline drives retrieval, in
+  // which case only the pre existing time budget gates anything.
+  const ledger = (opts && opts.ledger) || null;
+  if (ledger) ledger.setStage("retrieval");
+  // Retrieval rounds the ledger cut, named for the diag record.
+  const budgetTrims = [];
   _outerDiag.phase = "cleaned_query"; const query = cleanQuery(preprocessQuery(rawQuery)); _outerDiag.cleanedQuery = query.slice(0, 200);
   // A resolved person name from conversation history (pronoun follow-up like
   // "he has papers from UTK") takes priority over re-detecting from rawQuery.
@@ -11904,18 +12135,18 @@ async function gatherPapers(rawQuery, opts) {
     // author list in _allAuthors (this is the bug that was previously silently
     // dropping real matches . the strict filter was checking a truncated field).
     const results = await Promise.allSettled([
-      europePMC(quoted, 25),                        // best full-text index for biomed
-      openAlex(quoted, 25, openAlexKey),            // cross-disciplinary
-      crossref(quoted, 15),                         // DOI-registered works
-      arxiv(effectiveName, 15),                     // physics/CS/quantitative bio
-      semanticScholar(quoted, 15, s2Key),           // includes preprints
+      europePMC(quoted, 25, ledger),                        // best full-text index for biomed
+      openAlex(quoted, 25, openAlexKey, ledger),            // cross-disciplinary
+      crossref(quoted, 15, ledger),                         // DOI-registered works
+      arxiv(effectiveName, 15, ledger),                     // physics/CS/quantitative bio
+      semanticScholar(quoted, 15, s2Key, ledger),           // includes preprints
       // Commit 94 . the authoritative preprint index. Europe PMC's default
       // search excludes SRC:PPR, so without this line an author whose only
       // work is a preprint was invisible to the entire author lookup no
       // matter how well indexed that preprint was.
-      europePMCPreprintAuthor(effectiveName, 15),
-      biorxivDirectAuthor(effectiveName),           // fresh biology preprints
-      medrxivDirectAuthor(effectiveName),           // fresh medical preprints
+      europePMCPreprintAuthor(effectiveName, 15, ledger),
+      biorxivDirectAuthor(effectiveName, ledger),           // fresh biology preprints
+      medrxivDirectAuthor(effectiveName, ledger),           // fresh medical preprints
     ]);
 
     const merged = [];
@@ -11995,12 +12226,12 @@ async function gatherPapers(rawQuery, opts) {
       // citation looks verifiable but isn't . worse than no citation.
       const withUrls = scored.filter(p => p && p.url && String(p.url).trim().length > 0);
       funnel.ranked = withUrls.length;
-      return { papers: withUrls, _diag: { funnel } };
+      return { papers: withUrls, _diag: { funnel, ...(ledger ? { subrequests: ledger.snapshot() } : {}) } };
     }
 
     // Truly no papers matched by author. Signal that so the endpoint can
     // respond with helpful suggestions (not a wall, not unrelated papers).
-    return { papers: [], noResults: true, _diag: { funnel } };
+    return { papers: [], noResults: true, _diag: { funnel, ...(ledger ? { subrequests: ledger.snapshot() } : {}) } };
   }
 
   _outerDiag.phase = "before_ladder";
@@ -12100,14 +12331,27 @@ async function gatherPapers(rawQuery, opts) {
   let dynLookup = null;
   let dynGroups = [];
   let dynUncovered = [];
+  let dynBudgetSkipped = false;
   try {
     dynUncovered = ranked.filter((t) => {
       const tl = t.toLowerCase();
       return termSpecificity(tl) >= 0.5 && !CONCEPT_LOOKUP.has(tl) && !SYNONYMS[tl] && !EXPANSION_FRAMING_WORDS.has(tl);
     });
     if (dynUncovered.length > 0 && _budgetLeft()) {
-      dynGroups = await llmConceptGroups(query, (opts && opts.env) || null);
-      if (dynGroups.length > 0) dynLookup = buildDynLookup(dynGroups);
+      // Subrequest budget: expansion is an answer-shaping stage, not
+      // retrieval, but it spends from the same allowance BEFORE the
+      // ladder. It fires only while the answer reserve is intact;
+      // when an earlier gather in this invocation already spent it,
+      // the skip is recorded (diag.llmExpansionAttempt.skipped) so a
+      // live check can tell "budget" apart from "tried, got nothing".
+      if (ledger && !ledger.retrievalRoom()) {
+        dynBudgetSkipped = true;
+      } else {
+        if (ledger) ledger.setStage("expansion");
+        dynGroups = await llmConceptGroups(query, (opts && opts.env) || null, undefined, ledger);
+        if (ledger) ledger.setStage("retrieval");
+        if (dynGroups.length > 0) dynLookup = buildDynLookup(dynGroups);
+      }
     }
   } catch { dynLookup = null; dynGroups = []; }
 
@@ -12292,24 +12536,24 @@ async function gatherPapers(rawQuery, opts) {
       "CORE","BASE","pmcFullText","openAire","preprints",
     ];
     const promises = [
-      europePMC(boolQ, 12),
-      pubmed(boolQ, 12, ncbiKey),
-      openAlex(bare, 12, openAlexKey),
-      ...(bareCommon ? [openAlex(bareCommon, 12, openAlexKey)] : []),
-      crossref(bare, 10),
-      arxiv(arx, 8),
-      semanticScholar(bare, 10, s2Key),
-      doaj(bare, 8),
-      biorxiv(bare, 8),
-      plos(bare, 8),
+      europePMC(boolQ, 12, ledger),
+      pubmed(boolQ, 12, ncbiKey, ledger),
+      openAlex(bare, 12, openAlexKey, ledger),
+      ...(bareCommon ? [openAlex(bareCommon, 12, openAlexKey, ledger)] : []),
+      crossref(bare, 10, ledger),
+      arxiv(arx, 8, ledger),
+      semanticScholar(bare, 10, s2Key, ledger),
+      doaj(bare, 8, ledger),
+      biorxiv(bare, 8, ledger),
+      plos(bare, 8, ledger),
       // Additional high-value sources (4 new)
-      coreSearch(bare, 8),
-      baseSearch(bare, 8),
-      pmcFullText(bare, 6),
-      openAire(bare, 6),
+      coreSearch(bare, 8, ledger),
+      baseSearch(bare, 8, ledger),
+      pmcFullText(bare, 6, ledger),
+      openAire(bare, 6, ledger),
       // Commit 65 . see preprintSearch: bioRxiv/medRxiv/arXiv topic search
       // that the OpenAlex-mediated `biorxiv()` above was silently missing.
-      preprintSearch(bare, 8),
+      preprintSearch(bare, 8, ledger),
     ];
     return { names, promises };
   };
@@ -12333,6 +12577,19 @@ async function gatherPapers(rawQuery, opts) {
   _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
+  // The ledger's trim record rides the diag: which retrieval rounds
+  // the subrequest budget cut on this gather, in cut order.
+  if (budgetTrims.length || ledger) diag.budgetTrims = budgetTrims;
+  // Gate for one optional retrieval round: true when there is no
+  // ledger or the round may start inside the reserve rule; when the
+  // ledger denies, the round's name joins the trim record. Used as
+  // the last conjunct of each fallback's existing condition, so a
+  // trim is recorded only when the round would otherwise have run.
+  const roomOrTrim = (name, margin) => {
+    if (!ledger || ledger.retrievalRoom(margin)) return true;
+    budgetTrims.push(name);
+    return false;
+  };
   // The boolean query this run actually searches with, recorded so the
   // exportable search record (buildSearchRecord) can carry the exact
   // string a reader would re run. Recorded, not recomputed later: the
@@ -12344,8 +12601,10 @@ async function gatherPapers(rawQuery, opts) {
   } else if (dynUncovered.length > 0) {
     // The trigger fired but no groups survived: record the attempt so
     // a live check can tell "tried and got nothing" apart from
-    // "never tried" (which leaves no trace here at all).
+    // "never tried" (which leaves no trace here at all). A budget
+    // skip is a third state and is named as such.
     diag.llmExpansionAttempt = { uncovered: dynUncovered.slice(0, 6), groups: 0, via: null };
+    if (dynBudgetSkipped) diag.llmExpansionAttempt.skipped = "subrequest-budget";
   }
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire","preprints"];
 
@@ -12359,6 +12618,21 @@ async function gatherPapers(rawQuery, opts) {
   // for the most expensive 15+ fetches of the search.
   const MAX_LADDER_RUNGS = 3;
   for (let i = 0; i < rungs.length && i < MAX_LADDER_RUNGS; i++) {
+    // Subrequest ledger gate (2026-10-13): the primary rung always
+    // fires . it is the retrieval the answer stands on. A loosening
+    // rung is a fresh ~17 fetch fanout, so it may only START while
+    // the answer stages' reserve is intact. On a repeated gather
+    // (the minimum results guarantee re-asks, a follow up deep
+    // search) the shared ledger carries the earlier spend, so a
+    // later gather inherits the trim instead of restarting the count.
+    if (ledger && i > 0 && !ledger.retrievalRoom()) {
+      budgetTrims.push("ladder-rung-" + (i + 1));
+      break;
+    }
+    if (ledger && i === 0 && ledger.remaining() <= 0) {
+      budgetTrims.push("ladder-rung-1");
+      break;
+    }
     const fanoutResult = fanout(rungs[i], i === 0);
     // fanout returns {names, promises} so the optional common-name query
     // gets a correct label.
@@ -12431,15 +12705,15 @@ async function gatherPapers(rawQuery, opts) {
   const totalSoFar = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalSoFar < 8 && _budgetLeft()) {
+  if (totalSoFar < 8 && _budgetLeft() && roomOrTrim("raw-fallback", 0)) {
     // Include organism name in the raw fallback so we find species-specific papers
     const rawQ = organismTerm
       ? organismTerm.replace(/"/g, "") + " " + query
       : query;
     const rawFallback = await Promise.allSettled([
-      europePMC(rawQ, 12),
-      semanticScholar(rawQ, 10, s2Key),
-      openAlex(rawQ, 10, openAlexKey),
+      europePMC(rawQ, 12, ledger),
+      semanticScholar(rawQ, 10, s2Key, ledger),
+      openAlex(rawQ, 10, openAlexKey, ledger),
     ]);
     results = results.concat(rawFallback);
     // The query string itself, not just per source counts: it can
@@ -12469,7 +12743,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterRaw = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterRaw < 8 && _budgetLeft()) {
+  if (totalAfterRaw < 8 && _budgetLeft() && roomOrTrim("concept-expanded-fallback", SUBREQUEST_RUNG_COST)) {
     // Build synonym-expanded queries from concept groups
     const topicTermsForExpansion = ranked.slice(0, 3);
     const expandedQueries = new Set();
@@ -12543,9 +12817,9 @@ async function gatherPapers(rawQuery, opts) {
     if (expandedArr.length) {
       const expandedResults = await Promise.allSettled(
         expandedArr.flatMap((eq) => [
-          europePMC(eq, 8),
-          semanticScholar(eq, 6, s2Key),
-          openAlex(eq, 6, openAlexKey),
+          europePMC(eq, 8, ledger),
+          semanticScholar(eq, 6, s2Key, ledger),
+          openAlex(eq, 6, openAlexKey, ledger),
         ])
       );
       results = results.concat(expandedResults);
@@ -12565,7 +12839,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterConcept = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterConcept < 5 && opts.db && _budgetLeft()) {
+  if (totalAfterConcept < 5 && opts.db && _budgetLeft() && roomOrTrim("topic-memory-recall", SUBREQUEST_RUNG_COST)) {
     const topicForRecall = orgInfo.hasOrganism
       ? orgInfo.orgPhrases[0] + " " + ranked.slice(0, 3).join(" ")
       : ranked.slice(0, 4).join(" ");
@@ -12574,8 +12848,8 @@ async function gatherPapers(rawQuery, opts) {
       const recalledQueries = recalled.bestTerms.slice(0, 4);
       const memResults = await Promise.allSettled(
         recalledQueries.flatMap((eq) => [
-          europePMC(eq, 8),
-          semanticScholar(eq, 6, s2Key),
+          europePMC(eq, 8, ledger),
+          semanticScholar(eq, 6, s2Key, ledger),
         ])
       );
       results = results.concat(memResults);
@@ -12596,11 +12870,11 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterExpand = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterExpand < 5 && _budgetLeft()) {
+  if (totalAfterExpand < 5 && _budgetLeft() && roomOrTrim("natural-language-fallback", 0)) {
     const nlFallback = await Promise.allSettled([
-      semanticScholar(rawQuery.slice(0, 200), 15, s2Key),
-      europePMC(rawQuery.slice(0, 200), 12),
-      openAlex(rawQuery.slice(0, 200), 10, openAlexKey),
+      semanticScholar(rawQuery.slice(0, 200), 15, s2Key, ledger),
+      europePMC(rawQuery.slice(0, 200), 12, ledger),
+      openAlex(rawQuery.slice(0, 200), 10, openAlexKey, ledger),
     ]);
     results = results.concat(nlFallback);
     diag.nlFallback = nlFallback.reduce(
@@ -12621,7 +12895,7 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterNL = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterNL < 5 && _budgetLeft()) {
+  if (totalAfterNL < 5 && _budgetLeft() && roomOrTrim("relaxed-boolean-fallback", 0)) {
     const orgNames = [...new Set([
       organismTerm ? organismTerm.replace(/"/g, "") : null,
       ...(orgInfo.orgPhrases || []),
@@ -12634,8 +12908,8 @@ async function gatherPapers(rawQuery, opts) {
     const relaxedBoolQ = orgOr && topicGroup ? orgOr + " AND " + topicGroup : (orgOr || topicGroup || query);
     if (relaxedBoolQ) {
       const relaxedResults = await Promise.allSettled([
-        europePMC(relaxedBoolQ, 12),
-        pubmed(relaxedBoolQ, 12, ncbiKey),
+        europePMC(relaxedBoolQ, 12, ledger),
+        pubmed(relaxedBoolQ, 12, ncbiKey, ledger),
       ]);
       results = results.concat(relaxedResults);
       diag.relaxedBoolean = { query: relaxedBoolQ, count: relaxedResults.reduce(
@@ -12652,6 +12926,15 @@ async function gatherPapers(rawQuery, opts) {
   if (subQueries.length > 1) {
     for (const sub of subQueries) {
       if (!_budgetLeft()) break;
+      // Subrequest ledger: each clause is a full fanout. Clauses are
+      // coverage, not filler, so they rank above the speculative
+      // rounds . but a clause that cannot start inside the reserve
+      // rule is cut and recorded rather than fired to starve the
+      // answer stages.
+      if (ledger && !ledger.retrievalRoom(SUBREQUEST_RUNG_COST)) {
+        budgetTrims.push("clause-fanout");
+        break;
+      }
       try {
         const subRes = await Promise.allSettled(fanout(sub, false));
         results = results.concat(subRes);
@@ -12673,7 +12956,7 @@ async function gatherPapers(rawQuery, opts) {
   // This fires one targeted search per aspect (capped at 2 to respect
   // the subrequest budget), using the most reliable engines.
   // ═══════════════════════════════════════════════════════════════
-  if (_budgetLeft()) {
+  if (_budgetLeft() && roomOrTrim("question-decomposition", SUBREQUEST_RUNG_COST)) {
     try {
       const decomp = decomposeQuestion(rawQuery, ranked);
       if (decomp.decomposed && decomp.subQueries.length > 0) {
@@ -12687,9 +12970,9 @@ async function gatherPapers(rawQuery, opts) {
           if (!_budgetLeft()) break;
           const sq = subs[qi];
           const decompRes = await Promise.allSettled([
-            europePMC(sq, 8),
-            semanticScholar(sq, 6, s2Key),
-            openAlex(sq, 6, openAlexKey),
+            europePMC(sq, 8, ledger),
+            semanticScholar(sq, 6, s2Key, ledger),
+            openAlex(sq, 6, openAlexKey, ledger),
           ]);
           results = results.concat(decompRes);
           (diag.questionDecomposition || (diag.questionDecomposition = []))
@@ -12719,16 +13002,23 @@ async function gatherPapers(rawQuery, opts) {
     const topicStr2 = ranked.slice(0, 3).join(" ") || query;
     for (const sciName of secondaryOrganisms) {
       if (!_budgetLeft()) break;
+      // Subrequest ledger: seven fetchers per organism. Same class
+      // as the other speculative rounds . cut and recorded when the
+      // reserve would be breached.
+      if (ledger && !ledger.retrievalRoom(SUBREQUEST_RUNG_COST)) {
+        budgetTrims.push("secondary-organism");
+        break;
+      }
       const orgQuoted2 = '"' + sciName + '"';
       try {
         const secResults = await Promise.allSettled([
-          europePMC(orgQuoted2 + " AND (" + topicStr2 + ")", 10),
-          pubmed(orgQuoted2 + " AND (" + topicStr2 + ")", 10, ncbiKey),
-          openAlex(sciName + " " + topicStr2, 10, openAlexKey),
-          crossref(sciName + " " + topicStr2, 8),
-          semanticScholar(sciName + " " + topicStr2, 10, s2Key),
-          doaj(sciName + " " + topicStr2, 6),
-          biorxiv(sciName + " " + topicStr2, 6),
+          europePMC(orgQuoted2 + " AND (" + topicStr2 + ")", 10, ledger),
+          pubmed(orgQuoted2 + " AND (" + topicStr2 + ")", 10, ncbiKey, ledger),
+          openAlex(sciName + " " + topicStr2, 10, openAlexKey, ledger),
+          crossref(sciName + " " + topicStr2, 8, ledger),
+          semanticScholar(sciName + " " + topicStr2, 10, s2Key, ledger),
+          doaj(sciName + " " + topicStr2, 6, ledger),
+          biorxiv(sciName + " " + topicStr2, 6, ledger),
         ]);
         results = results.concat(secResults);
         // The executed query (plain form; boolean engines receive
@@ -13655,6 +13945,7 @@ async function gatherPapers(rawQuery, opts) {
   }
 
   diag.funnel = funnel;
+  if (ledger) diag.subrequests = ledger.snapshot();
   return { papers: rerankedFinal, _diag: diag };
   } catch (e) {
     // Any throw in gatherPapers: log the full detail server-side (Cloudflare
@@ -13671,6 +13962,7 @@ async function gatherPapers(rawQuery, opts) {
         threwAt: _outerDiag.phase,
         errorName: (e && e.name) || "Unknown",
         funnel,
+        ...(ledger ? { subrequests: ledger.snapshot() } : {}),
       },
     };
   }
@@ -13787,7 +14079,7 @@ HOW TO ACTUALLY CONVERSE (Commit 62):
 
 Respond naturally to the user's message. Be yourself.`;
 
-async function answerConversationally(query, history, env) {
+async function answerConversationally(query, history, env, ledger = null) {
   const apiKey = openRouterKey(env);
   if (!apiKey) return null;
   const models = [
@@ -13813,6 +14105,7 @@ async function answerConversationally(query, history, env) {
       const c = new AbortController();
       const t = setTimeout(() => c.abort(), 15000);
       try {
+        if (ledger) ledger.spend();
         const res = await fetch(m.url, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": "https://askcerebrum.org" },
@@ -13908,13 +14201,14 @@ async function operatorDiagnostics(request, env, payload) {
    OpenAlex fills in what Crossref omits (abstracts, citation counts). Both
    are asked in parallel and either alone is enough; neither answering means
    the DOI does not resolve, which is a real answer rather than a failure. */
-async function resolveDoi(doi, env) {
+async function resolveDoi(doi, env, ledger = null) {
   const enc = encodeURIComponent(doi);
   const timeout = 7000;
   const get = async (url) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeout);
     try {
+      if (ledger) ledger.spend();
       const r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": POLITE_UA } });
       if (!r.ok) return null;
       return await r.json();
@@ -14004,7 +14298,7 @@ async function resolveDoi(doi, env) {
    failure just omits the field . an answer without this panel is the status
    quo, and the status quo is fine.
    ══════════════════════════════════════════════════════════════════════ */
-async function evidenceStructure(papers) {
+async function evidenceStructure(papers, ledger = null) {
   try {
     const dois = [];
     for (const p of papers || []) {
@@ -14020,6 +14314,7 @@ async function evidenceStructure(papers) {
     try {
       const url = "https://api.openalex.org/works?per-page=50&select=id,doi,title,authorships,referenced_works" +
         "&filter=doi:" + dois.map((d) => encodeURIComponent(d)).join("|");
+      if (ledger) ledger.spend();
       const r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": POLITE_UA } });
       if (!r.ok) return null;
       const j = await r.json();
@@ -14079,13 +14374,14 @@ async function evidenceStructure(papers) {
       .slice(0, 3);
 
     let ancestors = [];
-    if (top.length) {
+    if (top.length && !(ledger && ledger.remaining() <= 0)) {
       /* One more request, for the titles of at most three works. Worth it:
          "cited by 6 of 8" means nothing without knowing what it is. */
       const c2 = new AbortController();
       const t2 = setTimeout(() => c2.abort(), 5000);
       try {
         const ids = top.map(([id]) => id.replace("https://openalex.org/", ""));
+        if (ledger) ledger.spend();
         const r2 = await fetch(
           "https://api.openalex.org/works?per-page=3&select=id,title,publication_year,doi&filter=openalex_id:" + ids.join("|"),
           { signal: c2.signal, headers: { "User-Agent": POLITE_UA } });
@@ -14243,6 +14539,14 @@ async function runSearchPipeline(pctx) {
   const hooks = (pctx && pctx.hooks) || {};
   const emitStage = hooks.onStage || null;
   const requestId = contextRequestId(pctx && pctx.context);
+  // Subrequest ledger for this invocation (created fresh per
+  // request; isolates serve concurrent requests, so nothing about
+  // the budget may live in module state). Every outbound fetch in
+  // this handler's path spends from it through getJSON/getText, the
+  // chat helpers, or a direct spend at the fetch site, and every
+  // stage checks it before firing . see createSubrequestLedger.
+  const ledger = createSubrequestLedger();
+  ledger.setStage("pre");
 
   // Priority queue slot, held for the whole pipeline run and released in
   // the finally below. Declared outside the try so the finally can see it.
@@ -14443,7 +14747,7 @@ async function runSearchPipeline(pctx) {
     // Vision description is provider-backed AI: gated like every other AI
     // surface. A gated caller still gets the text query path below.
     if (hasImage && openRouterKey(env) && aiSynthesisAllowed) {
-      imageContext = await describeImage(body.image, query, openRouterKey(env)).catch(() => null);
+      imageContext = await describeImage(body.image, query, openRouterKey(env), ledger).catch(() => null);
       if (imageContext) {
         query = (query + " " + imageContext).slice(0, MAX_QUERY_LEN);
       }
@@ -14596,7 +14900,7 @@ async function runSearchPipeline(pctx) {
           { status: 200, headers: cors }
         );
       }
-      const personaText = await answerConversationally(query, body.history, env);
+      const personaText = await answerConversationally(query, body.history, env, ledger);
       await meterAiAnswer();
       return new Response(
         JSON.stringify({
@@ -14633,7 +14937,8 @@ async function runSearchPipeline(pctx) {
     })();
 
     if (doiOnly) {
-      const work = await resolveDoi(doiOnly, env);
+      ledger.setStage("post");
+      const work = await resolveDoi(doiOnly, env, ledger);
       if (!work) {
         /* Deliberately not a fallback search. A DOI that does not resolve
            is a fact . a typo, an unregistered prefix, or an identifier that
@@ -14868,7 +15173,7 @@ async function runSearchPipeline(pctx) {
 
     // 1. LLM Query Resolver . understands what the user actually means
     const resolverPromise = llmResolveQuery(
-      query, body.history || [], prevSourcesForResolver, openRouterKey(env)
+      query, body.history || [], prevSourcesForResolver, openRouterKey(env), ledger
     ).catch(() => null);
 
     // 2. Self-Reasoning Chain . decomposes complex queries
@@ -14876,7 +15181,7 @@ async function runSearchPipeline(pctx) {
      * first consumer. It used to be declared here, which put its first use
      * inside its own temporal dead zone . see the note at the declaration. */
     const reasoningPromise = selfReason(
-      query, body.history || [], openRouterKey(env)
+      query, body.history || [], openRouterKey(env), ledger
     ).catch(() => null);
 
     // 3. Build conversation context for later use in system prompt
@@ -15124,7 +15429,7 @@ async function runSearchPipeline(pctx) {
               { status: 200, headers: cors }
             );
           }
-          const chat = await answerConversationally(query, body.history, env);
+          const chat = await answerConversationally(query, body.history, env, ledger);
           if (chat) {
             await meterAiAnswer();
             return new Response(
@@ -15255,6 +15560,7 @@ async function runSearchPipeline(pctx) {
             resolvedPersonName,
             db: env.DB,
             env,
+            ledger,
           }),
           new Promise((_, reject) => setTimeout(() => reject(new Error("deep search timeout")), 15000)),
         ]);
@@ -15341,7 +15647,7 @@ async function runSearchPipeline(pctx) {
       // Launch LLM query generation IN PARALLEL with mechanical search.
       // Zero extra latency . if mechanical search finds enough papers, we
       // discard the LLM queries. If it doesn't, they're already ready.
-      const llmQueriesPromise = llmGenerateSearchQueries(searchQuery, openRouterKey(env)).catch(() => []);
+      const llmQueriesPromise = llmGenerateSearchQueries(searchQuery, openRouterKey(env), ledger).catch(() => []);
       // NEXT-GEN query intelligence: detect a materially ambiguous question
       // BEFORE retrieval, so the answer never silently picks one meaning.
       // The interpretations ship in the response for one-tap re-searches;
@@ -15374,6 +15680,7 @@ async function runSearchPipeline(pctx) {
         resolvedPersonName,
         db: env.DB,
         env,
+        ledger,
         /* The Dive: real per-database progress. Each rung completion
            re-emits finding_papers with the answered count; the client maps
            repeated events for the same stage key onto its depth rail (same
@@ -15478,6 +15785,14 @@ async function runSearchPipeline(pctx) {
           // If no papers match the topic, the answer says so honestly.
           // Run candidates in order; adopt the first strictly-better result.
           for (const _cand of _candidates.slice(0, 3)) {
+            // Subrequest ledger: each candidate is a fresh retrieval
+            // (~17 fetches). A retry may only start while the answer
+            // stages' reserve is intact; the candidates already run
+            // in value order, so cutting the tail loses the least.
+            if (!ledger.retrievalRoom()) {
+              _mrg.budgetTrimmed = true;
+              break;
+            }
             let _res = null;
             try {
               _res = await gatherPapers(_cand.q, {
@@ -15485,6 +15800,7 @@ async function runSearchPipeline(pctx) {
                 ncbiKey: env.NCBI_API_KEY || "",
                 s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
                 limit: 10, isPro: false, db: env.DB, env,
+                ledger,
               });
             } catch (cbErr) { _res = { papers: [] }; }
             const _rp = (_res.papers || []).filter((p) => !isEncyclopediaSource(p));
@@ -15547,11 +15863,14 @@ async function runSearchPipeline(pctx) {
       const mechPaperCount = (gResult.papers || []).length;
       if (mechPaperCount < 5) {
         const llmQueries = await llmQueriesPromise;
-        if (llmQueries.length > 0) {
+        // Subrequest ledger: up to 18 rescue fetches. It is a
+        // speculative round . the primary retrieval already ran . so
+        // it needs a full rung of headroom above the reserve.
+        if (llmQueries.length > 0 && ledger.retrievalRoom(SUBREQUEST_RUNG_COST)) {
           const llmSearches = llmQueries.flatMap((q) => [
-            europePMC(q, 8).catch(() => []),
-            semanticScholar(q, 6, env.SEMANTIC_SCHOLAR_KEY || "").catch(() => []),
-            openAlex(q, 6, env.OPENALEX_KEY || "").catch(() => []),
+            europePMC(q, 8, ledger).catch(() => []),
+            semanticScholar(q, 6, env.SEMANTIC_SCHOLAR_KEY || "", ledger).catch(() => []),
+            openAlex(q, 6, env.OPENALEX_KEY || "", ledger).catch(() => []),
           ]);
           const llmResults = await Promise.allSettled(llmSearches);
           const seenTitles = new Set((gResult.papers || []).map(p => (p.title || "").toLowerCase().trim()));
@@ -15733,7 +16052,7 @@ async function runSearchPipeline(pctx) {
       try {
         const [wiki, ddg] = await Promise.all([
           // 2026-10-12: Wikipedia disabled - not a citable scientific source (Dusty)
-          duckduckgo(query).catch(() => []),
+          duckduckgo(query, ledger).catch(() => []),
         ]);
         const seen = new Set();
         for (const r of [...wiki, ...ddg]) {
@@ -15746,7 +16065,7 @@ async function runSearchPipeline(pctx) {
         // If STILL empty, try the generic Wikipedia opensearch as a last-resort
         // web fallback so we never return zero to the user.
         if (!webRefs.length) {
-          const generic = await genericWebSearch(query).catch(() => []);
+          const generic = await genericWebSearch(query, ledger).catch(() => []);
           for (const r of generic) {
             const k = normalizePaperTitle(r.title);
             if (!seen.has(k)) {
@@ -16023,9 +16342,10 @@ async function runSearchPipeline(pctx) {
       // prove the gate actually ran, and on which provider.
       const validationDiag = { llmValidatedVia: null };
       const validationHealthIdx = stageHealth.length;
+      ledger.setStage("validation");
       const validationStage = await runStage(
         "validation",
-        () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag),
+        () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag, undefined, ledger),
         { timeoutMs: 6000, fallback: evidencePapers, health: stageHealth }
       );
       if (stageHealth[validationHealthIdx]) {
@@ -16046,7 +16366,8 @@ async function runSearchPipeline(pctx) {
     // per-DOI timeout inside checkRetraction.
     if (evidencePapers.length > 0) {
       try {
-        await flagRetractions(evidencePapers, 8);
+        ledger.setStage("retraction");
+        await flagRetractions(evidencePapers, 8, ledger);
       } catch (cbErr) { console.error("[Cerebrum] search.js if: await flagRetractions(evidencePapers, 8);:", cbErr); }
     }
 
@@ -16089,11 +16410,15 @@ async function runSearchPipeline(pctx) {
         if (earlyConflicts.length > 0) {
           const contraQueries = buildContradictionQueries(earlyConflicts, ranked);
           for (const cq of contraQueries.slice(0, 2)) {
+            // Subrequest ledger: adjudication searches are valuable
+            // but speculative next to the answer itself . they run
+            // only while the answer reserve is intact.
+            if (!ledger.retrievalRoom()) break;
             try {
               const contraRes = await Promise.allSettled([
-                europePMC(cq.query, 6),
-                semanticScholar(cq.query, 5, s2Key),
-                openAlex(cq.query, 5, openAlexKey),
+                europePMC(cq.query, 6, ledger),
+                semanticScholar(cq.query, 5, s2Key, ledger),
+                openAlex(cq.query, 5, openAlexKey, ledger),
               ]);
               const found = [];
               for (const r of contraRes) {
@@ -17044,6 +17369,7 @@ async function runSearchPipeline(pctx) {
       const t = setTimeout(() => c.abort(), timeoutMs);
       const unlinkWave = linkWaveAbort(c, waveSignal);
       try {
+        ledger.spend();
         const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
@@ -17147,6 +17473,7 @@ async function runSearchPipeline(pctx) {
       const t = setTimeout(() => c.abort(), timeoutMs);
       const unlinkWave = linkWaveAbort(c, waveSignal);
       try {
+        ledger.spend();
         const r = await fetch(provider.url, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + provider.key },
@@ -17237,18 +17564,25 @@ async function runSearchPipeline(pctx) {
     // opts.firstOnly trims each provider to its first listed model for
     // the wave . the subrequest budget is shared with retrieval, and a
     // wave that fires every name on every provider starves its own tail.
-    const compatLegs = (waveNo, which, msgs, maxTok, timeoutMs, waveSignal, opts = {}) =>
+    // Leg DESCRIPTORS for the compat providers (see fireWaveLegs):
+    // construction no longer fires anything . the wave's budget plan
+    // decides which descriptors fire, breadth first across buckets,
+    // and guardedRaceEntry still applies the per leg park check at
+    // fire time, so a parked leg is never fired (and never burns a
+    // subrequest) at all.
+    const compatLegDescriptors = (waveNo, which, msgs, maxTok, timeoutMs, waveSignal, opts = {}) =>
       activeProviders.flatMap((p) => {
         const allNames = (PROVIDER_MODELS[p.id] || {})[which] || [];
         const names = opts.firstOnly ? allNames.slice(0, 1) : allNames;
         const call = callCompat(p);
         const legMsgs = typeof msgs === "function" ? msgs(p.id) : msgs;
-        // Fleet hardening: legs are constructed through guardedRaceEntry
-        // so a leg parked by the per-leg health store is never fired
-        // (and never burns a subrequest) at all.
-        return names
-          .map((m) => guardedRaceEntry(waveNo, p.id + ":" + m, () => call(m, legMsgs, maxTok, timeoutMs, waveSignal)))
-          .filter(Boolean);
+        return names.map((m) => ({
+          label: p.id + ":" + m,
+          bucket: "compat:" + p.id,
+          fetchCost: 1,
+          wave: waveNo,
+          fire: () => call(m, legMsgs, maxTok, timeoutMs, waveSignal),
+        }));
       });
 
     // 2026-09-12: 18s -> 12s, same rationale as callOR above . the default
@@ -17304,6 +17638,7 @@ async function runSearchPipeline(pctx) {
       const t = setTimeout(() => c.abort(), 18000); // see Commit 41 note on callOR above
       const tag = "pollinations:" + modelParam;
       try {
+        ledger.spend();
         const pRes = await fetch("https://text.pollinations.ai/", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -17361,7 +17696,7 @@ async function runSearchPipeline(pctx) {
       if (pv) {
         const pm = PROVIDER_MODELS[pv.id] || {};
         const m = (pm.w2 && pm.w2[pm.w2.length - 1]) || (pm.w1 && pm.w1[0]);
-        if (m) legs.push(cleanLeg(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 10000 })));
+        if (m) legs.push(cleanLeg(postChatCompletion({ url: pv.url, key: pv.key, model: m, messages: msgs, maxTokens: 300, timeoutMs: 10000, ledger })));
       }
       if (legs.length === 0) return Promise.reject(new Error("brief: no provider available"));
       return Promise.any(legs);
@@ -17498,6 +17833,29 @@ async function runSearchPipeline(pctx) {
         return null;
       }
       return raceEntry(wave, label, makeCall());
+    };
+
+    // Subrequest budget (2026-10-13): waves are built as leg
+    // DESCRIPTORS ({ label, bucket, fetchCost, wave, fire }) and fired
+    // through here. planWaveLegs picks which legs the remaining
+    // allowance can pay for . breadth first across provider buckets,
+    // zero cost Workers AI legs always . and the legs it cannot pay
+    // for are recorded in aiAttempts as budget skips carrying the
+    // reserve reason, so the synthesis stage health can say plainly
+    // that our own budget, not the fleet, is what shrank the wave.
+    // keepTailReserve holds back SUBREQUEST_TAIL_RESERVE subrequests
+    // for the post synthesis stages (fact check, evidence structure);
+    // the rescue waves run when those stages are already lost, so
+    // they may spend to zero.
+    const fireWaveLegs = (descriptors, { keepTailReserve = true } = {}) => {
+      const allowance = Math.max(0, ledger.remaining() - (keepTailReserve ? SUBREQUEST_TAIL_RESERVE : 0));
+      const { selected, skipped } = planWaveLegs(descriptors, allowance);
+      for (const d of skipped) {
+        aiAttempts.push({ wave: d.wave, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_RESERVE_REASON });
+      }
+      return selected
+        .map((d) => guardedRaceEntry(d.wave, d.label, d.fire))
+        .filter(Boolean);
     };
 
     // Resolve a roster label back to a call for the delayed rescue:
@@ -17702,6 +18060,7 @@ async function runSearchPipeline(pctx) {
     // type.
     const skipWavesForDefinition = false;
 
+    ledger.setStage("synthesis");
     if (emitStage) await emitStage("synthesizing", {
       sources: evidencePapers.length,
       requestId,
@@ -17801,19 +18160,19 @@ async function runSearchPipeline(pctx) {
       // live fleet (Groq 413, Workers AI timeouts, OpenRouter timeouts);
       // the compact prompt is the one that fits the buckets we actually
       // have. The full prompt still runs in the quality retry below.
-      const fastpathCalls = (fastpathModel && token && msLeft() > 3000)
-        ? [guardedRaceEntry(0, "fastpath:" + fastpathModel,
-            () => callOR(fastpathModel, compactMessages, maxTokens, clampLegTimeout(8000), w1Abort.signal))].filter(Boolean)
-        : [];
-      const wave1Calls = [
-        ...fastpathCalls,
-        ...(token ? OR_WAVE1.map((m) => guardedRaceEntry(1, m, () => callOR(m, compactMessages, maxTokens, wave1Timeout, w1Abort.signal))).filter(Boolean) : []),
+      const wave1Calls = fireWaveLegs([
+        // The fastpath leads when configured (wave 0 in the trail).
+        ...((fastpathModel && token && msLeft() > 3000)
+          ? [{ label: "fastpath:" + fastpathModel, bucket: "openrouter", fetchCost: 1, wave: 0,
+               fire: () => callOR(fastpathModel, compactMessages, maxTokens, clampLegTimeout(8000), w1Abort.signal) }]
+          : []),
+        ...(token ? OR_WAVE1.map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 1, fire: () => callOR(m, compactMessages, maxTokens, wave1Timeout, w1Abort.signal) })) : []),
         // Commit 86 . the independent buckets go in from the very first
         // wave, not as a fallback. A wave that is 80% OpenRouter is one
         // 429 away from being no wave at all.
-        ...compatLegs(1, "w1", compactMessages, maxTokens, wave1Timeout, w1Abort.signal),
-        ...(cfBound ? CF_WAVE1.map((m) => guardedRaceEntry(1, m, () => callCF(m, compactMessages, maxTokens, cfLegTimeoutMs(m, wave1Timeout)))).filter(Boolean) : []),
-      ];
+        ...compatLegDescriptors(1, "w1", compactMessages, maxTokens, wave1Timeout, w1Abort.signal),
+        ...(cfBound ? CF_WAVE1.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 1, fire: () => callCF(m, compactMessages, maxTokens, cfLegTimeoutMs(m, wave1Timeout)) })) : []),
+      ]);
       try {
         // raceBest (not Promise.any): wait for the first success, then give
         // other legs a short grace window so a slower-but-better model can
@@ -17825,7 +18184,7 @@ async function runSearchPipeline(pctx) {
         // when there's a token and enough budget left . the judge is a
         // tie-breaker, not a second synthesis pass.
         const w1Grace = Math.min(1500, Math.max(0, msLeft() - 2000));
-        const w1Judge = (token && msLeft() > 10000) ? buildLlmJudge({ token, timeoutMs: 3000 }) : null;
+        const w1Judge = (token && msLeft() > 10000) ? buildLlmJudge({ token, timeoutMs: 3000, ledger }) : null;
         const winner = await Promise.race([
           raceBest(wave1Calls, query, w1Grace, 3, w1Judge ? { judge: w1Judge } : {}),
           new Promise((_, reject) => setTimeout(
@@ -17866,7 +18225,11 @@ async function runSearchPipeline(pctx) {
       try {
         const briefWaitMs = Math.min(4000, Math.max(0, msLeft() - 6000));
         const r = await Promise.race([
-          startBrief(),
+          // Subrequest budget: the brief is speculative spend ahead
+          // of the wave it feeds. It starts only while more than the
+          // post synthesis tail reserve remains; otherwise wave 2
+          // races without it, exactly as when the brief times out.
+          ledger.remaining() > SUBREQUEST_TAIL_RESERVE ? startBrief() : Promise.resolve(null),
           new Promise((res) => setTimeout(() => res(null), briefWaitMs)),
         ]);
         if (r && r.text) { briefText = r.text; briefClaims = r.claims || []; }
@@ -17893,8 +18256,8 @@ async function runSearchPipeline(pctx) {
       // wave 1.
       // Pro depth: same longer-runway treatment as wave 1.
       const wave2Timeout = clampLegTimeout(isProSearch ? 12000 : 8000);
-      const wave2Calls = [
-        ...(token ? OR_WAVE2.map((m) => guardedRaceEntry(2, m, () => callOR(m, wave2Messages, maxTokens, wave2Timeout))).filter(Boolean) : []),
+      const wave2Calls = fireWaveLegs([
+        ...(token ? OR_WAVE2.map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 2, fire: () => callOR(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
         // 2026-10-13: the firstOnly trim is gone. It only ever trimmed
         // Groq (every other provider lists exactly one w2 model), and
         // what it was protecting against . tail legs burning the shared
@@ -17902,15 +18265,15 @@ async function runSearchPipeline(pctx) {
         // by the per-leg health store: a capped or sick Groq model is
         // parked and skipped, so each of Groq's per-model pools gets
         // its real shot in this wave.
-        ...compatLegs(2, "w2", wave2Messages, maxTokens, wave2Timeout, undefined),
-        ...(cfBound ? CF_WAVE2.map((m) => guardedRaceEntry(2, m, () => callCF(m, wave2Messages, maxTokens, wave2Timeout))).filter(Boolean) : []),
-      ];
+        ...compatLegDescriptors(2, "w2", wave2Messages, maxTokens, wave2Timeout, undefined),
+        ...(cfBound ? CF_WAVE2.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 2, fire: () => callCF(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
+      ]);
       if (wave2Calls.length > 0) {
         try {
           // raceBest with a tighter grace (wave 2 runs on a thinner budget).
           // LLM judge also wired here . same close-call tie-breaking as wave 1.
           const w2Grace = Math.min(1000, Math.max(0, msLeft() - 2000));
-          const w2Judge = (token && msLeft() > 8000) ? buildLlmJudge({ token, timeoutMs: 3000 }) : null;
+          const w2Judge = (token && msLeft() > 8000) ? buildLlmJudge({ token, timeoutMs: 3000, ledger }) : null;
           const winner = await Promise.race([
             raceBest(wave2Calls, query, w2Grace, 3, w2Judge ? { judge: w2Judge } : {}),
             new Promise((_, reject) => setTimeout(
@@ -18017,26 +18380,26 @@ async function runSearchPipeline(pctx) {
       // 2026-09-12: legs clamped to the remaining budget (6s wanted, not
       // 24s/18s) and the tier raced against the synthesis deadline.
       const bpTimeout = clampLegTimeout(6000);
-      const bulletproofLegs = [
+      const bulletproofLegs = fireWaveLegs([
         // Commit 86 . waves 1 and 2 failing together used to mean the
         // OpenRouter bucket was throttled and this tier had almost nothing
         // structurally different left to try. With independent providers
         // configured it does: each one below is a quota that had nothing to
         // do with whatever just failed.
-        ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
-        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => guardedRaceEntry(3, m, () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))).filter(Boolean) : []),
+        ...compatLegDescriptors(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
+        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
         // Pro depth: wave 3 only fires after total failure, so a stronger
         // model here is cheap . one extra leg, only on the rarest path.
         // Pro races a 70B Workers AI model alongside the small ones; a
         // last-resort answer from a stronger model beats the deterministic
         // fallback. Fail-safe: an unknown model ID just fails its leg and
         // raceBest falls through to the other legs.
-        ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => guardedRaceEntry(3, m, () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))).filter(Boolean) : []),
+        ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
         // Pro depth: wave 3 only fires after total failure, so the extra legs
         // are cheap . Pro races four OpenRouter models here instead of two,
         // in case the wave 1-2 throttle has cleared by now.
-        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]] : [OR_FREE_MODELS[4], OR_FREE_MODELS[5]]).map((m) => guardedRaceEntry(3, m, () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))).filter(Boolean) : []),
-      ];
+        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]] : [OR_FREE_MODELS[4], OR_FREE_MODELS[5]]).map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 3, fire: () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
+      ]);
       try {
         // raceBest with a short grace: this is the last-resort tier so speed
         // matters, but a low-quality answer here is worse than falling
@@ -18076,12 +18439,26 @@ async function runSearchPipeline(pctx) {
       if (groqProvider) {
         const rescueCall = callCompat(groqProvider);
         const rescueMsgs = compactMessages || messages;
-        const rescueLegs = [
-          guardedRaceEntry(5, "groq:openai/gpt-oss-120b", () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000)),
-          guardedRaceEntry(5, "groq:openai/gpt-oss-20b", () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000)),
-        ].filter(Boolean);
+        // Subrequest budget: the rescue may spend to zero (the post
+        // synthesis stages it would starve are already lost when it
+        // runs), but it cannot spend past zero . a leg the allowance
+        // cannot pay for is recorded as a budget skip, not fired to
+        // die at the runtime.
+        const rescueDescriptors = [
+          { label: "groq:openai/gpt-oss-120b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000) },
+          { label: "groq:openai/gpt-oss-20b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000) },
+        ];
+        const rescuePlan = planWaveLegs(rescueDescriptors, ledger.remaining());
+        for (const d of rescuePlan.skipped) {
+          aiAttempts.push({ wave: 5, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_EXHAUSTED_REASON });
+        }
+        const rescueLegs = rescuePlan.selected
+          .map((d) => guardedRaceEntry(5, d.label, d.fire))
+          .filter(Boolean);
         if (rescueLegs.length === 0) {
-          aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: "both rescue legs parked by the per-leg health store; rescue not fired" });
+          aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: rescuePlan.selected.length === 0
+            ? SUBREQUEST_EXHAUSTED_REASON + "; rescue not fired"
+            : "both rescue legs parked by the per-leg health store; rescue not fired" });
         } else {
           try {
             const winner = await raceBest(rescueLegs, query, 1000);
@@ -18141,9 +18518,23 @@ async function runSearchPipeline(pctx) {
         await new Promise((res) => setTimeout(res, delayedPlan.waitMs));
         // guardedRaceEntry re-checks each park at fire time: a leg
         // whose cooldown did not lapse is skipped and recorded,
-        // never fired early.
-        const delayedLegs = chosen
-          .map((label) => guardedRaceEntry(6, label, () => callForLegLabel(label, compactMessages || messages, maxTokens, DELAYED_RESCUE_RETRY_MS)))
+        // never fired early. The subrequest plan runs first: after a
+        // full all fail run the allowance may be at zero, in which
+        // case only the zero cost Workers AI legs can still fire and
+        // the rest are recorded as budget skips, not fired to die.
+        const delayedDescriptors = chosen.map((label) => ({
+          label,
+          bucket: label,
+          fetchCost: label.startsWith("@cf/") ? 0 : 1,
+          wave: 6,
+          fire: () => callForLegLabel(label, compactMessages || messages, maxTokens, DELAYED_RESCUE_RETRY_MS),
+        }));
+        const delayedPlan = planWaveLegs(delayedDescriptors, ledger.remaining());
+        for (const d of delayedPlan.skipped) {
+          aiAttempts.push({ wave: 6, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_EXHAUSTED_REASON });
+        }
+        const delayedLegs = delayedPlan.selected
+          .map((d) => guardedRaceEntry(6, d.label, d.fire))
           .filter(Boolean);
         if (delayedLegs.length === 0) {
           aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, summary: "delayed rescue: every chosen leg was still parked at fire time" });
@@ -18209,11 +18600,23 @@ async function runSearchPipeline(pctx) {
     // No keys or request internals, just model labels, timings, errors.)
     const synthLegs = aiAttempts.filter((a) => a && typeof a.wave === "number" && typeof a.model === "string");
     const synthWinner = synthLegs.find((a) => a.ok === true);
+    // Subrequest budget (2026-10-13): when every leg that actually
+    // failed did so because the invocation's own subrequest budget
+    // ran out . legs the planner never fired (budgetSkipped) or legs
+    // the runtime refused with "Too many subrequests" . the record
+    // says so plainly instead of "all legs failed", which reads as a
+    // fleet outage. Parked skips are not failures of this request
+    // and do not count either way (same rule as the delayed rescue
+    // planner).
+    const synthRealFailures = synthLegs.filter((a) => a.ok !== true && !a.parked);
+    const synthBudgetOnly = synthRealFailures.length > 0 &&
+      synthRealFailures.every((a) => a.budgetSkipped === true || isSubrequestBudgetError(a.error));
     const synthSkipReason = aiOK ? null
       : !aiSynthesisAllowed ? "gate"
       : skipWavesForDefinition ? "definition"
       : budgetDenied ? "budget"
       : synthLegs.length === 0 ? "no legs recorded"
+      : synthBudgetOnly ? SUBREQUEST_EXHAUSTED_REASON
       : "all legs failed";
     stageHealth.push({
       name: "synthesis",
@@ -18739,6 +19142,7 @@ async function runSearchPipeline(pctx) {
     // skips, not failures (see the stage pushes after synthesis).
     const factCheckT0 = Date.now();
     let factCheckAttempted = false;
+    let factCheckBudgetSkipped = false;
     // Commit 51 . `&& aiOK` added. Without it, the moment every model is
     // rate-limited (!aiOK), `answer` above gets overwritten with the "Unable
     // To Synthesize . Showing Source Papers Directly" fallback: a formatted
@@ -18756,8 +19160,16 @@ async function runSearchPipeline(pctx) {
     // 2026-09-12: budget-gated . the deep pass costs up to ~7.5s. When the
     // budget is nearly spent, skip it; the zero-network heuristic below
     // still runs, so correctness is kept and only nuance is lost.
-    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000) {
+    // Subrequest budget: the deep pass costs fetches. When the
+    // invocation allowance is spent it does not fire at all; the
+    // zero network heuristic below still runs, and the stage record
+    // names the budget as the reason (factCheckBudgetSkipped below).
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000 && ledger.remaining() <= 0) {
+      factCheckBudgetSkipped = true;
+    }
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000 && !factCheckBudgetSkipped) {
       factCheckAttempted = true;
+      ledger.setStage("fact-check");
       // v34: the deep, claim-by-claim pass is tried first . see deepFactCheck()
       // above for the two-tier LLM strategy and why it can't reuse callOR/
       // callCF. It replaces the old one-line-per-entity output ("References
@@ -18765,7 +19177,7 @@ async function runSearchPipeline(pctx) {
       // from the specific source it's supposed to come from and a real
       // methodological justification, which is what the FactCheck panel's
       // copy ("relevance/fact-check") always implied it was doing.
-      const deepClaims = await deepFactCheck(answer, evidencePapers, env).catch(() => null);
+      const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger).catch(() => null);
       if (deepClaims) {
         const unsupportedCount = deepClaims.filter((c) => c.status === "unsupported").length;
         const supportedCount = deepClaims.filter((c) => c.status === "supported").length;
@@ -18941,7 +19353,9 @@ async function runSearchPipeline(pctx) {
         stageHealth.push({
           name: "fact-check",
           ok: null,
-          skipReason: factCheckAttempted ? "nothing to verify" : "fact check did not run",
+          skipReason: factCheckBudgetSkipped
+            ? SUBREQUEST_EXHAUSTED_REASON
+            : factCheckAttempted ? "nothing to verify" : "fact check did not run",
           ms: Date.now() - factCheckT0,
         });
       }
@@ -19047,8 +19461,9 @@ async function runSearchPipeline(pctx) {
     /* Computed, not generated. Runs only when there is enough to compare and
        never blocks the answer for more than its own deadline.
        2026-09-12: also budget-gated . skipped when <2s remain. */
+    ledger.setStage("post");
     const evidenceMap = (useEvidence && sourceList.length >= 3 && msLeft() > 2000)
-      ? await evidenceStructure(sourceList).catch(() => null)
+      ? await evidenceStructure(sourceList, ledger).catch(() => null)
       : null;
 
     // Run last, after every pass above has already read the plain-text
@@ -19178,6 +19593,11 @@ async function runSearchPipeline(pctx) {
         try { waitUntil(storedRecord); } catch (cbErr) { console.error("[Cerebrum] search.js record store waitUntil:", cbErr); }
       }
     }
+
+    // Final subrequest ledger snapshot onto the diag (operator view
+    // only, like the rest of _diag): the whole invocation's spend by
+    // stage, so a budget incident is provable from one response.
+    if (gResult && gResult._diag) gResult._diag.subrequests = ledger.snapshot();
 
     return new Response(
       JSON.stringify({
@@ -19375,7 +19795,7 @@ async function runSearchPipeline(pctx) {
             return { via: gResult._diag.llmExpandedVia || null, groups: g };
           }
           const att = gResult && gResult._diag && gResult._diag.llmExpansionAttempt;
-          if (att) return { attempted: true, uncovered: att.uncovered, groups: 0, via: null };
+          if (att) return { attempted: true, uncovered: att.uncovered, groups: 0, via: null, ...(att.skipped ? { skipped: att.skipped } : {}) };
           return null;
         })(),
         /* TRUST RELEASE (2026-10-13): per answer coverage disclosure and

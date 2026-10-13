@@ -185,8 +185,19 @@ await test("the fastpath shares its model's health record", () => {
 group("wave construction — parked legs are skipped and the skip is reported");
 
 await test("every wave leg is constructed through guardedRaceEntry", () => {
-  const uses = src.match(/guardedRaceEntry\(/g) || [];
-  assert.ok(uses.length >= 12, `expected at least 12 guarded constructions, found ${uses.length}`);
+  // CORRECTED CONTRACT (2026-10-13, subrequest ledger): wave legs are
+  // built as descriptors and fired through fireWaveLegs, whose single
+  // guardedRaceEntry call is now the funnel every selected leg passes
+  // (the park check still runs before any leg fires; counting raw
+  // guardedRaceEntry call sites no longer measures the contract).
+  // Waves 1, 2 and 3 fire through the planner; the rescue waves map
+  // their planned legs through guardedRaceEntry directly.
+  assert.ok(src.includes("guardedRaceEntry(d.wave, d.label, d.fire)"),
+    "fireWaveLegs does not funnel selected legs through guardedRaceEntry");
+  const planned = src.match(/fireWaveLegs\(\[/g) || [];
+  assert.ok(planned.length >= 3, `expected waves 1 to 3 to fire through fireWaveLegs, found ${planned.length}`);
+  const descriptorBuilders = src.match(/compatLegDescriptors\(/g) || [];
+  assert.ok(descriptorBuilders.length >= 3, `expected compatLegDescriptors call sites in waves 1 to 3, found ${descriptorBuilders.length}`);
   assert.ok(!src.includes(".map((m) => raceEntry("), "a wave still builds legs with bare raceEntry");
 });
 

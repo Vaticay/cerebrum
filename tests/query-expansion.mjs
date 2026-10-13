@@ -1232,9 +1232,15 @@ await test("the handler ships stage health through the serializer and the shared
 
 await test("fact check stage records skips with reasons and real elapsed time", () => {
   const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
-  assert.ok(src.includes('skipReason: "nothing to verify"'), "the nothing to verify skip is not recorded");
-  assert.ok(src.includes('skipReason: factCheckAttempted ? "nothing to verify" : "fact check did not run"'),
+  // CORRECTED CONTRACT (2026-10-13, subrequest ledger): the fact check
+  // skipReason is now a three way choice . a budget skip (the
+  // invocation subrequest allowance was spent) takes precedence over
+  // the two pre existing reasons, which are unchanged.
+  assert.ok(src.includes('"nothing to verify"'), "the nothing to verify skip is not recorded");
+  assert.ok(src.includes('factCheckAttempted ? "nothing to verify" : "fact check did not run"'),
     "the did not run skip is not distinguished from nothing to verify");
+  assert.ok(src.includes("factCheckBudgetSkipped") && src.includes("SUBREQUEST_EXHAUSTED_REASON"),
+    "the budget skip reason is not recorded for the fact check stage");
   assert.equal((src.match(/Date\.now\(\) - factCheckT0/g) || []).length, 4,
     "all four fact check pushes (checked and skipped, both paths) must carry real elapsed ms");
   assert.ok(!src.includes('"fact-check", ok: !!factCheckResult, ms: 0'),
