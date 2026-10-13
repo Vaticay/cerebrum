@@ -112,6 +112,217 @@ function guardedLlmCall(providerId, fn) {
   );
 }
 
+// ── Per-leg health memory (fleet hardening, 2026-10-13) ─────────────
+// The breakers above are per PROVIDER. Synthesis rate limits are not:
+// on Groq they are per MODEL, and on OpenRouter the free pool is one
+// key-level daily cap shared by every ":free" name. A provider breaker
+// cannot express "gpt-oss-120b is capped for the day but gpt-oss-20b is
+// fine", so a capped leg kept being fired by every wave of every
+// request, burning the shared subrequest budget and the synthesis
+// deadline on a failure that was already known. This store remembers
+// per leg (provider:model, or the bare model for OpenRouter/Workers
+// AI), per isolate, and the wave builders skip parked legs entirely:
+//   daily cap wording ("per-day", "daily")  → parked for hours
+//   other HTTP 429 / rate limit / quota     → parked about a minute
+//   timeouts                                → parked briefly, only
+//     after LEG_TIMEOUT_PARK_THRESHOLD in a row (one slow response is
+//     a fluke; a pattern is a sick leg)
+// Any success clears the leg's park and counters. Other failures (404
+// model gone, response too short, provider error text) never park: the
+// provider breaker above owns transient provider sickness, and a
+// content failure says nothing about the leg's near future. The clock
+// is a parameter everywhere so tests drive it like clampStageLegTimeout.
+export const LEG_PARK_DAILY_CAP_MS = 6 * 60 * 60 * 1000;
+export const LEG_PARK_RATE_LIMIT_MS = 60 * 1000;
+export const LEG_PARK_TIMEOUT_MS = 5 * 60 * 1000;
+export const LEG_TIMEOUT_PARK_THRESHOLD = 2;
+
+const legHealthStore = new Map();
+
+/* The health key for a race label. The fastpath races an OpenRouter
+ * model under a "fastpath:" prefix; that is the same pool as the wave
+ * leg with the bare model name, so the prefix is stripped and both
+ * share one health record. */
+export function legHealthKey(label) {
+  return String(label || "").replace(/^fastpath:/, "");
+}
+
+/* Classify a leg failure from its error text (every adapter prefixes
+ * errors with the model name and HTTP status/body, so the wording is
+ * the providers' own). Daily-cap wording is checked FIRST: OpenRouter's
+ * daily message also says "rate limit", and misreading it as a minute
+ * scale limit would re-fire a dead-for-the-day leg every minute. */
+export function classifyLegFailure(error) {
+  const msg = String((error && error.message) || error || "");
+  if (/circuit open/i.test(msg)) return "circuit-open";
+  if (/per[-\s]?day|daily/i.test(msg)) return "daily-cap";
+  if (/timed out|timeout/i.test(msg)) return "timeout";
+  if (/http 429|rate limit|too many requests|quota/i.test(msg)) return "rate-limit";
+  return "other";
+}
+
+export function recordLegOutcome(label, ok, error, nowMs = Date.now()) {
+  const key = legHealthKey(label);
+  if (!key) return null;
+  let h = legHealthStore.get(key);
+  if (!h) {
+    h = { successes: 0, failures: 0, timeoutStreak: 0, parkedUntil: 0, parkReason: "", parkClass: null, lastFailureClass: null };
+    legHealthStore.set(key, h);
+  }
+  if (ok) {
+    h.successes++;
+    h.timeoutStreak = 0;
+    h.parkedUntil = 0;
+    h.parkReason = "";
+    h.parkClass = null;
+    h.lastFailureClass = null;
+    return { ...h };
+  }
+  h.failures++;
+  const cls = classifyLegFailure(error);
+  h.lastFailureClass = cls;
+  if (cls === "daily-cap") {
+    h.timeoutStreak = 0;
+    h.parkedUntil = nowMs + LEG_PARK_DAILY_CAP_MS;
+    h.parkReason = "daily rate limit cap";
+    h.parkClass = cls;
+  } else if (cls === "rate-limit") {
+    h.timeoutStreak = 0;
+    h.parkedUntil = nowMs + LEG_PARK_RATE_LIMIT_MS;
+    h.parkReason = "rate limit cooldown";
+    h.parkClass = cls;
+  } else if (cls === "timeout") {
+    h.timeoutStreak++;
+    if (h.timeoutStreak >= LEG_TIMEOUT_PARK_THRESHOLD) {
+      h.parkedUntil = nowMs + LEG_PARK_TIMEOUT_MS;
+      h.parkReason = "repeated timeouts";
+      h.parkClass = cls;
+      h.timeoutStreak = 0;
+    }
+  } else {
+    h.timeoutStreak = 0;
+  }
+  return { ...h };
+}
+
+/* Is this leg parked at `nowMs`? Returns the park detail or null.
+ * Passing a future nowMs is deliberate: the delayed rescue asks
+ * "will this leg be free by the time the wait ends?" */
+export function legParkInfo(label, nowMs = Date.now()) {
+  const h = legHealthStore.get(legHealthKey(label));
+  if (!h || !h.parkedUntil || h.parkedUntil <= nowMs) return null;
+  return { untilMs: h.parkedUntil, reason: h.parkReason || "parked", parkClass: h.parkClass };
+}
+
+export function legHealthSnapshot(label) {
+  const h = legHealthStore.get(legHealthKey(label));
+  return h ? { ...h } : null;
+}
+
+export function resetLegHealth() {
+  legHealthStore.clear();
+}
+
+/* Workers AI per-leg timeout overrides (fleet hardening, 2026-10-13).
+ * llama-4-scout and mistral-small-3.1 each burned the full 10s wave-1
+ * timeout in the production failure trail while healthy Workers AI
+ * legs answer in ~2s: these two are flaky-slow, not dead, so they keep
+ * their wave seats but with a cap their real latency can meet, and
+ * the per-leg breaker above parks them after repeated timeouts so
+ * most requests never pay for their bad moments at all. */
+export const CF_LEG_TIMEOUT_OVERRIDES = {
+  "@cf/meta/llama-4-scout-17b-16e-instruct": 6000,
+  "@cf/mistralai/mistral-small-3.1-24b-instruct": 6000,
+};
+export function cfLegTimeoutMs(model, waveTimeoutMs) {
+  const o = CF_LEG_TIMEOUT_OVERRIDES[model];
+  return o ? Math.min(waveTimeoutMs, o) : waveTimeoutMs;
+}
+
+/* Workers AI completion budget per model. The gpt-oss legs are
+ * reasoning models: they spend completion tokens reasoning before any
+ * visible response exists, so the flat 2048 cap could be consumed
+ * entirely by reasoning and the leg failed "response too short" with a
+ * healthy provider behind it. gpt-oss legs get double the cap; every
+ * other Workers AI model keeps 2048. */
+export function cfCompletionBudget(model, maxTok) {
+  const cap = /^@cf\/openai\/gpt-oss/.test(String(model || "")) ? 4096 : 2048;
+  return Math.min(maxTok, cap);
+}
+
+/* Delayed rescue shape (fleet hardening, 2026-10-13). When every wave
+ * failed and every failure was a rate limit, per-minute buckets refill
+ * continuously, so one bounded wait can turn a guaranteed extractive
+ * answer back into a synthesized one. The wait is 20s. The rescue
+ * phase's hard bound is the request deadline plus a named 30s overrun
+ * (the pre-existing rescue already ran 12s legs past the request
+ * deadline with no cap at all; this phase now has one), and the retry
+ * legs plus the same 2.5s assembly reserve the synthesis deadline
+ * keeps must fit inside it, or the wait is skipped and stage health
+ * says so. */
+export const DELAYED_RESCUE_WAIT_MS = 20000;
+export const DELAYED_RESCUE_RETRY_MS = 8000;
+export const DELAYED_RESCUE_OVERRUN_MS = 30000;
+export const DELAYED_RESCUE_MIN_WAIT_MS = 5000;
+
+/* Plan the delayed rescue from the recorded attempt trail. Pure over
+ * its inputs plus the leg health store, with an injectable clock, so
+ * the contract is testable without running the pipeline:
+ *   - no recorded leg failures, or a failure set that is not ALL
+ *     rate limits (parked-leg skips excluded . they are not failures
+ *     of this request), → skip silently (summary null): waiting only
+ *     ever helps throttling, never timeouts or content failures.
+ *   - every failure a daily cap → skip WITH a summary: a short wait
+ *     cannot clear a daily cap, and stage health should say the
+ *     rescue was considered and stood down, not vanish.
+ *   - the wait (plus retry budget plus the 2.5s assembly reserve)
+ *     does not fit before requestDeadline + the overrun → skip with
+ *     a summary.
+ *   - no candidate leg will be unparked by the end of the wait →
+ *     skip with a summary. A leg in a short cooldown is a candidate
+ *     only if the cooldown lapses inside the wait; a daily capped
+ *     leg is never a candidate.
+ *   - otherwise wait, retrying the preferred leg (Groq's main) plus
+ *     the roster ranked by recorded wins in this isolate. */
+export function planDelayedRescue(attempts, opts = {}) {
+  const nowMs = opts.nowMs != null ? opts.nowMs : Date.now();
+  const requestDeadlineMs = opts.requestDeadlineMs != null ? opts.requestDeadlineMs : nowMs;
+  const rosterLabels = Array.isArray(opts.rosterLabels) ? opts.rosterLabels : [];
+  const preferredLabel = opts.preferredLabel || null;
+  const legFailures = (Array.isArray(attempts) ? attempts : []).filter(
+    (a) => a && typeof a.wave === "number" && typeof a.model === "string" && a.ok === false && !a.parked
+  );
+  if (legFailures.length === 0) return { action: "skip", reason: "no leg failures recorded", summary: null };
+  const classes = legFailures.map((a) => classifyLegFailure(a.error));
+  if (!classes.every((c) => c === "rate-limit" || c === "daily-cap")) {
+    return { action: "skip", reason: "failure set is not all rate limits", summary: null };
+  }
+  if (!classes.some((c) => c === "rate-limit")) {
+    return { action: "skip", reason: "daily caps only", summary: "delayed rescue skipped: every failure was a daily cap, which a short wait cannot clear" };
+  }
+  const waitMs = Math.min(
+    DELAYED_RESCUE_WAIT_MS,
+    requestDeadlineMs + DELAYED_RESCUE_OVERRUN_MS - nowMs - DELAYED_RESCUE_RETRY_MS - 2500
+  );
+  if (waitMs < DELAYED_RESCUE_MIN_WAIT_MS) {
+    return { action: "skip", reason: "wait does not fit", summary: "delayed rescue skipped: the wait does not fit before the rescue deadline" };
+  }
+  const ranked = [...new Set(rosterLabels)].sort((a, b) =>
+    ((legHealthSnapshot(b) || {}).successes || 0) - ((legHealthSnapshot(a) || {}).successes || 0));
+  const candidates = [];
+  if (preferredLabel) candidates.push(preferredLabel);
+  for (const label of ranked) if (!candidates.includes(label)) candidates.push(label);
+  const eligible = candidates.filter((label) => {
+    const parkNow = legParkInfo(label, nowMs);
+    if (parkNow && parkNow.parkClass === "daily-cap") return false;
+    return !legParkInfo(label, nowMs + waitMs);
+  });
+  if (eligible.length === 0) {
+    return { action: "skip", reason: "no eligible leg", summary: "delayed rescue skipped: no leg will be unparked by the end of the wait" };
+  }
+  return { action: "wait", waitMs, chosen: eligible.slice(0, 2) };
+}
+
 function stripTags(s) {
   return decodeEntities((s || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 }
@@ -16333,7 +16544,15 @@ async function runSearchPipeline(pctx) {
       // { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
       { id: "gemini",   key: env.GEMINI_KEY,        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
       { id: "mistral",  key: env.MISTRAL_KEY,       url: "https://api.mistral.ai/v1/chat/completions" },
-      { id: "github",   key: env.GITHUB_MODELS_KEY, url: "https://models.github.ai/inference/chat/completions" },
+      // PARKED 2026-10-13 (fleet hardening): GitHub Models is listed
+      // as retired by an Oct 2026 field guide (not confirmed against
+      // GitHub's own docs), its key is not configured in production
+      // (the leg accounting of a live all-fail run shows it never
+      // fires), and no verification call is possible from the build
+      // machine. An unverifiable bucket does not ship in the hardened
+      // roster; the PROVIDER_MODELS entry below stays so restoring is
+      // a one line change once the leg passes a real call.
+      // { id: "github",   key: env.GITHUB_MODELS_KEY, url: "https://models.github.ai/inference/chat/completions" },
       { id: "nvidia",   key: env.NVIDIA_KEY,        url: "https://integrate.api.nvidia.com/v1/chat/completions" },
     ];
     const activeProviders = PROVIDERS.filter((p) => typeof p.key === "string" && p.key.trim().length > 8);
@@ -16392,9 +16611,38 @@ async function runSearchPipeline(pctx) {
     // them fail outright. gpt-oss-120b/gpt-oss-20b are Groq's current
     // Production chat models (500/1000 tok/s); llama-4-maverick preview
     // rounds out wave 2.
+    // 2026-10-13 (fleet hardening), Groq roster re-verified against
+    // Groq's published deprecations list for free/developer tier keys
+    // (cross checked against two independent registries, Oct 2026;
+    // listing evidence only . no provider key is reachable from the
+    // build machine, so no leg here was verified by a live call, and
+    // a catalog listing alone is NOT proof for this key tier):
+    //   llama-3.3-70b-versatile stays OUT: catalog listed, but Groq
+    //     shut it down for free/developer accounts on 2026-08-16, and
+    //     this key tier already 404'd it in production (see the rescue
+    //     note below). A listed model this key cannot call is a dead leg.
+    //   qwen/qwen3-32b (shut down for this tier 2026-07-17) and
+    //     llama-3.1-8b-instant (removed for this tier 2026-08-16) are
+    //     NOT in the roster for the same reason, aggregator tables
+    //     that still print their old limits notwithstanding. An
+    //     earlier draft of this pass added both on catalog listing
+    //     alone; the deprecations list overruled it.
+    //   qwen-qwq-32b (deprecated 2025-07-14), deepseek-r1-distill-
+    //     llama-70b (deprecated 2025-10-02) and moonshotai/kimi-k2-
+    //     instruct (EOL 2025-10-10) are NOT added either.
+    //   meta-llama/llama-4-maverick-17b-128e-instruct is REMOVED: Groq
+    //     decommissioned it on 2026-03-09. It never actually fired
+    //     (wave 2's firstOnly trimmed it), but with firstOnly gone it
+    //     would have started failing for real.
+    //   ADDED to Groq wave 2: qwen/qwen3.8-27b, the current name in
+    //     Groq's own replacement chain (qwen3-32b → qwen3.6-27b →
+    //     qwen3.8-27b, current since 2026-09-14), with its own free
+    //     bucket (30 req/min, 1,000 req/day, 200K tokens/day). Groq
+    //     limits are per model per organization, so each live name
+    //     is an independent pool the daily caps cannot drain together.
     const PROVIDER_MODELS = {
       // cerebrum-1: Cerebrum's own model (Phase 0). The model doesn't exist
-      groq:     { w1: ["openai/gpt-oss-120b"],      w2: ["openai/gpt-oss-20b", "meta-llama/llama-4-maverick-17b-128e-instruct"] },
+      groq:     { w1: ["openai/gpt-oss-120b"],      w2: ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"] },
       // 2026-09-12: llama-3.3-70b, qwen-3-32b and llama3.1-8b were all
       // retired by Cerebras (404 model_not_found). gpt-oss-120b is the live
       // Production model; zai-glm-4.7 is still listed live in Sep-2026
@@ -16422,7 +16670,12 @@ async function runSearchPipeline(pctx) {
         const names = opts.firstOnly ? allNames.slice(0, 1) : allNames;
         const call = callCompat(p);
         const legMsgs = typeof msgs === "function" ? msgs(p.id) : msgs;
-        return names.map((m) => raceEntry(waveNo, p.id + ":" + m, call(m, legMsgs, maxTok, timeoutMs, waveSignal)));
+        // Fleet hardening: legs are constructed through guardedRaceEntry
+        // so a leg parked by the per-leg health store is never fired
+        // (and never burns a subrequest) at all.
+        return names
+          .map((m) => guardedRaceEntry(waveNo, p.id + ":" + m, () => call(m, legMsgs, maxTok, timeoutMs, waveSignal)))
+          .filter(Boolean);
       });
 
     // 2026-09-12: 18s -> 12s, same rationale as callOR above . the default
@@ -16446,7 +16699,7 @@ async function runSearchPipeline(pctx) {
         // 12s by default; the last-resort bulletproof tier below passes a
         // longer one since it's the final attempt before giving up).
         const out = await Promise.race([
-          env.AI.run(model, { messages: msgs, max_tokens: Math.min(maxTok, 2048) }),
+          env.AI.run(model, { messages: msgs, max_tokens: cfCompletionBudget(model, maxTok) }),
           new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), timeoutMs)),
         ]);
         const cleaned = cleanAIResponse((out && out.response) || "");
@@ -16646,12 +16899,47 @@ async function runSearchPipeline(pctx) {
             if (r && r.answer) assertValidProviderText(r.answer, label);
           } catch (err) {
             aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: err.message });
+            recordLegOutcome(label, false, err);
             throw err;
           }
-          aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 }); return r;
+          aiAttempts.push({ wave, model: label, ok: true, ms: Date.now() - t0 });
+          recordLegOutcome(label, true);
+          return r;
         },
-        (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); throw e; }
+        (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); recordLegOutcome(label, false, e); throw e; }
       );
+    };
+
+    // Fleet hardening: every wave leg is CONSTRUCTED through here (the
+    // call itself is a thunk, because the adapters start their fetch the
+    // moment they are invoked . checking the park first is the whole
+    // point). A parked leg is never fired: the skip is recorded in
+    // aiAttempts in the same shape as a failure, so the synthesis stage
+    // health's failedLegs names it with its plain reason instead of the
+    // wave silently shrinking, and the leg burns no subrequest and no
+    // deadline. Returns null for a parked leg; callers filter nulls.
+    const guardedRaceEntry = (wave, label, makeCall) => {
+      const park = legParkInfo(label);
+      if (park) {
+        aiAttempts.push({ wave, model: label, ok: false, ms: 0, parked: true, error: "parked (" + park.reason + ")" });
+        return null;
+      }
+      return raceEntry(wave, label, makeCall());
+    };
+
+    // Resolve a roster label back to a call for the delayed rescue:
+    // "@cf/..." is Workers AI, "<provider>:<model>" is a compat bucket,
+    // anything else is an OpenRouter model name (which may itself
+    // contain a colon, ":free" . the provider match is checked first
+    // precisely so those names fall through to callOR).
+    const callForLegLabel = (label, msgs, maxTok, timeoutMs) => {
+      if (label.startsWith("@cf/")) return callCF(label, msgs, maxTok, timeoutMs);
+      const sep = label.indexOf(":");
+      if (sep > 0) {
+        const p = activeProviders.find((x) => x.id === label.slice(0, sep));
+        if (p) return callCompat(p)(label.slice(sep + 1), msgs, maxTok, timeoutMs);
+      }
+      return callOR(label, msgs, maxTok, timeoutMs);
     };
 
     // fastpathCalls moved INTO the wave-1 block (2026-09-14): it must be
@@ -16941,17 +17229,17 @@ async function runSearchPipeline(pctx) {
       // the compact prompt is the one that fits the buckets we actually
       // have. The full prompt still runs in the quality retry below.
       const fastpathCalls = (fastpathModel && token && msLeft() > 3000)
-        ? [raceEntry(0, "fastpath:" + fastpathModel,
-            callOR(fastpathModel, compactMessages, maxTokens, clampLegTimeout(8000), w1Abort.signal))]
+        ? [guardedRaceEntry(0, "fastpath:" + fastpathModel,
+            () => callOR(fastpathModel, compactMessages, maxTokens, clampLegTimeout(8000), w1Abort.signal))].filter(Boolean)
         : [];
       const wave1Calls = [
         ...fastpathCalls,
-        ...(token ? OR_WAVE1.map((m) => raceEntry(1, m, callOR(m, compactMessages, maxTokens, wave1Timeout, w1Abort.signal))) : []),
+        ...(token ? OR_WAVE1.map((m) => guardedRaceEntry(1, m, () => callOR(m, compactMessages, maxTokens, wave1Timeout, w1Abort.signal))).filter(Boolean) : []),
         // Commit 86 . the independent buckets go in from the very first
         // wave, not as a fallback. A wave that is 80% OpenRouter is one
         // 429 away from being no wave at all.
         ...compatLegs(1, "w1", compactMessages, maxTokens, wave1Timeout, w1Abort.signal),
-        ...(cfBound ? CF_WAVE1.map((m) => raceEntry(1, m, callCF(m, compactMessages, maxTokens, wave1Timeout))) : []),
+        ...(cfBound ? CF_WAVE1.map((m) => guardedRaceEntry(1, m, () => callCF(m, compactMessages, maxTokens, cfLegTimeoutMs(m, wave1Timeout)))).filter(Boolean) : []),
       ];
       try {
         // raceBest (not Promise.any): wait for the first success, then give
@@ -17033,12 +17321,16 @@ async function runSearchPipeline(pctx) {
       // Pro depth: same longer-runway treatment as wave 1.
       const wave2Timeout = clampLegTimeout(isProSearch ? 12000 : 8000);
       const wave2Calls = [
-        ...(token ? OR_WAVE2.map((m) => raceEntry(2, m, callOR(m, wave2Messages, maxTokens, wave2Timeout))) : []),
-        // firstOnly: one model per provider bucket. The full w2 lists
-        // doubled several buckets and the tail legs died on the shared
-        // subrequest cap before they were even sent.
-        ...compatLegs(2, "w2", wave2Messages, maxTokens, wave2Timeout, undefined, { firstOnly: true }),
-        ...(cfBound ? CF_WAVE2.map((m) => raceEntry(2, m, callCF(m, wave2Messages, maxTokens, wave2Timeout))) : []),
+        ...(token ? OR_WAVE2.map((m) => guardedRaceEntry(2, m, () => callOR(m, wave2Messages, maxTokens, wave2Timeout))).filter(Boolean) : []),
+        // 2026-10-13: the firstOnly trim is gone. It only ever trimmed
+        // Groq (every other provider lists exactly one w2 model), and
+        // what it was protecting against . tail legs burning the shared
+        // subrequest cap on the way to a known failure . is now handled
+        // by the per-leg health store: a capped or sick Groq model is
+        // parked and skipped, so each of Groq's per-model pools gets
+        // its real shot in this wave.
+        ...compatLegs(2, "w2", wave2Messages, maxTokens, wave2Timeout, undefined),
+        ...(cfBound ? CF_WAVE2.map((m) => guardedRaceEntry(2, m, () => callCF(m, wave2Messages, maxTokens, wave2Timeout))).filter(Boolean) : []),
       ];
       if (wave2Calls.length > 0) {
         try {
@@ -17159,18 +17451,18 @@ async function runSearchPipeline(pctx) {
         // configured it does: each one below is a quota that had nothing to
         // do with whatever just failed.
         ...compatLegs(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
-        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
+        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => guardedRaceEntry(3, m, () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))).filter(Boolean) : []),
         // Pro depth: wave 3 only fires after total failure, so a stronger
         // model here is cheap . one extra leg, only on the rarest path.
         // Pro races a 70B Workers AI model alongside the small ones; a
         // last-resort answer from a stronger model beats the deterministic
         // fallback. Fail-safe: an unknown model ID just fails its leg and
         // raceBest falls through to the other legs.
-        ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => raceEntry(3, m, callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
+        ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => guardedRaceEntry(3, m, () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))).filter(Boolean) : []),
         // Pro depth: wave 3 only fires after total failure, so the extra legs
         // are cheap . Pro races four OpenRouter models here instead of two,
         // in case the wave 1-2 throttle has cleared by now.
-        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]] : [OR_FREE_MODELS[4], OR_FREE_MODELS[5]]).map((m) => raceEntry(3, m, callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))) : []),
+        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]] : [OR_FREE_MODELS[4], OR_FREE_MODELS[5]]).map((m) => guardedRaceEntry(3, m, () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout))).filter(Boolean) : []),
       ];
       try {
         // raceBest with a short grace: this is the last-resort tier so speed
@@ -17212,15 +17504,90 @@ async function runSearchPipeline(pctx) {
         const rescueCall = callCompat(groqProvider);
         const rescueMsgs = compactMessages || messages;
         const rescueLegs = [
-          raceEntry(5, "groq:openai/gpt-oss-120b", rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000)),
-          raceEntry(5, "groq:openai/gpt-oss-20b", rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000)),
-        ];
-        try {
-          const winner = await raceBest(rescueLegs, query, 1000);
-          answer = winner.answer; aiOK = true;
-          recordWin(winner.model);
-        } catch (agg) {
-          aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: errMsgs(agg) });
+          guardedRaceEntry(5, "groq:openai/gpt-oss-120b", () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000)),
+          guardedRaceEntry(5, "groq:openai/gpt-oss-20b", () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000)),
+        ].filter(Boolean);
+        if (rescueLegs.length === 0) {
+          aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: "both rescue legs parked by the per-leg health store; rescue not fired" });
+        } else {
+          try {
+            const winner = await raceBest(rescueLegs, query, 1000);
+            answer = winner.answer; aiOK = true;
+            recordWin(winner.model);
+          } catch (agg) {
+            aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: errMsgs(agg) });
+          }
+        }
+      }
+    }
+
+    // DELAYED RESCUE (2026-10-13, fleet hardening; wave 6 in the
+    // attempt trail): when every wave AND the rescue failed and every
+    // recorded leg failure was a rate limit, nothing is broken . the
+    // fleet is throttled, and per-minute buckets refill continuously
+    // (Groq's are 30 req/min). The immediate rescue retries into the
+    // same wall milliseconds later; a bounded wait is the one move
+    // that changes the odds. Contract:
+    //   - fires ONLY on an all-rate-limit failure set (parked-leg
+    //     skips excluded . they are not failures of this request, and
+    //     their cause is already recorded). A set containing timeouts
+    //     or content failures never waits: waiting fixes neither.
+    //   - if every failure was a DAILY cap, no short wait helps any
+    //     leg, so it does not wait and says so.
+    //   - it retries the two best-tracked unparked legs (Groq's main
+    //     leg first . it has carried production . then the roster by
+    //     recorded wins in this isolate), on the compact prompt. A leg
+    //     parked for a daily cap is never a candidate; a leg in a
+    //     short cooldown is a candidate only if the cooldown lapses
+    //     inside the wait.
+    //   - the wait is DELAYED_RESCUE_WAIT_MS, clamped so the wait +
+    //     retry + the 2.5s assembly reserve fit before the rescue
+    //     phase's hard bound (requestDeadline + the named overrun).
+    //     If even DELAYED_RESCUE_MIN_WAIT_MS does not fit, the wait
+    //     is skipped and stage health says so.
+    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {
+      const rosterLabels = [];
+      if (token) for (const m of OR_FREE_MODELS) rosterLabels.push(m);
+      for (const p of activeProviders) {
+        const pm = PROVIDER_MODELS[p.id] || {};
+        for (const m of [...(pm.w1 || []), ...(pm.w2 || [])]) rosterLabels.push(p.id + ":" + m);
+      }
+      if (cfBound) for (const m of [...CF_WAVE1, ...CF_WAVE2]) rosterLabels.push(m);
+      const delayedPlan = planDelayedRescue(aiAttempts, {
+        rosterLabels,
+        preferredLabel: activeProviders.some((p) => p.id === "groq") ? "groq:openai/gpt-oss-120b" : null,
+        nowMs: Date.now(),
+        requestDeadlineMs: requestDeadline,
+      });
+      if (delayedPlan.action === "skip" && delayedPlan.summary) {
+        aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, summary: delayedPlan.summary });
+      } else if (delayedPlan.action === "wait") {
+        const delayedRescueDeadline = requestDeadline + DELAYED_RESCUE_OVERRUN_MS;
+        const chosen = delayedPlan.chosen;
+        aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, waitedMs: delayedPlan.waitMs, summary: "delayed rescue: waiting " + delayedPlan.waitMs + "ms for rate limit windows to refill, then retrying " + chosen.join(", ") });
+        await new Promise((res) => setTimeout(res, delayedPlan.waitMs));
+        // guardedRaceEntry re-checks each park at fire time: a leg
+        // whose cooldown did not lapse is skipped and recorded,
+        // never fired early.
+        const delayedLegs = chosen
+          .map((label) => guardedRaceEntry(6, label, () => callForLegLabel(label, compactMessages || messages, maxTokens, DELAYED_RESCUE_RETRY_MS)))
+          .filter(Boolean);
+        if (delayedLegs.length === 0) {
+          aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, summary: "delayed rescue: every chosen leg was still parked at fire time" });
+        } else {
+          try {
+            const winner = await Promise.race([
+              raceBest(delayedLegs, query, 1000),
+              new Promise((_, reject) => setTimeout(
+                () => reject(new Error("delayed-rescue-deadline: retry exceeded the rescue deadline")),
+                Math.max(1, delayedRescueDeadline - 2500 - Date.now())
+              )),
+            ]);
+            answer = winner.answer; aiOK = true;
+            recordWin(winner.model);
+          } catch (agg) {
+            aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, summary: errMsgs(agg) });
+          }
         }
       }
     }

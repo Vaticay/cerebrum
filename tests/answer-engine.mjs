@@ -1134,7 +1134,12 @@ test("synthesis deadline is derived from the global request budget", () => {
   const fpIdx = apiSrc.indexOf("const fastpathCalls = ");
   assert.ok(fpIdx > 0, "concurrent fastpath not found");
   const fpBlock = apiSrc.slice(fpIdx, fpIdx + 1500);
-  assert.ok(fpBlock.includes("raceEntry(0,"), "fastpath should go through raceEntry");
+  // 2026-10-13 (fleet hardening): the fastpath is constructed through
+  // guardedRaceEntry, which wraps raceEntry with the per-leg park
+  // check . the contract this pin protects (fastpath outcomes are
+  // recorded in the attempt trail like every other leg) is unchanged
+  // and now also covers parked fastpath legs.
+  assert.ok(fpBlock.includes("guardedRaceEntry(0,"), "fastpath should go through guardedRaceEntry");
   // Wave 1 must include the fastpath calls in its race.
   assert.ok(apiSrc.includes("...fastpathCalls,"), "wave 1 should race fastpath concurrently");
   // Waves 2/3 must be budget-gated.

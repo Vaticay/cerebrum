@@ -861,7 +861,11 @@ await test("grant fails cleanly for unknown email; revoke refuses subscription P
 await test("search.js gates all four AI waves on the Pro gate", async () => {
   const src = await readFile(join(root, "functions/api/search.js"), "utf8");
   const waveGuards = src.match(/if \(!aiOK && aiSynthesisAllowed[^\n]*\)/g) || [];
-  assert.equal(waveGuards.length, 4, `expected 4 gated wave guards, found ${waveGuards.length}`);
+  // 2026-10-13 (fleet hardening): the delayed rescue is a fifth gated
+  // AI stage (waves 1-3, the rescue, the delayed rescue). It burns
+  // inference like every other wave, so it sits behind the same gate;
+  // the pin now counts five and every one of them must stay gated.
+  assert.equal(waveGuards.length, 5, `expected 5 gated wave guards, found ${waveGuards.length}`);
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");
   assert.match(src, /consumeAiAnswer\(env, aiGate\.userId, aiGate\.aiCap\)/, "AI answers not metered atomically");
   // Wave 4 (deterministic fallback) must stay ungated — everyone gets it.
