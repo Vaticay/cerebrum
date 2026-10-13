@@ -237,5 +237,25 @@ test("broadening prefers the scientific name via synonym expansion", () => {
     "synonym expansion must run through expansionsFor");
 });
 
+test("homogenate questions expand to the words enzymology papers use", () => {
+  // 2026-10-13 incident: a gut homogenate question retrieved only
+  // microbiome reviews because the primary papers call the same
+  // preparation a crude extract or gut extract.
+  assert.ok(src.includes('"crude extract", "crude extracts", "gut extract"'), "homogenate synonym group missing from CONCEPT_GROUPS");
+  assert.ok(src.includes('"homogenate", "homogenates"'), "homogenate terms missing from CONCEPT_GROUPS");
+});
+
+test("existence questions may not be answered with a literature wide no", () => {
+  assert.ok(src.includes("EXISTENCE QUESTIONS"), "existence question rule missing from the synthesis prompt");
+  assert.ok(src.includes("None of the papers retrieved here report X"), "scoped negative wording missing");
+});
+
+test("starting a new search is a labeled action everywhere", () => {
+  const app = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.ok(app.includes('["new", "New search", "plus"]'), "desktop sidebar has no New search item");
+  assert.ok(app.includes('{ key: "new", label: "New search"'), "mobile bar still calls it something else");
+  assert.ok(app.includes("Start a new search instead"), "no new search action beside the follow up composer");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

@@ -18211,6 +18211,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      not a dashboard. Items are ordered by use: search first, then the
      instruments, then the working surfaces. */
   const NAV_ITEMS = [
+    ["new", "New search", "plus"],
     ["search", "Search", "search"],
     ["document", "Document Reader", "bookOpen"],
     ["studio", "Diagram Studio", "flowchart"],
@@ -21326,7 +21327,7 @@ function App() {
   const isSaved = (s) => saved.some((x) => sourceKey(x) === sourceKey(s));
 
   const commands = [
-    { label: "New investigation", hint: kbdLabel("J"), run: () => newSession() },
+    { label: "New search", hint: kbdLabel("J"), run: () => newSession() },
     { label: "New evidence map", run: () => { setCmdOpen(false); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
     { label: "Open Diagram Studio", run: () => { setCmdOpen(false); setView("studio"); } },
@@ -21908,7 +21909,7 @@ function App() {
                 { key: "search", label: "Home", icon: "search" },
                 { key: "library", label: "Library", icon: "bookmark" },
                 { key: "learn", label: "Cortex", icon: "cortex" },
-                { key: "new", label: "Create", icon: "plus", fab: true },
+                { key: "new", label: "New search", icon: "plus", fab: true },
                 { key: "inbox", label: "Inbox", icon: "mail", badge: unreadCount },
                 { key: "profile", label: "Account", icon: "user" },
               ].map((t) => {
@@ -21939,7 +21940,7 @@ function App() {
                         {t.badge > 0 && <span style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: "#e5484d", color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
                       </span>
                     )}
-                    {!t.fab && <span>{t.label}</span>}
+                    <span>{t.label}</span>
                   </button>
                 );
               })}
@@ -22238,6 +22239,16 @@ function App() {
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} getInput={() => input} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
+                  </div>
+                  {/* A thread on screen used to offer no visible way to
+                      abandon it and start over: the reset lived in the
+                      command palette and on another page. It sits with
+                      the composer now, where the question comes up. */}
+                  <div style={{ marginTop: 8, textAlign: "center" }}>
+                    <button type="button" onClick={() => newSession()}
+                      style={{ minHeight: 44, padding: "8px 14px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint }}>
+                      Start a new search instead
+                    </button>
                   </div>
                 </>)}
               </div>
@@ -22747,7 +22758,7 @@ function App() {
               /* "New investigation" is always visible — starting fresh should
                  never require hunting. "Compare two" still needs 2+ records. */
               <>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" style={isMobile ? { fontSize: 16 } : undefined} onClick={() => { newSession(); setView("search"); }}>New investigation</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" style={isMobile ? { fontSize: 16 } : undefined} onClick={() => { newSession(); setView("search"); }}>New search</UIButton>
                 {history.length >= 2 && (
                   <UIButton P={P} accent={accent} at={at} size="sm" icon="compare" onClick={() => setCompareOpen(true)}>Compare two</UIButton>
                 )}

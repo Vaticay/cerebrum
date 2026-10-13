@@ -487,31 +487,30 @@ await test("Q&A and findings sections have section spacing", async () => {
 });
 
 // ── Investigations: always-visible fresh start ────────────────────────
-group("investigations — New investigation is always one tap away");
+group("investigations — New search is always one tap away");
 
-await test("header New investigation renders with records present", async () => {
+await test("header New search renders with records present", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   const headAt = src.indexOf('title="Investigations" count={history.length}');
   const headBlock = src.slice(headAt, headAt + 1200);
-  assert.match(headBlock, />New investigation</, "header New investigation button missing");
+  assert.match(headBlock, />New search</, "header New search button missing");
   // It must not be gated on history length — the old defect was that the
   // header only showed "Compare two" once records existed.
-  assert.ok(!/history\.length >= 2 \?[\s\S]{0,300}New investigation/.test(headBlock), "New investigation gated on history length");
-  assert.match(headBlock, /newSession\(\); setView\("search"\)/, "New investigation does not start a fresh session on Search");
+  assert.ok(!/history\.length >= 2 \?[\s\S]{0,300}New search/.test(headBlock), "New search gated on history length");
+  assert.match(headBlock, /newSession\(\); setView\("search"\)/, "New search does not start a fresh session on Search");
   // The empty-state CTA is untouched.
   assert.match(src, /\}>\s*Ask something\s*</, "empty-state Ask something CTA missing");
 });
 
-await test("sidebar is the flat toolbelt: no New investigation row by design", async () => {
+await test("sidebar carries a labeled New search action row", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  // The flat toolbelt nav carries destinations only — "New investigation"
-  // duplicated "Search" (both land on the search view), so it lives in
-  // the Investigations header instead (covered by the header test
-  // above), not as a sidebar row.
+  // Reader feedback (2026-10-13): starting a new search was
+  // undiscoverable, so the fresh start is a labeled sidebar row now,
+  // named New search like everywhere else the action appears.
   const navAt = src.indexOf('["investigations", "Investigations", "history"');
   assert.ok(navAt > 0, "Investigations nav item missing");
   const navBlock = src.slice(src.indexOf("const NAV_ITEMS"), src.indexOf("const NAV_ITEMS") + 900);
-  assert.ok(!/\["new", "New investigation"/.test(navBlock), "flat nav must not carry a New investigation row");
+  assert.ok(navBlock.includes('["new", "New search", "plus"]'), "flat nav must carry the New search row");
   for (const item of ['["search", "Search"', '["document", "Document Reader"', '["library", "Library"', '["learn", "Cortex"']) {
     assert.ok(navBlock.includes(item), `flat nav missing ${item}`);
   }

@@ -1368,6 +1368,15 @@ const CONCEPT_GROUPS = [
   ["insect", "insects", "larva", "larvae", "larval", "worm", "worms", "caterpillar",
    "grub", "mealworm", "waxworm", "galleria", "tenebrio", "hermetia", "zophobas",
    "beetle", "moth", "fly", "arthropod", "arthropods", "entomological"],
+  // 2026-10-13: methods vocabulary. A question about insect gut
+  // homogenates retrieved only microbiome reviews, because the
+  // digestive enzymology papers describe the same preparation as a
+  // crude extract or gut extract, and the relevance matcher gated
+  // them out as weak. One preparation, several names in print.
+  ["homogenate", "homogenates", "homogenized", "homogenised", "homogenization",
+   "crude extract", "crude extracts", "gut extract", "gut extracts",
+   "midgut homogenate", "midgut homogenates", "tissue homogenate", "tissue extract",
+   "crude enzyme", "crude enzymatic", "enzyme preparation"],
   // 2026-10-09: BSFL concept group. The query term "bsfl" was not matching
   // papers that only wrote "Hermetia illucens" or "black soldier fly" because
   // SYNONYMS (used for query expansion) was not connected to CONCEPT_LOOKUP
@@ -8396,6 +8405,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     // indistinguishable from a real result to anyone not checking.
     "- NEVER invent illustrative numbers. Do not write example figures like 'a small study (n=12) versus a larger one (n=1000)' to explain a concept. Every number you write must come from a specific abstract above, and must carry that source's citation. If you want to say sample sizes varied, say which studies and give their actual numbers . or say the abstracts do not report them. An invented number next to a citation reads as a real finding and is the single worst error you can make here.\n" +
     "- ZERO-HALLUCINATION GROUNDING: ground every factual assertion strictly in the provided abstracts. Do NOT introduce external acronyms, gene names, brain regions, or pathways (e.g., BDNF, DMN, TPJ) unless that exact term appears verbatim somewhere in the retrieved abstracts above . importing a real-but-unsourced acronym to sound precise is exactly as dishonest as inventing a fake one, and it will fail fact-checking either way. If a concept needs a name the sources don't give you, describe it in plain language instead.\n" +
+    "- EXISTENCE QUESTIONS: when the question asks whether any papers report something ('are there any studies that...', 'has anyone measured...'), a negative answer may only describe the papers in front of you. Write 'None of the papers retrieved here report X' and note that work using different terms may exist. NEVER write 'the literature does not report X' or 'no study has done X' as a claim about all published research: you only ever see the abstracts listed above, and a retrieval miss is not evidence that the work does not exist.\n" +
     "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' . but NEVER invent specific paper titles or authors.\n" +
     "- NEVER write 'Source [1] discusses...' or 'According to [2]...' . weave the citation into your own sentence.\n" +
     "- NEVER use footnote asterisks. Do not write 'clinical trial*', 'meta-analysis*', or any word with a trailing '*' . there are no footnotes in this format, so a dangling asterisk is a typo, not a reference. If you need emphasis, use **bold** or *italics* with proper opening AND closing markers.\n" +
