@@ -138,6 +138,22 @@ function cleanText(s) {
     .replace(/\s+/g, " ")
     .trim();
 }
+function formatYearValue(y) {
+  if (y == null || y === "") return "";
+  if (typeof y === "number" && Number.isFinite(y)) return String(Math.trunc(y));
+  const s = String(y).trim();
+  const m = s.match(/\b(?:19|20)\d{2}\b/);
+  if (m) return m[0];
+  const n = Number(s);
+  return Number.isFinite(n) ? String(Math.trunc(n)) : s;
+}
+function citeCountOf(source) {
+  if (!source) return null;
+  const raw = source.citations ?? source.citationCount ?? source.citedByCount ?? source.cited_by_count;
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 function shortCite(source) {
   if (!source) return "the paper";
   const a = String(source.authors || "").trim();
@@ -168,7 +184,8 @@ function shortCite(source) {
     if (name && a.includes(",") || /et al/.test(a)) name += " et al.";
     if (name && name.replace(/[^A-Za-z]/g, "").length < 2) name = "";
   }
-  const yr = source.year ? " (" + source.year + ")" : "";
+  const y = formatYearValue(source.year);
+  const yr = y ? " (" + y + ")" : "";
   return (name || "This paper") + yr;
 }
 function hashStr(s) {
@@ -262,7 +279,10 @@ function extractClaims(answerMd) {
       const sc = [...sent.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10));
       const useCites = sc.length ? sc : (isBullet ? cites : []);
       if (!useCites.length) continue;
-      const text = cleanText(sent.replace(/\u0001/g, "."));
+      let text = cleanText(sent.replace(/\u0001/g, "."));
+      const beforeScaffold = text;
+      text = text.replace(/^(the short answer|what the research shows|where researchers disagree|how solid is the evidence)(?:\s+is)?\s*[:.]?\s+/i, "");
+      if (text !== beforeScaffold && text) text = text.charAt(0).toUpperCase() + text.slice(1);
       if (text.length < 42 || text.length > 340) continue;
       if (/^(this|the) (answer|search|section)\b/i.test(text)) continue;
       // Publisher page furniture sometimes travels with a citation
@@ -482,11 +502,13 @@ function emphasizeFinding(text, accent) {
 }
 
 function paperCard(source, claim) {
+  const year = formatYearValue(source && source.year);
   return {
     kind: "paper",
     title: source.title || "Untitled paper",
-    meta: [source.authors, source.journal, source.year].filter(Boolean).join(" · "),
-    citations: typeof source.citations === "number" ? source.citations : null,
+    meta: [source.authors, source.journal, year].filter(Boolean).join(" · "),
+    year,
+    citations: citeCountOf(source),
     text: claim ? claim.text : (source.tldr ? cleanText(source.tldr) : ""),
   };
 }
@@ -518,8 +540,9 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     .filter((p) => p.claims.length > 0);
   if (taught.length < 2) return null;
 
-  const byYear = [...taught].sort((a, b) => (a.source.year || 9999) - (b.source.year || 9999));
-  const byCites = [...taught].sort((a, b) => (b.source.citations || 0) - (a.source.citations || 0));
+  const yearNum = (s) => { const y = parseInt(formatYearValue(s && s.year), 10); return Number.isFinite(y) ? y : 9999; };
+  const byYear = [...taught].sort((a, b) => yearNum(a.source) - yearNum(b.source));
+  const byCites = [...taught].sort((a, b) => (citeCountOf(b.source) || 0) - (citeCountOf(a.source) || 0));
   const usedClaims = new Set();
   const take = (c) => { usedClaims.add(c.text); return c; };
 
@@ -593,7 +616,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
       kind: "note", kicker: "Open question", title: "What we still do not know",
       text: c.text, cite: shortCite(srcs[c.sourceIdx - 1]),
     }));
-    const years = taught.map((p) => p.source.year).filter(Boolean);
+    const years = taught.map((p) => parseInt(formatYearValue(p.source.year), 10)).filter((y) => Number.isFinite(y));
     cards.push({
       kind: "summary",
       title: "Course complete",
@@ -1127,7 +1150,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const followingPapers = lesson.cards.slice(cardIdx + 1).filter((c) => c.kind === "paper");
   const lessonChecks = lesson.cards.filter((c) => c.kind === "quiz" || c.kind === "cloze" || c.kind === "battle").length;
   const maxCites = Math.max(1, ...lessonPapers.map((c) => c.citations || 0));
-  const paperYearOf = (c) => { const m = String((c && c.meta) || "").match(/\b(?:19|20)\d{2}\b/); return m ? parseInt(m[0], 10) : null; };
+  const paperYearOf = (c) => { const y = parseInt(formatYearValue(c && c.year), 10); if (Number.isFinite(y)) return y; const m = String((c && c.meta) || "").match(/\b(?:19|20)\d{2}\b/); return m ? parseInt(m[0], 10) : null; };
+  const displayMeta = (meta) => String(meta || "").replace(/\b((?:19|20)\d{2})\.0\b/g, "$1");
   const lessonYears = lessonPapers.map(paperYearOf).filter((y) => y != null);
   const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.vocab ? "Vocab" : "Recall";
 
@@ -1238,7 +1262,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       <span style={{ flexShrink: 0, width: 27, height: 27, borderRadius: 9, background: withAlphaSafe(accent, 0.16), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, fontWeight: 800 }}>{i + 1}</span>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: "block", fontFamily: SERIF, fontSize: 16, fontWeight: 600, lineHeight: 1.4 }}>{p.title}</span>
-                        <span style={{ display: "block", fontSize: 12.5, color: P.muted, marginTop: 3 }}>{p.meta}{p.citations != null ? " · " + p.citations + " citations" : ""}</span>
+                        <span style={{ display: "block", fontSize: 12.5, color: P.muted, marginTop: 3 }}>{displayMeta(p.meta)}{p.citations != null ? " · " + p.citations + " citations" : " · citation count not reported"}</span>
                       </span>
                     </div>
                   ))}
@@ -1287,7 +1311,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 )}
               </div>
               <h2 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 600, lineHeight: 1.35, margin: "0 0 10px" }}>{card.title}</h2>
-              <p style={{ fontSize: 13.5, color: P.muted, margin: "0 0 22px" }}>{card.meta}</p>
+              <p style={{ fontSize: 13.5, color: P.muted, margin: "0 0 22px" }}>{displayMeta(card.meta)}</p>
               {card.text && (
                 <div style={{ position: "relative", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "24px 24px 22px", overflow: "hidden" }}>
                   <span aria-hidden="true" style={{ position: "absolute", top: -14, right: 14, fontFamily: SERIF, fontSize: 110, lineHeight: 1, color: withAlphaSafe(accent, 0.14), pointerEvents: "none" }}>”</span>
@@ -1295,16 +1319,19 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   <p style={{ fontFamily: SERIF, fontSize: 20, lineHeight: 1.62, margin: 0, position: "relative" }}>{emphasizeFinding(card.text, accent)}</p>
                 </div>
               )}
-              {card.citations != null && card.citations > 0 && (
+              {card.citations != null && (
                 <div style={{ marginTop: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: P.muted, marginBottom: 7 }}>
                     <span>Cited {card.citations} times</span>
                     <span>{card.citations >= maxCites && maxCites > 1 ? "The most cited paper in this lesson" : "Relative to this lesson"}</span>
                   </div>
                   <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
-                    <div className="lv-fill" style={{ height: "100%", width: Math.max(5, Math.round((card.citations / maxCites) * 100)) + "%", background: accent, borderRadius: 999 }} />
+                    <div className="lv-fill" style={{ height: "100%", width: (card.citations === 0 ? 0 : Math.max(5, Math.round((card.citations / maxCites) * 100))) + "%", background: accent, borderRadius: 999 }} />
                   </div>
                 </div>
+              )}
+              {card.citations == null && (
+                <p style={{ fontSize: 12.5, color: P.muted, lineHeight: 1.5, margin: "18px 0 0" }}>Citation count was not reported for this record. Its date and place in the lesson still come from the record itself.</p>
               )}
               {lessonYears.length >= 2 && Math.max(...lessonYears) > Math.min(...lessonYears) && paperYearOf(card) != null && (
                 <div style={{ marginTop: 22 }}>
