@@ -461,6 +461,26 @@ function vocabCard(entry, allTerms, sources) {
   };
 }
 
+/* Hex accent at an alpha, for soft fills. Falls back to the raw
+   colour when it is not a plain hex value. */
+function withAlphaSafe(hex, a) {
+  const m = String(hex || "").match(/^#([0-9a-f]{6})$/i);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return "rgba(" + ((n >> 16) & 255) + ", " + ((n >> 8) & 255) + ", " + (n & 255) + ", " + a + ")";
+}
+
+/* Finding text with its numbers lifted out in the accent colour:
+   the values are what the learner will be asked to recall, so the
+   eye should land on them while reading. */
+function emphasizeFinding(text, accent) {
+  const parts = String(text || "").split(NUMBER_RE);
+  return parts.map((part, i) => {
+    if (i % 2 === 1) return <strong key={i} style={{ color: accent, fontWeight: 800 }}>{part}</strong>;
+    return part;
+  });
+}
+
 function paperCard(source, claim) {
   return {
     kind: "paper",
@@ -1101,6 +1121,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     );
   }
 
+  /* Richness data for the card stage: everything below is computed
+     from the course's own cards, never invented. */
+  const lessonPapers = lesson.cards.filter((c) => c.kind === "paper");
+  const followingPapers = lesson.cards.slice(cardIdx + 1).filter((c) => c.kind === "paper");
+  const lessonChecks = lesson.cards.filter((c) => c.kind === "quiz" || c.kind === "cloze" || c.kind === "battle").length;
+  const maxCites = Math.max(1, ...lessonPapers.map((c) => c.citations || 0));
+  const paperYearOf = (c) => { const m = String((c && c.meta) || "").match(/\b(?:19|20)\d{2}\b/); return m ? parseInt(m[0], 10) : null; };
+  const lessonYears = lessonPapers.map(paperYearOf).filter((y) => y != null);
+  const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.vocab ? "Vocab" : "Recall";
+
   const sheetGood = checked && (card.kind === "battle" || isRight);
   const sheet = checked ? (
     <div className="lv-sheet" style={{
@@ -1173,28 +1203,126 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       {/* card stage */}
       <div style={{ flex: 1, width: "100%", maxWidth: 680, margin: "0 auto", padding: "26px 24px 8px", boxSizing: "border-box" }}>
         <div key={lessonIdx + "-" + cardIdx} className="lv-rise">
+          {(card.kind === "quiz" || card.kind === "cloze" || card.kind === "battle") && course.img && (
+            <div style={{ position: "relative", height: 92, borderRadius: 18, overflow: "hidden", marginBottom: 22, border: "1px solid " + P.line }}>
+              <img src={course.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(6,10,6,0.05), rgba(6,10,6,0.72))" }} />
+              <span style={{ position: "absolute", left: 16, bottom: 10, color: "#fff", fontFamily: SERIF, fontSize: 16, fontWeight: 600 }}>{lesson.title}</span>
+            </div>
+          )}
           {card.kind === "note" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>{(card.kicker || "").toUpperCase()}</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
-              <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
-              {card.cite && <p style={{ fontSize: 13, color: P.muted, marginTop: 16 }}>{card.cite}</p>}
+              {/* Chapter opener: the course photo carries the top of the
+                  screen, then what this chapter actually holds. */}
+              <div style={{ position: "relative", borderRadius: 22, overflow: "hidden", marginBottom: 24, border: "1px solid " + P.line, background: P.raised }}>
+                {course.img && <img src={course.img} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
+                <div style={{ position: "absolute", inset: 0, background: course.img ? "linear-gradient(180deg, rgba(6,10,6,0.16), rgba(6,10,6,0.85))" : "linear-gradient(135deg, " + withAlphaSafe(accent, 0.22) + ", transparent 65%)" }} />
+                <div style={{ position: "relative", padding: "64px 22px 20px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: course.img ? "#cfe8b8" : accent, marginBottom: 10 }}>{(card.kicker || "").toUpperCase()}</div>
+                  <h2 style={{ fontFamily: SERIF, fontSize: 31, fontWeight: 600, lineHeight: 1.22, margin: 0, color: course.img ? "#fff" : P.ink }}>{card.title}</h2>
+                </div>
+              </div>
+              {card.cite ? (
+                <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "18px 20px" }}>
+                  <p style={{ fontFamily: SERIF, fontSize: 18.5, lineHeight: 1.6, margin: 0 }}>{card.text}</p>
+                  <p style={{ fontSize: 13, color: P.muted, margin: "12px 0 0" }}>{card.cite}</p>
+                </div>
+              ) : (
+                <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+              )}
+              {followingPapers.length > 0 && (
+                <div style={{ marginTop: 28 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>COMING UP IN THIS CHAPTER</div>
+                  {followingPapers.slice(0, 3).map((p, i) => (
+                    <div key={i} style={{ display: "flex", gap: 13, alignItems: "flex-start", background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "14px 16px", marginBottom: 9 }}>
+                      <span style={{ flexShrink: 0, width: 27, height: 27, borderRadius: 9, background: withAlphaSafe(accent, 0.16), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, fontWeight: 800 }}>{i + 1}</span>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", fontFamily: SERIF, fontSize: 16, fontWeight: 600, lineHeight: 1.4 }}>{p.title}</span>
+                        <span style={{ display: "block", fontSize: 12.5, color: P.muted, marginTop: 3 }}>{p.meta}{p.citations != null ? " · " + p.citations + " citations" : ""}</span>
+                      </span>
+                    </div>
+                  ))}
+                  <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.55, margin: "14px 0 0" }}>
+                    In this chapter: read {lessonPapers.length} {lessonPapers.length === 1 ? "finding" : "findings"}, answer {lessonChecks} {lessonChecks === 1 ? "check" : "checks"}.
+                  </p>
+                </div>
+              )}
+              {lesson.id === "vocab" && course.vocab && course.vocab.length > 0 && (
+                <div style={{ marginTop: 26 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>THE WORDS AHEAD</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {course.vocab.map((v, i) => (
+                      <span key={i} style={{ fontFamily: SERIF, fontSize: 15.5, fontWeight: 600, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "7px 14px" }}>{v.term}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ marginTop: 28 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>THE SHAPE OF THIS LESSON</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" }}>
+                  {lesson.cards.map((c, i) => (
+                    <span key={i} style={{
+                      fontSize: 12.5, fontWeight: i === cardIdx ? 800 : 600, borderRadius: 999, padding: "6px 12px",
+                      color: i === cardIdx ? "#14240a" : P.muted,
+                      background: i === cardIdx ? accent : "transparent",
+                      border: "1.5px solid " + (i === cardIdx ? accent : P.line),
+                    }}>{cardKindLabel(c)}</span>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
           {card.kind === "paper" && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>FROM THE LITERATURE</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: 25, fontWeight: 600, lineHeight: 1.35, margin: "0 0 10px" }}>{card.title}</h2>
-              <p style={{ fontSize: 13.5, color: P.muted, margin: "0 0 22px" }}>
-                {card.meta}{card.citations != null ? " · " + card.citations + " citations" : ""}
-              </p>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent }}>FROM THE LITERATURE</span>
+                {lessonPapers.length > 1 && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>
+                    Paper {lessonPapers.indexOf(card) + 1} of {lessonPapers.length} in this lesson
+                  </span>
+                )}
+                {paperYearOf(card) != null && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>{paperYearOf(card)}</span>
+                )}
+              </div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 600, lineHeight: 1.35, margin: "0 0 10px" }}>{card.title}</h2>
+              <p style={{ fontSize: 13.5, color: P.muted, margin: "0 0 22px" }}>{card.meta}</p>
               {card.text && (
-                <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "22px 22px" }}>
+                <div style={{ position: "relative", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "24px 24px 22px", overflow: "hidden" }}>
+                  <span aria-hidden="true" style={{ position: "absolute", top: -14, right: 14, fontFamily: SERIF, fontSize: 110, lineHeight: 1, color: withAlphaSafe(accent, 0.14), pointerEvents: "none" }}>”</span>
                   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 10 }}>THE FINDING</div>
-                  <p style={{ fontFamily: SERIF, fontSize: 19.5, lineHeight: 1.6, margin: 0 }}>{card.text}</p>
+                  <p style={{ fontFamily: SERIF, fontSize: 20, lineHeight: 1.62, margin: 0, position: "relative" }}>{emphasizeFinding(card.text, accent)}</p>
                 </div>
               )}
+              {card.citations != null && card.citations > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: P.muted, marginBottom: 7 }}>
+                    <span>Cited {card.citations} times</span>
+                    <span>{card.citations >= maxCites && maxCites > 1 ? "The most cited paper in this lesson" : "Relative to this lesson"}</span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
+                    <div className="lv-fill" style={{ height: "100%", width: Math.max(5, Math.round((card.citations / maxCites) * 100)) + "%", background: accent, borderRadius: 999 }} />
+                  </div>
+                </div>
+              )}
+              {lessonYears.length >= 2 && Math.max(...lessonYears) > Math.min(...lessonYears) && paperYearOf(card) != null && (
+                <div style={{ marginTop: 22 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: P.muted, marginBottom: 8 }}>
+                    <span>{Math.min(...lessonYears)}</span>
+                    <span>Where this paper sits in the lesson</span>
+                    <span>{Math.max(...lessonYears)}</span>
+                  </div>
+                  <div style={{ position: "relative", height: 4, borderRadius: 999, background: P.line, margin: "0 5px" }}>
+                    <span style={{
+                      position: "absolute", top: "50%", left: ((paperYearOf(card) - Math.min(...lessonYears)) / (Math.max(...lessonYears) - Math.min(...lessonYears))) * 100 + "%",
+                      transform: "translate(-50%, -50%)", width: 15, height: 15, borderRadius: "50%",
+                      background: accent, border: "3px solid " + P.bg, boxSizing: "border-box",
+                    }} />
+                  </div>
+                </div>
+              )}
+              <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.55, margin: "24px 0 0" }}>Read it once, slowly. The next card asks you to recall it.</p>
             </div>
           )}
 
@@ -1205,12 +1333,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
               <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
               {card.prompt && (
-                <p style={{ fontFamily: SERIF, fontSize: 18.5, lineHeight: 1.6, margin: "0 0 8px", color: P.ink2 || P.muted }}>{card.prompt}</p>
+                <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "17px 19px", margin: "4px 0 10px" }}>
+                  <p style={{ fontFamily: SERIF, fontSize: 19, lineHeight: 1.6, margin: 0 }}>{card.prompt}</p>
+                </div>
               )}
               {card.pretest && !checked && (
                 <p style={{ fontSize: 14, color: P.muted, margin: "0 0 6px", lineHeight: 1.55 }}>You have not been taught this yet. That is the point. A real guess now makes the finding stick later.</p>
               )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+              <div style={card.vocab
+                ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }
+                : { display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
                 {card.options.map((opt, i) => {
                   let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
                   if (checked && i === card.correct) { bg = "#D7FFB8"; border = "#58CC02"; color = "#224d00"; }
@@ -1244,20 +1376,32 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>CLAIM BATTLE · REAL FINDINGS</div>
               <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 20px" }}>{card.question}</h2>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {[{ claim: card.claimA, src: card.sourceA, tag: "POSITION A" }, { claim: card.claimB, src: card.sourceB, tag: "POSITION B" }].map((side, i) => (
-                  <button key={i} onClick={() => pick(i)} disabled={checked}
-                    className="lv-opt"
-                    style={{
-                      width: "100%", boxSizing: "border-box", textAlign: "left",
-                      background: P.raised, border: "2px solid " + (!checked && picked === i ? accent : P.line), borderRadius: 18,
-                      padding: "18px 20px", cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)",
-                    }}>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 9 }}>{side.tag}</div>
-                    <p style={{ fontFamily: SERIF, fontSize: 17.5, lineHeight: 1.55, margin: 0 }}>{side.claim}</p>
-                    <p style={{ fontSize: 12.5, color: P.muted, margin: "10px 0 0" }}>{side.src}</p>
-                  </button>
-                ))}
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {[{ claim: card.claimA, src: card.sourceA, tag: "POSITION A" }, { claim: card.claimB, src: card.sourceB, tag: "POSITION B" }].flatMap((side, i) => {
+                  const btn = (
+                    <button key={"side" + i} onClick={() => pick(i)} disabled={checked}
+                      className="lv-opt"
+                      style={{
+                        width: "100%", boxSizing: "border-box", textAlign: "left",
+                        background: P.raised, border: "2px solid " + (!checked && picked === i ? accent : P.line), borderRadius: 18,
+                        padding: "18px 20px", cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)",
+                      }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 9 }}>{side.tag}</div>
+                      <p style={{ fontFamily: SERIF, fontSize: 17.5, lineHeight: 1.55, margin: 0 }}>{side.claim}</p>
+                      <p style={{ fontSize: 12.5, color: P.muted, margin: "10px 0 0" }}>{side.src}</p>
+                    </button>
+                  );
+                  if (i === 0) return [btn];
+                  return [(
+                    <div key="vs" style={{ display: "flex", justifyContent: "center", margin: "-13px 0", position: "relative", zIndex: 1 }}>
+                      <span style={{
+                        width: 40, height: 40, borderRadius: "50%", background: accent, color: "#14240a",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 13.5, fontWeight: 800, border: "3px solid " + P.bg, boxSizing: "border-box",
+                      }}>VS</span>
+                    </div>
+                  ), btn];
+                })}
               </div>
             </div>
           )}
@@ -1267,6 +1411,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
               <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
               <p style={{ fontSize: 17.5, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.sourceCount} papers in this course</span>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
+                {course.vocab && course.vocab.length > 0 && (
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.vocab.length} terms met</span>
+                )}
+              </div>
             </div>
           )}
         </div>
