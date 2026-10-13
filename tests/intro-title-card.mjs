@@ -348,5 +348,73 @@ await test("deck and stage share the one Continue data walk", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+group("Plate II browser fixes (2026-10-13, live verification findings)");
+
+await test("the stage bar carries no centre running head to truncate", () => {
+  /* Live finding: the stage's six nav links squeezed the centred
+     running head into "SCIENTIFIC LITERAT…". The stage bar now drops
+     its centre entirely (the Plate II eyebrow below the bar carries
+     the identity), while the intro keeps its full centre text: its
+     right side is one short plate label and the text fits. */
+  const stage = appSrc.slice(
+    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("<div style={{ ...S.workspace,")
+  );
+  assert.ok(!stage.includes("Scientific literature, traced"), "stage bar still renders the truncating centre text");
+  assert.ok(!stage.includes("headCenter"), "stage still passes a headCenter");
+  const introFn2 = src.slice(src.indexOf("function Intro({"), src.indexOf("function CerebrumFieldCanvas"));
+  assert.ok(introFn2.includes("Scientific literature, traced"), "intro lost its running head centre");
+});
+
+await test("recents open only on the visitor's own engagement", () => {
+  /* Live finding: the composer's recents dropdown opened itself
+     shortly after the stage loaded. Cause: the app focus pulls the
+     field on entry (an effect keyed on `entered`) and refocuses it
+     on timers, and a programmatic .focus() fires the same onFocus a
+     click would, which used to open the list unconditionally. The
+     corrected contract: onFocus opens the list only when the focus
+     episode was engaged by the visitor (pointer press inside the
+     composer, Tab onto the field, a keypress inside it), and the
+     engagement resets on blur. */
+  const composer = appSrc.slice(
+    appSrc.indexOf("function SignalComposer("),
+    appSrc.indexOf("/* ── SSE search streaming")
+  );
+  assert.ok(composer.length > 1000, "composer block not found");
+  assert.ok(composer.includes("const engageRef = useRef(false)"), "engagement marker missing");
+  assert.ok(
+    composer.includes("if (engageRef.current && recents.length > 0) setRecentOpen(true)"),
+    "onFocus opens the list without an engagement check"
+  );
+  assert.ok(
+    !composer.includes("setRecentActive(-1); if (recents.length > 0) setRecentOpen(true)"),
+    "the old unconditional onFocus opener survives"
+  );
+  assert.ok(composer.includes("onPointerDownCapture"), "pointer engagement not captured");
+  assert.ok(composer.includes('if (e.key === "Tab") engageRef.current = true'), "Tab engagement not captured");
+  assert.ok(composer.includes("engageRef.current = false"), "engagement never resets on blur");
+  assert.ok(composer.includes('e.key === "ArrowDown"'), "ArrowDown summon missing");
+  /* The self opening source stays honest: initial state closed. */
+  assert.ok(composer.includes("useState(false)"), "recents state no longer starts closed");
+});
+
+await test("the stage renders exactly one Continue affordance", () => {
+  /* Live finding: the stage showed its ruled Continue row AND the
+     deck's own "Where you left off" card, same question, same Keep
+     going and History actions. Corrected contract: HomeDeck takes a
+     suppressContinue prop (default off, deck unchanged elsewhere)
+     that stands the card down, and the stage passes it. */
+  assert.ok(appSrc.includes("suppressContinue = false"), "deck prop missing or no longer defaults off");
+  assert.ok(appSrc.includes("lastQ && !suppressContinue"), "the left off card is not gated on the prop");
+  const stage = appSrc.slice(
+    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("<div style={{ ...S.workspace,")
+  );
+  const deckUse = stage.slice(stage.indexOf("<HomeDeck"));
+  assert.ok(deckUse.startsWith("<HomeDeck\n                      suppressContinue"), "the stage does not pass suppressContinue to the deck");
+  assert.ok(appSrc.includes('label="Where you left off"'), "the deck card itself was removed instead of gated");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

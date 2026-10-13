@@ -1678,7 +1678,7 @@ function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
    wall of grey locked badges is not. Every number is a row count from
    the database — see resource "milestones" in functions/api/data.js. */
 
-function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false }) {
+function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false, suppressContinue = false }) {
   const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
     y: 14, stagger: 0.06, duration: 0.85, descend: false,
   });
@@ -1792,7 +1792,12 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             spans the full width and sets the question in the display face
             at headline size — because the half-finished question you left
             behind IS the most important thing on this screen. */}
-        {lastQ && (
+        {/* On the Plate II stage the ruled Continue row above the
+            inquiries carries this same question and the same two
+            actions, so the card stands down there (suppressContinue)
+            and the stage keeps exactly one Continue affordance.
+            Everywhere else the card renders as it always has. */}
+        {lastQ && !suppressContinue && (
           <DeckCard P={P} accent={accent} label="Where you left off" span={isMobile ? undefined : "1 / -1"} className="cb-tilt">
             <div style={{
               fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
@@ -2248,7 +2253,10 @@ function SignalComposer({
     ? stageQs[phIdx % stageQs.length]
     : (isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder);
   /* ── Command deck: recent-questions dropdown ──
-     Opens on focus when the input is empty and history exists; closes on
+     Opens when the visitor themselves engages the field (a click or
+     tap in, a Tab onto it, ArrowDown inside it) while the input is
+     empty and history exists; a focus the app performed itself never
+     opens it (see the engagement note at the state below). Closes on
      ask, on Esc, and on blur after a grace period so a tap on an item
      still lands. ArrowUp/Down walk the list, Enter picks the highlighted
      item (or asks), Esc dismisses. Touch: items are 44px buttons and the
@@ -2264,6 +2272,23 @@ function SignalComposer({
   const [recentActive, setRecentActive] = useState(-1);
   const blurTimer = useRef(null);
   useEffect(() => () => { if (blurTimer.current) clearTimeout(blurTimer.current); }, []);
+  /* Engagement: the list opens on the visitor's own gesture, never on
+     a focus the app performed itself. The app focus pulls this field
+     on entry and refocuses it on timers (New search), and a
+     programmatic .focus() fires the same onFocus a click would — so
+     the list used to open itself moments after the stage arrived,
+     uninvited, overlapping the composer. engageRef marks a focus
+     episode the visitor began with their own hand: a pointer press
+     inside the composer, a Tab press carrying focus here, or a
+     keypress in the already focused field. It resets on blur, so
+     every new focus episode must earn its own engagement and no
+     later programmatic focus can reopen the list. */
+  const engageRef = useRef(false);
+  useEffect(() => {
+    const onTab = (e) => { if (e.key === "Tab") engageRef.current = true; };
+    window.addEventListener("keydown", onTab, true);
+    return () => window.removeEventListener("keydown", onTab, true);
+  }, []);
   const showRecents = recentOpen && !String(input || "").trim() && recents.length > 0;
   const doAsk = () => {
     setRecentOpen(false); setRecentActive(-1);
@@ -2421,6 +2446,7 @@ function SignalComposer({
   return (
     <div
       role="search"
+      onPointerDownCapture={() => { engageRef.current = true; }}
       className={"cb-ask" + (variant === "stage" ? " cb-ask--stage" : "") + (showRecents ? " cb-ask--recents-open" : "")}
       style={{
         "--cb-acc": accent,
@@ -2445,8 +2471,9 @@ function SignalComposer({
             value={input}
             rows={variant === "stage" ? 3 : 1}
             onChange={(e) => handleComposerChange(e.target.value)}
-            onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
+            onFocus={() => { setFocused(true); setRecentActive(-1); if (engageRef.current && recents.length > 0) setRecentOpen(true); }}
             onBlur={() => {
+              engageRef.current = false;
               setFocused(false);
               // Grace period: a tap on a dropdown item fires mousedown before
               // blur, so closing immediately would eat the tap.
@@ -2454,6 +2481,9 @@ function SignalComposer({
               blurTimer.current = setTimeout(() => setRecentOpen(false), 160);
             }}
             onKeyDown={(e) => {
+              /* A keypress in the field is the visitor's own hand:
+                 this episode is engaged from here on. */
+              engageRef.current = true;
               if (showRecents && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Escape" || e.key === "Enter")) {
                 e.preventDefault();
                 if (e.key === "ArrowDown") setRecentActive((a) => (a + 1) % recents.length);
@@ -2461,6 +2491,15 @@ function SignalComposer({
                 else if (e.key === "Escape") { setRecentOpen(false); setRecentActive(-1); }
                 else if (recentActive >= 0) pickRecent(recentActive);
                 else doAsk();
+                return;
+              }
+              /* The field holds focus the app gave it (entry, a
+                 timer) and the list is shut: ArrowDown is the
+                 visitor summoning it deliberately. */
+              if (!showRecents && recents.length > 0 && !String(input || "").trim() && e.key === "ArrowDown") {
+                e.preventDefault();
+                setRecentOpen(true);
+                setRecentActive(0);
                 return;
               }
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) { e.preventDefault(); doAsk(); }
@@ -22477,10 +22516,18 @@ function App() {
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
+                {/* No centre text on the stage bar: the wordmark on
+                    the left and the six nav links on the right leave
+                    the centre span too little room, so the running
+                    head clipped mid word ("SCIENTIFIC LITERAT…"). The
+                    plate identity is already carried by the Plate II
+                    eyebrow directly under the bar, so the centre
+                    yields entirely. The intro keeps its centre text:
+                    its right side is one short plate label and the
+                    centre fits there. */}
                 <PlateFrame
                   faint={P.faint} line={P.line}
                   headLeft={<span style={{ fontFamily: "var(--cb-serif)", fontSize: 19, fontWeight: 600, color: P.ink }}>Cerebrum</span>}
-                  headCenter={isMobile ? null : <span style={plateHead(P.faint)}>Scientific literature, traced</span>}
                   headRight={isMobile ? <span style={plateHead(P.faint)}>Plate II · Inquiry</span> : (
                     <nav aria-label="Main" style={{ display: "inline-flex", alignItems: "center", gap: 18 }}>
                       {[
@@ -22620,6 +22667,7 @@ function App() {
                   )}
                   <div style={{ marginTop: deckHasContent ? 10 : 36 }}>
                     <HomeDeck
+                      suppressContinue
                       P={P} accent={accent} at={at} user={user} isMobile={isMobile}
                       greetingName={firstName} flush={deckHasContent}
                       history={history} saved={saved} sessions={sessions}
