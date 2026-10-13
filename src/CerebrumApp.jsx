@@ -12429,13 +12429,24 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       }
     }
 
-    async function makeOffer() {
+    async function makeOffer(iceRestart = false) {
       if (!pc) return;
       setStatus("connecting");
       try {
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
         await pc.setLocalDescription(offer);
-        await postSignal("offer", offer);
+        const sent = await postSignal("offer", offer);
+        if (sent !== true && !cancelled) {
+          // A rejected offer used to vanish into the console: the other
+          // side simply never answered and both people watched a spinner.
+          // (The historical cause was the signaling payload cap rejecting
+          // genuine SDPs.) Say it out loud instead.
+          setErrorReason(
+            (typeof sent === "string" && sent ? sent + " " : "") +
+            "The call setup could not be sent, so the other person cannot answer. Try again."
+          );
+          setStatus("error");
+        }
       } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx makeOffer: const offer = await pc.createOffer();:", cbErr); }
     }
 
@@ -12471,7 +12482,14 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           ? String(peerId) : String(msg.client_id || peerId);
         role = mine < theirs ? "offerer" : "answerer";
       }
-      if (msg.type === "hello") {
+      if (msg.type === "hello" || msg.type === "ring") {
+        // The ring must be allowed to trigger the offer, not just the
+        // hello. The caller posts its hello ONCE, before the callee has
+        // opened the huddle, so the stale filter above drops it on the
+        // callee's side. The repeating ring is the only fresh proof of the
+        // peer the callee ever sees — and when the callee is the side the
+        // tie-break picked as offerer, nothing else ever sent an offer.
+        // Those pairs rang forever and never connected.
         if (role === "offerer" && !madeOffer) { madeOffer = true; await makeOffer(); }
         else setStatus((s) => (s === "loading" || s === "waiting" ? "connecting" : s));
       } else if (msg.type === "offer") {
@@ -12482,7 +12500,11 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           await flushPendingCandidates();
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          await postSignal("answer", answer);
+          const sentAnswer = await postSignal("answer", answer);
+          if (sentAnswer !== true && !cancelled) {
+            setErrorReason("Your answer to the call could not be sent, so the call cannot connect. Try again.");
+            setStatus("error");
+          }
         } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.setRemoteDescription(msg.payload);:", cbErr); }
       } else if (msg.type === "answer") {
         try {
@@ -12551,7 +12573,20 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         // requested video first and fell back only after the request FAILED,
         // so an audio call still fired a camera permission prompt and, on a
         // machine with a camera that is present but busy, could hang there.
-        localStream = await navigator.mediaDevices.getUserMedia({ video: !audioOnly, audio: true });
+        // Explicit media constraints: bare { video: true, audio: true }
+        // takes whatever the browser defaults to, which is often 640x480
+        // with unspecified audio processing — the "quality is horrible"
+        // report. Ask for a real call profile instead: 720p30 video and
+        // echo/noise/gain processing on the microphone.
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: audioOnly ? false : {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 30, max: 30 },
+            facingMode: "user",
+          },
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
       } catch {
         try {
           localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
@@ -12606,7 +12641,37 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         }
       };
       pcRef.current = pc;
-      localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+      localStream.getTracks().forEach((t) => {
+        // Encoder hints: speech tuning for the microphone, motion tuning
+        // for the camera, so the encoder spends its bits on the right
+        // thing instead of treating a face like a screen share.
+        try { t.contentHint = t.kind === "audio" ? "speech" : "motion"; } catch { /* older browsers */ }
+        pc.addTrack(t, localStream);
+      });
+      // Encoder parameters the browser defaults leave on the floor:
+      // voice allowed 64 kbps, video allowed 2.5 Mbps at 30 fps with
+      // resolution held over frame rate. Applied again once connected,
+      // because some browsers refuse setParameters before negotiation
+      // finishes and the call must not depend on that timing.
+      const applySenderQuality = async () => {
+        if (!pc) return;
+        for (const sender of pc.getSenders()) {
+          if (!sender.track) continue;
+          try {
+            const params = sender.getParameters();
+            if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+            if (sender.track.kind === "video") {
+              params.encodings[0].maxBitrate = 2500000;
+              params.encodings[0].maxFramerate = 30;
+              params.degradationPreference = "maintain-resolution";
+            } else if (sender.track.kind === "audio") {
+              params.encodings[0].maxBitrate = 64000;
+            }
+            await sender.setParameters(params);
+          } catch { /* a refused hint is not a failed call */ }
+        }
+      };
+      applySenderQuality();
       pc.ontrack = (e) => {
         remoteStreamRef.current = e.streams[0];
         if (!cancelled) setHasRemote(true);
@@ -12623,6 +12688,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           connected = true;
           if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
           setStatus("ready");
+          applySenderQuality();
         }
         else if (pc.connectionState === "disconnected") {
           // A transient drop (a phone changing cell, Wi-Fi to LTE) recovers
@@ -12631,16 +12697,25 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           connected = false;
           if (!iceRestarted) {
             iceRestarted = true;
-            try { pc.restartIce(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.restartIce(); }:", cbErr); }
+            // restartIce on its own renegotiates nothing: only the
+            // offerer can restart, by sending a fresh offer that carries
+            // the restart flag. An answerer calling it was a silent
+            // no-op and the call simply stayed dead.
+            if (role === "offerer") { makeOffer(true); }
+            else { try { pc.restartIce(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.restartIce(); }:", cbErr); } }
           }
         }
         else if (pc.connectionState === "failed") {
           connected = false;
-          if (!iceRestarted) {
-            // One ICE restart before giving up — this alone recovers a
-            // meaningful share of failures, and costs a couple of seconds.
+          if (!iceRestarted && role === "offerer") {
+            // One real recovery attempt, from the only side that can
+            // make it: a fresh offer with the restart flag. The old code
+            // called restartIce and returned, which renegotiates
+            // nothing, so a failed call never recovered and never even
+            // reached the error below.
             iceRestarted = true;
-            try { pc.restartIce(); return; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.restartIce(); return; }:", cbErr); }
+            makeOffer(true);
+            return;
           }
           setErrorReason(
             relayKind === "none" || !sawRelay

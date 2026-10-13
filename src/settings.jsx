@@ -1840,9 +1840,31 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     try {
       const reg = await navigator.serviceWorker.ready;
       if (enable) {
+        // Subscribe with the server's own key, fetched live. This used a
+        // copy hardcoded in this file; if the server key ever differed,
+        // the subscription was created under the wrong key and every
+        // push failed silently at the push service. An existing
+        // subscription made under a different key is rotated out first,
+        // because PushManager will otherwise hand it straight back.
+        let serverKey = VAPID_PUBLIC_KEY;
+        try {
+          const cfgRes = await fetch("/api/push/config");
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json().catch(() => null);
+            if (cfg && typeof cfg.publicKey === "string" && cfg.publicKey.length > 40) serverKey = cfg.publicKey;
+          }
+        } catch { /* fall back to the bundled copy */ }
+        const desiredKey = urlBase64ToUint8Array(serverKey);
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) {
+          const current = existing.options && existing.options.applicationServerKey
+            ? new Uint8Array(existing.options.applicationServerKey) : null;
+          const mismatch = !current || current.length !== desiredKey.length || current.some((b, i) => b !== desiredKey[i]);
+          if (mismatch) { try { await existing.unsubscribe(); } catch { /* noop */ } }
+        }
         const sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          applicationServerKey: desiredKey,
         });
         const res = await fetch("/api/push/subscribe", {
           method: "POST",

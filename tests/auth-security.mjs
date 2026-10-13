@@ -393,11 +393,19 @@ await test("validateSignalPost: accepts a well-formed signal", () => {
   assert.ok(r.payloadStr.includes("v=0"));
 });
 
+await test("validateSignalPost: accepts a realistic full-size SDP", () => {
+  // A real Chrome video offer runs well past the old 8 KB cap once every
+  // codec and extension line is counted; rejecting it was a live cause
+  // of calls ringing and never connecting.
+  const r = validateSignalPost({ threadId: "t1", clientId: "c1", type: "offer", payload: { sdp: "x".repeat(20000) } });
+  assert.equal(r.ok, true, "realistic large SDP rejected");
+});
+
 await test("validateSignalPost: rejects unknown types, missing ids, and oversized payloads", () => {
   assert.equal(validateSignalPost({ threadId: "t1", clientId: "c1", type: "exec" }).ok, false, "unknown type accepted");
   assert.equal(validateSignalPost({ threadId: "", clientId: "c1", type: "ice" }).ok, false, "empty threadId accepted");
   assert.equal(validateSignalPost(null).ok, false, "null body accepted");
-  const big = validateSignalPost({ threadId: "t1", clientId: "c1", type: "offer", payload: { sdp: "x".repeat(9000) } });
+  const big = validateSignalPost({ threadId: "t1", clientId: "c1", type: "offer", payload: { sdp: "x".repeat(200000) } });
   assert.equal(big.ok, false, "oversized payload accepted");
   assert.equal(big.code, "payload_too_large");
   assert.equal(

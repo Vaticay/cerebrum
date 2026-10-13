@@ -54,7 +54,10 @@ const WINDOW_MS = 60000;
 // made the first attempt at ringing fail silently: every heartbeat POST came
 // back 400 and no row was ever written.
 const ALLOWED_TYPES = new Set(["hello", "offer", "answer", "ice", "bye", "ring"]);
-const MAX_PAYLOAD_JSON_LEN = 8000; // SDP blobs are a few KB; ICE candidates are tiny
+// Real Chrome video SDPs run well past 8 KB once every codec and
+// extension line is counted. The old 8 KB cap rejected genuine offers
+// with a 413 the caller never saw, so calls rang and never connected.
+const MAX_PAYLOAD_JSON_LEN = 100000; // SDP blobs; ICE candidates are tiny
 const MAX_CLIENT_ID_LEN = 100;
 // Thread ids are server-minted short strings; an unbounded one is either a
 // bug or a probe, and it is interpolated into SQL binds everywhere below.
@@ -196,7 +199,7 @@ export async function onRequest(context) {
       // Hard byte ceiling on the body: readJsonBody refuses an oversized
       // request before it is buffered (a client-supplied Content-Length can
       // lie, so the text is measured too).
-      const parsed = await readJsonBody(request, cors, 64_000);
+      const parsed = await readJsonBody(request, cors, 160_000);
       if (!parsed.ok) return parsed.response;
       const vp = validateSignalPost(parsed.body);
       if (!vp.ok) {
@@ -227,17 +230,40 @@ export async function onRequest(context) {
       // needing a cron trigger this project doesn't otherwise have.
       await env.DB.prepare("DELETE FROM call_signals WHERE thread_id = ? AND created_at < ?")
         .bind(threadId, now - SIGNAL_TTL_MS).run().catch(() => {});
-      // An SDP offer is the one signal that means "a call is starting" —
-      // the ring heartbeat repeats, ICE trickles, but the offer fires once.
-      // Wake the other participants' closed tabs with a push so the call
-      // doesn't depend on them having Cerebrum open. Fire-and-forget: the
-      // signal is already stored, push must never block it.
-      if (type === "offer" && Array.isArray(authorized) && authorized.length) {
+      // The ring is the signal that means "a call is starting", and it is
+      // the one the push hangs off. This used to hang off the SDP offer —
+      // but the caller only creates an offer after the callee says hello,
+      // so a callee with no tab open never said hello, no offer ever
+      // existed, and no push ever fired: the exact deadlock behind
+      // "notifications are broken" for closed tabs. The ring heartbeat
+      // repeats every few seconds, so the push fires on the first ring
+      // of an attempt only (no earlier ring from the same caller in this
+      // thread within 45 seconds). An offer pushes only when no ring
+      // preceded it, which keeps older clients that never ring covered
+      // without double-notifying. Fire-and-forget: the signal is already
+      // stored, push must never block it.
+      let pushCall = false;
+      if ((type === "ring" || type === "offer") && Array.isArray(authorized) && authorized.length) {
+        try {
+          if (type === "ring") {
+            const prior = await env.DB.prepare(
+              "SELECT id FROM call_signals WHERE thread_id = ? AND sender_id = ? AND type = 'ring' AND created_at > ? AND created_at < ? LIMIT 1"
+            ).bind(threadId, user.id, now - 45000, now).first();
+            pushCall = !prior;
+          } else {
+            const recentRing = await env.DB.prepare(
+              "SELECT id FROM call_signals WHERE thread_id = ? AND sender_id = ? AND type = 'ring' AND created_at > ? LIMIT 1"
+            ).bind(threadId, user.id, now - 60000).first();
+            pushCall = !recentRing;
+          }
+        } catch { pushCall = type === "offer"; }
+      }
+      if (pushCall) {
         const callerId = user.id;
         const calleeIds = authorized.slice();
         const pushWork = (async () => {
           const callerName = await getPushDisplayName(env, callerId);
-          await sendPushToUsers(env, calleeIds, () => buildCallPushPayload({ callerName }));
+          await sendPushToUsers(env, calleeIds, () => buildCallPushPayload({ callerName, threadId }));
         })();
         if (context && typeof context.waitUntil === "function") context.waitUntil(pushWork);
         else pushWork.catch(() => {});

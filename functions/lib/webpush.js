@@ -145,6 +145,23 @@ export function vapidPublicFromPrivate(privBytes) {
   return out;
 }
 
+/**
+ * The VAPID public key the server actually signs with: derived from the
+ * private key whenever one is set, so the public key the client
+ * subscribes with and the key in the VAPID header can never drift from
+ * the signing key. The env copy is only a fallback for when no private
+ * key exists (in which case nothing can be sent anyway). A pasted env
+ * public key that did not match the private key made every push fail
+ * at the push service with nothing logged anywhere.
+ */
+export function vapidPublicKeyForEnv(env) {
+  const priv = (env && env.VAPID_PRIVATE_KEY ? String(env.VAPID_PRIVATE_KEY) : "").trim();
+  if (priv) {
+    try { return b64uEncode(vapidPublicFromPrivate(b64uDecode(priv))); } catch { /* fall through to the env copy */ }
+  }
+  return (env && env.VAPID_PUBLIC_KEY ? String(env.VAPID_PUBLIC_KEY) : "").trim();
+}
+
 /* ── VAPID (RFC 8292) ──────────────────────────────────────────────── */
 
 async function sha256(u8) {
@@ -282,7 +299,7 @@ export function validatePushSubscription(sub) {
  * subscription is dead and should be deleted.
  */
 export async function sendPushMessage(env, subscription, payloadBytes, opts = {}) {
-  const publicKey = (env.VAPID_PUBLIC_KEY || "").trim();
+  const publicKey = vapidPublicKeyForEnv(env);
   const privateKey = (env.VAPID_PRIVATE_KEY || "").trim();
   if (!publicKey || !privateKey) {
     return { ok: false, status: 0, gone: false, error: "vapid_not_configured" };

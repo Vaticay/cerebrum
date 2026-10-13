@@ -21,6 +21,7 @@ import {
   getPushSubscriptionsForUsers,
   sendPushMessage,
   buildMessagePushPayload,
+  vapidPublicKeyForEnv,
 } from "./webpush.js";
 
 const TE = new TextEncoder();
@@ -51,9 +52,8 @@ export async function getPushDisplayName(env, userId) {
  */
 export async function sendPushToUsers(env, userIds, buildPayload) {
   if (!env || !env.DB || !Array.isArray(userIds) || !userIds.length) return;
-  const vapidPublic = (env.VAPID_PUBLIC_KEY || "").trim();
   const vapidPrivate = (env.VAPID_PRIVATE_KEY || "").trim();
-  if (!vapidPublic || !vapidPrivate) return; // not configured — silent no-op
+  if (!vapidPrivate || !vapidPublicKeyForEnv(env)) return; // not configured — silent no-op
   try {
     await env.DB.exec(PUSH_SUBSCRIPTIONS_DDL);
     const subs = await getPushSubscriptionsForUsers(env.DB, userIds);
@@ -80,12 +80,16 @@ export async function sendPushToUsers(env, userIds, buildPayload) {
 /**
  * Build the payload for an incoming call push.
  */
-export function buildCallPushPayload({ callerName }) {
+export function buildCallPushPayload({ callerName, threadId }) {
   const payload = {
     kind: "call",
     title: "Incoming call",
     body: `${callerName} is calling you`,
     url: "/?inbox-open=true",
+    // The service worker builds its notification tag from the thread id;
+    // without it every call shared one tag, so a second caller's
+    // notification silently replaced the first instead of alerting.
+    ...(threadId ? { threadId: String(threadId) } : {}),
   };
   return TE.encode(JSON.stringify(payload));
 }

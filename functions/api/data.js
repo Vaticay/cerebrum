@@ -827,19 +827,18 @@ export async function onRequest(context) {
         if (await isBlockedPair(env, user.id, row.sender_id)) {
           return okRes({ call: null }, 200, cors);
         }
-        const caller = await env.DB.prepare(
-          "SELECT name, username FROM users WHERE id = ?"
-        ).bind(row.sender_id).first();
+        // One shared resolver with the push path: name, then username,
+        // then the email local part — never the full address. This
+        // handler used to run its own lookup whose last resort was the
+        // literal word "Someone", and that word is exactly what the
+        // ringing sheet and the notification toast then showed.
+        const fromName = await getPushDisplayName(env, row.sender_id);
         return new Response(JSON.stringify({
           ok: true,
           call: {
             threadId: row.thread_id,
             fromId: row.sender_id,
-            // Never the email address. auth.js always assigns a username, so
-            // the old `|| caller.email` fallback was unreachable — and it is
-            // the same leak Commit 100 removed from the inbox and thread
-            // queries, left behind in this one.
-            fromName: caller ? (caller.name || caller.username || "Someone") : "Someone",
+            fromName,
             at: row.created_at,
             // Commit 97 — the caller's ring payload says whether this is an
             // audio-only call. Without it the callee always answered with a
