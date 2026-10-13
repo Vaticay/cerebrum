@@ -432,7 +432,8 @@ await test("frontend sends the backend's field names (no phantom mode field)", a
   // The backend reads body.documentText / body.query / body.history and
   // branches on body.stream; a `mode` or `document`/`question` field would
   // be ignored and analysis would 400 as "missing_document".
-  assert.match(src, /\{\s*documentText:\s*text,\s*stream:\s*true\s*\}/, "analyze must send { documentText, stream: true }");
+  assert.match(src, /documentText:\s*text,\s*stream:\s*true/, "analyze must send documentText and stream: true");
+  assert.match(src, /priorSections:\s*resumeSections/, "analyze must carry priorSections on a resume");
   assert.match(src, /documentText:\s*documentText\.trim\(\),\s*query:\s*q,\s*history:\s*historyForRequest,\s*stream:\s*true/, "Q&A must send { documentText, query, history, stream: true }");
   assert.match(src, /documentText:\s*combined,\s*stream:\s*true,\s*query:/, "compare must send { documentText, stream: true, query }");
   assert.ok(!/streamDocumentApi\(\s*\{\s*document:/.test(src), "phantom `document` field sent to /api/document");

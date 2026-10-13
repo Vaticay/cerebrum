@@ -98,5 +98,17 @@ await test("the shelf shows every stored document, with dates", () => {
   assert.ok(appSrc.includes("recentDocs.slice(0, 8)"), "shelf still hides stored documents");
 });
 
+await test("a partial analysis resumes from its finished sections", () => {
+  assert.ok(appSrc.includes("priorSections: resumeSections"), "client never sends priorSections");
+  assert.ok(appSrc.includes("summary.partial && Array.isArray(summary.sections)"), "resume is not gated on a partial summary");
+});
+
+await test("machine notes no longer sit inside the reading matter", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const docSrc = await readFile(new URL("../functions/api/document.js", import.meta.url), "utf8");
+  assert.ok(!docSrc.includes("Best-effort summary: the AI service was unreachable, so the key passages"), "extract note is back in the prose");
+  assert.ok(!docSrc.includes("answer: r.answer + missingNote"), "missing sections note is back in the answer");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

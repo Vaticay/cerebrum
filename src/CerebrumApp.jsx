@@ -15846,6 +15846,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const analyze = async () => {
     const text = documentText.trim();
     if (!text || analyzing) return;
+    // Resume: if the standing summary of this document is partial and
+    // carries its section digests, hand them back so the backend re
+    // digests only the missing chunks instead of the whole paper.
+    const resumeSections = summary && summary.partial && Array.isArray(summary.sections) && summary.sections.length > 0
+      ? summary.sections
+      : null;
     if (!docGate()) return;
     // The backend digests long documents section by section now, so the
     // cap is the paste cap itself — no more telling the person to go cut
@@ -15858,7 +15864,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     // kept on failure: a failed re-analysis must not wipe a good result.
     // Re-running also clears the follow-up Q&A thread — confirm first so a
     // long interrogation isn't silently discarded.
-    if (qaHistory.length > 0 && !window.confirm("Re-running the analysis will clear your follow-up questions for this document. Continue?")) return;
+    if (qaHistory.length > 0 && !window.confirm("Re-running the analysis will clear your follow-up questions for this document. Continue?")) { setAnalyzing(false); return; }
     setQaHistory([]);
     setRightTab("summary");
     const ctrl = new AbortController();
@@ -15869,7 +15875,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       // of `query` selects analysis mode, and stream:true selects the SSE
       // transport the helper parses. A `mode` field would be ignored.
       const result = await streamDocumentApi(
-        { documentText: text, stream: true },
+        {
+          documentText: text, stream: true,
+          // Resume: a partial analysis of this same document hands its
+          // finished section digests back, and the backend re digests
+          // only the missing chunks instead of the whole paper.
+          ...(resumeSections ? { priorSections: resumeSections } : {}),
+        },
         {
           signal: ctrl.signal,
           // Long analyses budget up to ~100s server-side (section-by-section
@@ -16624,7 +16636,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   const present = s.field == null ? true : !!(s.field && String(s.field).trim());
                   const active = rightTab === s.tab;
                   return (
-                    <button key={s.label} type="button" onClick={() => setRightTab(s.tab)} aria-pressed={active}
+                    <button key={s.label} type="button" onClick={() => setRightTab(s.tab)} aria-pressed={s.label === "Limitations" ? false : active}
                       style={{ minHeight: 44, padding: "7px 13px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: active ? 700 : 600,
                         background: active ? withAlpha(accent, 0.2) : present ? withAlpha(accent, 0.08) : "transparent",
                         color: present ? P.ink : P.faint,

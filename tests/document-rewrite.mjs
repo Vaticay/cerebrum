@@ -212,7 +212,8 @@ await test("all providers failing on a long doc still returns a best-effort summ
   assert.ok(result.answer.includes("## Executive Summary"), "missing section header");
   assert.ok(result.answer.includes("## Key Findings"), "missing section header");
   assert.ok(result.answer.includes("## Limitations"), "missing section header");
-  assert.ok(result.answer.includes("Best-effort"), "fallback not labeled honestly");
+  assert.equal(result.model, "extractive", "fallback not labeled honestly in its model field");
+  assert.ok(!result.answer.includes("[Best-effort"), "operator note leaked into the prose");
 });
 
 await test("all providers failing on a short doc still returns a best-effort summary", async () => {
@@ -241,7 +242,7 @@ await test("one failed chunk + working synthesis = honest partial summary", asyn
   assert.equal(result.path, "mapreduce");
   assert.equal(result.partial, true);
   assert.deepEqual(result.missingSections, [failAt + 1]);
-  assert.ok(result.answer.includes("could not be read"), "missing-section note absent from the answer");
+  assert.ok(!result.answer.includes("could not be read"), "missing-section note leaked into the answer prose");
   assert.ok(result.sections[failAt] === null, "sections should carry null for resume");
   assert.ok(result.sections[0] && result.sections[0].length > 0, "good digest missing from resume payload");
 });
@@ -253,7 +254,7 @@ await test("synthesis failing with good digests extracts from the digests", asyn
   assert.equal(result.path, "extractive");
   assert.equal(result.partial, true);
   assert.ok(result.answer.includes("22%"), "digest content lost in fallback");
-  assert.ok(result.answer.includes("Best-effort"), "fallback not labeled");
+  assert.equal(result.model, "extractive", "fallback not labeled in its model field");
 });
 
 await test("happy path still returns the model answer untouched", async () => {
@@ -318,7 +319,7 @@ await test("extractiveSummary carries numbers and names the honest limits", () =
   for (const h of ["## Executive Summary", "## Methodology", "## Key Findings", "## Limitations"]) {
     assert.ok(out.includes(h), `missing ${h}`);
   }
-  assert.ok(out.includes("Best-effort"), "not labeled as best-effort");
+  assert.ok(!out.includes("[Best-effort"), "operator note leaked into the extract");
 });
 
 await test("extractiveSummary never invents limitations", () => {

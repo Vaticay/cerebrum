@@ -76,6 +76,24 @@ await test("the inbox list carries real unread counts and peer identity", () => 
   assert.ok(inboxSrc.includes("t.unreadCount"), "thread rows never render the count");
 });
 
+await test("a failed poll can no longer eject the reader from an open thread", () => {
+  assert.ok(inboxSrc.includes("if (!thread && prevThread) return prevThread;"), "poll failure still blanks the thread");
+});
+
+await test("the unread divider anchors in a never opened thread too", () => {
+  assert.ok(inboxSrc.includes("data.readBefore != null"), "anchor gate still drops a zero cursor");
+  assert.ok(inboxSrc.includes("unreadAnchor != null"), "divider gate still drops a zero anchor");
+});
+
+await test("group list previews name the sender", () => {
+  assert.ok(inboxSrc.includes("senderName"), "client ignores the group sender name");
+  assert.ok(dataSrc.includes("lastSenderName"), "server never sends the group sender name");
+});
+
+await test("unread counts are counted in SQL, not by scanning every message", () => {
+  assert.ok(dataSrc.includes("SELECT COUNT(*) AS n FROM messages"), "unread count still scans all rows");
+});
+
 await test("app badges sum unread messages, not unread threads", () => {
   assert.ok(appSrc.includes("t.unreadCount || (t.unread ? 1 : 0)"), "badge still counts threads");
 });

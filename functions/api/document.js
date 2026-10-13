@@ -650,8 +650,11 @@ function splitSentences(text) {
   return out;
 }
 
-const EXTRACT_NOTE =
-  "[Best-effort summary: the AI service was unreachable, so the key passages below were pulled directly from your document rather than AI-written. Every statement comes from the document text.]";
+// The extractive case is labeled where it belongs, in the result's
+// model field ("extractive", which the reader renders as a notice in
+// the masthead), never as a bracketed operator note inside the prose
+// a person is trying to read.
+const EXTRACT_NOTE = "";
 
 function scoreSentence(s) {
   let score = 0;
@@ -834,7 +837,10 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
         { timeoutMs: SUMMARY_SYNTH_TIMEOUT_MS, idleTimeoutMs: 25000, onToken: () => {}, costCtl }
       );
       return {
-        answer: r.answer + missingNote(failed, chunks.length),
+        // Missing chunks travel in missingSections, which the reader
+        // renders as its partial banner. Appending a bracketed note to
+        // the answer put operator text inside the reading matter.
+        answer: r.answer,
         model: r.model,
         partial: failed.length > 0,
         missingSections: failed,

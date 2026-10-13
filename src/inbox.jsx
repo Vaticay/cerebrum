@@ -655,7 +655,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         // Capture the pre-visit read cursor once per conversation.
         // Later polls report a cursor this visit already advanced, so
         // only the first response can anchor the unread divider.
-        if (data && !data.error && data.readBefore && anchorThreadRef.current !== activeId) {
+        if (data && !data.error && data.readBefore != null && anchorThreadRef.current !== activeId) {
           anchorThreadRef.current = activeId;
           setUnreadAnchor(data.readBefore);
         }
@@ -695,6 +695,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         // A message that arrives while you're on another tab should reach
         // you the same way any other app's would.
         setActiveThread((prevThread) => {
+          // A failed refresh must never eject the reader: a transient
+          // network failure during the poll used to set the thread to
+          // null and dump them back at the conversation picker.
+          if (!thread && prevThread) return prevThread;
           const next = thread;
           try {
             const prevMsgs = (prevThread && prevThread.messages) || [];
@@ -725,7 +729,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           if (prevThread && next && prevThread.id === next.id && Array.isArray(prevThread.messages) && Array.isArray(next.messages) && next.messages.length > 0) {
             const firstNextAt = next.messages[0].createdAt || Infinity;
             const nextIds = new Set(next.messages.map((nm) => nm.id));
-            const older = prevThread.messages.filter((m) => m && m.id && !String(m.id).startsWith("local-") && m.createdAt < firstNextAt && !nextIds.has(m.id));
+            const older = prevThread.messages.filter((m) => m && m.id && !String(m.id).startsWith("local-") && m.createdAt <= firstNextAt && !nextIds.has(m.id));
             if (older.length > 0) {
               return { ...next, messages: [...older, ...next.messages], hasMore: prevThread.hasMore ?? next.hasMore, truncated: prevThread.truncated ?? next.truncated };
             }
@@ -1086,7 +1090,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const sharedTotal = sharedCounts.paper + sharedCounts.image + sharedCounts.audio;
   // The first message this visit had not caught up with, anchored to
   // the read cursor captured before opening marked the thread read.
-  const firstUnreadIdx = unreadAnchor
+  // A never opened thread reports a read cursor of 0, which is a real
+  // anchor (everything in it is unread), not a missing one.
+  const firstUnreadIdx = unreadAnchor != null
     ? ((activeThread && activeThread.messages) || []).findIndex((m) => m && !m.mine && m.createdAt && m.createdAt > unreadAnchor)
     : -1;
 
@@ -1194,7 +1200,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 ? "No messages yet"
                 : t.lastMessage.encrypted
                   ? (t.lastMessage.mine ? "You: " : "") + "Encrypted message"
-                  : (t.lastMessage.mine ? "You: " : "") + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? `Attached: ${t.lastMessage.attachmentTitle}` : ""));
+                  : (t.lastMessage.mine
+                    ? "You: "
+                    : (t.kind === "group" && t.lastMessage.senderName ? t.lastMessage.senderName.split(" ")[0] + ": " : "")
+                    ) + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? `Attached: ${t.lastMessage.attachmentTitle}` : ""));
               // Commit 47: bold name/preview + an accent dot for a genuinely
               // unread thread (t.unread, backed by the real last_read_at
               // column now — see functions/api/data.js) instead of every

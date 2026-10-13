@@ -769,12 +769,20 @@ export async function onRequest(context) {
           // into the same dot. Count the real number so the list, the
           // tab badge, and the favicon can all say how much is waiting.
           const readAtMs = toEpochMs(t.last_read_at);
-          const msgRows = await env.DB.prepare(
-            "SELECT sender_id, created_at FROM messages WHERE thread_id = ?"
-          ).bind(t.id).all();
-          const unreadCount = (msgRows.results || []).filter(
-            (r) => r.sender_id !== user.id && toEpochMs(r.created_at) > readAtMs
-          ).length;
+          // Count in SQL, not by hauling every message of the thread
+          // into JS: the inbox cost should track unread volume, not
+          // total history. created_at is epoch ms (see migration 0019).
+          const countRow = await env.DB.prepare(
+            "SELECT COUNT(*) AS n FROM messages WHERE thread_id = ? AND sender_id != ? AND created_at > ?"
+          ).bind(t.id, user.id, readAtMs).first();
+          const unreadCount = countRow ? (countRow.n || 0) : 0;
+          // Group previews need a name: the latest message in a group
+          // otherwise reads as unattributed text in the list.
+          let lastSenderName = null;
+          if (t.kind === "group" && last && last.sender_id !== user.id) {
+            const sender = await env.DB.prepare("SELECT name, username FROM users WHERE id = ?").bind(last.sender_id).first();
+            lastSenderName = sender ? (sender.name || sender.username || null) : null;
+          }
           items.push({
             id: t.id,
             kind: t.kind,
@@ -798,6 +806,7 @@ export async function onRequest(context) {
               attachmentTitle: last.attachment_title || null,
               attachmentKind: last.attachment_kind || null,
               senderId: last.sender_id,
+              senderName: lastSenderName,
               createdAt: lastCreatedAt,
               mine: last.sender_id === user.id,
             }) : null,
