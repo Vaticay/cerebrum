@@ -521,5 +521,49 @@ await test("sidebar carries a labeled New search action row", async () => {
   assert.match(src, /case "new": newSession\(\); setView\("search"\); break;/, '"new" nav case missing');
 });
 
+// ── promptTruncation: the reader is told what was left out ────────────
+group("promptTruncation — Q&A and compare disclose a shortened document");
+
+await test("Q&A and compare results carry promptTruncation off the result", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // streamDocumentApi resolves with the whole done payload, and the
+  // backend puts promptTruncation on it (null when nothing was cut).
+  // The desk must keep the field on its answer state the way it keeps
+  // the model name, or the structural disclosure dies at the state
+  // boundary and the reader is never told. Exactly two landings exist:
+  // askFollowUp's final history entry and runCompare's final result.
+  const hits = src.split("promptTruncation: (result && result.promptTruncation) || null").length - 1;
+  assert.equal(hits, 2, "askFollowUp and runCompare must both carry result.promptTruncation; found " + hits);
+});
+
+await test("the disclosure renders under Q&A answers in both reader surfaces and under the comparison", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // qaHistory renders twice (the ask first panel and the notebook Q&A
+  // tab); the note must appear in both, or one surface stays silent.
+  const qaNotes = src.split('promptTruncationNote(h.promptTruncation, "answer")').length - 1;
+  assert.equal(qaNotes, 2, "both Q&A render sites must render the truncation note; found " + qaNotes);
+  assert.match(src, /promptTruncationNote\(compareResult\.promptTruncation, "comparison"\)/, "compare result does not render the truncation note");
+  // Every render is gated on the field itself, so a null field (nothing
+  // cut) renders nothing anywhere.
+  const gates = src.split("promptTruncation.documentShortened ? (").length - 1;
+  assert.equal(gates, 3, "all three render sites must gate on documentShortened; found " + gates);
+});
+
+await test("the note is gated on documentShortened, names the omitted count, and is dash free", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const at = src.indexOf("function promptTruncationNote");
+  assert.ok(at > 0, "promptTruncationNote helper missing");
+  const fn = src.slice(at, at + 700);
+  assert.match(fn, /if \(!pt \|\| !pt\.documentShortened\) return null;/, "note must return null when nothing was shortened");
+  assert.match(fn, /pt\.omittedChars/, "note must read the omitted character count off the field");
+  assert.match(fn, /toLocaleString\(\)/, "the count must be formatted the way the surface formats counts");
+  assert.match(fn, /Part of the document was left out of this/, "note wording missing");
+  assert.match(fn, /characters were not read/, "note must say the left out characters were not read");
+  // Owner rule: no dashes of any kind in reader facing copy. The slice
+  // covers the whole helper (body plus its returns), so any hyphen,
+  // en dash, or em dash in the wording fails here.
+  assert.ok(!/[-\u2010-\u2015]/.test(fn), "note copy must contain no dash characters");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

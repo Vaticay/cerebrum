@@ -15987,6 +15987,22 @@ function docMetaPreview(text) {
   if (ym) year = ym[1];
   return { title, authors, journal: "", year, ident: detectDocIdentifier(text) };
 }
+/* Reader facing words for the backend's promptTruncation disclosure
+   (functions/api/document.js): when a document is too long for one
+   prompt, part of it is left out and the result says so structurally.
+   The desk carries that field on its Q&A and compare results and
+   renders this line under the answer it belongs to, so a reader is
+   never left believing the whole document was read when it was not.
+   Returns null when nothing was shortened; the render sites show
+   nothing then. House rule: no dashes of any kind in reader copy. */
+function promptTruncationNote(pt, what) {
+  if (!pt || !pt.documentShortened) return null;
+  const n = Number(pt.omittedChars);
+  if (Number.isFinite(n) && n > 0) {
+    return `Part of the document was left out of this ${what}. About ${n.toLocaleString()} characters were not read.`;
+  }
+  return `Part of the document was left out of this ${what}.`;
+}
 function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
@@ -16047,7 +16063,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   /* Premium pass: the composer input lights its border on focus. */
   const [qaFocus, setQaFocus] = useState(false);
   const [qaBusy, setQaBusy] = useState(false);
-  const [qaHistory, setQaHistory] = useState([]); // [{ query, answer, errorMsg }]
+  const [qaHistory, setQaHistory] = useState([]); // [{ query, answer, model, promptTruncation, budgetExhausted, errorMsg }]
   const [hoverCite, setHoverCite] = useState(null);
   const [extractingPdf, setExtractingPdf] = useState(false);
   const fileInputRef = useRef(null);
@@ -16058,7 +16074,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [docB, setDocB] = useState(""); // second document, for comparison
   const [docBError, setDocBError] = useState("");
   const [showDocB, setShowDocB] = useState(false);
-  const [compareResult, setCompareResult] = useState(null); // {streaming,text}
+  const [compareResult, setCompareResult] = useState(null); // {streaming, text, promptTruncation}
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState("");
   const [recentDocs, setRecentDocs] = useState([]); // [{fp,title,words,updatedAt}]
@@ -16463,7 +16479,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       if (qaGen !== docGen.current) return;
       const finalText = result && result.answer ? result.answer : "";
-      setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: finalText, model: (result && result.model) || null, budgetExhausted: !!(result && result.budgetExhausted) } : x)));
+      setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: finalText, model: (result && result.model) || null, promptTruncation: (result && result.promptTruncation) || null, budgetExhausted: !!(result && result.budgetExhausted) } : x)));
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
       if (qaGen !== docGen.current) return;
@@ -16537,7 +16553,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         }
       );
       if (cmpGen !== docGen.current) return;
-      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "" });
+      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "", promptTruncation: (result && result.promptTruncation) || null });
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
       if (cmpGen !== docGen.current) return;
@@ -17267,6 +17283,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       </div>
                     )}
                     {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
+                    {h.answer && h.promptTruncation && h.promptTruncation.documentShortened ? (
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{promptTruncationNote(h.promptTruncation, "answer")}</div>
+                    ) : null}
                   </div>
                 ))}
                 <div style={{ display: "flex", gap: 8, marginTop: qaHistory.length ? 16 : 0, alignItems: "flex-end" }}>
@@ -17446,6 +17465,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     <>
                       {compareResult.streaming && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 8 }}>Writing the comparison…</div>}
                       {compareResult.text ? renderAnswer(compareResult.text, [], P, accent, hoverCite, setHoverCite) : null}
+                      {!compareResult.streaming && compareResult.promptTruncation && compareResult.promptTruncation.documentShortened ? (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{promptTruncationNote(compareResult.promptTruncation, "comparison")}</div>
+                      ) : null}
                       {!compareResult.streaming && (
                         <UIButton P={P} variant="ghost" onClick={runCompare}
                           style={{ minHeight: 44, marginTop: 14, padding: "12px 16px", borderRadius: 2, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
@@ -17501,6 +17523,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                         </div>
                       )}
                       {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
+                      {h.answer && h.promptTruncation && h.promptTruncation.documentShortened ? (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{promptTruncationNote(h.promptTruncation, "answer")}</div>
+                      ) : null}
                     </div>
                   ))}
                 </>
