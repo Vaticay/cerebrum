@@ -26,7 +26,7 @@
 
 import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
-import { fetchTrendingFeed } from "../lib/trendingSource.js";
+import { fetchTrendingFeed, attachTrendHistory } from "../lib/trendingSource.js";
 import { resolveLeadMedia } from "./image.js";
 
 
@@ -197,6 +197,40 @@ async function listEditions(env) {
   } catch { return []; }
 }
 
+// ── Trend signal from the archive ───────────────────────────────────
+// The archive is the pipeline's own memory, so it is also where the
+// trend signal comes from: before a build is written, its items are
+// matched against the archived editions and each leaves carrying a
+// `trend` record (see attachTrendHistory in trendingSource.js) saying
+// on how many distinct edition days the work has appeared. A build
+// with no archive behind it still gets honest values: every item is
+// on its first day. Never throws; a failed archive read degrades to
+// first day values, not to a failed build.
+async function loadPriorEditions(env) {
+  try {
+    if (!env.DB) return [];
+    await ensureEditionsTable(env);
+    const { results } = await env.DB.prepare(
+      "SELECT edition_id, payload FROM trending_editions ORDER BY generated_at DESC LIMIT ?"
+    ).bind(EDITION_KEEP).all();
+    return (results || [])
+      .map((r) => {
+        const parsed = parseCachePayload({ payload: r.payload, fetched_at: 0 });
+        return { id: r.edition_id, items: parsed ? parsed.items : [] };
+      })
+      .filter((e) => e.id && e.items.length);
+  } catch { return []; }
+}
+
+export async function withEditionTrend(env, items, generatedAt) {
+  try {
+    const priors = await loadPriorEditions(env);
+    return attachTrendHistory(items, priors, editionIdOf(generatedAt));
+  } catch {
+    return items;
+  }
+}
+
 // Refreshes the cache row from upstream. Never throws — this runs
 // detached via waitUntil() where a rejection has nobody to catch it, and
 // a failed background refresh must not affect the response already sent.
@@ -205,13 +239,18 @@ async function refreshCache(env) {
     const feed = await fetchTrendingFeed();
     let items = feed.items;
     if (!Array.isArray(items) || items.length === 0) return;
+    const genAt = Date.now();
+    // Trend history attaches before anything else enriches the items:
+    // it reads the archive as it stood before this build, and the
+    // build's own edition joins the archive only when it is written
+    // below, so a work can never count itself twice for one day.
+    items = await withEditionTrend(env, items, genAt);
     // Every item leaves here carrying verified lead media (or an honest
     // empty) — see attachMedia/enrichTrendingMedia below. This is the pass
     // that puts pictures back on the biology/medicine/preprint/physics
     // cards: those sources ship no thumbnails of their own, so without this
     // enrichment three quarters of the feed can never have lead media.
     items = await enrichTrendingMedia(env, items);
-    const genAt = Date.now();
     const body = JSON.stringify({ items, generatedAt: genAt, sourceHealth: feed.sourceHealth });
     await env.DB.prepare(
       "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
@@ -417,8 +456,13 @@ export async function onRequest(context) {
   // ---- Fallback: cache missing, stale, ancient, or no DB bound. Fetch live. ----
   try {
     const feed = await fetchTrendingFeed();
-    const items = feed.items;
+    let items = feed.items;
     const generatedAt = Date.now();
+    // Same trend history as the background refresh path, so a live
+    // built edition and a cache built one describe their items the
+    // same way. Fails soft inside withEditionTrend when the archive
+    // cannot be read.
+    if (env.DB) items = await withEditionTrend(env, items, generatedAt);
     const body = JSON.stringify({ items, generatedAt, sourceHealth: feed.sourceHealth });
     // Opportunistically warm the cache with this live result too, so the
     // next visitor — and the next hourly refresh, whenever it lands —

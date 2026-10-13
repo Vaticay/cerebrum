@@ -16,7 +16,7 @@
 // shouldn't be left open to the public internet.
 
 import { fetchTrendingFeed } from "../lib/trendingSource.js";
-import { enrichTrendingMedia } from "./trending.js";
+import { enrichTrendingMedia, withEditionTrend } from "./trending.js";
 
 let _tableEnsured = false;
 async function ensureTable(env) {
@@ -60,6 +60,10 @@ export async function onRequest(context) {
       // an empty one. The next hourly run gets another try.
       return json({ ok: false, reason: "Source returned no usable articles; existing cache left unchanged." }, 502);
     }
+    // Same trend history as the read endpoint's own refresh: a manual
+    // rebuild must describe its items the same way, or the trend
+    // record would reset to first day values on every manual run.
+    items = await withEditionTrend(env, items, Date.now());
     // Same enrichment as the read endpoint's own refresh: writing raw
     // items here used to strip every resolved media slot from the cache
     // until the next background cycle put them back.

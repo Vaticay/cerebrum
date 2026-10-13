@@ -311,7 +311,9 @@ export function buildTrendingItem(a, category) {
     title: cleanTrendingText(a.title),
     // 3000 chars: the story modal promises the fullest summary the
     // source provided; the old 900 char cap cut abstracts mid sentence.
-    summary: cleanTrendingText(a.summary).slice(0, 3000),
+    // The finish pass below then makes sure what survives ends at a
+    // sentence boundary, or admits with an ellipsis that it was cut.
+    summary: finishTrendingSummary(cleanTrendingText(a.summary).slice(0, 3000)),
     summaryMissing: !!a.summaryMissing,
     url: (a.url || "").trim(),
     image_url: a.image_url || "",
@@ -335,7 +337,162 @@ export function buildTrendingItem(a, category) {
   };
 }
 
+// ── Sentence aware summary endings ─────────────────────────────────
+// Upstream summaries regularly stop mid sentence: scraped page text
+// runs out, and the 3000 char cap above can cut an abstract in half.
+// A card that trails off mid clause reads as broken, so every summary
+// is finished one of two honest ways: trimmed back to its last
+// sentence boundary when that keeps at least half the text, or closed
+// with an ellipsis that admits the cut. Text that already ends at a
+// sentence boundary is returned untouched.
+const SENTENCE_END_RE = /[.!?]["'”’)\]]*$/;
+export function finishTrendingSummary(text) {
+  const t = String(text || "").trim();
+  if (!t) return t;
+  if (SENTENCE_END_RE.test(t) || t.endsWith("…")) return t;
+  const boundaryRe = /[.!?]+["'”’)\]]*\s+/g;
+  let cut = -1;
+  let m;
+  while ((m = boundaryRe.exec(t)) !== null) cut = m.index + m[0].length;
+  if (cut >= Math.floor(t.length / 2)) return t.slice(0, cut).trim();
+  return t + "…";
+}
+
+// ── Edition window ─────────────────────────────────────────────────
+// An edition presented as today's trending cannot hold items from a
+// past quarter. Production evidence (live edition of 2026-10-13): a
+// paper first published 2026-06-25, 110 days earlier, sat in the
+// current edition because nothing ever checked. The window is 90
+// days, stated here rather than buried in a comparison: scholarly
+// print dates lag first online dates by weeks, so the window is a
+// quarter rather than a news cycle, and it still removes the stale
+// tail (the next oldest item in that edition was 61 days). An item
+// whose date is missing or unparseable is kept: every source in this
+// pipeline supplies a date, and an item that cannot be dated cannot
+// be proven stale either. Dropping on suspicion would be its own
+// kind of invention.
+export const EDITION_WINDOW_DAYS = 90;
+export function isWithinEditionWindow(item, now) {
+  const raw = item && item.publishedAt;
+  if (!raw) return true;
+  const ts = new Date(raw).getTime();
+  if (!Number.isFinite(ts)) return true;
+  return now - ts <= EDITION_WINDOW_DAYS * 86400000;
+}
+
+// ── Citation completion ────────────────────────────────────────────
+// Exactly one source (Europe PMC) reports citation counts, and its
+// window is the newest journal papers, whose counts are a genuine
+// zero: the citations do not exist yet. The counts that do exist for
+// this feed live on the preprint side, where a work keeps the DOI it
+// was first posted under months before its latest version date.
+// OpenAlex indexes those works and reports a real cited_by_count, so
+// one batch lookup per build completes the picture for every item
+// whose own source reported nothing. Verified against the live
+// edition of 2026-10-13: OpenAlex resolved 20 of the 20 resolvable
+// DOIs and returned positive counts where Europe PMC's window
+// structurally cannot (7 and 1 on two bioRxiv papers). An item
+// OpenAlex does not know stays null: no data, never a guessed zero.
+// A reported count from the item's own source is never overwritten.
+function openAlexLookupDoi(item) {
+  const raw = item && item.doi ? String(item.doi).trim() : "";
+  if (!raw) return null;
+  if (raw.includes("/")) return raw;
+  // The arXiv parse stores the bare identifier ("2610.13922v1").
+  // OpenAlex knows the work under its arXiv DOI, without the version.
+  const base = raw.replace(/v\d+$/i, "");
+  if (/^\d{4}\.\d{4,5}$/.test(base)) return "10.48550/arXiv." + base;
+  return null;
+}
+
+async function enrichCitationCounts(items) {
+  const wanted = new Map();
+  for (const item of items || []) {
+    if (item.citedByCount !== null && item.citedByCount !== undefined) continue;
+    const doi = openAlexLookupDoi(item);
+    if (!doi) continue;
+    // Keyed lowercase for matching OpenAlex's normalized reply, but
+    // the request itself carries the DOI in its canonical form.
+    const key = doi.toLowerCase();
+    if (!wanted.has(key)) wanted.set(key, { doi, items: [] });
+    wanted.get(key).items.push(item);
+  }
+  if (!wanted.size) return;
+  try {
+    const url = "https://api.openalex.org/works?filter=doi:" + [...wanted.values()].map((w) => w.doi).join("|") +
+      "&select=doi,cited_by_count&per-page=100&mailto=contact@askcerebrum.org";
+    const data = await getJSON(url, 8000);
+    for (const w of (data && data.results) || []) {
+      const key = String(w.doi || "").replace(/^https?:\/\/doi\.org\//i, "").toLowerCase();
+      const target = wanted.get(key);
+      if (!target) continue;
+      const n = Number(w.cited_by_count);
+      if (!Number.isFinite(n) || n < 0) continue;
+      for (const item of target.items) item.citedByCount = Math.floor(n);
+    }
+  } catch {
+    // OpenAlex unreachable: counts stay "no data", never guessed.
+  }
+}
+
+// ── Trend signal: persistence across the edition archive ───────────
+// Citations alone cannot say what is trending in a feed of days old
+// papers; there has not been time for them to accrue. What the
+// pipeline itself observes, and no outside source can sell it, is
+// staying power: the edition archive (D1, newest fourteen days) shows
+// which works keep appearing day after day while the sources churn
+// around them. Each item leaves the build carrying
+//   trend: { daysPresent, firstSeenEdition }
+// where daysPresent counts the distinct edition days, this build
+// included, in which the same work appears, matched on DOI, then
+// normalized URL, then normalized title. On the archive's first day
+// every item honestly reads 1. compareByTrend is the edition's
+// trend ordering: most days present first, then most cited (a
+// missing count ranks below any reported one), then newest.
+export function trendingItemKey(item) {
+  if (!item) return null;
+  if (item.doi) return "doi:" + String(item.doi).trim().toLowerCase();
+  if (item.url) return "url:" + normalizeUrl(String(item.url));
+  if (item.title) return "title:" + normalizeTitle(String(item.title));
+  return null;
+}
+
+export function attachTrendHistory(items, priorEditions, currentEditionId) {
+  const seenIn = new Map();
+  for (const ed of priorEditions || []) {
+    if (!ed || !ed.id || ed.id === currentEditionId) continue;
+    for (const it of ed.items || []) {
+      const k = trendingItemKey(it);
+      if (!k) continue;
+      if (!seenIn.has(k)) seenIn.set(k, new Set());
+      seenIn.get(k).add(ed.id);
+    }
+  }
+  return (items || []).map((item) => {
+    const k = trendingItemKey(item);
+    const days = k && seenIn.has(k) ? [...seenIn.get(k)] : [];
+    return {
+      ...item,
+      trend: {
+        daysPresent: days.length + 1,
+        firstSeenEdition: days.length ? days.sort()[0] : currentEditionId,
+      },
+    };
+  });
+}
+
+export function compareByTrend(a, b) {
+  const da = a && a.trend && Number.isFinite(a.trend.daysPresent) ? a.trend.daysPresent : 0;
+  const db = b && b.trend && Number.isFinite(b.trend.daysPresent) ? b.trend.daysPresent : 0;
+  if (db !== da) return db - da;
+  const ca = a && typeof a.citedByCount === "number" ? a.citedByCount : -1;
+  const cb = b && typeof b.citedByCount === "number" ? b.citedByCount : -1;
+  if (cb !== ca) return cb - ca;
+  return new Date((b && b.publishedAt) || 0).getTime() - new Date((a && a.publishedAt) || 0).getTime();
+}
+
 export async function fetchTrendingFeed() {
+  const now = Date.now();
   const perSource = await Promise.all(SOURCES.map(async (src) => {
     try {
       // Source URLs may be thunks (see the bioRxiv entry) so date windows
@@ -376,6 +533,10 @@ export async function fetchTrendingFeed() {
       // abstract); a title and a link are not — without those there's
       // nothing to show and nowhere to send anyone.
       if (!item.title || !item.url) continue;
+      // Edition window: an item provably older than the window never
+      // enters the edition, and never claims a dedup slot either, so a
+      // fresher copy of the same work can still take its place.
+      if (!isWithinEditionWindow(item, now)) continue;
       const urlKey = normalizeUrl(item.url);
       const doiKey = item.doi ? String(item.doi).toLowerCase() : null;
       const titleKey = normalizeTitle(item.title);
@@ -406,6 +567,10 @@ export async function fetchTrendingFeed() {
   for (let i = 0; items.length < 40 && buckets.some((b) => i < b.length); i++) {
     for (const b of buckets) if (i < b.length) items.push(b[i]);
   }
+  // Complete the citation picture for items whose own source reported
+  // nothing, before health counts are taken: the counts below describe
+  // this finished edition, and so do the counts on its items.
+  await enrichCitationCounts(items);
   for (const h of sourceHealth) {
     h.count = items.filter((it) => it.category === h.source).length;
   }

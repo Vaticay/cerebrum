@@ -56,11 +56,13 @@ await test("the briefing band ranks the edition", () => {
 });
 
 await test("the most cited rail stays hidden while the feed sends no counts", () => {
-  // The live edition payload carries citedByCount null on most
-  // records and a genuine reported zero on the rest (verified
-  // 2026-10-13). A rail ranking by a signal that is not
-  // there would be decoration pretending to be data, so the band
-  // renders only the newest rail until real counts arrive.
+  // When this pin was written the live edition carried citedByCount
+  // null on most records and a genuine reported zero on the rest, so
+  // a rail ranking by citations would have been decoration. Counts
+  // now arrive completed from OpenAlex (see the fixture edition
+  // below), but the rail itself remains the client's choice: this
+  // pin guards the app never rendering a "most cited" rail the
+  // redesign did not build, whatever the payload carries.
   assert.ok(!appSrc.includes("Most cited in this edition"), "most cited rail is rendered without data");
 });
 
@@ -145,6 +147,179 @@ await test("past editions are archived and offered in the masthead", async () =>
 await test("backend comments point at the real view and the real refresh story", () => {
   assert.ok(!trendingSrc.includes("src/main.jsx"), "trending.js still points at a file that does not hold the view");
   assert.ok(!refreshSrc.includes(".github/workflows/refresh-trending.yml calls"), "refresh endpoint still claims a deleted workflow calls it");
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Behavioral fixture edition.
+//
+// The pins above read source text. This section instead builds a
+// whole edition through fetchTrendingFeed with stubbed sources and
+// asserts what the edition itself guarantees: the date floor holds,
+// summaries end honestly, citation counts are completed from
+// OpenAlex without ever overwriting a source's own report or
+// inventing one, and source health describes the built edition.
+// Dates are computed from the run's own clock so the fixture cannot
+// go stale the way a hard coded date would.
+
+function stubFetchGlobal(handler) {
+  const saved = globalThis.fetch;
+  globalThis.fetch = handler;
+  return () => { globalThis.fetch = saved; };
+}
+function jsonResponse(obj) {
+  return new Response(JSON.stringify(obj), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+const DAY_MS = 86400000;
+const isoDaysAgo = (n) => new Date(Date.now() - n * DAY_MS).toISOString().slice(0, 10);
+
+const openAlexRequests = [];
+function fixtureFetch(url) {
+  const u = String(url);
+  if (u.includes("europepmc")) {
+    return jsonResponse({ resultList: { result: [
+      { title: "Fresh journal paper.", abstractText: "This study reports a complete and self contained first sentence about the work. A second clause then trails off mid",
+        doi: "10.9/fresh", journalTitle: "J Fixture", firstPublicationDate: isoDaysAgo(2) },
+      { title: "Counted journal paper.", abstractText: "An abstract that ends properly.",
+        doi: "10.9/counted", journalTitle: "J Fixture", firstPublicationDate: isoDaysAgo(3), citedByCount: 5 },
+      { title: "Stale journal paper.", abstractText: "An old abstract that ends properly.",
+        doi: "10.9/stale", journalTitle: "J Fixture", firstPublicationDate: isoDaysAgo(120) },
+    ] } });
+  }
+  if (u.includes("biorxiv")) {
+    return jsonResponse({ collection: [
+      { title: "Preprint with a citation history", abstract: "A complete abstract.",
+        doi: "10.1101/2025.01.01.000001", category: "neuroscience", date: isoDaysAgo(1) },
+    ] });
+  }
+  if (u.includes("export.arxiv.org")) {
+    const xml = `<feed><entry><title>An arXiv paper</title><summary>Arxiv abstract.</summary>` +
+      `<id>http://arxiv.org/abs/2601.00001v1</id><published>${new Date().toISOString()}</published>` +
+      `<category term="physics.chem-ph"/></entry></feed>`;
+    return new Response(xml, { status: 200, headers: { "Content-Type": "application/atom+xml" } });
+  }
+  if (u.includes("spaceflightnewsapi")) {
+    return jsonResponse({ results: [
+      { title: "Launch campaign update", summary: "A long rolling update about the launch campaign and the teams preparing the vehicle for its next attempt on the pad",
+        url: "https://news.example/launch", image_url: "", news_site: "Fixture News", published_at: new Date().toISOString() },
+    ] });
+  }
+  if (u.includes("api.openalex.org")) {
+    openAlexRequests.push(u);
+    const counts = { "10.1101/2025.01.01.000001": 7, "10.48550/arxiv.2601.00001": 3, "10.9/counted": 99 };
+    const filter = decodeURIComponent(u.split("filter=doi:")[1].split("&")[0]);
+    const results = filter.split("|")
+      .filter((d) => Object.prototype.hasOwnProperty.call(counts, d.toLowerCase()))
+      .map((d) => ({ doi: "https://doi.org/" + d, cited_by_count: counts[d.toLowerCase()] }));
+    return jsonResponse({ results });
+  }
+  throw new Error("unexpected url: " + u);
+}
+
+await test("fixture edition: floor, finished summaries, completed counts, truthful health", async () => {
+  const restore = stubFetchGlobal(fixtureFetch);
+  let feed;
+  try { feed = await (await import(join(root, "functions/lib/trendingSource.js"))).fetchTrendingFeed(); }
+  finally { restore(); }
+  const { items, sourceHealth } = feed;
+
+  // The 120 day old paper never enters the edition; the rest do.
+  assert.equal(items.length, 5, "edition should hold five items after the floor");
+  assert.ok(!items.some((i) => i.title.includes("Stale")), "stale item survived the date floor");
+
+  // Source health describes the edition that was built, not the raw
+  // upstream return (Europe PMC sent three, the edition holds two).
+  for (const h of sourceHealth) {
+    assert.equal(h.count, items.filter((i) => i.category === h.source).length, `health count wrong for ${h.source}`);
+    assert.equal(h.ok, h.count > 0, `health ok flag wrong for ${h.source}`);
+  }
+  assert.equal(sourceHealth.find((h) => h.source === "Biology & Medicine").count, 2);
+
+  // Every summary ends at a sentence boundary or admits its cut.
+  const sentenceEnd = /[.!?]["'”’)\]]*$/;
+  for (const i of items) {
+    const s = (i.summary || "").trim();
+    if (!s) continue;
+    assert.ok(sentenceEnd.test(s) || s.endsWith("…"), `summary ends mid sentence: …${s.slice(-40)}`);
+  }
+  const fresh = items.find((i) => i.title === "Fresh journal paper");
+  assert.equal(fresh.summary, "This study reports a complete and self contained first sentence about the work.",
+    "mid sentence summary was not trimmed to its last sentence boundary");
+  const story = items.find((i) => i.category === "Space");
+  assert.ok(story.summary.endsWith("…"), "summary with no usable boundary carries no truncation marker");
+
+  // Counts: OpenAlex completes what sources did not report, a
+  // source's own report is never overwritten, and a work no source
+  // knows stays null rather than becoming a guessed zero.
+  const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
+  assert.equal(byTitle["Preprint with a citation history"].citedByCount, 7, "OpenAlex count not applied to the preprint");
+  assert.equal(byTitle["An arXiv paper"].citedByCount, 3, "OpenAlex count not applied to the arXiv paper");
+  assert.equal(byTitle["Counted journal paper"].citedByCount, 5, "a source's own count was overwritten");
+  assert.equal(byTitle["Fresh journal paper"].citedByCount, null, "unknown work gained an invented count");
+  assert.equal(byTitle["Launch campaign update"].citedByCount, null, "press item gained an invented count");
+
+  // The lookup itself is one batch, uses the arXiv DOI form without
+  // the version suffix, and never asks about works already counted.
+  assert.equal(openAlexRequests.length, 1, "OpenAlex was not queried exactly once");
+  assert.ok(openAlexRequests[0].includes("10.48550/arXiv.2601.00001"), "arXiv lookup DOI form wrong");
+  assert.ok(!openAlexRequests[0].includes("2601.00001v1"), "versioned arXiv id sent as a DOI");
+  assert.ok(!openAlexRequests[0].includes("10.9/counted"), "already counted work was looked up again");
+});
+
+await test("summary finishing: boundaries, decimals, and the marker", async () => {
+  const { finishTrendingSummary } = await import(join(root, "functions/lib/trendingSource.js"));
+  assert.equal(finishTrendingSummary("Already complete."), "Already complete.");
+  assert.equal(finishTrendingSummary(""), "");
+  // A decimal point inside a number is not a sentence boundary; the
+  // cut lands on the real one before it.
+  assert.equal(
+    finishTrendingSummary("The agency committed funds in 2027. NOK 223.5 million"),
+    "The agency committed funds in 2027."
+  );
+  // No usable boundary in the back half: the ellipsis admits the cut.
+  const marked = finishTrendingSummary("Details are on the agency site. NASA Engineering and Safety Center (NESC) Activity");
+  assert.ok(marked.endsWith("…"), "boundary too far back should fall back to the marker");
+});
+
+await test("edition window: ninety days, stated once, missing dates kept", async () => {
+  const { isWithinEditionWindow, EDITION_WINDOW_DAYS } = await import(join(root, "functions/lib/trendingSource.js"));
+  assert.equal(EDITION_WINDOW_DAYS, 90);
+  const now = Date.UTC(2026, 9, 13);
+  assert.equal(isWithinEditionWindow({ publishedAt: "2026-07-16" }, now), true, "89 day old item dropped");
+  assert.equal(isWithinEditionWindow({ publishedAt: "2026-07-14" }, now), false, "91 day old item kept");
+  assert.equal(isWithinEditionWindow({ publishedAt: "2026-10-20" }, now), true, "future dated item dropped");
+  assert.equal(isWithinEditionWindow({ publishedAt: null }, now), true, "undated item dropped on suspicion");
+  assert.equal(isWithinEditionWindow({ publishedAt: "not a date" }, now), true, "unparseable date dropped on suspicion");
+});
+
+await test("trend history: days present across editions, first seen, ordering", async () => {
+  const { attachTrendHistory, compareByTrend } = await import(join(root, "functions/lib/trendingSource.js"));
+  const x = { title: "Work X as first titled", doi: "10.1/x", url: "https://doi.org/10.1/x", citedByCount: 0, publishedAt: "2026-10-01" };
+  const y = { title: "Work Y", url: "https://news.example/y", citedByCount: null, publishedAt: "2026-10-05" };
+  const priors = [
+    { id: "2026-10-11", items: [{ title: "Work X under a different title", doi: "10.1/X" }] },
+    { id: "2026-10-12", items: [{ doi: "10.1/x" }, { url: "https://news.example/y/" }] },
+    // Today's earlier build is already archived; it must not count
+    // the work twice for the same day.
+    { id: "2026-10-13", items: [{ doi: "10.1/x" }] },
+  ];
+  const [ax, ay, az] = attachTrendHistory([x, y, { title: "Brand new work", url: "https://news.example/z" }], priors, "2026-10-13");
+  assert.equal(ax.trend.daysPresent, 3, "work seen on two prior days plus today should read 3");
+  assert.equal(ax.trend.firstSeenEdition, "2026-10-11");
+  assert.equal(ay.trend.daysPresent, 2, "URL matched work should read 2");
+  assert.equal(ay.trend.firstSeenEdition, "2026-10-12");
+  assert.equal(az.trend.daysPresent, 1, "a new work is on its first day");
+  assert.equal(az.trend.firstSeenEdition, "2026-10-13");
+
+  const mk = (doi, daysPresent, citedByCount, publishedAt) => ({ doi, trend: { daysPresent }, citedByCount, publishedAt });
+  const shuffled = [
+    mk("z", 1, null, "2026-10-13"),
+    mk("y", 2, 0, "2026-10-12"),
+    mk("x", 3, 0, "2026-10-10"),
+    mk("w", 3, 12, "2026-10-09"),
+    mk("v", 3, 12, "2026-10-11"),
+  ];
+  const ordered = [...shuffled].sort(compareByTrend).map((i) => i.doi);
+  assert.deepEqual(ordered, ["v", "w", "x", "y", "z"], "trend ordering is not days, then citations, then recency");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
