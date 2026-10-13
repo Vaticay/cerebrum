@@ -6093,7 +6093,13 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
         <ReceptionLine source={source} P={P} tally={tally} />
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
-            {terms ? highlightKeywords(source.tldr, terms) : source.tldr}
+            {(() => {
+              // The TLDR renders as raw text, so underscore emphasis marks
+              // around a species name would print literally. Strip them;
+              // the block is already set in italic type.
+              const t = String(source.tldr).replace(/_([^_\n]+)_/g, "$1");
+              return terms ? highlightKeywords(t, terms) : t;
+            })()}
           </div>
         )}
       </div>

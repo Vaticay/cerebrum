@@ -134,6 +134,11 @@ function cleanText(s) {
   return String(s || "")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\*([^*]+)\*/g, "$1")
+    // Cortex claims inherit the answer's markdown, where species names
+    // are underscore wrapped. This cleaner predates that convention, so
+    // the underscore marks survived literally on cards.
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
     .replace(/\[(\d+)\]/g, "")
     .replace(/\s+/g, " ")
     .replace(/\s+([.,!?;:])/g, "$1")
