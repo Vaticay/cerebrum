@@ -886,12 +886,634 @@ function CategoryArt({ motif, pair, height, radius = 16 }) {
   );
 }
 
+/* ── built in curriculum ───────────────────────────────────────────
+   Paths a visitor can learn from with no search and no papers: the
+   concepts are taught directly, in small steps, with activities.
+   Papers become optional depth at the end of a lesson, never a gate.
+   Content is standard textbook knowledge, written for a curious
+   twelve year old, in plain words. Card factories keep the data
+   compact; the validators below keep it honest. */
+
+const BUILTIN_PROGRESS_KEY = "cerebrum-learn2-progress";
+
+function loadBuiltinProgress() {
+  const p = loadJSON(BUILTIN_PROGRESS_KEY, null);
+  if (p && p.lessons) return p;
+  return { lessons: {}, lastPathId: "", lastLessonId: "" };
+}
+function saveBuiltinProgress(p) { saveJSON(BUILTIN_PROGRESS_KEY, p); }
+
+const mkNote = (kicker, title, text) => ({ kind: "note", kicker, title, text });
+const mkQuiz = (question, options, correct, why) => ({ kind: "quiz", question, options, correct, why });
+const mkTrueFalse = (statement, answer, why) => ({
+  kind: "truefalse", statement, answer, correct: answer ? 0 : 1,
+  options: ["True", "False"], why,
+});
+const mkMatch = (prompt, pairs, why) => ({
+  kind: "match", question: prompt, prompt, why,
+  pairs: pairs.map(([left, right]) => ({ left, right })),
+});
+const mkOrder = (prompt, items, why) => ({ kind: "order", question: prompt, prompt, items, why });
+const mkDeepen = (text) => ({ kind: "deepen", text });
+
+export const LEARNING_PATHS = [
+  {
+    id: "how-science-works",
+    title: "How Science Works",
+    blurb: "How we know what we know: questions, tests, and evidence.",
+    category: "Mind and Brain",
+    units: [
+      {
+        id: "sci-asking", title: "Asking Good Questions", subtitle: "The start of every discovery",
+        lessons: [
+          {
+            id: "sci-questions", title: "Questions That Can Be Tested", subtitle: "Science starts with a question the world can answer",
+            cards: [
+              mkNote("The big idea", "Science starts with a question",
+                "Science begins when someone asks a question the world can answer. Not every question works. A good science question points at something you can observe, count, or measure, so the answer can be checked by anyone who repeats the work."),
+              mkQuiz("Which of these questions can science test directly?",
+                ["Which song is the most beautiful ever written?", "Do plants grow faster in sunlight or in shade?", "What is the meaning of life?", "Which color is the luckiest?"],
+                1,
+                "Growth can be measured, so the plant question can be tested. Beauty, meaning, and luck rest on opinion, so no test can settle them."),
+              mkMatch("Match each word to what it means.",
+                [["Observe", "Watch or measure something carefully"], ["Evidence", "Facts that support an idea"], ["Test", "A check that can be repeated"], ["Question", "Something you want to find out"]],
+                "These four words run the whole of science: a question, a test, careful observing, and the evidence that comes back."),
+              mkTrueFalse("A scientific test only counts if it works one time.",
+                false,
+                "A result you can trust can be repeated. If a test works once and never again, scientists suspect luck, an error, or a hidden difference in how it was done."),
+              mkQuiz("A claim is testable when...",
+                ["everyone already agrees with it", "an observation could show it is wrong", "it sounds impressive", "it has been believed for a long time"],
+                1,
+                "If nothing you could observe would ever count against a claim, there is no way to test it. Testable claims stick their neck out."),
+              mkDeepen("Go deeper: the findings in Cortex courses come from real papers, and the pretesting effect is one of them. Guessing before you study makes the answer stick. Build a course from a search to see the evidence yourself."),
+            ],
+          },
+          {
+            id: "sci-hypothesis", title: "Guesses You Can Check", subtitle: "What a hypothesis really is",
+            cards: [
+              mkNote("Key idea", "A hypothesis is a careful guess",
+                "A hypothesis is a possible answer stated clearly enough to be tested. It is more than a hunch. It says what you expect to happen, and what you expect not to happen, before the test begins."),
+              mkQuiz("Which of these is a hypothesis?",
+                ["Plants are wonderful.", "Fertilizer will make these tomato plants grow taller than plants without it.", "Maybe something will happen.", "Science is hard."],
+                1,
+                "The fertilizer statement predicts a result that a test can confirm or rule out. The others are feelings or maybes, and a test cannot touch them."),
+              mkOrder("Put the steps of a simple investigation in order.",
+                ["Ask a question", "Make a hypothesis", "Run a test", "Compare the result with the hypothesis", "Share what you found"],
+                "Question first, then a guess, then a test, then a comparison, then sharing, so other people can check the work for themselves."),
+              mkTrueFalse("A hypothesis that turns out to be wrong was a waste of time.",
+                false,
+                "A wrong hypothesis still teaches something real: that explanation is not the one. Ruling out wrong answers is progress, not failure."),
+              mkQuiz("Why do scientists write the hypothesis down before the test?",
+                ["To make the report longer", "So the prediction cannot be quietly changed after the results arrive", "Because journals like long documents", "To impress other scientists"],
+                1,
+                "Writing it first keeps everyone honest. A prediction invented after seeing the results is not a prediction at all."),
+              mkDeepen("Go deeper: real papers state their hypotheses up front, in the introduction, before a single result appears. Build a course from a search and watch for that pattern in the findings."),
+            ],
+          },
+        ],
+      },
+      {
+        id: "sci-evidence", title: "Evidence and Proof", subtitle: "What the world says back",
+        lessons: [
+          {
+            id: "sci-what-counts", title: "What Counts as Evidence", subtitle: "Observations beat opinions",
+            cards: [
+              mkNote("The big idea", "Evidence is what the world says back",
+                "Evidence is information gathered by observing and measuring: counts, weights, times, photographs, records. A strong opinion is not evidence, and neither is a good story by itself. Evidence is the part anyone else can go and check."),
+              mkMatch("Match each word to what it means.",
+                [["Claim", "A statement that could be true or false"], ["Data", "Measurements and observations you collect"], ["Anecdote", "A single story about what happened once"], ["Conclusion", "What the evidence points to, in the end"]],
+                "Claims are cheap. Data is what you gather. A conclusion is what the data supports once you have it."),
+              mkQuiz("Which is the strongest evidence that a new medicine works?",
+                ["A famous actor says it helped him", "One patient felt better after taking it", "A large study where similar patients took the medicine or a dummy pill, and more of the medicine group recovered", "The company that sells it says it works"],
+                2,
+                "Big groups and fair comparisons win. A single story can be luck, and a seller has a reason to praise the product."),
+              mkTrueFalse("One personal story can be true and still be weak evidence.",
+                true,
+                "Both can hold at once. One story might be exactly what happened, but a single case cannot show what usually happens."),
+              mkQuiz("Two friends disagree about whether it rained more this year than last year. What settles it?",
+                ["Whoever argues loudest", "Rainfall records for both years", "Whoever is older", "A coin toss"],
+                1,
+                "Records beat memories. Measurements written down at the time do not depend on who remembers best."),
+              mkDeepen("Go deeper: Cortex courses are built from study findings, and each finding is a small piece of evidence with its paper attached. Build one and judge the strength of each piece yourself."),
+            ],
+          },
+          {
+            id: "sci-repeat", title: "Why Scientists Repeat Tests", subtitle: "Once is a hint, twice is a pattern",
+            cards: [
+              mkNote("Key idea", "Once is a hint, twice is a pattern",
+                "A single study can be a fluke, a mistake, or plain luck. When other scientists repeat the test and get the same result, confidence grows. Science trusts results that survive repetition, not results that happened once."),
+              mkQuiz("A study finds a surprising result. What should happen next?",
+                ["It becomes fact forever", "Other scientists try to repeat it and check the result", "It is kept secret", "The scientists celebrate and stop"],
+                1,
+                "Surprising results get the most checking, not the least. Repetition by other teams is how a finding earns trust."),
+              mkTrueFalse("Before a study is published in a good journal, other scientists usually read it and look for problems.",
+                true,
+                "That checking is called peer review. It does not catch everything, but it removes many errors before the work reaches the public."),
+              mkOrder("Put the life of a typical study in order.",
+                ["A scientist runs a study", "Other scientists review the write up", "The study is published", "Other teams try to repeat it", "The result becomes trusted or fades"],
+                "Review comes before publishing, and repetition comes after. Trust is the last step, not the first."),
+              mkQuiz("A result that many teams have repeated is...",
+                ["less trustworthy", "more trustworthy", "a coincidence", "forbidden"],
+                1,
+                "Every successful repetition makes luck a weaker explanation. Repeated results are the closest science gets to settled."),
+              mkDeepen("Go deeper: some famous findings failed when teams tried to repeat them, and the papers about those failures are some of the most useful reading in science. Search for replication studies and build a course from what you find."),
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "the-human-body",
+    title: "The Human Body",
+    blurb: "The pump, the plumbing, and the wiring that run you.",
+    category: "Body and Health",
+    units: [
+      {
+        id: "body-heart-blood", title: "The Heart and Blood", subtitle: "A delivery service that never stops",
+        lessons: [
+          {
+            id: "body-heart", title: "Your Heart, the Pump", subtitle: "A fist sized muscle with a nonstop job",
+            cards: [
+              mkNote("The big idea", "A pump that never clocks out",
+                "Your heart is a muscle about the size of your fist. It squeezes about once a second, all day and all night, pushing blood around your body. Each squeeze sends blood out carrying oxygen and food, and welcomes back blood the body is done with."),
+              mkQuiz("What does blood carry to the cells of your body?",
+                ["Only water", "Oxygen and nutrients", "Electricity", "Bones"],
+                1,
+                "Blood is the delivery system. It brings oxygen and nutrients to every cell and carries waste products away."),
+              mkMatch("Match each part to its job.",
+                [["Heart", "The muscle that pumps blood"], ["Artery", "A vessel that carries blood away from the heart"], ["Vein", "A vessel that carries blood back to the heart"], ["Oxygen", "The gas your cells use to release energy"]],
+                "Arteries head out, veins head back, and the heart keeps the whole loop moving."),
+              mkTrueFalse("Your heart stops to rest between beats for most of the day.",
+                false,
+                "The heart rests only in the short pauses between beats. It beats about 100,000 times a day without ever taking a real break."),
+              mkQuiz("When you run, your heart beats faster because...",
+                ["it is frightened", "your muscles need more oxygen, faster", "running shakes it loose", "your blood gets thinner"],
+                1,
+                "Working muscles burn oxygen faster. The heart speeds up to deliver more blood per minute and keep up."),
+              mkDeepen("Go deeper: papers on exercise and the heart measure exactly how much fitter hearts can do. Build a course from a search on exercise and longevity to read the findings."),
+            ],
+          },
+          {
+            id: "body-blood", title: "Blood Does the Carrying", subtitle: "What is actually in the red stuff",
+            cards: [
+              mkNote("The big idea", "A delivery service in your veins",
+                "Blood is mostly a pale liquid called plasma, with cells floating in it. Red cells carry oxygen. White cells fight germs. Tiny pieces called platelets help seal leaks when you are cut. Each part has one job and does it everywhere, all the time."),
+              mkQuiz("Which part of blood carries oxygen?",
+                ["Plasma", "Red blood cells", "Platelets", "White blood cells"],
+                1,
+                "Red blood cells are packed with a protein that grabs oxygen in the lungs and lets go of it where the body needs it."),
+              mkTrueFalse("A scab is the body sealing a leak in a blood vessel.",
+                true,
+                "When skin is cut, platelets and proteins in the blood build a clot that plugs the leak. The dry top of that clot is the scab."),
+              mkMatch("Match each part of blood to its job.",
+                [["Plasma", "The liquid part of blood"], ["Red blood cells", "Carry oxygen around the body"], ["White blood cells", "Hunt and destroy germs"], ["Platelets", "Help blood clot when you are cut"]],
+                "One liquid, three crews: carriers, defenders, and repairers."),
+              mkQuiz("Why does blood look red?",
+                ["Food dyes it red", "Red cells hold an iron rich protein that turns bright red when it carries oxygen", "It reflects the color of skin", "It is always hot"],
+                1,
+                "The protein is called hemoglobin. The iron at its center binds oxygen, and hemoglobin loaded with oxygen is bright red."),
+              mkDeepen("Go deeper: blood is one of the most studied tissues in medicine. Search for a blood topic that interests you and Cortex will build a course from the real findings."),
+            ],
+          },
+        ],
+      },
+      {
+        id: "body-nerves-senses", title: "Senses and Nerves", subtitle: "Messages, shortcuts, and useful illusions",
+        lessons: [
+          {
+            id: "body-nerves", title: "Messages at Lightning Speed", subtitle: "The wiring inside you",
+            cards: [
+              mkNote("The big idea", "Your wiring",
+                "Your nervous system is a network of long thin cells called neurons. They carry tiny electrical signals from your senses to your brain, and back out to your muscles. That round trip is how you can catch a ball you barely saw moving."),
+              mkQuiz("What carries messages around your body?",
+                ["Bones", "Neurons", "Only blood cells", "Hair"],
+                1,
+                "Neurons are the wiring. Signals travel along them as small pulses of electricity, then jump to the next cell as chemical messages."),
+              mkOrder("Put the steps of catching a ball in order.",
+                ["Your eyes spot the ball moving", "Signals travel from your eyes to your brain", "Your brain works out where the ball is going", "Signals travel to the muscles in your arms", "Your hands close around the ball"],
+                "Seeing comes first and grabbing comes last, with a lot of very fast signaling in between."),
+              mkTrueFalse("The brain itself can feel pain when it is injured.",
+                false,
+                "Brain tissue has no pain sensors of its own. Headaches come from the blood vessels and membranes around the brain, not from the brain itself."),
+              mkQuiz("A reflex, like pulling your hand off a hot pan, is fast because...",
+                ["the signal takes a shortcut through the spinal cord", "your hand is brave", "hot things glow", "the brain works slowly on purpose"],
+                0,
+                "Many reflex signals loop through the spinal cord and straight back to the muscle, without waiting for the brain to decide."),
+              mkDeepen("Go deeper: reaction time is a favorite measurement in sports science papers. Search for it and build a course to see what actually makes people faster."),
+            ],
+          },
+          {
+            id: "body-senses", title: "Tricking Your Senses", subtitle: "Your brain builds what you experience",
+            cards: [
+              mkNote("The big idea", "Your senses report, your brain decides",
+                "Your eyes and ears gather raw signals, but your brain builds what you actually experience. That is why optical illusions work. The brain uses shortcuts to make sense of the signals, and shortcuts can be fooled."),
+              mkQuiz("In an optical illusion, the mistake happens mostly in...",
+                ["the paper", "the brain, as it interprets the signals", "the light", "your hands"],
+                1,
+                "The eyes report honestly. The brain guesses what the signals mean, and an illusion is a case where the guess is wrong."),
+              mkTrueFalse("Two people can taste the same food differently.",
+                true,
+                "Taste depends on your taste buds, your sense of smell, and even your genes. Some people carry a gene that makes certain green vegetables taste very bitter."),
+              mkMatch("Match each sense to what it gathers.",
+                [["Sight", "Light entering the eyes"], ["Hearing", "Vibrations reaching the ears"], ["Smell", "Tiny particles landing in the nose"], ["Touch", "Pressure, heat, and cold felt by the skin"]],
+                "Five senses, five kinds of signal, one brain putting it all together."),
+              mkQuiz("Most of what we call taste actually comes from...",
+                ["the tongue alone", "smell, working with the tongue", "the teeth", "memory"],
+                1,
+                "Hold your nose and an apple and an onion start to taste alike. Smell does most of the work we credit to taste."),
+              mkDeepen("Go deeper: studies of Homo sapiens show taste and smell acting as one system, and super tasters carrying extra taste buds. Search for either topic and build a course from the findings."),
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "space-and-the-solar-system",
+    title: "Space and the Solar System",
+    blurb: "Our star, its planets, and the pull that holds them.",
+    category: "Space and Physics",
+    units: [
+      {
+        id: "space-neighborhood", title: "Our Neighborhood", subtitle: "The Sun and its eight planets",
+        lessons: [
+          {
+            id: "space-planets", title: "The Planets in Order", subtitle: "Four rocky worlds, four giants",
+            cards: [
+              mkNote("The big idea", "Eight planets, one star",
+                "Our solar system is the Sun plus everything its gravity holds: eight planets, their moons, and crowds of rocky and icy leftovers. The four planets nearest the Sun are small and rocky. The four far ones are giants made mostly of gas and liquid."),
+              mkOrder("Put these planets in order from the Sun.",
+                ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn"],
+                "Mercury is closest, then Venus, Earth, and Mars, and then the giants Jupiter and Saturn. Uranus and Neptune come after Saturn."),
+              mkQuiz("Which planet is known as the red planet?",
+                ["Venus", "Mars", "Jupiter", "Mercury"],
+                1,
+                "Mars looks red because its rocks and dust are rich in iron that has rusted."),
+              mkMatch("Match each body to its description.",
+                [["Sun", "The star at the center of our system"], ["Earth", "The only planet known to have life"], ["Jupiter", "The largest planet"], ["Moon", "The natural satellite that orbits Earth"]],
+                "One star, one home, one giant, and one faithful moon."),
+              mkTrueFalse("The Sun is a star.",
+                true,
+                "The Sun is a medium sized star. It only looks huge and bright because it is so much closer than every other star."),
+              mkDeepen("Go deeper: the first photograph of a black hole and the newest exoplanet papers all start from this neighborhood. Search for a space topic and Cortex will build a course from the real research."),
+            ],
+          },
+          {
+            id: "space-day-year", title: "Day, Night, and the Year", subtitle: "Spinning and circling at the same time",
+            cards: [
+              mkNote("The big idea", "Spinning and circling",
+                "Earth spins on its axis once a day, and that spin gives us day and night. At the same time Earth travels all the way around the Sun, taking one year for the full trip. The seasons come from Earth's tilt, not from being closer to the Sun."),
+              mkQuiz("What causes day and night?",
+                ["The Sun moving around Earth", "Earth spinning on its axis", "Clouds covering the Sun", "The Moon blocking the light"],
+                1,
+                "As Earth spins, your side turns to face the Sun, then turns away again. Facing the Sun is day; facing away is night."),
+              mkTrueFalse("Summer happens because Earth is closest to the Sun in July.",
+                false,
+                "Earth is actually near its farthest from the Sun in early July. Summer comes from your half of Earth tilting toward the Sun, so sunlight lands on it more directly."),
+              mkQuiz("One full trip of Earth around the Sun takes...",
+                ["One day", "One month", "One year", "Ten years"],
+                2,
+                "That trip is the year. The day comes from the spin, the year from the journey around the Sun."),
+              mkOrder("Put these in order from shortest to longest.",
+                ["One spin of Earth, a day", "One trip of the Moon around Earth, about a month", "One trip of Earth around the Sun, a year"],
+                "A day is one spin, a month is roughly one lap of the Moon, and a year is one full lap around the Sun."),
+              mkDeepen("Go deeper: papers on other planets track days that last longer than their years. Venus is the famous case. Search for it and build a course from what you find."),
+            ],
+          },
+        ],
+      },
+      {
+        id: "space-outward", title: "Looking Outward", subtitle: "Gravity and the lives of stars",
+        lessons: [
+          {
+            id: "space-gravity", title: "Gravity Holds It All", subtitle: "The pull between everything",
+            cards: [
+              mkNote("The big idea", "The invisible pull",
+                "Gravity is a pull between anything that has mass. Bigger masses pull harder, and the pull weakens with distance. Gravity holds you to Earth, holds the Moon near Earth, and holds every planet in its path around the Sun."),
+              mkQuiz("Why does the Moon stay near Earth instead of drifting away?",
+                ["The oceans hold it", "Earth's gravity keeps pulling it in", "It has no way to move", "Space is completely empty"],
+                1,
+                "The Moon is always falling toward Earth and always missing, because it also moves sideways fast. That endless fall is its orbit."),
+              mkTrueFalse("Astronauts on the space station float because there is no gravity up there.",
+                false,
+                "Gravity at the station is nearly as strong as on the ground. The astronauts float because they and the station are falling around Earth together, in an endless fall that keeps missing the ground."),
+              mkMatch("Match each word to what it means.",
+                [["Mass", "How much stuff something is made of"], ["Orbit", "The curved path of one object around another"], ["Gravity", "The pull between masses"], ["Telescope", "A tool that gathers light from far away"]],
+                "Mass makes gravity, gravity bends paths into orbits, and telescopes let us watch it all happen."),
+              mkQuiz("If the Sun's gravity suddenly vanished, Earth would...",
+                ["stop moving at once", "fly off in a straight line", "fall into the Moon", "spin twice as fast"],
+                1,
+                "Earth keeps the speed it already has. With nothing pulling it into a curve, it would travel straight, like a ball leaving a swinging string when the string is cut."),
+              mkDeepen("Go deeper: gravity waves were predicted a century before detectors finally heard them. Search for gravitational waves and Cortex will build a course from the papers."),
+            ],
+          },
+          {
+            id: "space-stars", title: "Stars and Their Lives", subtitle: "Born in clouds, shining for ages",
+            cards: [
+              mkNote("The big idea", "Stars are born, shine, and fade",
+                "A star begins as a cold cloud of gas that gravity squeezes until the center grows hot enough to fuse atoms together. That fusion pours out light and heat for billions of years. When the fuel runs low, the star changes, swelling up or fading away depending on its size."),
+              mkQuiz("What powers a star's light?",
+                ["Burning wood", "Atoms fusing in its hot core", "Reflected sunlight", "Lightning in space"],
+                1,
+                "Deep in the core, hydrogen atoms are squeezed together into helium, and a little mass becomes a lot of energy. That energy is the light."),
+              mkTrueFalse("All stars are the same color.",
+                false,
+                "A star's color tells its temperature. Blue white stars are the hottest, yellow stars like the Sun sit in between, and red stars are the coolest of all."),
+              mkOrder("Put the life of a star like the Sun in order.",
+                ["A cloud of gas squeezes together", "The core gets hot enough for fusion", "The star shines steadily for billions of years", "The fuel runs low and the star swells", "The star fades into a small dense ember"],
+                "The last stage is called a white dwarf: a hot, dense ember that slowly cools over ages."),
+              mkQuiz("Sunlight takes about eight minutes to reach Earth. That means we see the Sun...",
+                ["as it will be in eight minutes", "as it was eight minutes ago", "instantly, with no delay", "only at night"],
+                1,
+                "Light is fast, but space is big. Everything we see is the past, and the farther away it is, the older the light that reaches us."),
+              mkDeepen("Go deeper: astronomers read a star's whole life story from its light. Search for how stars are classified and build a course from the research."),
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "earth-and-weather",
+    title: "Earth and Weather",
+    blurb: "Water on the move, and the air above it all.",
+    category: "Earth and Climate",
+    units: [
+      {
+        id: "earth-water", title: "Water on the Move", subtitle: "The loop that never ends",
+        lessons: [
+          {
+            id: "earth-water-cycle", title: "The Water Cycle", subtitle: "The same water, round and round",
+            cards: [
+              mkNote("The big idea", "The same water, round and round",
+                "The water in your glass is ancient. It has been in oceans, clouds, rain, rivers, and living things, over and over again. The Sun powers the whole loop by lifting water into the air as invisible vapor."),
+              mkOrder("Put the water cycle in order.",
+                ["Sunlight warms the ocean", "Water rises into the air as vapor", "The vapor cools and forms clouds", "Water falls as rain or snow", "Rivers carry it back to the ocean"],
+                "Warmth lifts the water, cooling gathers it into clouds, gravity brings it down, and rivers return it to the sea."),
+              mkQuiz("Water rising from the sea into the air has...",
+                ["evaporated", "frozen", "condensed", "rained"],
+                0,
+                "Evaporation is liquid water turning into vapor. It happens at the surface of oceans, lakes, and even wet soil."),
+              mkMatch("Match each word to what it means.",
+                [["Evaporation", "Liquid water turning into vapor"], ["Condensation", "Vapor turning back into liquid drops"], ["Precipitation", "Rain, snow, or hail falling from clouds"], ["Collection", "Water gathering in oceans, lakes, and the ground"]],
+                "Up as vapor, back as drops, down as rain, gathered in the sea. Then it starts again."),
+              mkTrueFalse("Rain over land is a brand new supply of water made by clouds.",
+                false,
+                "Clouds move water around; they do not create it. Rain is ocean and lake water that evaporated, traveled on the wind, and fell again."),
+              mkDeepen("Go deeper: scientists trace water through whole landscapes in papers on the water cycle and climate. Search for a river or ocean topic and build a course from the findings."),
+            ],
+          },
+          {
+            id: "earth-clouds", title: "Clouds and Rain", subtitle: "Water you can see in the sky",
+            cards: [
+              mkNote("The big idea", "Clouds are water you can see",
+                "Air always holds some invisible water vapor. When air rises and cools, the vapor condenses onto tiny specks of dust, forming droplets so small they float. Billions of those droplets together make a cloud."),
+              mkQuiz("A cloud forms when water vapor...",
+                ["disappears", "cools and condenses into tiny droplets", "boils", "turns into oxygen"],
+                1,
+                "Cooling is the trigger. Cold air holds less vapor, so the extra vapor gathers into droplets around specks of dust."),
+              mkTrueFalse("Fog is a cloud that forms at ground level.",
+                true,
+                "Same recipe, different height. When air at the surface cools until its vapor condenses, the cloud simply sits on the ground, and we call it fog."),
+              mkQuiz("Raindrops begin to fall when the droplets...",
+                ["grow heavy enough that the air cannot hold them up", "turn blue", "freeze solid", "hear thunder"],
+                0,
+                "Droplets grow by joining together. Once they are too heavy for the rising air inside the cloud to support, down they come."),
+              mkMatch("Match each cloud to its description.",
+                [["Cumulus", "Puffy clouds with flat bottoms"], ["Cirrus", "Thin wispy clouds high in the sky"], ["Stratus", "Gray sheets of cloud that cover the sky"], ["Fog", "A cloud resting on the ground"]],
+                "Sailors and farmers read the sky with these four shapes long before satellites existed."),
+              mkDeepen("Go deeper: cloud research decides big questions about how fast the planet warms. Search for clouds and climate and Cortex will build a course from the real papers."),
+            ],
+          },
+        ],
+      },
+      {
+        id: "earth-skies", title: "Weather and Climate", subtitle: "Today versus the usual",
+        lessons: [
+          {
+            id: "earth-weather", title: "Reading the Weather", subtitle: "What the air is doing right now",
+            cards: [
+              mkNote("The big idea", "Weather is what is happening now",
+                "Weather is the state of the air right now and over the next few days: temperature, wind, rain, and storms. It changes fast because air is always moving, pushed along by the Sun heating some places more than others."),
+              mkQuiz("Wind blows because...",
+                ["trees wave it into being", "air moves from where pressure is high to where it is low", "the Earth pauses its spin", "birds push the air along"],
+                1,
+                "Uneven heating makes pressure differences, and air flows to even them out. That flow is the wind."),
+              mkTrueFalse("A thermometer measures air pressure.",
+                false,
+                "A thermometer measures temperature. Air pressure is measured with a different tool, a barometer."),
+              mkMatch("Match each tool to its job.",
+                [["Thermometer", "Measures temperature"], ["Barometer", "Measures air pressure"], ["Rain gauge", "Measures how much rain fell"], ["Weather vane", "Shows where the wind comes from"]],
+                "Four simple tools, and a person with all four can describe a day of weather completely."),
+              mkOrder("Put the life of a thunderstorm in order.",
+                ["Warm wet air rises quickly", "A tall storm cloud builds", "Lightning and thunder arrive as the storm peaks", "Heavy rain falls and the storm weakens"],
+                "Rising warm air builds the tower, the storm spends itself in lightning and rain, and then it runs out of energy."),
+              mkDeepen("Go deeper: forecasters test their predictions against what actually happened, and the scorekeeping papers are fascinating. Search for weather forecast accuracy and build a course."),
+            ],
+          },
+          {
+            id: "earth-climate", title: "Weather Is Not Climate", subtitle: "One week versus thirty years",
+            cards: [
+              mkNote("The big idea", "Two different questions",
+                "Weather asks what this week looks like. Climate asks what a place is usually like over thirty years or more. One cold week does not change a climate, just as one hot day does not prove one either. They are different questions with different evidence."),
+              mkQuiz("Which statement is about climate?",
+                ["It will rain on Thursday", "Winters here are usually cold and dry", "A storm knocked out power last night", "Today is windy"],
+                1,
+                "Climate is the usual pattern. The others are single moments of weather, lasting hours or days."),
+              mkTrueFalse("A single snowstorm proves the planet is not warming.",
+                false,
+                "Climate is the long pattern, and weather swings up and down inside that pattern. One storm, or one cold week, cannot settle a question about decades."),
+              mkQuiz("Scientists describe a climate using averages over about...",
+                ["one afternoon", "one week", "thirty years", "one hour"],
+                2,
+                "Thirty years is the standard span for climate averages. It is long enough for the year to year wiggles to smooth out."),
+              mkMatch("Match each word to what it means.",
+                [["Weather", "What the air is doing this week"], ["Climate", "The usual pattern over decades"], ["Forecast", "A prediction of weather ahead"], ["Season", "A yearly period with its own typical weather"]],
+                "Weather is the day, climate is the habit, and a forecast is our best guess at tomorrow."),
+              mkDeepen("Go deeper: the papers behind climate averages are public and readable. Search for a climate question of your own and Cortex will build a course from the evidence."),
+            ],
+          },
+        ],
+      },
+    ],
+  },
+];
+
+export const INTERACTIVE_KINDS = ["quiz", "cloze", "battle", "truefalse", "match", "order"];
+export function isInteractiveCard(card) {
+  return !!card && INTERACTIVE_KINDS.includes(card.kind);
+}
+
+/* Flatten a path into its lessons in teaching order, each tagged
+   with its unit so views can group them back. */
+export function flattenPathLessons(path) {
+  const out = [];
+  (path.units || []).forEach((unit, ui) => {
+    (unit.lessons || []).forEach((lesson) => {
+      out.push({ ...lesson, unitId: unit.id, unitTitle: unit.title, unitIndex: ui, flatIndex: out.length });
+    });
+  });
+  return out;
+}
+
+/* A lesson is unlocked when it is first in its path, or when the
+   lesson before it is complete. Paths are staircases, not shelves. */
+export function isLessonUnlocked(path, lessonId, progress) {
+  const flat = flattenPathLessons(path);
+  const i = flat.findIndex((l) => l.id === lessonId);
+  if (i <= 0) return true;
+  const prev = (progress && progress.lessons || {})[flat[i - 1].id];
+  return !!(prev && prev.done);
+}
+
+export function pathProgress(path, progress) {
+  const flat = flattenPathLessons(path);
+  const store = (progress && progress.lessons) || {};
+  const done = flat.filter((l) => store[l.id] && store[l.id].done).length;
+  const next = flat.find((l) => !(store[l.id] && store[l.id].done)) || null;
+  return {
+    done, total: flat.length,
+    pct: flat.length ? Math.round((done / flat.length) * 100) : 0,
+    complete: flat.length > 0 && done === flat.length,
+    nextLessonId: next ? next.id : null,
+  };
+}
+
+/* Record a finished built in lesson: best score kept, the path's
+   continue pointer moved to the next unfinished lesson. Pure: takes
+   a progress object, returns the next one. */
+export function applyLessonResult(progress, path, lessonId, pct) {
+  const next = {
+    lessons: { ...((progress && progress.lessons) || {}) },
+    lastPathId: path.id,
+    lastLessonId: lessonId,
+  };
+  const prev = next.lessons[lessonId] || {};
+  next.lessons[lessonId] = {
+    done: true,
+    best: Math.max(prev.best || 0, Math.round(pct || 0)),
+    completedAt: prev.completedAt || new Date().toISOString(),
+  };
+  const pp = pathProgress(path, next);
+  if (pp.nextLessonId) next.lastLessonId = pp.nextLessonId;
+  return next;
+}
+
+/* Daily practice: due review cards first in spirit, then activities
+   sampled from lessons already finished in paths the learner has
+   started. Deterministic for a given seed, so a day is stable. */
+export function buildDailyPracticeCards({ progress, dueCards = [], seed = 1, limit = 8, paths = LEARNING_PATHS } = {}) {
+  const store = (progress && progress.lessons) || {};
+  const pool = [];
+  for (const path of paths) {
+    const flat = flattenPathLessons(path);
+    const started = flat.some((l) => store[l.id] && store[l.id].done);
+    if (!started) continue;
+    for (const l of flat) {
+      if (store[l.id] && store[l.id].done) {
+        for (const c of l.cards) if (isInteractiveCard(c)) pool.push(c);
+      }
+    }
+  }
+  const duePart = dueCards.slice(0, 6);
+  const picks = seededShuffle(pool, seed || 1).slice(0, Math.max(0, limit - duePart.length));
+  return seededShuffle([...duePart, ...picks], (seed || 1) + 13).slice(0, limit);
+}
+
+/* The honesty gate for authored content: every interactive card must
+   be answerable exactly as written, and every lesson must carry
+   enough activity to be worth the name. Returns problems, never
+   throws, so tests can list them all. */
+export function validateCurriculum(paths = LEARNING_PATHS) {
+  const problems = [];
+  const lessonIds = new Set();
+  const cardCheck = (card, where) => {
+    if (!card || !card.kind) { problems.push(where + ": card without a kind"); return; }
+    if (card.kind === "quiz" || card.kind === "cloze") {
+      if (!Array.isArray(card.options) || card.options.length < 2) problems.push(where + ": " + card.kind + " needs at least 2 options");
+      else if (!(card.correct >= 0 && card.correct < card.options.length)) problems.push(where + ": " + card.kind + " correct index is outside its options");
+      if (!card.why) problems.push(where + ": " + card.kind + " has no explanation");
+    } else if (card.kind === "truefalse") {
+      if (typeof card.answer !== "boolean") problems.push(where + ": truefalse answer is not a boolean");
+      if (!card.statement) problems.push(where + ": truefalse has no statement");
+      if (!card.why) problems.push(where + ": truefalse has no explanation");
+      if (card.correct !== (card.answer ? 0 : 1)) problems.push(where + ": truefalse correct index disagrees with its answer");
+    } else if (card.kind === "match") {
+      if (!Array.isArray(card.pairs) || card.pairs.length < 3 || card.pairs.length > 6) problems.push(where + ": match needs 3 to 6 pairs");
+      else {
+        const lefts = card.pairs.map((p) => p.left);
+        const rights = card.pairs.map((p) => p.right);
+        if (new Set(lefts).size !== lefts.length) problems.push(where + ": match left sides repeat");
+        if (new Set(rights).size !== rights.length) problems.push(where + ": match right sides repeat");
+        if (card.pairs.some((p) => !p.left || !p.right)) problems.push(where + ": match has an empty side");
+      }
+    } else if (card.kind === "order") {
+      if (!Array.isArray(card.items) || card.items.length < 3 || card.items.length > 6) problems.push(where + ": order needs 3 to 6 items");
+      else if (new Set(card.items).size !== card.items.length) problems.push(where + ": order items repeat");
+      if (!card.why) problems.push(where + ": order has no explanation");
+    } else if (card.kind === "note") {
+      if (!card.title || !card.text) problems.push(where + ": note needs a title and text");
+    } else if (card.kind === "deepen") {
+      if (!card.text || card.text.length < 20) problems.push(where + ": deepen line is missing or too short");
+    } else if (card.kind === "summary" || card.kind === "paper") {
+      if (!card.title) problems.push(where + ": " + card.kind + " has no title");
+    } else {
+      problems.push(where + ": unknown card kind " + card.kind);
+    }
+  };
+  for (const path of paths || []) {
+    if (!path.id || !path.title) problems.push("a path is missing its id or title");
+    if (!Array.isArray(path.units) || path.units.length < 2) problems.push(path.title + ": needs at least 2 units");
+    for (const unit of path.units || []) {
+      if (!Array.isArray(unit.lessons) || unit.lessons.length < 2) problems.push(path.title + " / " + unit.title + ": needs at least 2 lessons");
+      for (const lesson of unit.lessons || []) {
+        const where = path.title + " / " + lesson.title;
+        if (!lesson.id) problems.push(where + ": lesson has no id");
+        else if (lessonIds.has(lesson.id)) problems.push(where + ": lesson id repeats across the curriculum");
+        lessonIds.add(lesson.id);
+        if (!Array.isArray(lesson.cards) || lesson.cards.length < 5 || lesson.cards.length > 8) {
+          problems.push(where + ": lesson needs 5 to 8 cards, has " + (lesson.cards || []).length);
+        }
+        const interactive = (lesson.cards || []).filter(isInteractiveCard).length;
+        if (interactive < 3) problems.push(where + ": lesson needs at least 3 interactive cards, has " + interactive);
+        (lesson.cards || []).forEach((c, i) => cardCheck(c, where + " card " + (i + 1)));
+      }
+    }
+  }
+  return problems;
+}
+
+/* Shape a built in path as a course the Player already understands. */
+function courseFromPath(path, progress) {
+  const store = (progress && progress.lessons) || {};
+  const flat = flattenPathLessons(path);
+  return {
+    id: "path-" + path.id,
+    builtin: true,
+    pathId: path.id,
+    title: path.title,
+    category: path.category,
+    sourceCount: 0,
+    lessons: flat,
+    doneLessons: flat.filter((l) => store[l.id] && store[l.id].done).map((l) => l.id),
+    xpEarned: 0,
+    vocab: [],
+  };
+}
+
 /* ── lesson player (full screen) ─────────────────────────────────── */
-function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress }) {
+function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress, onLessonDone }) {
   const [lessonIdx, setLessonIdx] = useState(startLesson || 0);
   const [cardIdx, setCardIdx] = useState(0);
   const [picked, setPicked] = useState(null);
   const [checked, setChecked] = useState(false);
+  const [matchSel, setMatchSel] = useState(null);
+  const [matchDone, setMatchDone] = useState([]);
+  const [matchMistakes, setMatchMistakes] = useState(0);
+  const [matchFlash, setMatchFlash] = useState(null);
+  const [orderPlaced, setOrderPlaced] = useState([]);
+  const [orderCorrect, setOrderCorrect] = useState(false);
   const [sessionXp, setSessionXp] = useState(0);
   const [answered, setAnswered] = useState(0);
   const [right, setRight] = useState(0);
@@ -908,11 +1530,38 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     ? { id: "missed-review", title: "Review what you missed", cards: reviewCards }
     : course.lessons[lessonIdx];
   const card = lesson ? lesson.cards[cardIdx] : null;
-  const interactive = card && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "battle");
-  const isRight = interactive && card.kind !== "battle" && picked === card.correct;
+  const interactive = isInteractiveCard(card);
+  const isRight = interactive && card.kind !== "battle" && (
+    card.kind === "match" ? matchMistakes === 0
+    : card.kind === "order" ? orderCorrect
+    : picked === card.correct
+  );
   const lessonPct = lesson ? Math.round(((cardIdx + (checked ? 1 : 0)) / lesson.cards.length) * 100) : 0;
 
+  /* Display orders for the tap activities, shuffled once per card so
+     the right column and the item pool are not just the answer key
+     read aloud. */
+  const matchRights = useMemo(() => {
+    if (!card || card.kind !== "match") return [];
+    return seededShuffle(card.pairs.map((_, i) => i), hashStr(card.prompt || "") + 31);
+  }, [card]);
+  const orderDisplay = useMemo(() => {
+    if (!card || card.kind !== "order") return [];
+    return seededShuffle(card.items, hashStr(card.prompt || "") + 47);
+  }, [card]);
+
+  const resetCardState = () => {
+    setPicked(null); setChecked(false);
+    setMatchSel(null); setMatchDone([]); setMatchMistakes(0); setMatchFlash(null);
+    setOrderPlaced([]); setOrderCorrect(false);
+  };
+
   const award = (xp) => { setSessionXp((x) => x + xp); };
+
+  const noteMiss = () => {
+    const origin = course.lessons[lessonIdx];
+    setMisses((ms) => (ms.some((m) => m.card === card) ? ms : [...ms, { card, lessonTitle: origin ? origin.title : "" }]));
+  };
 
   const pick = (i) => {
     if (checked || !interactive) return;
@@ -920,8 +1569,62 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     playSound("tick", soundOn);
   };
 
+  /* Match play: tap a left item, then the right item that belongs to
+     it. A right pair locks in green; a wrong one flashes and counts
+     as a mistake. Completing the card scores it like a quiz: full
+     marks for a clean run, partial marks otherwise. */
+  const matchLeftTap = (i) => {
+    if (checked || matchDone.includes(i)) return;
+    setMatchSel(i);
+    playSound("tick", soundOn);
+  };
+  const matchRightTap = (pairIdx) => {
+    if (checked || matchSel === null || matchDone.includes(pairIdx)) return;
+    if (pairIdx === matchSel) {
+      const doneNow = [...matchDone, pairIdx];
+      setMatchDone(doneNow);
+      setMatchSel(null);
+      playSound("correct", soundOn);
+      if (doneNow.length === card.pairs.length) {
+        const clean = matchMistakes === 0;
+        setChecked(true);
+        setAnswered((n) => n + 1);
+        if (clean) setRight((n) => n + 1); else noteMiss();
+        award(clean ? 10 : 4);
+        onProgress && onProgress(clean ? 10 : 4, course);
+      }
+    } else {
+      setMatchMistakes((m) => m + 1);
+      setMatchFlash(pairIdx);
+      playSound("wrong", soundOn);
+      setTimeout(() => setMatchFlash(null), 480);
+    }
+  };
+
+  /* Order play: tap items in the sequence you believe, tap a placed
+     item to take it back, then check. The whole sequence is scored
+     at once, and the explanation carries the right order. */
+  const orderTap = (item) => {
+    if (checked) return;
+    setOrderPlaced((placed) => placed.includes(item) ? placed.filter((x) => x !== item) : [...placed, item]);
+    playSound("tick", soundOn);
+  };
+  const checkOrder = () => {
+    if (!card || card.kind !== "order" || checked) return;
+    if (orderPlaced.length !== card.items.length) return;
+    const ok = orderPlaced.every((v, i) => v === card.items[i]);
+    setOrderCorrect(ok);
+    setChecked(true);
+    setAnswered((n) => n + 1);
+    if (ok) setRight((n) => n + 1); else noteMiss();
+    award(ok ? 10 : 4);
+    playSound(ok ? "correct" : "wrong", soundOn);
+    onProgress && onProgress(ok ? 10 : 4, course);
+  };
+
   const check = () => {
     if (!interactive || picked === null || checked) return;
+    if (card.kind === "match" || card.kind === "order") return;
     setChecked(true);
     setAnswered((n) => n + 1);
     if (card.kind === "battle") {
@@ -949,6 +1652,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     if (markDone) {
       const done = [...new Set([...(course.doneLessons || []), lesson.id])];
       onProgress && onProgress(20, course, done);
+      if (onLessonDone) {
+        onLessonDone(lesson, answered ? Math.round((right / answered) * 100) : 100);
+      }
     }
     setShowLessonDone(true);
   };
@@ -956,7 +1662,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const advance = () => {
     if (interactive && !checked) return;
     if (!interactive) { award(2); onProgress && onProgress(2, course); }
-    setPicked(null); setChecked(false);
+    resetCardState();
     if (cardIdx < lesson.cards.length - 1) { setCardIdx(cardIdx + 1); return; }
     if (reviewCards) { setReviewCards(null); setCardIdx(0); setShowLessonDone(true); return; }
     finishLesson(true);
@@ -964,12 +1670,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const startMissReview = (cards) => {
     setReviewCards(cards);
-    setCardIdx(0); setPicked(null); setChecked(false);
+    setCardIdx(0);
+    resetCardState();
     setShowLessonDone(false); setShowIntro(false);
   };
 
   const nextLesson = () => {
     setShowLessonDone(false);
+    resetCardState();
     if (lessonIdx < course.lessons.length - 1) {
       xpAtLessonStart.current = sessionXp;
       setLessonIdx(lessonIdx + 1); setCardIdx(0); setShowIntro(true);
@@ -1003,10 +1711,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>COURSE COMPLETE</div>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>{course.builtin ? "PATH COMPLETE" : "COURSE COMPLETE"}</div>
           <h2 style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
           <p style={{ color: P.muted, fontSize: 16, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 440 }}>
-            Every finding you answered is on your review schedule now. It comes back when it starts to fade, not before.
+            {course.builtin
+              ? "Every lesson on this path is done. Your progress is saved on the path, and daily practice will keep pulling activities from it so the ideas stay fresh."
+              : "Every finding you answered is on your review schedule now. It comes back when it starts to fade, not before."}
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 26px" }}>
@@ -1023,9 +1733,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
               {misses.map((m, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 18px", marginBottom: 10 }}>
-                  <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question}</div>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement}</div>
                   <div style={{ fontSize: 14.5, lineHeight: 1.55, color: P.muted }}>
-                    The finding: <span style={{ color: P.ink }}>{m.card.why}</span>
+                    {m.card.cite || m.card.paperTitle ? "The finding: " : "The idea: "}<span style={{ color: P.ink }}>{m.card.why}</span>
                   </div>
                   {m.card.paperTitle && (
                     <div style={{ fontSize: 12.5, color: P.muted, marginTop: 6 }}>{m.card.cite} · {m.card.paperTitle}</div>
@@ -1033,7 +1743,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 </div>
               ))}
               <p style={{ fontSize: 13.5, color: P.muted, lineHeight: 1.55, textAlign: "center", margin: "14px 0 0" }}>
-                These are already on your review schedule, so they will come back while they are still fresh enough to fix.
+                {course.builtin
+                  ? "Daily practice pulls from lessons you have finished, so these will come back around."
+                  : "These are already on your review schedule, so they will come back while they are still fresh enough to fix."}
               </p>
             </div>
           ) : (
@@ -1051,7 +1763,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               ))}
             </div>
           )}
-          <button className="lv-btn lv-btn-primary" style={btnPrimary} onClick={onExit}>Back to your courses</button>
+          <button className="lv-btn lv-btn-primary" style={btnPrimary} onClick={onExit}>{course.builtin ? "Back to the path" : "Back to your courses"}</button>
         </div>
       </div>
     );
@@ -1120,7 +1832,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>LESSON COMPLETE</div>
           <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
           <p style={{ color: P.muted, fontSize: 16, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
-            +{lessonXp} XP. The findings from this lesson are on your review schedule now.
+            {course.builtin
+              ? "+" + lessonXp + " XP. This lesson is marked on your path, and the next one is unlocked."
+              : "+" + lessonXp + " XP. The findings from this lesson are on your review schedule now."}
           </p>
           {(() => {
             const lessonMisses = misses.filter((m) => m.lessonTitle === lesson.title);
@@ -1154,12 +1868,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      from the course's own cards, never invented. */
   const lessonPapers = lesson.cards.filter((c) => c.kind === "paper");
   const followingPapers = lesson.cards.slice(cardIdx + 1).filter((c) => c.kind === "paper");
-  const lessonChecks = lesson.cards.filter((c) => c.kind === "quiz" || c.kind === "cloze" || c.kind === "battle").length;
+  const lessonChecks = lesson.cards.filter(isInteractiveCard).length;
   const maxCites = Math.max(1, ...lessonPapers.map((c) => c.citations || 0));
   const paperYearOf = (c) => { const y = parseInt(formatYearValue(c && c.year), 10); if (Number.isFinite(y)) return y; const m = String((c && c.meta) || "").match(/\b(?:19|20)\d{2}\b/); return m ? parseInt(m[0], 10) : null; };
   const displayMeta = (meta) => String(meta || "").replace(/\b((?:19|20)\d{2})\.0\b/g, "$1");
   const lessonYears = lessonPapers.map(paperYearOf).filter((y) => y != null);
-  const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.vocab ? "Vocab" : "Recall";
+  const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
 
   const sheetGood = checked && (card.kind === "battle" || isRight);
   const sheet = checked ? (
@@ -1172,6 +1886,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ fontSize: 16.5, fontWeight: 800, marginBottom: 6, color: sheetGood ? "#2c5a00" : "#8f1216" }}>
           {card.kind === "battle" ? "Both sides are real. That is the point."
+            : card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
+            : card.kind === "order" ? (isRight ? "In the right order." : "Not the right order.")
             : card.pretest ? (isRight ? "Right, before you even read it." : "Good guess. Here is what the paper says.")
             : isRight ? "Right." : "Not quite."}
           <span style={{ float: "right", fontSize: 14, fontWeight: 700, color: sheetGood ? "#2c5a00" : "#8f1216" }}>
@@ -1189,9 +1905,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 You picked: <span style={{ fontWeight: 600 }}>{card.options[picked]}</span>
               </p>
             )}
-            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", color: "#4a5a38", margin: "0 0 4px" }}>THE FINDING</p>
+            <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", color: "#4a5a38", margin: "0 0 4px" }}>{card.cite || card.paperTitle ? "THE FINDING" : "WHY"}</p>
             <p style={{ fontFamily: SERIF, fontSize: 16.5, lineHeight: 1.6, margin: 0, color: "#1d2a10" }}>{card.why}</p>
-            <p style={{ fontSize: 12.5, color: "#4a5a38", margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
+            {(card.cite || card.paperTitle) && (
+              <p style={{ fontSize: 12.5, color: "#4a5a38", margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
+            )}
           </>
         )}
         <button className="lv-btn" onClick={advance}
@@ -1439,6 +2157,161 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </div>
           )}
 
+          {card.kind === "truefalse" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>TRUE OR FALSE</div>
+              <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "19px 21px", marginBottom: 20 }}>
+                <p style={{ fontFamily: SERIF, fontSize: 21, lineHeight: 1.55, margin: 0 }}>{card.statement}</p>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {["True", "False"].map((label, i) => {
+                  let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
+                  if (checked && i === card.correct) { bg = "#D7FFB8"; border = "#58CC02"; color = "#224d00"; }
+                  else if (checked && i === picked) { bg = "#FFDFE0"; border = "#FF4B4B"; color = "#6e0f13"; }
+                  else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
+                  return (
+                    <button key={label} className={"lv-opt" + (checked && picked === i && i !== card.correct ? " lv-shake" : "")}
+                      onClick={() => pick(i)} disabled={checked}
+                      style={{
+                        appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
+                        border: "2px solid " + border, borderRadius: 16, padding: "18px 12px",
+                        fontSize: 18, fontWeight: 700, color, cursor: checked ? "default" : "pointer",
+                        fontFamily: "var(--cb-font)", minHeight: 62,
+                      }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {card.kind === "match" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>MATCH THE PAIRS</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <p style={{ fontSize: 14.5, color: P.muted, margin: "0 0 4px", lineHeight: 1.55 }}>Tap a word on the left, then tap the meaning it belongs with on the right.</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {card.pairs.map((pair, i) => {
+                    const donePair = matchDone.includes(i);
+                    const selected = matchSel === i;
+                    return (
+                      <button key={"l" + i} onClick={() => matchLeftTap(i)} disabled={donePair || checked}
+                        className="lv-opt"
+                        style={{
+                          appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
+                          background: donePair ? "#D7FFB8" : selected ? (P.dark ? "#274b63" : "#DDF4FF") : (P.dark ? "#242b24" : "#ffffff"),
+                          border: "2px solid " + (donePair ? "#58CC02" : selected ? "#84D8FF" : P.line), borderRadius: 14,
+                          padding: "13px 14px", fontSize: 15.5, fontWeight: 700, lineHeight: 1.45, textAlign: "left",
+                          color: donePair ? "#224d00" : P.ink, cursor: donePair || checked ? "default" : "pointer",
+                          fontFamily: "var(--cb-font)", minHeight: 52,
+                        }}>
+                        {pair.left}{donePair ? " ✓" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {matchRights.map((pairIdx) => {
+                    const donePair = matchDone.includes(pairIdx);
+                    const flash = matchFlash === pairIdx;
+                    return (
+                      <button key={"r" + pairIdx} onClick={() => matchRightTap(pairIdx)} disabled={donePair || checked}
+                        className={"lv-opt" + (flash ? " lv-shake" : "")}
+                        style={{
+                          appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
+                          background: donePair ? "#D7FFB8" : flash ? "#FFDFE0" : (P.dark ? "#242b24" : "#ffffff"),
+                          border: "2px solid " + (donePair ? "#58CC02" : flash ? "#FF4B4B" : P.line), borderRadius: 14,
+                          padding: "13px 14px", fontSize: 15, lineHeight: 1.5, textAlign: "left",
+                          color: donePair ? "#224d00" : flash ? "#6e0f13" : P.ink, cursor: donePair || checked ? "default" : "pointer",
+                          fontFamily: "var(--cb-font)", minHeight: 52,
+                        }}>
+                        {card.pairs[pairIdx].right}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <p style={{ fontSize: 13.5, color: P.muted, margin: "16px 0 0" }}>
+                {matchDone.length} of {card.pairs.length} matched{matchMistakes > 0 ? " · " + matchMistakes + (matchMistakes === 1 ? " miss" : " misses") : ""}
+              </p>
+            </div>
+          )}
+
+          {card.kind === "order" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>PUT IT IN ORDER</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <p style={{ fontSize: 14.5, color: P.muted, margin: "0 0 4px", lineHeight: 1.55 }}>Tap the steps in the order they happen. Tap a placed step to take it back.</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 9, margin: "20px 0 18px" }}>
+                {orderPlaced.length === 0 && (
+                  <p style={{ fontSize: 14.5, color: P.muted, margin: 0, border: "1.5px dashed " + P.line, borderRadius: 14, padding: "15px 16px" }}>Your order will appear here.</p>
+                )}
+                {orderPlaced.map((item, i) => {
+                  const rightHere = checked && card.items[i] === item;
+                  const wrongHere = checked && card.items[i] !== item;
+                  return (
+                    <button key={"p" + i} onClick={() => orderTap(item)} disabled={checked}
+                      className="lv-opt"
+                      style={{
+                        appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
+                        display: "flex", gap: 12, alignItems: "center", textAlign: "left",
+                        background: rightHere ? "#D7FFB8" : wrongHere ? "#FFDFE0" : withAlphaSafe(accent, P.dark ? 0.2 : 0.12),
+                        border: "2px solid " + (rightHere ? "#58CC02" : wrongHere ? "#FF4B4B" : accent), borderRadius: 14,
+                        padding: "12px 15px", fontSize: 15.5, lineHeight: 1.45,
+                        color: rightHere ? "#224d00" : wrongHere ? "#6e0f13" : P.ink,
+                        cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 52,
+                      }}>
+                      <span aria-hidden="true" style={{
+                        flexShrink: 0, width: 26, height: 26, borderRadius: "50%",
+                        background: rightHere ? "#58CC02" : wrongHere ? "#FF4B4B" : accent, color: "#fff",
+                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13.5, fontWeight: 800,
+                      }}>{i + 1}</span>
+                      <span style={{ minWidth: 0 }}>{item}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {orderDisplay.filter((item) => !orderPlaced.includes(item)).length > 0 && (
+                <>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 10 }}>THE STEPS</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+                    {orderDisplay.filter((item) => !orderPlaced.includes(item)).map((item) => (
+                      <button key={"pool" + item} onClick={() => orderTap(item)} disabled={checked}
+                        className="lv-opt"
+                        style={{
+                          appearance: "none", WebkitAppearance: "none", boxSizing: "border-box",
+                          background: P.dark ? "#242b24" : "#ffffff", border: "2px solid " + P.line, borderRadius: 999,
+                          padding: "10px 16px", fontSize: 15, fontWeight: 600, lineHeight: 1.4,
+                          color: P.ink, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 46,
+                        }}>
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {checked && !orderCorrect && (
+                <p style={{ fontSize: 14.5, color: P.muted, margin: "18px 0 0", lineHeight: 1.6 }}>
+                  The right order: {card.items.join(", then ")}.
+                </p>
+              )}
+            </div>
+          )}
+
+          {card.kind === "deepen" && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
+              <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "20px 22px" }}>
+                <p style={{ fontSize: 17, lineHeight: 1.65, margin: 0 }}>{card.text}</p>
+              </div>
+              <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.55, margin: "16px 0 0" }}>
+                This lesson stands on its own. The papers are there when you want them, under Courses from your searches on the Cortex home.
+              </p>
+            </div>
+          )}
+
           {card.kind === "summary" && (
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
@@ -1460,15 +2333,32 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       {checked ? sheet : (
         <div style={{ position: "sticky", bottom: 0, padding: "14px 24px 22px", background: "linear-gradient(rgba(0,0,0,0), " + P.bg + " 34%)" }}>
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
-            <button className="lv-btn lv-btn-primary"
-              style={{
-                ...btnPrimary, width: "100%",
-                opacity: interactive && picked === null ? 0.45 : 1,
-                cursor: interactive && picked === null ? "default" : "pointer",
-              }}
-              onClick={interactive ? check : advance} disabled={interactive && picked === null}>
-              {interactive ? "Check" : cardIdx === lesson.cards.length - 1 ? "Finish lesson" : "Continue"}
-            </button>
+            {card.kind === "match" ? (
+              <button className="lv-btn" disabled
+                style={{ ...btnPrimary, width: "100%", opacity: 0.45, cursor: "default" }}>
+                Match every pair to finish
+              </button>
+            ) : card.kind === "order" ? (
+              <button className="lv-btn lv-btn-primary"
+                style={{
+                  ...btnPrimary, width: "100%",
+                  opacity: orderPlaced.length !== card.items.length ? 0.45 : 1,
+                  cursor: orderPlaced.length !== card.items.length ? "default" : "pointer",
+                }}
+                onClick={checkOrder} disabled={orderPlaced.length !== card.items.length}>
+                Check order
+              </button>
+            ) : (
+              <button className="lv-btn lv-btn-primary"
+                style={{
+                  ...btnPrimary, width: "100%",
+                  opacity: interactive && picked === null ? 0.45 : 1,
+                  cursor: interactive && picked === null ? "default" : "pointer",
+                }}
+                onClick={interactive ? check : advance} disabled={interactive && picked === null}>
+                {interactive ? "Check" : cardIdx === lesson.cards.length - 1 ? "Finish lesson" : "Continue"}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1567,6 +2457,106 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── built in path view ────────────────────────────────────────────
+   A path is a staircase: units stack, lessons inside a unit wind
+   down the page with a gentle zigzag, and a lesson stays locked
+   until the one before it is done. */
+function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
+  const pp = pathProgress(path, progress);
+  const store = (progress && progress.lessons) || {};
+  const offsets = [0, 38, 56, 38, 0];
+  return (
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
+      <style>{CSS}</style>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 14.5, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
+        ← Cortex home
+      </button>
+      <div className="lv-rise">
+        <Cover title={path.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === path.category) || null} />
+        <h2 style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
+        <p style={{ color: P.muted, fontSize: 15, lineHeight: 1.55, margin: "0 0 6px" }}>{path.blurb}</p>
+        <p style={{ color: P.muted, fontSize: 14, margin: 0 }}>
+          {pp.total} lessons · {path.units.length} units · taught directly, no papers needed
+        </p>
+        <div style={{ margin: "16px 0 6px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: P.muted, marginBottom: 6 }}>
+            <span>Path progress</span><span>{pp.done} of {pp.total} lessons</span>
+          </div>
+          <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
+            <div className="lv-fill" style={{ width: pp.pct + "%", height: "100%", background: accent, borderRadius: 999 }} />
+          </div>
+        </div>
+      </div>
+
+      {path.units.map((unit, ui) => (
+        <div key={unit.id} style={{ marginTop: 34 }}>
+          <div style={{
+            background: withAlphaSafe(accent, P.dark ? 0.16 : 0.1), border: "1px solid " + P.line,
+            borderRadius: 18, padding: "16px 20px", marginBottom: 26,
+          }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}</div>
+            <div style={{ fontFamily: SERIF, fontSize: 21, fontWeight: 600, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
+            <p style={{ color: P.muted, fontSize: 14, lineHeight: 1.5, margin: "4px 0 0" }}>{unit.subtitle}</p>
+          </div>
+          {unit.lessons.map((lesson, li) => {
+            const flatIdx = flattenPathLessons(path).findIndex((l) => l.id === lesson.id);
+            const rec = store[lesson.id];
+            const isDone = !!(rec && rec.done);
+            const unlocked = isLessonUnlocked(path, lesson.id, progress);
+            const isCurrent = unlocked && !isDone;
+            const offset = offsets[(flatIdx + li) % offsets.length];
+            return (
+              <div key={lesson.id} style={{ display: "flex", gap: 16, alignItems: "flex-start", marginLeft: offset, marginBottom: 22, maxWidth: 520 }}>
+                <div aria-hidden="true" className={isCurrent ? "lv-pulse" : ""}
+                  style={{
+                    flexShrink: 0, width: 56, height: 56, borderRadius: "50%",
+                    background: isDone ? accent : P.raised,
+                    border: "2px solid " + (isDone || isCurrent ? accent : P.line),
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: isDone ? at : isCurrent ? accent : P.muted,
+                    fontWeight: 800, fontSize: 17, fontFamily: "var(--cb-font)",
+                  }}>
+                  {isDone ? (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  ) : unlocked ? flatIdx + 1 : (
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke="currentColor" strokeWidth="2" />
+                      <path d="M8 10.5 V7.8 a4 4 0 0 1 8 0 v2.7" stroke="currentColor" strokeWidth="2" />
+                    </svg>
+                  )}
+                </div>
+                <button className="lv-node" onClick={() => unlocked && onPlay(flatIdx)} disabled={!unlocked}
+                  style={{
+                    flex: 1, minWidth: 0, display: "block", textAlign: "left",
+                    cursor: unlocked ? "pointer" : "default",
+                    background: P.raised, border: "1px solid " + (isCurrent ? accent : P.line), borderRadius: 18,
+                    padding: "15px 18px", fontFamily: "var(--cb-font)", color: P.ink,
+                    opacity: unlocked ? 1 : 0.55,
+                  }}>
+                  <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                    <span style={{ fontFamily: SERIF, fontSize: 19, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.06em", color: isDone || isCurrent ? accent : P.muted, flexShrink: 0 }}>
+                      {isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
+                    </span>
+                  </span>
+                  <span style={{ display: "block", color: P.muted, fontSize: 14, lineHeight: 1.5, marginTop: 5 }}>{lesson.subtitle}</span>
+                  <span style={{ display: "block", fontSize: 12.5, color: P.muted, marginTop: 8 }}>
+                    {isDone
+                      ? "Best score " + (rec.best || 0) + "% · tap to play again"
+                      : unlocked
+                        ? lesson.cards.length + " cards · about " + Math.max(1, Math.round(lesson.cards.length * 0.4)) + " min"
+                        : "Finish the lesson before this one to unlock it"}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1713,6 +2703,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [courses, setCourses] = useState([]);
   const [claims, setClaims] = useState({});
   const [profile, setProfile] = useState(null);
+  const [builtinProgress, setBuiltinProgress] = useState(() => loadBuiltinProgress());
   const [screen, setScreen] = useState({ name: "home" }); // home | path | player
   const [topic, setTopic] = useState("");
   const [building, setBuilding] = useState(false);
@@ -1834,14 +2825,42 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   };
   const buildCourse = () => buildCourseFrom(topic.trim());
 
-  const startReview = () => {
-    const cards = due.slice(0, 12).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
+  /* Daily practice: one mixed session. Due findings from search
+     courses come back first in spirit, and activities are sampled
+     from built in lessons already finished, so practice is always
+     review of things actually learned. */
+  const startDaily = () => {
+    const dueCards = due.slice(0, 10).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
+    const seed = Number(todayKey().replace(/[^0-9]/g, "")) || 1;
+    const cards = buildDailyPracticeCards({ progress: builtinProgress, dueCards, seed });
     if (!cards.length) return;
     setScreen({
       name: "player", fromPath: false,
-      course: { id: "review", title: "Review: findings that are fading", lessons: [{ id: "review", title: "Review", subtitle: "Findings that are starting to fade", cards }], doneLessons: [] },
+      course: { id: "daily", title: "Daily practice", lessons: [{ id: "daily", title: "Daily practice", subtitle: "Fading findings and activities from your paths, mixed together", cards }], doneLessons: [] },
       startLesson: 0,
     });
+  };
+
+  /* Built in paths: starting a lesson points the continue row at
+     it; finishing one records the score through the Player's
+     onLessonDone callback. */
+  const startBuiltinLesson = (path, flatIdx) => {
+    const course = courseFromPath(path, builtinProgress);
+    const lesson = course.lessons[flatIdx];
+    if (!lesson) return;
+    const cur = loadBuiltinProgress();
+    cur.lastPathId = path.id;
+    cur.lastLessonId = lesson.id;
+    saveBuiltinProgress(cur);
+    setBuiltinProgress(cur);
+    setScreen({ name: "player", course, startLesson: flatIdx, fromPath: false, pathId: path.id });
+  };
+  const handleBuiltinLessonDone = (pathId, lesson, pct) => {
+    const path = LEARNING_PATHS.find((p) => p.id === pathId);
+    if (!path || !lesson) return;
+    const next = applyLessonResult(loadBuiltinProgress(), path, lesson.id, pct);
+    saveBuiltinProgress(next);
+    setBuiltinProgress(next);
   };
 
   const removeCourse = (id) => {
@@ -1864,12 +2883,30 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         onExit={() => {
           refresh();
           setProfile(touchStreak(loadProfile()));
-          if (screen.fromPath && screen.course.id !== "review") setScreen({ name: "path", courseId: screen.course.id });
+          setBuiltinProgress(loadBuiltinProgress());
+          if (screen.pathId) setScreen({ name: "bpath", pathId: screen.pathId });
+          else if (screen.fromPath && screen.course.id !== "review") setScreen({ name: "path", courseId: screen.course.id });
           else setScreen({ name: "home" });
         }}
         onProgress={handleProgress}
+        onLessonDone={screen.course && screen.course.builtin
+          ? (lesson, pct) => handleBuiltinLessonDone(screen.course.pathId, lesson, pct)
+          : undefined}
       />
     );
+  }
+
+  if (screen.name === "bpath") {
+    const path = LEARNING_PATHS.find((p) => p.id === screen.pathId);
+    if (path) {
+      return (
+        <BuiltinPathView
+          path={path} progress={builtinProgress} P={P} accent={accent} at={at || "#101408"}
+          onPlay={(flatIdx) => startBuiltinLesson(path, flatIdx)}
+          onBack={() => setScreen({ name: "home" })}
+        />
+      );
+    }
   }
 
   if (screen.name === "path") {
@@ -1900,6 +2937,18 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   );
   const nextCourse = courses.find((c) => (c.doneLessons || []).length < c.lessons.length) || courses[0];
 
+  /* Continue: the last built in lesson touched wins, then an
+     unfinished search course, then the first path as an invitation. */
+  const lastPath = LEARNING_PATHS.find((p) => p.id === builtinProgress.lastPathId) || null;
+  const lastLesson = lastPath
+    ? flattenPathLessons(lastPath).find((l) => l.id === builtinProgress.lastLessonId) || null
+    : null;
+  const lastPathProg = lastPath ? pathProgress(lastPath, builtinProgress) : null;
+  const startedPaths = LEARNING_PATHS.filter((p) => pathProgress(p, builtinProgress).done > 0);
+  const dailyReady = due.length > 0 || startedPaths.length > 0;
+  const totalPathLessons = LEARNING_PATHS.reduce((n, p) => n + flattenPathLessons(p).length, 0);
+  const totalPathDone = LEARNING_PATHS.reduce((n, p) => n + pathProgress(p, builtinProgress).done, 0);
+
   return (
     <div className="lv-home" style={{ maxWidth: 880, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
@@ -1911,7 +2960,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
           </div>
           <p className="lv-sub" style={{ color: P.muted, fontSize: 15.5, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
-            Where papers become memory. Short courses built from the papers themselves. Every question is a real finding, every debate is a real disagreement, and reviews come back when your memory starts to fade.
+            Where papers become memory, and where anyone can simply learn. Follow a path and Cortex teaches the subject in small steps, with activities. Or build a course from real papers, where every question is a real finding and reviews come back when your memory starts to fade.
           </p>
           <button onClick={() => setTourOpen(true)}
             style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: 13.5, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "8px 0 0", display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -1932,32 +2981,130 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         {pill(null, courses.length, "courses")}
       </div>
 
-      {/* continue hero */}
-      {nextCourse && (
-        <button onClick={() => setScreen({ name: "path", courseId: nextCourse.id })}
-          style={{
-            display: "block", width: "100%", textAlign: "left", cursor: "pointer", padding: 0,
-            background: P.raised, border: "1px solid " + P.line, borderRadius: 22, overflow: "hidden",
-            fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 24,
-          }}>
-          <Cover title={nextCourse.title} height={128} radius={0} cat={CATALOG.find((c) => c.name === nextCourse.category) || null} img={nextCourse.img} />
-          <span style={{ display: "block", padding: "18px 22px 20px" }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
-              {(nextCourse.doneLessons || []).length > 0 ? "CONTINUE" : "START HERE"}
-            </span>
-            <span className="lv-hero-title" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{nextCourse.title}</span>
-            <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
-              <span style={{ flex: 1, height: 8, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
-                <span className="lv-fill" style={{
-                  display: "block", height: "100%", background: accent, borderRadius: 999,
-                  width: (nextCourse.lessons.length ? Math.round(((nextCourse.doneLessons || []).length / nextCourse.lessons.length) * 100) : 0) + "%",
-                }} />
+      {/* continue hero: last built in lesson, else an unfinished
+          search course, else the first path as an invitation */}
+      {(() => {
+        const hero = lastPath && lastLesson ? {
+          kicker: "CONTINUE · " + lastPath.title.toUpperCase(),
+          title: lastLesson.title,
+          sub: lastLesson.unitTitle + " · " + lastPath.title,
+          pct: lastPathProg.pct,
+          count: lastPathProg.done + " of " + lastPathProg.total + " lessons",
+          coverTitle: lastPath.title,
+          cat: CATALOG.find((c) => c.name === lastPath.category) || null,
+          img: null,
+          go: () => setScreen({ name: "bpath", pathId: lastPath.id }),
+        } : nextCourse ? {
+          kicker: (nextCourse.doneLessons || []).length > 0 ? "CONTINUE" : "START HERE",
+          title: nextCourse.title,
+          sub: "",
+          pct: nextCourse.lessons.length ? Math.round(((nextCourse.doneLessons || []).length / nextCourse.lessons.length) * 100) : 0,
+          count: (nextCourse.doneLessons || []).length + " of " + nextCourse.lessons.length + " lessons",
+          coverTitle: nextCourse.title,
+          cat: CATALOG.find((c) => c.name === nextCourse.category) || null,
+          img: nextCourse.img,
+          go: () => setScreen({ name: "path", courseId: nextCourse.id }),
+        } : {
+          kicker: "START A PATH",
+          title: LEARNING_PATHS[0].title,
+          sub: LEARNING_PATHS[0].blurb,
+          pct: 0,
+          count: flattenPathLessons(LEARNING_PATHS[0]).length + " lessons · no papers needed",
+          coverTitle: LEARNING_PATHS[0].title,
+          cat: CATALOG.find((c) => c.name === LEARNING_PATHS[0].category) || null,
+          img: null,
+          go: () => setScreen({ name: "bpath", pathId: LEARNING_PATHS[0].id }),
+        };
+        return (
+          <button onClick={hero.go}
+            style={{
+              display: "block", width: "100%", textAlign: "left", cursor: "pointer", padding: 0,
+              background: P.raised, border: "1px solid " + P.line, borderRadius: 22, overflow: "hidden",
+              fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 24,
+            }}>
+            <Cover title={hero.coverTitle} height={128} radius={0} cat={hero.cat} img={hero.img} />
+            <span style={{ display: "block", padding: "18px 22px 20px" }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
+                {hero.kicker}
               </span>
-              <span style={{ fontSize: 13, color: P.muted }}>{(nextCourse.doneLessons || []).length} of {nextCourse.lessons.length} lessons</span>
+              <span className="lv-hero-title" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{hero.title}</span>
+              {hero.sub && <span style={{ display: "block", fontSize: 13.5, color: P.muted, marginTop: 5 }}>{hero.sub}</span>}
+              <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
+                <span style={{ flex: 1, height: 8, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
+                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: hero.pct + "%" }} />
+                </span>
+                <span style={{ fontSize: 13, color: P.muted }}>{hero.count}</span>
+              </span>
             </span>
-          </span>
+          </button>
+        );
+      })()}
+
+      {/* daily practice */}
+      <div style={{ border: "1px solid " + (dailyReady ? accent : P.line), borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DAILY PRACTICE</div>
+        <p style={{ fontSize: 15, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
+          {dailyReady
+            ? "A short mixed session: " + (due.length > 0 ? due.length + " fading finding" + (due.length === 1 ? "" : "s") + " and " : "") + "activities from the paths you have started."
+            : "Finish any lesson on a path and daily practice unlocks: a short mixed session that keeps what you learned from fading."}
+        </p>
+        <p style={{ fontSize: 13.5, color: P.muted, lineHeight: 1.5, margin: "0 0 14px" }}>
+          {totalPathDone} of {totalPathLessons} path lessons done so far.
+        </p>
+        <button className="lv-btn lv-btn-primary" onClick={startDaily} disabled={!dailyReady}
+          style={{
+            background: accent, color: at || "#101408", border: "none", borderRadius: 12,
+            padding: "13px 24px", fontSize: 15, fontWeight: 700,
+            cursor: dailyReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
+            opacity: dailyReady ? 1 : 0.5,
+          }}>
+          Start daily practice
         </button>
-      )}
+      </div>
+
+      {/* learning paths */}
+      <div style={{ marginBottom: 30 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEARNING PATHS</div>
+        <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 16px" }}>
+          Whole subjects, taught step by step. Lessons are short, the activities are the teaching, and nothing here needs a paper or a search. Papers wait at the end of a lesson, as a way deeper, never as a gate.
+        </p>
+        <div className="lv-catalog">
+          {LEARNING_PATHS.map((path) => {
+            const pp = pathProgress(path, builtinProgress);
+            const cat = CATALOG.find((c) => c.name === path.category) || null;
+            return (
+              <button key={path.id} className="lv-topic" onClick={() => setScreen({ name: "bpath", pathId: path.id })}
+                style={{
+                  textAlign: "left", cursor: "pointer", padding: 0, overflow: "hidden",
+                  background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                  fontFamily: "var(--cb-font)", color: P.ink,
+                }}>
+                <Cover title={path.title} height={104} radius={0} cat={cat} />
+                <span style={{ display: "block", padding: "14px 16px 16px" }}>
+                  <span style={{ fontFamily: SERIF, fontSize: 17.5, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{path.title}</span>
+                  <span style={{ fontSize: 13, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{path.blurb}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                    <span style={{ flex: 1, height: 7, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
+                      <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: pp.pct + "%" }} />
+                    </span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: accent }}>
+                      {pp.complete ? "Complete" : pp.done > 0 ? pp.done + " of " + pp.total : pp.total + " lessons"}
+                    </span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* courses from searches: heading for everything below */}
+      <div style={{ marginBottom: 4 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
+        <p style={{ fontSize: 14.5, color: P.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
+          The other way Cortex teaches: pick a topic and it builds a course from the real literature, findings, debates, and all.
+        </p>
+      </div>
 
       {/* the catalog */}
       <div style={{ marginBottom: 24 }}>
@@ -2065,20 +3212,6 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
         {buildError && <p style={{ color: "#FF8A8A", fontSize: 14, margin: "12px 0 0" }}>{buildError}</p>}
       </div>
-
-      {/* review queue */}
-      {due.length > 0 && (
-        <div style={{ border: "1px solid " + accent, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DUE FOR REVIEW</div>
-          <p style={{ fontSize: 15, color: P.ink, lineHeight: 1.55, margin: "0 0 14px" }}>
-            {due.length} finding{due.length === 1 ? " is" : "s are"} starting to fade. Reviewing now, while they are cheap to relearn, is what makes them permanent.
-          </p>
-          <button className="lv-btn lv-btn-primary" onClick={startReview}
-            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "13px 24px", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-            Start review
-          </button>
-        </div>
-      )}
 
       {/* contributor studio */}
       {access.isCreator && (
