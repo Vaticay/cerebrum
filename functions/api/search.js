@@ -410,7 +410,7 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
-const CACHE_SCHEMA_VERSION = "v13";
+const CACHE_SCHEMA_VERSION = "v14";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1565,6 +1565,12 @@ function conceptSetFor(term, dynLookup) {
 // is the model padding its answer, not rewording anything.
 const EXPANSION_FRAMING_WORDS = new Set([
   "the", "what", "how", "study", "studies", "paper", "papers", "research",
+  // People and role words (2026-10-13): the model spent its group cap
+  // expanding "scientist" and "researcher" on plain language probes.
+  // Who is asking is never the concept a paper phrases differently.
+  "scientist", "scientists", "researcher", "researchers",
+  "investigator", "investigators", "author", "authors", "people",
+  "person", "someone", "anyone",
 ]);
 
 // Strict gate for model-proposed expansion groups. Accepts the model's
@@ -1948,7 +1954,10 @@ const SYNONYMS = {
   "cotton": ["gossypium hirsutum"],
   "silkworm": ["bombyx mori"],
   "mosquito": ["aedes aegypti", "anopheles gambiae"],
-  "frog": ["xenopus laevis"],
+  // No bare "frog" entry on purpose (removed 2026-10-13): it resolved
+  // every generic frog question to the Xenopus lab model, including
+  // "how can a frog turn into ice all winter", whose literature is
+  // freeze tolerant species. Named frogs still resolve below.
   "wood frog": ["rana sylvatica", "lithobates sylvaticus"],
   "chicken": ["gallus gallus"],
   "pig": ["sus scrofa"],
@@ -2351,6 +2360,15 @@ const STOPWORDS = new Set([
   "let","lets","make","makes","made","allow","allows","allowed",
   "help","helps","helped","keep","keeps","kept","take","takes","took",
   "become","becomes","became","come","comes","came",
+  // Contraction fragments: tokenizers split on the apostrophe, so
+  // "doesn't" leaves "doesn" behind. It ranked as a content term on a
+  // live probe (2026-10-13) and ANDed itself into the structured
+  // query.
+  "doesn","didn","isn","aren","wasn","weren","wouldn","couldn",
+  "shouldn","hasn","haven","ain","don",
+  "doesn't","don't","isn't","aren't","wasn't","weren't","didn't",
+  "won't","wouldn't","couldn't","shouldn't","hasn't","haven't",
+  "can't","cannot",
 ]);
 
 // Verb lemmatization for search terms (2026-10-08 search reliability fix).
@@ -2983,6 +3001,13 @@ const QUERY_FRAMING_WORDS = new Set([
   "allowed", "help", "helps", "helped", "keep", "keeps", "kept",
   "take", "takes", "took", "become", "becomes", "became", "come",
   "comes", "came",
+  // Contraction fragments, same reasoning as the STOPWORDS entry:
+  // "doesn't" must not leave "doesn" as a load bearing term.
+  "doesn", "didn", "isn", "aren", "wasn", "weren", "wouldn",
+  "couldn", "shouldn", "hasn", "haven", "ain", "don",
+  "doesn't", "don't", "isn't", "aren't", "wasn't", "weren't",
+  "didn't", "won't", "wouldn't", "couldn't", "shouldn't",
+  "hasn't", "haven't", "can't", "cannot",
 ]);
 
 // Life-stage words describe the organism, not the topic. "What organisms are
@@ -10044,7 +10069,7 @@ async function gatherPapers(rawQuery, opts) {
   try {
     dynUncovered = ranked.filter((t) => {
       const tl = t.toLowerCase();
-      return termSpecificity(tl) >= 0.5 && !CONCEPT_LOOKUP.has(tl) && !SYNONYMS[tl];
+      return termSpecificity(tl) >= 0.5 && !CONCEPT_LOOKUP.has(tl) && !SYNONYMS[tl] && !EXPANSION_FRAMING_WORDS.has(tl);
     });
     if (dynUncovered.length > 0 && _budgetLeft()) {
       dynGroups = await llmConceptGroups(query, (opts && opts.env) || null);

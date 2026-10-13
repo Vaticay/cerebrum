@@ -248,6 +248,25 @@ await test("question framing verbs never become content phrases", () => {
   assert.ok(!/\bbeing\b/.test(joined), "being leaked into key phrases: " + joined);
 });
 
+await test("contractions never leak fragments or wholes into key phrases", () => {
+  const c = analyzeQuery("Why doesn't freezing kill some frogs in the winter?");
+  const joined = (c.keyPhrases || []).join(" ");
+  assert.ok(!/doesn/.test(joined), "contraction leaked into key phrases: " + joined);
+});
+
+await test("a bare generic frog question forces no lab organism", () => {
+  const b = analyzeQuery("How can a frog turn into ice all winter and not die?");
+  assert.equal(b.organism, null);
+});
+
+await test("people words are never expansion targets", () => {
+  const out = validateExpansionGroups(
+    [{ term: "scientist", alternates: ["researcher", "biologist"] }],
+    "what does a scientist measure in insect guts"
+  );
+  assert.deepEqual(out, []);
+});
+
 await test("a multi word organism name claims its words", () => {
   const a = analyzeQuery("What lets a wood frog survive being frozen for months at a time?");
   assert.equal(a.organism, "rana sylvatica");
