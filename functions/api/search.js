@@ -6335,6 +6335,17 @@ export function findExistenceSupport(items, query, queryAnalysis = null) {
   return best;
 }
 
+// Year text for the extractive paths' venue lines. Some sources hand the
+// year back as a float string ("2015.0"); printing it verbatim makes the
+// venue read machine generated, and a year is an integer by definition.
+// Print the first 4 digit year in the value, or nothing when the value
+// carries none . an absent year is honest, a guessed one is not.
+function extractiveYearText(year) {
+  if (year == null || year === "") return "";
+  const m = String(year).match(/\d{4}/);
+  return m ? m[0] : "";
+}
+
 function existenceAnswerLine(support, pluralNoun = "papers") {
   if (support) {
     let claim = String(support.claim || "").trim();
@@ -6401,7 +6412,7 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
     const p = (it && it.p) || {};
     const title = extractTitleClaim(p.title) || "Untitled";
     const isWiki = p.type === "Reference" || /wikipedia/i.test(p.journal || "") || /wikipedia/i.test(p.url || "");
-    const venue = isWiki ? "Wikipedia" : [p.journal, p.year].filter(Boolean).join(", ");
+    const venue = isWiki ? "Wikipedia" : [p.journal, extractiveYearText(p.year)].filter(Boolean).join(", ");
     md += "- **" + title + "**" + (venue ? " . " + venue : "") + " [" + it.idx + "]\n";
   }
   let reforms = [];
@@ -6601,7 +6612,7 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       for (const it of paperItems) {
         const p = it.p || {};
         const title = extractTitleClaim(p.title) || "Untitled";
-        const venue = [p.journal, p.year].filter(Boolean).join(", ");
+        const venue = [p.journal, extractiveYearText(p.year)].filter(Boolean).join(", ");
         md += "- **" + title + "**" + (venue ? " . " + venue : "") + " [" + it.idx + "]\n";
       }
       let reforms = [];
@@ -7072,7 +7083,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         if (!it.titleClaim) continue;
         const kept = takeClaim(it.titleClaim);
         if (!kept) continue;
-        const venue = [it.p.journal, it.p.year].filter(Boolean).join(", ");
+        const venue = [it.p.journal, extractiveYearText(it.p.year)].filter(Boolean).join(", ");
         md += "- **" + kept + "**" + (venue ? " . " + venue : "") + " [" + it.idx + "]\n";
       }
     }
@@ -9465,7 +9476,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "ALWAYS respond in English regardless of the language of the source papers.\n\n",
   PERSONALITY:
     "PERSONALITY . this is who is writing, not just a formatting rule:\n" +
-    "TEACH FIRST. Before reporting findings, orient the reader in 2-3 sentences: what the key terms mean in plain language, why researchers study this, and what the central question is. " +
+    "ANSWER FIRST, THEN TEACH. Your first sentence is the direct answer to the question; RULE 1 and the output structure enforce this, and orientation never comes before it. Once the answer is on the table, teach: unpack the key terms in plain language, say why researchers study this, and make the central question plain, inside the answer where each piece of orientation earns its place. " +
     "FORMATTING: Italicize all species binomial names (e.g., *Hermetia illucens*, *Escherichia coli*). Use bold for key terms on first definition. " +
     "You're a sharp, curious researcher who actually finds this stuff interesting . not a customer-support bot summarizing " +
     "documents. You have a point of view. When the evidence is genuinely convincing, say so plainly instead of hedging out " +
@@ -9648,8 +9659,10 @@ export const CEREBRUM_SYSTEM_v1 = {
     "carry confidence forward from earlier turns just because there's more context around it now. A follow-up citing one " +
     "thin source is exactly as hedged as a first question citing that same thin source.\n\n" +
     "HANDLING GAPS: If retrieved sources don't fully answer the question, state what they cover in ONE sentence, " +
-    "then seamlessly extend with your broader knowledge. Never refuse. Never apologize more than once. " +
-    "Your knowledge IS the ceiling . papers are evidence anchors, not limits.\n\n" +
+    "then answer only what the sources support; RULE 7 and the citation rules bind here in full. General background " +
+    "may orient the reader, but only where you mark it as background in plain words, and never as a finding or with " +
+    "a citation attached. Where part of the question has no support in the sources, say that part is not covered " +
+    "rather than filling it from memory. Never apologize more than once.\n\n" +
     "CONVERSATIONAL INTELLIGENCE:\n" +
     "- If the user asks a vague follow-up ('what about that?', 'and the other one?'), infer the referent from context.\n" +
     "- If they ask 'where are the papers' or 'show me the sources', list the papers you cited with brief summaries.\n" +
@@ -14905,10 +14918,12 @@ async function runSearchPipeline(pctx) {
         (evidenceIsThin
           ? "THIN EVIDENCE \u2014 READ THIS FIRST. Only a few of the papers below genuinely address this question; " +
             "the rest of the search results scored too low to trust and were withheld, not cited. Say that in your " +
-            "FIRST sentence, plainly and specifically (\u2018only a few papers directly study X\u2019), then answer from your own " +
-            "scientific knowledge. Cite the papers below ONLY for the narrower things they genuinely do report \u2014 a " +
+            "FIRST sentence, plainly and specifically (\u2018only a few papers directly study X\u2019), then answer strictly " +
+            "from what those papers report. Cite the papers below ONLY for the narrower things they genuinely do report \u2014 a " +
             "citation on a borrowed claim is worse than no citation, and you may leave them uncited entirely. " +
-            "Suggest the specific search terms that would find the real primary literature.\n\n"
+            "Beyond the papers, general background may orient the reader only where you mark it as background in plain " +
+            "words, never as a finding; where the papers do not cover part of the question, say so rather than filling " +
+            "it from memory. Suggest the specific search terms that would find the real primary literature.\n\n"
           : "") +
         "You have " + evidencePapers.length + " papers below. READ EACH ABSTRACT before answering.\n\n" +
         "═══ PAPER USAGE PROTOCOL (HARD-ENFORCED) ═══\n\n" +
@@ -14925,17 +14940,21 @@ async function runSearchPipeline(pctx) {
         "  Make CLAIMS, not lists. State scientific findings and cite papers inline.\n" +
         "  WRONG: 'Source [1] found that... Source [2] showed that... Source [3] demonstrated...'\n" +
         "  RIGHT: 'Larval gut pH varies from 6.2 in the foregut to 8.5 in the hindgut [1][3], creating distinct niches that select for different bacterial phyla [2].'\n\n" +
-        "STEP 3 . YOUR KNOWLEDGE IS PRIMARY:\n" +
-        "  You are an expert. Give a COMPLETE answer using your scientific knowledge.\n" +
-        "  Papers ANCHOR your answer but are NOT the ceiling.\n" +
-        "  If all papers are weak/tangential, say so in ONE sentence, then answer from knowledge.\n" +
+        "STEP 3 . THE PAPERS ARE THE EVIDENCE BASE:\n" +
+        "  Every factual claim in your answer comes from the papers below. Your expertise is for reading them " +
+        "well . weighing study design, spotting what they do and do not show . not for adding findings from memory.\n" +
+        "  General background may orient the reader only where you mark it as background in plain words, and it " +
+        "never carries a citation or reads as a finding.\n" +
+        "  If all papers are weak/tangential, say so in ONE sentence, then answer only what they support and name " +
+        "the part of the question they do not cover.\n" +
         "  0 citations + correct science > 5 citations + wrong organisms.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else if (useWeb) {
       systemPrompt = ID + PERSONALITY + "No peer-reviewed papers matched this specific query, but reference sources were found. " +
         "IMPORTANT: Do NOT start with an apology or 'no papers found' disclaimer. Start with a direct, substantive answer. " +
-        "Draw on both the reference sources below AND your scientific knowledge. " +
-        "If you know relevant papers exist on this topic (from your training), mention the general findings and suggest " +
-        "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this').\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
+        "Draw on the reference sources below; they are the evidence base for every factual claim. " +
+        "Do not state findings of papers you were not given from memory. If relevant primary papers likely exist on this topic, suggest " +
+        "specific search terms the user could try to find them (e.g., 'Searching for [specific technical terms] would surface the primary literature on this'). " +
+        "General background beyond the reference sources may orient the reader only where you mark it as background in plain words, never as a finding.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else {
       // 2026-10-09 . ZERO-EVIDENCE HARDBALL. The old prompt told the model
       // to "give an excellent, comprehensive answer drawing on your full

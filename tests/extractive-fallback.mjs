@@ -226,5 +226,23 @@ await test("evidence brief labels are sentence-case, not tag soup", () => {
   assert.match(brief.text, /\[findings on /);
 });
 
+// A source can hand the year back as a float string ("2015.0"); the venue
+// lines in the extractive answers must print the integer year, never the
+// decimal artifact (panel 2026-10-13).
+await test("extractive venue lines render an integer year, never a float artifact", () => {
+  const md = buildExtractiveSynthesis(
+    [
+      { title: "Gut enzyme activity in termite workers fed wood diets", abstract: "", year: "2015.0", journal: "Insect Science" },
+      { title: "Digestive proteases of the cockroach midgut respond to diet protein", abstract: "", year: "2018", journal: "J Insect Physiol" },
+      { title: "Amylase activity in whole gut homogenates of grasshoppers", abstract: "", year: "2011", journal: "Comp Biochem" },
+    ],
+    [],
+    { query: "gut enzyme activity in insects" }
+  );
+  assert.ok(md, "expected markdown output");
+  assert.doesNotMatch(md, /\b\d{4}\.\d+\b/, "float year artifact must never print");
+  assert.match(md, /Insect Science, 2015 \[1\]/, "venue must carry the integer year");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
