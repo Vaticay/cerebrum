@@ -410,7 +410,7 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
-const CACHE_SCHEMA_VERSION = "v11";
+const CACHE_SCHEMA_VERSION = "v12";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1579,10 +1579,17 @@ const EXPANSION_FRAMING_WORDS = new Set([
 export function validateExpansionGroups(raw, query) {
   let data = raw;
   if (typeof data === "string") {
+    const cleaned = data.replace(/```json|```/g, "").trim();
     try {
-      data = JSON.parse(data.replace(/```json|```/g, "").trim());
+      data = JSON.parse(cleaned);
     } catch {
-      return [];
+      // Reasoning models sometimes wrap the array in prose. Recover
+      // the outermost bracketed array when one exists; anything else
+      // stays invalid.
+      const lo = cleaned.indexOf("[");
+      const hi = cleaned.lastIndexOf("]");
+      if (lo === -1 || hi <= lo) return [];
+      try { data = JSON.parse(cleaned.slice(lo, hi + 1)); } catch { return []; }
     }
   }
   if (data && typeof data === "object" && !Array.isArray(data)) {
@@ -1710,7 +1717,8 @@ async function defaultConceptGroupCall(query, env) {
         body: JSON.stringify({
           model: leg.model,
           temperature: 0.1,
-          max_tokens: 350,
+          max_tokens: 600,
+          ...(leg.via === "groq" ? { reasoning_effort: "low" } : {}),
           messages,
         }),
         signal: c.signal,
@@ -9758,12 +9766,13 @@ async function gatherPapers(rawQuery, opts) {
   // specific term is already covered, no call is made at all.
   let dynLookup = null;
   let dynGroups = [];
+  let dynUncovered = [];
   try {
-    const uncovered = ranked.filter((t) => {
+    dynUncovered = ranked.filter((t) => {
       const tl = t.toLowerCase();
       return termSpecificity(tl) >= 0.5 && !CONCEPT_LOOKUP.has(tl) && !SYNONYMS[tl];
     });
-    if (uncovered.length > 0 && _budgetLeft()) {
+    if (dynUncovered.length > 0 && _budgetLeft()) {
       dynGroups = await llmConceptGroups(query, (opts && opts.env) || null);
       if (dynGroups.length > 0) dynLookup = buildDynLookup(dynGroups);
     }
@@ -9994,6 +10003,11 @@ async function gatherPapers(rawQuery, opts) {
   if (dynGroups.length > 0) {
     diag.llmExpanded = dynGroups;
     diag.llmExpandedVia = dynGroups.via || null;
+  } else if (dynUncovered.length > 0) {
+    // The trigger fired but no groups survived: record the attempt so
+    // a live check can tell "tried and got nothing" apart from
+    // "never tried" (which leaves no trace here at all).
+    diag.llmExpansionAttempt = { uncovered: dynUncovered.slice(0, 6), groups: 0, via: null };
   }
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire","preprints"];
 
@@ -16383,8 +16397,12 @@ async function runSearchPipeline(pctx) {
          * internals beyond the leg name. */
         _expansion: (() => {
           const g = gResult && gResult._diag && gResult._diag.llmExpanded;
-          if (!Array.isArray(g) || g.length === 0) return null;
-          return { via: gResult._diag.llmExpandedVia || null, groups: g };
+          if (Array.isArray(g) && g.length > 0) {
+            return { via: gResult._diag.llmExpandedVia || null, groups: g };
+          }
+          const att = gResult && gResult._diag && gResult._diag.llmExpansionAttempt;
+          if (att) return { attempted: true, uncovered: att.uncovered, groups: 0, via: null };
+          return null;
         })(),
 
         /* SECURITY: `_aiAttempts` and the raw `_diag` shipped on EVERY

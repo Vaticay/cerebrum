@@ -240,6 +240,12 @@ await test("a valid reply passes through the validator", async () => {
   assert.deepEqual(out2, CLEAN);
 });
 
+await test("a reply wrapped in prose still yields its bracketed array", async () => {
+  const wrapped = "Here are the equivalences I found for this question:\n" + JSON.stringify(CLEAN) + "\nLet me know if you need more.";
+  const out = await llmConceptGroups(QUERY, {}, async () => wrapped);
+  assert.deepEqual(out, CLEAN);
+});
+
 await test("a valid reply naming terms outside the query is still gated out", async () => {
   const out = await llmConceptGroups(QUERY, {}, async () => [
     { term: "thylakoid", alternates: ["grana stack", "thylakoid membrane"] },
