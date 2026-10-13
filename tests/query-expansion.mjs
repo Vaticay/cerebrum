@@ -30,6 +30,9 @@ const {
   extractBinomial,
   analyzeQuery,
   topicOverlapFilter,
+  questionConceptGroups,
+  gateConceptGroups,
+  gateDynLookup,
   retrievalStrategiesTried,
   llmValidatePapers,
   defaultValidationCall,
@@ -309,6 +312,27 @@ await test("without a dynLookup, the alternate-only paper does not survive", () 
   const urls = out.map((p) => p.url);
   assert.ok(!urls.includes("https://example.com/a"), "alternate-only paper survived without expansion");
   assert.ok(urls.includes("https://example.com/c"), "literal paper was dropped");
+});
+
+// Gate precedence (2026-10-13): gating counts curated groups
+// first, but this query's hand table is THIN — one curated group
+// (degradation) — so the model group for the coined term still
+// counts for gating, and the gating resolution equals the merged
+// retrieval resolution. Expansion loses its gating vote only when
+// two or more hand groups already resolve (pinned in
+// search-wave-two.mjs on the baby belly draw).
+await test("thin table: the coined term's model group still counts for gating", () => {
+  const dyn = buildDynLookup([
+    { term: "zorblaxin", alternates: ["zorb extract", "zorblaxin residue"] },
+  ]);
+  assert.equal(questionConceptGroups(FILTER_QUERY, null).length, 1,
+    "control: the hand table resolves only the degradation group");
+  assert.equal(gateDynLookup(FILTER_QUERY, dyn), dyn,
+    "a thin hand table lets the dyn lookup through to gating");
+  assert.equal(gateConceptGroups(FILTER_QUERY, dyn).length, 2,
+    "the gating resolution gains the model group in the thin case");
+  assert.deepEqual(gateConceptGroups(FILTER_QUERY, dyn), questionConceptGroups(FILTER_QUERY, dyn),
+    "in the thin case the gating and retrieval resolutions agree");
 });
 
 // ═══════════════════════════════════════════════════════════════════

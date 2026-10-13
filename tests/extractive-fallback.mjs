@@ -27,6 +27,7 @@ const {
   buildExtractiveSynthesis, isWellFormedClaim, buildEvidenceBrief, getLastExtractiveTier, verifyExtractiveAlignment,
   pruneExtractiveEvidence, conceptGateContext, conceptGateKeeps, extractiveTermHit,
   buildFurtherReadingTail, paperConceptGroupHits, questionConceptGroups,
+  buildDynLookup, gateConceptGroups, gateDynLookup,
 } = await import(
   join(root, "functions/api/search.js")
 );
@@ -557,6 +558,76 @@ await test("thin shelf control: the cascade still answers when nothing clears th
   assert.ok(!floor.changed && floor.papers.length === 2, "the floor rule keeps the set when nothing clears");
   const md2 = buildExtractiveSynthesis(floor.papers, null, { query: BELLY_Q });
   assert.ok(md2 && md2.length > 0, "the floor set still answers");
+});
+
+// ── GATE GROUP PRECEDENCE (2026-10-13) ──────────────────────────
+// The production defect (build 363d02c): a fresh run of this
+// question drew a different shelf with the expansion leg cold and
+// cited "The Baby with a Big Belly" and the belly dance paper in
+// extractive mode, 8 cited of 9 shipped. When expansion DOES fire
+// it can mint a group for the population word (baby becomes
+// infant, newborn, birth), and every consumer counting the merged
+// groups then lets gut plus population satisfy the two group
+// standard — so the gates' strictness depended on the expansion
+// leg. Gating now counts curated groups first (gateConceptGroups);
+// model groups count only when the hand table resolves fewer than
+// two. The adversarial lookup below is that population group.
+const ADV_BABY_DYN = () => buildDynLookup([
+  { term: "baby", alternates: ["infant", "newborn", "birth"] },
+]);
+
+await test("the prune holds under an adversarial expansion lookup", () => {
+  assert.equal(gateDynLookup(BELLY_Q, ADV_BABY_DYN()), null,
+    "two curated groups resolve, so the model lookup must not gate");
+  assert.equal(gateConceptGroups(BELLY_Q, ADV_BABY_DYN()).length, 2,
+    "the gating resolution is the microbe and gut groups alone");
+  const plain = pruneExtractiveEvidence(PRODUCTION_EVIDENCE(), BELLY_Q, null);
+  const adversarial = pruneExtractiveEvidence(PRODUCTION_EVIDENCE(), BELLY_Q, ADV_BABY_DYN());
+  assert.ok(adversarial.changed, "the production evidence set must still be pruned");
+  assert.deepEqual(adversarial.papers.map((p) => p.title), plain.papers.map((p) => p.title),
+    "the pruned set is identical whether or not the expansion leg fired");
+  for (const t of COLLISION_TITLES) {
+    assert.ok(!adversarial.papers.some((p) => p.title.includes(t)),
+      `collision must leave the evidence set under the adversarial lookup: ${t}`);
+  }
+});
+
+await test("the builder holds under an adversarial expansion lookup", () => {
+  // Direct builder call with the dyn lookup in ctx, the handler's
+  // shape: the pool standard and the judging bridge both follow
+  // the precedence, so the collisions supply no excerpts and are
+  // not cited or listed. Input positions: dance 2, big belly 3,
+  // surrogacy 5, prune 9.
+  const md = buildExtractiveSynthesis(PRODUCTION_EVIDENCE(), null, { query: BELLY_Q, dynLookup: ADV_BABY_DYN() });
+  assert.ok(md, "the builder must produce an answer");
+  assert.equal(getLastExtractiveTier(), "research",
+    "the on point shelf still reaches the research tier");
+  for (const t of COLLISION_TITLES) {
+    assert.ok(!md.includes(t), `collision title must not appear in builder output: ${t}`);
+  }
+  const cited = new Set(citedIndices(md));
+  for (const idx of [2, 3, 5, 9]) {
+    assert.ok(!cited.has(idx), `collision at input position ${idx} must never be cited`);
+  }
+  for (const idx of [6, 7, 8]) {
+    assert.ok(cited.has(idx), `on point paper at input position ${idx} must be cited`);
+  }
+});
+
+await test("the extractive tail standard holds under an adversarial expansion lookup", () => {
+  const shelf = [...PRODUCTION_EVIDENCE()];
+  const pruned = pruneExtractiveEvidence(shelf, BELLY_Q, ADV_BABY_DYN());
+  const tailAll = buildFurtherReadingTail(shelf, pruned.papers);
+  const tailCtx = conceptGateContext(tailAll, BELLY_Q, ADV_BABY_DYN());
+  assert.equal(tailCtx.groups.length, 2, "the tail standard counts the curated groups alone");
+  const tail = tailAll.filter((p) => conceptGateKeeps(p, 0, tailCtx));
+  for (const t of COLLISION_TITLES) {
+    assert.ok(!tail.some((p) => p.title.includes(t)), `collision must not ride the tail: ${t}`);
+  }
+  for (const p of tail) {
+    assert.ok(p.thinEvidence || paperConceptGroupHits(p, tailCtx.groups) >= 2,
+      `every tail entry meets the gate standard: ${p.title}`);
+  }
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

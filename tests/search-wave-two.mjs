@@ -46,6 +46,8 @@ const {
   buildDynLookup,
   topicOverlapFilter,
   questionConceptGroups,
+  gateConceptGroups,
+  gateDynLookup,
   paperConceptGroupHits,
   applyConceptCoverageGate,
   labelUncitedSources,
@@ -497,8 +499,12 @@ await test("the cache schema carries the wave two bump", () => {
   // v26 by the topic filter grouped accounting at the end of this
   // file (a multi group question's papers must touch two resolved
   // concept groups, not two loose words, so collision papers leave
-  // the shipped list for the same stored inputs).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v26"'), "CACHE_SCHEMA_VERSION must be v26");
+  // the shipped list for the same stored inputs), then to v27 by
+  // the gate group precedence fix at the end of this file (gating
+  // counts curated hand table groups first and model groups only
+  // when the hand table is thin, so cited sets and shipped lists
+  // change for questions whose expansion minted extra groups).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v27"'), "CACHE_SCHEMA_VERSION must be v27");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -1133,13 +1139,16 @@ group("topic filter grouped accounting — the requirement is over resolved conc
 // a subject concept. The both concepts gate barred them from
 // citation, but the filter had already admitted them to the
 // shipped list as further reading. The filter now defines the
-// requirement over the question's resolved CONCEPT GROUPS alone
-// (questionConceptGroups, hand and model merged) when two or more
+// requirement over the question's GATING CONCEPT GROUPS alone
+// (gateConceptGroups: curated groups first, model groups only
+// when the hand table resolves fewer than two) when two or more
 // resolve: a paper must touch at least two distinct groups,
 // counted by paperConceptGroupHits, the gate's own counter, so
 // the filter and the gate apply one standard. Questions resolving
 // fewer than two groups keep the singleton accounting untouched
-// (the fallback branch pinned below). Cache schema v26.
+// (the fallback branch pinned below). Cache schema v26 (grouped
+// accounting); v27 adds the curated first precedence the pins at
+// the end of this file prove.
 
 // Production shaped collisions: each prints the question's literal
 // words (that is how it cleared the handler constraint verdict and
@@ -1336,6 +1345,153 @@ await test("fallback branch: a single concept question retrieves its shelf by si
     "the on topic paper must survive through the fallback's singleton accounting");
   assert.ok(!out.some((p) => p.url.endsWith("ga-quantum")),
     "the unrelated paper must still die in the fallback branch");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("gate group precedence — curated groups gate, model groups only fill a thin table");
+// The production defect (build 363d02c): a fresh run of the baby
+// belly question drew a different shelf (gathered 62, the
+// expansion leg evidently cold) and, in extractive mode, CITED
+// "The Baby with a Big Belly" and the belly dance labor paper —
+// 8 cited of 9 shipped. Mechanism: questionConceptGroups merges
+// hand written and model expansion groups indistinguishably, so
+// when expansion mints a group for the population word (baby
+// becomes infant, newborn, birth), a labor paper touches gut plus
+// that population group and satisfies a two group standard that
+// was designed around the question's SUBJECT concepts (microbes,
+// gut). Whether the gates were strict depended on whether the
+// expansion leg happened to fire. The corrected contract:
+// gateConceptGroups counts the curated hand table groups first;
+// model groups count only when fewer than two hand groups resolve
+// (the thin table case). Retrieval keeps the full merged
+// resolution — expansion still helps papers get FOUND; it just
+// stops loosening the standard for what may be cited or shipped.
+// Cache schema v27.
+
+// The adversarial expansion: a population group for the word baby,
+// exactly the shape that loosened the gates when the leg fired.
+const GP_ADV_DYN = () => buildDynLookup([
+  { term: "baby", alternates: ["infant", "newborn", "birth"] },
+]);
+// Model groups on OTHER terms of the same question: precedence is
+// by source, not by term, so these must not count either.
+const GP_OTHER_DYN = () => buildDynLookup([
+  { term: "grows", alternates: ["growth", "weight gain", "development"] },
+  { term: "change", alternates: ["alter", "shift", "modulate"] },
+]);
+
+await test("retrieval still merges the population group; gating does not count it", () => {
+  assert.equal(questionConceptGroups(CC_QUESTION, GP_ADV_DYN()).length, 3,
+    "the merged retrieval resolution still gains the expansion group");
+  assert.equal(gateDynLookup(CC_QUESTION, GP_ADV_DYN()), null,
+    "with two hand groups resolved, the dyn lookup must not gate");
+  assert.deepEqual(gateConceptGroups(CC_QUESTION, GP_ADV_DYN()), questionConceptGroups(CC_QUESTION, null),
+    "the gating groups are exactly the curated groups");
+});
+
+await test("under the adversarial expansion the collisions touch one gating group, not two", () => {
+  const merged = questionConceptGroups(CC_QUESTION, GP_ADV_DYN());
+  const gating = gateConceptGroups(CC_QUESTION, GP_ADV_DYN());
+  for (const make of GA_COLLISIONS) {
+    assert.equal(paperConceptGroupHits(make(), merged), 2,
+      `${make().url} must reach two groups under the merged counting (the trap)`);
+    assert.equal(paperConceptGroupHits(make(), gating), 1,
+      `${make().url} must fall back to one group under the gating counting`);
+  }
+  assert.equal(paperConceptGroupHits(GA_CESAREAN_RESTORATION(), gating), 2,
+    "the on point shelf still touches both curated groups");
+  assert.equal(paperConceptGroupHits(GUT_MICROBE_PAPER(), gating), 2);
+});
+
+await test("the gate's verdict no longer depends on whether the expansion leg fired", () => {
+  const papers = [GUT_MICROBE_PAPER(), ...GA_COLLISIONS.map((m) => m())];
+  const answer =
+    "Gut bacteria shape infant growth [1]. Belly dance eases labor [2]. " +
+    "Prune belly is a wall defect [3]. Surrogacy is contract law [4]. " +
+    "A big belly can be an obstruction [5].";
+  const withDyn = applyConceptCoverageGate(answer, papers.map((p) => ({ ...p })), CC_QUESTION, GP_ADV_DYN());
+  const without = applyConceptCoverageGate(answer, papers.map((p) => ({ ...p })), CC_QUESTION, null);
+  assert.deepEqual(withDyn.demoted.map((d) => d.idx), [2, 3, 4, 5],
+    "every collision is demoted even when expansion minted the population group");
+  assert.deepEqual(withDyn.demoted.map((d) => d.idx), without.demoted.map((d) => d.idx),
+    "the demotion set is identical with and without the expansion leg");
+  assert.equal(withDyn.text, without.text, "the gated answer is identical either way");
+  assert.ok(withDyn.text.includes("[1]"), "the on point citation survives");
+});
+
+await test("the shipped list excludes the collisions with and without the adversarial expansion", () => {
+  const drawBySlug = Object.fromEntries(buildDrawShelf().map((p) => [slugOf(p), p]));
+  const onPoint = [
+    GA_CESAREAN_RESTORATION(),
+    drawBySlug["draw-bifido-imprinting"],
+    drawBySlug["draw-microbial-shifts"],
+    drawBySlug["draw-human-microbiome-growth"],
+    drawBySlug["draw-enteropathy"],
+    GA_GLYCOLIPIDS(),
+  ];
+  for (const dyn of [GP_ADV_DYN(), null]) {
+    const shelf = [...onPoint, ...GA_COLLISIONS.map((m) => m())];
+    const passedPapers = programmaticValidationPasses(CC_QUESTION, shelf.map((p) => ({ ...p })), dyn);
+    for (const make of GA_COLLISIONS) {
+      assert.ok(!passedPapers.some((p) => p.url === make().url),
+        `${make().url} must die in the passes (dyn: ${dyn ? "adversarial" : "none"})`);
+    }
+    const evidence = applyRelevanceGate(passedPapers).slice(0, 12);
+    const shipped = [...evidence, ...buildFurtherReadingTail(passedPapers, evidence)];
+    for (const make of GA_COLLISIONS) {
+      assert.ok(!shipped.some((p) => p.url === make().url),
+        `${make().url} must appear nowhere in the shipped list (dyn: ${dyn ? "adversarial" : "none"})`);
+    }
+    for (const p of onPoint) {
+      assert.ok(shipped.some((x) => x.url === p.url), `${slugOf(p)} must ship`);
+    }
+  }
+});
+
+await test("model groups on other terms do not count either: precedence is by source", () => {
+  assert.equal(gateDynLookup(CC_QUESTION, GP_OTHER_DYN()), null,
+    "a dyn lookup whose groups sit on other terms still must not gate");
+  assert.deepEqual(gateConceptGroups(CC_QUESTION, GP_OTHER_DYN()), questionConceptGroups(CC_QUESTION, null),
+    "the gating groups are unchanged by model groups on any term");
+  // A paper that touches gut plus the model "grows" group (via
+  // "development") reaches the standard only under merged counting.
+  const developmentPaper = {
+    title: "Abdominal ultrasound screening and child development",
+    abstract:
+      "Abdominal ultrasound screening in schoolchildren was compared with " +
+      "development milestones recorded over two school years.",
+    url: "https://example.com/gp-development",
+  };
+  assert.equal(paperConceptGroupHits(developmentPaper, questionConceptGroups(CC_QUESTION, GP_OTHER_DYN())), 2,
+    "the paper reaches two groups only when the model group counts");
+  assert.equal(paperConceptGroupHits(developmentPaper, gateConceptGroups(CC_QUESTION, GP_OTHER_DYN())), 1,
+    "under gating counting it touches the gut group alone");
+  const papers = [GUT_MICROBE_PAPER(), developmentPaper];
+  const answer = "Gut bacteria shape growth [1]. Screening tracks development [2].";
+  const gated = applyConceptCoverageGate(answer, papers.map((p) => ({ ...p })), CC_QUESTION, GP_OTHER_DYN());
+  assert.deepEqual(gated.demoted.map((d) => d.idx), [2],
+    "the gut plus model group paper is demoted: its second group does not count");
+});
+
+await test("thin table case: the sleep and colds groups still come from expansion", () => {
+  const dyn = SLEEP_DYN();
+  assert.equal(questionConceptGroups(SLEEP_Q, null).length, 0,
+    "control: the hand table resolves nothing for the sleep question");
+  assert.equal(gateDynLookup(SLEEP_Q, dyn), dyn,
+    "with a thin hand table the dyn lookup passes through to gating");
+  const gating = gateConceptGroups(SLEEP_Q, dyn);
+  assert.equal(gating.length, 2, "the expansion groups carry the standard here");
+  assert.deepEqual(SLEEP_PAPERS().map((p) => paperConceptGroupHits(p, gating)), [2, 1, 1],
+    "the two group paper passes, the single group papers demote, exactly as before");
+});
+
+await test("all three gating consumers resolve through the shared helper", () => {
+  assert.equal(src.split("const groups = gateConceptGroups(query, dynLookup);").length - 1, 2,
+    "the gate and the gate context must both resolve through gateConceptGroups");
+  assert.ok(src.includes("const resolvedGroups = gateConceptGroups(rawQuery, dynLookup);"),
+    "the topic filter's grouped branch must resolve through gateConceptGroups");
+  assert.ok(src.includes("gateDynLookup(String(ctx.query || \"\"), ctx.dynLookup)"),
+    "the extractive builder must gate its judging lookup through gateDynLookup");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

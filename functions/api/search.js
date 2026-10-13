@@ -748,7 +748,18 @@ export function isNonLiterature(p) {
 // "belly" plus "baby") leave the shipped list entirely. Filtered
 // shelves and further reading tails change for multi concept
 // questions; single concept questions keep the singleton path.
-const CACHE_SCHEMA_VERSION = "v26";
+// v27 (2026-10-13, gate group precedence): gating now counts
+// curated (hand table) concept groups first — gateConceptGroups
+// resolves the groups for the both concepts gate, the topic
+// filter's grouped branch, and the extractive prune, and model
+// expansion groups count only when fewer than two hand groups
+// resolve. Before this, a question's strictness depended on
+// whether the expansion leg fired: an expansion minted infant
+// group for the word "baby" let labor and case report collisions
+// satisfy the two group standard on the baby belly question.
+// Cited sets and shipped lists change for multi concept questions
+// whose expansion proposed extra groups; retrieval is unchanged.
+const CACHE_SCHEMA_VERSION = "v27";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -5562,8 +5573,9 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
 
   // ── Grouped accounting (2026-10-13, residual fix) ──────────────
   // When the question resolves to two or more DISTINCT concept
-  // groups (questionConceptGroups: hand written and model proposed
-  // merged, the same resolution the both concepts gate uses), the
+  // groups (gateConceptGroups: curated groups first, model groups
+  // only when the hand table is thin — the same gating resolution
+  // the both concepts gate uses), the
   // requirement is defined over those groups alone: a paper passes
   // by touching at least two of them, counted by
   // paperConceptGroupHits, the gate's own counter. Ungrouped
@@ -5583,7 +5595,7 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
   // style questions, a named organism or chemical with no group
   // coverage) keep the singleton based accounting below, byte for
   // byte, so they retrieve exactly as before.
-  const resolvedGroups = questionConceptGroups(rawQuery, dynLookup);
+  const resolvedGroups = gateConceptGroups(rawQuery, dynLookup);
   if (resolvedGroups.length >= 2) {
     const survivors = papers.filter((p) => {
       const hits = paperConceptGroupHits(p, resolvedGroups);
@@ -7375,6 +7387,24 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
   // disagree" / "How solid is this?" / "What would change this") so a
   // degraded answer reads as the same product, not a different one.
   try {
+    // GATE PRECEDENCE FOR JUDGING (2026-10-13): every instrument in
+    // this builder judges papers and sentences through the group
+    // bridge on ctx.dynLookup (extractiveTermHit's concept hits,
+    // the honesty gate's query hit counts, the tier sentence
+    // rankings). That judging is gating, so it follows the same
+    // curated first precedence as the gates themselves:
+    // gateDynLookup drops the model proposed lookup when the
+    // question's hand table groups already carry its standard, so
+    // an expansion minted group for a population word can no
+    // longer make a collision paper's sentences read as engaging
+    // the question. Retrieval upstream used the full merged groups
+    // to FIND these papers; nothing here retrieves. When the hand
+    // table is thin, the lookup passes through untouched and the
+    // instruments judge exactly as before.
+    if (ctx && ctx.dynLookup) {
+      const judgingLookup = gateDynLookup(String(ctx.query || ""), ctx.dynLookup);
+      if (judgingLookup !== ctx.dynLookup) ctx = { ...ctx, dynLookup: judgingLookup };
+    }
     // When the speculative evidence-brief extraction succeeded before the
     // providers failed, its LLM-extracted atomic claims outrank regex-picked
     // sentences. Map them by 1-based paper index.
@@ -8532,8 +8562,10 @@ export function stripUnsupportedCitations(answer, papers) {
 //
 // This gate runs where stripUnsupportedCitations runs: on the
 // finished answer, against the final paper list. When the question
-// resolves to two or more DISTINCT concept groups (hand written or
-// model proposed), a paper the answer cites as direct support must
+// resolves to two or more DISTINCT gating concept groups
+// (gateConceptGroups: the hand written groups, with model proposed
+// groups counting only when the hand table resolves fewer than
+// two), a paper the answer cites as direct support must
 // touch at least two of them, by group membership in its title or
 // abstract. A paper that touches fewer loses its markers and stays
 // in the bibliography as further reading, exactly the state
@@ -8559,6 +8591,12 @@ export function stripUnsupportedCitations(answer, papers) {
 // phrase scan topicOverlapFilter and buildStructuredQuery both run,
 // so a phrase keyed group the tokenizer cannot see still counts).
 // Deduped by Set identity: two words from one group are one concept.
+//
+// This is the RETRIEVAL resolution: retrieval uses, boolean rungs,
+// anchors, and fallbacks all work from these merged groups, so
+// expansion keeps helping papers get FOUND. It is NOT the gating
+// resolution: what may be cited or shipped is judged by
+// gateConceptGroups below, which applies curated first precedence.
 export function questionConceptGroups(query, dynLookup) {
   const qLower = String(query || "").toLowerCase();
   const groups = [];
@@ -8587,6 +8625,53 @@ export function questionConceptGroups(query, dynLookup) {
   return groups;
 }
 
+// ── Gate group precedence (2026-10-13) ──────────────────────────
+// The both concepts standard was designed around a question's
+// SUBJECT concepts: the groups the hand written table resolves for
+// its content words (microbes and gut, for the baby belly
+// question). questionConceptGroups merges hand and model expansion
+// groups indistinguishably, so when the expansion leg fires it can
+// mint a group for a POPULATION word — baby becomes {baby, infant,
+// newborn, birth} — and every gating consumer counting merged
+// groups then lets a labor paper satisfy the two group standard by
+// touching gut plus the population group. Whether the gates were
+// strict therefore depended on whether one expansion leg happened
+// to fire, which is run to run variance inside the gates
+// themselves: on the production draw where expansion ran cold, a
+// fresh run cited "The Baby with a Big Belly" and the belly dance
+// labor paper in extractive mode (8 cited of 9 shipped).
+//
+// The rule: gating counts CURATED groups first. The groups that
+// count for gating are the hand table groups resolved from the
+// question. Model expansion groups count ONLY when fewer than two
+// hand groups resolve — the thin table case (the sleep and colds
+// shape, whose sleep and virus groups come from expansion; the
+// frog shapes) — where without them no standard could engage at
+// all. Precedence is by SOURCE, not by term: with two or more hand
+// groups, a model group counts for no term, not even one the hand
+// table leaves uncovered. Expansion still threads retrieval
+// unchanged (questionConceptGroups above); it just no longer
+// loosens the standard for what may be cited or shipped. All
+// gating consumers (applyConceptCoverageGate, topicOverlapFilter's
+// grouped branch, conceptGateContext and everything built on it)
+// resolve through gateConceptGroups so they cannot drift.
+
+// The gating form of a dynLookup: the lookup itself when the hand
+// table is thin for this question (fewer than two curated groups
+// resolve, so model groups may count), or null — hand table only —
+// when the curated groups already carry the standard. Consumers
+// that judge through a lookup rather than a group list (the
+// extractive instruments, via extractiveTermHit) gate through this.
+export function gateDynLookup(query, dynLookup) {
+  if (!dynLookup) return null;
+  return questionConceptGroups(query, null).length >= 2 ? null : dynLookup;
+}
+
+// The groups that count for gating, per the precedence rule above.
+export function gateConceptGroups(query, dynLookup) {
+  return questionConceptGroups(query, gateDynLookup(query, dynLookup));
+}
+
 // How many of the given groups a paper touches, by membership: a
 // multi word member must appear as a phrase; a single word member
 // must appear as a whole token (the substring looseness the
@@ -8612,7 +8697,7 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
   const text = String(answer || "");
   const list = Array.isArray(papers) ? papers : [];
   if (!text || list.length === 0) return { text, demoted: [] };
-  const groups = questionConceptGroups(query, dynLookup);
+  const groups = gateConceptGroups(query, dynLookup);
   if (groups.length < 2) return { text, demoted: [] };
 
   const citedIdx = new Set();
@@ -8688,14 +8773,16 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
 // which papers may supply excerpts at all, and (in the handler)
 // which evidence entries may ship on an extractive answer. The
 // context below computes the gate's own inputs once: the resolved
-// concept groups, the organism and binomial anchor needles, and
+// gating concept groups (gateConceptGroups, so the curated first
+// precedence holds here exactly as at the gate), the organism and
+// binomial anchor needles, and
 // the existence path's carried paper. The keep predicate mirrors
 // the gate's exemptions exactly: cascade papers (thinEvidence),
 // anchor carried papers, and the existence paper are kept; any
 // other paper must touch at least two of the question's groups.
 export function conceptGateContext(papers, query, dynLookup) {
   const list = Array.isArray(papers) ? papers : [];
-  const groups = questionConceptGroups(query, dynLookup);
+  const groups = gateConceptGroups(query, dynLookup);
   const qLower = String(query || "").toLowerCase();
   const anchorNeedles = [];
   const binomial = extractBinomial(String(query || ""));
