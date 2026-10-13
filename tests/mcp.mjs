@@ -148,6 +148,42 @@ await test("a fake runner returns shaped content with a numbered source list", a
   assert.ok(text.includes("cited 1 source"), "funnel cited number missing");
 });
 
+await test("an extractive answer carries a plain quality line", () => {
+  const out = formatSearchToolResult({
+    answer: "An answer assembled from excerpts [1].",
+    sources: [{ title: "Cited paper", year: 2024 }],
+    synthesisMode: "extractive",
+    degraded: true,
+  });
+  const text = out.content[0].text;
+  assert.ok(text.includes("Note on quality: this answer was assembled from source excerpts"),
+    "extractive state not named");
+  assert.ok(text.indexOf("Note on quality") < text.indexOf("Sources"), "quality line should sit with the answer, before the source list");
+});
+
+await test("a degraded AI answer carries a plain quality line", () => {
+  const out = formatSearchToolResult({
+    answer: "An AI answer written while a stage was down [1].",
+    sources: [{ title: "Cited paper", year: 2024 }],
+    synthesisMode: "ai",
+    degraded: true,
+  });
+  assert.ok(out.content[0].text.includes("Note on quality: this answer is degraded"),
+    "degraded state not named");
+});
+
+await test("a full AI answer carries no quality line", () => {
+  const out = formatSearchToolResult({
+    answer: "A full AI answer [1].",
+    sources: [{ title: "Cited paper", year: 2024 }],
+    synthesisMode: "ai",
+    degraded: false,
+  });
+  assert.ok(!out.content[0].text.includes("Note on quality"), "full answer must not be labelled");
+  const bare = formatSearchToolResult(SEARCH_PAYLOAD);
+  assert.ok(!bare.content[0].text.includes("Note on quality"), "a payload without quality fields stays unlabelled");
+});
+
 await test("coverage line derives cited from source flags when the funnel disagrees", () => {
   const out = formatSearchToolResult({
     answer: "A grounded answer [1].",
@@ -242,6 +278,21 @@ group("Protocol errors and notifications");
 await test("unknown method yields -32601", async () => {
   const res = await handleRpcMessage(rpc("resources/list"), fakeRunners);
   assert.equal(res.error.code, -32601);
+});
+
+await test("a message missing the jsonrpc member is an Invalid Request", async () => {
+  const noMember = await handleRpcMessage({ id: 5, method: "ping" }, fakeRunners);
+  assert.equal(noMember.error.code, -32600);
+  assert.equal(noMember.id, 5);
+  const wrongVersion = await handleRpcMessage({ jsonrpc: "1.0", id: 6, method: "ping" }, fakeRunners);
+  assert.equal(wrongVersion.error.code, -32600);
+  const inBatch = await handleRpcMessage([
+    rpc("ping", undefined, 1),
+    { id: 2, method: "ping" },
+  ], fakeRunners);
+  assert.deepEqual(inBatch[0].result, {});
+  assert.equal(inBatch[1].error.code, -32600);
+  assert.equal(inBatch[1].id, 2);
 });
 
 await test("a notification yields no result body", async () => {

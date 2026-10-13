@@ -252,6 +252,86 @@ test("buildConfidenceLine + calibrate: end-to-end", () => {
   assert.ok(calibrated.score >= 50, `3 solid papers should give decent confidence (got ${calibrated.score})`);
 });
 
+// ── 4b. The honesty cap survives calibration (2026-10-13 rescore) ──
+// calibrateConfidenceScore read conf.verdictStatus, a field
+// buildConfidenceLine never returned, so its divided branch never
+// fired and the bare score thresholds re promoted a divided answer
+// the builder had capped at moderate/70 to strong/70. The builder now
+// returns verdictStatus and cap, and calibration treats both as a
+// ceiling it may only discount under, never raise past.
+const DIVIDED_PAPERS = Array.from({ length: 8 }, (_, i) => ({
+  title: `Divided paper ${i + 1}`,
+  abstract: "A detailed abstract reports a measured result with enough supporting detail for the answer.",
+  year: 2025,
+  relevance: 90,
+  type: "Journal",
+  semanticScore: 80,
+}));
+
+test("buildConfidenceLine: the return carries the verdict status and the cap", () => {
+  const conf = buildConfidenceLine(DIVIDED_PAPERS, { status: "divided", conflictCount: 2 });
+  assert.equal(conf.verdictStatus, "divided");
+  assert.equal(conf.cap, 70);
+  assert.equal(conf.level, "moderate");
+  assert.equal(conf.score, 70, "raw points above the cap are clamped to it");
+  assert.equal(buildConfidenceLine(DIVIDED_PAPERS, { status: "settled" }).verdictStatus, "settled");
+  assert.equal(buildConfidenceLine([], { status: "divided" }).verdictStatus, "divided");
+});
+
+test("calibrateConfidenceScore: a divided cap survives calibration unchanged", () => {
+  const conf = buildConfidenceLine(DIVIDED_PAPERS, { status: "divided", conflictCount: 2 });
+  const calibrated = calibrateConfidenceScore(conf, {
+    strippedCitations: 0,
+    totalCitations: 8,
+    integrityFlags: 0,
+  });
+  assert.equal(calibrated.level, "moderate", "divided evidence must not calibrate up to strong");
+  assert.equal(calibrated.score, 70, "the capped number must survive calibration");
+  assert.equal(calibrated.rawScore, 70);
+});
+
+test("calibrateConfidenceScore: the panel's divided fixture cannot reach strong", () => {
+  // The exact shape the rescore panel reproduced: a divided answer at
+  // moderate/70 entering calibration.
+  const calibrated = calibrateConfidenceScore(
+    { score: 70, level: "moderate", factors: [], cap: 70, capReasons: [], verdictStatus: "divided" },
+    { strippedCitations: 0, totalCitations: 6, integrityFlags: 0 }
+  );
+  assert.equal(calibrated.level, "moderate");
+  assert.equal(calibrated.score, 70);
+});
+
+test("calibrateConfidenceScore: discounts apply under the cap, never above it", () => {
+  const conf = buildConfidenceLine(DIVIDED_PAPERS, { status: "divided", conflictCount: 2 });
+  const discounted = calibrateConfidenceScore(conf, {
+    strippedCitations: 3,
+    totalCitations: 4,
+    integrityFlags: 0,
+  });
+  assert.ok(discounted.score < 70, `stripping should discount under the cap (got ${discounted.score})`);
+  assert.equal(discounted.level, "moderate", "a discounted divided answer stays moderate, never strong");
+  const flagged = calibrateConfidenceScore(conf, {
+    strippedCitations: 0,
+    totalCitations: 8,
+    integrityFlags: 4,
+  });
+  assert.ok(flagged.score <= 70, "integrity penalties must not push past the cap either");
+  assert.equal(flagged.level, "moderate");
+});
+
+test("calibrateConfidenceScore: an extractive cap holds its band through calibration", () => {
+  const conf = buildConfidenceLine(DIVIDED_PAPERS, { status: "settled" }, { extractive: true });
+  assert.equal(conf.cap, 59);
+  assert.equal(conf.level, "moderate");
+  const calibrated = calibrateConfidenceScore(conf, {
+    strippedCitations: 0,
+    totalCitations: 8,
+    integrityFlags: 0,
+  });
+  assert.equal(calibrated.score, 59);
+  assert.equal(calibrated.level, "moderate", "a 59 cap can never calibrate to strong");
+});
+
 // ── 5. Systematic disagreement detection ─────────────────────────
 
 test("detectSemanticConflicts: returns [] without env", async () => {

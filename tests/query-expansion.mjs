@@ -33,6 +33,7 @@ const {
   retrievalStrategiesTried,
   llmValidatePapers,
   defaultValidationCall,
+  finalizeValidationHealth,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -502,6 +503,45 @@ await test("defaultValidationCall with no keys returns null and never fetches", 
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("validation stage health — fail open must not read as healthy (2026-10-13)");
+
+// The stage fails open deliberately: unvalidated survivors are used.
+// But the shipped stageHealth reported ok true with via null whenever
+// both legs failed (5 of 7 rescore probes), which reads as a healthy
+// gate that silently never ran. finalizeValidationHealth is the
+// handler's final word on the record: a leg answering keeps ok and
+// names via; no leg answering reports ok false with a skipReason, the
+// shape the synthesis stage uses for degraded outcomes.
+await test("a leg answering keeps the record ok and names the leg in via", () => {
+  const rec = { name: "validation", ok: true, ms: 412 };
+  finalizeValidationHealth(rec, { llmValidatedVia: "groq" });
+  assert.equal(rec.ok, true);
+  assert.equal(rec.via, "groq");
+  assert.equal(rec.skipReason, undefined);
+});
+
+await test("no leg answering reports ok false with a skipReason, via null", () => {
+  const rec = { name: "validation", ok: true, ms: 38 };
+  finalizeValidationHealth(rec, { llmValidatedVia: null });
+  assert.equal(rec.ok, false, "fail open must not claim ok");
+  assert.equal(rec.via, null);
+  assert.equal(rec.skipReason, "no leg answered");
+});
+
+await test("the helper leaves other stages and empty inputs alone", () => {
+  const rec = { name: "retrieval", ok: true, ms: 10 };
+  finalizeValidationHealth(rec, { llmValidatedVia: null });
+  assert.deepEqual(rec, { name: "retrieval", ok: true, ms: 10 });
+  assert.equal(finalizeValidationHealth(null, null), null);
+});
+
+await test("the handler finalizes the validation record from the diag", () => {
+  const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
+  assert.match(src, /finalizeValidationHealth\(stageHealth\[validationHealthIdx\], validationDiag\)/,
+    "handler does not finalize the validation health record");
 });
 
 // ═══════════════════════════════════════════════════════════════════

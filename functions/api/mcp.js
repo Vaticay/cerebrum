@@ -178,6 +178,23 @@ function funnelLine(data) {
   return parts.length ? `Coverage: ${parts.join(" and ")}.` : "";
 }
 
+// One plain line naming the answer's quality state, from fields the
+// search response already carries: synthesisMode says how the answer
+// text was produced, degraded says part of the pipeline did not
+// complete. A full AI answer gets no line, so an extractive or
+// degraded answer never arrives dressed as one. The no results state
+// is skipped: it renders its own honest note below, and its degraded
+// flag is set by construction rather than by a pipeline failure.
+function answerQualityLine(d) {
+  if (d.synthesisMode === "extractive") {
+    return "Note on quality: this answer was assembled from source excerpts because AI synthesis did not complete.";
+  }
+  if (d.degraded === true && !d.noResults) {
+    return "Note on quality: this answer is degraded because part of the search pipeline did not complete.";
+  }
+  return "";
+}
+
 // Shape a parsed /api/search payload into an MCP tool result. Pure and
 // defensive: every field it reads may be absent, because the search
 // payload carries several diagnostics only on some paths.
@@ -192,6 +209,9 @@ export function formatSearchToolResult(data) {
   else if (reportedError) text = "Cerebrum reported a problem with this search and returned no answer.";
   else if (sources.length) text = "Cerebrum returned sources for this question but no answer text.";
   else text = "Cerebrum found no answer for this question.";
+
+  const quality = answer ? answerQualityLine(d) : "";
+  if (quality) text += "\n\n" + quality;
 
   if (sources.length) {
     text += "\n\nSources\n" + sources.map((s, i) => formatSourceLine(s, i)).join("\n");
@@ -385,6 +405,13 @@ export async function handleRpcMessage(message, runners = {}, context = {}) {
   if (!isObject(message) || typeof message.method !== "string" || !message.method) {
     const id = isObject(message) && "id" in message ? message.id : null;
     return rpcError(id, -32600, "Invalid Request");
+  }
+  // JSON RPC 2.0 requires the jsonrpc member to be exactly "2.0". A
+  // message without it is an Invalid Request, not a call to execute;
+  // this check runs before the notification branch so a request shaped
+  // message cannot slip through by omitting the member.
+  if (message.jsonrpc !== "2.0") {
+    return rpcError("id" in message ? message.id : null, -32600, "Invalid Request");
   }
 
   const isNotification = !("id" in message) || message.id === undefined;

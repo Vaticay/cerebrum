@@ -58,6 +58,13 @@ const FULL_INPUT = {
     structuredQuery: "(zorblaxin OR \"zorb extract\") AND (quixotase OR quixotase activity)",
     conceptExpanded: ["zorblaxin quixotase", "zorb extract quixotase activity"],
     llmExpanded: [{ term: "zorblaxin", alternates: ["zorb extract", "zorblaxin metabolite"] }],
+    rungs: [
+      { terms: ["zorblaxin", "quixotase"], got: 71, perSource: [] },
+      { terms: ["zorblaxin"], got: 12, perSource: [] },
+    ],
+    topicMemoryRecall: ["zorblaxin quixotase activity assay"],
+    relaxedBoolean: { query: "(\"zorblaxin\" OR \"zorb extract\") AND (quixotase OR activity)", count: 4 },
+    questionDecomposition: [{ aspect: "mechanism", query: "zorblaxin quixotase mechanism" }],
     sourceOutcomes: [
       { source: "europePMC", ok: true, count: 40 },
       { source: "pubmed", ok: true, count: 31 },
@@ -67,8 +74,8 @@ const FULL_INPUT = {
   },
   synthesisModel: "groq:openai/gpt-oss-120b",
   sources: [
-    { title: "Zorblaxin inhibits quixotase in vitro", year: 2021, url: "https://doi.org/10.1000/abc123", uncited: false },
-    { title: "Quixotase kinetics in leaf tissue", year: 2016, doi: "10.2000/xyz789", uncited: false },
+    { title: "Zorblaxin inhibits quixotase in vitro", authors: "Zorblax A, Quixote B", journal: "Journal of Zorblaxin Studies", year: 2021, url: "https://doi.org/10.1000/abc123", uncited: false },
+    { title: "Quixotase kinetics in leaf tissue", authors: [{ name: "Leaf C" }, { name: "Stem D" }], journal: "Leaf Tissue Quarterly", year: 2016, doi: "10.2000/xyz789", uncited: false },
     { title: "A review of zorblaxin chemistry", year: 2019, url: "https://example.org/review", uncited: true },
   ],
 };
@@ -79,7 +86,10 @@ group("buildSearchRecord: shape");
 await test("assembles the full record from diag, funnel and sources", () => {
   const rec = buildSearchRecord(FULL_INPUT);
   assert.ok(rec, "record must not be null for a completed retrieval");
-  assert.equal(rec.version, 1);
+  // Version 2 (2026-10-13 record completeness pass): sources carry
+  // authors and journal, and the record carries the executed query
+  // set. The pin moves with the deliberate version bump.
+  assert.equal(rec.version, 2);
   assert.equal(rec.askedAt, "2026-10-13T14:00:00.000Z");
   assert.equal(rec.question, FULL_INPUT.question);
   assert.equal(rec.structuredQuery, FULL_INPUT.diag.structuredQuery);
@@ -236,6 +246,80 @@ await test("implausible years become null, plausible years survive as numbers", 
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("buildSearchRecord: authors, journal, and the executed query set (v2)");
+
+await test("sources carry authors and journal in the shapes the response uses", () => {
+  const rec = buildSearchRecord(FULL_INPUT);
+  assert.equal(rec.sources[0].authors, "Zorblax A, Quixote B", "string authors pass through");
+  assert.equal(rec.sources[0].journal, "Journal of Zorblaxin Studies");
+  assert.equal(rec.sources[1].authors, "Leaf C, Stem D", "array authors join by name");
+  assert.equal(rec.sources[1].journal, "Leaf Tissue Quarterly");
+  assert.equal(rec.sources[2].authors, null, "no author information stays null, never invented");
+  assert.equal(rec.sources[2].journal, null);
+});
+
+await test("the executed query set recovers rungs and reformulations from diag", () => {
+  const rec = buildSearchRecord(FULL_INPUT);
+  assert.deepEqual(rec.executedQueries, [
+    { kind: "rung", query: "zorblaxin quixotase" },
+    { kind: "rung", query: "zorblaxin" },
+    { kind: "concept", query: "zorblaxin quixotase" },
+    { kind: "concept", query: "zorb extract quixotase activity" },
+    { kind: "recall", query: "zorblaxin quixotase activity assay" },
+    { kind: "relaxed", query: "(\"zorblaxin\" OR \"zorb extract\") AND (quixotase OR activity)" },
+    { kind: "aspect", query: "zorblaxin quixotase mechanism" },
+  ]);
+});
+
+await test("the executed query set is capped and deduped within a kind", () => {
+  const rungs = Array.from({ length: 40 }, (_, i) => ({ terms: [`term${i}`], got: 0, perSource: [] }));
+  rungs.push({ terms: ["term0"], got: 0, perSource: [] });
+  const rec = buildSearchRecord({
+    funnel: { gathered: 5, deduped: 5 },
+    diag: { rungs },
+    sources: [{ title: "A", year: 2020 }],
+  });
+  assert.equal(rec.executedQueries.length, 24, "long fallback chains cannot bloat the record");
+  assert.equal(rec.executedQueries.filter((q) => q.query === "term0").length, 1, "duplicate rung strings collapse");
+});
+
+await test("no diag query traces means executedQueries stays null, not invented", () => {
+  const rec = buildSearchRecord({
+    funnel: { gathered: 5, deduped: 5 },
+    sources: [{ title: "A", year: 2020 }],
+  });
+  assert.equal(rec.executedQueries, null);
+});
+
+await test("authors, journal, and executed queries ride along while flags, funnel, and coverage agree", () => {
+  const sources = Array.from({ length: 12 }, (_, i) => ({
+    title: `Paper ${i + 1}`,
+    authors: `Author ${i + 1}`,
+    journal: "Journal of Record Completeness",
+    year: i < 3 ? 2020 + i : 1990 + i,
+    uncited: i >= 3,
+  }));
+  const input = {
+    funnel: { gathered: 95, deduped: 90, excludedWeak: 20, excludedNonEnglish: 0, excludedRetracted: 0, cited: 12 },
+    diag: { rungs: [{ terms: ["zorblaxin", "quixotase"], got: 40, perSource: [] }] },
+    sources,
+    answer: "The answer cites the first three papers [1][2][3].",
+  };
+  const rec = buildSearchRecord(input);
+  const cov = buildCoverage(input);
+  assert.equal(rec.funnel.cited, 3);
+  assert.equal(cov.cited, 3);
+  assert.equal(rec.sources.filter((s) => s.cited).length, 3);
+  assert.equal(rec.sources[0].authors, "Author 1");
+  assert.equal(rec.sources[0].journal, "Journal of Record Completeness");
+  assert.deepEqual(rec.executedQueries, [{ kind: "rung", query: "zorblaxin quixotase" }]);
+  // The uncited entries carry the outlying years (1993 and earlier);
+  // the coverage span must come from the cited set alone.
+  assert.equal(cov.earliestYear, 2020);
+  assert.equal(cov.latestYear, 2022);
+});
+
+// ═══════════════════════════════════════════════════════════════════
 group("buildCoverage: the disclosure counts");
 
 await test("computes gathered, deduped, cited split, databases and year span", () => {
@@ -250,6 +334,37 @@ await test("computes gathered, deduped, cited split, databases and year span", (
     earliestYear: 2016,
     latestYear: 2021,
   });
+});
+
+await test("year span comes from the cited set, never widened by uncited outliers", () => {
+  // One denominator rule: the span describes the answer's evidence.
+  // Uncited entries from 1998 and 2024 must not stretch a span the
+  // cited papers (2019, 2021) do not support.
+  const cov = buildCoverage({
+    funnel: { gathered: 9, deduped: 9, excludedWeak: 0, excludedNonEnglish: 0, excludedRetracted: 0, cited: 2 },
+    sources: [
+      { title: "Cited older", year: 2019, uncited: false },
+      { title: "Cited newer", year: 2021, uncited: false },
+      { title: "Uncited outlier old", year: 1998, uncited: true },
+      { title: "Uncited outlier new", year: 2024, uncited: true },
+    ],
+  });
+  assert.equal(cov.cited, 2);
+  assert.equal(cov.earliestYear, 2019);
+  assert.equal(cov.latestYear, 2021);
+});
+
+await test("with nothing cited the span describes the gathered shelf instead", () => {
+  const cov = buildCoverage({
+    funnel: { gathered: 4, deduped: 4, excludedWeak: 0, excludedNonEnglish: 0, excludedRetracted: 0, cited: 0 },
+    sources: [
+      { title: "Shelf A", year: 1998, uncited: true },
+      { title: "Shelf B", year: 2024, uncited: true },
+    ],
+  });
+  assert.equal(cov.cited, 0);
+  assert.equal(cov.earliestYear, 1998);
+  assert.equal(cov.latestYear, 2024);
 });
 
 await test("year span skips implausible years instead of widening to junk", () => {

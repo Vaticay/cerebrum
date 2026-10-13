@@ -5279,6 +5279,28 @@ export async function defaultValidationCall(messages, token, env) {
   return null;
 }
 
+/* Finalize the validation stage's health record once the stage has
+ * run. The stage fails open by design: when neither model leg answers,
+ * the unvalidated survivors are used anyway. Failing open must not
+ * read as healthy, though. runStage marks the record ok because
+ * llmValidatePapers returned without throwing; whether a leg actually
+ * answered is known only through the validation diag, so the handler
+ * calls this on the record afterwards. When no leg answered, the
+ * record reports ok false with a skipReason, the same shape the
+ * synthesis stage uses for its degraded outcomes (ok false, winner
+ * null, skipReason named), and via stays null. When a leg answered,
+ * via names it and the record keeps runStage's ok. */
+export function finalizeValidationHealth(rec, validationDiag) {
+  if (!rec || rec.name !== "validation") return rec;
+  const via = (validationDiag && validationDiag.llmValidatedVia) || null;
+  rec.via = via;
+  if (!via) {
+    rec.ok = false;
+    rec.skipReason = "no leg answered";
+  }
+  return rec;
+}
+
 export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env, diagOut, callImpl) {
   if (!papers.length) return papers;
 
@@ -7861,8 +7883,8 @@ export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut })
 // for the UI; `factors` explains the number for anyone who asks "why".
 export function buildConfidenceLine(papers, verdict, context = {}) {
   const n = (papers || []).length;
-  if (n === 0) return { level: "thin", score: 0, line: "No cited evidence to check, so no confidence score.", factors: [] };
   const status = verdict && verdict.status;
+  if (n === 0) return { level: "thin", score: 0, line: "No cited evidence to check, so no confidence score.", factors: [], verdictStatus: status || null };
   const factors = [];
   let score = 0;
 
@@ -7997,7 +8019,12 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
     line += " Confidence is capped because " + capReasons.join(" and ") + ".";
   }
 
-  return { level, score, line, factors, cap: cap < 100 ? cap : null, capReasons };
+  // verdictStatus is part of the return contract: calibrateConfidenceScore
+  // reads it (and cap) to keep the honesty caps binding downstream. It
+  // used to be absent, so calibration silently re derived the level from
+  // the bare score and a divided answer capped here at moderate/70 came
+  // out of calibration as strong/70.
+  return { level, score, line, factors, cap: cap < 100 ? cap : null, capReasons, verdictStatus: status || null };
 }
 
 // ── CONFIDENCE CALIBRATION (2026-10-07) ───────────────────────────
@@ -8049,19 +8076,22 @@ export function calibrateConfidenceScore(conf, ctx = {}) {
   // production telemetry will fit the real curve.
   score = Math.max(0, Math.min(100, Math.round(score)));
 
-  // Re-derive the level from the calibrated score (same thresholds).
-  let level = conf.level;
-  const status = conf.verdictStatus;
-  if (status === "divided") {
-    level = "moderate";
-    score = Math.min(score, 70);
-  } else if (score >= 60) {
-    level = "strong";
-  } else if (score >= 50) {
-    level = "moderate";
-  } else {
-    level = "thin";
-  }
+  // 4. The honesty caps from buildConfidenceLine stay binding here.
+  // Calibration may only discount: it never lifts the score past the
+  // cap the confidence builder applied, and the level is re derived
+  // with the same banding the builder used, so a capped band survives
+  // unchanged. This used to read conf.verdictStatus, a field the
+  // builder never returned, so the divided branch never fired and the
+  // bare score thresholds promoted a divided answer capped at
+  // moderate/70 back to strong/70, silently undoing the cap.
+  const status = conf.verdictStatus || null;
+  const cap = typeof conf.cap === "number" ? conf.cap : null;
+  if (status === "divided") score = Math.min(score, 70);
+  if (cap !== null) score = Math.min(score, cap);
+  let level;
+  if ((cap !== null && cap <= 45) || score < 50) level = "thin";
+  else if ((cap !== null && cap <= 59) || status === "divided" || score < 60) level = "moderate";
+  else level = "strong";
 
   return {
     ...conf,
@@ -8231,6 +8261,80 @@ function recordFunnelOf(raw, diag, sourceCount) {
   return { gathered, deduped, excludedWeak, excludedNonEnglish, excludedRetracted: n(f.excludedRetracted), cited };
 }
 
+/* The author string for a record entry, in the shape the response's
+ * own sources carry it: a plain string on most producers, an array of
+ * names or name objects on a few. Joined with commas and capped, or
+ * null when the entry carries no author information at all. */
+function recordAuthorsOf(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  let out = "";
+  if (typeof entry.authors === "string") out = entry.authors.trim();
+  else if (Array.isArray(entry.authors)) {
+    out = entry.authors
+      .map((a) => {
+        if (typeof a === "string") return a.trim();
+        if (a && typeof a === "object") return String(a.name || a.display_name || a.fullName || "").trim();
+        return "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  } else if (typeof entry.author === "string") out = entry.author.trim();
+  return out ? out.slice(0, 300) : null;
+}
+
+/* The executed query set: the query strings retrieval actually ran,
+ * recovered from diag so a reader can reproduce the retrieval exactly.
+ * Rung term lists are joined the way the keyword engines receive
+ * them; the concept, recall, relaxed, and aspect queries are the
+ * strings themselves. Capped at 24 entries of 500 characters so a
+ * long fallback chain cannot bloat the record. Entries dedupe within
+ * a kind, so a string that ran both as a rung and as a concept query
+ * keeps both provenances. The natural language fallback is not
+ * listed separately: it sends the record's own question field, and
+ * diag stores only its count. */
+function recordExecutedQueries(input, diag) {
+  const out = [];
+  const seen = new Set();
+  const push = (kind, q) => {
+    if (out.length >= 24) return;
+    const s = typeof q === "string" ? q.trim() : "";
+    if (!s) return;
+    const key = kind + "\n" + s;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ kind, query: s.slice(0, 500) });
+  };
+  if (Array.isArray(input.executedQueries)) {
+    for (const q of input.executedQueries) {
+      if (q && typeof q === "object") push(typeof q.kind === "string" && q.kind ? q.kind : "query", q.query);
+      else push("query", q);
+    }
+  }
+  if (diag) {
+    if (Array.isArray(diag.rungs)) {
+      for (const r of diag.rungs) {
+        if (!r || typeof r !== "object") continue;
+        push("rung", Array.isArray(r.terms) ? r.terms.join(" ") : r.terms);
+      }
+    }
+    if (Array.isArray(diag.conceptExpanded)) {
+      for (const q of diag.conceptExpanded) push("concept", q);
+    }
+    if (Array.isArray(diag.topicMemoryRecall)) {
+      for (const q of diag.topicMemoryRecall) push("recall", q);
+    }
+    if (diag.relaxedBoolean && typeof diag.relaxedBoolean === "object") {
+      push("relaxed", diag.relaxedBoolean.query);
+    }
+    if (Array.isArray(diag.questionDecomposition)) {
+      for (const a of diag.questionDecomposition) {
+        if (a && typeof a === "object") push("aspect", a.query);
+      }
+    }
+  }
+  return out.length ? out : null;
+}
+
 /* The resolution both builders share: pull diag, funnel and databases
  * out of an input that may carry them under any of their live names. */
 function recordPartsOf(input) {
@@ -8251,6 +8355,9 @@ function recordPartsOf(input) {
  *   askedAt          Date, epoch ms, or ISO string (defaults to now)
  *   structuredQuery  the boolean query string, if one was built
  *   conceptQueries   the concept expanded queries (or diag.conceptExpanded)
+ *   executedQueries  the queries retrieval actually ran ({kind, query}
+ *                    entries, or recovered from the diag rung, recall,
+ *                    relaxed, and aspect records)
  *   llmExpansion     model proposed groups (or diag.llmExpanded)
  *   databases        outcome list (or diag.sourceOutcomes)
  *   funnel           the public _funnel object (or diag.funnel)
@@ -8314,9 +8421,13 @@ export function buildSearchRecord(input) {
       const entry = s && typeof s === "object" ? s : {};
       const title = String(entry.title || "").trim() || "Untitled";
       const url = typeof entry.url === "string" && entry.url ? entry.url : null;
+      const journal = typeof entry.journal === "string" && entry.journal.trim()
+        ? entry.journal.trim().slice(0, 200) : null;
       return {
         n: i + 1,
         title,
+        authors: recordAuthorsOf(entry),
+        journal,
         year: plausibleRecordYear(entry.year),
         doi: recordDoiOf(entry),
         url,
@@ -8325,11 +8436,17 @@ export function buildSearchRecord(input) {
     });
 
     return {
-      version: 1,
+      // Version 2 (2026-10-13): sources carry authors and journal,
+      // and the record carries the executed query set. Consumers read
+      // fields defensively and none gates on the version number (the
+      // client panel and Markdown renderer name the fields they use),
+      // so the richer record is safe to ship under the new version.
+      version: 2,
       askedAt,
       question: String(input.question != null ? input.question : input.query != null ? input.query : "").trim().slice(0, 1000),
       structuredQuery,
       conceptQueries,
+      executedQueries: recordExecutedQueries(input, diag),
       llmExpansion,
       databases,
       funnel: recordFunnel,
@@ -8357,9 +8474,19 @@ export function buildCoverage(input) {
     let furtherReading = 0;
     for (const f of flags) { if (f) cited++; else furtherReading++; }
     if (!sources && funnel) cited = funnel.cited;
-    const years = (sources || [])
+    // One denominator rule (honesty pass): every number describing the
+    // answer is computed from the cited set, so the year span comes
+    // from the cited sources, never widened by an uncited outlier the
+    // answer does not rest on. Only when nothing is cited does the
+    // span fall back to the full list, where it describes the gathered
+    // shelf the same way gathered and deduped do.
+    const list = sources || [];
+    const yearsOf = (arr) => arr
       .map((s) => plausibleRecordYear(s && s.year))
       .filter((y) => y !== null);
+    const years = cited > 0
+      ? yearsOf(list.filter((s, i) => flags[i]))
+      : yearsOf(list);
     return {
       gathered: funnel ? funnel.gathered : null,
       deduped: funnel ? funnel.deduped : null,
@@ -14450,8 +14577,8 @@ async function runSearchPipeline(pctx) {
         () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag),
         { timeoutMs: 6000, fallback: evidencePapers, health: stageHealth }
       );
-      if (stageHealth[validationHealthIdx] && stageHealth[validationHealthIdx].name === "validation") {
-        stageHealth[validationHealthIdx].via = validationDiag.llmValidatedVia || null;
+      if (stageHealth[validationHealthIdx]) {
+        finalizeValidationHealth(stageHealth[validationHealthIdx], validationDiag);
       }
       evidencePapers = validationStage.value || evidencePapers;
     }
