@@ -4320,7 +4320,10 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
        claimSink (when provided) so the evidence rail numbers claims the
        same way. Lists keep their own structure; only prose paragraphs get
        the spine. */
-    const paraCites = extractCitedIndices(paraClean, (sources || []).length);
+    // Ascending numeric order, not mention order: the gutter stack and
+    // its label read as misnumbered when they run 8, 3, 5, 2, even when
+    // every number is correct, which is exactly what a reader flagged.
+    const paraCites = extractCitedIndices(paraClean, (sources || []).length).slice().sort((a, b) => a - b);
     let claimNo = 0;
     if (paraCites.length && claimSink) {
       claimNo = claimSink.length + 1;
