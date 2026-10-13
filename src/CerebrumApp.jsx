@@ -295,26 +295,41 @@ for (const e of QUESTION_LIBRARY) {
 }
 function host(url) { try { return new URL(url).hostname.replace("www.", ""); } catch { return ""; } }
 function toRIS(sources) {
+  // RIS is one tag per line; a stray newline inside a value would split
+  // it into a phantom tag, so values are flattened before they go in.
+  const risClean = (v) => String(v == null ? "" : v).replace(/\s*\n\s*/g, " ").trim();
   return sources.map((s) => {
     const authors = (s.authors || "").split(/,| and /).map((a) => a.trim()).filter(Boolean);
     const lines = ["TY  - JOUR"];
-    authors.forEach((a) => lines.push(`AU  - ${a}`));
-    if (s.title) lines.push(`TI  - ${s.title}`);
-    if (s.journal) lines.push(`JO  - ${s.journal}`);
-    if (s.year) lines.push(`PY  - ${s.year}`);
-    if (s.url) lines.push(`UR  - ${s.url}`);
+    authors.forEach((a) => lines.push(`AU  - ${risClean(a)}`));
+    if (s.title) lines.push(`TI  - ${risClean(s.title)}`);
+    if (s.journal) lines.push(`JO  - ${risClean(s.journal)}`);
+    if (s.year) lines.push(`PY  - ${risClean(s.year)}`);
+    if (s.doi || s.DOI) lines.push(`DO  - ${risClean(s.doi || s.DOI)}`);
+    if (s.url) lines.push(`UR  - ${risClean(s.url)}`);
     lines.push("ER  - ");
     return lines.join("\n");
   }).join("\n");
 }
+// BibTeX field values sit inside braces, so a raw brace or backslash in
+// a title ends the field early and corrupts the whole entry, and the
+// LaTeX special characters print wrong. Escape in a single pass so the
+// replacements are never rescanned. The url and doi fields are read
+// almost verbatim by url aware styles, so only the structural
+// characters are escaped there.
+const BIB_ESCAPES = { "\\": "\\textbackslash{}", "&": "\\&", "%": "\\%", "$": "\\$", "#": "\\#", "_": "\\_", "{": "\\{", "}": "\\}", "~": "\\textasciitilde{}", "^": "\\textasciicircum{}" };
+const BIB_REF_ESCAPES = { "\\": "\\textbackslash{}", "{": "\\{", "}": "\\}" };
+function bibEsc(v) { return String(v == null ? "" : v).replace(/[\\&%$#_{}~^]/g, (c) => BIB_ESCAPES[c]); }
+function bibRefEsc(v) { return String(v == null ? "" : v).replace(/[\\{}]/g, (c) => BIB_REF_ESCAPES[c]); }
 function toBibTeX(sources) {
   return sources.map((s, i) => {
     const fields = [];
-    if (s.authors) fields.push(`  author = {${s.authors}}`);
-    if (s.title) fields.push(`  title = {${s.title}}`);
-    if (s.journal) fields.push(`  journal = {${s.journal}}`);
-    if (s.year) fields.push(`  year = {${s.year}}`);
-    if (s.url) fields.push(`  url = {${s.url}}`);
+    if (s.authors) fields.push(`  author = {${bibEsc(s.authors)}}`);
+    if (s.title) fields.push(`  title = {${bibEsc(s.title)}}`);
+    if (s.journal) fields.push(`  journal = {${bibEsc(s.journal)}}`);
+    if (s.year) fields.push(`  year = {${bibEsc(s.year)}}`);
+    if (s.doi || s.DOI) fields.push(`  doi = {${bibRefEsc(s.doi || s.DOI)}}`);
+    if (s.url) fields.push(`  url = {${bibRefEsc(s.url)}}`);
     return `@article{cerebrum${s.year || ""}_${i + 1},\n${fields.join(",\n")}\n}`;
   }).join("\n\n");
 }
