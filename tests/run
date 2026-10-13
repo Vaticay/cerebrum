@@ -647,7 +647,7 @@ await test("Get Lite CTAs preselect the Lite plan in the Pro dialog (money path)
   assert.match(appSrc, /function ProModal\(\{[^}]*initialPlan[^}]*\}\)/, "ProModal does not accept initialPlan");
   assert.match(appSrc, /const \[plan, setPlan\] = useState\(initialPlan \|\| "annual"\)/, "ProModal does not initialize plan from initialPlan");
   assert.match(appSrc, /initialPlan=\{proModalPlan\}/, "ProModal mount does not pass initialPlan");
-  assert.match(appSrc, /onClick=\{\(\) => onOpenPro\(id === "lite" \? "lite-monthly" : undefined\)\}/, "Get Lite plan-table button does not preselect lite-monthly");
+  assert.match(appSrc, /onClick=\{\(\) => onOpenPro\(id === "lite" \? "lite-monthly" : id === "student" \? "student" : undefined\)\}/, "plan-table buttons do not preselect their plan (Lite to lite-monthly, Student to student)");
   assert.match(appSrc, /upgradePlan=\{isLite \? "annual" : "lite-monthly"\}/, "Gauge upgrade buttons do not pass tier-aware upgradePlan");
   assert.match(appSrc, /const openPro = \(plan\) => \{ setProModalPlan\(plan \|\| "annual"\); setProModalOpen\(true\); \}/, "openPro does not set the plan before opening");
 });

@@ -93,7 +93,7 @@ import { createCourseFromResults, saveLearnCourse } from "./LearnView.jsx";
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
-import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
+import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
 
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
@@ -4457,8 +4457,8 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     const stampGlyph = ev && ev.status === "supported" ? "verdictSupported"
       : ev && (ev.status === "thin" || ev.status === "partly") ? "verdictMixed"
       : ev && ev.status === "unsupported" ? "verdictContradicted" : null;
-    const stampTone = ev && ev.status === "supported" ? STATUS.good
-      : ev && (ev.status === "thin" || ev.status === "partly") ? STATUS.warn
+    const stampTone = ev && ev.status === "supported" ? statusGood(P)
+      : ev && (ev.status === "thin" || ev.status === "partly") ? statusWarn(P)
       : ev && ev.status === "unsupported" ? STATUS.bad : null;
     const stampLabel = ev && ev.status === "supported" ? "traced to cited paper"
       : ev && (ev.status === "thin" || ev.status === "partly") ? "thin evidence"
@@ -4587,7 +4587,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
    it buys them. The percentage is gone in both: 3 of 3 shown as "100%" is a
    word-match rate with a denominator of three dressed up as a verdict. */
 function FactCheck({ fc, P, accent }) {
-  const colors = { supported: STATUS.good, partly: STATUS.warn, unsupported: STATUS.bad, thin: STATUS.warn };
+  const colors = { supported: statusGood(P), partly: statusWarn(P), unsupported: STATUS.bad, thin: statusWarn(P) };
   const claims = fc.claims || [];
   const isTerms = fc.mode === "terms";
   // NEXT-GEN: the deterministic (no-AI) path ships a mechanical vocabulary-
@@ -4682,7 +4682,7 @@ function FactCheck({ fc, P, accent }) {
                 {claims.map((c, i) => (
                   <span key={i} style={{
                     fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", fontWeight: 600,
-                    color: STATUS.good, background: withAlpha(STATUS.good, 0.1),
+                    color: statusGood(P), background: withAlpha(STATUS.good, 0.1),
                     border: `1px solid ${withAlpha(STATUS.good, 0.25)}`,
                     padding: "2px 8px", borderRadius: RADIUS.pill,
                   }}>{c.claim}</span>
@@ -4699,7 +4699,7 @@ function FactCheck({ fc, P, accent }) {
      Headed by the specific thing that is wrong and what to do about it,
      listing only the items that are wrong. The ones that passed are a count,
      not a list — they were never the reason to look. */
-  const oc = nUns > 0 ? STATUS.bad : STATUS.warn;
+  const oc = nUns > 0 ? STATUS.bad : statusWarn(P);
   const headline = isExtractive
     ? (nUns > 0
         ? `${nUns} claim${nUns === 1 ? "" : "s"} in this answer ${nUns === 1 ? "doesn't" : "don't"} share real vocabulary with the paper ${nUns === 1 ? "it cites" : "they cite"}`
@@ -5696,8 +5696,10 @@ function InfoPage({ page }) {
             {page === "pricing" && (
               <div className="cb-fadein" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {[
-                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 flowchart every 5 days. No account needed.", recommended: false },
-                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7-day money-back guarantee. Cancel anytime.", recommended: true },
+                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 flowchart every 5 days. No account needed.", recommended: false, cta: "Start free →" },
+                  { persona: "For the steady researcher", name: "Pro Lite", price: "$3.99/month or $39/year", line: "500 AI answers, 30 document reads, and 10 flowcharts every 5 days. Ten times the free allowances, with a fixed allowance rather than unlimited use.", recommended: false, cta: "Upgrade in the app →" },
+                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7-day money-back guarantee. Cancel anytime.", recommended: true, cta: "Upgrade in the app →" },
+                  { persona: "For college students", name: "Pro Student", price: "$7.99/month for the first 12 months", line: "Full Cerebrum Pro at a student price: unlimited answers, document reads, and flowcharts. Verified college email (.edu or .ac.uk) required. Renews at $20 per month after the first 12 months.", recommended: false, cta: "Upgrade in the app →" },
                 ].map((tier) => (
                   <div key={tier.name} style={{
                     position: "relative", padding: "24px 24px 16px", borderRadius: RADIUS.lg,
@@ -5712,7 +5714,7 @@ function InfoPage({ page }) {
                     <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 2 }}>{tier.price}</div>
                     <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "10px 0 0" }}>{tier.line}</p>
                     <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 700, color: tier.recommended ? accent : P.ink, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
-                      {tier.recommended ? "Upgrade in the app →" : "Start free →"}
+                      {tier.cta}
                     </a>
                   </div>
                 ))}
@@ -6234,7 +6236,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
       </div>
       <div>
         <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`} className="cb-bibentry-copy cb-textbtn"
-          style={{ minHeight: 44, padding: "6px 0", whiteSpace: "nowrap", color: copiedOne ? STATUS.good : undefined }}>
+          style={{ minHeight: 44, padding: "6px 0", whiteSpace: "nowrap", color: copiedOne ? statusGood(P) : undefined }}>
           {copiedOne ? "\u2713 Copied" : "Copy"}
         </button>
       </div>
@@ -6644,7 +6646,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
 // Redesign (Wave 3): the tiers are framed as capacity, never punishment.
 // Free gets exact numbers and a refill countdown; Lite is sold as 10×
 // capacity; Pro is sold as the end of the meter. The numbers below are
-// load-bearing pricing data — Lite $3.99/mo + $39/yr at 150/30/10 per
+// load-bearing pricing data — Lite $3.99/mo + $39/yr at 500/30/10 per
 // 5 days, Pro $20/mo or $144/yr unlimited — and are not to be edited for
 // aesthetics. All wiring (portal, checkout entry via onOpenPro, lifetime)
 // is unchanged; only presentation moved.
@@ -6744,7 +6746,7 @@ function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] 
     >
         {submitted ? (
           <div style={{ textAlign: "center", padding: "24px 0" }}>
-            <div style={{ width: 44, height: 44, borderRadius: "50%", background: withAlpha(STATUS.good, 0.12), color: STATUS.good, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: withAlpha(STATUS.good, 0.12), color: statusGood(P), display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
               <Icon name="check" size={20} />
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Report received</div>
@@ -7312,7 +7314,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
                   <span key={i} title={s.ok ? `${s.name}: ok` : `${s.name}: failed over to a fallback`}
                     style={{
                       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)",
-                      color: s.ok ? P.ink2 : STATUS.warn,
+                      color: s.ok ? P.ink2 : statusWarn(P),
                       border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : withAlpha(STATUS.warn, 0.4)}`,
                       background: s.ok ? withAlpha(accent, 0.07) : withAlpha(STATUS.warn, 0.06),
                       borderRadius: 2, padding: "3px 12px",
@@ -7509,7 +7511,7 @@ function OpenQuestions({ cards, P, accent }) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span style={{
                   fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: TRACKING.label,
-                  color: c.kind === "fragile" ? STATUS.warn : accent,
+                  color: c.kind === "fragile" ? statusWarn(P) : accent,
                   background: withAlpha(c.kind === "fragile" ? STATUS.warn : accent, 0.1),
                   border: `1px solid ${withAlpha(c.kind === "fragile" ? STATUS.warn : accent, 0.3)}`,
                   padding: "2px 9px", borderRadius: 2,
@@ -7591,7 +7593,7 @@ function ReadHead({ label, P, accent }) {
    the caller passes wired callbacks — a button that does nothing is
    worse than no button. */
 function AnswerStateCard({ kicker, title, body, actions = [], tone = "neutral", P, accent, children }) {
-  const toneColor = tone === "bad" ? statusBad(P) : tone === "warn" ? STATUS.warn : P.faint;
+  const toneColor = tone === "bad" ? statusBad(P) : tone === "warn" ? statusWarn(P) : P.faint;
   /* Pass 5: squared editorial buttons — the radius system reserves true
      pills for compact filters/statuses, and these are neither. */
   const btnBase = {
@@ -9485,7 +9487,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>{renderFlashpointClaim(c.claimA, P)}</div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>{c.sourceA ? renderCleanTitle(c.sourceA) : ""}</div>
                 </div>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", color: STATUS.warn, paddingTop: 22 }} aria-hidden="true">
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", color: statusWarn(P), paddingTop: 22 }} aria-hidden="true">
                   <Icon name="verdictContradicted" size={18} />
                 </div>
                 <div>
@@ -9530,7 +9532,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         /* Pass 2 (instrument): ambiguity is a ruled notice, not a tinted
            card. Mono kicker, plain sentence, instrument buttons. */
         <div style={{ marginTop: 16, padding: "14px 4px 4px", borderTop: `1px solid ${withAlpha(STATUS.warn, 0.45)}` }} className="cb-fade">
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: STATUS.warn, marginBottom: 8, fontFamily: "var(--cb-font)" }}>Ambiguous term</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: statusWarn(P), marginBottom: 8, fontFamily: "var(--cb-font)" }}>Ambiguous term</div>
           <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.55 }}>
             “{t.ambiguity.term}” means different things in different fields.
             {t.ambiguity.resolvedAs ? <> This answer ran with <span style={{ fontWeight: 600 }}>{t.ambiguity.resolvedAs}</span>.</> : <> Pick the one you meant.</>}
@@ -11449,20 +11451,25 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
 
   /* Sacred tier facts — the numbers below are the product's own:
      Free 50 / 3 / 1, Lite 500 / 30 / 10, Pro unlimited.
-     Prices: Lite $3.99/mo · $39/yr, Pro $20/mo · $144/yr. */
+     Prices: Lite $3.99/mo · $39/yr, Pro $20/mo · $144/yr.
+     Pro Student is full Pro at $7.99/mo for the first 12 months for
+     verified college students, then the standard $20/mo. */
   const tiers = [
     { id: "free", name: "Free", ai: "50", docs: "3", flow: "1", price: "$0" },
     { id: "lite", name: "Lite", ai: "500", docs: "30", flow: "10", price: "$3.99/mo · $39/yr" },
     { id: "pro", name: "Pro", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$20/mo · $144/yr" },
+    { id: "student", name: "Pro Student", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$7.99/mo for 12 months, then $20/mo" },
   ];
   const tierAction = (id) => {
     if (id === tier) return <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>;
     /* 2026-10-08: "Get Lite" must open the Pro dialog with the Lite plan
        preselected — opening on Pro Annual ($144) after clicking "Get Lite"
-       is a money-path bug. */
+       is a money-path bug. Same rule for Pro Student: it preselects the
+       Student plan, which gates checkout on college email verification. */
+    const proLike = id === "pro" || id === "student";
     return (
-      <UIButton P={P} variant="ghost" onClick={() => onOpenPro(id === "lite" ? "lite-monthly" : undefined)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: id === "pro" ? "#d4a437" : "transparent", color: id === "pro" ? "#1a1405" : P.ink, border: id === "pro" ? "none" : `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
-        {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : "Switch to Free"}
+      <UIButton P={P} variant="ghost" onClick={() => onOpenPro(id === "lite" ? "lite-monthly" : id === "student" ? "student" : undefined)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: proLike ? "#d4a437" : "transparent", color: proLike ? "#1a1405" : P.ink, border: proLike ? "none" : `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+        {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : id === "student" ? "Get Student" : "Switch to Free"}
       </UIButton>
     );
   };
@@ -11539,7 +11546,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
               <th style={{ textAlign: "left", padding: "12px 16px", fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow, color: P.faint, borderBottom: `1px solid ${P.line}` }}></th>
               {tiers.map((t) => (
                 <th key={t.id} style={{ textAlign: "center", padding: "12px 8px", fontSize: FONT_SIZES.small, fontWeight: 800, color: t.id === tier ? P.ink : P.ink2, borderBottom: `1px solid ${P.line}`, background: t.id === tier ? withAlpha("#d4af37", 0.06) : "transparent" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{t.id === "pro" && <ProBadge />}{t.name}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{(t.id === "pro" || t.id === "student") && <ProBadge />}{t.name}</span>
                 </th>
               ))}
             </tr>
@@ -11565,7 +11572,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
           </tbody>
         </table>
       </div>
-      {/* 360px: the four-column table becomes three stacked tier cards —
+      {/* 360px: the table becomes four stacked tier cards —
          nothing clips, no sideways scroll, every control keeps its
          44px target. Desktop never sees this. */}
       <div className="cb-usage-cards">
@@ -11579,7 +11586,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
-                  {t.id === "pro" && <ProBadge />}{t.name}
+                  {(t.id === "pro" || t.id === "student") && <ProBadge />}{t.name}
                 </span>
                 {current && <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>}
               </div>
@@ -11618,6 +11625,9 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
                 You're on Pro Lite. Pro removes all limits.
               </span>
             )}
+            <UIButton P={P} variant="ghost" onClick={() => onOpenPro("student")} style={{ padding: "12px 24px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              Students: full Pro for $7.99/mo
+            </UIButton>
           </div>
         </div>
       )}
@@ -16837,7 +16847,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               </span>
             )}
           </div>
-          <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", padding: "4px 11px", borderRadius: RADIUS.pill, color: summary ? STATUS.good : accent, background: summary ? withAlpha(STATUS.good, 0.12) : withAlpha(accent, 0.1), border: `1px solid ${summary ? withAlpha(STATUS.good, 0.3) : withAlpha(accent, 0.25)}` }}>
+          <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", padding: "4px 11px", borderRadius: RADIUS.pill, color: summary ? statusGood(P) : accent, background: summary ? withAlpha(STATUS.good, 0.12) : withAlpha(accent, 0.1), border: `1px solid ${summary ? withAlpha(STATUS.good, 0.3) : withAlpha(accent, 0.25)}` }}>
             {analyzing ? "Reading…" : summary ? (summary.model === "extractive" ? "Basic extract" : summary.partial ? "Partially analyzed" : "Analyzed") : hasDoc ? "Ready to inspect" : "Waiting"}
           </span>
         </div>
@@ -22095,7 +22105,7 @@ function App() {
   /* The footer strip's traced claim turns over daily: deterministic
      within a day, so it never flickers between renders. */
   const stageSpecimen = SPECIMENS[Math.floor(Date.now() / 86400000) % SPECIMENS.length];
-  const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint;
+  const relColor = (r) => r >= 65 ? statusGood(P) : r >= 45 ? statusWarn(P) : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
   // Used to color-code Preprint/Reference/Dataset badges differently from
   // a plain Journal source — ACCENTS.Amber/Violet/Sky don't exist anymore
@@ -22169,7 +22179,7 @@ function App() {
     <>
       <div style={S.srcHead}><span>Sources</span><span style={S.srcCount}>{panelSources.length}</span></div>
       {pinnedSources.length > 0 && (<div style={{ minHeight: 44, padding: "7px 12px", margin: "0 0 8px", background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.25)}`, borderRadius: RADIUS.md, fontSize: FONT_SIZES.caption, color: accent, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="pinFilled" size={11} />{pinnedSources.length} pinned</span><UIButton P={P} variant="ghost" onClick={() => setPinnedSources([])} style={{ background: "transparent", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</UIButton></div>)}
-      {corrections.length > 0 && (<div style={{ minHeight: 44, padding: "7px 12px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: RADIUS.md, fontSize: FONT_SIZES.caption, color: STATUS.warn, display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><UIButton P={P} variant="ghost" onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: STATUS.warn, cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</UIButton></div>)}
+      {corrections.length > 0 && (<div style={{ minHeight: 44, padding: "7px 12px", margin: "0 0 8px", background: withAlpha(STATUS.warn, 0.06), border: `1px solid ${withAlpha(STATUS.warn, 0.25)}`, borderRadius: RADIUS.md, fontSize: FONT_SIZES.caption, color: statusWarn(P), display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", fontFamily: "var(--cb-font)" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="edit" size={11} />{corrections.length} correction{corrections.length === 1 ? "" : "s"}</span><UIButton P={P} variant="ghost" onClick={() => setCorrections([])} style={{ background: "transparent", border: "none", color: statusWarn(P), cursor: "pointer", fontSize: FONT_SIZES.caption, textDecoration: "underline" }}>Clear</UIButton></div>)}
       {/* The gates below read the CURRENT turn's sources (activeTurnSources),
           not the cumulative allSources: a turn with no sources must not
           show "No sources match" just because earlier turns had some. */}
@@ -23349,7 +23359,7 @@ function App() {
                       const mCount = (h.turns || []).filter((t) => t && t.evidenceStructure).length;
                       const accession = accessionById.get(h.id) || "n/a";
                       const invTitle = h.title || ((h.turns || [])[0] && (h.turns || [])[0].q) || "Untitled";
-                      const statusTone = status === "Answered" ? accent : status === "Needs review" ? STATUS.warn : P.faint;
+                      const statusTone = status === "Answered" ? accent : status === "Needs review" ? statusWarn(P) : P.faint;
                       return (
                       <div key={h.id} role="listitem"
                         style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: hi ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 880 }}>

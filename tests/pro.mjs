@@ -1060,6 +1060,28 @@ await test("Pro surfaces stay inside 320px: no fixed-width traps", async () => {
   assert.match(src, /overflowWrap: "anywhere"/, "UIRow labels must wrap long strings");
 });
 
+await test("in-app pricing surfaces present every tier, not just Free and Pro", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // Pricing page hero cards: Lite and Pro Student stand next to Free and
+  // Cerebrum Pro, with the verified prices from proEntitlement/legalContent.
+  assert.match(src, /persona: "For the steady researcher", name: "Pro Lite", price: "\$3\.99\/month or \$39\/year"/, "pricing hero cards missing the Pro Lite card");
+  assert.match(src, /500 AI answers, 30 document reads, and 10 flowcharts every 5 days/, "Pro Lite hero card must carry the real Lite allowances");
+  assert.match(src, /persona: "For college students", name: "Pro Student", price: "\$7\.99\/month for the first 12 months"/, "pricing hero cards missing the Pro Student card");
+  assert.match(src, /Full Cerebrum Pro at a student price/, "student hero card must say it grants full Pro");
+  assert.match(src, /Renews at \$20 per month after the first 12 months/, "student hero card must state the renewal price");
+  // The membership comment matches the entitlement constant (500, not 150).
+  assert.ok(!src.includes("at 150/30/10"), "stale comment still claims Lite is 150 AI answers");
+  assert.match(src, /Lite \$3\.99\/mo \+ \$39\/yr at 500\/30\/10/, "membership comment must carry the real Lite numbers");
+  // Usage compare table: a Pro Student column with full Pro allowances,
+  // and its action preselects the Student plan like Lite preselects Lite.
+  assert.match(src, /\{ id: "student", name: "Pro Student", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "\$7\.99\/mo for 12 months, then \$20\/mo" \}/, "compare table missing the Pro Student column");
+  assert.match(src, /id === "student" \? "student" : undefined/, "compare table student action must preselect the Student plan");
+  assert.match(src, /id === "student" \? "Get Student"/, "compare table student action label missing");
+  // Usage upgrade panel: a student path next to the Pro and Lite buttons.
+  assert.match(src, /Students: full Pro for \$7\.99\/mo/, "usage upgrade panel missing the student path");
+  assert.match(src, /onOpenPro\("student"\)/, "usage upgrade panel student button must open the Student plan");
+});
+
 await test("lifetime list API speaks { email, granted_at }", async () => {
   const src = await readFile(join(root, "functions/lib/proEntitlement.js"), "utf8");
   assert.match(src, /granted_at: r\.pro_granted_at \|\| null/, "listLifetimePros must normalize the column to granted_at");
