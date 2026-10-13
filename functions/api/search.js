@@ -410,6 +410,12 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
+// v19 (2026-10-13, anchor subject representation): the structured
+// query anchor race now guarantees the question's subject terms a
+// rung before boost reliant everyday words (break, while, sandy)
+// may hold a slot, so shipped queries change for plain language
+// questions whose anchors were everyday words while subject words
+// dropped out of the AND entirely.
 // v18 (2026-10-13, phantom binomial): extractBinomial no longer
 // reads closed class question words (auxiliaries, modals,
 // interrogatives, pronouns) as a genus or species, so a question
@@ -433,7 +439,7 @@ function isNonLiterature(p) {
 // longer become structured query anchors and preparation phrasings
 // now bridge to the homogenate concept group, so both the shipped
 // queries and the filtered shelves change for cached questions.
-const CACHE_SCHEMA_VERSION = "v18";
+const CACHE_SCHEMA_VERSION = "v19";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -2492,10 +2498,68 @@ export function buildStructuredQuery(query, dynLookup) {
   // science. An anchor is a load bearing constraint, so the asking can
   // never be one. The loose OR fallback below still ranks unfiltered:
   // those terms are a recall aid, not a gate.
-  const anchors = ranked
-    .filter((x) => x.spec >= 0.5 && !QUERY_FRAMING_WORDS.has(x.t))
-    .slice(0, 4)
-    .map((x) => x.t);
+  const eligible = ranked.filter(
+    (x) => x.spec >= 0.5 && !QUERY_FRAMING_WORDS.has(x.t)
+  );
+  const anchors = eligible.slice(0, 4).map((x) => x.t);
+  // 2026-10-13 (rescore panel, Search retrieval 635 to 545): subject
+  // representation. The race above ranks on termSpecificity alone,
+  // and termSpecificity hands a +0.25 "short technical term" boost to
+  // ANY word of five letters or fewer that is missing from the small
+  // COMMON_SHORT_WORDS list. Everyday words are mostly short, so on
+  // plain language questions they score 0.75 and take required AND
+  // slots while the words the question is actually ABOUT score less:
+  // the panel's seven mismatched probes (build 65ba977) promoted
+  // break, grind, whole, carry, while, and sandy into rungs, and the
+  // sea turtle probe's shipped query never anchored "turtles" at all
+  // (sandy, beach, and crawl took the slots at 0.75 against its
+  // 0.70). With expansion and validation healthy the damage is
+  // masked; when the free fleet caps out, these deterministic anchors
+  // ARE the query, and they were wrong.
+  //
+  // The rule: a term whose race standing comes ONLY from that boost
+  // (short, not in COMMON_SHORT_WORDS, and carrying no independent
+  // topic evidence: no concept group, no synonym entry, no digit, no
+  // scientific morphology) is boost reliant, and a boost reliant
+  // anchor may hold its slot only while no eligible subject term
+  // stands outside. A subject term is any other eligible term: one
+  // the tables know ("sea", "gut", "tree" all carry concept groups
+  // despite their length), or one long enough to earn its score
+  // without the boost. Each shut out subject term, in race order,
+  // displaces the weakest boost reliant anchor in place, preferring
+  // an anchor the token filter below discards anyway (a negation
+  // lead like "not", whose slot was pure waste) over a real word.
+  // Standing anchors are never displaced, eligibility and the slot
+  // count are unchanged, and questions whose anchors already carry
+  // their subjects (the homogenate pair among them) ship byte
+  // identical queries.
+  const boostReliant = (t) =>
+    t.length <= 5 &&
+    !COMMON_SHORT_WORDS.has(t) &&
+    !CONCEPT_LOOKUP.has(t) &&
+    !SYNONYMS[t] &&
+    !/\d/.test(t) &&
+    !/(ase|ome|itis|osis|genic|troph|phyll|plast|cyte|blast|lysis|philic|phobic)$/.test(t);
+  {
+    const anchored = new Set(anchors);
+    for (const x of eligible) {
+      if (anchored.has(x.t) || boostReliant(x.t)) continue;
+      // A phrase covered word gains nothing here (the token filter
+      // below drops it), and a negation lead is discarded there too;
+      // neither may spend a displacement.
+      if (coveredWords.has(x.t) || hasNegationLead(x.t)) continue;
+      let victim = -1;
+      for (let i = anchors.length - 1; i >= 0; i--) {
+        if (!boostReliant(anchors[i])) continue;
+        if (hasNegationLead(anchors[i])) { victim = i; break; }
+        if (victim === -1) victim = i;
+      }
+      if (victim === -1) break;
+      anchored.delete(anchors[victim]);
+      anchors[victim] = x.t;
+      anchored.add(x.t);
+    }
+  }
   if (!usablePhraseAnchors.length && anchors.length < 2) {
     // Not enough specific terms to build groups . OR the best few so we still
     // get recall rather than an over-narrow AND.

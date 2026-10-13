@@ -756,5 +756,131 @@ await test("a closed non compound still validates (non-photosynthetic is real vo
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("buildStructuredQuery — subject representation in the anchor race (rescore panel 2026-10-13)");
+
+// Live regression (rescore panel, build 65ba977; Search retrieval
+// fell 635 to 545): zero of seven plain language probes returned a
+// shelf answering the question as asked. Named mechanism: the anchor
+// race ranked on termSpecificity alone, whose +0.25 short word boost
+// hands 0.75 to any word of five letters or fewer missing from the
+// small COMMON_SHORT_WORDS list. Everyday words are mostly short, so
+// they took required AND slots while subject words dropped: break,
+// grind, whole, carry, while, and sandy were all observed as
+// promoted anchors across the probes, and the sea turtle probe's
+// shipped query never anchored "turtles" at all. The deterministic
+// anchors are the whole query when the fleet caps out, so the race
+// now guarantees representation: a boost reliant anchor (short, no
+// concept group, no synonym entry, no digit, no scientific
+// morphology) holds its slot only while no eligible subject term
+// stands outside. These pins run the real builder with NO model
+// lookup, the capped fleet condition. The two gut questions' byte
+// identical pins above stand unmodified under the new race.
+
+// A rung's head is its anchor: the bare term, or the first member of
+// its OR group (the anchor renders first by construction).
+const rungHeads = (out) =>
+  out.split(" AND ").map((r) => {
+    let s = r.trim();
+    if (s.startsWith("(")) s = s.slice(1);
+    if (s.startsWith('"')) return s.slice(1).split('"')[0];
+    return s.split(" OR ")[0].replace(/\)$/, "").trim();
+  });
+
+// Plain language probes in the panel's style: everyday wording, the
+// panel's observed promoted words present, and the question's
+// subject words named so the rule can be asserted in its own form.
+const ANCHOR_PROBES = [
+  {
+    q: "How do mother sea turtles know which sandy beach to crawl back to at night?",
+    everyday: ["sandy", "crawl"],
+    subjects: ["turtles", "mother"],
+  },
+  {
+    q: "What makes dry branches break and fall while the tree stays alive through winter?",
+    everyday: ["break", "while"],
+    subjects: ["branches", "winter"],
+  },
+  {
+    q: "Why do rivers carry sandy gravel downstream while the bigger rocks stay behind?",
+    everyday: ["carry", "sandy", "while"],
+    subjects: ["rivers", "gravel"],
+  },
+  {
+    q: "Why do snakes swallow their prey whole instead of chewing it first?",
+    everyday: ["whole"],
+    subjects: ["snakes"],
+  },
+];
+
+await test("no probe ships an everyday anchor while a subject word from the same question is unanchored", () => {
+  for (const p of ANCHOR_PROBES) {
+    const heads = rungHeads(buildStructuredQuery(p.q.toLowerCase()));
+    for (const s of p.subjects) {
+      assert.ok(heads.includes(s), `subject "${s}" unanchored in: ${buildStructuredQuery(p.q.toLowerCase())}`);
+    }
+    for (const e of p.everyday) {
+      if (heads.includes(e)) {
+        for (const s of p.subjects) {
+          assert.ok(
+            heads.includes(s),
+            `everyday anchor "${e}" shipped while subject "${s}" is unanchored in: ${buildStructuredQuery(p.q.toLowerCase())}`
+          );
+        }
+      }
+    }
+  }
+});
+
+await test("the sea turtle question anchors turtles (the panel's named drop)", () => {
+  const out = buildStructuredQuery("How do mother sea turtles know which sandy beach to crawl back to at night?".toLowerCase());
+  const heads = rungHeads(out);
+  assert.ok(heads.includes("turtles"), `turtles missing from shipped query: ${out}`);
+  assert.ok(heads.includes("mother"), `mother missing from shipped query: ${out}`);
+  assert.ok(!heads.includes("crawl"), `crawl still a required rung: ${out}`);
+  assert.ok(!heads.includes("night"), `night still a required rung: ${out}`);
+});
+
+await test("break and while cannot hold rungs against branches and winter", () => {
+  const out = buildStructuredQuery("What makes dry branches break and fall while the tree stays alive through winter?".toLowerCase());
+  const heads = rungHeads(out);
+  assert.ok(heads.includes("branches"), `branches missing from shipped query: ${out}`);
+  assert.ok(heads.includes("winter"), `winter missing from shipped query: ${out}`);
+  assert.ok(!heads.includes("break"), `break still a required rung: ${out}`);
+  assert.ok(!heads.includes("while"), `while still a required rung: ${out}`);
+});
+
+await test("carry, sandy, and while cannot hold rungs against rivers and gravel", () => {
+  const out = buildStructuredQuery("Why do rivers carry sandy gravel downstream while the bigger rocks stay behind?".toLowerCase());
+  const heads = rungHeads(out);
+  assert.ok(heads.includes("rivers"), `rivers missing from shipped query: ${out}`);
+  assert.ok(heads.includes("gravel"), `gravel missing from shipped query: ${out}`);
+  assert.ok(!heads.includes("carry"), `carry still a required rung: ${out}`);
+  assert.ok(!heads.includes("sandy"), `sandy still a required rung: ${out}`);
+  assert.ok(!heads.includes("while"), `while still a required rung: ${out}`);
+});
+
+await test("whole cannot lead the snake question while snakes stands outside", () => {
+  const out = buildStructuredQuery("Why do snakes swallow their prey whole instead of chewing it first?".toLowerCase());
+  const heads = rungHeads(out);
+  assert.equal(heads[0], "snakes", `snakes should lead the shipped query: ${out}`);
+  assert.ok(!heads.includes("whole"), `whole still a required rung: ${out}`);
+});
+
+await test("frog controls stay clean under the new race", () => {
+  // Frog C is byte identical to its pre fix form.
+  const c = buildStructuredQuery("Why doesn't freezing kill some frogs in the winter?".toLowerCase());
+  assert.equal(c, "frogs AND freezing AND kill AND winter");
+  // Frog B keeps every content word it shipped before and gains
+  // "winter": the negation led "not" used to win a race slot that
+  // the token filter then discarded, shipping only three rungs; the
+  // representation pass recycles that wasted slot for the subject
+  // term instead of displacing a real word.
+  const b = buildStructuredQuery("How can a frog turn into ice all winter and not die?".toLowerCase());
+  const heads = rungHeads(b);
+  assert.deepEqual([...heads].sort(), ["die", "frog", "ice", "winter"]);
+  assert.ok(!heads.includes("not"), `negation word shipped as a rung: ${b}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
