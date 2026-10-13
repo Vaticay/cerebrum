@@ -38,6 +38,7 @@ import {
   verifyExtractiveAlignment,
   postCheckAIAlignment,
   stripUnsupportedCitations,
+  reattachAuthorCitations,
   buildEvidenceGaps,
   buildConfidenceLine,
   buildCoverageNote,
@@ -679,6 +680,47 @@ test("stripUnsupportedCitations keeps citations the paper actually supports", ()
   const r = stripUnsupportedCitations(legit, papers);
   assert.equal(r.removed.length, 0, "legit citation stripped: " + JSON.stringify(r.removed));
   assert.equal(r.text, legit);
+});
+
+test("stripUnsupportedCitations keeps a marker on a sentence naming the paper's author", () => {
+  const papers = [
+    { title: "Honeydew chemistry shapes ant attendance", abstract: "We tracked how sugar composition in aphid honeydew changed ant behaviour across colonies and seasons.", authors: "van Neerbos F" },
+    { title: "Seasonal dynamics of gut bacterial communities in farmed insects", abstract: "We sampled bacterial communities across farms and seasons and tracked composition shifts over time.", authors: "Chiang YR" },
+  ];
+  // The sentence shares essentially no vocabulary with paper 2's title
+  // or abstract, so only the author guard can save this marker. This is
+  // the exact shape that left a named author's claim uncited in
+  // production while the paper sat flagged unused.
+  const r = stripUnsupportedCitations(
+    "Chiang et al. found that the enzyme broke down dietary protein in the midgut [2].",
+    papers
+  );
+  assert.equal(r.removed.length, 0, "author named citation stripped: " + JSON.stringify(r.removed));
+  assert.match(r.text, /\[2\]/);
+});
+
+test("reattachAuthorCitations attaches the named author's paper number", () => {
+  const papers = [
+    { title: "Honeydew chemistry shapes ant attendance", abstract: "We tracked how sugar composition in aphid honeydew changed ant behaviour across colonies and seasons.", authors: "van Neerbos F" },
+    { title: "Cathepsin activity in larval gut tissue", abstract: "Expression of a cysteine protease was measured across gut regions.", authors: "Chiang YR" },
+  ];
+  const out = reattachAuthorCitations(
+    "Chiang et al. measured expression of the cysteine protease in larval guts. Other work looked at honeydew chemistry [1].",
+    papers
+  );
+  assert.match(out, /larval guts \[2\]\./, "marker not attached: " + out);
+  assert.match(out, /honeydew chemistry \[1\]\./, "existing citation disturbed: " + out);
+});
+
+test("reattachAuthorCitations leaves ambiguous surnames and cited sentences alone", () => {
+  const papers = [
+    { title: "Soil carbon under wheat", abstract: "Soil carbon rose under wheat rotations in long term field plots.", authors: "Smith J" },
+    { title: "River sediment transport", abstract: "Sediment transport rates were gauged across flood events.", authors: "Smith A" },
+  ];
+  const ambiguous = "Smith et al. reported higher values across every site.";
+  assert.equal(reattachAuthorCitations(ambiguous, papers), ambiguous);
+  const cited = "Smith et al. reported higher soil carbon under wheat [1].";
+  assert.equal(reattachAuthorCitations(cited, [papers[0]]), cited);
 });
 
 test("stripUnsupportedCitations evaluates each marker independently", () => {

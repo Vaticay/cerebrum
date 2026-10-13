@@ -410,7 +410,7 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
-const CACHE_SCHEMA_VERSION = "v9";
+const CACHE_SCHEMA_VERSION = "v10";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -6827,6 +6827,30 @@ function sentenceAround(text, offset, radius = 600) {
   return text.slice(s, e).trim();
 }
 
+// Author surnames for one paper, from its authors string. Mirrors the
+// first/last token heuristic the handler uses for knownAuthors: the
+// surname is usually the last token of a name part, or the first in
+// "Smith J" form.
+function paperAuthorSurnames(paper) {
+  const out = new Set();
+  const authors = String((paper && paper.authors) || "");
+  for (const part of authors.split(/[,;&]| and /)) {
+    const words = part.trim().split(/\s+/).filter(Boolean);
+    for (const w of [words[words.length - 1], words[0]]) {
+      if (w && w.length > 2 && /^[A-Za-z''-]+$/.test(w)) out.add(w.toLowerCase());
+    }
+  }
+  return out;
+}
+
+function sentenceNamesPaperAuthor(sentence, paper) {
+  const surnames = paperAuthorSurnames(paper);
+  if (!surnames.size) return false;
+  const words = new Set(String(sentence || "").toLowerCase().split(/[^a-z''-]+/).filter(Boolean));
+  for (const s of surnames) if (words.has(s)) return true;
+  return false;
+}
+
 export function stripUnsupportedCitations(answer, papers) {
   const text = String(answer || "");
   const list = Array.isArray(papers) ? papers : [];
@@ -6848,6 +6872,13 @@ export function stripUnsupportedCitations(answer, papers) {
     const src = getPaperTokens(idx - 1);
     if (!src) return m; // paper has no usable text . can't judge, don't punish
     const sent = sentenceAround(text, offset).replace(/\[\d{1,3}\]/g, " ");
+    // A sentence that names this paper's own author is direct evidence
+    // for the citation, whatever its vocabulary overlap: "Chiang et al.
+    // measured expression of the cysteine protease..." shares almost no
+    // tokens with that paper's title or abstract, and the token check
+    // below used to strip its marker, leaving the claim uncited and the
+    // paper flagged unused in the sources.
+    if (sentenceNamesPaperAuthor(sent, list[idx - 1])) return m;
     const sToks = supportTokens(sent);
     if (sToks.length < 6) return m; // too short to judge
     let shared = 0;
@@ -6867,6 +6898,72 @@ export function stripUnsupportedCitations(answer, papers) {
   // Tidy the gaps left behind: "word  ." -> "word."
   const tidied = cleaned.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1");
   return { text: tidied, removed };
+}
+
+// ── Named author reattachment ───────────────────────────────────
+// When the synthesis names a paper's author in the text ("Chiang et
+// al. measured...") but the sentence carries no marker for that paper
+// (never written, or removed by a mechanical pass), the claim renders
+// uncited and the paper is then flagged "not cited by the answer"
+// while sitting in the sources. The naming itself is checkable
+// evidence, so attach the paper's number at the end of that sentence.
+// Only fires when the surname maps to exactly one listed paper; a
+// shared surname is ambiguous and left alone.
+export function reattachAuthorCitations(answer, papers) {
+  const text = String(answer || "");
+  const list = Array.isArray(papers) ? papers : [];
+  if (!text || list.length === 0) return text;
+  // Never touch the appended reference list: author names there are
+  // bibliography entries, not claims.
+  const tailAt = text.indexOf("Related papers found");
+  const head = tailAt >= 0 ? text.slice(0, tailAt) : text;
+  const tail = tailAt >= 0 ? text.slice(tailAt) : "";
+  const bySurname = new Map();
+  list.forEach((p, i) => {
+    for (const s of paperAuthorSurnames(p)) {
+      if (!bySurname.has(s)) bySurname.set(s, new Set());
+      bySurname.get(s).add(i + 1);
+    }
+  });
+  // Sentence end positions in head: terminal punctuation followed by
+  // whitespace and an uppercase letter or digit, by a newline, or by
+  // the end of the text. The uppercase requirement keeps the period in
+  // "et al." itself from counting as a boundary mid sentence.
+  const ends = [];
+  const bRe = /[.!?](?=\s+[A-Z0-9"“(]|\s*\n|$)/g;
+  let bm;
+  while ((bm = bRe.exec(head)) !== null) ends.push(bm.index + 1);
+  if (!ends.length || ends[ends.length - 1] !== head.length) ends.push(head.length);
+  const inserts = [];
+  const re = /\b([A-Z][A-Za-z''-]{2,}) et al\./g;
+  let m;
+  while ((m = re.exec(head)) !== null) {
+    const targets = bySurname.get(m[1].toLowerCase());
+    if (!targets || targets.size !== 1) continue;
+    const n = [...targets][0];
+    let start = 0;
+    let end = head.length;
+    for (const e of ends) {
+      if (e <= m.index) start = e;
+      if (e > m.index) { end = e; break; }
+    }
+    // A heading or list line bounds the span just as a sentence does.
+    const pnl = head.lastIndexOf("\n", m.index);
+    if (pnl >= start) start = pnl + 1;
+    const nl = head.indexOf("\n", m.index);
+    if (nl >= 0 && nl < end) end = nl;
+    const span = head.slice(start, end);
+    const cited = new Set();
+    for (const cm of span.matchAll(/\[(\d{1,3})\]/g)) cited.add(parseInt(cm[1], 10));
+    if (cited.has(n)) continue;
+    const at = /[.!?]$/.test(head.slice(end - 1, end)) ? end - 1 : end;
+    inserts.push({ at, marker: " [" + n + "]" });
+  }
+  if (!inserts.length) return text;
+  inserts.sort((a, b) => b.at - a.at);
+  let out = head;
+  for (const ins of inserts) out = out.slice(0, ins.at) + ins.marker + out.slice(ins.at);
+  return out + tail;
 }
 
 // ── Evidence gaps (computed, not generated) ─────────────────────
@@ -15410,6 +15507,11 @@ async function runSearchPipeline(pctx) {
       }
     }
     answer = stripFabricatedCitations(answer, sourceList.length, knownAuthors);
+    // A sentence that names a listed paper's author but carries no
+    // marker for that paper gets the number attached; the naming is
+    // checkable, and without this the claim reads uncited while its own
+    // paper sits flagged unused in the sources.
+    try { answer = reattachAuthorCitations(answer, sourceList); } catch { /* a mechanical pass must never break the answer */ }
 
     const canonicalName = resolvedPersonName || extractPersonNameFromQuery(query) || (isNameSearch ? query : "");
     if (canonicalName) {

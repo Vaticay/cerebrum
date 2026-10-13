@@ -651,11 +651,12 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     } else {
       mrows.push(["Databases", "Searched across Cerebrum's scholarly indexes."]);
     }
-    const cited = list.length;
+    const cited = list.filter((s) => !(s && s.uncited)).length;
+    const further = list.length - cited;
     const withheld = typeof t.relevanceGatedOut === "number" ? t.relevanceGatedOut : 0;
     mrows.push(["Sources", withheld > 0
-      ? `${cited + withheld} relevant papers retrieved; ${cited} cited below; ${withheld} withheld as tangential.`
-      : `${cited} paper${cited === 1 ? "" : "s"} cited below.`]);
+      ? `${list.length + withheld} relevant papers retrieved; ${cited} cited below; ${withheld} withheld as tangential.`
+      : `${cited} paper${cited === 1 ? "" : "s"} cited below.` + (further > 0 ? ` ${further} more ${further === 1 ? "is" : "are"} listed as further reading.` : "")]);
     if (t.synthesisMode === "extractive") {
       mrows.push(["Synthesis", "Assembled deterministically from the retrieved papers; no AI synthesis ran for this answer."]);
     } else {
@@ -8712,6 +8713,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
      the settled answer text, so it's deterministic, never stale. */
   const claimSink = [];
   const minRead = t.answer ? Math.ceil(t.answer.split(/\s+/).length / 238) : 0;
+  // The meta line used to call every listed paper "cited", including the
+  // ones the answer never referenced and the bibliography itself flags
+  // as further reading. Count honestly and name the rest for what it is.
+  const citedCount = sources.filter((s) => !(s && s.uncited)).length;
+  const furtherCount = sources.length - citedCount;
   const onActivateCite = (n) => { setActiveCite(n); setEvidenceOpen(true); };
   return (
     <div style={S.turn} className="cb-rise">
@@ -8725,7 +8731,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         <div className="cb-mono cb-query-meta" style={{ color: P.faint }}>
           <span>{new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-          <span>{sources.length} cited paper{sources.length === 1 ? "" : "s"}</span>
+          <span>{citedCount} cited paper{citedCount === 1 ? "" : "s"}{furtherCount > 0 ? ` · ${furtherCount} further reading` : ""}</span>
           {dbOutcomes && dbOutcomes.length > 0 && (
             <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>{dbOutcomes.filter((x) => x.ok).length}/{dbOutcomes.length} databases</span></>
           )}
@@ -21102,6 +21108,10 @@ function App() {
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
         {/* Pass 5: badges become mono text metadata — the tint stays as a
             text color (it carries the tier signal), the pill shell goes. */}
+        {/* The entry's citation number, matching the [n] chips in the
+            answer. The rail used to show only a relevance score, so a
+            reader had no way to map a chip to the panel entry it meant. */}
+        <span className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint }}>{i + 1}</span>
         {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: typeColor(s.type) }}>{s.type}</span>}
         {/* v5: the "strong/partial/weak" word already existed (relLabel)
             but only ever reached a `title` tooltip — invisible to touch,
@@ -21188,7 +21198,7 @@ function App() {
           query starts and "Answer ready, N sources" when it completes.
           Visually hidden, never affects layout. */}
       <div aria-live="polite" aria-atomic="true" className="cb-sr-only" id="cb-sr-announcer">
-        {busy ? `Searching the literature for ${lastAskRef.current?.q || "your question"}…` : (turns.length > 0 && turns[turns.length-1]?.answer ? `Answer ready. ${turns[turns.length-1]?.sources?.length || 0} sources cited.` : "")}
+        {busy ? `Searching the literature for ${lastAskRef.current?.q || "your question"}…` : (turns.length > 0 && turns[turns.length-1]?.answer ? `Answer ready. ${(turns[turns.length-1]?.sources || []).filter((s) => !(s && s.uncited)).length} sources cited.` : "")}
       </div>
       {/* 2026-10-05 (revised): the ambient reel is back, executed properly.
           The previous execution put footage behind text at intensities that
