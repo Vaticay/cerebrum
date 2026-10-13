@@ -410,7 +410,7 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
-const CACHE_SCHEMA_VERSION = "v10";
+const CACHE_SCHEMA_VERSION = "v11";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1528,6 +1528,201 @@ const CONCEPT_LOOKUP = (() => {
   return map;
 })();
 
+// ════════════════════════════════════════════════════════════════════
+// MODEL-PROPOSED CONCEPT GROUPS (2026-10-13)
+//
+// CONCEPT_GROUPS above is hand written. Every vocabulary mismatch a
+// user hits needs a human to notice it and add a group by hand . the
+// homogenate fix (2026-10-13) was exactly that: a question about gut
+// homogenates retrieved only microbiome reviews until someone added
+// "crude extract / gut extract" to the table by hand.
+//
+// Now a single cheap model call proposes equivalent groups per
+// question, for specific terms the hand written table does NOT cover.
+// Three safeguards keep the model on a short leash:
+//   1. The prompt may only reword concepts already in the question.
+//      It may never drop a constraint or introduce a new topic,
+//      organism, or method.
+//   2. Everything proposed passes validateExpansionGroups(), a strict
+//      deterministic gate (shape, character, size, and the term must
+//      literally appear in the question). Junk yields no groups.
+//   3. The result is request scoped only. It is built fresh inside
+//      gatherPapers() and passed down as a parameter. Module state is
+//      never mutated per request: Workers isolates serve concurrent
+//      requests, so a shared mutable lookup would be a race.
+// Any failure (no key, timeout, rate limit, unparseable reply) fails
+// open to no groups, and the search runs exactly as before.
+// ════════════════════════════════════════════════════════════════════
+
+// Resolve a term's equivalence set, model-proposed groups first.
+// dynLookup is a Map in the CONCEPT_LOOKUP value shape (or null).
+function conceptSetFor(term, dynLookup) {
+  return (dynLookup && dynLookup.get(term)) || CONCEPT_LOOKUP.get(term) || null;
+}
+
+// Words that frame a question rather than name a concept. A proposed
+// group built on one of these, or an "alternate" that is one of these,
+// is the model padding its answer, not rewording anything.
+const EXPANSION_FRAMING_WORDS = new Set([
+  "the", "what", "how", "study", "studies", "paper", "papers", "research",
+]);
+
+// Strict gate for model-proposed expansion groups. Accepts the model's
+// reply as an already-parsed value or as raw text (JSON, possibly
+// fenced). Returns a clean array of { term, alternates }:
+//   . term is lowercased and appears in the query as a word or phrase
+//   . alternates are 2 to 6 unique strings of 1 to 4 words, letters,
+//     spaces, and hyphens only, none equal to the term, none a framing
+//     word
+//   . at most 4 groups
+// Anything invalid, at any level, degrades toward [] and never throws.
+export function validateExpansionGroups(raw, query) {
+  let data = raw;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data.replace(/```json|```/g, "").trim());
+    } catch {
+      return [];
+    }
+  }
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    // Tolerate an object wrapper ({"groups": [...]}) around the array.
+    data = data.groups || data.expansions || data.concepts || null;
+  }
+  if (!Array.isArray(data)) return [];
+
+  const q = String(query || "").toLowerCase().replace(/\s+/g, " ");
+  if (!q) return [];
+
+  const cleanPiece = (s) =>
+    String(s || "").toLowerCase().trim().replace(/\s+/g, " ");
+  const isCleanWording = (s) =>
+    /^[a-z][a-z\s-]*$/.test(s) && /[a-z]/.test(s) && !/^-|-$/.test(s);
+  const inQuery = (term) => {
+    const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    return new RegExp("(^|[^a-z])" + esc + "([^a-z]|$)").test(q);
+  };
+
+  const out = [];
+  const seenTerms = new Set();
+  for (const entry of data) {
+    if (out.length >= 4) break;
+    if (!entry || typeof entry !== "object") continue;
+    const term = cleanPiece(entry.term);
+    if (!term || seenTerms.has(term)) continue;
+    if (term.split(" ").length > 4 || !isCleanWording(term)) continue;
+    if (EXPANSION_FRAMING_WORDS.has(term)) continue;
+    if (!inQuery(term)) continue;
+    if (!Array.isArray(entry.alternates)) continue;
+    // An oversized list is the model spraying, not proposing
+    // equivalences. Reject the group rather than trim it.
+    if (entry.alternates.length > 6) continue;
+    const alts = [];
+    const seenAlts = new Set();
+    for (const a of entry.alternates) {
+      if (typeof a !== "string") continue;
+      const alt = cleanPiece(a);
+      if (!alt || alt === term || seenAlts.has(alt)) continue;
+      if (alt.split(" ").length > 4 || !isCleanWording(alt)) continue;
+      if (EXPANSION_FRAMING_WORDS.has(alt)) continue;
+      seenAlts.add(alt);
+      alts.push(alt);
+    }
+    if (alts.length < 2) continue;
+    seenTerms.add(term);
+    out.push({ term, alternates: alts.slice(0, 6) });
+  }
+  return out;
+}
+
+// Build a lookup in exactly the CONCEPT_LOOKUP shape (term -> Set of
+// the term plus its alternates) from validated groups, so every
+// consumer written against CONCEPT_LOOKUP works unchanged.
+export function buildDynLookup(groups) {
+  const map = new Map();
+  if (!Array.isArray(groups)) return map;
+  for (const g of groups) {
+    if (!g || typeof g.term !== "string" || !Array.isArray(g.alternates)) continue;
+    map.set(g.term, new Set([g.term, ...g.alternates]));
+  }
+  return map;
+}
+
+// The one model call behind llmConceptGroups, following the same
+// pattern as llmGenerateSearchQueries / selfReason: the small
+// OR_VALIDATE model, a whole-operation AbortController timeout armed
+// through the body read, strict JSON out. Returns the raw reply text
+// (or null); validation happens in llmConceptGroups.
+async function defaultConceptGroupCall(query, env) {
+  const token = env ? openRouterKey(env) : "";
+  if (!token) return null;
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 6000);
+  try {
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+        "HTTP-Referer": "https://askcerebrum.org",
+        "X-Title": "Cerebrum",
+      },
+      body: JSON.stringify({
+        model: OR_VALIDATE,
+        temperature: 0.1,
+        max_tokens: 350,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a scientific literature search specialist. A researcher's question sometimes words a concept differently from the papers that answer it: the question says one thing, the literature says the same thing in its standard technical wording. Your job is to propose alternate wording ONLY for concepts already present in the question.\n" +
+              "Rules:\n" +
+              "- Alternates must be synonyms or the standard wording the literature uses for the SAME thing: method preparations, technical terms, species names.\n" +
+              "- Never drop a constraint of the question.\n" +
+              "- Never introduce a new topic, organism, or method that the question does not name.\n" +
+              "- Only include a concept when a wording mismatch is plausible. If the question already uses the literature's wording, return an empty array.\n" +
+              "- Output ONLY a JSON array of objects shaped {\"term\": \"wording from the question, lowercased\", \"alternates\": [\"alternate wording\", \"...\"]} with 2 to 6 alternates per term and at most 4 terms. No markdown, no explanation.",
+          },
+          { role: "user", content: String(query || "") },
+        ],
+      }),
+      signal: c.signal,
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return (j?.choices?.[0]?.message?.content || "").trim() || null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Ask the model for concept groups covering this question's wording,
+// then pass whatever it said through the strict validator. callImpl is
+// injectable for tests; it receives (query, env) and may return the
+// reply as raw text or an already-parsed value. Fails open to [] on
+// any error, timeout, or rate limit. Never throws.
+export async function llmConceptGroups(query, env, callImpl) {
+  let timer = null;
+  try {
+    const doCall = typeof callImpl === "function" ? callImpl : defaultConceptGroupCall;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), 6500);
+    });
+    const raw = await Promise.race([
+      Promise.resolve().then(() => doCall(query, env)),
+      timeout,
+    ]);
+    if (raw == null) return [];
+    return validateExpansionGroups(raw, query);
+  } catch {
+    return [];
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // Score how specific/informative a term is. Higher = more worth gating on.
 function termSpecificity(term) {
   if (GENERIC_SCIENCE_WORDS.has(term)) return 0.15;
@@ -1968,7 +2163,7 @@ function splitOrganismTopic(query) {
   };
 }
 
-function buildStructuredQuery(query) {
+export function buildStructuredQuery(query, dynLookup) {
   // If the query names a scientific binomial, wrap it in quotes so search engines
   // treat it as a required phrase. This is what prevents "Populus deltoides"
   // papers from swamping a "Populus angustifolia" search.
@@ -2053,7 +2248,7 @@ function buildStructuredQuery(query) {
   }
 
   const groups = anchors.map((t) => {
-    const set = CONCEPT_LOOKUP.get(t);
+    const set = conceptSetFor(t, dynLookup);
     if (!set) return t;
     // Cap expansion so the request URL stays reasonable, and keep the original
     // term first so it carries the most weight in relevance-ranked engines.
@@ -4454,7 +4649,7 @@ function programmaticPaperFilter(rawQuery, papers) {
 // actual anchor concepts, regardless of which specific unrelated field it's
 // in . so this generalizes far better than hardcoding a list of "bad
 // fields" the way CONTAMINANT_ORGANISMS does for organisms.
-function topicOverlapFilter(rawQuery, papers) {
+export function topicOverlapFilter(rawQuery, papers, dynLookup) {
   if (!papers.length) return papers;
 
   const qLower = rawQuery.toLowerCase();
@@ -4479,7 +4674,7 @@ function topicOverlapFilter(rawQuery, papers) {
   // every member of its concept group (so "microbe" also accepts a paper
   // that only ever says "microbiome" or "symbiont").
   const acceptSetsRaw = coreQTerms.map((t) => {
-    const group = CONCEPT_LOOKUP.get(t);
+    const group = conceptSetFor(t, dynLookup);
     return group || new Set([t]);
   });
 
@@ -4497,6 +4692,18 @@ function topicOverlapFilter(rawQuery, papers) {
       if (phrase.indexOf(" ") !== -1 && qLower.includes(phrase)) {
         acceptSetsRaw.push(new Set(group));
         break;
+      }
+    }
+  }
+
+  // Same scan for model-proposed groups (dynLookup): a multi-word term
+  // can never be produced by the single-word tokenization above, so
+  // without this a phrase group the model proposed would never
+  // activate in this filter even though the question contains it.
+  if (dynLookup) {
+    for (const [phrase, set] of dynLookup) {
+      if (phrase.indexOf(" ") !== -1 && qLower.includes(phrase)) {
+        acceptSetsRaw.push(set);
       }
     }
   }
@@ -4560,7 +4767,7 @@ function topicOverlapFilter(rawQuery, papers) {
 // 4. Handles up to 15 papers (not just 10)
 // 5. Has TWO-PASS validation for organism-specific queries
 
-async function llmValidatePapers(rawQuery, papers, token) {
+async function llmValidatePapers(rawQuery, papers, token, dynLookup) {
   if (!papers.length) return papers;
 
   // PASS 1A: Organism-specific hard-filter (free, instant)
@@ -4574,7 +4781,7 @@ async function llmValidatePapers(rawQuery, papers, token) {
   // PASS 1B: General topic-overlap filter (free, instant) . catches
   // off-topic-field contamination that PASS 1A can't see because it only
   // engages for organism-named queries.
-  survivors = topicOverlapFilter(rawQuery, survivors);
+  survivors = topicOverlapFilter(rawQuery, survivors, dynLookup);
 
   // PASS 2: LLM validation on survivors.
   // v6.4: this cap used to be 15, but evidencePapers can hold up to 20
@@ -7271,6 +7478,9 @@ export function retrievalStrategiesTried(diag) {
   if (Array.isArray(diag.conceptExpanded) && diag.conceptExpanded.length > 0) {
     out.push("synonym + MeSH expansion (" + diag.conceptExpanded.length + " queries)");
   }
+  if (Array.isArray(diag.llmExpanded) && diag.llmExpanded.length > 0) {
+    out.push("model proposed synonym expansion (" + diag.llmExpanded.length + " terms)");
+  }
   if (diag.topicMemoryRecall) out.push("topic-memory recall");
   if (diag.nlFallback) out.push("natural-language fallback");
   if (diag.relaxedBoolean) out.push("relaxed boolean retrieval");
@@ -9500,6 +9710,30 @@ async function gatherPapers(rawQuery, opts) {
       }
     }
   } catch { /* keep specificity order */ }
+
+  // ── MODEL-PROPOSED CONCEPT GROUPS (2026-10-13) ──
+  // If any specific ranked term is covered by NEITHER the hand written
+  // concept table NOR the synonyms table, the question may be using
+  // wording the literature phrases differently, and nobody has written
+  // the equivalence group yet. One cheap model call proposes groups
+  // for exactly those uncovered terms (validated strictly; see
+  // llmConceptGroups). The result is request scoped: built here, used
+  // by buildStructuredQuery, the concept-expanded fallback, and the
+  // relevance scorer's matcher below, then discarded. When every
+  // specific term is already covered, no call is made at all.
+  let dynLookup = null;
+  let dynGroups = [];
+  try {
+    const uncovered = ranked.filter((t) => {
+      const tl = t.toLowerCase();
+      return termSpecificity(tl) >= 0.5 && !CONCEPT_LOOKUP.has(tl) && !SYNONYMS[tl];
+    });
+    if (uncovered.length > 0 && _budgetLeft()) {
+      dynGroups = await llmConceptGroups(query, (opts && opts.env) || null);
+      if (dynGroups.length > 0) dynLookup = buildDynLookup(dynGroups);
+    }
+  } catch { dynLookup = null; dynGroups = []; }
+
   let organismTerm = null;
   if (binomial) {
     organismTerm = '"' + binomial.full + '"';
@@ -9564,7 +9798,7 @@ async function gatherPapers(rawQuery, opts) {
   const primaryOrganismName = organismTerm ? organismTerm.replace(/"/g, "") : null;
   const secondaryOrganisms = allOrganismSciNames.filter((n) => n !== primaryOrganismName).slice(0, 2);
 
-  const booleanQuery = buildStructuredQuery(query);
+  const booleanQuery = buildStructuredQuery(query, dynLookup);
   const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
 
   // Progressive rungs, most-precise first.
@@ -9722,6 +9956,7 @@ async function gatherPapers(rawQuery, opts) {
   _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
+  if (dynGroups.length > 0) diag.llmExpanded = dynGroups;
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire","preprints"];
 
   let accumulated = [];
@@ -9846,7 +10081,7 @@ async function gatherPapers(rawQuery, opts) {
     const expandedQueries = new Set();
 
     for (const term of topicTermsForExpansion) {
-      const group = CONCEPT_LOOKUP.get(term);
+      const group = conceptSetFor(term, dynLookup);
       if (group) {
         // Pick 2-3 synonyms from the concept group that aren't the original term
         const alts = [...group].filter((g) => g !== term && g.length > 3).slice(0, 3);
@@ -9866,7 +10101,7 @@ async function gatherPapers(rawQuery, opts) {
       for (const term of topicTermsForExpansion.slice(0, 2)) {
         expandedQueries.add(organismTerm.replace(/"/g, "") + " " + term);
         // Also try concept-expanded version
-        const group = CONCEPT_LOOKUP.get(term);
+        const group = conceptSetFor(term, dynLookup);
         if (group) {
           const alt = [...group].find((g) => g !== term && g.length > 3);
           if (alt) expandedQueries.add(organismTerm.replace(/"/g, "") + " " + alt);
@@ -10221,7 +10456,7 @@ async function gatherPapers(rawQuery, opts) {
     const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const t = esc(term);
     const s = esc(stem(term));
-    const group = CONCEPT_LOOKUP.get(term);
+    const group = conceptSetFor(term, dynLookup);
     const alts = new Set([t]);
     if (s !== t) alts.add(s + "(?:s|es|ing|ed|al)?");
     else alts.add(t + "(?:s|es|ing|ed)?");
@@ -10695,7 +10930,7 @@ async function gatherPapers(rawQuery, opts) {
         // Also check concept-group synonyms . "bacterial" satisfies "microbial"
         const hasExpanded = (t) => {
           if (has(t)) return true;
-          const group = CONCEPT_LOOKUP.get(t);
+          const group = conceptSetFor(t, dynLookup);
           if (group) {
             for (const g of group) {
               if (g !== t && hay.indexOf(g.toLowerCase()) !== -1) return true;
@@ -13251,9 +13486,17 @@ async function runSearchPipeline(pctx) {
       // the unvalidated list, health record. llmValidatePapers has a 4s
       // internal abort (sized for the small OR_VALIDATE model); this outer
       // backstop was 12s from the 550B era . now 6s.
+      // Model-proposed concept groups from the winning retrieval ride
+      // along into validation, so the topic-overlap filter inside
+      // judges papers against the same equivalences retrieval used.
+      // Rebuilt from the plain groups array on the diag (never a Map:
+      // _diag must stay JSON safe).
+      const _dynForValidation = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+        ? buildDynLookup(gResult._diag.llmExpanded)
+        : null;
       const validationStage = await runStage(
         "validation",
-        () => llmValidatePapers(query, evidencePapers, openRouterKey(env)),
+        () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation),
         { timeoutMs: 6000, fallback: evidencePapers, health: stageHealth }
       );
       evidencePapers = validationStage.value || evidencePapers;
