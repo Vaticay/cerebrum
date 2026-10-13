@@ -410,7 +410,11 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
-const CACHE_SCHEMA_VERSION = "v14";
+// v15 (2026-10-13, fleet and coverage pass): framing words can no
+// longer become structured query anchors and preparation phrasings
+// now bridge to the homogenate concept group, so both the shipped
+// queries and the filtered shelves change for cached questions.
+const CACHE_SCHEMA_VERSION = "v15";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1376,7 +1380,21 @@ const CONCEPT_GROUPS = [
   ["homogenate", "homogenates", "homogenized", "homogenised", "homogenization",
    "crude extract", "crude extracts", "gut extract", "gut extracts",
    "midgut homogenate", "midgut homogenates", "tissue homogenate", "tissue extract",
-   "crude enzyme", "crude enzymatic", "enzyme preparation"],
+   "crude enzyme", "crude enzymatic", "enzyme preparation",
+   // 2026-10-13 (fleet and coverage pass): the preparation PHRASINGS as
+   // keys in the same group. The entries above only fire when a
+   // question already contains homogenate wording; the live probe on
+   // build 2197a8f ("Has anyone assayed digestive enzymes in whole gut
+   // preparations from insects without isolating the enzymes?")
+   // retrieved an assay flavored shelf, because nothing deterministic
+   // bridged the phrasing a researcher actually uses to the vocabulary
+   // the papers use. topicOverlapFilter scans CONCEPT_GROUPS for
+   // multi word members present in the question and pulls the whole
+   // group in as an accept set, so these keys make that scan bridge
+   // preparation phrasing to homogenate vocabulary with no model call.
+   "whole gut preparation", "whole gut preparations", "gut preparation",
+   "gut preparations", "whole gut", "whole gut homogenate",
+   "gut homogenate", "gut homogenates"],
   // 2026-10-09: BSFL concept group. The query term "bsfl" was not matching
   // papers that only wrote "Hermetia illucens" or "black soldier fly" because
   // SYNONYMS (used for query expansion) was not connected to CONCEPT_LOOKUP
@@ -2338,7 +2356,21 @@ export function buildStructuredQuery(query, dynLookup) {
     .map((t) => ({ t, spec: termSpecificity(t) }))
     .sort((a, b) => b.spec - a.spec);
   // Two to four anchors. More than four AND-ed groups over-constrains again.
-  const anchors = ranked.filter((x) => x.spec >= 0.5).slice(0, 4).map((x) => x.t);
+  // 2026-10-13 (fleet and coverage pass): framing words are barred from
+  // the anchor race. qTerms above filters STOPWORDS only, but "has"
+  // scores 0.65 in termSpecificity (the short word boost; it sits in
+  // neither STOPWORDS nor COMMON_SHORT_WORDS) and "anyone" scores 0.5,
+  // so on a short or resolver rewritten question they took the spare
+  // AND slots: the live homogenate probe on build 2197a8f shipped a
+  // structured query ending "AND has AND anyone". QUERY_FRAMING_WORDS
+  // is the set analyzeQuery already uses to strip the asking from the
+  // science. An anchor is a load bearing constraint, so the asking can
+  // never be one. The loose OR fallback below still ranks unfiltered:
+  // those terms are a recall aid, not a gate.
+  const anchors = ranked
+    .filter((x) => x.spec >= 0.5 && !QUERY_FRAMING_WORDS.has(x.t))
+    .slice(0, 4)
+    .map((x) => x.t);
   if (!phraseAnchors.length && anchors.length < 2) {
     // Not enough specific terms to build groups . OR the best few so we still
     // get recall rather than an over-narrow AND.
@@ -3039,6 +3071,14 @@ const QUERY_FRAMING_WORDS = new Set([
   "doesn't", "don't", "isn't", "aren't", "wasn't", "weren't",
   "didn't", "won't", "wouldn't", "couldn't", "shouldn't",
   "hasn't", "haven't", "can't", "cannot",
+  // 2026-10-13 (fleet and coverage pass): indefinite pronouns. "Has
+  // anyone assayed..." shipped "anyone" as a load bearing AND rung in
+  // the structured query. Who is asking never names a constraint;
+  // EXPANSION_FRAMING_WORDS already bars these words as expansion
+  // targets, and this set now bars them as anchors and phrase material
+  // as well.
+  "anyone", "someone", "everyone", "anybody", "somebody", "everybody",
+  "nobody", "whoever",
 ]);
 
 // Life-stage words describe the organism, not the topic. "What organisms are
@@ -4900,7 +4940,77 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
 // 4. Handles up to 15 papers (not just 10)
 // 5. Has TWO-PASS validation for organism-specific queries
 
-async function llmValidatePapers(rawQuery, papers, token, dynLookup) {
+// The model call behind llmValidatePapers PASS 2, following the same
+// two leg pattern as defaultConceptGroupCall. Until 2026-10-13 this
+// stage rode ONLY the OR_VALIDATE model on the OpenRouter free pool:
+// the infrastructure scorer measured validation failing in 20 to 44 ms
+// on 3 of 3 spaced probes because that pool sits at its daily free
+// cap, and the stage fails open, so relevance gating silently turned
+// off for the rest of the day. The second leg is Groq's small
+// gpt-oss-20b, the same model the expansion second leg uses, so a
+// capped OpenRouter pool no longer disables the gate. Returns
+// { text, via } from the first leg that answers, or null when both
+// fail; the caller fails open to the unvalidated survivors, exactly
+// the old single leg behavior, only then.
+export async function defaultValidationCall(messages, token, env) {
+  const legs = [];
+  if (token) legs.push({
+    via: "openrouter",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + token,
+      "HTTP-Referer": "https://askcerebrum.org",
+      "X-Title": "Cerebrum",
+    },
+    model: OR_VALIDATE,
+  });
+  const groqKey = env ? (env.GROQ_KEY || env.GROQ_API_KEY || "") : "";
+  if (groqKey) legs.push({
+    via: "groq",
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + groqKey,
+    },
+    model: "openai/gpt-oss-20b",
+  });
+  for (const leg of legs) {
+    const c = new AbortController();
+    // 4000ms per leg, the sizing the single leg call always had
+    // (OR_VALIDATE returns 400 JSON tokens in ~2s; see the 2026-09-12
+    // note this sizing came from). The abort stays armed through the
+    // body read, disarmed only in the finally. The caller's stage
+    // backstop (6s) still bounds the pair: a hung first leg costs the
+    // second its shot, which is the same fail open the old code had.
+    const t = setTimeout(() => c.abort(), 4000);
+    try {
+      const r = await fetch(leg.url, {
+        method: "POST",
+        headers: leg.headers,
+        body: JSON.stringify({
+          model: leg.model,
+          temperature: 0,
+          max_tokens: 400,
+          ...(leg.via === "groq" ? { reasoning_effort: "low" } : {}),
+          messages,
+        }),
+        signal: c.signal,
+      });
+      if (!r.ok) continue;
+      const j = await r.json();
+      const text = (j?.choices?.[0]?.message?.content || "").trim();
+      if (text) return { text, via: leg.via };
+    } catch {
+      // fall through to the next leg
+    } finally {
+      clearTimeout(t);
+    }
+  }
+  return null;
+}
+
+export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env, diagOut, callImpl) {
   if (!papers.length) return papers;
 
   // PASS 1A: Organism-specific hard-filter (free, instant)
@@ -4926,7 +5036,12 @@ async function llmValidatePapers(rawQuery, papers, token, dynLookup) {
   // something off-topic slip past. Raised to match the true max so
   // validation always has a chance to run; the 4s AbortController timeout
   // below already bounds worst-case latency regardless of paper count.
-  if (!token || survivors.length > 20) return survivors;
+  // No leg available (neither the OpenRouter token nor a Groq key)
+  // means the LLM pass cannot run at all; the programmatic passes
+  // above still applied. Mirrors the old "!token" early return, now
+  // that Groq is a leg in its own right.
+  const hasGroqLeg = !!(env && (env.GROQ_KEY || env.GROQ_API_KEY));
+  if ((!token && !hasGroqLeg) || survivors.length > 20) return survivors;
 
   // Detect the primary organism from the query for the LLM prompt
   const qLower = rawQuery.toLowerCase();
@@ -4947,23 +5062,10 @@ async function llmValidatePapers(rawQuery, papers, token, dynLookup) {
       `Papers about feeding ${targetOrganism} TO other animals (e.g., fish/poultry fed with insect meal) are about the OTHER animal's nutrition, NOT about ${targetOrganism} biology = IRRELEVANT unless the query specifically asks about ${targetOrganism} as feed.`
     : "";
 
-  try {
-    const c = new AbortController();
-    // 2026-09-12: 7s -> 4s. Validation rides OR_VALIDATE (gemma-4-31b),
-    // a small instruction model that returns 400 JSON tokens in ~2s.
-    // The 7s budget was sized for the 550B primary, which couldn't make it.
-    const t = setTimeout(() => c.abort(), 4000);
-    const paperList = survivors.map((p, i) =>
+  const paperList = survivors.map((p, i) =>
       `[${i + 1}] "${p.title}" (${p.journal || "unknown"}, ${p.year || "n/a"})\nAbstract: ${(p.abstract || "").slice(0, 350)}`
     ).join("\n\n");
-    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
-      body: JSON.stringify({
-        model: OR_VALIDATE,
-        temperature: 0,
-        max_tokens: 400,
-        messages: [{
+    const messages = [{
           role: "system",
           content: "You are a strict scientific paper relevance validator. For EACH paper, determine if it DIRECTLY addresses the user's specific question.\n\n" +
             "Scoring rules:\n" +
@@ -4978,17 +5080,21 @@ async function llmValidatePapers(rawQuery, papers, token, dynLookup) {
         }, {
           role: "user",
           content: "Scientific question: " + rawQuery + "\n\nPapers to evaluate:\n" + paperList
-        }]
-      }),
-      signal: c.signal,
-    });
-    // No early clearTimeout here: the abort stays armed through r.json().
-    // (2026-09-12: headers can arrive in ms while the body trickles for
-    // tens of seconds . disarming at headers made the timeout meaningless.
-    // See the same note on callOR.) The finally below disarms it.
-    if (!r.ok) return survivors;
-    const j = await r.json();
-    const txt = (j?.choices?.[0]?.message?.content || "").trim();
+        }];
+  try {
+    // Two legs since 2026-10-13 (see defaultValidationCall): OpenRouter
+    // first, Groq when the free pool is capped. Both legs failing, or an
+    // unparseable reply, fails open to the survivors below, exactly the
+    // old single leg behavior.
+    const doCall = typeof callImpl === "function" ? callImpl : defaultValidationCall;
+    const legResult = await doCall(messages, token, env);
+    if (!legResult) return survivors;
+    // The default call reports which leg answered as { text, via };
+    // injected calls may return raw text instead.
+    const isLegResult = legResult && typeof legResult === "object" && typeof legResult.text === "string";
+    const txt = (isLegResult ? legResult.text : String(legResult)).trim();
+    if (!txt) return survivors;
+    if (isLegResult && legResult.via && diagOut) diagOut.llmValidatedVia = legResult.via;
     try {
       const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -5032,10 +5138,6 @@ async function llmValidatePapers(rawQuery, papers, token, dynLookup) {
     return survivors;
   } catch {
     return survivors;
-  } finally {
-    // Disarms the abort (no-op if it already fired). Lives here . not
-    // right after fetch() . so the timeout covers the full body read.
-    clearTimeout(t);
   }
 }
 
@@ -14066,11 +14168,22 @@ async function runSearchPipeline(pctx) {
       const _dynForValidation = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
         ? buildDynLookup(gResult._diag.llmExpanded)
         : null;
+      // Which leg answered validation (2026-10-13, mirroring
+      // diag.llmExpandedVia for the expansion): "openrouter", "groq",
+      // or null when both legs failed and the stage failed open. The
+      // validator writes it through this out object; it is copied onto
+      // the stage's health record below so the shipped stageHealth can
+      // prove the gate actually ran, and on which provider.
+      const validationDiag = { llmValidatedVia: null };
+      const validationHealthIdx = stageHealth.length;
       const validationStage = await runStage(
         "validation",
-        () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation),
+        () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag),
         { timeoutMs: 6000, fallback: evidencePapers, health: stageHealth }
       );
+      if (stageHealth[validationHealthIdx] && stageHealth[validationHealthIdx].name === "validation") {
+        stageHealth[validationHealthIdx].via = validationDiag.llmValidatedVia || null;
+      }
       evidencePapers = validationStage.value || evidencePapers;
     }
 
@@ -15050,7 +15163,13 @@ async function runSearchPipeline(pctx) {
        ══════════════════════════════════════════════════════════════ */
     const PROVIDERS = [
       { id: "groq",     key: env.GROQ_KEY,          url: "https://api.groq.com/openai/v1/chat/completions" },
-      { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
+      // PARKED 2026-10-13: Cerebras returns HTTP 402 (payment required)
+      // in production stageHealth . the account is billing dead, so
+      // every raced leg was a guaranteed failure burning a wave slot.
+      // Removed from the active roster; the PROVIDER_MODELS entry below
+      // stays so restoring is a one line change: uncomment this row
+      // once the Cerebras account is funded again.
+      // { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
       { id: "gemini",   key: env.GEMINI_KEY,        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
       { id: "mistral",  key: env.MISTRAL_KEY,       url: "https://api.mistral.ai/v1/chat/completions" },
       { id: "github",   key: env.GITHUB_MODELS_KEY, url: "https://models.github.ai/inference/chat/completions" },
@@ -16838,6 +16957,9 @@ async function runSearchPipeline(pctx) {
         // can show it; other stages keep the compact shape.
         stageHealth: stageHealth.map((s) => {
           const o = { name: s.name, ok: s.ok, ms: s.ms };
+          if (s.name === "validation") {
+            o.via = s.via || null;
+          }
           if (s.name === "synthesis") {
             o.winner = s.winner || null;
             o.winnerMs = s.winnerMs != null ? s.winnerMs : null;

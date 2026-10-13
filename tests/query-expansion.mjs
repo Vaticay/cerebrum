@@ -17,6 +17,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +30,8 @@ const {
   analyzeQuery,
   topicOverlapFilter,
   retrievalStrategiesTried,
+  llmValidatePapers,
+  defaultValidationCall,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -352,6 +355,203 @@ await test("model expansion gets its own line, in the existing style", () => {
 await test("no model line when no model expansion ran", () => {
   const out = retrievalStrategiesTried({ conceptExpanded: ["q1"] });
   assert.ok(!out.some((s) => s.includes("model proposed")), `unexpected line: ${out}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("llmValidatePapers — Groq second leg and attribution (fleet pass 2026-10-13)");
+
+// Validation used to ride only the OR_VALIDATE model on the OpenRouter
+// free pool, which sits at its daily cap for much of the day; the stage
+// fails open, so a capped pool silently disabled relevance gating. The
+// Groq leg (openai/gpt-oss-20b) now answers when OpenRouter cannot, and
+// diagOut.llmValidatedVia records which leg answered, mirroring
+// diag.llmExpandedVia for the expansion.
+const VAL_QUERY = "does zorblaxin degrade in wetlands";
+const valPapers = () => ([
+  {
+    title: "Zorblaxin degradation in wetlands",
+    abstract: "Zorblaxin degradation in wetland soils was rapid and complete.",
+    journal: "J Test", year: 2024, url: "https://example.com/val-a",
+  },
+  {
+    title: "Zorblaxin persistence in wetland sediment",
+    abstract: "We tracked zorblaxin degradation rates across wetland sites over two seasons.",
+    journal: "J Test", year: 2023, url: "https://example.com/val-b",
+  },
+]);
+
+await test("verdicts from the second leg filter the papers and the leg is attributed", async () => {
+  const diag = { llmValidatedVia: null };
+  const out = await llmValidatePapers(VAL_QUERY, valPapers(), "or-token", null, {}, diag, async () => ({
+    text: JSON.stringify([{ id: 1, verdict: "RELEVANT" }, { id: 2, verdict: "IRRELEVANT" }]),
+    via: "groq",
+  }));
+  assert.deepEqual(out.map((p) => p.url), ["https://example.com/val-a"]);
+  assert.equal(diag.llmValidatedVia, "groq");
+});
+
+await test("both legs failing fails open to the programmatic survivors, via stays null", async () => {
+  const diag = { llmValidatedVia: null };
+  const out = await llmValidatePapers(VAL_QUERY, valPapers(), "or-token", null, { GROQ_KEY: "g" }, diag, async () => null);
+  assert.equal(out.length, 2);
+  assert.equal(diag.llmValidatedVia, null);
+});
+
+await test("no key on either leg skips the model pass entirely", async () => {
+  const diag = { llmValidatedVia: null };
+  const out = await llmValidatePapers(VAL_QUERY, valPapers(), "", null, {}, diag);
+  assert.equal(out.length, 2);
+  assert.equal(diag.llmValidatedVia, null);
+});
+
+await test("defaultValidationCall tries OpenRouter first, then Groq, with the Groq shape pinned", async () => {
+  const realFetch = globalThis.fetch;
+  const urls = [];
+  let groqBody = null;
+  globalThis.fetch = async (url, init) => {
+    urls.push(String(url));
+    if (String(url).includes("openrouter.ai")) {
+      return { ok: false, status: 429, json: async () => ({}) };
+    }
+    groqBody = JSON.parse(init.body);
+    return {
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: "[{\"id\":1,\"verdict\":\"RELEVANT\"}]" } }] }),
+    };
+  };
+  try {
+    const out = await defaultValidationCall([{ role: "user", content: "x" }], "or-token", { GROQ_KEY: "groq-key" });
+    assert.equal(out.via, "groq");
+    assert.equal(urls.length, 2);
+    assert.ok(urls[0].includes("openrouter.ai"), `first leg should be OpenRouter: ${urls[0]}`);
+    assert.ok(urls[1].includes("api.groq.com"), `second leg should be Groq: ${urls[1]}`);
+    assert.equal(groqBody.model, "openai/gpt-oss-20b");
+    assert.equal(groqBody.reasoning_effort, "low");
+    assert.equal(groqBody.max_tokens, 400);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("defaultValidationCall stops at the OpenRouter leg when it answers", async () => {
+  const realFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    return {
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: "[{\"id\":1,\"verdict\":\"RELEVANT\"}]" } }] }),
+    };
+  };
+  try {
+    const out = await defaultValidationCall([{ role: "user", content: "x" }], "or-token", { GROQ_KEY: "groq-key" });
+    assert.equal(out.via, "openrouter");
+    assert.equal(urls.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("defaultValidationCall with no keys returns null and never fetches", async () => {
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; throw new Error("must not be called"); };
+  try {
+    const out = await defaultValidationCall([{ role: "user", content: "x" }], "", {});
+    assert.equal(out, null);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("cerebras — parked out of the synthesis roster (fleet pass 2026-10-13)");
+
+await test("no active cerebras provider row remains, and the parking note is dated", () => {
+  const source = readFileSync(join(root, "functions/api/search.js"), "utf8");
+  assert.ok(
+    !/^\s*\{ id: "cerebras", key: env\.CEREBRAS_KEY,/m.test(source),
+    "an active cerebras provider row is still in the roster"
+  );
+  assert.ok(source.includes("PARKED 2026-10-13"), "the dated parking note is missing");
+  assert.ok(
+    source.includes('// { id: "cerebras", key: env.CEREBRAS_KEY,'),
+    "the parked row should remain as a comment so restoring is one line"
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("preparation phrasings — deterministic homogenate bridge (fleet pass 2026-10-13)");
+
+// The homogenate concept group used to fire only when a question
+// already contained homogenate wording. These pins run the real
+// topicOverlapFilter (the consumer that scans CONCEPT_GROUPS for
+// multi word members present in the question) with NO dynLookup and
+// NO model call: the bridge is the hand written group alone.
+await test("whole gut preparations phrasing lets a crude extract paper through the filter", () => {
+  const bridge = () => ({
+    title: "Protease levels in insect midgut samples",
+    abstract: "Protease levels in crude extracts from dissected midguts of larvae were compared across diets.",
+    url: "https://example.com/bridge",
+  });
+  const strong = () => ({
+    title: "Enzyme activity in whole gut preparations of insects",
+    abstract: "Enzyme activity was measured in whole gut preparations.",
+    url: "https://example.com/strong",
+  });
+  const out = topicOverlapFilter("enzyme activity in whole gut preparations", [bridge(), strong()]);
+  const urls = out.map((p) => p.url);
+  assert.ok(urls.includes("https://example.com/strong"), "the literal wording paper must survive");
+  assert.ok(
+    urls.includes("https://example.com/bridge"),
+    "the crude extract paper must survive via the homogenate bridge: " + JSON.stringify(urls)
+  );
+});
+
+await test("a gut homogenate question accepts a paper that only says whole gut preparation", () => {
+  const prep = () => ({
+    title: "Whole gut preparation protocol",
+    abstract: "A whole gut preparation was used to measure protease release.",
+    url: "https://example.com/prep",
+  });
+  const anchor = () => ({
+    title: "Gut homogenate enzyme assays",
+    abstract: "Enzyme assays of gut homogenate were run in triplicate.",
+    url: "https://example.com/anchor",
+  });
+  const out = topicOverlapFilter("assays of gut homogenate", [prep(), anchor()]);
+  const urls = out.map((p) => p.url);
+  assert.ok(urls.includes("https://example.com/anchor"), "the literal wording paper must survive");
+  assert.ok(
+    urls.includes("https://example.com/prep"),
+    "the preparation wording paper must survive via the shared group: " + JSON.stringify(urls)
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("buildStructuredQuery — framing words never become AND anchors (fleet pass 2026-10-13)");
+
+// Live regression (build 2197a8f): the homogenate probe's shipped
+// structured query ended "AND has AND anyone". "has" scores 0.65 in
+// termSpecificity and "anyone" 0.5, and the anchor race consulted
+// STOPWORDS only, never QUERY_FRAMING_WORDS.
+await test("the probe question's structured query has no bare has or anyone rung", () => {
+  const out = buildStructuredQuery(PROBE_Q.toLowerCase());
+  const rungs = out.split(" AND ").map((r) => r.trim());
+  assert.ok(!rungs.includes("has"), `bare has rung in: ${out}`);
+  assert.ok(!rungs.includes("anyone"), `bare anyone rung in: ${out}`);
+});
+
+await test("short questions cannot spend anchor slots on has or anyone", () => {
+  const out1 = buildStructuredQuery("has anyone assayed frogs");
+  assert.equal(out1, "frogs AND assayed");
+  const out2 = buildStructuredQuery("has anyone assayed digestive enzymes");
+  const rungs2 = out2.split(" AND ").map((r) => r.trim());
+  assert.ok(!rungs2.includes("has"), `bare has rung in: ${out2}`);
+  assert.ok(!rungs2.includes("anyone"), `bare anyone rung in: ${out2}`);
+  assert.ok(out2.includes("assayed"), `content anchor assayed lost in: ${out2}`);
+  assert.ok(out2.includes("digestive"), `content anchor digestive lost in: ${out2}`);
 });
 
 // ═══════════════════════════════════════════════════════════════════
