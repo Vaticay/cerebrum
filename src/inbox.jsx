@@ -24,6 +24,26 @@ function senderColor(seed) {
   return SENDER_COLORS[h % SENDER_COLORS.length];
 }
 
+/* One idempotency key per send the reader initiates. It is born
+   with the send, rides on the optimistic row and in the durable
+   outbox (see InboxView), and is reused verbatim by every retry of
+   that send, so the server can tell "the same send again" apart
+   from "a new message that happens to read the same" and answer a
+   retry with the row it already stored instead of a duplicate.
+   Random, not sequential: two devices sending in the same
+   millisecond must not land on the same key. Encrypted sends derive
+   one key per recipient device from this base key. */
+function newClientMsgId() {
+  try {
+    const bytes = crypto.getRandomValues(new Uint8Array(12));
+    let hex = "";
+    for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+    return "cmid-" + hex;
+  } catch {
+    return "cmid-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 0xffffffff).toString(36);
+  }
+}
+
 /* URLs and DOIs inside a message were dead text: in a tool built
    around sharing papers, every pasted source had to be copied by hand
    before it could be opened. Linkify both. A DOI becomes its resolver
@@ -178,6 +198,44 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   useEffect(() => {
     try { localStorage.setItem("cb_inbox_drafts_v1", JSON.stringify(draftsByThread)); } catch {}
   }, [draftsByThread]);
+  /* The durable outbox: sends that have not provably landed, kept
+     per thread in localStorage exactly the way drafts are, so a
+     failed send survives the reload that used to lose the message,
+     its attachment, and its only retry handle (which lived in
+     component state as row._send and nowhere else). An entry is
+     written when the send starts, patched as its state changes, and
+     dropped the moment the send reconciles to a canonical server
+     row. On open, entries become rows again carrying the same
+     idempotency key, so a retry resumes the original send instead
+     of starting a new one. Encrypted threads are treated exactly
+     as drafts treat them: the draft persistence keeps no special
+     case for them, so the outbox mirrors that. What is stored is
+     the plaintext the reader typed, on their own device only,
+     never anything the server saw; the envelopes themselves are
+     regenerated at send time and are never persisted. */
+  const [outboxByThread, setOutboxByThread] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("cb_inbox_outbox_v1") || "{}") || {}; } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify(outboxByThread)); } catch { /* storage full or unavailable: the outbox stays in memory, the same allowance drafts make */ }
+  }, [outboxByThread]);
+  const outboxPut = (threadId, entry) => setOutboxByThread((prev) => {
+    const list = (prev[threadId] || []).filter((e) => e.clientMsgId !== entry.clientMsgId);
+    return { ...prev, [threadId]: [...list, entry] };
+  });
+  const outboxPatch = (threadId, clientMsgId, patch) => setOutboxByThread((prev) => {
+    const list = prev[threadId];
+    if (!list || !list.some((e) => e.clientMsgId === clientMsgId)) return prev;
+    return { ...prev, [threadId]: list.map((e) => (e.clientMsgId === clientMsgId ? { ...e, ...patch } : e)) };
+  });
+  const outboxDrop = (threadId, clientMsgId) => setOutboxByThread((prev) => {
+    const list = prev[threadId];
+    if (!list || !list.some((e) => e.clientMsgId === clientMsgId)) return prev;
+    const next = list.filter((e) => e.clientMsgId !== clientMsgId);
+    const out = { ...prev };
+    if (next.length) out[threadId] = next; else delete out[threadId];
+    return out;
+  });
   const draft = activeId ? (draftsByThread[activeId] || "") : "";
   const updateDraft = (value, threadId) => {
     const tid = threadId || activeId;
@@ -840,7 +898,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             // the thread until their send resolves and replaces them,
             // or a poll landing mid send would erase a message the
             // reader is watching go out.
-            const pendingKept = prevThread.messages.filter((m) => m && m.pending && !nextIds.has(m.id));
+            // Reconciliation by identity, not by shape: a pending row
+            // whose idempotency key appears on a server row in this
+            // page is that row — its send landed and only the
+            // response was lost — so the local copy stands down and
+            // the message shows exactly once, as the server's row.
+            const nextClientKeys = new Set(next.messages.map((nm) => nm.clientMsgId).filter(Boolean));
+            const pendingKept = prevThread.messages.filter((m) => m && m.pending && !nextIds.has(m.id) && !(m.clientMsgId && nextClientKeys.has(m.clientMsgId)));
             if (older.length > 0 || pendingKept.length > 0) {
               return { ...next, messages: [...older, ...next.messages, ...pendingKept], hasMore: prevThread.hasMore ?? next.hasMore, truncated: prevThread.truncated ?? next.truncated };
             }
@@ -871,6 +935,16 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             // without waiting for this view's next full inbox refetch.
             setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false, unreadCount: 0 } : t)));
           }
+          // The same reconciliation, applied to the durable outbox:
+          // any entry whose idempotency key the server now echoes
+          // back on a stored row has provably landed, so its entry
+          // is retired instead of being restored as a failed row on
+          // some later open. Runs beside the read ack, on the same
+          // evidence (a successful load of this thread), and never
+          // touches the ack's ordering or the unread hold.
+          for (const m of thread.messages || []) {
+            if (m && m.clientMsgId) outboxDrop(activeId, m.clientMsgId);
+          }
         }
       });
     };
@@ -889,6 +963,50 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // stretch the interval instead of hammering a dead connection.
     return () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer); };
   }, [activeId, threadRetryNonce]);
+
+  /* Outbox restore. The entries themselves load with the component
+     (the useState initializer above reads localStorage on mount, so
+     they are resident from app load); this effect turns them back
+     into rows whenever their thread is the open one and its
+     messages have loaded. A restored row is born "failed" — even
+     one that was mid-send when the app closed — because after a
+     reload nobody can prove it did not land, and "failed" is the
+     state that offers the (now duplicate-safe) retry. A partial
+     encrypted send restores as partial, with its counts, keeping
+     its no-retry rule. Entries whose key a loaded server row
+     already carries are skipped here and retired by the refresh
+     above: that send landed, and the server's row is the one copy
+     the reader sees. */
+  const outboxRowFor = (entry) => {
+    const att = entry.attachment;
+    const row = {
+      id: "local-" + entry.clientMsgId, mine: true, who: "You", text: entry.text,
+      createdAt: entry.createdAt || Date.now(),
+      pending: entry.state === "partial" ? "partial" : "failed",
+      attachmentKind: att ? (att.kind || null) : null,
+      attachmentTitle: att ? (att.title || null) : null,
+      attachmentData: att ? (att.data || null) : null,
+      attachmentUrl: att ? (att.url || null) : null,
+      attachmentMeta: att ? (att.meta || null) : null,
+      _send: { text: entry.text, attachment: entry.attachment || null, encrypted: !!entry.encrypted, otherId: entry.otherId, clientMsgId: entry.clientMsgId },
+      clientMsgId: entry.clientMsgId,
+    };
+    if (entry.state === "partial") { row.partialSent = entry.partialSent; row.partialTotal = entry.partialTotal; }
+    if (entry.encrypted) { row.msgKind = "cipher"; row.e2ee = { ok: true, text: entry.text }; }
+    return row;
+  };
+  useEffect(() => {
+    if (!activeId || !activeThread || activeThread.id !== activeId) return;
+    const entries = outboxByThread[activeId];
+    if (!entries || entries.length === 0) return;
+    setActiveThread((t) => {
+      if (!t || t.id !== activeId) return t;
+      const have = new Set((t.messages || []).map((m) => m && m.clientMsgId).filter(Boolean));
+      const rows = entries.filter((e) => e && e.clientMsgId && !have.has(e.clientMsgId)).map(outboxRowFor);
+      if (!rows.length) return t;
+      return { ...t, messages: [...(t.messages || []), ...rows] };
+    });
+  }, [activeId, activeThread, outboxByThread]);
 
   // E2EE Phase 1.4 — per-thread encryption UI state. Runs when the open
   // thread's identity/encryption changes (not on every poll: the deps are
@@ -1006,6 +1124,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       attachmentUrl: att ? (att.url || null) : null,
       attachmentMeta: att ? (att.meta || null) : null,
       _send: payload,
+      // The send's idempotency key rides on the row so the poll
+      // merge can reconcile this row against the server's copy by
+      // identity when the send's own response never arrived.
+      clientMsgId: payload.clientMsgId || null,
     };
     // The local echo shows what was typed, not the ciphertext: the
     // row is born speaking the cipher display dialect so it renders
@@ -1056,22 +1178,33 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         let sentCount = 0;
         try {
           for (const env of envelopes) {
+            // Each envelope carries its own idempotency key, derived
+            // from the send's key and the RECIPIENT device (not the
+            // loop position), so a retry regenerating the envelopes
+            // in any order still presents the same key for the same
+            // device's copy: a device whose envelope landed but
+            // whose response was lost is answered with its stored
+            // row instead of a second copy of the message.
             await apiDataAction("send-message", {
               thread_id: threadId, text: env.text, sender_device_id: deviceId,
+              ...(payload.clientMsgId ? { client_msg_id: payload.clientMsgId + "-" + (env.recipientDeviceId || sentCount) } : {}),
             });
             sentCount += 1;
           }
         } catch (loopErr) {
           if (sentCount > 0) {
             patchLocalRow(threadId, lid, { pending: "partial", partialSent: sentCount, partialTotal: envelopes.length });
+            if (payload.clientMsgId) outboxPatch(threadId, payload.clientMsgId, { state: "partial", partialSent: sentCount, partialTotal: envelopes.length });
             toast(`Sent to ${sentCount} of ${envelopes.length} devices. The rest did not go through.`, { tone: "error" });
           } else {
             patchLocalRow(threadId, lid, { pending: "failed" });
+            if (payload.clientMsgId) outboxPatch(threadId, payload.clientMsgId, { state: "failed" });
             toast(loopErr.message || "Couldn't send that message.", { tone: "error" });
           }
           return;
         }
         patchLocalRow(threadId, lid, { pending: null, senderDeviceId: deviceId });
+        if (payload.clientMsgId) outboxDrop(threadId, payload.clientMsgId);
         setThreads((prev) => prev.map((t) => (t.id === threadId ? {
           ...t,
           lastMessage: { encrypted: true, mine: true, text: payload.text, createdAt: Date.now() },
@@ -1080,6 +1213,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       }
       const res = await apiDataAction("send-message", {
         thread_id: threadId, text: payload.text,
+        // The send's idempotency key: on a retry this is the SAME
+        // key the original attempt carried, so if that attempt
+        // landed and only its response was lost, the server returns
+        // the stored row (canonical id included) and stores nothing
+        // new. The row below then reconciles to that identity.
+        ...(payload.clientMsgId ? { client_msg_id: payload.clientMsgId } : {}),
         ...(payload.attachment ? {
           attachment_kind: payload.attachment.kind,
           attachment_title: payload.attachment.title || "",
@@ -1088,10 +1227,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           attachment_meta: payload.attachment.meta || null,
         } : {}),
       });
+      // res.message now carries the canonical id: the optimistic row
+      // is replaced by the server's own description of the message,
+      // identity included, and the outbox entry is done.
       replaceLocalRow(threadId, lid, { ...res.message, who: "You" });
+      if (payload.clientMsgId) outboxDrop(threadId, payload.clientMsgId);
       setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, lastMessage: res.message } : t)));
     } catch (e) {
       patchLocalRow(threadId, lid, { pending: "failed" });
+      if (payload.clientMsgId) outboxPatch(threadId, payload.clientMsgId, { state: "failed" });
       toast(e.message || "Couldn't send that message.", { tone: "error" });
     }
   };
@@ -1118,7 +1262,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       return;
     }
     const threadId = activeId;
-    const payload = { text, attachment: attachment || null, encrypted: isEncrypted, otherId: activeThread.otherId };
+    const payload = { text, attachment: attachment || null, encrypted: isEncrypted, otherId: activeThread.otherId, clientMsgId: newClientMsgId() };
+    // The outbox entry is written BEFORE the send is attempted:
+    // from this moment the send exists durably, so a crash, a
+    // reload, or a closed tab mid-send leaves a restorable row
+    // instead of a message that silently never existed. It starts
+    // life as "sending"; if the app dies before the outcome is
+    // known, the restore presents it as failed, because failed is
+    // the honest state when nobody can prove it landed, and the
+    // retry is safe either way thanks to the idempotency key.
+    outboxPut(threadId, {
+      clientMsgId: payload.clientMsgId, text: payload.text, attachment: payload.attachment,
+      encrypted: payload.encrypted, otherId: payload.otherId, createdAt: Date.now(), state: "sending",
+    });
     updateDraft("");
     // Sending means you are at the conversation's edge: the scroll
     // keeper parks the pane on your message when it lands.
@@ -1146,11 +1302,32 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       return;
     }
     patchLocalRow(activeId, lid, { pending: "sending" });
+    // The retry reuses the send's original idempotency key (it is
+    // part of row._send), and the outbox follows the row back into
+    // "sending" so a reload mid-retry restores the same state.
+    if (row._send.clientMsgId) outboxPatch(activeId, row._send.clientMsgId, { state: "sending" });
     scrollStateRef.current.atBottom = true;
     if (row._send.encrypted) encSendBusyRef.current = true;
     performSend(activeId, row._send, lid).finally(() => {
       if (row._send.encrypted) encSendBusyRef.current = false;
     });
+  };
+
+  /* Discarding is the reader's own call to give up on a send: the
+     row leaves the conversation and its outbox entry leaves with
+     it, so the send does not resurrect on the next open. Only rows
+     that are not in flight can be discarded (failed and partial).
+     A partial encrypted send's delivered envelopes stay delivered,
+     which is exactly why it gets a Discard and never a Retry. */
+  const discardSend = (lid) => {
+    if (!activeId || !activeThread) return;
+    const row = (activeThread.messages || []).find((m) => m && m.id === lid);
+    if (!row || (row.pending !== "failed" && row.pending !== "partial")) return;
+    const key = (row._send && row._send.clientMsgId) || row.clientMsgId;
+    if (key) outboxDrop(activeId, key);
+    setActiveThread((t) => (t && t.id === activeId
+      ? { ...t, messages: (t.messages || []).filter((m) => m.id !== lid) }
+      : t));
   };
 
   // Mark as unread: asks the server to rewind my read cursor to just
@@ -1938,10 +2115,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Failed to send</span>
                       <button onClick={() => retrySend(m.id)} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Retry</button>
+                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
                     </div>
                   )}
                   {m.mine && m.pending === "partial" && (
-                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4, fontSize: FONT_SIZES.micro, fontWeight: 600, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Sent to {m.partialSent} of {m.partialTotal} devices</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Sent to {m.partialSent} of {m.partialTotal} devices</span>
+                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
+                    </div>
                   )}
                 </div>
                 </React.Fragment>

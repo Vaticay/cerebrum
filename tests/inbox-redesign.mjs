@@ -250,5 +250,99 @@ await test("mark as unread is in the header menu for groups and DMs alike", () =
   assert.ok(!before.includes('activeThread.kind === "dm" && activeThread.otherId && ('), "the options menu is still gated to DMs only");
 });
 
+// ── Durable sends (second rescore) ────────────────────────────────
+// The write path could silently lose a message the reader typed:
+// send-message generated the message id inline and never returned
+// it, so no optimistic row could be reconciled against a canonical
+// identity, and failed sends lived only in component state, so a
+// reload after a failed send lost the message, its attachment, and
+// its retry handle. These pins hold the fix: a canonical id in the
+// response, a client idempotency key the server dedupes on, and a
+// per thread outbox in localStorage mirroring the drafts.
+
+await test("send-message keeps the generated id and returns it as the canonical id", () => {
+  const idx = dataSrc.indexOf('action === "send-message"');
+  assert.ok(idx > -1, "send-message action missing");
+  const block = dataSrc.slice(idx, idx + 16000);
+  assert.ok(block.includes('const messageId = newId("msg")'), "the generated id is not kept in a variable");
+  assert.ok(block.includes("id: messageId"), "the success response is not built from the stored id");
+  assert.ok(dataSrc.includes("id: m.id"), "the shared message payload builder carries no id");
+  assert.ok(block.includes("messagePayloadFromRow({"), "the fresh response bypasses the shared payload builder");
+});
+
+await test("send-message accepts and stores a client idempotency key", () => {
+  const idx = dataSrc.indexOf('action === "send-message"');
+  const block = dataSrc.slice(idx, idx + 16000);
+  assert.ok(block.includes("safeId(body.client_msg_id)"), "the client key is not read from the body");
+  const insertAt = block.indexOf("INSERT INTO messages");
+  assert.ok(insertAt > -1, "message insert missing");
+  assert.ok(block.slice(insertAt, insertAt + 600).includes("client_msg_id"), "the insert does not store the key");
+  assert.ok(dataSrc.includes("ALTER TABLE messages ADD COLUMN client_msg_id TEXT"), "the column is not self healed in");
+  assert.ok(dataSrc.includes("idx_messages_client_key"), "no unique index backs the dedupe");
+  assert.ok((dataSrc.match(/await ensureMessageClientKey\(env\)/g) || []).length >= 2, "the self heal does not run on both the thread read and the send path");
+});
+
+await test("a retry with the same key returns the stored row and inserts nothing", () => {
+  const idx = dataSrc.indexOf('action === "send-message"');
+  const block = dataSrc.slice(idx, idx + 16000);
+  const dedupeAt = block.indexOf("client_msg_id = ?");
+  const insertAt = block.indexOf("INSERT INTO messages");
+  assert.ok(dedupeAt > -1, "no dedupe lookup by idempotency key");
+  assert.ok(dedupeAt < insertAt, "the dedupe lookup runs after the insert, so it can never prevent one");
+  assert.ok(block.includes("messagePayloadFromRow(dupe, user.id)"), "a dedupe hit does not return the stored row");
+  assert.ok(block.includes("/unique constraint/i"), "the racing retry fallback on the unique index is missing");
+  assert.ok(block.includes("messagePayloadFromRow(winner, user.id)"), "the race loser is not answered with the winner's row");
+});
+
+await test("the thread payload echoes each message's idempotency key", () => {
+  assert.ok(dataSrc.includes("clientMsgId: m.client_msg_id || null"), "thread messages carry no clientMsgId to reconcile against");
+  assert.ok(dataSrc.includes("envelope_version, client_msg_id FROM messages"), "the thread read does not select the key");
+});
+
+await test("the client sends its idempotency key and reconciles the row to the canonical id", () => {
+  assert.ok(inboxSrc.includes("function newClientMsgId()"), "no client key generator");
+  assert.ok(inboxSrc.includes("client_msg_id: payload.clientMsgId"), "the send body carries no key");
+  assert.ok(inboxSrc.includes("clientMsgId: payload.clientMsgId || null"), "the optimistic row does not carry the key");
+  assert.ok(inboxSrc.includes("replaceLocalRow(threadId, lid, { ...res.message, who: \"You\" })"), "the optimistic row is not replaced by the canonical response");
+  assert.ok(inboxSrc.includes("outboxDrop(threadId, payload.clientMsgId)"), "a reconciled send does not retire its outbox entry");
+});
+
+await test("failed sends persist in a per thread outbox, written before the send is attempted", () => {
+  assert.ok(inboxSrc.includes("cb_inbox_outbox_v1"), "outbox persistence key missing");
+  assert.ok(inboxSrc.includes("outboxByThread"), "outbox state missing");
+  const putAt = inboxSrc.indexOf("outboxPut(threadId, {");
+  const sendAt = inboxSrc.indexOf("await performSend(threadId, payload, lid)");
+  assert.ok(putAt > -1 && sendAt > -1, "the send flow does not register an outbox entry");
+  assert.ok(putAt < sendAt, "the outbox entry is written after the attempt, so a crash mid send still loses it");
+  const entry = inboxSrc.slice(putAt, putAt + 500);
+  assert.ok(entry.includes("text: payload.text"), "the entry does not carry the text");
+  assert.ok(entry.includes("attachment: payload.attachment"), "the entry does not carry the attachment the send path uses");
+  assert.ok(entry.includes("clientMsgId: payload.clientMsgId"), "the entry does not carry the client identity");
+  assert.ok(inboxSrc.includes('localStorage.setItem("cb_inbox_outbox_v1"'), "the outbox is never persisted");
+});
+
+await test("a failed send survives a reload: restore on open rebuilds the row with its retry payload", () => {
+  assert.ok(inboxSrc.includes("const outboxRowFor = (entry) =>"), "no row builder for restored entries");
+  assert.ok(inboxSrc.includes('pending: entry.state === "partial" ? "partial" : "failed"'), "restored rows do not come back failed (partial keeps its own state)");
+  assert.ok(inboxSrc.includes("clientMsgId: entry.clientMsgId"), "the restored row's retry payload loses the original key");
+  assert.ok(inboxSrc.includes("!have.has(e.clientMsgId)"), "restore does not skip sends the thread already shows");
+  assert.ok(inboxSrc.includes("outboxByThread[activeId]"), "restore is not keyed to the open thread");
+});
+
+await test("a send whose response was lost reconciles by key in the poll merge and never duplicates", () => {
+  assert.ok(inboxSrc.includes("nextClientKeys"), "the poll merge builds no key set from the server page");
+  assert.ok(inboxSrc.includes("!(m.clientMsgId && nextClientKeys.has(m.clientMsgId))"), "the poll merge keeps the local copy beside the server row it duplicates");
+  assert.ok(inboxSrc.includes("outboxDrop(activeId, m.clientMsgId)"), "landed outbox entries are not retired when a poll proves them stored");
+  assert.ok(inboxSrc.indexOf("outboxDrop(activeId, m.clientMsgId)") > inboxSrc.indexOf('apiDataAction("mark-thread-read"'), "the outbox prune moved ahead of the read ack it must not disturb");
+  assert.ok(inboxSrc.includes("row._send.clientMsgId"), "retry does not reuse the original key");
+  assert.ok(inboxSrc.includes('client_msg_id: payload.clientMsgId + "-" + (env.recipientDeviceId || sentCount)'), "encrypted envelopes carry no per device key");
+});
+
+await test("failed and partial rows can be discarded, row and outbox entry together", () => {
+  assert.ok(inboxSrc.includes("const discardSend = (lid) =>"), "no discard handler");
+  assert.ok(inboxSrc.includes("discardSend(m.id)"), "no discard control is rendered");
+  assert.ok((inboxSrc.match(/>Discard<\/button>/g) || []).length === 2, "discard is not offered on both the failed and the partial state");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

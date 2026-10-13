@@ -132,6 +132,76 @@ async function ensureFlowchartTable(env) {
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_flowcharts_user ON user_flowcharts(user_id)");
 }
 
+/* Durable sends: the messages.client_msg_id column.
+ *
+ * A send used to be fire-and-forget from the client's side: this
+ * endpoint generated the message id inline in the INSERT, never kept
+ * it in a variable, and never returned it, so the client could not
+ * reconcile its optimistic row against the row the server actually
+ * holds. Worse, when a send landed but its response was lost, the
+ * client had no way to know the message existed, and a retry posted
+ * a second copy the reader saw twice.
+ *
+ * The client now stamps every send it initiates with its own
+ * idempotency key (body.client_msg_id) and reuses that key verbatim
+ * on every retry of the same send. This column records the key on
+ * the row the send created, so a repeat send-message carrying the
+ * same key from the same sender in the same thread returns the row
+ * that is already there instead of inserting a duplicate. The
+ * contract is the usual idempotency-key one: same key means same
+ * send, so a key is never reused for a different message.
+ *
+ * Self-healing, the same pattern as ensureUserProfileColumns and the
+ * rating column in this file: the ALTER is attempted once per
+ * isolate and the duplicate-column failure swallowed, so this
+ * deploys with no manual D1 work. The unique index is the backstop
+ * for two retries racing each other — one INSERT wins, the other
+ * fails on the constraint and falls back to returning the winner's
+ * row. Keyless sends store NULL, and SQLite unique indexes never
+ * treat two NULLs as equal, so sends from clients that predate the
+ * key (or omit it) can never collide with each other. */
+let _messageClientKeyEnsured = false;
+async function ensureMessageClientKey(env) {
+  if (_messageClientKeyEnsured) return;
+  _messageClientKeyEnsured = true;
+  try {
+    await env.DB.exec("ALTER TABLE messages ADD COLUMN client_msg_id TEXT");
+  } catch (e) {
+    if (!/duplicate column/i.test(String(e && e.message || e))) throw e;
+  }
+  try {
+    await env.DB.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_key ON messages(thread_id, sender_id, client_msg_id)");
+  } catch {
+    /* If the index cannot be built, the lookup in send-message
+       still covers the ordinary retry sequence; only the
+       simultaneous-retry race loses its backstop. An index problem
+       must never take message sending down with it. */
+  }
+}
+
+/* The send-message success body, built from a stored row's shape so
+ * a fresh insert, an idempotency dedupe hit, and the thread GET all
+ * describe a message identically — including the canonical id and
+ * the client's idempotency key echoed back, the two identities the
+ * client reconciles its optimistic rows against. */
+function messagePayloadFromRow(m, userId) {
+  return {
+    id: m.id,
+    text: m.text,
+    attachmentTitle: m.attachment_title || null,
+    attachmentKind: m.attachment_kind || null,
+    attachmentData: m.attachment_data || null,
+    attachmentUrl: m.attachment_url || null,
+    attachmentMeta: (() => { try { return m.attachment_meta ? JSON.parse(m.attachment_meta) : null; } catch { return null; } })(),
+    senderId: m.sender_id,
+    createdAt: toEpochMs(m.created_at),
+    mine: m.sender_id === userId,
+    msgKind: m.msg_kind || "plaintext-legacy",
+    senderDeviceId: m.sender_device_id || null,
+    clientMsgId: m.client_msg_id || null,
+  };
+}
+
 // How many papers Europe PMC has indexed on a topic since a given moment.
 //
 // Returns a number, or null if the upstream couldn't be reached — null and
@@ -894,6 +964,11 @@ export async function onRequest(context) {
           "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
         ).bind(threadId, user.id).first();
         if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+        // The message SELECTs below name client_msg_id (the durable
+        // sends key); make sure the column exists before they run,
+        // so a database nobody has sent into since this deployed
+        // still opens its threads. Memoized per isolate.
+        await ensureMessageClientKey(env);
         // The read cursor as it stands when this fetch begins. The
         // client anchors its "New messages" divider to it: without the
         // pre-visit value, opening a conversation erases the one signal
@@ -986,10 +1061,10 @@ export async function onRequest(context) {
         const beforeId = url.searchParams.get("before_id") || null;
         const messageRows = beforeTs
           ? await env.DB.prepare(
-              "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version FROM messages WHERE thread_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?"
+              "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version, client_msg_id FROM messages WHERE thread_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?"
             ).bind(threadId, beforeTs, beforeTs, beforeId || "", MAX_THREAD_MESSAGES + 1).all()
           : await env.DB.prepare(
-              "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?"
+              "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version, client_msg_id FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?"
             ).bind(threadId, MAX_THREAD_MESSAGES + 1).all();
         const fetchedMessages = messageRows.results || [];
         const truncated = fetchedMessages.length > MAX_THREAD_MESSAGES;
@@ -1015,6 +1090,12 @@ export async function onRequest(context) {
           msgKind: m.msg_kind || "plaintext-legacy",
           senderDeviceId: m.sender_device_id || null,
           envelopeVersion: m.envelope_version || 1,
+          // The sender's idempotency key, echoed so the client can
+          // reconcile an optimistic row whose send response was lost
+          // against the server row that actually landed (see the
+          // client_msg_id note at ensureMessageClientKey). Only the
+          // sender's own client ever acts on it; it names no content.
+          clientMsgId: m.client_msg_id || null,
         }));
         // Shared shelf counts, taken over the whole thread rather
         // than the page of messages above. The client only ever
@@ -1863,6 +1944,16 @@ export async function onRequest(context) {
       const attachmentUrl = safeUrl(body.attachment_url, MAX_ATTACHMENT_URL_LEN) || "";
       let attachmentMeta = "";
       try { attachmentMeta = body.attachment_meta ? JSON.stringify(body.attachment_meta).slice(0, MAX_ATTACHMENT_META_LEN) : ""; } catch { attachmentMeta = ""; }
+      // Durable sends: the client's idempotency key for this exact
+      // send (see ensureMessageClientKey). Optional — a client that
+      // sends none gets the old fire-and-forget behavior — and a
+      // malformed one is ignored rather than failed, the same
+      // forgiving treatment attachment_meta gets above: the message
+      // matters more than the bookkeeping, and the client we ship
+      // always sends a well-formed key. safeId caps it at LIMITS.ID
+      // characters over the id alphabet, which the key the client
+      // generates (and its per-device envelope variants) fits.
+      const clientMsgId = safeId(body.client_msg_id) || "";
       if (attachmentData) {
         // Refused explicitly rather than left to fail as a D1 row-size
         // error, so the composer can tell someone their file is too big
@@ -1892,6 +1983,27 @@ export async function onRequest(context) {
         "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
       ).bind(threadId, user.id).first();
       if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      // Durable sends: the column the INSERT below writes exists
+      // before anything reads or writes it (memoized per isolate).
+      await ensureMessageClientKey(env);
+      // A retry of a send whose response was lost arrives with the
+      // same idempotency key as the send that already landed. The
+      // row it created is the answer: return it verbatim (canonical
+      // id included) and create nothing — no second row for the
+      // reader, no second push for the other participants, who were
+      // already woken by the original send. The lookup is scoped to
+      // this sender in this thread, so a key can only ever match a
+      // message its own author already sent here. It runs before the
+      // gates below on purpose: those govern NEW messages, and this
+      // is not one — it passed every gate when it was stored.
+      if (clientMsgId) {
+        const dupe = await env.DB.prepare(
+          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, client_msg_id FROM messages WHERE thread_id = ? AND sender_id = ? AND client_msg_id = ?"
+        ).bind(threadId, user.id, clientMsgId).first();
+        if (dupe) {
+          return new Response(JSON.stringify({ ok: true, message: messagePayloadFromRow(dupe, user.id) }), { status: 200, headers: cors });
+        }
+      }
       // Commit 48 enforcement: a blocked DM stops accepting new messages
       // from either side — history stays visible (the GET above never
       // hides it), this just closes the door on adding to it. Groups are
@@ -1953,14 +2065,32 @@ export async function onRequest(context) {
       }
       // messages.id is a plain TEXT primary key on the live table (no
       // autoincrement) — has to be generated here, same as accolades.id in
-      // auth.js's verify-code.
-      await env.DB.prepare(
-        "INSERT INTO messages (id, thread_id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).bind(
-        newId("msg"), threadId, user.id, text || null, attachmentTitle || null,
-        attachmentKind || null, attachmentData || null, attachmentUrl || null, attachmentMeta || null, now,
-        msgKind, senderDeviceId, msgKind === "cipher" ? E2EE_ENVELOPE_VERSION : 1
-      ).run();
+      // auth.js's verify-code. It is kept in a variable now: the response
+      // below returns it as the message's canonical id, so the client can
+      // reconcile its optimistic row against this exact row (and the poll
+      // merge can dedupe by identity) instead of guessing from shape.
+      const messageId = newId("msg");
+      try {
+        await env.DB.prepare(
+          "INSERT INTO messages (id, thread_id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version, client_msg_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(
+          messageId, threadId, user.id, text || null, attachmentTitle || null,
+          attachmentKind || null, attachmentData || null, attachmentUrl || null, attachmentMeta || null, now,
+          msgKind, senderDeviceId, msgKind === "cipher" ? E2EE_ENVELOPE_VERSION : 1, clientMsgId || null
+        ).run();
+      } catch (insertErr) {
+        // The one expected failure: two retries carrying the same
+        // idempotency key raced past the lookup above, and the unique
+        // index stopped the second INSERT. The winner's row is the
+        // truth — return it exactly as the dedupe path above does.
+        // Anything else is a real error and keeps failing loudly.
+        if (!clientMsgId || !/unique constraint/i.test(String(insertErr && insertErr.message || insertErr))) throw insertErr;
+        const winner = await env.DB.prepare(
+          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, client_msg_id FROM messages WHERE thread_id = ? AND sender_id = ? AND client_msg_id = ?"
+        ).bind(threadId, user.id, clientMsgId).first();
+        if (!winner) throw insertErr;
+        return new Response(JSON.stringify({ ok: true, message: messagePayloadFromRow(winner, user.id) }), { status: 200, headers: cors });
+      }
       // Wake the other participants' closed tabs. The payload never carries
       // message content — E2EE threads are unreadable server-side anyway,
       // and plaintext threads stay private by choice. Fire-and-forget: the
@@ -1983,16 +2113,19 @@ export async function onRequest(context) {
         if (context && typeof context.waitUntil === "function") context.waitUntil(pushWork);
         else pushWork.catch(() => {});
       }
+      // Built by the same helper the dedupe paths use, from the
+      // values just stored, so a fresh send's response is identical
+      // in shape to the row a poll or a deduped retry returns —
+      // canonical id and echoed idempotency key included.
       return new Response(JSON.stringify({
         ok: true,
-        message: {
-          text, attachmentTitle: attachmentTitle || null,
-          attachmentKind: attachmentKind || null, attachmentData: attachmentData || null,
-          attachmentUrl: attachmentUrl || null,
-          attachmentMeta: (() => { try { return attachmentMeta ? JSON.parse(attachmentMeta) : null; } catch { return null; } })(),
-          senderId: user.id, createdAt: now, mine: true,
-          msgKind, senderDeviceId,
-        },
+        message: messagePayloadFromRow({
+          id: messageId, sender_id: user.id, text: text || null,
+          attachment_title: attachmentTitle || null, attachment_kind: attachmentKind || null,
+          attachment_data: attachmentData || null, attachment_url: attachmentUrl || null,
+          attachment_meta: attachmentMeta || null, created_at: now,
+          msg_kind: msgKind, sender_device_id: senderDeviceId, client_msg_id: clientMsgId || null,
+        }, user.id),
       }), { status: 200, headers: cors });
     }
 
