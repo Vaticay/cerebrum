@@ -425,7 +425,7 @@ function pdfInlineText(t) {
 function pdfInlineRuns(text) {
   const runs = [];
   const clean = pdfInlineText(text);
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|_[^_\n]+_)/g;
   let last = 0, m;
   const push = (t, bold, italic) => { if (t) runs.push({ t, bold: !!bold, italic: !!italic }); };
   while ((m = re.exec(clean))) {
@@ -3975,11 +3975,13 @@ function stripDanglingAsterisks(s) {
 }
 function renderInlineMdLite(text, P) {
   const clean = stripDanglingAsterisks(text || "");
-  return clean.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/g).map((seg, si) => {
+  return clean.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`)/g).map((seg, si) => {
     const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ fontWeight: 700 }}>{b[1]}</strong>;
+    if (b) return <strong key={si} style={{ fontWeight: 700 }}>{renderInlineMdLite(b[1], P)}</strong>;
     const it = seg.match(/^\*([^*\n]+)\*$/);
-    if (it) return <em key={si} style={{ fontStyle: "italic" }}>{it[1]}</em>;
+    if (it) return <em key={si} style={{ fontStyle: "italic" }}>{renderInlineMdLite(it[1], P)}</em>;
+    const ul = seg.match(/^_([^_\n]+)_$/);
+    if (ul) return <em key={si} style={{ fontStyle: "italic" }}>{renderInlineMdLite(ul[1], P)}</em>;
     const code = seg.match(/^`([^`\n]+)`$/);
     if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: 8 }}>{code[1]}</code>;
     return <span key={si}>{seg}</span>;
@@ -4390,11 +4392,11 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
 function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate = null, queryTerms = null) {
   return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
     const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 700 }}>{b[1]}</strong>;
+    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 700 }}>{renderInlineSegments(b[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</strong>;
     const it = seg.match(/^\*([^*\n]+)\*$/);
-    if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{it[1]}</em>;
+    if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{renderInlineSegments(it[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</em>;
     const ul = seg.match(/^_([^_\n]+)_$/);
-    if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{ul[1]}</em>;
+    if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{renderInlineSegments(ul[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</em>;
     // Inline code backticks
     const code = seg.match(/^`([^`\n]+)`$/);
     if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: RADIUS.md, color: accentInk(P, accent) }}>{code[1]}</code>;
