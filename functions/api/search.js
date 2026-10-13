@@ -725,7 +725,14 @@ export function isNonLiterature(p) {
 // dedupes its accept sets by content so a repeated ungrouped word is
 // one concept, not two. Filtered shelves change for everyday language
 // questions whose papers use the field's own vocabulary.
-const CACHE_SCHEMA_VERSION = "v22";
+// v23 (2026-10-13, validation before the cut): the programmatic
+// validation passes (organism hard filter, topic overlap filter)
+// now run on the ranked shelf BEFORE the maxEvidence cut instead of
+// only on the selected set inside llmValidatePapers, so papers the
+// passes kill no longer occupy evidence slots and papers ranked
+// below the cut reach the passes. The shipped shelf changes for
+// questions whose top ranks held pass failing papers.
+const CACHE_SCHEMA_VERSION = "v23";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -5767,9 +5774,27 @@ export function finalizeValidationHealth(rec, validationDiag) {
   return rec;
 }
 
-export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env, diagOut, callImpl) {
-  if (!papers.length) return papers;
-
+/* The programmatic half of validation, composed exactly as
+ * llmValidatePapers has always run it: PASS 1A (the organism hard
+ * filter) with its never zero fallback, then PASS 1B (the topic
+ * overlap filter). Both passes are per paper predicates over title
+ * and abstract text: no network calls, and cost linear in the
+ * number of papers times their text length, so the composition is
+ * cheap at full shelf scale (the ranked shelf the handler holds
+ * ran to 25 papers on the draw this was built for, and even the
+ * full deduped draw behind it was under 80). Exported as one unit
+ * so the handler can run the SAME composition on the ranked shelf
+ * before the evidence cut (see the pre cut block in onRequest)
+ * instead of a second implementation drifting apart; this helper
+ * is the single source of truth for both call sites, and the
+ * passes' thresholds and verdicts live in the two filters
+ * themselves, unchanged.
+ * BOUNDARY: the LLM pass (PASS 2) is deliberately NOT part of
+ * this helper. It stays inside llmValidatePapers, judging the
+ * selected evidence set after the cut, exactly where it has
+ * always run relative to the selection. Only the cheap
+ * programmatic stages moved earlier. */
+export function programmaticValidationPasses(rawQuery, papers, dynLookup) {
   // PASS 1A: Organism-specific hard-filter (free, instant)
   let survivors = programmaticPaperFilter(rawQuery, papers);
 
@@ -5782,6 +5807,19 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
   // off-topic-field contamination that PASS 1A can't see because it only
   // engages for organism-named queries.
   survivors = topicOverlapFilter(rawQuery, survivors, dynLookup);
+  return survivors;
+}
+
+export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env, diagOut, callImpl) {
+  if (!papers.length) return papers;
+
+  // PASS 1A + 1B: the programmatic passes (free, instant), shared
+  // verbatim with the handler's pre cut application. On the
+  // selected set the handler hands in, every paper already passed
+  // these same predicates upstream, so the re run keeps them all;
+  // it stays here so this function's contract (programmatic
+  // passes first, then the LLM pass) holds for every caller.
+  let survivors = programmaticValidationPasses(rawQuery, papers, dynLookup);
 
   // PASS 2: LLM validation on survivors.
   // v6.4: this cap used to be 15, but evidencePapers can hold up to 20
@@ -15455,6 +15493,48 @@ async function runSearchPipeline(pctx) {
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js constraint filter:", cbErr); }
 
+    // ═══════════════════════════════════════════════════════════════
+    // CHEAP VALIDATION BEFORE THE EVIDENCE CUT (2026-10-13, reorder).
+    // The programmatic validation passes (the organism hard filter
+    // and the topic overlap filter, composed in
+    // programmaticValidationPasses) used to run only inside
+    // llmValidatePapers, on the set selection had already cut to
+    // maxEvidence. Papers those passes were always going to kill
+    // occupied evidence slots that validation then freed too late,
+    // while real papers ranked just below the cut never reached the
+    // passes at all: on the baby belly draw the on point infant gut
+    // papers (Bifidobacteria imprinting, Microbial shifts in early
+    // life, Human Microbiome and Child Growth) sat at ranks 13 to
+    // 25 while belly dance and prune belly held slots. The
+    // constraint verdicts above already run at this full shelf
+    // position; the two programmatic passes join them here. They
+    // are per paper predicates with no network calls and linear
+    // cost, so the whole ranked shelf is affordable (25 papers on
+    // that draw; the stage budget analysis is on the helper).
+    // Because the gate, the passes, and the cut are all
+    // order preserving filters over the same list, everything the
+    // old order shipped still ships: a paper that cleared both
+    // stages before can only move UP the list once the doomed
+    // papers above it are gone before the cut instead of after it.
+    // BOUNDARY: only the cheap programmatic stages move. The LLM
+    // validation pass stays exactly where it was, inside
+    // llmValidatePapers below, judging the selected evidence set;
+    // that stage still runs the programmatic passes first (a no op
+    // re run on this pre passed shelf), then its model leg. Name
+    // search stays exempt, mirroring the validation stage's own
+    // guard: authorship is the signal there, not topicality.
+    // Model proposed concept groups from the winning retrieval
+    // ride along here exactly as they do into the validation
+    // stage, so both applications judge papers against the same
+    // equivalences retrieval used. Rebuilt from the plain groups
+    // array on the diag (never a Map: _diag must stay JSON safe).
+    const _dynForValidation = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+      ? buildDynLookup(gResult._diag.llmExpanded)
+      : null;
+    if (!isNameSearch && papers.length > 0) {
+      papers = programmaticValidationPasses(query, papers, _dynForValidation);
+    }
+
     // The citation gate. Every paper that reaches the answer must clear
     // RELEVANCE_FLOOR (60) . below it a score is carried by passing keyword
     // mentions rather than topical study, and the real incident was an
@@ -15485,7 +15565,11 @@ async function runSearchPipeline(pctx) {
     }
     // Papers the gate withheld: reported in the answer envelope as
     // relevanceGatedOut so the UI can say so honestly ("3 more papers were
-    // too tangential to cite") instead of silently dropping them.
+    // too tangential to cite") instead of silently dropping them. The
+    // count is taken on the shelf as the gate sees it, which since the
+    // reorder above is the shelf after the programmatic passes: it is
+    // the gate's own drops only, so a paper the passes already removed
+    // is not counted here even if it would also have failed the floor.
     let relevanceGatedOut = (isNameSearch || isFollowupMode)
       ? 0
       : Math.max(0, papers.length - applyRelevanceGate(papers).length);
@@ -15527,14 +15611,9 @@ async function runSearchPipeline(pctx) {
       // the unvalidated list, health record. llmValidatePapers has a 4s
       // internal abort (sized for the small OR_VALIDATE model); this outer
       // backstop was 12s from the 550B era . now 6s.
-      // Model-proposed concept groups from the winning retrieval ride
-      // along into validation, so the topic-overlap filter inside
-      // judges papers against the same equivalences retrieval used.
-      // Rebuilt from the plain groups array on the diag (never a Map:
-      // _diag must stay JSON safe).
-      const _dynForValidation = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
-        ? buildDynLookup(gResult._diag.llmExpanded)
-        : null;
+      // _dynForValidation (the model proposed concept groups, as a
+      // lookup) is built once above, before the evidence cut, and
+      // shared by the pre cut programmatic passes and this stage.
       // Which leg answered validation (2026-10-13, mirroring
       // diag.llmExpandedVia for the expansion): "openrouter", "groq",
       // or null when both legs failed and the stage failed open. The

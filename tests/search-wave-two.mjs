@@ -54,6 +54,8 @@ const {
   isNonLiterature,
   analyzeQuery,
   verifyPaperConstraints,
+  programmaticValidationPasses,
+  applyRelevanceGate,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -474,8 +476,11 @@ await test("the existence rule survives word for word", () => {
 
 await test("the cache schema carries the wave two bump", () => {
   // Bumped to v22 by the citation collapse fix below (verdict and
-  // topic filter semantics changed, so cached shelves are stale).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v22"'), "CACHE_SCHEMA_VERSION must be v22");
+  // topic filter semantics changed, so cached shelves are stale),
+  // then to v23 by the reorder at the end of this file (the
+  // programmatic passes run before the evidence cut, so the
+  // shipped shelf changes for the same stored inputs).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v23"'), "CACHE_SCHEMA_VERSION must be v23");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -655,6 +660,212 @@ await test("single concept control: a fully matched constraint is partial, never
   assert.ok(v.matched.includes("crop rotation soil"), "the rotation constraint must fully match");
   assert.equal(v.verdict, "partial", `a fully matched constraint must not be off-topic, got ${v.verdict}`);
   assert.equal(ccVerdict(CC_GHRELIN(), q), "off-topic", "an unrelated paper stays off-topic for the control question");
+});
+
+group("reorder — the cheap validation passes run before the evidence cut");
+// The collapse fix above repaired the two judges' verdicts, but the
+// stage ORDER still wasted the cut: selection sliced the ranked
+// shelf to maxEvidence (12) first, and the programmatic validation
+// passes (organism hard filter, topic overlap filter) ran only
+// inside llmValidatePapers, on the cut set. Literal word papers
+// occupied evidence slots the passes then freed, and real papers
+// ranked 13 to 25 never reached the passes at all. The passes now
+// run through programmaticValidationPasses on the full ranked
+// shelf before the cut (the handler applies it to `papers` ahead
+// of applyRelevanceGate), and llmValidatePapers composes the same
+// helper, so the semantics are one implementation, not two. The
+// LLM pass did NOT move: it still judges the selected set inside
+// llmValidatePapers. Fixtures below compose the real stages in
+// both orders over a shelf shaped like the production draw.
+
+await test("the handler runs the programmatic passes on the shelf before the gate and cut", () => {
+  const applyIdx = src.indexOf("papers = programmaticValidationPasses(query, papers, _dynForValidation);");
+  assert.ok(applyIdx > 0, "the pre cut application is missing from the handler");
+  const gateIdx = src.indexOf("const gated = applyRelevanceGate(papers);");
+  assert.ok(gateIdx > applyIdx, "the passes must run before the selection gate");
+  assert.ok(
+    src.includes("let survivors = programmaticValidationPasses(rawQuery, papers, dynLookup);"),
+    "llmValidatePapers must compose the same helper, not a second implementation"
+  );
+  assert.ok(
+    src.includes("llmValidatePapers(query, evidencePapers,"),
+    "the LLM validation stage must still judge the selected evidence set"
+  );
+});
+
+await test("the shared helper carries both cheap passes and no model call", () => {
+  const start = src.indexOf("export function programmaticValidationPasses");
+  const end = src.indexOf("export async function llmValidatePapers");
+  assert.ok(start > 0 && end > start, "helper must sit directly above llmValidatePapers");
+  const body = src.slice(start, end);
+  assert.ok(body.includes("programmaticPaperFilter(rawQuery, papers)"), "PASS 1A missing from the helper");
+  assert.ok(body.includes("topicOverlapFilter(rawQuery, survivors, dynLookup)"), "PASS 1B missing from the helper");
+  assert.ok(!body.includes("fetch(") && !body.includes("defaultValidationCall"),
+    "the helper must stay programmatic: the LLM leg lives in llmValidatePapers only");
+});
+
+await test("the helper drops a contaminant organism paper (PASS 1A) and keeps the queried organism", () => {
+  const q = "Hermetia illucens gut microbiome";
+  const target = {
+    title: "Hermetia illucens gut microbiome across larval stages",
+    abstract: "The gut microbiome of Hermetia illucens larvae was profiled across stages. Intestinal bacteria shifted with diet.",
+    url: "https://example.com/reorder-hermetia",
+  };
+  const mealworm = {
+    title: "Mealworm gut microbiome under different rearing substrates",
+    abstract: "Tenebrio molitor larvae were reared on bran diets. The mealworm gut microbiome was profiled by sequencing.",
+    url: "https://example.com/reorder-mealworm",
+  };
+  const mealwormIn = { ...mealworm };
+  const out = programmaticValidationPasses(q, [{ ...target }, mealwormIn], null);
+  assert.deepEqual(out.map((p) => p.url), ["https://example.com/reorder-hermetia"],
+    "the contaminant must die in the organism pass, the queried organism must survive both passes");
+  assert.ok(String(mealwormIn._filteredReason || "").includes("mealworm"),
+    "the drop must be the organism pass's verdict");
+});
+
+await test("the helper keeps the never zero fallbacks llmValidatePapers always had", () => {
+  // PASS 1A empties the set (every paper a contaminant): the top 3
+  // of the input are restored before PASS 1B judges them.
+  const q = "Hermetia illucens gut microbiome";
+  const contaminants = ["Mealworm", "Cricket", "Tilapia", "Salmon"].map((name, i) => ({
+    title: `${name} gut microbiome survey`,
+    abstract: `The gut microbiome of the ${name.toLowerCase()} was profiled. Intestinal bacteria were catalogued across individuals.`,
+    url: `https://example.com/reorder-contam-${i}`,
+  }));
+  const restored = programmaticValidationPasses(q, contaminants.map((p) => ({ ...p })), null);
+  assert.equal(restored.length, 3, "an emptied organism pass must restore the top 3, not zero");
+  // PASS 1B would empty the set (no shared vocabulary at all): the
+  // topic filter's own fallback returns its input's top 3.
+  const noVocab = [CC_NO_VOCAB_PAPER(), CC_GHRELIN(), {
+    title: "Quantum dot synthesis in colloidal suspension",
+    abstract: "Quantum dots were synthesized in colloidal suspension and their optical spectra recorded across temperatures.",
+    url: "https://example.com/reorder-quantum",
+  }];
+  const floored = programmaticValidationPasses(CC_QUESTION, noVocab.map((p) => ({ ...p })), null);
+  assert.equal(floored.length, 3, "an emptied topic pass must floor at the top 3, not zero");
+});
+
+// The production draw's shape, rebuilt as fixtures: a ranked shelf
+// of 25 (the record's ranked count for the baby belly question).
+// The top 12 hold five literal word collisions that pass the
+// constraint verdict on the strength of the printed word and die
+// in the topic filter for touching one concept, alongside seven on
+// point papers. The three papers the diagnosis named sit at ranks
+// 13 to 15, in the field's own vocabulary. Every paper clears the
+// relevance floor and the constraint verdict, so the ONLY
+// discriminative stages are the cut and the programmatic passes.
+const DRAW_PAPER = (title, abstract, slug, relevance) => ({
+  title, abstract, relevance, url: `https://example.com/${slug}`,
+});
+const buildDrawShelf = () => [
+  { ...GUT_MICROBE_PAPER(), relevance: 96 },
+  { ...CC_BELLY_DANCE(), relevance: 95 },
+  { ...CC_STUNTING_PAPER(), relevance: 94 },
+  { ...CC_PRUNE_BELLY(), relevance: 93 },
+  { ...CC_CESAREAN_PAPER(), relevance: 92 },
+  DRAW_PAPER("World's smallest baby doing well",
+    "Doctors said the baby, born at 23 weeks, is doing well and gaining strength in intensive care.",
+    "draw-baby-only", 91),
+  DRAW_PAPER("Intestinal microbiota maturation and linear growth faltering in a twin cohort",
+    "Intestinal microbiota maturation was tracked in twin pairs. Delayed maturation of the gut microbiota tracked linear growth faltering across the second year.",
+    "draw-twin-cohort", 90),
+  DRAW_PAPER("Belly fat and insulin resistance in midlife adults",
+    "Visceral belly fat was measured by imaging in midlife adults. Abdominal adiposity predicted insulin resistance independent of body mass index.",
+    "draw-belly-fat", 89),
+  DRAW_PAPER("Gut microbiome development in preterm infants and postnatal weight gain",
+    "The gut microbiome of preterm infants was sampled weekly. Microbiome succession in the intestine predicted postnatal weight gain velocity.",
+    "draw-preterm-gut", 88),
+  DRAW_PAPER("Baby bottle tooth decay in toddlers: a parent survey",
+    "Parents reported baby bottle use at night in toddlers. Prolonged bottle feeding was associated with early childhood tooth decay.",
+    "draw-baby-bottle", 87),
+  DRAW_PAPER("Small intestinal bacterial overgrowth and nutrient absorption in stunted children",
+    "Small intestinal bacterial overgrowth was measured by breath testing in stunted children. Bacterial overgrowth in the intestine tracked poorer nutrient absorption.",
+    "draw-sibo-children", 86),
+  DRAW_PAPER("Maternal gut microbiota transfer and infant growth in a randomized trial",
+    "Maternal gut microbiota was characterized before delivery. Infants whose intestinal microbiota resembled the maternal profile showed steadier growth.",
+    "draw-maternal-transfer", 85),
+  DRAW_PAPER("Bifidobacteria imprinting of the infant gut in the first weeks of life",
+    "Bifidobacterium strains transmitted from mother to infant imprinted the intestinal microbiota. Early bifidobacteria dominance predicted steadier weight gain.",
+    "draw-bifido-imprinting", 84),
+  DRAW_PAPER("Microbial shifts in early life and later growth trajectories",
+    "Gut microbial communities shifted across the first year of life. Children whose microbiota stayed immature followed lower growth trajectories.",
+    "draw-microbial-shifts", 83),
+  DRAW_PAPER("The Human Microbiome and Child Growth: a birth cohort study",
+    "The human gut microbiome was profiled from birth in a large cohort. Microbiome maturity at six months predicted child growth and stunting at age two.",
+    "draw-human-microbiome-growth", 82),
+  DRAW_PAPER("Breast milk microbiota and infant intestinal colonization",
+    "Breast milk microbiota was sequenced alongside infant stool. Milk bacteria seeded the infant intestinal microbiota in the first month.",
+    "draw-breast-milk", 81),
+  DRAW_PAPER("Antibiotic exposure in infancy, gut microbiota disruption, and childhood weight",
+    "Antibiotic courses in infancy disrupted gut microbiota assembly. Disrupted intestinal communities were associated with higher childhood weight.",
+    "draw-antibiotics-infancy", 80),
+  DRAW_PAPER("Probiotic supplementation and growth in undernourished children",
+    "Children receiving probiotics were followed for a year. Shifts in the gut microbiota accompanied modest gains in height growth.",
+    "draw-probiotic-growth", 79),
+  DRAW_PAPER("Environmental enteropathy, intestinal bacteria, and linear growth",
+    "Environmental enteropathy was assessed by intestinal permeability testing. Intestinal bacteria profiles tracked linear growth shortfalls in toddlers.",
+    "draw-enteropathy", 78),
+  DRAW_PAPER("Delivery mode, gut microbiome assembly, and adiposity at age five",
+    "Delivery mode shaped gut microbiome assembly at birth. Intestinal microbiome composition at one year predicted adiposity at age five.",
+    "draw-delivery-adiposity", 77),
+  DRAW_PAPER("Fecal microbiota composition and catch up growth after malnutrition treatment",
+    "Fecal microbiota was profiled before and after malnutrition treatment. Intestinal microbiota maturity rose alongside catch up growth in recovering children.",
+    "draw-catch-up", 76),
+  DRAW_PAPER("Twin study of gut microbiota heritability and childhood growth",
+    "Gut microbiota similarity was compared between twin pairs. Intestinal microbiota composition explained part of the variation in childhood growth.",
+    "draw-twin-heritability", 75),
+  DRAW_PAPER("Zinc supplementation, intestinal microbiota, and diarrhea duration in infants",
+    "Infants receiving zinc had shorter diarrhea episodes. Intestinal microbiota profiles differed between supplemented and control infants.",
+    "draw-zinc-infants", 74),
+  DRAW_PAPER("Household sanitation, gut microbiome, and stunting in a cluster trial",
+    "Households received sanitation improvements in a cluster trial. Children's gut microbiome profiles shifted, while stunting rates changed little.",
+    "draw-sanitation-trial", 73),
+  DRAW_PAPER("Prebiotic oligosaccharides and infant gut microbiota maturation",
+    "Infants fed prebiotic oligosaccharides showed faster gut microbiota maturation. Intestinal bifidobacteria counts rose across the first months.",
+    "draw-prebiotic", 72),
+];
+const DRAW_NAMED = ["draw-bifido-imprinting", "draw-microbial-shifts", "draw-human-microbiome-growth"];
+const DRAW_COLLISIONS = ["cc-belly-dance", "cc-prune-belly", "draw-baby-only", "draw-belly-fat", "draw-baby-bottle"];
+const slugOf = (p) => p.url.split("/").pop();
+
+await test("the draw: papers ranked 13 to 25 reach the passes and the shipped shelf only grows", () => {
+  // The handler constraint verdict already runs at full shelf in
+  // both orders; it is composed first here exactly as the handler
+  // composes it. (The model leg is not composed: under the fleet
+  // caps it fails open, and its placement is pinned separately
+  // above. What the reorder governs is which papers the cut hands
+  // it.)
+  const handlerShelfOld = buildDrawShelf().filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  assert.equal(handlerShelfOld.length, 25, "the whole draw must clear the constraint verdict");
+  // OLD ORDER: gate, cut to 12, then the programmatic passes.
+  const oldEvidence = applyRelevanceGate(handlerShelfOld).slice(0, 12);
+  assert.equal(oldEvidence.length, 12, "the old cut fills all 12 evidence slots");
+  for (const slug of DRAW_NAMED) {
+    assert.ok(!oldEvidence.some((p) => slugOf(p) === slug),
+      `${slug} must be stranded below the old cut (that is the defect)`);
+  }
+  const shippedOld = programmaticValidationPasses(CC_QUESTION, oldEvidence.map((p) => ({ ...p })), null);
+  assert.equal(shippedOld.length, 7,
+    `the old order ships only the 7 on point papers the cut happened to hold, got ${shippedOld.length}`);
+  // NEW ORDER: the programmatic passes on the full shelf, then
+  // gate and cut.
+  const handlerShelfNew = buildDrawShelf().filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  const prePassed = programmaticValidationPasses(CC_QUESTION, handlerShelfNew, null);
+  const shippedNew = applyRelevanceGate(prePassed).slice(0, 12);
+  assert.equal(shippedNew.length, 12, "the new order ships a full evidence set");
+  for (const p of shippedOld) {
+    assert.ok(shippedNew.some((n) => n.url === p.url),
+      `nothing the old order shipped may be lost: ${slugOf(p)}`);
+  }
+  for (const slug of DRAW_NAMED) {
+    assert.ok(shippedNew.some((p) => slugOf(p) === slug),
+      `${slug} sat at ranks 13 to 15 and must now ship`);
+  }
+  for (const slug of DRAW_COLLISIONS) {
+    assert.ok(!shippedNew.some((p) => slugOf(p) === slug),
+      `the collision ${slug} must still die before the cut, exactly as the wave two fixtures pin`);
+  }
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
