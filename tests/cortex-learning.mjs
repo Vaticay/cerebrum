@@ -56,6 +56,9 @@ const WANTED = [
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
   "MASTERY_MIN_PCT", "isLessonMastered", "orderScore", "parseRichText",
   "TOUR_STEPS", "focusTrapStep",
+  "CORTEX_EXPORT_FORMAT", "CORTEX_EXPORT_VERSION",
+  "cortexIsPlainObject", "cortexEmptyProfile", "cortexEmptyBuiltinProgress", "cortexImportFailure",
+  "buildCortexExport", "parseCortexImport",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -84,6 +87,7 @@ const {
   pathProgress, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
   MASTERY_MIN_PCT, isLessonMastered, orderScore, parseRichText, TOUR_STEPS,
   focusTrapStep,
+  CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -651,6 +655,96 @@ await test("raw numeric fontSize literals stay at the named one offs", () => {
   // or two from screen to screen.
   const raw = learnSrc.match(/fontSize: \d+(\.\d+)?/g) || [];
   assert.ok(raw.length <= 3, `expected at most 3 raw fontSize literals, found ${raw.length}: ${raw.join(", ")}`);
+});
+
+group("Progress export and import: the record can leave this browser as a file");
+
+const cortexFixtureState = {
+  courses: [{ id: "course-1", title: "Sleep science", lessons: [{ id: "l1", cards: [] }], doneLessons: ["l1"], xpEarned: 40 }],
+  claims: { "claim-1": { id: "claim-1", reps: 3, lapses: 0, stability: 2.4, last: 1760000000000, due: 1760200000000, card: { kind: "quiz", question: "Q?" } } },
+  profile: { xp: 120, days: ["2026-10-11", "2026-10-12", "2026-10-13"], bridged: [], freezes: 1, freezeMilestone: 0, streak: 3 },
+  builtinProgress: { lessons: { "sci-questions": { done: true, bestPct: 100 } }, lastPathId: "how-science-works", lastLessonId: "sci-questions" },
+  sound: true,
+};
+
+// The helpers run in a bare VM, so their objects carry that realm's
+// prototypes; compare structure through JSON, the same shape the
+// export file itself takes.
+const asJSON = (v) => JSON.parse(JSON.stringify(v));
+
+await test("export carries every stored section under a format marker and version", () => {
+  const doc = buildCortexExport(cortexFixtureState, new Date("2026-10-13T12:00:00.000Z"));
+  assert.equal(doc.format, CORTEX_EXPORT_FORMAT);
+  assert.equal(doc.version, CORTEX_EXPORT_VERSION);
+  assert.equal(doc.exportedAt, "2026-10-13T12:00:00.000Z");
+  assert.deepEqual(asJSON(doc.courses), cortexFixtureState.courses);
+  assert.deepEqual(asJSON(doc.claims), cortexFixtureState.claims);
+  assert.deepEqual(asJSON(doc.profile), cortexFixtureState.profile);
+  assert.deepEqual(asJSON(doc.builtinProgress), cortexFixtureState.builtinProgress);
+  assert.equal(doc.sound, true);
+});
+
+await test("export round trips through the parser back to the same progress", () => {
+  const doc = buildCortexExport(cortexFixtureState, new Date("2026-10-13T12:00:00.000Z"));
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, true, parsed.error || "parser refused its own export");
+  assert.deepEqual(asJSON(parsed.state), cortexFixtureState);
+});
+
+await test("export of an empty browser still parses, with default sections", () => {
+  const parsed = parseCortexImport(JSON.stringify(buildCortexExport({}, new Date())));
+  assert.equal(parsed.ok, true, parsed.error || "empty export refused");
+  assert.deepEqual(asJSON(parsed.state.courses), []);
+  assert.deepEqual(asJSON(parsed.state.claims), {});
+  assert.equal(parsed.state.profile.xp, 0);
+  assert.deepEqual(asJSON(parsed.state.builtinProgress.lessons), {});
+});
+
+await test("parser rejects foreign JSON with no partial state", () => {
+  for (const foreign of [JSON.stringify({ hello: "world" }), JSON.stringify([1, 2, 3]), JSON.stringify("just a string"), "null"]) {
+    const parsed = parseCortexImport(foreign);
+    assert.equal(parsed.ok, false, `foreign file accepted: ${foreign}`);
+    assert.equal(parsed.state, undefined, "a rejected file handed back partial state");
+    assert.ok(parsed.error && parsed.error.length > 0, "rejection carries no plain reason");
+  }
+});
+
+await test("parser rejects a file from a newer Cortex instead of guessing", () => {
+  const doc = buildCortexExport(cortexFixtureState, new Date());
+  doc.version = CORTEX_EXPORT_VERSION + 1;
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.state, undefined);
+  assert.ok(parsed.error.includes("newer version"), `reason does not name the problem: ${parsed.error}`);
+});
+
+await test("parser rejects a truncated file", () => {
+  const text = JSON.stringify(buildCortexExport(cortexFixtureState, new Date()));
+  const parsed = parseCortexImport(text.slice(0, Math.floor(text.length / 2)));
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.state, undefined);
+});
+
+await test("parser rejects a section with the wrong shape", () => {
+  const doc = buildCortexExport(cortexFixtureState, new Date());
+  doc.courses = { not: "an array" };
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.state, undefined);
+  const doc2 = buildCortexExport(cortexFixtureState, new Date());
+  doc2.builtinProgress = { lessons: [1, 2, 3] };
+  assert.equal(parseCortexImport(JSON.stringify(doc2)).ok, false);
+});
+
+await test("export and import controls render in the home progress surface", () => {
+  assert.ok(learnSrc.includes("Export progress"), "no export control on the Cortex home");
+  assert.ok(learnSrc.includes("Import progress"), "no import control on the Cortex home");
+  assert.ok(learnSrc.includes("buildCortexExport({ courses, claims, profile, builtinProgress, sound: soundOn }"), "export button does not build from the live state");
+  assert.ok(learnSrc.includes("parseCortexImport(String(reader.result"), "import does not validate through the parser");
+  assert.ok(learnSrc.includes('accept=".json"'), "import file input does not limit itself to json files");
+  assert.ok(learnSrc.includes("Replace the Cortex progress in this browser"), "import replaces without asking first");
+  assert.ok(learnSrc.includes("not a cloud copy"), "the copy does not say plainly that the export is a kept file");
+  assert.ok(learnSrc.includes('a.download = "cerebrum-cortex-progress-" + todayKey() + ".json"'), "export file is not named with the date");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

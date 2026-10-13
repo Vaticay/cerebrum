@@ -61,6 +61,87 @@ function loadProfile() {
 }
 function saveProfile(p) { saveJSON(PROFILE_KEY, p); }
 
+/* ── progress export and import ────────────────────────────────────
+   Progress lives only in this browser's local storage, so clearing
+   the browser erases the whole learning record. The escape hatch is
+   a file the learner keeps: one JSON document carrying every Cortex
+   key, with a format marker and a version, so an import can refuse
+   files it cannot read instead of guessing at them. This is a
+   backup file the learner holds, not cloud sync, and the words on
+   screen say exactly that. The builder and the parser are pure so
+   the round trip can be pinned without a DOM. */
+export const CORTEX_EXPORT_FORMAT = "cerebrum-cortex-progress";
+export const CORTEX_EXPORT_VERSION = 1;
+
+function cortexIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+function cortexEmptyProfile() { return { xp: 0, days: [], bridged: [], freezes: 2, freezeMilestone: 0 }; }
+function cortexEmptyBuiltinProgress() { return { lessons: {}, lastPathId: "", lastLessonId: "" }; }
+function cortexImportFailure(error) { return { ok: false, error }; }
+
+export function buildCortexExport(state, now = new Date()) {
+  const s = cortexIsPlainObject(state) ? state : {};
+  const when = now instanceof Date ? now : new Date(now);
+  return {
+    format: CORTEX_EXPORT_FORMAT,
+    version: CORTEX_EXPORT_VERSION,
+    exportedAt: when.toISOString(),
+    courses: Array.isArray(s.courses) ? s.courses : [],
+    claims: cortexIsPlainObject(s.claims) ? s.claims : {},
+    profile: cortexIsPlainObject(s.profile) ? s.profile : cortexEmptyProfile(),
+    builtinProgress: cortexIsPlainObject(s.builtinProgress) && cortexIsPlainObject(s.builtinProgress.lessons)
+      ? s.builtinProgress : cortexEmptyBuiltinProgress(),
+    sound: typeof s.sound === "boolean" ? s.sound : false,
+  };
+}
+
+/* Validate a whole export file before anything is restored. Any
+   problem returns a failure with plain words and no partial state,
+   so a malformed or foreign file provably changes nothing. A file
+   from a newer Cortex is refused rather than guessed at. */
+export function parseCortexImport(text) {
+  let data;
+  try { data = JSON.parse(String(text == null ? "" : text)); }
+  catch { return cortexImportFailure("That file could not be read. It is not valid JSON."); }
+  if (!cortexIsPlainObject(data) || data.format !== CORTEX_EXPORT_FORMAT) {
+    return cortexImportFailure("That file is not a Cortex progress file. Nothing was imported.");
+  }
+  if (typeof data.version !== "number" || data.version < 1) {
+    return cortexImportFailure("That Cortex progress file has no readable version. Nothing was imported.");
+  }
+  if (data.version > CORTEX_EXPORT_VERSION) {
+    return cortexImportFailure("That file was made by a newer version of Cortex. Update Cerebrum, then import it again.");
+  }
+  if (!Array.isArray(data.courses)) {
+    return cortexImportFailure("That file is missing its courses section. Nothing was imported.");
+  }
+  if (!cortexIsPlainObject(data.claims)) {
+    return cortexImportFailure("That file is missing its review claims section. Nothing was imported.");
+  }
+  if (!cortexIsPlainObject(data.profile)) {
+    return cortexImportFailure("That file is missing its profile section. Nothing was imported.");
+  }
+  if ((data.profile.xp != null && typeof data.profile.xp !== "number")
+    || (data.profile.days != null && !Array.isArray(data.profile.days))) {
+    return cortexImportFailure("That file's profile section is not shaped like a Cortex profile. Nothing was imported.");
+  }
+  if (!cortexIsPlainObject(data.builtinProgress) || !cortexIsPlainObject(data.builtinProgress.lessons)) {
+    return cortexImportFailure("That file is missing its path progress section. Nothing was imported.");
+  }
+  if (data.sound != null && typeof data.sound !== "boolean") {
+    return cortexImportFailure("That file's sound setting is not readable. Nothing was imported.");
+  }
+  return {
+    ok: true,
+    state: {
+      courses: data.courses,
+      claims: data.claims,
+      profile: data.profile,
+      builtinProgress: data.builtinProgress,
+      sound: data.sound === true,
+    },
+  };
+}
+
 function todayKey(d = new Date()) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
@@ -3108,10 +3189,55 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [ownerMsg, setOwnerMsg] = useState("");
   const [studio, setStudio] = useState({ title: "", category: "Mind and Brain", query: "", blurb: "" });
   const [studioMsg, setStudioMsg] = useState("");
+  const [progressMsg, setProgressMsg] = useState("");
 
   const refresh = () => {
     setCourses(loadLearnCourses());
     setClaims(loadClaims());
+  };
+
+  /* Progress export and import. The learning record lives in this
+     browser only, so it can leave as a file the learner keeps and
+     come back the same way. Import parses and validates the whole
+     file first, then asks before replacing anything, the same
+     window.confirm pattern the Settings workspace import uses.
+     Applying an import reruns the same loaders a fresh visit runs,
+     so the imported progress shows with no reload. */
+  const exportProgress = () => {
+    const doc = buildCortexExport({ courses, claims, profile, builtinProgress, sound: soundOn }, new Date());
+    const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "cerebrum-cortex-progress-" + todayKey() + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setProgressMsg("Saved. The file holds your paths, courses, review claims, streak, and sound setting.");
+  };
+
+  const importProgressFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseCortexImport(String(reader.result || ""));
+      if (!parsed.ok) { setProgressMsg(parsed.error); return; }
+      if (!window.confirm("Replace the Cortex progress in this browser with the progress in this file? This can't be undone.")) return;
+      const s = parsed.state;
+      saveJSON(COURSES_KEY, s.courses);
+      saveClaims(s.claims);
+      saveProfile(s.profile);
+      saveBuiltinProgress(s.builtinProgress);
+      saveJSON(SOUND_KEY, s.sound);
+      setCourses(loadLearnCourses());
+      setClaims(loadClaims());
+      setProfile(touchStreak(loadProfile()));
+      setBuiltinProgress(loadBuiltinProgress());
+      setSoundOn(s.sound);
+      setProgressMsg("Imported. Your progress from the file is showing now.");
+    };
+    reader.readAsText(file);
   };
   useEffect(() => {
     refresh();
@@ -3378,6 +3504,31 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         {pill(null, profile ? profile.xp : 0, "XP")}
         {pill(null, due.length, "due for review")}
         {pill(null, courses.length, "courses")}
+      </div>
+
+      {/* progress backup: the record lives in this browser only, so
+          it can leave as a file the learner keeps, and return as one */}
+      <div style={{ margin: "0 0 26px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: FONT_SIZES.label, color: P.muted }}>
+            Your progress is stored in this browser only.
+          </span>
+          <button onClick={exportProgress}
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+            Export progress
+          </button>
+          <label
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
+            Import progress
+            <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importProgressFile(f); }} />
+          </label>
+        </div>
+        <p style={{ fontSize: FONT_SIZES.label, color: P.muted, lineHeight: 1.5, margin: "8px 0 0", maxWidth: 520 }}>
+          Export saves a file you keep, not a cloud copy. Import replaces the progress in this browser with the file you pick.
+        </p>
+        {progressMsg && (
+          <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "8px 0 0" }}>{progressMsg}</p>
+        )}
       </div>
 
       {/* continue hero: last built in lesson, else an unfinished
