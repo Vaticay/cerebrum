@@ -1613,7 +1613,11 @@ export function validateExpansionGroups(raw, query) {
     /^[a-z][a-z\s-]*$/.test(s) && /[a-z]/.test(s) && !/^-|-$/.test(s);
   const inQuery = (term) => {
     const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    return new RegExp("(^|[^a-z])" + esc + "([^a-z]|$)").test(q);
+    // The optional trailing s tolerates a plain plural only: the
+    // model proposes "whole gut preparation" while the question says
+    // "preparations" (2026-10-13). A longer continuation still fails,
+    // so substring terms ("zorblax" inside "zorblaxin") stay rejected.
+    return new RegExp("(^|[^a-z])" + esc + "s?([^a-z]|$)").test(q);
   };
 
   const out = [];
@@ -2306,18 +2310,45 @@ export function buildStructuredQuery(query, dynLookup) {
     .filter((t) => t.length > 2 && !STOPWORDS.has(t));
   if (!qTerms.length) return query;
 
+  // 2026-10-13: model-proposed PHRASE groups were structurally invisible
+  // here. dynLookup keys can be multi-word ("whole gut preparations"),
+  // but qTerms is single words and conceptSetFor below is only ever
+  // called with one word, so no anchor could ever match a phrase key and
+  // the group never became a rung. Live probe: "Has anyone assayed
+  // digestive enzymes in whole gut preparations from insects without
+  // isolating the enzymes?" carried a validated group for the
+  // preparation phrase (alternates include "whole intestinal
+  // homogenate"), yet the shipped boolean query had no preparation
+  // group at all and the run ended at 0 cited. Mirror the phrase scan
+  // topicOverlapFilter already does for the same lookup: a multi-word
+  // dynLookup key that literally appears in the question becomes an
+  // anchor itself, ahead of the word anchors, and its component words
+  // stop competing for anchor slots (the phrase group replaces them,
+  // so the total stays inside the two-to-four group budget below).
+  const qLower = query.toLowerCase();
+  const phraseAnchors = [];
+  if (dynLookup) {
+    for (const key of dynLookup.keys()) {
+      if (key.indexOf(" ") !== -1 && qLower.includes(key)) phraseAnchors.push(key);
+    }
+  }
+  const coveredWords = new Set(phraseAnchors.flatMap((p) => p.split(" ")));
+
   const ranked = qTerms
     .map((t) => ({ t, spec: termSpecificity(t) }))
     .sort((a, b) => b.spec - a.spec);
   // Two to four anchors. More than four AND-ed groups over-constrains again.
   const anchors = ranked.filter((x) => x.spec >= 0.5).slice(0, 4).map((x) => x.t);
-  if (anchors.length < 2) {
+  if (!phraseAnchors.length && anchors.length < 2) {
     // Not enough specific terms to build groups . OR the best few so we still
     // get recall rather than an over-narrow AND.
     return ranked.slice(0, 4).map((x) => x.t).join(" OR ");
   }
 
-  const groups = anchors.map((t) => {
+  const tokenAnchors = anchors
+    .filter((t) => !coveredWords.has(t))
+    .slice(0, Math.max(0, 4 - phraseAnchors.length));
+  const groups = [...phraseAnchors, ...tokenAnchors].map((t) => {
     const set = conceptSetFor(t, dynLookup);
     if (!set) return t;
     // Cap expansion so the request URL stays reasonable, and keep the original
@@ -10445,6 +10476,27 @@ async function gatherPapers(rawQuery, opts) {
           const q = organismTerm
             ? organismTerm.replace(/"/g, "") + " " + alt + " " + topicTermsForExpansion.filter((t) => t !== term).join(" ")
             : alt + " " + topicTermsForExpansion.filter((t) => t !== term).join(" ");
+          expandedQueries.add(q.trim());
+        }
+      }
+    }
+
+    // Phrase groups (2026-10-13): a validated group keyed by a multi
+    // word phrase in the question ("whole gut preparations") is
+    // invisible to the per token loop above, the same blind spot
+    // buildStructuredQuery closed for the boolean engines. Give each
+    // phrase alternate a query with the lead topic terms so this
+    // fallback can reach the phrase literature too.
+    if (dynLookup && dynLookup.size) {
+      const ql = " " + String(rawQuery || "").toLowerCase() + " ";
+      for (const key of dynLookup.keys()) {
+        if (!key.includes(" ")) continue;
+        if (!ql.includes(" " + key + " ") && !ql.includes(" " + key + "s ")) continue;
+        const others = topicTermsForExpansion.slice(0, 2).join(" ");
+        for (const alt of [...dynLookup.get(key)].slice(0, 3)) {
+          const q = organismTerm
+            ? organismTerm.replace(/"/g, "") + " " + alt + " " + others
+            : alt + " " + others;
           expandedQueries.add(q.trim());
         }
       }

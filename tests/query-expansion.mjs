@@ -182,6 +182,50 @@ await test("without a dynLookup the same term stays bare", () => {
   assert.ok(!out.includes("zorb extract"), `unexpected expansion in: ${out}`);
 });
 
+// Live probe regression (2026-10-13, build d929b1f): the model proposed
+// exactly the right group for this question, but the shipped Boolean
+// query had no preparation rung at all — dynLookup keys are phrases,
+// buildStructuredQuery's anchors are single words, and no word anchor
+// can ever look a phrase key up. The production run reaches the
+// natural-language branch with the resolver-normalized (lowercase)
+// question, so the pins exercise that branch with the lowercase form.
+const PROBE_Q = "Has anyone assayed digestive enzymes in whole gut preparations from insects without isolating the enzymes?";
+const PROBE_GROUPS = [
+  { term: "whole gut preparations", alternates: ["entire gut extract", "whole intestinal homogenate", "full gut preparation"] },
+];
+
+await test("a validated multi word phrase group becomes a rung of the shipped query", () => {
+  const validated = validateExpansionGroups(PROBE_GROUPS, PROBE_Q);
+  assert.equal(validated.length, 1, "probe group should survive the validator");
+  const out = buildStructuredQuery(PROBE_Q.toLowerCase(), buildDynLookup(validated));
+  assert.ok(
+    out.includes('("whole gut preparations" OR "entire gut extract" OR "whole intestinal homogenate" OR "full gut preparation")'),
+    `preparation group missing from shipped query: ${out}`
+  );
+  assert.ok(out.includes("homogenate"), `homogenate wording missing from: ${out}`);
+});
+
+await test("the phrase group replaces its component word anchors inside the group budget", () => {
+  const out = buildStructuredQuery(PROBE_Q.toLowerCase(), buildDynLookup(PROBE_GROUPS));
+  const rungs = out.split(" AND ");
+  assert.equal(rungs.length, 4, `expected 4 AND groups, got ${rungs.length}: ${out}`);
+  assert.ok(rungs[0].includes("whole gut preparations"), `phrase group should lead: ${out}`);
+});
+
+await test("without a dynLookup the probe query carries no homogenate wording", () => {
+  const out = buildStructuredQuery(PROBE_Q.toLowerCase());
+  assert.ok(!out.includes("homogenate"), `unexpected expansion in: ${out}`);
+});
+
+await test("a phrase group whose phrase is absent from the question changes nothing", () => {
+  const dyn = buildDynLookup([
+    { term: "thylakoid membrane stacking", alternates: ["grana stack", "thylakoid pile"] },
+  ]);
+  const withDyn = buildStructuredQuery(PROBE_Q.toLowerCase(), dyn);
+  const without = buildStructuredQuery(PROBE_Q.toLowerCase());
+  assert.equal(withDyn, without);
+});
+
 // ═══════════════════════════════════════════════════════════════════
 group("topicOverlapFilter — alternate wording satisfies a core term");
 
