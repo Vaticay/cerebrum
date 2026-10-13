@@ -7508,6 +7508,246 @@ export function buildCoverageNote(sourcesQueried) {
     "; this answer was built from the " + (total - failed.length) + " that did.";
 }
 
+// ── Search record + coverage disclosure (trust release, 2026-10-13) ─
+// No AI literature tool ships a stable, exportable, re runnable record
+// of a search, and the published critiques of every major tool fault
+// exactly this: results that cannot be reproduced and summaries whose
+// coverage the reader cannot judge. Cerebrum already computes nearly
+// everything needed (diag.sourceOutcomes, diag.funnel, the frozen
+// source list, the synthesis model), so these two pure builders simply
+// productize it. Both are JSON safe, never throw, and invent nothing:
+// a field the run did not produce comes back null, never a guess.
+
+/* A year counts only as a plausible four digit year: an integer from
+ * 1000 to 9999. Strings are parsed the way the rest of this file parses
+ * years (parseInt), so "2021" counts and "n/a", 999, 12000 and null do
+ * not. Shared by the record and the coverage disclosure so the two can
+ * never disagree about what a year is. */
+function plausibleRecordYear(v) {
+  const n = typeof v === "number" ? v : parseInt(String(v == null ? "" : v), 10);
+  if (!Number.isInteger(n) || n < 1000 || n > 9999) return null;
+  return n;
+}
+
+/* The DOI for a source entry, from its own doi field or parsed out of
+ * a doi.org URL, validated the same way paperDedupeKeys validates DOIs.
+ * Returns null when the entry carries no real DOI. */
+function recordDoiOf(entry) {
+  const fromField = String((entry && (entry.doi || entry.DOI)) || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim()
+    .replace(/[.,;:!?)\\]]+$/, "");
+  if (/^10\.\d{4,9}\//.test(fromField)) return fromField;
+  const m = String((entry && entry.url) || "").match(/doi\.org\/(.+)$/i);
+  if (m && m[1]) {
+    const fromUrl = m[1].replace(/\/+$/, "").trim().replace(/[.,;:!?)\\]]+$/, "");
+    if (/^10\.\d{4,9}\//i.test(fromUrl)) return fromUrl;
+  }
+  return null;
+}
+
+/* Per source cited flags, in list order. An explicit `cited` boolean
+ * wins, then the `uncited` flag labelUncitedSources stamps, then the
+ * answer's own citation markers (same rule as labelUncitedSources,
+ * including ignoring the "Related papers found" append). With none of
+ * those signals the entry is part of the evidence list the answer was
+ * built from, so it counts as cited. */
+function recordCitedFlags(sources, answer) {
+  const list = Array.isArray(sources) ? sources : [];
+  let citedSet = null;
+  if (typeof answer === "string" && answer) {
+    citedSet = new Set();
+    let text = answer;
+    const relIdx = text.indexOf("Related papers found");
+    if (relIdx >= 0) text = text.slice(0, relIdx);
+    const re = /\[(\d+)\]/g;
+    let m;
+    while ((m = re.exec(text)) !== null) citedSet.add(Number(m[1]));
+  }
+  return list.map((s, i) => {
+    if (s && typeof s.cited === "boolean") return s.cited;
+    if (s && typeof s.uncited === "boolean") return !s.uncited;
+    if (citedSet) return citedSet.has(i + 1);
+    return true;
+  });
+}
+
+/* Normalize the per database outcome list to {source, ok, count}.
+ * Accepts diag.sourceOutcomes and the public sourcesQueried shape,
+ * which are the same fields under both names. Null when there is no
+ * outcome list at all (the author search path records none). */
+function recordDatabasesOf(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out = [];
+  for (const o of raw) {
+    if (!o || typeof o !== "object") continue;
+    const source = String(o.source || "").trim();
+    if (!source) continue;
+    const count = Number(o.count);
+    out.push({ source, ok: !!o.ok, count: Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0 });
+  }
+  return out.length ? out : null;
+}
+
+/* Normalize a funnel to the public _funnel shape. Accepts the public
+ * shape directly (excludedWeak present) or the internal diag.funnel
+ * shape (gathered, deduped, ranked, nonEnglishInner), converting the
+ * way the response assembly converts it. Null when no funnel with a
+ * numeric gathered count exists, which is how "retrieval never ran"
+ * is recognized. */
+function recordFunnelOf(raw, diag, sourceCount) {
+  let f = raw && typeof raw === "object" ? raw : null;
+  if (!f && diag && diag.funnel && typeof diag.funnel === "object") f = diag.funnel;
+  if (!f || typeof f.gathered !== "number" || !Number.isFinite(f.gathered)) return null;
+  const n = (v) => Math.max(0, Math.floor(Number(v) || 0));
+  const gathered = n(f.gathered);
+  const deduped = Math.min(n(f.deduped), gathered);
+  const excludedWeak = typeof f.excludedWeak === "number"
+    ? n(f.excludedWeak)
+    : Math.max(0, deduped - Math.min(n(f.ranked != null ? f.ranked : deduped), gathered));
+  const excludedNonEnglish = typeof f.excludedNonEnglish === "number"
+    ? n(f.excludedNonEnglish)
+    : n(f.nonEnglishInner);
+  const cited = typeof f.cited === "number" ? n(f.cited) : n(sourceCount);
+  return { gathered, deduped, excludedWeak, excludedNonEnglish, excludedRetracted: n(f.excludedRetracted), cited };
+}
+
+/* The resolution both builders share: pull diag, funnel and databases
+ * out of an input that may carry them under any of their live names. */
+function recordPartsOf(input) {
+  const diag = input.diag && typeof input.diag === "object" ? input.diag
+    : input._diag && typeof input._diag === "object" ? input._diag : null;
+  const sources = Array.isArray(input.sources) ? input.sources : null;
+  const funnel = recordFunnelOf(input.funnel || input._funnel || null, diag, sources ? sources.length : 0);
+  const databases = recordDatabasesOf(
+    input.databases || input.sourcesQueried || (diag && diag.sourceOutcomes) || null
+  );
+  return { diag, sources, funnel, databases };
+}
+
+/* buildSearchRecord(input): the exportable, re runnable record of one
+ * search, assembled from data the handler already has at response
+ * assembly time. Input fields (all optional, read defensively):
+ *   question         the question as asked
+ *   askedAt          Date, epoch ms, or ISO string (defaults to now)
+ *   structuredQuery  the boolean query string, if one was built
+ *   conceptQueries   the concept expanded queries (or diag.conceptExpanded)
+ *   llmExpansion     model proposed groups (or diag.llmExpanded)
+ *   databases        outcome list (or diag.sourceOutcomes)
+ *   funnel           the public _funnel object (or diag.funnel)
+ *   synthesisModel   the model that wrote the answer (or modelUsed)
+ *   sources          the frozen final source list
+ *   answer           the final answer text (derives cited flags)
+ *   diag             gResult._diag, read for anything not passed directly
+ * Returns null when retrieval never ran: no funnel and no database
+ * outcomes means there is no search to record. No abstracts, no answer
+ * text: the record stays small enough to paste into a methods section. */
+export function buildSearchRecord(input) {
+  try {
+    if (!input || typeof input !== "object") return null;
+    const { diag, sources, funnel, databases } = recordPartsOf(input);
+    if (!funnel && !databases) return null;
+
+    let askedAt;
+    const rawWhen = input.askedAt;
+    if (rawWhen instanceof Date && !Number.isNaN(rawWhen.getTime())) askedAt = rawWhen.toISOString();
+    else if (typeof rawWhen === "number" && Number.isFinite(rawWhen)) askedAt = new Date(rawWhen).toISOString();
+    else if (typeof rawWhen === "string" && rawWhen && !Number.isNaN(Date.parse(rawWhen))) askedAt = new Date(rawWhen).toISOString();
+    else askedAt = new Date().toISOString();
+
+    const structuredRaw = input.structuredQuery != null ? input.structuredQuery
+      : diag ? (diag.structuredQuery != null ? diag.structuredQuery : diag.booleanQuery) : null;
+    const structuredQuery = typeof structuredRaw === "string" && structuredRaw.trim() ? structuredRaw : null;
+
+    const conceptRaw = input.conceptQueries != null ? input.conceptQueries
+      : diag ? diag.conceptExpanded : null;
+    const conceptQueries = Array.isArray(conceptRaw)
+      ? conceptRaw.map((q) => String(q == null ? "" : q)).filter(Boolean)
+      : null;
+
+    const llmRaw = input.llmExpansion != null ? input.llmExpansion
+      : diag ? diag.llmExpanded : null;
+    let llmExpansion = null;
+    if (Array.isArray(llmRaw) && llmRaw.length > 0) {
+      const groups = [];
+      for (const g of llmRaw) {
+        if (!g || typeof g !== "object" || typeof g.term !== "string") continue;
+        const alternates = Array.isArray(g.alternates)
+          ? g.alternates.map((a) => String(a == null ? "" : a)).filter(Boolean)
+          : [];
+        groups.push({ term: g.term, alternates });
+      }
+      llmExpansion = groups.length ? groups : null;
+    }
+
+    const modelRaw = input.synthesisModel != null ? input.synthesisModel : input.modelUsed;
+    const synthesisModel = typeof modelRaw === "string" && modelRaw ? modelRaw : null;
+
+    const flags = recordCitedFlags(sources || [], input.answer);
+    const recordSources = (sources || []).map((s, i) => {
+      const entry = s && typeof s === "object" ? s : {};
+      const title = String(entry.title || "").trim() || "Untitled";
+      const url = typeof entry.url === "string" && entry.url ? entry.url : null;
+      return {
+        n: i + 1,
+        title,
+        year: plausibleRecordYear(entry.year),
+        doi: recordDoiOf(entry),
+        url,
+        cited: flags[i],
+      };
+    });
+
+    return {
+      version: 1,
+      askedAt,
+      question: String(input.question != null ? input.question : input.query != null ? input.query : "").trim().slice(0, 1000),
+      structuredQuery,
+      conceptQueries,
+      llmExpansion,
+      databases,
+      funnel,
+      synthesisModel,
+      sources: recordSources,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* buildCoverage(input): the per answer coverage disclosure, computed
+ * from the same data as the record. Same input shape as
+ * buildSearchRecord. Counts that the run did not produce are null, so
+ * the client can render only numbers that exist. Returns null when
+ * there is nothing to disclose (no funnel, no sources, no database
+ * outcomes). */
+export function buildCoverage(input) {
+  try {
+    if (!input || typeof input !== "object") return null;
+    const { sources, funnel, databases } = recordPartsOf(input);
+    if (!funnel && !sources && !databases) return null;
+    const flags = recordCitedFlags(sources || [], input.answer);
+    let cited = 0;
+    let furtherReading = 0;
+    for (const f of flags) { if (f) cited++; else furtherReading++; }
+    if (!sources && funnel) cited = funnel.cited;
+    const years = (sources || [])
+      .map((s) => plausibleRecordYear(s && s.year))
+      .filter((y) => y !== null);
+    return {
+      gathered: funnel ? funnel.gathered : null,
+      deduped: funnel ? funnel.deduped : null,
+      cited,
+      furtherReading,
+      databasesAnswered: databases ? databases.filter((d) => d.ok).length : null,
+      databasesTotal: databases ? databases.length : null,
+      earliestYear: years.length ? Math.min(...years) : null,
+      latestYear: years.length ? Math.max(...years) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── Retrieval strategy record (for the no-results "what was tried") ─
 // Names the strategies that actually ran, from the retrieval diag .
 // never a fixed list, never a guess.
@@ -10000,6 +10240,11 @@ async function gatherPapers(rawQuery, opts) {
   _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
+  // The boolean query this run actually searches with, recorded so the
+  // exportable search record (buildSearchRecord) can carry the exact
+  // string a reader would re run. Recorded, not recomputed later: the
+  // dynLookup that shaped it is request scoped and gone by assembly.
+  diag.structuredQuery = booleanQuery;
   if (dynGroups.length > 0) {
     diag.llmExpanded = dynGroups;
     diag.llmExpandedVia = dynGroups.via || null;
@@ -16186,12 +16431,54 @@ async function runSearchPipeline(pctx) {
       }
     } catch (cbErr) { console.error("[Cerebrum] learning loop threw:", cbErr); }
 
+    /* TRUST RELEASE (2026-10-13): the exportable search record and the
+     * per answer coverage disclosure, computed once here from the same
+     * frozen data the response below ships. labeledSources is the exact
+     * list the response carries (labelUncitedSources is pure, so hoisting
+     * the call changes nothing but lets the record read the same cited
+     * flags the reader sees), and publicFunnel is the exact object the
+     * _funnel field ships, computed by the same code that used to run
+     * inline in the literal. Response only additions: retrieval,
+     * scoring and synthesis above are untouched. */
+    const labeledSources = labelUncitedSources(sourceList, answer);
+    const publicFunnel = (() => {
+      const f = gResult && gResult._diag && gResult._diag.funnel;
+      if (!f || typeof f.gathered !== "number") return null;
+      const n = (v) => Math.max(0, Math.floor(Number(v) || 0));
+      const gathered = n(f.gathered);
+      const deduped = Math.min(n(f.deduped), gathered);
+      const ranked = Math.min(n(f.ranked), gathered);
+      return {
+        gathered,
+        deduped,
+        excludedWeak: Math.max(0, deduped - ranked),
+        excludedNonEnglish: n(f.nonEnglishInner) + n(excludedNonEnglishOuter),
+        excludedRetracted: 0,
+        cited: n(sourceList ? sourceList.length : 0),
+      };
+    })();
+    const coverageDisclosure = buildCoverage({
+      funnel: publicFunnel,
+      sources: labeledSources,
+      databases: publicSourcesQueried(),
+      answer,
+    });
+    const searchRecord = buildSearchRecord({
+      question: query,
+      askedAt: new Date(),
+      diag: gResult && gResult._diag,
+      funnel: publicFunnel,
+      synthesisModel: synthWinner ? String(synthWinner.model) : null,
+      sources: labeledSources,
+      answer,
+    });
+
     return new Response(
       JSON.stringify({
         answer,
         // NEXT-GEN: bibliography entries the answer never cites are labeled
         // as further reading rather than silently implying support.
-        sources: labelUncitedSources(sourceList, answer),
+        sources: labeledSources,
         /* Papers the relevance gate withheld from citations/counts (see
            RELEVANCE_FLOOR). The UI can state this honestly instead of
            silently dropping them. */
@@ -16361,23 +16648,10 @@ async function runSearchPipeline(pctx) {
          * the paper for the reader, never silently dropped, so
          * excludedRetracted is honestly zero. Nothing here carries error
          * text or provider internals . the redaction posture above stays
-         * intact. Absent (null) on paths that never ran retrieval. */
-        _funnel: (() => {
-          const f = gResult && gResult._diag && gResult._diag.funnel;
-          if (!f || typeof f.gathered !== "number") return null;
-          const n = (v) => Math.max(0, Math.floor(Number(v) || 0));
-          const gathered = n(f.gathered);
-          const deduped = Math.min(n(f.deduped), gathered);
-          const ranked = Math.min(n(f.ranked), gathered);
-          return {
-            gathered,
-            deduped,
-            excludedWeak: Math.max(0, deduped - ranked),
-            excludedNonEnglish: n(f.nonEnglishInner) + n(excludedNonEnglishOuter),
-            excludedRetracted: 0,
-            cited: n(sourceList ? sourceList.length : 0),
-          };
-        })(),
+         * intact. Absent (null) on paths that never ran retrieval.
+         * Computed once above as publicFunnel so the search record and
+         * the coverage disclosure ship the identical numbers. */
+        _funnel: publicFunnel,
         _resolver: resolverResult ? {
           intent: resolverResult.intent,
           topic: resolverResult.topic,
@@ -16404,6 +16678,15 @@ async function runSearchPipeline(pctx) {
           if (att) return { attempted: true, uncovered: att.uncovered, groups: 0, via: null };
           return null;
         })(),
+        /* TRUST RELEASE (2026-10-13): per answer coverage disclosure and
+         * the exportable search record, both computed above from this
+         * run's own retrieval record (buildCoverage / buildSearchRecord).
+         * Null on any path where retrieval never ran, so the client
+         * renders nothing rather than a reconstructed guess. The record
+         * carries no abstracts and no answer text, only what a reader
+         * needs to re run the search and judge its coverage. */
+        _coverage: coverageDisclosure,
+        _record: searchRecord,
 
         /* SECURITY: `_aiAttempts` and the raw `_diag` shipped on EVERY
          * successful response, and both carry upstream error text .

@@ -673,6 +673,12 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     mrows.push(["Sources", withheld > 0
       ? `${list.length + withheld} relevant papers retrieved; ${cited} cited below; ${withheld} withheld as tangential.`
       : `${cited} paper${cited === 1 ? "" : "s"} cited below.` + (further > 0 ? ` ${further} more ${further === 1 ? "is" : "are"} listed as further reading.` : "")]);
+    /* Trust release: the coverage sentence joins the printed Methods,
+       worded by the same helper the answer page uses, so print and
+       screen can never state different coverage. Absent on turns the
+       backend shipped no _coverage for; nothing is printed then. */
+    const coverageLine = coverageSentence(t._coverage);
+    if (coverageLine) mrows.push(["Coverage", coverageLine]);
     if (t.synthesisMode === "extractive") {
       mrows.push(["Synthesis", "Assembled deterministically from the retrieved papers; no AI synthesis ran for this answer."]);
     } else {
@@ -7957,6 +7963,189 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
    PASS 2 — ANSWER DIAGNOSTICS + EVIDENCE RAIL
    ════════════════════════════════════════════════════════════════════ */
 
+/* ── Coverage sentence + search record (trust release, 2026-10-13) ──
+   The backend now ships two things no other literature tool ships: a
+   per answer coverage disclosure (_coverage) and a stable, exportable
+   record of the search itself (_record). Both are computed server side
+   from the run's own retrieval record; the helpers here only phrase
+   them. Every number is conditional on the backend having supplied it,
+   and absent data renders nothing at all. Copy in this block carries
+   no dash characters, per the standing house rule. */
+
+function coverageSentence(coverage) {
+  if (!coverage || typeof coverage !== "object") return "";
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const cited = num(coverage.cited);
+  const further = num(coverage.furtherReading) || 0;
+  const gathered = num(coverage.gathered);
+  const dbCount = num(coverage.databasesAnswered) != null ? num(coverage.databasesAnswered) : num(coverage.databasesTotal);
+  const ey = num(coverage.earliestYear);
+  const ly = num(coverage.latestYear);
+  if (cited === null && gathered === null) return "";
+  let head;
+  if (cited === null) head = "This answer was built from the search recorded below";
+  else if (cited > 0) head = `This answer rests on ${cited} cited paper${cited === 1 ? "" : "s"}`;
+  else head = "This answer cites no papers";
+  const parts = [head];
+  if (further > 0) parts.push(`with ${further} more as further reading`);
+  if (gathered !== null) {
+    let clause = `drawn from ${gathered} paper${gathered === 1 ? "" : "s"} gathered`;
+    if (dbCount !== null && dbCount > 0) clause += ` across ${dbCount} database${dbCount === 1 ? "" : "s"}`;
+    parts.push(clause);
+  }
+  let sentence = parts.join(", ");
+  if (ey !== null && ly !== null) sentence += ey === ly ? ` (${ey})` : ` (${ey} to ${ly})`;
+  else if (ey !== null) sentence += ` (${ey})`;
+  else if (ly !== null) sentence += ` (${ly})`;
+  return sentence + ".";
+}
+
+/* The record as Markdown, built client side from _record so the user
+   can paste it into a methods section or a lab notebook and anyone can
+   re run the same search. Ends with the record itself as JSON, so the
+   export is the stable artifact, not just a summary of it. */
+function searchRecordMarkdown(record) {
+  if (!record || typeof record !== "object") return "";
+  const lines = [];
+  lines.push("# Search record");
+  lines.push("");
+  lines.push("## Question");
+  lines.push(String(record.question || ""));
+  lines.push("");
+  lines.push("## When");
+  lines.push(String(record.askedAt || ""));
+  lines.push("");
+  lines.push("## How it searched");
+  if (record.structuredQuery) lines.push("Structured query: " + record.structuredQuery);
+  if (Array.isArray(record.conceptQueries) && record.conceptQueries.length) {
+    lines.push("Concept expanded queries: " + record.conceptQueries.join("; "));
+  }
+  if (Array.isArray(record.llmExpansion) && record.llmExpansion.length) {
+    for (const g of record.llmExpansion) {
+      lines.push("Model proposed synonyms for " + g.term + ": " + (Array.isArray(g.alternates) ? g.alternates.join(", ") : ""));
+    }
+  }
+  if (!record.structuredQuery && !record.conceptQueries && !record.llmExpansion) {
+    lines.push("The question was searched as written.");
+  }
+  lines.push("");
+  lines.push("## Databases");
+  if (Array.isArray(record.databases) && record.databases.length) {
+    record.databases.forEach((d, i) => {
+      lines.push(`${i + 1}. ${d.source}: ` + (d.ok ? `${d.count} paper${d.count === 1 ? "" : "s"} returned` : "did not respond"));
+    });
+  } else {
+    lines.push("Per database outcomes were not recorded for this search.");
+  }
+  lines.push("");
+  lines.push("## Funnel");
+  if (record.funnel && typeof record.funnel === "object") {
+    const f = record.funnel;
+    lines.push("Gathered: " + f.gathered);
+    lines.push("Deduped: " + f.deduped);
+    lines.push("Excluded as weak matches: " + f.excludedWeak);
+    lines.push("Excluded as non English: " + f.excludedNonEnglish);
+    lines.push("Excluded as retracted: " + f.excludedRetracted);
+    lines.push("In the final source list: " + f.cited);
+  } else {
+    lines.push("Funnel counts were not recorded for this search.");
+  }
+  lines.push("");
+  lines.push("## Model");
+  lines.push(record.synthesisModel ? String(record.synthesisModel) : "No AI synthesis model ran for this answer.");
+  lines.push("");
+  lines.push("## Sources");
+  if (Array.isArray(record.sources) && record.sources.length) {
+    for (const s of record.sources) {
+      const id = s.doi ? "https://doi.org/" + s.doi : s.url || "";
+      lines.push(`${s.n}. ${s.title}` + (s.year ? ` (${s.year})` : "") + (id ? " · " + id : "") + (s.cited ? " · cited in the answer" : " · further reading"));
+    }
+  } else {
+    lines.push("No sources were recorded for this search.");
+  }
+  lines.push("");
+  lines.push("## Record as JSON");
+  lines.push("```json");
+  lines.push(JSON.stringify(record, null, 2));
+  lines.push("```");
+  return lines.join("\n");
+}
+
+/* The coverage sentence plus the Search record disclosure, rendered
+   under the answer beside the byline. Quiet on purpose: one sentence
+   of plain words, then a disclosure in the same style as the Answer
+   diagnostics above. Renders nothing when the turn carries neither
+   _coverage nor _record (older cached answers, paths that never ran
+   retrieval). */
+function SearchRecordPanel({ t, P }) {
+  const coverage = t && t._coverage && typeof t._coverage === "object" ? t._coverage : null;
+  const record = t && t._record && typeof t._record === "object" ? t._record : null;
+  const sentence = coverage ? coverageSentence(coverage) : "";
+  if (!sentence && !record) return null;
+  const whenLabel = record && record.askedAt
+    ? new Date(record.askedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
+    : null;
+  const rowLabel = { fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "normal", textTransform: "none" };
+  const rowValue = { fontSize: 13, color: P.ink2, lineHeight: 1.55, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" };
+  const sectionRow = (label, value) => value ? (
+    <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
+      <span style={rowLabel}>{label}</span>
+      <span style={rowValue}>{value}</span>
+    </div>
+  ) : null;
+  return (
+    <div style={{ marginTop: 6, borderTop: `1px solid ${P.line}`, paddingTop: 8 }}>
+      {sentence && (
+        <p style={{ fontSize: 13, color: P.ink2, lineHeight: 1.55, fontFamily: "var(--cb-font)", margin: "0 0 4px" }}>{sentence}</p>
+      )}
+      {record && (
+        <details className="cb-diag">
+          <summary>
+            <span className="cb-kicker">Search record</span>
+          </summary>
+          <div style={{ padding: "2px 0 6px", display: "grid", gap: 10 }}>
+            {sectionRow("Question", record.question || null)}
+            {sectionRow("When", whenLabel)}
+            {sectionRow("How it searched", record.structuredQuery || (Array.isArray(record.conceptQueries) && record.conceptQueries.length ? record.conceptQueries.join("; ") : null))}
+            {Array.isArray(record.databases) && record.databases.length > 0 && sectionRow("Databases",
+              record.databases.map((d) => `${d.source} ${d.ok ? d.count : "no response"}`).join(" · "))}
+            {record.funnel && sectionRow("Funnel",
+              `Gathered ${record.funnel.gathered} · Deduped ${record.funnel.deduped} · Cited ${record.funnel.cited}`)}
+            {sectionRow("Model", record.synthesisModel || "Drafted from sources")}
+            {Array.isArray(record.sources) && record.sources.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
+                <span style={rowLabel}>Sources</span>
+                <div style={rowValue}>
+                  {record.sources.map((s) => (
+                    <div key={s.n} style={{ marginBottom: 3 }}>
+                      {s.n}. {s.title}
+                      {s.year ? ` (${s.year})` : ""}
+                      <span style={{ color: P.faint }}>{s.cited ? " · cited" : " · further reading"}</span>
+                      {(s.doi || s.url) ? (
+                        <span style={{ color: P.faint }}> · {s.doi ? "https://doi.org/" + s.doi : s.url}</span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <button type="button" className="cb-textbtn" style={{ padding: "6px 0" }}
+                onClick={() => { copyToClipboard(searchRecordMarkdown(record), "Search record copied"); }}>
+                Copy record
+              </button>
+              <button type="button" className="cb-textbtn" style={{ padding: "6px 0" }}
+                onClick={() => { download("cerebrum-search-record.md", searchRecordMarkdown(record)); }}>
+                Download record
+              </button>
+            </div>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /* Answer diagnostics: the honest replacement for the bare "Degraded" chip.
    A disclosure, not a badge — it says which databases answered, how long
    the answer took, how many papers were retrieved vs cited, and which
@@ -9083,6 +9272,13 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             )}
           </div>
         )}
+        {/* Trust release: the coverage sentence and the Search record
+            disclosure sit under the answer with the byline, the footer
+            zone the diagnostics and methods copy already live in. Only
+            once the answer has settled, and only when the backend
+            shipped the data (the panel itself renders nothing without
+            _coverage or _record). */}
+        {done && <SearchRecordPanel t={t} P={P} />}
         {interactive && (hoverCite || activeCite) ? (
           <CitationPeek
             n={hoverCite || activeCite}
@@ -20828,6 +21024,10 @@ function App() {
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
         _resolver: data._resolver || null, _selfReasoning: data._selfReasoning || null, _funnel: data._funnel || null,
+        /* TRUST RELEASE (2026-10-13): per answer coverage disclosure and
+           the exportable search record, straight from the response. Absent
+           on older cached turns; SearchRecordPanel renders nothing then. */
+        _coverage: data._coverage || null, _record: data._record || null,
         /* NEXT-GEN answer instruments — computed by the backend on every
            evidence path (AI and deterministic). Absent on older cached
            turns; every renderer below treats absence as "not computed",

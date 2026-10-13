@@ -56,16 +56,26 @@ group("Retrieval funnel — _funnel attachment (backend)");
 const searchSrc = await readFile(join(root, "functions/api/search.js"), "utf8");
 
 await test("_funnel ships exactly the six numbers, nothing else", () => {
-  assert.match(searchSrc, /_funnel: \(\(\) => \{/, "_funnel IIFE missing from the response");
+  // 2026-10-13 (trust release): the funnel IIFE was hoisted into a single
+  // publicFunnel const above the response so _coverage and _record ship
+  // the identical numbers; the response field is now `_funnel: publicFunnel`.
+  // The contract is unchanged: exactly these six keys, computed in one place.
+  assert.match(searchSrc, /const publicFunnel = \(\(\) => \{/, "publicFunnel IIFE missing above the response");
+  assert.match(searchSrc, /_funnel: publicFunnel/, "_funnel does not ship publicFunnel");
+  const start = searchSrc.indexOf("const publicFunnel = (() => {");
+  const block = searchSrc.slice(start, searchSrc.indexOf("})();", start));
   for (const k of ["gathered", "deduped", "excludedWeak", "excludedNonEnglish", "excludedRetracted", "cited"]) {
-    assert.ok(new RegExp(`\\b${k}:`).test(searchSrc), `_funnel missing key ${k}`);
+    // Shorthand (`gathered,`) and keyed (`cited:`) entries both count: the
+    // original pin matched `key:` anywhere in the file, which the funnel
+    // literal's shorthand properties satisfied only by accident.
+    assert.ok(new RegExp(`\\b${k}\\s*[:,]`).test(block), `_funnel missing key ${k}`);
   }
 });
 
 await test("_funnel is numbers-only — no error text or provider internals", () => {
-  const start = searchSrc.indexOf("_funnel: (() => {");
+  const start = searchSrc.indexOf("const publicFunnel = (() => {");
   assert.ok(start > 0, "_funnel block not found");
-  const block = searchSrc.slice(start, searchSrc.indexOf("})(),", start));
+  const block = searchSrc.slice(start, searchSrc.indexOf("})();", start));
   assert.ok(!/error|message|stack|provider|apiKey|token/i.test(block.replace(/excludedNonEnglish/g, "")),
     "non-numeric content inside the _funnel block");
   assert.ok(!/_diag\.(?!funnel)/.test(block), "_funnel leaks raw _diag beyond the funnel counters");
