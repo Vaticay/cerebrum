@@ -7130,6 +7130,22 @@ function fmtImpactWater(impact) {
   return Math.round(mid) + " mL";
 }
 
+/* Stage health is tri state (2026-10-13): the server ships each stage's
+   ok as true (ran and passed), false (ran and failed; the entry's
+   skipReason names why), or null (skipped: the stage did not run or had
+   nothing to do; its skipReason says which). A skipped stage is neutral,
+   never a failure, and the server's degraded rule counts only
+   ok === false. Every client surface that reads stageHealth classifies
+   through this one helper so the three states cannot drift apart
+   between the autopsy chips and the answer diagnostics. Any other ok
+   value (an entry recorded before the tri state contract) reads as
+   skipped: unknown is not failed. */
+function stageState(s) {
+  if (s && s.ok === true) return "passed";
+  if (s && s.ok === false) return "failed";
+  return "skipped";
+}
+
 function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false }) {
   /* Escape + focus are owned by ModalChrome now. */
   const funnel = sanitizeFunnel(t._funnel);
@@ -7311,20 +7327,29 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
           <AutopsySection P={P} accent={accent} kicker="07 · Pipeline health">
             {Array.isArray(t.stageHealth) && t.stageHealth.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px", marginBottom: 12 }}>
-                {t.stageHealth.map((s, i) => (
-                  <span key={i} title={s.ok ? `${s.name}: ok` : `${s.name}: failed over to a fallback`}
-                    style={{
-                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)",
-                      color: s.ok ? P.ink2 : statusWarn(P),
-                      border: `1px solid ${s.ok ? withAlpha(accent, 0.35) : withAlpha(STATUS.warn, 0.4)}`,
-                      background: s.ok ? withAlpha(accent, 0.07) : withAlpha(STATUS.warn, 0.06),
-                      borderRadius: 2, padding: "3px 12px",
-                      display: "inline-flex", alignItems: "center", gap: 6,
-                    }}>
-                    <span style={{ width: 4, height: 4, borderRadius: "50%", background: s.ok ? accent : STATUS.warn }} />
-                    {s.name}{typeof s.ms === "number" && s.ms > 0 ? ` ${(s.ms / 1000).toFixed(1)}s` : ""}
-                  </span>
-                ))}
+                {t.stageHealth.map((s, i) => {
+                  const state = stageState(s);
+                  const reason = typeof s.skipReason === "string" && s.skipReason ? s.skipReason : null;
+                  const title = state === "passed"
+                    ? `${s.name}: ok`
+                    : state === "failed"
+                      ? (reason ? `${s.name}: failed (${reason})` : `${s.name}: failed over to a fallback`)
+                      : (reason ? `${s.name}: skipped (${reason})` : `${s.name}: skipped`);
+                  return (
+                    <span key={i} title={title}
+                      style={{
+                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)",
+                        color: state === "passed" ? P.ink2 : state === "failed" ? statusWarn(P) : P.faint,
+                        border: `1px solid ${state === "passed" ? withAlpha(accent, 0.35) : state === "failed" ? withAlpha(STATUS.warn, 0.4) : P.line}`,
+                        background: state === "passed" ? withAlpha(accent, 0.07) : state === "failed" ? withAlpha(STATUS.warn, 0.06) : "transparent",
+                        borderRadius: 2, padding: "3px 12px",
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                      }}>
+                      <span style={{ width: 4, height: 4, borderRadius: "50%", background: state === "passed" ? accent : state === "failed" ? STATUS.warn : P.line }} />
+                      {s.name}{state === "skipped" ? " · skipped" : ""}{typeof s.ms === "number" && s.ms > 0 ? ` ${(s.ms / 1000).toFixed(1)}s` : ""}
+                    </span>
+                  );
+                })}
               </div>
             )}
             {t.confidence && t.confidence.line && (
@@ -8252,7 +8277,11 @@ function SearchRecordPanel({ t, P }) {
 function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   const dbOutcomes = Array.isArray(t.sourcesQueried) ? t.sourcesQueried : null;
   const stages = Array.isArray(t.stageHealth) ? t.stageHealth : [];
-  const failedStages = stages.filter((s) => s && !s.ok);
+  /* Failure means a stage that ran and failed (ok === false) only: a
+     skipped stage (ok null, tri state) is neutral and never an issue
+     here, the same rule the server's degraded computation uses. */
+  const failedStages = stages.filter((s) => s && stageState(s) === "failed");
+  const skippedStages = stages.filter((s) => s && stageState(s) === "skipped");
   const okCount = dbOutcomes ? dbOutcomes.filter((x) => x.ok).length : 0;
   const missing = dbOutcomes ? dbOutcomes.filter((x) => !x.ok).map((x) => x.source).filter(Boolean) : [];
   const cited = (t.sources || []).length;
@@ -8291,7 +8320,12 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   }
   for (const s of failedStages) {
     const ms = typeof s.ms === "number" && s.ms > 0 ? ` after ${Math.round(s.ms)} ms` : "";
-    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage did not complete${ms}, the answer was built without it.` });
+    const reason = typeof s.skipReason === "string" && s.skipReason ? ` (${s.skipReason})` : "";
+    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage did not complete${ms}${reason}, the answer was built without it.` });
+  }
+  for (const s of skippedStages) {
+    const reason = typeof s.skipReason === "string" && s.skipReason ? `: ${s.skipReason}` : "";
+    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage was skipped${reason}.` });
   }
   if (t.degraded && failedStages.length === 0) {
     rows.push({ k: "Pipeline", v: "Built under degraded conditions. Part of the pipeline did not complete." });

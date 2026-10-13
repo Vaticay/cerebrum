@@ -323,5 +323,57 @@ await test("the tab button speaks the unread count and the badge numeral clears 
   assert.ok(ratio >= 4.5, `the tab badge numeral computes to ${ratio.toFixed(2)} to 1, under 4.5`);
 });
 
+group("Stage health tri state on the client");
+await test("stageState classifies passed, failed, and skipped from the shipped ok value", () => {
+  // Behavioural, not a string match: lift the classifier out of the
+  // app source and run it over fixtures shaped like the server's real
+  // stage entries (publicStageHealth in functions/api/search.js).
+  const fnAt = appSrc.indexOf("function stageState(s) {");
+  assert.ok(fnAt > 0, "stageState is missing from CerebrumApp.jsx");
+  const fnSrc = appSrc.slice(fnAt, appSrc.indexOf("\n}", fnAt) + 2);
+  const stageState = new Function(`${fnSrc}; return stageState;`)();
+  assert.strictEqual(stageState({ name: "retrieval", ok: true }), "passed");
+  assert.strictEqual(stageState({ name: "validation", ok: false, skipReason: "no leg answered" }), "failed");
+  assert.strictEqual(stageState({ name: "fact-check", ok: null, skipReason: "nothing to verify" }), "skipped",
+    "an ok null stage (skipped) must never classify as failed");
+  assert.strictEqual(stageState({ name: "fact-check", ok: null, skipReason: "fact check did not run" }), "skipped");
+  assert.strictEqual(stageState({}), "skipped", "an entry with no ok value is unknown, not failed");
+  assert.strictEqual(stageState(null), "skipped");
+  // A whole stage list partitions the way the surfaces consume it:
+  // exactly the ok false entry is a failure, the ok null entry is
+  // skipped and lands in no failure count.
+  const stages = [
+    { name: "expansion", ok: true },
+    { name: "validation", ok: false, skipReason: "no leg answered" },
+    { name: "fact-check", ok: null, skipReason: "nothing to verify" },
+    { name: "synthesis", ok: true },
+  ];
+  assert.deepStrictEqual(stages.filter((s) => stageState(s) === "failed").map((s) => s.name), ["validation"]);
+  assert.deepStrictEqual(stages.filter((s) => stageState(s) === "skipped").map((s) => s.name), ["fact-check"]);
+});
+await test("answer diagnostics counts only ok false stages as failures and reports skips neutrally", () => {
+  const start = appSrc.indexOf("function AnswerDiagnostics");
+  assert.ok(start > 0, "AnswerDiagnostics is missing");
+  const diag = appSrc.slice(start, appSrc.indexOf("\nfunction ", start + 10));
+  assert.ok(!diag.includes("stages.filter((s) => s && !s.ok)"),
+    "diagnostics still treats every falsy ok as a stage failure");
+  assert.ok(diag.includes('stageState(s) === "failed"'), "the failure filter does not go through stageState");
+  assert.ok(diag.includes('stageState(s) === "skipped"'), "diagnostics never separates skipped stages");
+  assert.ok(diag.includes("stage was skipped"), "a skipped stage gets no neutral row in diagnostics");
+  assert.ok(diag.includes("s.skipReason"), "diagnostics never surfaces the shipped skipReason");
+  assert.ok(diag.includes("const issueCount = missing.length + failedStages.length + (t.degraded ? 1 : 0);"),
+    "the issue count changed shape; it must count failed stages only, never skipped ones");
+});
+await test("autopsy pipeline chips render skipped stages as skipped, with the shipped reason", () => {
+  const at = appSrc.indexOf("07 · Pipeline health");
+  assert.ok(at > 0, "the autopsy pipeline health section is missing");
+  const chips = appSrc.slice(at, at + 3400);
+  assert.ok(chips.includes("stageState(s)"), "the pipeline chips do not classify through stageState");
+  assert.ok(chips.includes(": skipped"), "no chip title reads a stage as skipped");
+  assert.ok(chips.includes(" · skipped"), "a skipped stage carries no visible skipped label on its chip");
+  assert.ok(chips.includes("s.skipReason"), "the chips never surface the shipped skipReason");
+  assert.ok(chips.includes(": failed ("), "a failed stage's chip title drops the reason the server shipped");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
