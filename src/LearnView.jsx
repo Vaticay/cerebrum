@@ -136,6 +136,7 @@ function cleanText(s) {
     .replace(/\*([^*]+)\*/g, "$1")
     .replace(/\[(\d+)\]/g, "")
     .replace(/\s+/g, " ")
+    .replace(/\s+([.,!?;:])/g, "$1")
     .trim();
 }
 function formatYearValue(y) {
