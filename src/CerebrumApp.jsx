@@ -93,7 +93,7 @@ import { createCourseFromResults, saveLearnCourse } from "./LearnView.jsx";
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
-import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
+import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
 
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
@@ -7148,6 +7148,7 @@ function stageState(s) {
 
 function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false }) {
   /* Escape + focus are owned by ModalChrome now. */
+  const isMobile = useIsMobile();
   const funnel = sanitizeFunnel(t._funnel);
   const stages = funnel ? funnelStages(funnel) : null;
   const exclusions = funnel ? funnelExclusions(funnel) : null;
@@ -7307,7 +7308,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
         {onStress && (t.factCheck || (t.sources && t.sources.length)) ? (
           <AutopsySection P={P} accent={accent} kicker="05 · Stress test">
             <StressTest turn={t} P={P} accent={accent} at={null} onStress={onStress} busy={busy}
-              isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+              isMobile={isMobile} />
           </AutopsySection>
         ) : null}
 
@@ -7315,7 +7316,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
         {t.evidenceStructure ? (
           <AutopsySection P={P} accent={accent} kicker="06 · Evidence structure">
             <EvidenceStructure data={t.evidenceStructure} P={P} accent={accent}
-              isMobile={typeof window !== "undefined" && window.innerWidth < 900} />
+              isMobile={isMobile} />
             <CitationThreads data={t.evidenceStructure} P={P} accent={accent} />
           </AutopsySection>
         ) : null}
@@ -9043,6 +9044,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const [evidenceView, setEvidenceView] = useState("prose");
   const [openVideo, setOpenVideo] = useState(null);
   const reducedMotion = useReducedMotion();
+  const isMobile = useIsMobile();
   const answerTopRef = useRef(null);
   const bandSectionRef = useRef(null);
   const evMapRef = useRef(null);
@@ -9625,7 +9627,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <CitationPeek
             n={hoverCite || activeCite}
             sources={t.sources}
-            P={P} accent={accent} isMobile={typeof window !== "undefined" && window.innerWidth < 900}
+            P={P} accent={accent} isMobile={isMobile}
             onOpen={(n) => onOpenPaper(t, n)}
             onClose={() => { setHoverCite && setHoverCite(0); setActiveCite(0); }}
           />
@@ -9660,7 +9662,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {/* Jump rail — sticky under the answer card, mono labels with live
           ready/empty/failed status from the turn's real data. Buttons, so
           touch works; nothing here depends on hover. */}
-      {done && t.answer && <JumpRail items={railItems} P={P} accent={accent} onJump={jumpToSection} onFollowUp={onFollowUp} isMobile={typeof window !== "undefined" && window.innerWidth < 900} />}
+      {done && t.answer && <JumpRail items={railItems} P={P} accent={accent} onJump={jumpToSection} onFollowUp={onFollowUp} isMobile={isMobile} />}
       {/* The Evidence band: Bibliography + Videos as tabs in one band,
           directly under the answer. Always rendered — the shells inside are
           honest about empty/loading instead of vanishing. */}
@@ -11954,12 +11956,10 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   const [missingSources, setMissingSources] = useState([]);
   const [trendQuery, setTrendQuery] = useState("");
   const [trendSort, setTrendSort] = useState("edition");
-  const [winW, setWinW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1200));
-  useEffect(() => {
-    const onResize = () => setWinW(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+  /* Viewport width from the shared hook: this view used to keep its
+     own width state and resize listener, the same subscription
+     useWindowWidth now owns for the whole app. */
+  const winW = useWindowWidth();
   const narrow = winW < 560;
 
   useEffect(() => {
@@ -14816,6 +14816,10 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
       <div style={{ position: "absolute", left: 14, bottom: 10, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", textTransform: "none", fontWeight: 600 }}>
         {layout.nodes.length} {layout.nodes.length === 1 ? "paper" : "papers"} · your sky
       </div>
+      {/* The clamp reads the live width at paint time: the tip's anchor
+          coordinates were captured at hover or focus, and the tip is
+          dismissed by the same interaction changes a resize causes, so
+          this is a measure at use, not stored layout state. */}
       {tip && (
         <div style={{
           position: "fixed", left: Math.min(Math.max(tip.x - 110, 8), window.innerWidth - 228), top: Math.max(tip.y - 66, 8),
@@ -17369,6 +17373,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
               Select any passage to highlight it. Marks and notes are saved with this document.
             </div>
+            {/* Same measure at use as the sky tip: the popup anchors to
+                coordinates captured when the selection was made. */}
             {pendingHL && (
               <div data-hl-action
                 style={{

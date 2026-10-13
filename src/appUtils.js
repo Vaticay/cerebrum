@@ -224,9 +224,31 @@ function cbNotify(title, body, tag, kind) {
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js fire: window.focus(); n.close(); } catch {} };:", cbErr); }
 }
 
+/* The app's one breakpoint test, pure so tests can pin it without a
+   DOM: a viewport narrower than the breakpoint is the mobile mode.
+   900 is the app's main breakpoint; a surface with its own threshold
+   (the Trending feed's narrow layout at 560) passes it explicitly. */
+function widthToMode(width, breakpoint = 900) {
+  return width < breakpoint ? "mobile" : "desktop";
+}
+
+/* Resize aware viewport width: the numeric companion to useIsMobile
+   for the rare surface that needs the width itself, not the mode.
+   The no window default (1200, a desktop first paint) matches what
+   the hand rolled copies used to hardcode. This module is the only
+   place src/ may read window.innerWidth directly; every render that
+   depends on the viewport goes through one of these two hooks, so
+   rotating a phone or resizing the window re-renders in the new mode
+   instead of leaving the layout stuck until reload. */
+function useWindowWidth() {
+  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  useEffect(() => { const onR = () => setW(window.innerWidth); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
+  return w;
+}
+
 function useIsMobile() {
-  const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < 900 : false);
-  useEffect(() => { const onR = () => setM(window.innerWidth < 900); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
+  const [m, setM] = useState(() => widthToMode(typeof window !== "undefined" ? window.innerWidth : 1200) === "mobile");
+  useEffect(() => { const onR = () => setM(widthToMode(window.innerWidth) === "mobile"); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
   return m;
 }
 
@@ -277,4 +299,4 @@ function toast(message, opts = {}) {
     }));
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
-export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
+export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };

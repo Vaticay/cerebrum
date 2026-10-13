@@ -16,7 +16,7 @@
 import { strict as assert } from "node:assert";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -373,6 +373,138 @@ await test("autopsy pipeline chips render skipped stages as skipped, with the sh
   assert.ok(chips.includes(" · skipped"), "a skipped stage carries no visible skipped label on its chip");
   assert.ok(chips.includes("s.skipReason"), "the chips never surface the shipped skipReason");
   assert.ok(chips.includes(": failed ("), "a failed stage's chip title drops the reason the server shipped");
+});
+
+group("Viewport mode follows resizes (mobile panel)");
+
+await test("widthToMode pins the breakpoint logic at real widths", () => {
+  // Behavioural, not a string match: lift the pure function out of
+  // appUtils and run it, the same treatment stageState gets above.
+  const fnAt = appUtilsSrc.indexOf("function widthToMode(");
+  assert.ok(fnAt > 0, "widthToMode is missing from appUtils.js");
+  const fnSrc = appUtilsSrc.slice(fnAt, appUtilsSrc.indexOf("\n}", fnAt) + 2);
+  const widthToMode = new Function(`${fnSrc}; return widthToMode;`)();
+  // The app's main breakpoint is 900: below it is mobile, at it is not.
+  assert.strictEqual(widthToMode(390), "mobile", "a phone width must read as mobile");
+  assert.strictEqual(widthToMode(768), "mobile", "a tablet width must read as mobile");
+  assert.strictEqual(widthToMode(899), "mobile");
+  assert.strictEqual(widthToMode(900), "desktop", "the breakpoint itself is desktop");
+  assert.strictEqual(widthToMode(1440), "desktop");
+  // A caller with its own threshold (the Trending feed's narrow layout
+  // at 560) gets the same strict below test at its own breakpoint.
+  assert.strictEqual(widthToMode(390, 560), "mobile");
+  assert.strictEqual(widthToMode(559, 560), "mobile");
+  assert.strictEqual(widthToMode(560, 560), "desktop");
+  assert.strictEqual(widthToMode(768, 560), "desktop");
+});
+
+await test("the viewport hooks live in appUtils, are exported, and follow resizes", () => {
+  const widthAt = appUtilsSrc.indexOf("function useWindowWidth()");
+  assert.ok(widthAt > 0, "useWindowWidth is missing from appUtils.js");
+  const widthSrc = appUtilsSrc.slice(widthAt, appUtilsSrc.indexOf("\nfunction useIsMobile()", widthAt));
+  assert.ok(widthSrc.includes("window.innerWidth : 1200"),
+    "useWindowWidth lost the desktop first paint default the hand rolled copies used");
+  assert.ok(widthSrc.includes('addEventListener("resize"'), "useWindowWidth does not subscribe to resize");
+  const mobAt = appUtilsSrc.indexOf("function useIsMobile()");
+  assert.ok(mobAt > 0, "useIsMobile is missing from appUtils.js");
+  const mobSrc = appUtilsSrc.slice(mobAt, appUtilsSrc.indexOf("const TONES", mobAt));
+  assert.ok(mobSrc.includes("widthToMode("), "useIsMobile does not decide through widthToMode");
+  assert.ok(mobSrc.includes('addEventListener("resize"'), "useIsMobile does not subscribe to resize");
+  assert.ok(appUtilsSrc.includes("useIsMobile, useWindowWidth, widthToMode"),
+    "the viewport hooks and widthToMode are not all exported from appUtils");
+  assert.ok(appSrc.includes("useIsMobile, useWindowWidth"),
+    "CerebrumApp does not import the shared viewport hooks");
+});
+
+await test("no render decides its viewport mode from a one shot width read", async () => {
+  // Walk every source file under src/. window.innerWidth may be read
+  // directly only inside appUtils.js (the hooks themselves) or at a
+  // site that measures at the moment of use: an effect positioning a
+  // popup from a live rect, a canvas sizing itself, a one time
+  // scrollbar measure. Each such site is listed here with its reason.
+  // A new direct read anywhere else fails until it goes through the
+  // hooks or earns its own justified line here.
+  const exemptions = [
+    // CitationPeek: a layout effect measures the citation marker's
+    // rect when the peek opens and clamps the popover to the viewport.
+    { file: "CerebrumApp.jsx", frag: "Math.min(340, window.innerWidth - 24)", count: 1 },
+    { file: "CerebrumApp.jsx", frag: "window.innerWidth - W - 12", count: 1 },
+    // The selection toolbar's effect measures the live selection; it
+    // clears the toolbar on resize rather than tracking the width.
+    { file: "CerebrumApp.jsx", frag: "window.innerWidth - 12", count: 1 },
+    // The constellation tip and the document highlight popup clamp at
+    // paint time around coordinates captured at hover or selection.
+    { file: "CerebrumApp.jsx", frag: "window.innerWidth - 228", count: 1 },
+    { file: "CerebrumApp.jsx", frag: "window.innerWidth : 400", count: 1 },
+    // filmReel picks a clip set when a reel is chosen; it stores no
+    // layout state, and orientation arrives with the next reel pick.
+    { file: "intro.jsx", frag: "window.innerHeight > window.innerWidth", count: 1 },
+    // The DotField sizes its canvas backing store inside its own
+    // effect, which keeps its own resize subscription.
+    { file: "intro.jsx", frag: "canvas.clientWidth || window.innerWidth", count: 1 },
+    // The design system Select positions its menu from the trigger's
+    // rect at the moment it opens.
+    { file: "designSystem.jsx", frag: "window.innerWidth - width - 8", count: 1 },
+    // The generated field sizes its canvas at setup; the module keeps
+    // its own resize listener for later changes.
+    { file: "cerebrumField.js", frag: "Math.max(1, window.innerWidth)", count: 1 },
+    // Scroll lock measures the scrollbar width at the moment it locks.
+    { file: "scrollLock.js", frag: "window.innerWidth - document.documentElement.clientWidth", count: 1 },
+  ];
+  const files = [];
+  const walk = async (dir, prefix) => {
+    for (const ent of await readdir(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${ent.name}` : ent.name;
+      if (ent.isDirectory()) await walk(join(dir, ent.name), rel);
+      else if (/\.(js|jsx)$/.test(ent.name)) files.push(rel);
+    }
+  };
+  await walk(join(root, "src"), "");
+  assert.ok(files.length > 20, "the src walk found too few files to trust this guard");
+  const seen = exemptions.map(() => 0);
+  for (const rel of files) {
+    if (rel === "appUtils.js") continue;
+    const src = await readFile(join(root, "src", rel), "utf8");
+    src.split("\n").forEach((line, i) => {
+      if (!line.includes("window.innerWidth")) return;
+      const hits = exemptions
+        .map((e, k) => (e.file === rel && line.includes(e.frag) ? k : -1))
+        .filter((k) => k >= 0);
+      assert.strictEqual(hits.length, 1,
+        `${rel}:${i + 1} reads window.innerWidth outside appUtils and matches no justified exemption: ${line.trim()}`);
+      seen[hits[0]]++;
+    });
+  }
+  exemptions.forEach((e, k) => {
+    assert.strictEqual(seen[k], e.count,
+      `the exemption for ${e.file} (${e.frag}) matched ${seen[k]} lines, expected ${e.count}; the exemption list must track the code`);
+  });
+});
+
+await test("the autopsy, turn, and trending surfaces take their mode from the hooks", () => {
+  assert.ok(!appSrc.includes("isMobile={typeof window"),
+    "a component still computes isMobile from a one shot width read at render");
+  assert.ok(!appSrc.includes("innerWidth < 900"),
+    "a one shot breakpoint read survives somewhere in CerebrumApp.jsx");
+  const autopsyAt = appSrc.indexOf("function QueryAutopsy");
+  const autopsy = appSrc.slice(autopsyAt, appSrc.indexOf("\nfunction ", autopsyAt + 10));
+  assert.ok(autopsy.includes("const isMobile = useIsMobile();"), "QueryAutopsy does not call useIsMobile");
+  assert.ok(autopsy.includes("<StressTest") && autopsy.includes("isMobile={isMobile}"),
+    "the autopsy's StressTest does not receive the hook driven isMobile");
+  assert.ok(autopsy.includes("<EvidenceStructure") && autopsy.includes("isMobile={isMobile}"),
+    "the autopsy's EvidenceStructure does not receive the hook driven isMobile");
+  const turnAt = appSrc.indexOf("function TurnInner");
+  const turn = appSrc.slice(turnAt, appSrc.indexOf("\nfunction ", turnAt + 10));
+  assert.ok(turn.includes("const isMobile = useIsMobile();"), "TurnInner does not call useIsMobile");
+  assert.ok((turn.match(/isMobile=\{isMobile\}/g) || []).length >= 2,
+    "TurnInner's CitationPeek and JumpRail do not both receive the hook driven isMobile");
+  const trendAt = appSrc.indexOf("function TrendingView");
+  const trend = appSrc.slice(trendAt, appSrc.indexOf("\nfunction ", trendAt + 10));
+  assert.ok(trend.includes("const winW = useWindowWidth();"),
+    "TrendingView still keeps its own width state instead of the shared hook");
+  assert.ok(trend.includes("const narrow = winW < 560;"),
+    "TrendingView's narrow threshold moved; the swap must preserve it exactly");
+  assert.ok(!appSrc.includes("setWinW"), "the hand rolled winW state survives somewhere in CerebrumApp.jsx");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
