@@ -952,7 +952,7 @@ test("no-results turns get one-tap reformulations and ambiguity picks", () => {
 
 test("uncited bibliography entries are labeled further reading", () => {
   assert.ok(appSrc.includes("source.uncited"), "uncited flag not read");
-  assert.ok(appSrc.includes("Further reading — not cited above"), "further-reading label missing");
+  assert.ok(appSrc.includes("Further reading: not cited above"), "further-reading label missing");
 });
 
 test("degraded pipeline states are visible, not silent", () => {
@@ -1297,6 +1297,65 @@ test("synthesis prompt requires complete headings", async () => {
   // Dusty's photo: "Microbiome · Gut · Black" cut off mid-phrase.
   const src = await readFile(join(root, "functions/api/search.js"), "utf8");
   assert.match(src, /RULE 10: HEADINGS ARE COMPLETE PHRASES/, "heading completeness rule missing from prompt");
+});
+
+test("synthesis prompt opens with the direct answer, never teach first", async () => {
+  // Panel 2026-10-13: PERSONALITY said TEACH FIRST (orient the reader for
+  // 2-3 sentences before reporting findings) while RULE 1, the required
+  // structure, and CITE_RULES in the same assembled prompt all demanded a
+  // direct claim in the first sentence. One rule survives: the direct
+  // answer opens, teaching follows inside the answer.
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  assert.match(src, /ANSWER FIRST, THEN TEACH/, "answer-first rule missing from PERSONALITY");
+  assert.match(src, /Your FIRST WORD must begin a direct scientific claim/, "RULE 1 direct-claim opener missing");
+  assert.match(src, /The FIRST sentence must directly answer the question asked/, "structure direct-answer rule missing");
+  assert.ok(!src.includes("TEACH FIRST"), "defeated teach-first instruction still in the prompt");
+  assert.ok(!src.includes("Before reporting findings, orient the reader"), "defeated orientation-before-findings text still in the prompt");
+});
+
+test("synthesis prompts ground strictly in the papers; background is marked, never a finding", async () => {
+  // Panel 2026-10-13: CONTEXT_BASE told the model to extend seamlessly with
+  // its broader knowledge ("Your knowledge IS the ceiling . papers are
+  // evidence anchors, not limits") while CITE_RULES demanded strict
+  // grounding in the abstracts, and the synthesis branch prompts restated
+  // the permissive side ("YOUR KNOWLEDGE IS PRIMARY", the thin-evidence
+  // "answer from your own scientific knowledge", the web branch's "mention
+  // the general findings"). Every copy is resolved to the strict side:
+  // claims come from the retrieved papers; general background may orient
+  // only where plainly marked as background, never as a finding and never
+  // carrying a citation. The honesty pass existence rule is pinned here
+  // too, so resolving the contradiction cannot quietly weaken it.
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  for (const defeated of [
+    "then seamlessly extend with your broader knowledge",
+    "Your knowledge IS the ceiling",
+    "papers are evidence anchors, not limits",
+    "YOUR KNOWLEDGE IS PRIMARY",
+    "Papers ANCHOR your answer but are NOT the ceiling",
+    "then answer from knowledge",
+    "then answer from your own",
+    "mention the general findings",
+    "Give a COMPLETE answer using your scientific knowledge",
+  ]) {
+    assert.ok(!src.includes(defeated), "defeated permissive phrasing still in a prompt: " + defeated);
+  }
+  assert.match(src, /THE PAPERS ARE THE EVIDENCE BASE/, "branch prompt missing the strict grounding rule");
+  assert.match(src, /ZERO-HALLUCINATION GROUNDING/, "strict grounding rule missing from CITE_RULES");
+  assert.match(src, /answer only what the sources support/, "gap handling must stop at what the sources support");
+  // Honesty pass existence rule, preserved exactly:
+  assert.match(src, /None of the papers retrieved here report X/, "bounded existence wording missing");
+  assert.match(src, /NEVER write 'the literature does not report X'/, "literature-wide existence ban missing");
+  assert.match(src, /None of the retrieved/, "deterministic existence line must stay bounded to the retrieved set");
+});
+
+test("extractive venue lines never print a raw year value", async () => {
+  // The "2015.0" artifact: the extractive venue lines interpolated p.year
+  // verbatim, so a float string year from a source printed as "2015.0".
+  // All three venue sites now route through extractiveYearText.
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  assert.ok(!src.includes("[p.journal, p.year]"), "weak/background venue still prints the raw year");
+  assert.ok(!src.includes("[it.p.journal, it.p.year]"), "extractive venue still prints the raw year");
+  assert.ok((src.match(/extractiveYearText\(/g) || []).length >= 4, "extractiveYearText definition and its three call sites must exist");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

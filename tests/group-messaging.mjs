@@ -215,7 +215,7 @@ await test("group info panel has leave button", async () => {
 });
 
 await test("group info panel keeps the honest disclaimer", async () => {
-  srcHas(uiSrc, "There are no admins — any member can rename the group or remove people", "no-admins honesty line");
+  srcHas(uiSrc, "There are no admins: any member can rename the group or remove people", "no-admins honesty line");
   srcHas(uiSrc, "Group messages aren't end-to-end encrypted yet", "plaintext disclaimer in panel");
 });
 

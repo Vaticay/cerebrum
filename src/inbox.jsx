@@ -1583,7 +1583,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <button
                     disabled
                     aria-label="Group calls aren't supported yet"
-                    title="Group calls aren't supported yet — video calls work in direct messages"
+                    title="Group calls aren't supported yet. Video calls work in direct messages"
                     style={{
                       background: withAlpha(accent, 0.05), border: "none", borderRadius: "50%", color: P.faint,
                       cursor: "default", opacity: 0.4,
@@ -1679,7 +1679,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               <div style={{ padding: "12px 24px", background: withAlpha(STATUS.bad, 0.1), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <Icon name="warning" size={15} style={{ color: statusBad(P), flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                  The security numbers changed — {activeThread.name}'s devices changed. Make sure this was them before continuing.
+                  The security numbers changed: {activeThread.name}'s devices changed. Make sure this was them before continuing.
                 </span>
                 <button onClick={openSafetyModal} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(STATUS.bad, 0.14), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
                   Check numbers
@@ -1694,7 +1694,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <Icon name="lock" size={14} style={{ color: accent, flexShrink: 0 }} />
                 {upgradeInfo.ready ? (<>
                   <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                    Turn on encrypted messaging for this conversation — only you and {activeThread.name} will be able to read new messages.
+                    Turn on encrypted messaging for this conversation: only you and {activeThread.name} will be able to read new messages.
                   </span>
                   <button onClick={doUpgradeThread} disabled={upgrading} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 2, cursor: upgrading ? "default" : "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", opacity: upgrading ? 0.6 : 1 }}>
                     {upgrading ? "Turning on…" : "Turn on"}
@@ -1782,7 +1782,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showLegacyDivider && (
                   <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: 2, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
-                    Messages before encryption — these were readable by the server
+                    Messages before encryption: these were readable by the server
                   </div>
                 )}
                 {showDay && (
@@ -2128,7 +2128,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", borderRadius: RADIUS.lg, background: withAlpha(STATUS.bad, 0.12), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, marginBottom: 16 }}>
                 <Icon name="warning" size={17} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
                 <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: mInk, fontFamily: "var(--cb-font)" }}>
-                  <strong>The security numbers changed.</strong> {activeThread.name}'s devices changed since you last verified. Make sure this was them — a new phone, a reinstalled app — before continuing. If you can't confirm it, don't send anything sensitive.
+                  <strong>The security numbers changed.</strong> {activeThread.name}'s devices changed since you last verified. Make sure this was them (a new phone, a reinstalled app) before continuing. If you can't confirm it, don't send anything sensitive.
                 </div>
               </div>
             )}
@@ -2148,7 +2148,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               ))}
             </div>
             <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.6, color: mDim, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
-              Compare these numbers with {activeThread.name} on a call or in person. If they match, your conversation is private — no one else can read it.
+              Compare these numbers with {activeThread.name} on a call or in person. If they match, your conversation is private. No one else can read it.
             </div>
             <div style={{ fontSize: FONT_SIZES.caption, color: mFaint, fontFamily: "var(--cb-font)", marginBottom: 18 }}>
               Covers {safetyModal.deviceCount} of {activeThread.name}'s device{safetyModal.deviceCount === 1 ? "" : "s"} plus yours. You share one set of numbers per person, across all your devices.
@@ -2163,7 +2163,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 </button>
               </>) : (
                 <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                  {safetyBusy === "verify" ? "Saving…" : safetyModal.changed ? "I checked — it's them" : "The numbers match"}
+                  {safetyBusy === "verify" ? "Saving…" : safetyModal.changed ? "I checked, it's them" : "The numbers match"}
                 </button>
               )}
             </div>
@@ -2371,7 +2371,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-            Group messages aren't end-to-end encrypted yet. There are no admins — any member can rename the group or remove people.
+            Group messages aren't end-to-end encrypted yet. There are no admins: any member can rename the group or remove people.
           </div>
           <UIButton
             P={P} variant="ghost"

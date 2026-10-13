@@ -194,5 +194,55 @@ group("Status colors: light theme variants clear 4.5:1");
   });
 }
 
+group("No dashes in app copy (whole app guard)");
+{
+  // Dusty's standing rule is absolute: no dashes of any kind in user
+  // visible copy, because they read as AI generated. Modeled on the
+  // Cortex lesson copy pin in tests/cortex-learning.mjs, widened to the
+  // whole app: parse both app sources and walk every string literal,
+  // template quasi, and JSX text node, which are the three places user
+  // visible copy can live. Scope, stated honestly: JS comments are not
+  // rendered and the parser drops them, so they are out of scope by
+  // construction; CSS comments inside template strings are stripped
+  // before checking for the same reason. One value is exempted by exact
+  // match below: a RegExp character class that names the em dash in
+  // order to strip it out of AI generated section headers. That is code,
+  // not copy, and the exemption cannot hide anything else.
+  const { parse } = await import("@babel/parser");
+  const DASH = /[—–]/;
+  const CODE_NOT_COPY = new Set(["\\b[\\s:.?—-]*"]);
+  const stripCssComments = (v) => v.replace(/\/\*[\s\S]*?\*\//g, " ");
+  const copyStrings = (src) => {
+    const ast = parse(src, { sourceType: "module", plugins: ["jsx"] });
+    const out = [];
+    const seen = new Set();
+    (function rec(n) {
+      if (!n || typeof n.type !== "string" || seen.has(n)) return;
+      seen.add(n);
+      let val = null;
+      if (n.type === "StringLiteral") val = n.value;
+      else if (n.type === "JSXText") val = n.value;
+      else if (n.type === "TemplateElement") val = stripCssComments(n.value && n.value.cooked ? n.value.cooked : "");
+      if (val != null) out.push({ val, line: n.loc ? n.loc.start.line : 0 });
+      for (const k of Object.keys(n)) {
+        const v = n[k];
+        if (Array.isArray(v)) v.forEach(rec);
+        else if (v && typeof v === "object") rec(v);
+      }
+    })(ast.program);
+    return out;
+  };
+  for (const [name, src] of [["CerebrumApp.jsx", appSrc], ["inbox.jsx", inboxSrc]]) {
+    await test(`no em or en dashes in ${name} copy`, () => {
+      const strings = copyStrings(src);
+      assert.ok(strings.length > 500, `suspiciously little copy collected from ${name}: ${strings.length}`);
+      for (const { val, line } of strings) {
+        if (CODE_NOT_COPY.has(val)) continue;
+        assert.ok(!DASH.test(val), `dash in ${name} copy near line ${line}: ${JSON.stringify(val.slice(0, 90))}`);
+      }
+    });
+  }
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

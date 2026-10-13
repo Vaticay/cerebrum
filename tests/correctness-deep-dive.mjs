@@ -115,7 +115,7 @@ test("buildEvidenceMap never emits a naked disputed label", async () => {
   // The old code: label: contested ? "disputed" : null
   assert.doesNotMatch(src, /label: contested \? "disputed"/, "naked disputed label still emitted");
   // The disagreement verdict still renders with its summary elsewhere
-  assert.match(src, /Disagreement — \{t\.disagreementVerdict\.status\}/, "verdict summary display missing");
+  assert.match(src, /Disagreement · \{t\.disagreementVerdict\.status\}/, "verdict summary display missing");
 });
 
 // ── Defect 4: Truncated headings ──────────────────────────────────────

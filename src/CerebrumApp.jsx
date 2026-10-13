@@ -3833,7 +3833,7 @@ function EvidenceStructure({ data, P, accent, isMobile }) {
             </div>
           ))}
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.55, marginTop: 8 }}>
-            Citing the same earlier work is normal and is not counted against independence — it is
+            Citing the same earlier work is normal and is not counted against independence. It is
             shown so you can see where a shared assumption would sit if there is one.
           </div>
         </div>
@@ -4652,11 +4652,11 @@ function FactCheck({ fc, P, accent }) {
             {isExtractive ? (
               <>
                 This answer was assembled without AI, so instead of the usual
-                claim-by-claim pass it got a mechanical one: every cited claim
+                claim by claim pass it got a mechanical one: every cited claim
                 was checked for shared vocabulary against the title and
                 abstract of the paper it cites. That catches a citation
                 pointing at the wrong paper, but it does not check whether the
-                finding is reported correctly — the sources are still worth
+                finding is reported correctly. The sources are still worth
                 opening for anything you plan to rely on.
               </>
             ) : isTerms ? (
@@ -6092,7 +6092,8 @@ function receptionCounts(source) {
 }
 const STANCE_COLORS = { supporting: "#2E7D5B", contrasting: "#B0472B", mentioning: "#7A756A" };
 /* When a real scite.ai tally is passed in, the raw numbers render as-is —
-   never converted to verdicts or percentages. When absent, honest dashes. */
+   never converted to verdicts or percentages. When absent, the counts
+   render as Unknown rather than as invented numbers. */
 function ReceptionLine({ source, P, tally = null }) {
   const c = tally || receptionCounts(source);
   const dot = (color) => (
@@ -6106,9 +6107,9 @@ function ReceptionLine({ source, P, tally = null }) {
   if (!c) {
     return (
       <div style={line} aria-label="No reception data yet">
-        {dot(STANCE_COLORS.supporting)}<span><span style={num}>—</span> supporting</span>
-        {dot(STANCE_COLORS.contrasting)}<span><span style={num}>—</span> contrasting</span>
-        {dot(STANCE_COLORS.mentioning)}<span><span style={num}>—</span> mentioning</span>
+        {dot(STANCE_COLORS.supporting)}<span><span style={num}>Unknown</span> supporting</span>
+        {dot(STANCE_COLORS.contrasting)}<span><span style={num}>Unknown</span> contrasting</span>
+        {dot(STANCE_COLORS.mentioning)}<span><span style={num}>Unknown</span> mentioning</span>
       </div>
     );
   }
@@ -6171,7 +6172,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
         {source.uncited && (
           <div title={source.uncitedReason || "Not cited by the answer"} className="cb-further-pill"
             style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
-            Further reading — not cited above
+            Further reading: not cited above
           </div>
         )}
         {style === "bibtex" ? (
@@ -6408,7 +6409,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>You're Lite.</div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6, fontFamily: "var(--cb-font)" }}>
-              500 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered — never unlimited.
+              500 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered, never unlimited.
             </div>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
               Want the deep end? Pro is unlimited on all three, plus the badge and theme.
@@ -6528,7 +6529,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
               </button>
             ) : !configured ? (
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", textAlign: "center", padding: "12px", border: `1px dashed ${P.line2}`, borderRadius: 12 }}>
-                Checkout opens soon — billing is still being wired up. Your free 50 AI answers every 5 days keep working meanwhile.
+                Checkout opens soon. Billing is still being wired up. Your free 50 AI answers every 5 days keep working meanwhile.
               </div>
             ) : plan === "student" ? (
               /* Student checkout is gated behind .edu verification: email →
@@ -7076,7 +7077,7 @@ function StanceLedger({ turn, P, accent, onOpenPaper = () => {} }) {
                 </button>
               ))}
               <div style={{ fontSize: FONT_SIZES.micro, marginTop: 4 }}>
-                Placed from the fact-check and the disagreement section {"\u2014"} never guessed.
+                Placed from the fact-check and the disagreement section, never guessed.
               </div>
             </div>
           </div>
@@ -7328,13 +7329,13 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
             )}
             {t.confidence && t.confidence.line && (
               <div style={{ ...monoLine, marginBottom: 8 }}>
-                <span style={{ fontWeight: 700, color: P.ink }}>Confidence — {t.confidence.level}: </span>
+                <span style={{ fontWeight: 700, color: P.ink }}>Confidence · {t.confidence.level}: </span>
                 {t.confidence.line}
               </div>
             )}
             {t.disagreementVerdict && t.disagreementVerdict.summary && (
               <div style={{ ...monoLine, marginBottom: 8 }}>
-                <span style={{ fontWeight: 700, color: P.ink }}>Disagreement — {t.disagreementVerdict.status}: </span>
+                <span style={{ fontWeight: 700, color: P.ink }}>Disagreement · {t.disagreementVerdict.status}: </span>
                 {t.disagreementVerdict.summary}
               </div>
             )}
@@ -7492,7 +7493,7 @@ function OpenQuestions({ cards, P, accent }) {
     return (
       <div style={{ marginTop: 20, padding: "16px 24px", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6 }}>No open questions surfaced in this literature.</div>
-        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.6 }}>The answer, its fact-check, and the query plan gave the gap finder nothing to work with — which is itself a signal about how settled this ground is.</div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.6 }}>The answer, its fact-check, and the query plan gave the gap finder nothing to work with, which is itself a signal about how settled this ground is.</div>
       </div>
     );
   }
@@ -10156,8 +10157,9 @@ function SourceNetworkGraph({ P, accent, at, sources, threadsData, onOpenPaper =
    generated, nothing is inferred, nothing is fetched. A sample size is
    shown ONLY where the abstract states one in a form that can be read
    literally; a design is shown only where the abstract names it. Blank
-   is a legitimate answer and appears as an em dash, because "we could not
-   determine this" is information and guessing would defeat the purpose.
+   is a legitimate answer and appears as the words Not stated, because
+   "we could not determine this" is information and guessing would defeat
+   the purpose.
    ══════════════════════════════════════════════════════════════════ */
 
 // Design vocabulary, strongest evidence first — the first match wins, so
@@ -10243,8 +10245,8 @@ function sortEvidenceRows(rows, sortKey) {
    The prose answer is what Cerebrum speaks; the table is what a grad
    student doing a lit review actually needs — every study side by side,
    every cell traceable to a sentence in the paper. Same honesty rule as
-   the evidence modal above: read literally from the abstract or show a
-   dash. Nothing is generated, nothing is inferred.
+   the evidence modal above: read literally from the abstract or say Not
+   stated. Nothing is generated, nothing is inferred.
 
    Column sets follow the question type:
    - clinical: Population, Intervention, Outcome, Sample size
@@ -10340,12 +10342,12 @@ const TABLE_SPECS = {
 /* Inline evidence table: same data as the modal, but in the reading
    column under the answer, toggled against the prose view. Rows keep
    citation order. Every cell that names a value is a verbatim abstract
-   sentence (truncated); blanks are dashes, never guesses. */
+   sentence (truncated); blanks read as Not stated, never guesses. */
 function EvidenceTableAnswerView({ t, P, accent, onOpenPaper = () => {} }) {
   const sources = (t && t.sources) || [];
   const specKey = detectTableSpec(t && t.q);
   const spec = TABLE_SPECS[specKey] || TABLE_SPECS.general;
-  const dash = <span style={{ color: P.faint, opacity: 0.6 }}>—</span>;
+  const dash = <span style={{ color: P.faint, opacity: 0.6 }}>Not stated</span>;
   const th = {
     textAlign: "left", padding: "0 8px 8px 0", fontSize: FONT_SIZES.micro,
     fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
@@ -10417,7 +10419,6 @@ function EvidenceTableModal({ P, accent, at, sources, close }) {
 
   const withN = rows.filter((r) => r.n != null);
   const withDesign = rows.filter((r) => r.design);
-  const dash = <span style={{ color: P.faint, opacity: 0.6 }}>—</span>;
 
   const th = { textAlign: "left", padding: "0 0 8px", fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap" };
   const td = { padding: "12px 0", fontSize: FONT_SIZES.caption, color: P.ink, verticalAlign: "top", fontFamily: "var(--cb-font)", borderTop: `1px solid ${P.line}` };
@@ -10490,16 +10491,16 @@ function EvidenceTableModal({ P, accent, at, sources, close }) {
                         background: r.design.rank >= 5 ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
                         border: `1px solid ${r.design.rank >= 5 ? withAlpha(accent, 0.3) : P.line}`,
                       }}>{r.design.label}</span>
-                    ) : dash}
+                    ) : <span style={{ color: P.faint }}>Not stated</span>}
                   </td>
-                  <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", fontWeight: 600 }}>{r.n != null ? r.n.toLocaleString() : dash}</td>
-                  <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", color: P.ink2 }}>{r.year || dash}</td>
+                  <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", fontWeight: 600 }}>{r.n != null ? r.n.toLocaleString() : <span style={{ color: P.faint }}>Not reported</span>}</td>
+                  <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", color: P.ink2 }}>{r.year || <span style={{ color: P.faint }}>Unknown</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div style={{ marginTop: 16, fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-            Design and sample size are read from each abstract as written. A dash means the abstract did not state it — not that the study lacks one. Check the paper before relying on any row.
+            Design and sample size are read from each abstract as written. Not stated means the abstract did not give it, not that the study lacks one. Check the paper before relying on any row.
           </div>
         </div>
     </Dialog>
@@ -10551,7 +10552,7 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
                       color: r.design.rank >= 5 ? accent : P.ink2,
                       background: r.design.rank >= 5 ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
                       border: `1px solid ${r.design.rank >= 5 ? withAlpha(accent, 0.3) : P.line}` }}>{r.design.label}</span>
-                  ) : <span style={{ color: P.faint }}>—</span>}
+                  ) : <span style={{ color: P.faint }}>Not stated</span>}
                 </td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", fontWeight: 600 }}>{r.n != null ? r.n.toLocaleString() : <span style={{ color: P.faint }}>Not reported</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--cb-font)", color: P.ink2 }}>{r.year || <span style={{ color: P.faint }}>Unknown</span>}</td>
@@ -10561,7 +10562,7 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
         </table>
       </div>
       <div style={{ marginTop: 10, fontSize: FONT_SIZES.micro, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-        Design and sample size are read from each abstract as written. A dash means the abstract did not state it — not that the study lacks one. Tap a study to open the paper.
+        Design and sample size are read from each abstract as written. Not stated means the abstract did not give it, not that the study lacks one. Tap a study to open the paper.
       </div>
     </div>
   );
@@ -10706,7 +10707,7 @@ function VideoFilmstrip({ videos, P, accent, onOpen, bare = false }) {
   const shown = (videos || []).slice(0, 8);
   const note = (
     <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, margin: "-4px 0 12px", fontFamily: "var(--cb-font)" }}>
-      Background viewing — these videos are not cited as evidence above.
+      Background viewing: these videos are not cited as evidence above.
     </div>
   );
   const strip = (
@@ -11130,7 +11131,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               thing on offer. */}
           <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 24 }}>
             <UIButton P={P} variant="ghost"
-              onClick={() => { if (onAsk) { const doi = trendingDoiOf(item); onAsk(`What does the research actually show about this: ${item.title}${doi ? ` (DOI: ${doi})` : ""}${item.source ? ` — reported by ${item.source}` : ""}`); close(); } }}
+              onClick={() => { if (onAsk) { const doi = trendingDoiOf(item); onAsk(`What does the research actually show about this: ${item.title}${doi ? ` (DOI: ${doi})` : ""}${item.source ? `, reported by ${item.source}` : ""}`); close(); } }}
               style={{ minHeight: 44,
                 display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 16px",
                 fontSize: FONT_SIZES.small, fontWeight: 700, color: at, background: accent,
@@ -11383,7 +11384,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
-          Sign in to see your meters — AI answers, document reads, and flowcharts, with exact refill times.
+          Sign in to see your meters: AI answers, document reads, and flowcharts, with exact refill times.
         </div>
         <UIButton P={P} variant="ghost" onClick={() => onOpenAuth && onOpenAuth("signin")} style={{ marginTop: 20, padding: "12px 28px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 700, color: at, background: accent, border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
           Sign in
@@ -12127,7 +12128,7 @@ function LiteratureTimeline({ P, accent, at, turn, close }) {
   return (
     <ModalChrome label="The arc of this literature" eyebrow="Evidence" title="The arc of this literature" accent={accent} width={880} tall onClose={close}>
       <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.6)", lineHeight: 1.6, margin: "2px 0 4px" }}>
-        The story the cited years tell — foundations, building, current.
+        The story the cited years tell: foundations, building, current.
       </div>
       {!eras ? (
         <div style={{ padding: "36px 12px", textAlign: "center", color: "rgba(242,244,242,0.55)", fontSize: FONT_SIZES.small, lineHeight: 1.6 }}>
@@ -13329,7 +13330,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
             relayKind === "none" || !sawRelay
               ? "This call couldn't connect. Your network and theirs can't reach each other directly, and no relay server is available right now. Try again later, or switch networks (for example off VPN) and retry."
               : iceErr
-                ? `The call couldn't connect through the relay server (code ${iceErr.code}). Try again in a bit — if it keeps happening, let us know.`
+                ? `The call couldn't connect through the relay server (code ${iceErr.code}). Try again in a bit. If it keeps happening, let us know.`
                 : "Couldn't establish a connection to the other person. This can happen on some restrictive networks."
           );
           setStatus("error");
@@ -14501,7 +14502,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
         <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 20, textAlign: "center" }}>
           <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Your sky is uncharted</div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", maxWidth: 340, lineHeight: 1.6 }}>
-            Save papers and they become stars here — clustered by collection, sized by your rating.
+            Save papers and they become stars here, clustered by collection, sized by your rating.
           </div>
         </div>
       </div>
@@ -14949,7 +14950,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 type="button" onClick={() => setEditing(true)}
                 style={{ minHeight: 44, background: "none", border: "none", padding: "12px 0", cursor: "pointer", fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
               >
-                <Icon name="edit" size={12} /> Add what you work on — one or two sentences
+                <Icon name="edit" size={12} /> Add what you work on: one or two sentences
               </button>
             )
           )}
@@ -17177,7 +17178,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                         </button>
                       ) : (
                         <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-                          No abstract available from the registry — paste the text or upload the file to analyze it.
+                          No abstract available from the registry. Paste the text or upload the file to analyze it.
                         </div>
                       )}
                     </div>
@@ -17185,7 +17186,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
                 {docIdentOnly && !identMeta && (
                   <div style={{ padding: "0 16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                    Cerebrum reads the document you paste or upload — add the text or file and this identifier is attached as its citation.
+                    Cerebrum reads the document you paste or upload. Add the text or file and this identifier is attached as its citation.
                   </div>
                 )}
               </div>
@@ -17271,7 +17272,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </button>
               ) : (
                 <>
-                  <div style={{ ...docEyebrow, marginBottom: 8 }}>Document B — the comparison</div>
+                  <div style={{ ...docEyebrow, marginBottom: 8 }}>Document B: the comparison</div>
                   <textarea
                     value={docB}
                     onChange={(e) => setDocB(e.target.value)}
@@ -17497,7 +17498,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 marks degraded runs with partial:true and missingSections. */}
             {summary.partial && Array.isArray(summary.missingSections) && summary.missingSections.length > 0 && (
               <div style={{ fontSize: FONT_SIZES.small, color: P.warn || "#b98a2f", background: P.warnBg || "rgba(185,138,47,0.10)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "8px 12px", marginBottom: 12 }}>
-                This analysis is incomplete — {summary.missingSections.length === 1 ? "one section" : `${summary.missingSections.length} sections`} didn't finish. Run it again to fill the gaps.
+                This analysis is incomplete: {summary.missingSections.length === 1 ? "one section" : `${summary.missingSections.length} sections`} didn't finish. Run it again to fill the gaps.
               </div>
             )}
             {/* Verified lead media for the document (Commons still or
@@ -20432,7 +20433,7 @@ function App() {
       return true;
     }
     if (failedDeletes.length) {
-      toast(`Couldn't remove ${failedDeletes.length} deleted item${failedDeletes.length === 1 ? "" : "s"} from the vault just now — they'll be retried on the next change.`, { tone: "error" });
+      toast(`Couldn't remove ${failedDeletes.length} deleted item${failedDeletes.length === 1 ? "" : "s"} from the vault just now. They'll be retried on the next change.`, { tone: "error" });
     }
     return true;
   };
@@ -23072,7 +23073,7 @@ function App() {
                       work is — two genuinely different questions, and the
                       modal could answer neither. */}
                   <SegControl small value={librarySort} onChange={setLibrarySort} P={P} accent={accent} ariaLabel="Sort library"
-                    options={[{ id: "recent", label: "Recently saved" }, { id: "year", label: "Newest research" }, { id: "title", label: "A–Z" }]} />
+                    options={[{ id: "recent", label: "Recently saved" }, { id: "year", label: "Newest research" }, { id: "title", label: "A to Z" }]} />
                 </div>
                 {visibleSaved.length === 0 ? (
                   <WorkspaceEmpty P={P} accent={accent} icon="search"
