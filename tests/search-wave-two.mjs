@@ -58,6 +58,9 @@ const {
   applyRelevanceGate,
   buildFurtherReadingTail,
   FURTHER_READING_TAIL_CAP,
+  pruneExtractiveEvidence,
+  conceptGateContext,
+  conceptGateKeeps,
   buildCoverage,
   buildSearchRecord,
 } = await import(join(root, "functions/api/search.js"));
@@ -486,8 +489,12 @@ await test("the cache schema carries the wave two bump", () => {
   // shipped shelf changes for the same stored inputs), then to
   // v24 by the further reading tail at the end of this file (the
   // shipped source list gains tail entries for the same stored
-  // inputs, though retrieval and the evidence set are unchanged).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v24"'), "CACHE_SCHEMA_VERSION must be v24");
+  // inputs, though retrieval and the evidence set are unchanged),
+  // then to v25 by the extractive evidence fix at the end of this
+  // file (extractive answers prune their evidence and tail to the
+  // gate standard and pass failed papers leave shipped lists, so
+  // the shipped list changes for the same stored inputs).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v25"'), "CACHE_SCHEMA_VERSION must be v25");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -892,16 +899,26 @@ group("further reading tail — the discarded shelf ships as further reading");
 await test("the handler snapshots the post passes shelf and joins the tail only at labeling", () => {
   assert.ok(src.includes("programmaticShelf = papers.slice();"),
     "the post passes snapshot is missing from the handler");
+  // Updated 2026-10-13 (extractive evidence fix): the tail now
+  // keeps its raw papers in furtherReadingTailPapers first, so the
+  // extractive branch can hold the tail to the gate standard
+  // before entries are built; the entries are still built from
+  // that list beside the evidence list and labeled at the same
+  // final step.
   assert.ok(
-    src.includes("buildFurtherReadingTail(programmaticShelf, evidencePapers).map(toSourceEntry)"),
+    src.includes("buildFurtherReadingTail(programmaticShelf, evidencePapers)"),
     "the tail must be built from the snapshot against the final evidence set"
+  );
+  assert.ok(
+    src.includes("furtherReadingTailPapers.map(toSourceEntry)"),
+    "the tail entries must be built from the tail papers list"
   );
   assert.ok(
     src.includes('labelUncitedSources(furtherReadingTail, "")'),
     "the tail must be labeled against an empty answer so no marker can resolve to it"
   );
-  const listIdx = src.indexOf("const sourceList = ");
-  const tailIdx = src.indexOf("const furtherReadingTail = ");
+  const listIdx = src.indexOf("let sourceList = ");
+  const tailIdx = src.indexOf("let furtherReadingTail = ");
   assert.ok(listIdx > 0 && tailIdx > listIdx,
     "the tail is built beside the evidence list, never inside it");
 });
@@ -1015,6 +1032,77 @@ await test("no tail candidates: the tail is empty, so the shipped list stays the
     "when everything that passed is evidence, there is no tail");
   assert.deepEqual(buildFurtherReadingTail([], shelf), [], "an empty shelf has no tail");
   assert.deepEqual(buildFurtherReadingTail(null, shelf), [], "a missing shelf has no tail");
+});
+
+group("extractive evidence standard — the shipped list in extractive mode");
+// The production defect this closes (build 6a5cad3): the baby
+// belly question ran EXTRACTIVE while the fleet was capped, and
+// its record shipped 18 sources with exactly one citation — a
+// baby spinach paper, a literal word collision — while the real
+// shelf sat uncited and known collisions (belly dance, prune
+// belly, surrogacy law, a big belly case report) filled the list.
+// The extractive path now prunes its evidence to the both
+// concepts gate's standard before the builder runs, holds its
+// further reading tail to the same standard, and drops any paper
+// a programmatic pass stamped as failed from shipped lists in
+// either mode. The fixtures compose the handler's stages over
+// the draw shelf, in the production extractive shape (the
+// validation leg failed open under the caps, so the evidence set
+// is the full cut).
+
+await test("the handler prunes the extractive evidence and holds its tail to the standard", () => {
+  assert.ok(src.includes("pruneExtractiveEvidence(evidencePapers, query, extGateDyn)"),
+    "the extractive branch must prune the evidence set before the builder runs");
+  assert.ok(src.includes("PASS FAILED PAPERS LEAVE THE SHIPPED LIST"),
+    "the pass failed drop must guard the shipped evidence list in both modes");
+  assert.ok(src.includes("conceptGateKeeps(p, 0, tailCtx)"),
+    "the extractive tail must be filtered by the gate standard");
+});
+
+await test("the draw in extractive mode: standard held, caps held, no collisions ship", () => {
+  const handlerShelf = buildDrawShelf().filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  const prePassed = programmaticValidationPasses(CC_QUESTION, handlerShelf.map((p) => ({ ...p })), null);
+  const evidence = applyRelevanceGate(prePassed).slice(0, 12);
+  assert.equal(evidence.length, 12, "the failed open validation shape keeps the full cut as evidence");
+  const pruned = pruneExtractiveEvidence(evidence, CC_QUESTION, null);
+  const groups = questionConceptGroups(CC_QUESTION, null);
+  for (const p of pruned.papers) {
+    assert.ok(p.thinEvidence || paperConceptGroupHits(p, groups) >= 2,
+      `extractive evidence must meet the gate standard: ${slugOf(p)}`);
+  }
+  const tailAll = buildFurtherReadingTail(prePassed, pruned.papers);
+  const tailCtx = conceptGateContext(tailAll, CC_QUESTION, null);
+  const tail = tailAll.filter((p) => conceptGateKeeps(p, 0, tailCtx));
+  assert.ok(tail.length <= FURTHER_READING_TAIL_CAP, "the extractive tail obeys the tail cap");
+  const shipped = [...pruned.papers, ...tail];
+  assert.ok(shipped.length <= 12 + FURTHER_READING_TAIL_CAP,
+    "the extractive shipped list obeys evidence cap plus tail cap");
+  for (const slug of DRAW_COLLISIONS) {
+    assert.ok(!shipped.some((p) => slugOf(p) === slug), `collision ${slug} must never ship in extractive mode`);
+  }
+  for (const slug of DRAW_NAMED) {
+    assert.ok(shipped.some((p) => slugOf(p) === slug),
+      `${slug} rides the extractive shipped list (evidence or standard passing tail)`);
+  }
+  for (const p of tail) {
+    assert.ok(p.thinEvidence || paperConceptGroupHits(p, groups) >= 2,
+      `extractive tail entries meet the same standard: ${slugOf(p)}`);
+  }
+});
+
+await test("a paper a pass stamped as failed never enters through the tail", () => {
+  const evidencePaper = { ...GUT_MICROBE_PAPER(), relevance: 90 };
+  const stamped = {
+    ...CC_STUNTING_PAPER(), relevance: 88,
+    _filteredReason: "Paper only shares 1 of the query's 4 distinct core topic concepts (needs 2)",
+  };
+  const tail = buildFurtherReadingTail([evidencePaper, stamped], [evidencePaper]);
+  assert.deepEqual(tail, [],
+    "the stamped paper stays out of the tail even though it clears the relevance floor");
+  // The same paper unstamped (a fallback never restored it) does enter.
+  const unstamped = { ...CC_STUNTING_PAPER(), relevance: 88 };
+  const tail2 = buildFurtherReadingTail([evidencePaper, unstamped], [evidencePaper]);
+  assert.equal(tail2.length, 1, "the unstamped paper remains tail eligible");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

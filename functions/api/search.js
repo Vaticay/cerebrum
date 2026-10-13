@@ -739,7 +739,7 @@ export function isNonLiterature(p) {
 // so the shipped source list changes for the same stored inputs
 // even though retrieval, the evidence set, and citation numbering
 // are unchanged.
-const CACHE_SCHEMA_VERSION = "v24";
+const CACHE_SCHEMA_VERSION = "v25";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -4189,7 +4189,16 @@ export function verifyPaperList(papers, analysis) {
   const onTopic = verdicts.filter((v) => v.verdict === "on-topic").length;
   const partial = verdicts.filter((v) => v.verdict === "partial").length;
   const offTopic = verdicts.filter((v) => v.verdict === "off-topic").length;
-  return { verdicts, onTopic, partial, offTopic, total: list.length, allMiss: onTopic === 0 && list.length > 0 };
+  // allMiss means NO paper engages the constraints at all. It used
+  // to fire whenever no paper was fully on topic, but analyzeQuery
+  // glues a plain language question into window phrases ("germs
+  // baby belly") that no real paper can ever fully match, so every
+  // paper with genuine concept level engagement read as a total
+  // miss and the extractive honesty gate failed the whole shelf —
+  // the run fell to the limited tier even when the shelf was the
+  // right literature. A partial verdict IS engagement (the verdict
+  // system's own middle tier); a miss is when there is none.
+  return { verdicts, onTopic, partial, offTopic, total: list.length, allMiss: onTopic === 0 && partial === 0 && list.length > 0 };
 }
 
 // D1 table for the correction learning log. Created lazily on first write;
@@ -6663,6 +6672,56 @@ function significantQueryTerms(query) {
   return terms;
 }
 
+// ── Concept aware term matching for the extractive instruments ──
+// The deterministic tiers judge sentences and findings against the
+// question's terms. Judged LITERALLY, the field's own vocabulary
+// scores zero: a finding about "growth" does not contain the
+// question's word "grows", a finding about the "microbiota" does
+// not contain "germs", and "infants" does not contain "baby". On
+// the production baby belly draw that literalism failed the whole
+// on point shelf at the honesty gate's query hit check, dropped
+// the run to the limited tier, and there made the one paper that
+// prints the question's words verbatim (a baby spinach paper)
+// nearly the only excerpt source. A term therefore also hits when
+// a stem variant matches (grows/growth, babies/baby) or when any
+// member of the term's concept group appears — the same bridge
+// verifyPaperConstraints got in the citation collapse fix.
+function extractiveStem(word) {
+  let w = String(word || "").toLowerCase();
+  if (w.length > 4 && w.endsWith("ies")) w = w.slice(0, -3) + "y";
+  else if (w.length > 3 && w.endsWith("s")) w = w.slice(0, -1);
+  return w;
+}
+export function extractiveTermHit(text, term, dynLookup) {
+  const low = String(text || "").toLowerCase();
+  const t = String(term || "").toLowerCase().trim();
+  if (!low || !t) return false;
+  if (low.indexOf(t) >= 0) return true;
+  const stem = extractiveStem(t);
+  if (stem.length >= 3) {
+    for (const tok of low.split(/[^a-z0-9]+/)) {
+      if (!tok) continue;
+      const tokStem = extractiveStem(tok);
+      if (tokStem === stem) return true;
+      // Derivational variants share a root: grows/growth/growing.
+      // A prefix match at four or more characters keeps short
+      // function words from impersonating content terms.
+      if (stem.length >= 4 && tokStem.startsWith(stem)) return true;
+      if (tokStem.length >= 4 && stem.startsWith(tokStem)) return true;
+    }
+  }
+  const set = conceptSetFor(t, dynLookup || null);
+  if (set) {
+    const toks = new Set(low.split(/[^a-z0-9]+/).filter(Boolean));
+    for (const member of set) {
+      const m = String(member || "").toLowerCase();
+      if (!m) continue;
+      if (m.indexOf(" ") !== -1 ? low.indexOf(m) >= 0 : toks.has(m)) return true;
+    }
+  }
+  return false;
+}
+
 export function assessExtractionQuality(items, ctx = {}) {
   const qTerms = significantQueryTerms(ctx && ctx.query);
   const stats = { cited: (items || []).length, scored: 0, strong: 0, queryHit: 0, withFindings: 0 };
@@ -6677,15 +6736,24 @@ export function assessExtractionQuality(items, ctx = {}) {
     // variants, brand/generic names, etc. This prevents the "couldn't find a
     // direct answer" false negative when perfect matches exist.
     if (rel < EXTRACT_STRONG_RELEVANCE && it && it.p && it.p.title && qTerms.length >= 2) {
-      const titleLower = it.p.title.toLowerCase();
-      const titleHits = qTerms.filter((t) => titleLower.indexOf(t) >= 0).length;
+      const titleHits = qTerms.filter((t) => extractiveTermHit(it.p.title, t, (ctx && ctx.dynLookup) || null)).length;
       if (titleHits >= 2) stats.strong++;
     }
     if (it && it.hasFindings) stats.withFindings++;
     const text = ((it && it.findings) || []).join(" ") + " " + ((it && it.titleClaim) || "");
-    if (qTerms.length > 0 && qTerms.some((t) => text.toLowerCase().indexOf(t) >= 0)) stats.queryHit++;
+    if (qTerms.length > 0 && qTerms.some((t) => extractiveTermHit(text, t, (ctx && ctx.dynLookup) || null))) stats.queryHit++;
   }
   const reasons = [];
+  // Encyclopedia only pools are background, never research: when
+  // every item is an encyclopedia overview there is no primary
+  // research to summarize, whatever the other checks say, so the
+  // gate fails and the tier aware fallback labels the answer as
+  // background. (This used to happen by accident, through the
+  // glued phrase constraint check failing such pools; with that
+  // check corrected the rule has to be stated on its own.)
+  if (stats.cited > 0 && (items || []).every((it) => it && isEncyclopediaSource(it.p))) {
+    reasons.push("The retrieved sources are encyclopedia overviews, not primary research.");
+  }
   // Strength: at least one strongly-relevant paper must anchor an answer.
   // Skipped when papers carry no scores (web fallback) or the mode doesn't
   // score topicality at all (name search . authorship is the signal there).
@@ -6944,7 +7012,7 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
     const sl = String(s || "").toLowerCase();
     if (sl.length < 30 || sl.length > 400) return -1;
     let hits = 0;
-    for (const t of qTerms) if (sl.indexOf(t) >= 0) hits++;
+    for (const t of qTerms) if (extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null)) hits++;
     if (hits === 0) return -1;
     // Prefer sentences that define or explain (encyclopedia's job).
     if (/\b(is|are|refers to|occurs when|caused by|results from|known as)\b/i.test(s)) hits += 0.5;
@@ -7034,8 +7102,7 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       for (const raw of extractSentences(usableAbstract(it.p))) {
         const s = String(raw || "").trim();
         if (s.length < 30 || s.length > 420) continue;
-        const sl = s.toLowerCase();
-        const matched = qTerms.filter((t) => sl.indexOf(t) >= 0);
+        const matched = qTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null));
         if (matched.length === 0) continue;
         candidates.push({ s, idx: it.idx, matched });
       }
@@ -7269,6 +7336,34 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       .map((p, i) => ({ p, idx: i + 1 }))
       .filter(({ p }) => p && (p.title || p.abstract));
     if (pool.length === 0) return null;
+
+    // EXTRACTIVE POOL STANDARD (2026-10-13): excerpts are drawn
+    // only from papers that meet the both concepts gate's standard
+    // (pruneExtractiveEvidence carries the predicate and its
+    // exemptions). The gate itself runs on the finished answer and
+    // can only demote markers — it cannot re pick excerpts — and
+    // its floor rule leaves a one citation answer untouched, which
+    // is how a literal word collision paper became the extractive
+    // tier's only cited source on the production baby belly draw
+    // while the real shelf sat uncited in the sources list.
+    // Filtering the pool here means a sub standard paper's
+    // sentences are never excerpt candidates at all. The floor is
+    // the gate's own: when nothing clears the standard the pool
+    // stands as given, so the guaranteed evidence cascade and thin
+    // shelves are untouched.
+    if (!(ctx && (ctx.isNameSearch || ctx.isFollowupMode))) {
+      try {
+        const gateCtx = conceptGateContext(
+          pool.map((it) => it.p),
+          (ctx && ctx.query) || "",
+          (ctx && ctx.dynLookup) || null
+        );
+        if (gateCtx.groups.length >= 2) {
+          const eligible = pool.filter((it) => conceptGateKeeps(it.p, it.idx, gateCtx));
+          if (eligible.length > 0) pool = eligible;
+        }
+      } catch { /* the pool standard must never break the fallback */ }
+    }
     /* Substrate-drift demotion (2026-09-15 incident). A lignocellulose
      * question retrieved PVC/PET-degradation papers on broad "degradation"
      * vocabulary overlap, and those papers dominated the emitted answer.
@@ -7311,13 +7406,25 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     const citedPapers = items.map((it) => it.p);
 
     // Per paper: the two most finding-dense abstract sentences, else the title.
+    // A sentence that directly engages the question (two or more of
+    // its terms, judged by concept and stem like the other
+    // extractive instruments) is excerpt worthy even when it uses
+    // no finding verbs and carries no number — the finding density
+    // scorer alone made a paper's central claim ("The gut
+    // microbiome influences cardiovascular disease through
+    // inflammatory pathways") invisible while a peripheral
+    // quantified result became the paper's only finding. Admitted
+    // sentences keep their density score (0), so they fill a
+    // findings slot only when density alone leaves one open.
+    const findingsQTerms = significantQueryTerms(ctx && ctx.query);
     const termSets = [];
     for (const it of items) {
       const abs = usableAbstract(it.p);
       const sents = extractSentences(abs).map((s) => s.trim()).filter((s) => s.length > 20);
       const ranked = sents
         .map((s) => ({ s, score: scoreFindingSentence(s) }))
-        .filter(({ score }) => score > 0)
+        .filter(({ s, score }) => score > 0 ||
+          findingsQTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null)).length >= 2)
         .sort((a, b) => b.score - a.score);
       const top = ranked.slice(0, 2);
       // Extraction tags ("[Results] …") are stripped here so they can never
@@ -7449,7 +7556,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     const ledeQHits = (t) => {
       const low = String(t || "").toLowerCase();
       let n = 0;
-      for (const q of ledeQTerms) if (q && low.indexOf(q) >= 0) n++;
+      for (const q of ledeQTerms) if (q && extractiveTermHit(t, q, (ctx && ctx.dynLookup) || null)) n++;
       for (const ph of ledeQPhrases) if (ph && low.indexOf(ph) >= 0) n += 3;
       return n;
     };
@@ -8520,6 +8627,81 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
   });
   const tidied = cleaned.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1");
   return { text: tidied, demoted: failing };
+}
+
+// ── The gate standard as a pool predicate (2026-10-13) ──────────
+// applyConceptCoverageGate judges a finished answer's markers. The
+// extractive tiers need the same standard BEFORE an answer exists:
+// which papers may supply excerpts at all, and (in the handler)
+// which evidence entries may ship on an extractive answer. The
+// context below computes the gate's own inputs once: the resolved
+// concept groups, the organism and binomial anchor needles, and
+// the existence path's carried paper. The keep predicate mirrors
+// the gate's exemptions exactly: cascade papers (thinEvidence),
+// anchor carried papers, and the existence paper are kept; any
+// other paper must touch at least two of the question's groups.
+export function conceptGateContext(papers, query, dynLookup) {
+  const list = Array.isArray(papers) ? papers : [];
+  const groups = questionConceptGroups(query, dynLookup);
+  const qLower = String(query || "").toLowerCase();
+  const anchorNeedles = [];
+  const binomial = extractBinomial(String(query || ""));
+  if (binomial && binomial.full) anchorNeedles.push(binomial.full.toLowerCase());
+  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
+    if (qLower.includes(name)) {
+      for (const idf of identifiers || []) anchorNeedles.push(String(idf).toLowerCase());
+    }
+  }
+  let existenceIdx = 0;
+  if (isExistenceQuestion(query)) {
+    try {
+      const support = findExistenceSupport(
+        list.map((p, i) => ({ p, idx: i + 1 })),
+        query
+      );
+      if (support && support.idx) existenceIdx = support.idx;
+    } catch { /* best effort, mirroring the gate */ }
+  }
+  return { groups, anchorNeedles, existenceIdx };
+}
+
+export function conceptGateKeeps(paper, idx, gateCtx) {
+  const p = paper || {};
+  const ctx = gateCtx || {};
+  if (p.thinEvidence) return true;
+  if (idx && ctx.existenceIdx && idx === ctx.existenceIdx) return true;
+  if (Array.isArray(ctx.anchorNeedles) && ctx.anchorNeedles.length > 0) {
+    const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
+    if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
+  }
+  return paperConceptGroupHits(p, ctx.groups || []) >= 2;
+}
+
+// The extractive evidence prune: the papers an extractive answer
+// may draw on and ship, in original order, with the old to new
+// index map the caller needs to remap anything keyed to the old
+// positions (the evidence brief's claims). The floor mirrors the
+// gate's floor rule: if NO paper clears the standard the set is
+// returned unchanged, because a mechanical pass must never
+// manufacture zero sources. When only cascade papers clear it
+// (they are exempt by flag), they are the set.
+export function pruneExtractiveEvidence(papers, query, dynLookup) {
+  const list = Array.isArray(papers) ? papers : [];
+  const identity = new Map(list.map((_, i) => [i + 1, i + 1]));
+  const unchanged = { papers: list, changed: false, idxMap: identity };
+  if (list.length === 0) return unchanged;
+  const gateCtx = conceptGateContext(list, query, dynLookup);
+  if (!gateCtx.groups || gateCtx.groups.length < 2) return unchanged;
+  const kept = [];
+  const idxMap = new Map();
+  list.forEach((p, i) => {
+    if (conceptGateKeeps(p, i + 1, gateCtx)) {
+      idxMap.set(i + 1, kept.length + 1);
+      kept.push(p);
+    }
+  });
+  if (kept.length === 0 || kept.length === list.length) return unchanged;
+  return { papers: kept, changed: true, idxMap };
 }
 
 // ── Named author reattachment ───────────────────────────────────
@@ -9985,6 +10167,12 @@ export function buildFurtherReadingTail(shelf, evidence) {
     if (tail.length >= FURTHER_READING_TAIL_CAP) break;
     if (!p || !p.title) continue;
     if (hasRetractedTitleMarker(p.title)) continue;
+    // A paper a programmatic pass already failed (the verdict is
+    // stamped on the object) never enters through the tail: the
+    // passes' never zero fallbacks can restore such a paper into
+    // the shelf snapshot, and the tail is not a way back in for
+    // it. Cascade papers are exempt by their flag, as everywhere.
+    if (p._filteredReason && !p.thinEvidence) continue;
     const keys = paperDedupeKeys(p);
     if (keys.some((k) => evidenceKeys.has(k) || tailKeys.has(k))) continue;
     if (applyRelevanceGate([p]).length === 0) continue;
@@ -15804,6 +15992,22 @@ async function runSearchPipeline(pctx) {
       }
     }
 
+    // PASS FAILED PAPERS LEAVE THE SHIPPED LIST (2026-10-13): a
+    // paper a programmatic pass failed carries the pass's verdict
+    // stamped on it (_filteredReason). Such a paper can still sit
+    // in the evidence set when a never zero fallback restored it
+    // (the topic filter's or the organism pass's top three) — and
+    // it must not ship as a source in either mode once any
+    // unstamped paper remains. Cascade papers (thinEvidence) are
+    // exempt by flag, and when every paper is stamped the set
+    // stands: zero sources is still unacceptable.
+    if (useEvidence && evidencePapers.length > 1) {
+      const unstamped = evidencePapers.filter((p) => !(p && p._filteredReason && !p.thinEvidence));
+      if (unstamped.length > 0 && unstamped.length < evidencePapers.length) {
+        evidencePapers = unstamped;
+      }
+    }
+
     // The gate can empty the list even when papers were retrieved: in that
     // state there is no evidence to synthesize FROM, so the answer takes the
     // no-evidence path (answer from knowledge, zero citations, suggest better
@@ -15839,7 +16043,7 @@ async function runSearchPipeline(pctx) {
       updateType: updateType || null,
       thinEvidence: !!thinEvidence,  // 2026-10-12: was dropped, UI never saw it
     });
-    const sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(toSourceEntry);
+    let sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(toSourceEntry);
 
     // FURTHER READING TAIL (2026-10-13): papers that passed the
     // programmatic passes but are not in the final evidence set
@@ -15857,9 +16061,10 @@ async function runSearchPipeline(pctx) {
     // are exempt, mirroring the exemptions of the passes and the
     // relevance gate: name search never ran the passes on this
     // shelf, and a follow up answer anchors on its own set.
-    const furtherReadingTail = (useEvidence && !isNameSearch && !isFollowupMode && programmaticShelf)
-      ? buildFurtherReadingTail(programmaticShelf, evidencePapers).map(toSourceEntry)
+    const furtherReadingTailPapers = (useEvidence && !isNameSearch && !isFollowupMode && programmaticShelf)
+      ? buildFurtherReadingTail(programmaticShelf, evidencePapers)
       : [];
+    let furtherReadingTail = furtherReadingTailPapers.map(toSourceEntry);
 
     // Bug: abstracts went into the prompt at their full ingestion length
     // (up to 1200-1500 chars each, uncapped here) no matter how many papers
@@ -17916,7 +18121,58 @@ async function runSearchPipeline(pctx) {
         answer = definitionFastPathAnswer;
         extractiveOK = true;
       } else try {
-        const extPool = useEvidence ? evidencePapers : useWeb ? webRefs : [];
+        // EXTRACTIVE EVIDENCE PRUNE (2026-10-13): an extractive
+        // answer's shipped list is its evidence in a way the AI
+        // path's bibliography is not — the excerpts ARE the answer.
+        // Before the builder runs, the evidence set is pruned to
+        // the both concepts gate's standard (pruneExtractive
+        // Evidence): papers touching fewer than two of the
+        // question's concept groups leave the set entirely, so a
+        // literal word collision can neither supply an excerpt nor
+        // ship as a cited or listed source on this path. Cascade
+        // papers keep their exemption, and when nothing clears the
+        // standard the set stands unchanged (the floor rule). The
+        // shipped list, the record, and every index based consumer
+        // downstream read the same pruned set, because sourceList
+        // is rebuilt here before any of them run; the evidence
+        // brief's claims are remapped to the new positions. The
+        // further reading tail is held to the same standard below:
+        // a tail entry that passed the programmatic passes on
+        // literal words but touches one concept does not ship on
+        // an extractive answer either. (The AI path keeps its tail
+        // as built: its membership bar is the passes, per the tail
+        // contract — but a paper a pass stamped as failed is now
+        // excluded from both modes; see buildFurtherReadingTail
+        // and the pass failed drop above.)
+        const extGateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+          ? buildDynLookup(gResult._diag.llmExpanded)
+          : null;
+        let extPool = useEvidence ? evidencePapers : useWeb ? webRefs : [];
+        let extBriefClaims = briefClaims;
+        if (useEvidence && !isNameSearch && !isFollowupMode && evidencePapers.length > 0) {
+          try {
+            const pruned = pruneExtractiveEvidence(evidencePapers, query, extGateDyn);
+            if (pruned.changed) {
+              extBriefClaims = (briefClaims || [])
+                .map((bc) => (bc && pruned.idxMap.has(bc.idx)) ? { ...bc, idx: pruned.idxMap.get(bc.idx) } : null)
+                .filter(Boolean);
+              evidencePapers = pruned.papers;
+              sourceList = evidencePapers.map(toSourceEntry);
+              extPool = evidencePapers;
+            }
+          } catch (pruneErr) { console.error("[Cerebrum] extractive evidence prune:", pruneErr); }
+          try {
+            if (furtherReadingTailPapers.length > 0) {
+              const tailCtx = conceptGateContext(furtherReadingTailPapers, query, extGateDyn);
+              if (tailCtx.groups.length >= 2) {
+                const keptTail = furtherReadingTailPapers.filter((p) => conceptGateKeeps(p, 0, tailCtx));
+                if (keptTail.length < furtherReadingTailPapers.length) {
+                  furtherReadingTail = keptTail.map(toSourceEntry);
+                }
+              }
+            }
+          } catch (tailErr) { console.error("[Cerebrum] extractive tail standard:", tailErr); }
+        }
         // NEXT-GEN: the extractive path emits the same five-section
         // structure as the AI path, with computed disagreement /
         // confidence / falsification sections. ctx carries what those
@@ -17939,9 +18195,10 @@ async function runSearchPipeline(pctx) {
             isNameSearch: queryAnalysis.isNameSearch,
           };
         }
-        const ext = buildExtractiveSynthesis(extPool, briefClaims, {
+        const ext = buildExtractiveSynthesis(extPool, extBriefClaims, {
           query: searchQuery,
           queryAnalysis,
+          dynLookup: extGateDyn,
           isNameSearch,
           isFollowupMode,
           sourcesQueried: publicSourcesQueried(),

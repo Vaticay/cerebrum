@@ -23,7 +23,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildExtractiveSynthesis, isWellFormedClaim, buildEvidenceBrief, getLastExtractiveTier, verifyExtractiveAlignment } = await import(
+const {
+  buildExtractiveSynthesis, isWellFormedClaim, buildEvidenceBrief, getLastExtractiveTier, verifyExtractiveAlignment,
+  pruneExtractiveEvidence, conceptGateContext, conceptGateKeeps, extractiveTermHit,
+  buildFurtherReadingTail, paperConceptGroupHits, questionConceptGroups,
+} = await import(
   join(root, "functions/api/search.js")
 );
 
@@ -264,8 +268,30 @@ const BEE_PAPERS = [
   ),
 ];
 
-await test("limited tier leads with the answer line, excerpts labeled as quotations", () => {
+// CONTRACT UPDATE (2026-10-13, extractive evidence fix): the
+// BEE_PAPERS shelf below used to land on the limited tier only
+// because the honesty gate judged it literally — analyzeQuery's
+// glued window phrases could never fully match, so every paper
+// read as a total miss. Under concept aware judging the shelf
+// genuinely engages the question and earns the research tier;
+// the first test pins that corrected landing. The limited tier
+// formatting pins move to LIMITED_BEES, a shelf with no strongly
+// relevant paper (both relevance 35), which is what the limited
+// tier is honestly for.
+const LIMITED_BEES = [
+  { title: "Cluster thermoregulation in overwintering colonies", abstract: "Colonies maintain cluster temperature through the winter by shivering flight muscles. Bees at the cluster core stay warmer than bees at the surface.", year: 2024, relevance: 35 },
+  { title: "Parasite loads and colony losses in cold months", abstract: "Colonies infested with varroa mites showed higher winter losses than uninfested colonies in the survey.", year: 2024, relevance: 35 },
+];
+
+await test("an on question shelf reaches the research tier under concept aware judging", () => {
   const md = buildExtractiveSynthesis(BEE_PAPERS, null, { query: "How do bees stay warm in winter?" });
+  assert.ok(md, "expected markdown output");
+  assert.equal(getLastExtractiveTier(), "research",
+    "the bee shelf engages its question and must not be demoted to the limited tier by literal judging");
+});
+
+await test("limited tier leads with the answer line, excerpts labeled as quotations", () => {
+  const md = buildExtractiveSynthesis(LIMITED_BEES, null, { query: "How do bees stay warm in winter?" });
   assert.ok(md, "expected markdown output");
   assert.equal(getLastExtractiveTier(), "limited", "fixture must land on the limited tier");
   assert.ok(md.startsWith("## The short answer\n\n"), "answer must open with The short answer, got: " + md.slice(0, 60));
@@ -300,11 +326,237 @@ await test("limited tier existence question leads with the existence line", () =
 });
 
 await test("alignment checker still verifies the reframed limited answer end to end", () => {
-  const md = buildExtractiveSynthesis(BEE_PAPERS, null, { query: "How do bees stay warm in winter?" });
-  const res = verifyExtractiveAlignment(md, BEE_PAPERS);
+  const md = buildExtractiveSynthesis(LIMITED_BEES, null, { query: "How do bees stay warm in winter?" });
+  const res = verifyExtractiveAlignment(md, LIMITED_BEES);
   assert.equal(res.checked, true, "reframed answer escaped alignment checking");
   assert.equal(res.claims.length, 3, "lead plus both supporting passages must be checked, bibliography excluded");
   assert.equal(res.overall, "supported");
+});
+
+// ── EXTRACTIVE EVIDENCE STANDARD (2026-10-13) ────────────────────
+// The production defect (build 6a5cad3, fleet capped): the baby
+// belly question ran extractive and its record shipped 18 sources
+// with exactly ONE citation — the baby spinach paper, a literal
+// word collision — while the real infant gut shelf sat uncited in
+// further reading and the shipped list also carried belly dance,
+// prune belly case reports, a surrogacy law paper, and a big belly
+// case report. The trace: the extractive honesty gate judged the
+// shelf with literal term matching, so the field's own vocabulary
+// (growth, microbiota, infants) scored zero against the question's
+// words (grows, germs, baby) and the whole shelf "failed"; the
+// run fell to the limited tier, whose literal sentence ranking
+// made the spinach paper (which prints baby, belly, and gut
+// vocabulary verbatim) nearly the only excerpt candidate; and the
+// both concepts gate, which runs on the finished answer, can only
+// demote markers — it cannot re pick excerpts — and its floor rule
+// leaves a one citation answer untouched. The fixtures below pin
+// the corrected contract: excerpts and the extractive shipped list
+// are drawn only from papers meeting the gate's standard, the
+// extractive instruments judge by concept and stem rather than
+// literal words, and the guaranteed cascade still answers on a
+// genuinely thin shelf. The question is worded in plain everyday
+// language throughout, per the mismatched language rule.
+
+const BELLY_Q = "Do the germs in a baby belly change how well the baby grows";
+const DRAW_PAPER = (title, abstract, relevance) => ({ title, abstract, relevance, year: 2024, journal: "J Test" });
+// The spinach paper's real abstract (Europe PMC): it genuinely
+// touches both resolved concept groups (microbiome modulation;
+// gastrointestinal, gut derived), so it MEETS the gate standard —
+// the measured fact the report states plainly. What the fix ends
+// is its monopoly: it can no longer be the only citation or the
+// lede of an answer whose shelf is the infant gut literature.
+const SPINACH_PAPER = () => DRAW_PAPER(
+  "Metabolomic Characterization of Baby Spinach Phenolics Transformation During Gastrointestinal Digestion",
+  "Gastrointestinal digestion and colonic fermentation determine phenolic transformation and reciprocal microbiome modulation, influencing the generation of gut-derived metabolites associated with epithelial integrity, inflammatory regulation, and metabolic homeostasis. Baby spinach phenolics possess antioxidant and microbiome-modulating potential; however, their functional efficacy is constrained by storage-induced degradation and limited gastrointestinal bioaccessibility. This study investigated phenolic transformation in fresh and stored baby spinach (4 °C and 25 °C) during simulated gastrointestinal digestion and colonic fermentation in vitro.",
+  77
+);
+const CESAREAN_PAPER = () => DRAW_PAPER(
+  "Partial restoration of the microbiota of cesarean-born infants via vaginal microbial transfer",
+  "Exposure of newborns to the maternal vaginal microbiota is interrupted with cesarean birthing. Babies delivered by cesarean section acquire a microbiota that differs from that of vaginally delivered infants, and C-section delivery has been associated with increased risk for immune and metabolic disorders. Here we conducted a pilot study in which infants delivered by C-section were exposed to maternal vaginal fluids at birth. Similarly to vaginally delivered babies, the gut, oral and skin bacterial communities of these newborns during the first 30 days of life were enriched in vaginal bacteria.",
+  58
+);
+const BIFIDO_PAPER = () => DRAW_PAPER(
+  "Bifidobacteria-mediated immune system imprinting early in life",
+  "Bifidobacteria are among the first colonizers of the newborn gut, yet how these bacteria imprint immune development is unclear. We show that bifidobacteria dominate the intestinal microbiota of breastfed infants in the first weeks. Infants lacking bifidobacteria showed weaker vaccine responses and slower growth over the first year.",
+  57
+);
+const STUNTING_PAPER = () => DRAW_PAPER(
+  "Early life gut microbiome and stunting in rural infants",
+  "Gut microbiome samples from infants in rural Malawi were sequenced. Children with immature gut microbiota communities showed more stunting and poorer linear growth. Microbiota maturity at six months predicted height gain at eighteen months.",
+  64
+);
+const ENTEROPATHY_PAPER = () => DRAW_PAPER(
+  "Disrupting the vicious cycle of malnutrition and enteropathy: advancing strategies for child growth",
+  "Environmental enteropathy is driven by chronic intestinal exposure in low-resource settings. Gut microbial communities in undernourished children fail to mature on schedule, and linear growth falters alongside them. Interventions that restore a healthier gut microbiota improved weight gain in recent trials.",
+  64
+);
+const DANCE_PAPER = () => DRAW_PAPER(
+  "The Influence of Belly Dance on the Second Stage of Labor and the Condition of the Baby",
+  "Belly dance classes during pregnancy were studied for their effect on labor duration in 120 women. Women who danced reported less pain in the second stage of labor, and their babies were in good condition at birth.",
+  66
+);
+const PRUNE_PAPER = () => DRAW_PAPER(
+  "Prune belly syndrome: a case series",
+  "Prune belly syndrome presents with abdominal wall deficiency in newborns. Three cases are described with urinary tract anomalies and surgical management in infancy.",
+  59
+);
+const SURROGACY_PAPER = () => DRAW_PAPER(
+  "Her Belly, Their Baby: A Contract Solution for Surrogacy Agreements",
+  "This Note examines surrogacy contract law. Courts have split on enforcing gestational agreements, and this article proposes a contract framework for intended parents and carriers under state law.",
+  63
+);
+const BIG_BELLY_PAPER = () => DRAW_PAPER(
+  "Acute abdomen in a patient with a big belly: a case report",
+  "A 54 year old man presented with abdominal distension. Imaging showed a large abdominal mass and surgery removed a benign tumor.",
+  67
+);
+const COLLISION_TITLES = [
+  "The Influence of Belly Dance on the Second Stage of Labor",
+  "Prune belly syndrome",
+  "Her Belly, Their Baby",
+  "Acute abdomen in a patient with a big belly",
+];
+// The production evidence order: relevance put the collisions at
+// the top of the shelf alongside the on point papers.
+const PRODUCTION_EVIDENCE = () => [
+  SPINACH_PAPER(), DANCE_PAPER(), BIG_BELLY_PAPER(), ENTEROPATHY_PAPER(),
+  SURROGACY_PAPER(), CESAREAN_PAPER(), BIFIDO_PAPER(), STUNTING_PAPER(), PRUNE_PAPER(),
+];
+const citedIndices = (md) => {
+  const out = [];
+  for (const m of String(md || "").matchAll(/\[(\d+)\]/g)) out.push(Number(m[1]));
+  return out;
+};
+
+await test("extractive term matching judges by concept and stem, not literal words", () => {
+  assert.ok(extractiveTermHit("Linear growth faltered in the cohort.", "grows", null),
+    "growth must answer for the question's word grows");
+  assert.ok(extractiveTermHit("The microbiota differed by delivery mode.", "germs", null),
+    "microbiota must answer for the question's word germs");
+  assert.ok(extractiveTermHit("Intestinal communities mature over the first year.", "belly", null),
+    "intestinal must answer for the question's word belly");
+  assert.ok(extractiveTermHit("Babies delivered by section were enrolled.", "baby", null),
+    "babies must answer for the question's word baby");
+  assert.ok(!extractiveTermHit("Phenolic content fell during storage.", "grows", null),
+    "an unrelated sentence must not hit");
+});
+
+await test("the prune drops the one concept collisions and keeps the on point shelf", () => {
+  const groups = questionConceptGroups(BELLY_Q, null);
+  assert.equal(groups.length, 2, "the question resolves to the microbe and gut groups");
+  for (const p of [DANCE_PAPER(), PRUNE_PAPER(), SURROGACY_PAPER(), BIG_BELLY_PAPER()]) {
+    assert.ok(paperConceptGroupHits(p, groups) < 2, `${p.title} must touch fewer than two groups`);
+  }
+  const pruned = pruneExtractiveEvidence(PRODUCTION_EVIDENCE(), BELLY_Q, null);
+  assert.ok(pruned.changed, "the production evidence set must be pruned");
+  const titles = pruned.papers.map((p) => p.title);
+  for (const t of COLLISION_TITLES) {
+    assert.ok(!titles.some((x) => x.includes(t)), `collision must leave the extractive evidence set: ${t}`);
+  }
+  for (const keep of ["cesarean-born infants", "Bifidobacteria-mediated", "stunting in rural infants", "malnutrition and enteropathy"]) {
+    assert.ok(titles.some((x) => x.includes(keep)), `on point paper must stay: ${keep}`);
+  }
+  // The index map must point each kept paper at its new position.
+  const original = PRODUCTION_EVIDENCE();
+  for (const [oldIdx, newIdx] of pruned.idxMap) {
+    assert.equal(pruned.papers[newIdx - 1].title, original[oldIdx - 1].title,
+      "the index map must track each kept paper to its new position");
+  }
+});
+
+await test("forced extractive run of the draw: the real shelf carries the answer", () => {
+  const pruned = pruneExtractiveEvidence(PRODUCTION_EVIDENCE(), BELLY_Q, null);
+  const md = buildExtractiveSynthesis(pruned.papers, null, { query: BELLY_Q });
+  assert.ok(md, "the extractive builder must produce an answer");
+  assert.equal(getLastExtractiveTier(), "research",
+    "with concept aware judging the on point shelf must reach the research tier, not the limited tier");
+  const cited = citedIndices(md);
+  const idxOf = (frag) => pruned.papers.findIndex((p) => p.title.includes(frag)) + 1;
+  for (const frag of ["cesarean-born infants", "Bifidobacteria-mediated", "stunting in rural infants"]) {
+    assert.ok(cited.includes(idxOf(frag)), `on point paper must be cited: ${frag}`);
+  }
+  assert.ok(cited.length >= 3 && new Set(cited).size >= 3,
+    "the answer must cite several papers, not one");
+  const onPoint = new Set([
+    idxOf("cesarean-born infants"), idxOf("Bifidobacteria-mediated"),
+    idxOf("stunting in rural infants"), idxOf("malnutrition and enteropathy"),
+  ]);
+  assert.ok(onPoint.has(cited[0]),
+    "the first citation (the lede) must come from an on point paper, not the collision");
+  assert.ok(!(cited.length === 1 && cited[0] === idxOf("Baby Spinach")),
+    "the spinach paper must never again be the only cited source");
+  for (const t of COLLISION_TITLES) {
+    assert.ok(!md.includes(t), `collision title must not appear anywhere in the answer: ${t}`);
+  }
+});
+
+await test("the builder's own pool standard holds without the handler prune", () => {
+  // Direct builder callers (and any future path that skips the
+  // handler prune) get the same standard from the pool filter:
+  // sub standard papers supply no excerpts and are not even listed.
+  const md = buildExtractiveSynthesis(PRODUCTION_EVIDENCE(), null, { query: BELLY_Q });
+  assert.ok(md, "the builder must produce an answer");
+  for (const t of COLLISION_TITLES) {
+    assert.ok(!md.includes(t), `collision title must not appear in builder output: ${t}`);
+  }
+  const cited = new Set(citedIndices(md));
+  // Input positions: dance 2, big belly 3, surrogacy 5, prune 9.
+  for (const idx of [2, 3, 5, 9]) {
+    assert.ok(!cited.has(idx), `collision at input position ${idx} must never be cited`);
+  }
+});
+
+await test("the extractive shipped list obeys the caps and carries no collisions", () => {
+  // Assembly level composition, exactly as the handler composes
+  // it: passes shelf snapshot, evidence cut, extractive prune,
+  // tail held to the same standard, shipped = evidence + tail.
+  const shelf = [...PRODUCTION_EVIDENCE()];
+  for (let i = 0; i < 14; i++) {
+    shelf.push(DRAW_PAPER(
+      `Gut microbiota and early growth cohort study ${i + 1}`,
+      "Cohort infants were followed for two years. Gut microbiota composition and intestinal markers were measured at three months, and linear growth and weight gain were tracked to age two.",
+      60 - i
+    ));
+  }
+  const evidence = shelf.slice(0, 12);
+  const pruned = pruneExtractiveEvidence(evidence, BELLY_Q, null);
+  assert.ok(pruned.papers.length <= 12, "evidence stays within the evidence cap after the prune");
+  const tailAll = buildFurtherReadingTail(shelf, pruned.papers);
+  const tailCtx = conceptGateContext(tailAll, BELLY_Q, null);
+  const tail = tailAll.filter((p) => conceptGateKeeps(p, 0, tailCtx));
+  assert.ok(tail.length <= 10, "the extractive tail stays within the tail cap");
+  const shipped = [...pruned.papers, ...tail];
+  assert.ok(shipped.length <= 22, "the shipped list stays within evidence cap plus tail cap");
+  for (const t of COLLISION_TITLES) {
+    assert.ok(!shipped.some((p) => p.title.includes(t)), `collision must not ship in any position: ${t}`);
+  }
+  for (const p of shipped) {
+    assert.ok(p.thinEvidence || paperConceptGroupHits(p, tailCtx.groups) >= 2,
+      `every shipped paper meets the gate standard: ${p.title}`);
+  }
+});
+
+await test("thin shelf control: the cascade still answers when nothing clears the standard", () => {
+  // A genuinely thin shelf: the only retrieved papers are two
+  // case reports the relevance cascade flagged thinEvidence. They
+  // touch one concept group at most, but the cascade guarantee
+  // outranks the standard — the prune must stand down and the
+  // builder must still answer.
+  const thin = [
+    { ...PRUNE_PAPER(), thinEvidence: true },
+    { ...BIG_BELLY_PAPER(), thinEvidence: true },
+  ];
+  const pruned = pruneExtractiveEvidence(thin, BELLY_Q, null);
+  assert.ok(!pruned.changed, "cascade papers must not be pruned away");
+  const md = buildExtractiveSynthesis(pruned.papers, null, { query: BELLY_Q });
+  assert.ok(md && md.length > 0, "a thin shelf still produces an honest answer, never zero sources");
+  // Floor rule without cascade flags: when NO paper clears the
+  // standard and none is flagged, the set also stands — a
+  // mechanical pass must never manufacture zero sources.
+  const floor = pruneExtractiveEvidence([DANCE_PAPER(), PRUNE_PAPER()], BELLY_Q, null);
+  assert.ok(!floor.changed && floor.papers.length === 2, "the floor rule keeps the set when nothing clears");
+  const md2 = buildExtractiveSynthesis(floor.papers, null, { query: BELLY_Q });
+  assert.ok(md2 && md2.length > 0, "the floor set still answers");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

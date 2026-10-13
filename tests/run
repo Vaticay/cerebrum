@@ -419,7 +419,11 @@ await test("citation indices stay 1-based and aligned to input order", () => {
 });
 
 await test("wave 4 is wired into the search handler before the honest fallback", () => {
-  assert.match(searchSrc, /buildExtractiveSynthesis\(extPool, briefClaims, \{/, "wave 4 is not attempted on total AI failure");
+  // Updated 2026-10-13 (extractive evidence fix): the brief claims
+  // handed to wave 4 are extBriefClaims — the same claims,
+  // remapped to the pruned evidence positions when the extractive
+  // evidence prune dropped sub standard papers before the build.
+  assert.match(searchSrc, /buildExtractiveSynthesis\(extPool, extBriefClaims, \{/, "wave 4 is not attempted on total AI failure");
   assert.match(searchSrc, /if \(!extractiveOK\)/, "no-results terminal state missing when extractive synthesis has nothing to work with");
   assert.match(searchSrc, /responseKind = "no-results"/, "no-results response kind not set");
   assert.match(searchSrc, /synthesisMode: extractiveOK \? "extractive"/, "synthesisMode is not reported to the frontend");
