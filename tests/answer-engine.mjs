@@ -325,7 +325,7 @@ test("weak papers yield the honest answer, never a stitched short answer", () =>
 
 test("weak extraction still names why and offers reformulations", () => {
   const md = buildExtractiveSynthesis([tangentialPaper()], [], { query: "does sleep deprivation impair memory" });
-  assert.match(md, /Why this isn't a summary/, "missing reasons section");
+  assert.match(md, /Why the evidence falls short/, "missing reasons section");
   assert.match(md, /Try asking it this way/, "missing reformulations");
 });
 
@@ -1346,6 +1346,63 @@ test("synthesis prompts ground strictly in the papers; background is marked, nev
   assert.match(src, /None of the papers retrieved here report X/, "bounded existence wording missing");
   assert.match(src, /NEVER write 'the literature does not report X'/, "literature-wide existence ban missing");
   assert.match(src, /None of the retrieved/, "deterministic existence line must stay bounded to the retrieved set");
+});
+
+test("synthesis prompts teach facts with citations as support; paper framing is reserved for provenance", async () => {
+  // Dusty 2026-10-13: answers came back as paper based responses (reports
+  // about papers) instead of factual teachings supported by the papers.
+  // The diagnosis: VOICE RULE 8 mandated report framing ("Always
+  // attribute: 'the authors found', 'the study reports'...") and no copy
+  // anywhere stated the teaching frame. Every synthesis prompt copy now
+  // carries the rule in so many words: claims phrased as facts about the
+  // world, explained plainly; citations attach as support; paper framing
+  // is reserved for disagreement, a single weak source, and methods the
+  // reader must weigh. Grounding is untouched (see the strict grounding
+  // pin above, existence rule included).
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  // Main prompt (PERSONALITY, VOICE RULE 2B, CITE_RULES, structure):
+  assert.match(src, /TEACH THE ANSWER, DO NOT REPORT THE LITERATURE/, "PERSONALITY missing the teaching rule");
+  assert.match(src, /RULE 2B: TEACH, DO NOT REPORT/, "VOICE missing RULE 2B");
+  assert.match(src, /The default sentence frame is the fact itself/, "fact-first frame rule missing");
+  assert.match(src, /citation is the warranty/, "citations-as-support rule missing");
+  assert.match(src, /reserved for the few places provenance itself is the information/, "provenance reservation missing from PERSONALITY");
+  assert.match(src, /TEACHING FRAME: the citation is the warranty, not the subject/, "CITE_RULES missing the teaching frame");
+  // Branch copies carry it too (main STEP 2, compact, bulletproof,
+  // enforcer, both retries, the additional papers digest):
+  assert.match(src, /Teach those findings as facts about the world, explained plainly, not as reports about papers/, "main branch STEP 2 missing the teaching frame");
+  assert.match(src, /Teach the answer as plain facts about the world, the way a knowledgeable assistant explains it/, "compact prompt missing the teaching frame");
+  assert.match(src, /Teach plainly: findings stated as facts about the world/, "bulletproof prompt missing the teaching frame");
+  assert.match(src, /TEACH, DO NOT REPORT: phrase claims as facts about the world/, "enforcer missing the teaching frame");
+  assert.match(src, /TEACH, DO NOT REPORT: phrase claims as facts about the world, explained plainly, with citations as support/, "quality retry missing the teaching frame");
+  assert.match(src, /Teach plainly: state findings as facts about the world/, "no-citation retry missing the teaching frame");
+  assert.match(src, /State what the paper establishes as a plain fact about the world in one sentence/, "digest branch still asks for report-style findings");
+  assert.ok((src.match(/[Pp]aper framing only where provenance matters/g) || []).length >= 2, "provenance reservation must ride in the branch copies too");
+  // The defeated report-style instructions are gone:
+  assert.ok(!src.includes("Always attribute:"), "RULE 8 still mandates attribution framing");
+  assert.ok(!src.includes("State the key finding in one sentence with the citation"), "digest branch still uses the report-style finding instruction");
+});
+
+test("extractive fallback frame: answer line first, excerpts labeled, no report frame", async () => {
+  // The limited tier opened with "## What the sources say" and narrated
+  // the pipeline's own process ("N of the papers above had abstracts
+  // detailed enough to draw findings from... The sentences below are
+  // the ones that speak to the question most closely"), and the weak
+  // answer explained itself under "Why this isn't a summary". All of
+  // it made the fallback read as a report about papers. The corrected
+  // contract: the honest answer line leads, quoted passages sit under
+  // Supporting evidence labeled as quotations, and headings describe
+  // the evidence, not the document.
+  const src = await readFile(join(root, "functions/api/search.js"), "utf8");
+  assert.ok(!src.includes('"## What the sources say'), "limited tier still emits the report frame heading");
+  assert.ok(!src.includes("had abstracts detailed enough to draw findings from"), "limited tier still narrates its own process");
+  assert.ok(!src.includes("speak to the question most closely"), "limited tier narration survived");
+  assert.ok(!src.includes("Why this isn't a summary"), "weak answer still uses the self referential heading");
+  assert.ok(!src.includes("stitching together sentences"), "weak answer still narrates the pipeline's choice");
+  assert.ok(!src.includes("answering a different question confidently"), "weak answer constraint lead still narrates the pipeline's choice");
+  assert.match(src, /## The short answer/, "limited tier must lead under The short answer");
+  assert.match(src, /### Supporting evidence/, "limited tier must present passages under Supporting evidence");
+  assert.match(src, /Passages quoted from the papers/, "limited tier must label its passages as quotations");
+  assert.match(src, /Why the evidence falls short/, "weak answer reasons heading must describe the evidence");
 });
 
 test("extractive venue lines never print a raw year value", async () => {

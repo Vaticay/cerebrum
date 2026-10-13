@@ -366,7 +366,50 @@ export function applyRelevanceGate(list) {
 // APIs . never an actual publication.
 export const BLOCKED_DOMAINS = ["wwpdb.org", "zenodo", "dryad", "figshare", "osf.io", "clinicaltrials.gov", "data.mendeley.com"];
 export const BLOCKED_TYPES = ["dataset", "component", "posted-content", "peer-review", "grant"];
-function isNonLiterature(p) {
+// Genre labels that are plainly not research literature wherever a
+// source declares them (Europe PMC's pubType list, Semantic Scholar's
+// publicationTypes): creative writing shelved beside research. Kept
+// separate from BLOCKED_TYPES because these are genres, not record
+// kinds, and the floor's rule for both is the same narrow one: the
+// item declares itself something other than a research publication.
+// This is a floor for the plainly not literature, never a relevance
+// opinion about real publications.
+export const NON_LITERATURE_TYPES = ["poetry", "poem", "fiction"];
+
+// Title framing that declares a creative genre outright: a leading
+// genre label ("Poem: ...", "Poetry: ...") or a subtitle that names
+// the piece as one ("...: a poem"). Narrow by construction: a paper
+// ABOUT poetry ("Poetry in science education: a review") carries no
+// leading label and no genre subtitle, so it is untouched.
+export function hasNonLiteratureTitleFraming(title) {
+  const t = String(title || "").trim().toLowerCase();
+  if (!t) return false;
+  if (/^(poem|poetry|a poem|short story|fiction)\s*[:.\u2013-]/.test(t)) return true;
+  if (/[:\u2013-]\s*(a\s+)?(poem|poems|poetry|short story)\s*\.?\s*$/.test(t)) return true;
+  return false;
+}
+
+// A retraction declared in the title itself: a bracketed marker
+// ("[RETRACTED] ..."), the word as a leading label ("RETRACTED: ...",
+// "Retracted article: ..."), or a retraction notice's own framing
+// ("Retraction: ...", "Retraction notice: ..."). Crossref's crossmark
+// screen (checkRetraction below) keys on metadata and only runs on
+// papers carrying a DOI, so a record whose retraction exists only in
+// its title (a scorer caught exactly one cited as direct support)
+// passed every screen. The bibliometric literature ABOUT retractions
+// ("Retracted articles in ...: a study of ...") starts with the bare
+// word and no label punctuation, so it does not match and stays.
+export function hasRetractedTitleMarker(title) {
+  const t = String(title || "").trim().toLowerCase();
+  if (!t) return false;
+  if (/^\[\s*retracted\s*\]/.test(t)) return true;
+  if (/^retracted\s*[:.\u2013-]/.test(t)) return true;
+  if (/^retracted\s+article\s*[:.\u2013-]/.test(t)) return true;
+  if (/^retraction(\s+notice)?\s*[:.\u2013-]/.test(t)) return true;
+  return false;
+}
+
+export function isNonLiterature(p) {
   const url = ((p && p.url) || "").toLowerCase();
   if (BLOCKED_DOMAINS.some((m) => url.includes(m))) return true;
   // `_rawType` is the machine-readable type a fetcher captured straight off
@@ -376,6 +419,18 @@ function isNonLiterature(p) {
   // string that merely contains those letters as a substring.
   const rawType = ((p && p._rawType) || "").toLowerCase();
   if (rawType && BLOCKED_TYPES.some((m) => new RegExp("\\b" + m + "\\b").test(rawType))) return true;
+  // Genre declarations (see NON_LITERATURE_TYPES): a source that
+  // labels its own record poetry or fiction has told us what it is.
+  // Checked against the machine readable type and the human facing
+  // type alike, whole word, same discipline as BLOCKED_TYPES.
+  const humanType = ((p && p.type) || "").toLowerCase();
+  if (NON_LITERATURE_TYPES.some((m) => new RegExp("\\b" + m + "\\b").test(rawType) || new RegExp("\\b" + m + "\\b").test(humanType))) return true;
+  // And the title level gap of the same kind: an item whose own title
+  // frames it as a poem (see hasNonLiteratureTitleFraming) is not
+  // research literature even when its source declared no type at all.
+  // A plant physiology question cited a poetry piece on a phrase
+  // match because the floor never looked at the title.
+  if (hasNonLiteratureTitleFraming(p && p.title)) return true;
   // Some code paths (see the two display-only classifiers elsewhere in this
   // file) already compute a human-facing `p.type` of "Dataset" from journal
   // name patterns before this filter ever runs on them again later (e.g. a
@@ -410,6 +465,14 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
+// v21 (2026-10-13, search wave two): everyday vocabulary joins the
+// hand tables (germ/germs in the microbe group; belly, tummy, stomach,
+// abdomen, abdominal appended to the gut group; new crop rotation and
+// touch response plant groups), a both concepts gate demotes papers
+// that touch only one of a multi concept question's groups out of the
+// cited set, and title marked retractions are excluded at the shelf
+// and counted in the funnel, so shipped queries, filtered shelves,
+// and cited sets all change for cached questions.
 // v20 (2026-10-13, organism topic filter): the organism branch's
 // topic list is no longer every leftover token verbatim (why, into,
 // for, how, the shipped as an OR list against the resolved binomial);
@@ -445,7 +508,7 @@ function isNonLiterature(p) {
 // longer become structured query anchors and preparation phrasings
 // now bridge to the homogenate concept group, so both the shipped
 // queries and the filtered shelves change for cached questions.
-const CACHE_SCHEMA_VERSION = "v20";
+const CACHE_SCHEMA_VERSION = "v21";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1441,9 +1504,15 @@ const CONCEPT_GROUPS = [
   // common name variants, so BSFL papers score correctly.
   ["bsfl", "bsf", "black soldier fly", "black soldier fly larvae",
    "black soldier fly larva", "hermetia", "hermetia illucens"],
+  // 2026-10-13 (wave two): "germ"/"germs" appended at the tail. Plain
+  // everyday wording for microbes had no group at all, so a question
+  // asking about "the germs in a baby's belly" collapsed to the literal
+  // tokens and cited phrase collisions (belly dance obstetrics, prune
+  // belly syndrome). Tail placement keeps every existing rung that
+  // renders this group's head members byte identical.
   ["microbe", "microbes", "microbial", "microbiome", "microbiota", "bacteria",
    "bacterial", "bacterium", "gut flora", "microflora", "symbiont", "symbionts",
-   "microorganism", "microorganisms"],
+   "microorganism", "microorganisms", "germ", "germs"],
   ["enzyme", "enzymes", "enzymatic", "oxidase", "oxidases", "hydrolase",
    "hydrolases", "esterase", "esterases", "cutinase", "lipase", "protease",
    "depolymerase", "oxidoreductase", "oxidoreductases", "phenoloxidase",
@@ -1453,7 +1522,18 @@ const CONCEPT_GROUPS = [
    "decompose", "decomposition", "oxidation", "oxidize", "oxidise", "oxidative"],
   ["gut", "intestinal", "intestine", "digestive", "midgut", "hindgut", "foregut",
    "gastrointestinal", "alimentary", "crop", "proventriculus",
-   "peritrophic membrane", "alimentary canal", "digestive tract"],
+   "peritrophic membrane", "alimentary canal", "digestive tract",
+   // 2026-10-13 (wave two): the everyday body words, appended at the
+   // tail so rungs rendering this group's head members stay byte
+   // identical. "stomach" and "tummy" had NO handling anywhere in the
+   // tables before this (no group, no synonym); "belly" likewise, so
+   // a plain language question about a baby's belly never reached the
+   // gut vocabulary the papers use. This group is the tables' body
+   // word group (it already spans gastrointestinal, alimentary, and
+   // digestive), so the pathway belongs here: belly/tummy/stomach/
+   // abdomen resolve to it, and its members accept belly worded
+   // papers in return.
+   "belly", "tummy", "stomach", "abdomen", "abdominal"],
   ["saliva", "salivary", "secretion", "secretions", "oral", "labial"],
   ["cancer", "tumour", "tumor", "carcinoma", "neoplasm", "oncology", "malignant"],
   // Split from a single overly-broad ["gene","genes","genetic","genomic",
@@ -1487,6 +1567,27 @@ const CONCEPT_GROUPS = [
   ["network", "networks", "co-occurrence", "cooccurrence", "interaction",
    "interactions", "graph", "connectivity", "modularity"],
   ["soil", "soils", "edaphic", "rhizosphere", "pedosphere", "substrate"],
+  // Crop rotation (2026-10-13, wave two): the practice of planting
+  // different crops in sequence on the same field across seasons.
+  // Everyday phrasings ("different crops on the same field in
+  // different years", "rotating crops") carried none of the field's
+  // vocabulary, so the boolean shipped the literal words and the
+  // shelf filled with collisions. The phrase members are what the
+  // phrase scans in buildStructuredQuery and topicOverlapFilter key
+  // on; "crop" itself stays claimed by the gut group above (the
+  // insect crop organ), which is exactly why this group leads with
+  // the two word practice names instead of the bare noun.
+  ["crop rotation", "crop rotations", "rotating crops", "rotate crops",
+   "rotated crops", "crops in rotation", "rotation of crops",
+   "rotational cropping", "crop sequence", "crop sequences", "crop succession",
+   "cover crop", "cover crops",
+   // The descriptive shapes, still distinctive enough to key on:
+   // several crops sharing one field is the rotation setup itself,
+   // and a different crop each year is the practice stated as a
+   // schedule. Neither can appear in an unrelated question without
+   // the question being about this practice in substance.
+   "crops on the same field", "different crops each year",
+   "different crop each year", "different crops every year"],
   ["ocean", "oceanic", "marine", "sea", "seawater", "pelagic", "benthic"],
   ["coral", "corals", "reef", "reefs", "calcification", "bleaching"],
   ["forest", "forests", "woodland", "canopy", "tree", "trees", "silviculture"],
@@ -1515,6 +1616,20 @@ const CONCEPT_GROUPS = [
   ["parasitic", "parasite", "mycoheterotroph", "mycoheterotrophic", "holoparasite",
    "hemiparasite", "heterotroph", "heterotrophic", "non-photosynthetic",
    "achlorophyllous"],
+  // Touch response plants (2026-10-13, wave two): the sensitive
+  // plant path. People ask about this plant in pure everyday words
+  // ("why do some plants fold their leaves when you touch them")
+  // that share nothing with the literature's vocabulary (Mimosa
+  // pudica, thigmonasty, the pulvinus motor organ). The group keys
+  // on the plant's common names, the everyday leaf movement phrases
+  // the phrase scans can see verbatim in a question, and the field
+  // terms papers actually use, so any of those phrasings pulls the
+  // whole shelf vocabulary in.
+  ["mimosa pudica", "mimosa", "sensitive plant", "touch-me-not", "touch me not",
+   "shy plant", "thigmonasty", "thigmonastic", "seismonasty", "seismonastic",
+   "leaf folding", "fold their leaves", "leaves fold", "folds its leaves",
+   "close when touched", "closes when touched", "pulvinus", "pulvini",
+   "nastic movement", "nastic movements"],
   // Abundance / diversity (common ecological measures)
   ["abundance", "diversity", "richness", "composition", "community structure",
    "alpha diversity", "beta diversity", "evenness", "dominance"],
@@ -6390,15 +6505,13 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
       md += "The closest " + (cc.partial === 1 ? "paper mentions" : "papers mention") +
         " related terms, but not the full phrase. ";
     }
-    md += "So instead of answering a different question confidently, here are the closest " +
-      unitWord + " to read directly.\n";
+    md += "The closest " + unitWord + " are listed below to read directly.\n";
   } else if (!isExistenceQuestion(q)) {
     md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
-      ", but couldn't build a reliable summary from them. " +
-      "So instead of stitching together sentences that don't actually answer your question, " +
-      "here are the closest " + unitWord + " to read directly.\n";
+      ", but none of them support a reliable summary. " +
+      "The closest " + unitWord + " are listed below to read directly.\n";
   }
-  md += "\n### Why this isn't a summary\n\n";
+  md += "\n### Why the evidence falls short\n\n";
   md += quality.reasons.map((r) => "- " + r).join("\n") + "\n";
   if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
     const interps = (ctx.ambiguity.interpretations || []).map((x) => x.label).filter(Boolean);
@@ -6597,16 +6710,37 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
     }
     for (const p of picked) delete p.ws;
     if (picked.length > 0) {
-      const n = paperItems.length;
-      let md = "## What the sources say\n\n";
+      /* Frame (2026-10-13 voice pass): answer line first, evidence
+         second. The old frame opened with a "What the sources say"
+         heading and narrated the pipeline's own process (how many of
+         the papers above had abstracts detailed enough to draw findings
+         from, and a note that the sentences below were the ones that
+         spoke to the question most closely), which read as a report
+         about the papers instead of
+         an answer. Now the direct line the deterministic path can
+         honestly give leads: the existence verdict when the question
+         asks one, otherwise the single most on question quoted finding.
+         The remaining passages sit under Supporting evidence, labeled
+         as what they are: quotations from the papers, never dressed up
+         as a synthesized answer. "The short answer" and "Supporting
+         evidence" are both sections verifyExtractiveAlignment checks
+         claims in, so the reframe loses no alignment coverage. */
+      let md = "## The short answer\n\n";
+      let leadUsed = false;
       if (isExistenceQuestion(q)) {
         const support = findExistenceSupport(paperItems, q, ctx && ctx.queryAnalysis);
         md += existenceAnswerLine(support, "papers") + "\n\n";
+      } else {
+        md += picked[0].text + " [" + picked[0].idx + "]\n\n";
+        leadUsed = true;
       }
-      md += n + " of the papers above had abstracts detailed enough to draw findings from directly" + (q ? " for \"" + q + "\"" : "") + ". " +
-        "The sentences below are the ones that speak to the question most closely.\n\n";
-      for (const p of picked) {
-        md += p.text + " [" + p.idx + "]\n\n";
+      const rest = leadUsed ? picked.slice(1) : picked;
+      if (rest.length > 0) {
+        md += "### Supporting evidence\n\n";
+        md += "Passages quoted from the papers:\n\n";
+        for (const p of rest) {
+          md += p.text + " [" + p.idx + "]\n\n";
+        }
       }
       md += "### Sources\n\n";
       for (const it of paperItems) {
@@ -7586,8 +7720,11 @@ export function verifyExtractiveAlignment(answer, papers) {
   const text = String(answer || "");
   const n = (papers || []).length;
   // Check the sections each deterministic tier actually emits. The
-  // research tier leads with Executive Summary, the limited tier uses
-  // What the sources say, and the background tier uses Background.
+  // research tier leads with Executive Summary, the limited tier leads
+  // with The short answer and quotes its passages under Supporting
+  // evidence, and the background tier uses Background. "What the
+  // sources say" stays in the set for answers cached under the limited
+  // tier's pre 2026-10-13 frame, which the checker may still meet.
   // Any later heading, including the appended Sources list, closes the
   // checked section so bibliography lines are never treated as claims.
   const CHECKED_SECTIONS = new Set([
@@ -7595,6 +7732,7 @@ export function verifyExtractiveAlignment(answer, papers) {
     "executive summary",
     "what the research shows",
     "what the sources say",
+    "supporting evidence",
     "background",
     "where researchers disagree",
   ]);
@@ -7815,6 +7953,168 @@ export function stripUnsupportedCitations(answer, papers) {
   // Tidy the gaps left behind: "word  ." -> "word."
   const tidied = cleaned.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1");
   return { text: tidied, removed };
+}
+
+// ── Both concepts gate (2026-10-13, wave two) ────────────────────
+// The sleep and colds failure: expansion resolved the question
+// perfectly (a sleep deprivation group and a common cold group), and
+// the answer still cited catch up sleep papers, because a paper
+// touching only ONE of the question's concepts can ride a phrase
+// collision into the cited set. topicOverlapFilter already requires
+// multi concept papers at retrieval time, but it deletes, and it runs
+// before validation and supplementary merges rebuild the evidence
+// set; the cited set is decided later, by the answer's own markers.
+//
+// This gate runs where stripUnsupportedCitations runs: on the
+// finished answer, against the final paper list. When the question
+// resolves to two or more DISTINCT concept groups (hand written or
+// model proposed), a paper the answer cites as direct support must
+// touch at least two of them, by group membership in its title or
+// abstract. A paper that touches fewer loses its markers and stays
+// in the bibliography as further reading, exactly the state
+// labelUncitedSources already renders; nothing is deleted.
+//
+// Exemptions, each a way a paper can be direct support without
+// touching two groups:
+//   . a paper carried by the question's organism or binomial anchor
+//     (it names the anchored organism in its title or abstract);
+//   . the paper the existence path itself carries (the one
+//     findExistenceSupport proves reports the practice directly);
+//   . a paper flagged thinEvidence, which the guaranteed evidence
+//     cascade kept precisely so the answer is never left with none.
+// And the floor: if NO cited paper clears the gate, the answer is
+// returned untouched. An answer that would cite nothing keeps its
+// best available papers rather than citing none; zero sources is
+// unacceptable and a mechanical pass must never manufacture it.
+
+// The question's distinct resolved concept groups: the canonical
+// group Sets its content words resolve to (conceptSetFor, so model
+// groups win per term, exactly as everywhere else), plus any group
+// whose multi word member appears verbatim in the question (the
+// phrase scan topicOverlapFilter and buildStructuredQuery both run,
+// so a phrase keyed group the tokenizer cannot see still counts).
+// Deduped by Set identity: two words from one group are one concept.
+export function questionConceptGroups(query, dynLookup) {
+  const qLower = String(query || "").toLowerCase();
+  const groups = [];
+  const seen = new Set();
+  const add = (set) => {
+    if (set && !seen.has(set)) { seen.add(set); groups.push(set); }
+  };
+  const qTerms = qLower
+    .replace(/[^\w\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
+  for (const t of qTerms) add(conceptSetFor(t, dynLookup));
+  for (const group of CONCEPT_GROUPS) {
+    for (const member of group) {
+      if (member.indexOf(" ") !== -1 && qLower.includes(member)) {
+        add(CONCEPT_LOOKUP.get(member));
+        break;
+      }
+    }
+  }
+  if (dynLookup) {
+    for (const [key, set] of dynLookup) {
+      if (key.indexOf(" ") !== -1 && qLower.includes(key)) add(set);
+    }
+  }
+  return groups;
+}
+
+// How many of the given groups a paper touches, by membership: a
+// multi word member must appear as a phrase; a single word member
+// must appear as a whole token (the substring looseness the
+// retrieval filter tolerates would let "germ" hit "germination"
+// here, and a demotion needs the stricter reading).
+export function paperConceptGroupHits(paper, groups) {
+  const p = paper || {};
+  const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
+  if (!hay.trim()) return 0;
+  const tokens = new Set(hay.split(/[^a-z0-9]+/).filter(Boolean));
+  let hits = 0;
+  for (const group of groups || []) {
+    for (const member of group) {
+      const m = String(member || "").toLowerCase();
+      if (!m) continue;
+      if (m.indexOf(" ") !== -1 ? hay.includes(m) : tokens.has(m)) { hits++; break; }
+    }
+  }
+  return hits;
+}
+
+export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
+  const text = String(answer || "");
+  const list = Array.isArray(papers) ? papers : [];
+  if (!text || list.length === 0) return { text, demoted: [] };
+  const groups = questionConceptGroups(query, dynLookup);
+  if (groups.length < 2) return { text, demoted: [] };
+
+  const citedIdx = new Set();
+  for (const m of text.matchAll(/\[(\d{1,3})\]/g)) {
+    const idx = parseInt(m[1], 10);
+    if (idx >= 1 && idx <= list.length) citedIdx.add(idx);
+  }
+  if (citedIdx.size === 0) return { text, demoted: [] };
+
+  // Anchor exemptions: the organism or binomial the question itself
+  // resolved. A paper naming it is carried by the anchor.
+  const qLower = String(query || "").toLowerCase();
+  const anchorNeedles = [];
+  const binomial = extractBinomial(String(query || ""));
+  if (binomial && binomial.full) anchorNeedles.push(binomial.full.toLowerCase());
+  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
+    if (qLower.includes(name)) {
+      for (const idf of identifiers || []) anchorNeedles.push(String(idf).toLowerCase());
+    }
+  }
+  // The existence path's own carried paper.
+  let existenceIdx = 0;
+  if (isExistenceQuestion(query)) {
+    try {
+      const support = findExistenceSupport(
+        list.map((p, i) => ({ p, idx: i + 1 })),
+        query
+      );
+      if (support && support.idx) existenceIdx = support.idx;
+    } catch { /* the exemption is best effort; the gate still runs */ }
+  }
+
+  const keep = new Set();
+  const failing = [];
+  for (const idx of citedIdx) {
+    const p = list[idx - 1] || {};
+    if (p.thinEvidence) { keep.add(idx); continue; }
+    if (idx === existenceIdx) { keep.add(idx); continue; }
+    if (anchorNeedles.length > 0) {
+      const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
+      if (anchorNeedles.some((n) => hay.includes(n))) { keep.add(idx); continue; }
+    }
+    const hits = paperConceptGroupHits(p, groups);
+    if (hits >= 2) keep.add(idx);
+    else failing.push({ idx, hits, groups: groups.length });
+  }
+  // The floor: nothing cited may remain is the one outcome this gate
+  // may never produce (see the header). Keep the answer as written.
+  if (keep.size === 0) return { text, demoted: [] };
+  if (failing.length === 0) return { text, demoted: [] };
+
+  const failSet = new Set(failing.map((f) => f.idx));
+  // Each demotion carries the sentence that held its first marker,
+  // the same evidence shape stripUnsupportedCitations reports, so
+  // the fact check panel can show what lost its citation and why.
+  for (const f of failing) {
+    const at = text.indexOf("[" + f.idx + "]");
+    f.claim = at >= 0
+      ? sentenceAround(text, at).replace(/\[\d{1,3}\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 240)
+      : "";
+  }
+  const cleaned = text.replace(/\[(\d{1,3})\]/g, (m, num) => {
+    const idx = parseInt(num, 10);
+    return failSet.has(idx) ? "" : m;
+  });
+  const tidied = cleaned.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1");
+  return { text: tidied, demoted: failing };
 }
 
 // ── Named author reattachment ───────────────────────────────────
@@ -9477,6 +9777,7 @@ export const CEREBRUM_SYSTEM_v1 = {
   PERSONALITY:
     "PERSONALITY . this is who is writing, not just a formatting rule:\n" +
     "ANSWER FIRST, THEN TEACH. Your first sentence is the direct answer to the question; RULE 1 and the output structure enforce this, and orientation never comes before it. Once the answer is on the table, teach: unpack the key terms in plain language, say why researchers study this, and make the central question plain, inside the answer where each piece of orientation earns its place. " +
+  "TEACH THE ANSWER, DO NOT REPORT THE LITERATURE. The reader asked to learn how the world works, not to hear what papers say about it. Write the way a knowledgeable assistant answers a person directly: state the fact, then explain it plainly, the mechanism, the cause, how it works, with the citations attached as support. The default sentence frame is the fact itself ('Wood frogs survive freezing because glucose floods their cells and works as an antifreeze [1][2]'), never the paper ('a 2021 study found that frogs...'). The citations are the warranty behind a claim, not the claim's subject. Paper framing (naming a paper, a journal, a year, or 'the authors found' inside a sentence) is reserved for the few places provenance itself is the information: where papers disagree, where a claim rests on a single weak source, or where the method is what the reader has to weigh. Everywhere else, a sentence about a paper is a failed sentence; rewrite it as a sentence about the world. Teaching changes the frame, never the grounding: a teaching sentence the papers do not support is left out or plainly marked as background, exactly as the citation rules require. " +
     "FORMATTING: Italicize all species binomial names (e.g., *Hermetia illucens*, *Escherichia coli*). Use bold for key terms on first definition. " +
     "You're a sharp, curious researcher who actually finds this stuff interesting . not a customer-support bot summarizing " +
     "documents. You have a point of view. When the evidence is genuinely convincing, say so plainly instead of hedging out " +
@@ -9551,6 +9852,12 @@ export const CEREBRUM_SYSTEM_v1 = {
     "driven primarily by pH gradients and oxygen tension [4].'\n" +
     "ONE claim, MULTIPLE citations woven in. The reader NEVER feels like you're going through a list.\n\n" +
 
+    "═══ RULE 2B: TEACH, DO NOT REPORT (HARD-ENFORCED) ═══\n" +
+    "Teach the reader the thing they asked about, the way a knowledgeable assistant answers a person who wants to learn it. Phrase claims as facts about the world, explained plainly: the mechanism, the cause, how it works. The papers are the support under those facts; the citation is the warranty, not the content. " +
+    "WRONG frame: 'A 2019 study in a soil journal found that clay cracks as it dries.' RIGHT frame: 'Clay soil cracks as it dries because the shrinking clay pulls itself apart under tension [2].' " +
+    "Name a paper, a journal, or a year inside a sentence ONLY where provenance is itself the information: two papers disagree, a single weak source carries the claim, or the method decides how much to believe it. Anywhere else, if you catch yourself writing about a paper, rewrite the sentence to be about the world. " +
+    "This is a frame rule, not a grounding rule: every fact you teach still needs a retrieved paper behind it, and a teaching sentence the papers do not support is dropped or marked as background, never asserted on your own authority.\n\n" +
+
     "═══ RULE 3: ORGANISM ACCURACY (HARD-ENFORCED) ═══\n" +
     "NEVER cite a paper about organism A as evidence for organism B.\n" +
     "If a paper is about millipedes, do NOT cite it in an answer about black soldier fly.\n" +
@@ -9616,7 +9923,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "'our findings', 'our results', 'our data', 'our study', 'our research', 'our analysis', " +
     "'we found', 'we observed', 'we show', 'we demonstrate', 'we report', 'we discovered', " +
     "'in our study', 'in our work', 'our experiments', 'we measured', 'we tested'. " +
-    "Always attribute: 'the authors found', 'the study reports', 'their data show'. " +
+    "Attribution lives in the citations, not in your sentence frames: state each finding as a fact about the world and let its [n] carry the credit. Do NOT default to 'the authors found', 'the study reports', or 'their data show'; that framing turns the answer into a report about papers instead of an answer. Paper framing belongs only where provenance is itself the point (papers disagree, one weak source carries a claim, a method the reader must weigh). " +
     "You are the instrument that reads the literature, not a lab that produces it.\\n\\n" +
 
     "═══ RULE 9: ABBREVIATIONS EXPANDED ON FIRST USE (HARD-ENFORCED) ═══\n" +
@@ -9698,6 +10005,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "- EXISTENCE QUESTIONS: when the question asks whether any papers report something ('are there any studies that...', 'has anyone measured...'), a negative answer may only describe the papers in front of you. Write 'None of the papers retrieved here report X' and note that work using different terms may exist. NEVER write 'the literature does not report X' or 'no study has done X' as a claim about all published research: you only ever see the abstracts listed above, and a retrieval miss is not evidence that the work does not exist.\n" +
     "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' . but NEVER invent specific paper titles or authors.\n" +
     "- NEVER write 'Source [1] discusses...' or 'According to [2]...' . weave the citation into your own sentence.\n" +
+    "- TEACHING FRAME: the citation is the warranty, not the subject. Sentences state facts about the world and carry citations as support. A sentence whose subject is a paper, a study, or 'the researchers' breaks the teaching frame (outside disagreement, single weak source, and methods moments, where provenance is the point) . rewrite it as the fact itself.\n" +
     "- NEVER use footnote asterisks. Do not write 'clinical trial*', 'meta-analysis*', or any word with a trailing '*' . there are no footnotes in this format, so a dangling asterisk is a typo, not a reference. If you need emphasis, use **bold** or *italics* with proper opening AND closing markers.\n" +
     "- No <think> tags, no code fences, no meta-commentary about your process.\n" +
     // v6.3 . from a real answer: the model printed the same claim twice
@@ -9815,7 +10123,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     "## The short answer\n" +
     "2-4 sentences. The FIRST sentence must directly answer the question asked (yes/no/how/what), never a method detail, a transitional opener, or a random finding. NEVER begin with a connective like \"Further,\" \"Additionally,\" \"However,\" or with a method or statistic (\"PERMANOVA showed...\"). The question \"How does X affect Y?\" opens \"X affects Y by...\" with its strongest supporting citation(s). If the question's own premise is wrong, this is where you say so first (see PREMISE CHECK).\n\n" +
     "## What the research shows\n" +
-    "The synthesis itself. RULE 1 (zero prefacing) and RULE 2 (synthesize, never list) apply in full force here. This is normally the longest section.\n\n" +
+    "The synthesis itself. RULE 1 (zero prefacing), RULE 2 (synthesize, never list), and RULE 2B (teach, do not report) apply in full force here: write it as teaching prose, how the thing works stated as fact in plain language, with citations riding as support. This is normally the longest section.\n\n" +
     "## Where researchers disagree\n" +
     "Where the literature actually disagrees first . papers reaching different conclusions, conflicting methodologies, results that sit at odds with the emerging consensus, stated plainly rather than smoothed into false agreement . then what the retrieved literature doesn't settle yet and where the field is visibly heading. If the evidence is genuinely airtight with no real disagreement or open question, say that in one sentence rather than inventing either.\n\n" +
     "## How solid is this?\n" +
@@ -10568,7 +10876,7 @@ async function gatherPapers(rawQuery, opts) {
    * in raw form); the public response extracts just the six numbers as
    * `_funnel`. No error text, no provider internals . see the comment at
    * the response-construction site for why that matters. */
-  const funnel = { gathered: 0, duplicates: 0, nonLiterature: 0, deduped: 0, ranked: 0, nonEnglishInner: 0 };
+  const funnel = { gathered: 0, duplicates: 0, nonLiterature: 0, deduped: 0, ranked: 0, nonEnglishInner: 0, excludedRetracted: 0 };
   try {
   const openAlexKey = (opts && opts.openAlexKey) || "";
   const ncbiKey = (opts && opts.ncbiKey) || "";
@@ -10643,6 +10951,11 @@ async function gatherPapers(rawQuery, opts) {
         funnel.gathered++;
         const titleKey = (p.title || "").toLowerCase().trim();
         if (!titleKey || seenTitles.has(titleKey)) { if (titleKey) funnel.duplicates++; continue; }
+        // Retraction declared in the title itself (see
+        // hasRetractedTitleMarker): out of the shelf and counted,
+        // before any other screen, so the funnel's excludedRetracted
+        // is the true number of title marked retractions seen.
+        if (hasRetractedTitleMarker(p.title)) { funnel.excludedRetracted++; continue; }
         // Hard reject: a PDB deposit or Zenodo/Dryad/Figshare record isn't a
         // publication just because it happens to list the searched author .
         // see isNonLiterature() for why this can't be left to the per-source
@@ -11440,6 +11753,9 @@ async function gatherPapers(rawQuery, opts) {
     if (res.status === "fulfilled" && Array.isArray(res.value)) {
       for (const p of res.value) {
         funnel.gathered++;
+        // Retraction declared in the title itself (see
+        // hasRetractedTitleMarker): out of the shelf and counted.
+        if (hasRetractedTitleMarker(p.title)) { funnel.excludedRetracted++; continue; }
         // Hard reject before this record ever gets a dedupe key, a relevance
         // score, or a shot at being cited . a dataset deposit that slips past
         // this line is a dataset deposit the model will happily write into
@@ -12322,6 +12638,20 @@ async function gatherPapers(rawQuery, opts) {
       }
     } catch (roleErr) { console.error("[Cerebrum] search.js role check:", roleErr); }
   } catch (cbErr) { console.error("[Cerebrum] search.js constraint cap:", cbErr); }
+
+  // 2026-10-13 (wave two): the last shelf choke point for title
+  // marked retractions. The merge loops screen records as they
+  // arrive, but supplementary paths inside this function (cache and
+  // learned re-injection, fallback waves) merge records further down
+  // the pipeline; anything carrying a retraction marker that reached
+  // the final list by one of those paths leaves here, counted into
+  // the same funnel counter so the number stays honest end to end.
+  {
+    const beforeFinalScreen = rerankedFinal.length;
+    rerankedFinal = rerankedFinal.filter((p) => !hasRetractedTitleMarker(p && p.title));
+    const finalScreenCut = beforeFinalScreen - rerankedFinal.length;
+    if (finalScreenCut > 0) funnel.excludedRetracted += finalScreenCut;
+  }
 
   diag.funnel = funnel;
   return { papers: rerankedFinal, _diag: diag };
@@ -14711,6 +15041,21 @@ async function runSearchPipeline(pctx) {
       } catch (cbErr) { console.error("[Cerebrum] search.js contradiction-first retrieval:", cbErr); }
     }
 
+    // 2026-10-13 (wave two): title marked retractions leave the
+    // evidence set here too. gatherPapers screens its own shelf, but
+    // the contradiction adjudicators above merged in after it, and
+    // this list is the one synthesis and the bibliography read. The
+    // count joins the retrieval funnel the response ships, so a
+    // retraction removed at this layer is still a counted one.
+    if (useEvidence && evidencePapers.length > 0) {
+      const beforeTitleScreen = evidencePapers.length;
+      evidencePapers = evidencePapers.filter((p) => !hasRetractedTitleMarker(p && p.title));
+      const titleScreenCut = beforeTitleScreen - evidencePapers.length;
+      if (titleScreenCut > 0 && gResult && gResult._diag && gResult._diag.funnel) {
+        gResult._diag.funnel.excludedRetracted = (Number(gResult._diag.funnel.excludedRetracted) || 0) + titleScreenCut;
+      }
+    }
+
     // The gate can empty the list even when papers were retrieved: in that
     // state there is no evidence to synthesize FROM, so the answer takes the
     // no-evidence path (answer from knowledge, zero citations, suggest better
@@ -14905,7 +15250,7 @@ async function runSearchPipeline(pctx) {
     if (wantsMorePapers && useEvidence) {
       systemPrompt = ID + PERSONALITY + "The user wants ADDITIONAL papers on this topic. You have " + evidencePapers.length + " papers that are NEW (not shown before). " +
         "Present them as a curated research digest. For each paper:\n" +
-        "1. State the key finding in one sentence with the citation [N]\n" +
+        "1. State what the paper establishes as a plain fact about the world in one sentence, with the citation [N] (the finding itself, not 'this paper found...')\n" +
         "2. Note why it's relevant to their investigation\n" +
         "Group related papers together thematically. Bold the paper topics. " +
         "End with a one-sentence synthesis of what these additional sources add to the picture.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + CITE_RULES;
@@ -14938,6 +15283,7 @@ async function runSearchPipeline(pctx) {
         "  NEVER write 'although this study was conducted on [X] rather than [Y]' . that means YOU KNOW it's the wrong paper. Just don't cite it.\n\n" +
         "STEP 2 . SYNTHESIZE (mandatory):\n" +
         "  Make CLAIMS, not lists. State scientific findings and cite papers inline.\n" +
+        "  Teach those findings as facts about the world, explained plainly, not as reports about papers: the sentence is about the phenomenon, the citation is its support. Paper framing only where provenance matters (disagreement, a single weak source, methods the reader must weigh).\n" +
         "  WRONG: 'Source [1] found that... Source [2] showed that... Source [3] demonstrated...'\n" +
         "  RIGHT: 'Larval gut pH varies from 6.2 in the foregut to 8.5 in the hindgut [1][3], creating distinct niches that select for different bacterial phyla [2].'\n\n" +
         "STEP 3 . THE PAPERS ARE THE EVIDENCE BASE:\n" +
@@ -15218,13 +15564,14 @@ async function runSearchPipeline(pctx) {
             : "FOLLOW-UP MODE: You are continuing an ongoing investigation with the user. " +
               (deepFound > 0
                 ? `I searched again and found ${deepFound} additional paper${deepFound === 1 ? "" : "s"} relevant to this follow-up. The new sources appear AFTER the original ones in the list below . use them to add fresh evidence and depth. `
-                : "No additional papers were found for this specific angle, so work with the existing sources and your knowledge. ") +
+                : "No additional papers were found for this specific angle, so answer from the existing sources below. ") +
+              "The grounding standard is the same as every other answer: the sources are the evidence base. Anything beyond them may appear only as background that is plainly marked as background, never stated as a finding and never carrying a citation; where the sources do not cover the follow up, say so plainly instead of filling the gap from memory. " +
               "Critical rules: " +
               "1) Do NOT repeat background you already covered . they read your previous answer. " +
-              "2) Build directly on the previous turn. Go DEEPER: more mechanism, more specificity, more quantification. " +
+              "2) Build directly on the previous turn. Go DEEPER: more mechanism, more specificity, more quantification, from the sources. " +
               "3) If you found new sources, integrate them naturally . don't announce 'I found new papers.' " +
               "4) Answer the PRECISE thing they asked, not the general topic. " +
-              "5) If their question exposes a limit of the evidence, say so in one sentence and push forward with your knowledge. " +
+              "5) If their question exposes a limit of the evidence, say so plainly in one sentence, name what the sources do not cover, and answer the rest from the sources; never push forward from memory as if it were a finding. " +
               "6) Never start with 'As I mentioned' or 'As discussed' . just advance the conversation.",
       });
     }
@@ -15305,6 +15652,7 @@ async function runSearchPipeline(pctx) {
         "1. ORGANISM CHECK: Cite papers ONLY if they study the EXACT organism asked about. " +
         "A paper about a DIFFERENT organism = DO NOT CITE. If you write 'this study was on [X], not [Y]' your response FAILS.\n" +
         "2. NO SOURCE LISTING: Do NOT write 'Source [1] found X. Source [2] found Y.' . SYNTHESIZE into unified claims with inline citations.\n" +
+        "   TEACH, DO NOT REPORT: phrase claims as facts about the world ('Soil cracks because drying clay contracts under tension [2]'), never as reports about papers. Paper framing ('a 2021 study found') belongs only where provenance matters: disagreement, a single weak source, or a method the reader must weigh.\n" +
         "3. NO REPETITION: Every sentence must say something NEW. Repeating an idea in different words = FAIL.\n" +
         "4. BANNED PHRASES (mechanically stripped . don't waste tokens): 'further research is needed', 'plays a crucial/critical role', " +
         "'in conclusion', 'in summary', 'Overall', 'it is important to note', 'sheds light on', 'it should be noted', " +
@@ -15375,7 +15723,7 @@ async function runSearchPipeline(pctx) {
         const compactSystem =
           ID +
           "Write a structured scientific answer. The first section answers the question directly, then the evidence sections support it. " +
-          "Synthesize claims across papers instead of listing papers one by one. Cite inline as [1], [2] at the end of the sentence a source supports, and only for claims that source actually reports. " +
+          "Synthesize claims across papers instead of listing papers one by one. Teach the answer as plain facts about the world, the way a knowledgeable assistant explains it: mechanism and cause in ordinary language, citations attached as support. Do not frame sentences around papers ('a study found'); name a paper inside a sentence only where papers disagree or a single weak source carries the claim. Cite inline as [1], [2] at the end of the sentence a source supports, and only for claims that source actually reports. " +
           "Never invent numbers, authors, or findings; use the exact numbers the abstracts give. If the sources do not answer part of the question, say so plainly in one sentence and answer only what they support. " +
           "Bold at least four key terms with **double asterisks**. Italicize species names with _underscores_. Expand every abbreviation on first use. " +
           "Never use an em dash or en dash as punctuation. " + lengthHint + "\n\n" +
@@ -16379,7 +16727,7 @@ async function runSearchPipeline(pctx) {
     if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {
       const bulletproofSystem =
         ID +
-        "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass . be direct and skip elaboration.\n\n" +
+        "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass . be direct and skip elaboration. Teach plainly: findings stated as facts about the world with citations attached as support, never as reports about the papers; paper framing only where provenance matters.\n\n" +
         STRUCTURE +
         (useEvidence ? "Cite sources inline as [1], [2], etc., matching the numbered list below. Only cite a source if it actually supports the claim." : "");
       // Bug: this reused `userContent` verbatim . the SAME full evidence
@@ -16660,6 +17008,19 @@ async function runSearchPipeline(pctx) {
           }
         } catch { /* learning must never break search */ }
       } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
+      // BOTH CONCEPTS GATE, extractive path: the deterministic
+      // builders cite from the same evidence list, so the same rule
+      // applies (see applyConceptCoverageGate). One concept papers
+      // stay in the bibliography as further reading.
+      if (extractiveOK && useEvidence && !isFollowupMode && evidencePapers.length > 0) {
+        try {
+          const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+            ? buildDynLookup(gResult._diag.llmExpanded)
+            : null;
+          const gated = applyConceptCoverageGate(answer, evidencePapers, query, gateDyn);
+          if (gated.demoted.length > 0) answer = gated.text;
+        } catch { /* a mechanical pass must never break the answer */ }
+      }
       if (!extractiveOK) {
         // INTELLIGENT NO-RESULTS . the terminal state when every provider
         // failed AND nothing citable survived retrieval. A real answer
@@ -16725,7 +17086,8 @@ async function runSearchPipeline(pctx) {
           "4. NO FILLER . banned: 'further research is needed', 'plays a crucial role', 'in conclusion', " +
           "'Overall', 'it is important to note', 'sheds light on'.\n\n" +
           "5. START with a direct scientific claim. No 'Based on...' or 'The research shows...'.\n\n" +
-          "6. Italicize species: _E. coli_. Quantify: give numbers, not 'significant'.";
+          "6. Italicize species: _E. coli_. Quantify: give numbers, not 'significant'.\n" +
+          "7. TEACH, DO NOT REPORT: phrase claims as facts about the world, explained plainly, with citations as support. BAD: 'A 2021 study found that gut microbes shift as larvae grow.' GOOD: 'Gut microbes shift as larvae grow, with early instars dominated by _Proteobacteria_ [1][3].' Paper framing only where papers disagree or a single weak source carries a claim.";
 
         const retryMsgs = [
           { role: "system", content: retrySystemPrompt },
@@ -16759,6 +17121,11 @@ async function runSearchPipeline(pctx) {
     // removes below; declared here (function scope) so the fact-check merge
     // near the end of the pipeline can report them.
     let unsupportedStripped = [];
+    // conceptDemoted collects the both concepts gate's demotions
+    // (applyConceptCoverageGate below), reported to the same merge
+    // under their own note: a different failure than a vocabulary
+    // mismatch, and the panel must not confuse the two.
+    let conceptDemoted = [];
     // If the answer has zero citations but we gave it papers, that's often
     // CORRECT . the papers may not have been relevant. Only retry if the answer
     // also seems low quality (too short or generic).
@@ -16773,7 +17140,7 @@ async function runSearchPipeline(pctx) {
             { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
               "Cite papers ONLY if they directly address the question's specific topic and organism. " +
               "If none of the papers are relevant, say so briefly and do not invent findings . summarize only what the papers actually report, and mark any general background as such. " +
-              "An honest short answer is better than wrong citations. SYNTHESIZE . do not list sources." },
+              "An honest short answer is better than wrong citations. SYNTHESIZE . do not list sources. Teach plainly: state findings as facts about the world with citations attached as support, not as reports about the papers; paper framing only where provenance matters." },
             { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query },
           ];
           const retryModels2 = [OR_FREE_MODELS[2], OR_FREE_MODELS[1], OR_PRIMARY];
@@ -16808,6 +17175,29 @@ async function runSearchPipeline(pctx) {
           unsupportedStripped = stripped.removed;
         }
       } catch { /* a mechanical pass must never break the answer */ }
+
+      // ============ BOTH CONCEPTS GATE ============
+      // A multi concept question's direct support must touch at
+      // least two of its resolved concept groups (see
+      // applyConceptCoverageGate). One concept papers keep their
+      // bibliography place as further reading; only the citation
+      // markers go. Runs after the support strip and before the D1
+      // learning write, so a demoted paper is never learned as a
+      // confirmed citation for this question. Follow up mode is
+      // exempt, like every other gate: its citations legitimately
+      // rest on the previous turn's sources.
+      if (!isFollowupMode) {
+        try {
+          const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+            ? buildDynLookup(gResult._diag.llmExpanded)
+            : null;
+          const gated = applyConceptCoverageGate(answer, evidencePapers, query, gateDyn);
+          if (gated.demoted.length > 0) {
+            answer = gated.text;
+            conceptDemoted = gated.demoted;
+          }
+        } catch { /* a mechanical pass must never break the answer */ }
+      }
 
       // Append a reference list at the bottom ONLY if citations were actually used.
       // Previously this appended sources even when they were irrelevant, which
@@ -17121,6 +17511,10 @@ async function runSearchPipeline(pctx) {
           claim: r.claim,
           note: "Cited [" + r.idx + "], but that paper's title/abstract shares essentially no vocabulary with the sentence . the citation was removed rather than left as a false trace. Worth opening the source to check where the claim came from.",
         })),
+        ...conceptDemoted.map((r) => ({
+          claim: r.claim,
+          note: "Cited [" + r.idx + "], but that paper touches only " + r.hits + " of the question's " + r.groups + " concept groups, so it was moved to further reading rather than left standing as direct support.",
+        })),
       ];
       if (integrityFlags.length > 0 && factCheckResult && Array.isArray(factCheckResult.claims)) {
         const have = new Set(factCheckResult.claims.map((c) => String(c.claim || "").slice(0, 80)));
@@ -17142,7 +17536,10 @@ async function runSearchPipeline(pctx) {
           factCheckResult = {
             overall: "partly",
             summary: "Checked cited claims against their papers: " + integrityFlags.length + " claim" +
-              (integrityFlags.length === 1 ? "" : "s") + " share almost no vocabulary with the paper cited.",
+              (integrityFlags.length === 1 ? "" : "s") +
+              (conceptDemoted.length > 0 && unsupportedStripped.length === 0 && aiAlignmentIssues.length === 0
+                ? " rested on papers touching only one of the question's concept groups, so those citations were moved to further reading."
+                : " share almost no vocabulary with the paper cited."),
             claims: integrityFlags.map((iss) => ({
               claim: iss.claim, status: "unsupported",
               note: iss.note,
@@ -17341,7 +17738,11 @@ async function runSearchPipeline(pctx) {
         deduped,
         excludedWeak: Math.max(0, deduped - ranked),
         excludedNonEnglish: n(f.nonEnglishInner) + n(excludedNonEnglishOuter),
-        excludedRetracted: 0,
+        // 2026-10-13 (wave two): the real count. This used to hardcode
+        // zero while title marked retractions passed every screen;
+        // the funnel now counts them at the shelf (and the handler
+        // adds any it removes from the evidence set), so ship it.
+        excludedRetracted: n(f.excludedRetracted),
         cited: labeledSources.filter((s) => s && !s.uncited).length,
       };
     })();

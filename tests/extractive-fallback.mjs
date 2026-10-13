@@ -23,7 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildExtractiveSynthesis, isWellFormedClaim, buildEvidenceBrief } = await import(
+const { buildExtractiveSynthesis, isWellFormedClaim, buildEvidenceBrief, getLastExtractiveTier, verifyExtractiveAlignment } = await import(
   join(root, "functions/api/search.js")
 );
 
@@ -242,6 +242,69 @@ await test("extractive venue lines render an integer year, never a float artifac
   assert.ok(md, "expected markdown output");
   assert.doesNotMatch(md, /\b\d{4}\.\d+\b/, "float year artifact must never print");
   assert.match(md, /Insect Science, 2015 \[1\]/, "venue must carry the integer year");
+});
+
+// Voice pass (2026-10-13): the limited tier used to open with
+// "## What the sources say" and narrate the pipeline's own process
+// ("N of the papers above had abstracts detailed enough to draw
+// findings from... The sentences below are the ones that speak to the
+// question most closely"), so the fallback read as a report about
+// papers. The corrected frame leads with the honest answer line and
+// presents the quoted passages as supporting evidence, labeled as
+// quotations, with the honest assembly closing intact.
+const BEE_PAPERS = [
+  PAPER(
+    "Honey bee winter cluster thermoregulation",
+    "Honey bee colonies maintain cluster temperature during winter by shivering flight muscles. " +
+      "Bees at the cluster core stay warmer than bees at the surface."
+  ),
+  PAPER(
+    "Varroa mite effects on colony survival",
+    "Colonies infested with varroa mites showed higher winter losses than uninfested colonies in the survey."
+  ),
+];
+
+await test("limited tier leads with the answer line, excerpts labeled as quotations", () => {
+  const md = buildExtractiveSynthesis(BEE_PAPERS, null, { query: "How do bees stay warm in winter?" });
+  assert.ok(md, "expected markdown output");
+  assert.equal(getLastExtractiveTier(), "limited", "fixture must land on the limited tier");
+  assert.ok(md.startsWith("## The short answer\n\n"), "answer must open with The short answer, got: " + md.slice(0, 60));
+  assert.doesNotMatch(md, /What the sources say/, "report frame heading survived");
+  assert.doesNotMatch(md, /abstracts detailed enough/, "process narration survived");
+  assert.doesNotMatch(md, /speak to the question most closely/, "process narration survived");
+  const leadEnd = md.indexOf("### Supporting evidence");
+  assert.ok(leadEnd > 0, "supporting evidence section missing");
+  const lead = md.slice(0, leadEnd);
+  assert.match(lead, /\[1\]/, "the lead line must be a cited quoted finding");
+  assert.match(md, /Passages quoted from the papers:/, "excerpts must be labeled as quotations");
+  assert.match(md, /without AI interpretation/, "honest assembly label must stay");
+});
+
+await test("limited tier existence question leads with the existence line", () => {
+  const md = buildExtractiveSynthesis(
+    [
+      { title: "Insect gut microbiome survey", abstract: "Researchers sequenced bacterial communities from insect intestines and compared taxa across several diets and host species.", year: 2022, journal: "J Test", relevance: 35 },
+      { title: "Purified enzyme kinetics in vitro", abstract: "Purified enzymes were isolated from insect tissue and their kinetics were measured in vitro under controlled conditions.", year: 2021, journal: "J Test", relevance: 35 },
+    ],
+    null,
+    { query: "Do researchers ever just grind up insect intestines and test the juice for enzymes?" }
+  );
+  assert.ok(md, "expected markdown output");
+  assert.equal(getLastExtractiveTier(), "limited", "fixture must land on the limited tier");
+  assert.ok(
+    md.startsWith("## The short answer\n\nNone of the retrieved papers report this practice directly."),
+    "existence line must be the first content under the heading, got: " + md.slice(0, 120)
+  );
+  assert.match(md, /### Supporting evidence/, "quoted passages must sit under Supporting evidence");
+  assert.doesNotMatch(md, /What the sources say/, "report frame heading survived");
+});
+
+await test("alignment checker still verifies the reframed limited answer end to end", () => {
+  const md = buildExtractiveSynthesis(BEE_PAPERS, null, { query: "How do bees stay warm in winter?" });
+  const res = verifyExtractiveAlignment(md, BEE_PAPERS);
+  assert.equal(res.checked, true, "reframed answer escaped alignment checking");
+  assert.equal(res.claims.length, 3, "lead plus both supporting passages must be checked, bibliography excluded");
+  assert.equal(res.overall, "supported");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
