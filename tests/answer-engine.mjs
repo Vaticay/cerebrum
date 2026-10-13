@@ -741,6 +741,28 @@ test("rescue wave builds its second leg on a live Groq model", () => {
   assert.ok(searchSrc.includes('rescueCall("openai/gpt-oss-20b"'), "rescue second leg missing");
 });
 
+test("extractBinomial does not mistake question words for a species", () => {
+  // Live failure (2026-10-13): "Has anyone assayed..." extracted the
+  // phantom binomial {Has, anyone} . sentence-initial capitalization
+  // made "Has" look like a genus and "anyone" is in neither STOPWORDS
+  // nor the non-taxonomic sets. The paper gate's binomial branch then
+  // required every candidate to contain the word "anyone", deleting
+  // the real shelf (43 of 46 papers in the live funnel) and leaving
+  // only junk that printed it. Auxiliaries, modals, interrogatives,
+  // and pronouns are closed classes: they can never fill either slot
+  // of a Latin binomial, in either position.
+  assert.equal(extractBinomial("Has anyone assayed digestive enzymes in whole gut preparations from insects without isolating the enzymes?"), null);
+  assert.equal(extractBinomial("How can a frog turn into ice all winter and not die?"), null);
+  assert.equal(extractBinomial("Can black soldier fly maggots eat leftover fryer grease?"), null);
+  assert.equal(extractBinomial("Do black soldier fly maggots eat leftover fryer grease?"), null);
+  // Rejecting the phantom pair must not end the scan: a real binomial
+  // later in the same question is still found.
+  const after = extractBinomial("Has the gut microbiome of Drosophila melanogaster been studied?");
+  assert.ok(after && after.full === "Drosophila melanogaster", "real binomial after a question opener missed: " + JSON.stringify(after));
+  const afterHow = extractBinomial("Studies show how enzymes in the gut of Tenebrio molitor respond to diet");
+  assert.ok(afterHow && afterHow.full === "Tenebrio molitor", "real binomial after a function word missed: " + JSON.stringify(afterHow));
+});
+
 test("extractBinomial still finds real species names", () => {
   const b = extractBinomial("How does diet change the gut microbiome of Hermetia illucens larvae?");
   assert.ok(b && b.full === "Hermetia illucens", "real binomial missed: " + JSON.stringify(b));

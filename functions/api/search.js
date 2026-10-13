@@ -410,6 +410,13 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
+// v18 (2026-10-13, phantom binomial): extractBinomial no longer
+// reads closed class question words (auxiliaries, modals,
+// interrogatives, pronouns) as a genus or species, so a question
+// opening "Has anyone..." no longer makes the paper gate require
+// the word "anyone" and silently delete the real shelf. Filtering
+// changes which papers survive for those questions; shipped query
+// shapes are unchanged.
 // v17 (2026-10-13, midgut coverage): buildStructuredQuery now scans
 // the question for multi word CONCEPT_GROUPS members, not just model
 // proposed phrases, so a preparation phrasing ("whole gut
@@ -426,7 +433,7 @@ function isNonLiterature(p) {
 // longer become structured query anchors and preparation phrasings
 // now bridge to the homogenate concept group, so both the shipped
 // queries and the filtered shelves change for cached questions.
-const CACHE_SCHEMA_VERSION = "v17";
+const CACHE_SCHEMA_VERSION = "v18";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -2896,6 +2903,46 @@ const NON_SPECIES_SECOND_WORDS = new Set([
   "distribution", "estimation", "hypothesis", "dynamics",
 ]);
 
+// Closed-class function words (2026-10-13, the "Has anyone" live
+// failure). A genus is a Latin noun and a species epithet is a Latin
+// adjective or genitive; neither slot can ever be filled by an English
+// auxiliary, modal, interrogative, or pronoun. These classes are
+// closed (English adds no new auxiliaries or pronouns), so listing
+// them is complete in a way a topic word blocklist can never be.
+// Without this guard, a question opening "Has anyone assayed..."
+// extracted the phantom binomial {Has, anyone}: sentence-initial
+// capitalization made "Has" look like a genus, and neither word is in
+// STOPWORDS or the sets above. The binomial branch of the paper gate
+// then required every candidate paper to contain the "species" word
+// "anyone", silently deleting the entire real shelf (digestive enzyme
+// papers on Mastotermes, Catopsilia, vine weevil were all in the
+// pool) and leaving only the junk papers that happened to print the
+// word "anyone". When the phantom second word is common ("the",
+// "can") the same defect passes everything instead; severity varied,
+// the misextraction was constant.
+const NON_GENUS_QUESTION_WORDS = new Set([
+  // auxiliaries and modals
+  "has", "have", "had", "does", "did", "can", "could", "may", "might",
+  "must", "shall", "should", "will", "would", "are", "was", "were",
+  "been", "being",
+  // interrogatives
+  "how", "what", "why", "when", "where", "which", "who", "whom", "whose",
+]);
+const NON_SPECIES_FUNCTION_WORDS = new Set([
+  // pronouns
+  "anyone", "anybody", "someone", "somebody", "everyone", "everybody",
+  "nobody", "anything", "something", "everything", "nothing",
+  "they", "them", "him", "his", "her", "hers", "its", "one", "ones",
+  // auxiliaries, modals, interrogatives: the same closed classes as
+  // NON_GENUS_QUESTION_WORDS (pairs like "Plants can", "Studies show how")
+  "has", "have", "had", "does", "did", "can", "could", "may", "might",
+  "must", "shall", "should", "will", "would", "are", "was", "were",
+  "been", "being",
+  "how", "what", "why", "when", "where", "which", "who", "whom", "whose",
+  // taxonomic rank words: the epithet is never the word for the rank
+  "species", "genus",
+]);
+
 export function extractBinomial(raw) {
   const s = raw.trim();
   // Common non-taxonomic word pairs that fit the pattern
@@ -2914,6 +2961,7 @@ export function extractBinomial(raw) {
     const test = m[0].toLowerCase();
     if (commonNonTaxonomic.has(test)) continue;
     if (NON_GENUS_FIRST_WORDS.has(m[1].toLowerCase()) || NON_SPECIES_SECOND_WORDS.has(m[2].toLowerCase())) continue;
+    if (NON_GENUS_QUESTION_WORDS.has(m[1].toLowerCase()) || NON_SPECIES_FUNCTION_WORDS.has(m[2].toLowerCase())) continue;
     // Reject ordinary English words even when sentence-initial capitalization
     // makes them LOOK taxonomic. Without this guard, every question starting
     // "Can you...", "Compare the...", "Does the..." etc. (i.e. nearly every

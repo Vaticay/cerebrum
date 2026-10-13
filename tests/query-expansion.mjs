@@ -27,6 +27,7 @@ const {
   buildDynLookup,
   llmConceptGroups,
   buildStructuredQuery,
+  extractBinomial,
   analyzeQuery,
   topicOverlapFilter,
   retrievalStrategiesTried,
@@ -240,6 +241,22 @@ await test("without a dynLookup the probe query carries the deterministic prepar
   const out = buildStructuredQuery(PROBE_Q.toLowerCase());
   assert.ok(out.includes("homogenate"), `deterministic preparation rung missing from: ${out}`);
   assert.ok(out.includes('"midgut homogenate"'), `midgut vocabulary missing from: ${out}`);
+});
+
+// The probe question's FOURTH live failure (2026-10-13, build
+// 67b9c9b) was not a query shape problem at all: the shipped query
+// above is correct, and Europe PMC (730 hits) and PubMed (91 hits,
+// top results real entomology papers) both answer it directly. The
+// pool contained the real papers all along. extractBinomial read
+// the sentence-initial pair "Has anyone" as a Latin binomial, and
+// the binomial branch of the paper gate then required every
+// candidate paper to contain the "species" word "anyone", silently
+// deleting the whole real shelf between dedup and ranking (the 43
+// "excludedWeak" in the live record) and leaving only junk papers
+// that happened to print "anyone". Pin the gate-side contract here,
+// beside the probe: this question names no species.
+await test("the probe question extracts no phantom binomial from its question words", () => {
+  assert.equal(extractBinomial(PROBE_Q), null);
 });
 
 await test("a phrase group whose phrase is absent from the question changes nothing", () => {
