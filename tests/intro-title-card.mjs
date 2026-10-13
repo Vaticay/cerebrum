@@ -1,33 +1,46 @@
 /**
  * Specimen-door regression tests.
  *
- * The intro is a specimen door, not a headline: the first viewport
- * shows ONE verified claim as a museum specimen — the claim in large
- * type, its paper attached, a "traced to a direct finding" verdict.
+ * The intro is a ceremonial film door, not a search screen: the first
+ * viewport shows verified claims on placards over a calm cinematic
+ * reel, each claim traced to a real paper, and exactly one way in.
  * The product demonstrates itself instead of describing itself.
  *
- * These tests lock the invariants of the rethink (2026-10-05), as
- * carried into the plate redesign (2026-10-13), which superseded the
- * timed rotation, the set-of-three placards, the film on the door,
- * and the "Start researching" CTA:
+ * These tests lock the contract of the RESTORED door (2026-10-13).
+ * Dusty's directive the day the plate redesign shipped: "Bring back
+ * the old intro page just make it better." The base is the door as it
+ * stood at eb500f7 (film reel, calmed atmosphere, three placards
+ * rotating as a set, "Start researching"), with the plate round's
+ * discipline layered on: consent on the way in and never on load, an
+ * honest proof line under every claim, a composed still frame under
+ * reduced motion, and a collapsed ceremony for returning visitors.
  *
- *   1. SPECIMENS holds real published findings, each with a claim, a
- *      paper citation, and a DOI link. The old headline and slogan are
- *      gone.
- *   2. The specimen is stepped by hand, one claim at a time, with a
- *      real counter. A plate does not turn its own pages: no timer.
- *   3. The film controls must report the video element's ACTUAL playback
- *      state (media events), never inferred intent — the lying
- *      "paused — tap to play" label came from intent flags. The reel
- *      still serves the workspace; the door itself is the DotField.
- *   4. The plate language: registration corner marks and a mono
- *      running head from the shared PlateFrame, a serif wordmark with
- *      a two clause definition, and one full width Enter key.
- *   5. The specimen previews the trust data: indexes searched, papers
- *      cited, and the paper's real title, a miniature Search record.
- *   6. The consent gate renders once, in the app shell, never over
- *      the intro; the Plate II stage and the Continue heading rules
- *      are pinned at the end of this file.
+ * Plate pins retired by that directive, and why:
+ *   - "single CTA reads Enter" and "no Start researching": the CTA is
+ *     the old door's locked copy again, "Start researching".
+ *   - "no timed rotation / one specimen at a time / hand stepper with
+ *     a counter": the placards rotate as a set of three on a timer
+ *     again, with full set steppers. That was the old door's life.
+ *   - "the door mounts the DotField, not the film reel" and the
+ *     vignette and PlateFrame pins: the film is back on the door; the
+ *     DotField and the plate frame are no longer the door's furniture.
+ *   - "serif wordmark with a two clause definition", "running head
+ *     carries the plate number", "full width Enter key": plate
+ *     furniture, gone with the plate door.
+ *   - "the record strip names indexes, papers cited, and the paper"
+ *     and the title extraction pin: the plate's record strip is
+ *     replaced by the restored door's quiet proof line (same real
+ *     count, the door's own voice).
+ *   - "the Return key enters from anywhere": a plate door handle; the
+ *     restored door's way in is its button, autofocused for returning
+ *     visitors.
+ *   PlateFrame, plateHead, and DotField remain exported from
+ *   intro.jsx: the search stage and the consent gate still use the
+ *   frame (pinned below and in core-identity).
+ *
+ * The app shell groups at the end (Plate II stage, consent trigger,
+ * Continue heading, recents engagement, deck) pin CerebrumApp.jsx
+ * behaviour that this restoration did not change.
  *
  * Run with: node tests/intro-title-card.mjs
  */
@@ -64,6 +77,7 @@ const src = await readFile(join(root, "src/intro.jsx"), "utf8");
 // Intro CSS keyframes live in the app's global CSS block (CerebrumApp.jsx).
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const cssSrc = src + "\n" + appSrc;
+const introFn = src.slice(src.indexOf("function Intro({"), src.indexOf("function CerebrumFieldCanvas"));
 
 await test("SPECIMENS holds at least three specimens", () => {
   const m = src.match(/const SPECIMENS = \[([\s\S]*?)\n\];/);
@@ -97,35 +111,40 @@ await test("verdict line marks each claim as traced", () => {
   assert.ok(src.includes("Traced to a direct finding"), "verdict line missing");
 });
 
-await test("single CTA reads \"Enter\"", () => {
-  assert.ok(/>Enter<\/button>/.test(src), "Enter CTA missing");
-  assert.ok(!src.includes("Start researching"), "old CTA copy still present");
+await test("the single way in reads \"Start researching\"", () => {
+  assert.ok(/>Start researching<\/button>/.test(src), "Start researching CTA missing");
+  assert.ok(!/>Enter<\/button>/.test(src), "the plate's Enter key still present");
+  const n = (src.match(/cb-intro-go/g) || []).length;
+  assert.ok(n >= 1, "CTA class missing");
+  const inIntro = (introFn.match(/className="cb-intro-go"/g) || []).length;
+  assert.equal(inIntro, 1, `the door has ${inIntro} primary CTAs, expected exactly one`);
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Stepping — by hand, one claim at a time (plate redesign)");
+group("Rotation — three placards as a set, on a timer (restored door)");
 
-const introFn = src.slice(src.indexOf("function Intro({"), src.indexOf("function CerebrumFieldCanvas"));
-
-await test("no timed rotation: a plate does not turn its own pages", () => {
-  assert.ok(!introFn.includes("setInterval"), "a timer still advances the specimen");
-  assert.ok(!introFn.includes("specimenSet"), "the set of three placards is still built");
-  assert.ok(!introFn.includes("specimenHeld"), "hold to pause machinery survives");
+await test("timed rotation advances the set by three", () => {
+  assert.ok(introFn.includes("setInterval"), "no rotation timer on the door");
+  assert.ok(introFn.includes("(i + setSize) % specimenCount"), "rotation does not advance by a full set");
+  assert.ok(introFn.includes("const setSize = 3;"), "set size is not three");
+  assert.ok(introFn.includes("isMobile ? 12000 : 9000"), "rotation cadence changed (9s desktop, 12s mobile)");
 });
 
-await test("one specimen renders at a time", () => {
-  assert.ok(introFn.includes("const specimen = SPECIMENS["), "single specimen not selected");
-  assert.ok(introFn.includes("Fig. {specimenIdx + 1}"), "figure number missing");
+await test("three placards render as a set", () => {
+  assert.ok(introFn.includes("SPECIMENS[(specimenIdx + k) % specimenCount]"), "the set of three is not built");
+  assert.ok(introFn.includes("specimenSet.map"), "the set does not render");
 });
 
-await test("stepper moves one claim at a time, wrapping, with a counter", () => {
-  assert.ok(src.includes('aria-label="Previous claim"'), "prev button missing");
-  assert.ok(src.includes('aria-label="Next claim"'), "next button missing");
-  assert.ok(introFn.includes("stepSpecimen(-1)"), "prev step not wired");
-  assert.ok(introFn.includes("stepSpecimen(1)"), "next step not wired");
-  assert.ok(introFn.includes("(i + d + specimenCount) % specimenCount"), "wrap step not wired");
-  assert.ok(introFn.includes("Claim {specimenIdx + 1} of {specimenCount}"), "counter missing");
-  assert.ok(!src.includes('role="tablist"'), "tab wall should be gone");
+await test("rotation pauses for a hold, a dialog, or reduced motion", () => {
+  assert.ok(introFn.includes("if (specimenHeld || howOpen || sourcesOpen) return undefined;"), "hold and dialog pauses missing");
+  assert.ok(introFn.includes("if (reduced || animationMode === \"off\") return undefined;"), "reduced motion does not stop the rotation");
+  assert.ok(introFn.includes("onMouseEnter={() => setSpecimenHeld(true)}"), "hover hold missing");
+});
+
+await test("steppers move by a full set of three", () => {
+  assert.ok(src.includes('aria-label="Previous three claims"'), "prev stepper missing");
+  assert.ok(src.includes('aria-label="Next three claims"'), "next stepper missing");
+  assert.ok(introFn.includes("(i - setSize + specimenCount) % specimenCount"), "prev step not wired by set");
 });
 
 await test("specimen change has its own entrance animation", () => {
@@ -154,11 +173,19 @@ await test("the old worked-example section is gone — the specimen is the examp
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Still instrument — no film on the door (2026-10-08)");
+group("The film door — cinema under calmed atmosphere (restored)");
+
+await test("the door mounts the intro film reel, gated on motion", () => {
+  assert.ok(introFn.includes("<CinematicFilm"), "intro does not mount the film reel");
+  assert.ok(introFn.includes('reel="intro"'), "the door does not run the intro reel");
+  assert.ok(introFn.includes("const animate = animationMode !== \"off\" && !reduced;"), "motion gate changed");
+  assert.ok(introFn.includes("{animate && ("), "the film is not gated on the motion state");
+});
 
 await test("CinematicFilm keeps its media-event truth for the workspace", () => {
-  // The reel component itself is unchanged (the workspace still uses it);
-  // it is simply no longer mounted on the intro.
+  // The reel component itself is unchanged (the workspace still uses
+  // it); it reports the video element's ACTUAL playback state through
+  // media events, never inferred intent.
   assert.ok(cssSrc.includes('addEventListener("playing"'), "no playing listener");
   assert.ok(cssSrc.includes('addEventListener("pause"'), "no pause listener");
   assert.ok(cssSrc.includes('addEventListener("play"'), "no play listener");
@@ -166,30 +193,70 @@ await test("CinematicFilm keeps its media-event truth for the workspace", () => 
   assert.ok(cssSrc.includes("reportPlaying"), "no element-state reporter in the reel");
 });
 
-await test("the door mounts the DotField, not the film reel", () => {
-  // The reel component itself is unchanged and still serves the
-  // workspace (see the media-event test above). The plate redesign
-  // took it off the door: the ambient there is the dot field now.
-  assert.ok(introFn.includes("<DotField"), "intro does not mount the dot field");
-  assert.ok(!introFn.includes("<CinematicFilm"), "intro still mounts the film reel");
-  assert.ok(!src.includes("filmPlaying"), "intro still tracks film playback state");
-  assert.ok(!src.includes("toggleFilm"), "intro still has a background toggle");
+await test("the calm air is present: atmosphere and grain over the film", () => {
+  assert.ok(introFn.includes("cb-intro-atmosphere"), "atmosphere layer missing");
+  assert.ok(introFn.includes("cb-atmo-a") && introFn.includes("cb-atmo-well"), "atmosphere fields missing");
+  assert.ok(introFn.includes("cb-intro-grain"), "grain missing");
+  assert.ok(introFn.includes('filter: "brightness(0.42) saturate(0.72)"'), "the film is not graded dark and quiet");
+});
+
+await test("the film guard stands: the intro reel is the frame checked pair", () => {
+  // eb500f7's permanent guard (scripts/check.mjs section 8) allowlists
+  // frame checked clips at build time. The door's reel is the pair
+  // verified by pulled frames on 2026-10-12; the banned clips (52298
+  // burning book, 5774 bright VR lab) never return as URLs.
+  const reel = src.slice(src.indexOf("const FILM_CLIPS_INTRO"), src.indexOf("const FILM_CLIPS_CALM"));
+  assert.ok(reel.includes("videos/30563/30563-720.mp4"), "dark matter clip missing from the intro reel");
+  assert.ok(reel.includes("videos/20231/20231-720.mp4"), "dark clouds clip missing from the intro reel");
+  assert.ok(!src.includes("videos/52298"), "the burning book clip is back");
+  assert.ok(!src.includes("videos/5774"), "the bright VR lab clip is back");
 });
 
 await test("no inferred autoplay-blocked flag survives", () => {
   assert.ok(!src.includes("autoplayBlocked"), "inferred autoplay flag still present");
 });
 
-await test("intro background is the dot field over a static vignette", () => {
-  assert.ok(introFn.includes("radial-gradient(120% 90% at 50% 42%"), "static vignette missing");
-  assert.ok(!src.includes("cb-instr-bed"), "static calibration bed still used on the intro");
+await test("the door is a threshold: no composer on the landing screen", () => {
+  assert.ok(!introFn.includes("<textarea"), "a composer textarea sits on the door");
+  assert.ok(!introFn.includes("SignalComposer"), "the workspace composer sits on the door");
+  assert.ok(!introFn.includes("placeholder="), "a search field sits on the door");
 });
 
-await test("registration corner marks come from the shared PlateFrame", () => {
-  assert.ok(src.includes("export function PlateFrame"), "PlateFrame not defined in intro.jsx");
-  assert.ok(introFn.includes("<PlateFrame"), "intro does not render inside the plate frame");
-  assert.ok(!src.includes("cb-instr-viewport"), "old viewport tick frame still referenced");
-  assert.ok(!src.includes("TickFrame"), "TickFrame still used on the intro");
+await test("the intro never summons the consent gate", () => {
+  // Consent timing (plate round, kept): the gate appears on the way
+  // in, in the app shell, never covering the door on load. The door
+  // itself carries no gate and no legal machinery.
+  assert.ok(!src.includes("ConsentGate"), "the door renders the consent gate");
+  assert.ok(!src.includes("cb_legal"), "the door touches the legal consent state");
+  assert.ok(!src.includes("LEGAL_VERSION"), "the door touches the legal version");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Retired plate furniture — gone from the door, kept for other surfaces");
+
+await test("the door renders no plate frame, dot field, or running head", () => {
+  assert.ok(!introFn.includes("<PlateFrame"), "the door still renders inside the plate frame");
+  assert.ok(!introFn.includes("<DotField"), "the door still mounts the dot field");
+  assert.ok(!introFn.includes("Plate I · Entrance"), "plate label still on the door");
+  assert.ok(!introFn.includes("Scientific literature, traced"), "running head still on the door");
+  assert.ok(!introFn.includes("Fig. {specimenIdx"), "figure label still on the door");
+  assert.ok(!introFn.includes("stepSpecimen"), "the hand stepper survives");
+  assert.ok(!introFn.includes("Claim {specimenIdx + 1} of"), "the plate counter survives");
+  assert.ok(!introFn.includes('e.key !== "Enter"'), "the plate's global Return handler survives");
+  assert.ok(!src.includes("A search instrument for the scientific literature, asked in plain language."), "plate definition clause (a) survives");
+  assert.ok(!src.includes("Every answer is traced to the papers behind it, so any claim can be opened and checked."), "plate definition clause (b) survives");
+});
+
+await test("the plate components stay exported from intro.jsx", () => {
+  /* The restoration removes nothing from the module's exports: the
+     shell round owns whether and where the frame renders (its stage
+     was being rebuilt in the same round), and plateHead remains in
+     use there. What this file pins is that intro.jsx keeps offering
+     all three, so no importer can break. */
+  assert.ok(src.includes("export function PlateFrame"), "PlateFrame no longer exported");
+  assert.ok(src.includes("export const plateHead"), "plateHead no longer exported");
+  assert.ok(src.includes("export function DotField"), "DotField no longer exported");
+  assert.ok(appSrc.includes("plateHead"), "the shell no longer uses the plate voice at all");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -211,32 +278,23 @@ await test("old fade-and-rise entrance is fully gone", () => {
   assert.ok(!src.includes("cbTitleIn"), "cbTitleIn keyframes still referenced");
 });
 
-await test("wordmark is a serif display with a two clause definition", () => {
-  assert.ok(introFn.includes('fontFamily: "var(--cb-serif)"'), "serif voice missing from the intro");
-  assert.ok(src.includes("A search instrument for the scientific literature, asked in plain language."), "definition clause (a) missing");
-  assert.ok(src.includes("Every answer is traced to the papers behind it, so any claim can be opened and checked."), "definition clause (b) missing");
-  assert.ok(!src.includes('letterSpacing: "0.42em"') && !src.includes('letterSpacing: "0.32em"'),
-    "tiny tracked caps scale still present");
+await test("the door header is the wordmark and quiet links", () => {
+  assert.ok(introFn.includes("<Mark size={19}"), "wordmark glyph missing from the header");
+  assert.ok(introFn.includes(">CEREBRUM</span>"), "tracked wordmark missing");
+  assert.ok(introFn.includes('["About", "Privacy", "Contact"]'), "quiet header links missing");
 });
 
-await test("running head carries the plate number", () => {
-  assert.ok(introFn.includes("Scientific literature, traced"), "running head centre missing");
-  assert.ok(introFn.includes("Plate I · Entrance"), "plate label missing");
-});
-
-await test("the one way in is a single full width Enter key", () => {
+await test("the CTA is set in normal case, not tracked caps", () => {
+  const ctaAt = introFn.indexOf('className="cb-intro-go"');
+  assert.ok(ctaAt > 0, "CTA button missing");
+  const cta = introFn.slice(ctaAt, ctaAt + 700);
+  assert.ok(cta.includes('textTransform: "none"'), "CTA not set in normal case");
+  assert.ok(!cta.includes('textTransform: "uppercase"'), "CTA still set as tracked caps");
   assert.ok(!src.includes("cb-intro-go::after"), "CTA light sweep still present");
   assert.ok(
     !src.includes("0 14px 34px rgba(163,184,153,0.30)"),
     "old chunky sage CTA shadow still present"
   );
-  // The CTA is set in normal case (textTransform "none"), not tracked caps.
-  const ctaAt = src.indexOf('className="cb-intro-go"');
-  assert.ok(ctaAt > 0, "CTA button missing");
-  const cta = src.slice(ctaAt, ctaAt + 700);
-  assert.ok(cta.includes('textTransform: "none"'), "CTA not set in normal case");
-  assert.ok(cta.includes('width: "100%"'), "CTA not full width of the column");
-  assert.ok(!cta.includes('textTransform: "uppercase"'), "CTA still set as tracked caps");
 });
 
 await test("reduced motion kills the focus-pull", () => {
@@ -244,35 +302,46 @@ await test("reduced motion kills the focus-pull", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("The specimen previews the Search record (plate redesign)");
+group("The proof line — honest numbers under every claim");
 
-await test("the record strip names indexes, papers cited, and the paper", () => {
-  assert.ok(introFn.includes("Indexes searched"), "indexes cell missing");
-  assert.ok(introFn.includes("Papers cited"), "papers cited cell missing");
-  assert.ok(introFn.includes("String(SCHOLARLY_SOURCES.length)"), "index count is not the real source count");
-  assert.ok(introFn.includes("specimenTitle"), "paper title not rendered");
+await test("each placard carries the quiet proof line with the real count", () => {
+  assert.ok(introFn.includes("Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes"), "proof line missing or not built from the real source list");
+  assert.ok(!/Searched across \d+ scholarly indexes/.test(introFn), "the index count is hardcoded, not the real list");
 });
 
-await test("the paper title is lifted from the real citation, never written", () => {
-  assert.ok(src.includes("match(/“([^”]+)”/)"), "title extraction from the citation string missing");
+await test("the plate's record strip is retired", () => {
+  assert.ok(!introFn.includes("Indexes searched"), "record strip cell survives");
+  assert.ok(!introFn.includes("Papers cited"), "record strip cell survives");
+  assert.ok(!introFn.includes("recordCell"), "record strip builder survives");
+});
+
+await test("the paper is reachable the way the old door linked it", () => {
+  assert.ok(introFn.includes("Open the paper"), "open the paper link missing");
+  assert.ok(introFn.includes("href={spec.doi}"), "the link does not use the specimen's DOI");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("The door handle and the collapsed ceremony");
-
-await test("the Return key enters from anywhere that is not a control", () => {
-  assert.ok(introFn.includes('e.key !== "Enter"'), "Enter key handler missing");
-  assert.ok(introFn.includes("howOpen || sourcesOpen"), "dialogs do not keep their own keys");
-});
+group("Returning visitors and reduced motion — the composed door");
 
 await test("repeat visits in a session collapse the ceremony", () => {
   assert.ok(introFn.includes('sessionStorage.getItem("cerebrum-entered")'), "entered flag never read");
   assert.ok(introFn.includes('sessionStorage.setItem("cerebrum-entered", "1")'), "entered flag never set");
-  assert.ok(introFn.includes("autoFocus={enteredBefore || undefined}"), "returning plate does not focus the way in");
+  assert.ok(introFn.includes("autoFocus={enteredBefore || undefined}"), "returning door does not focus the way in");
+  assert.ok(introFn.includes("const ceremony = animate && !enteredBefore;"), "returning visitors still get the entrance choreography");
+  assert.ok(introFn.includes("(reduced || enteredBefore) && !leaving"), "returning door does not take the still treatment");
+});
+
+await test("reduced motion is one still, composed frame", () => {
+  // No film (the animate gate above), no rotation (the effect's early
+  // return above), and the wrap takes the still class whose CSS
+  // freezes the atmosphere and resolves the chrome in a single fade.
+  assert.ok(introFn.includes('"cb-intro-still"'), "still class never applied");
+  assert.ok(cssSrc.includes(".cb-intro-still .cb-intro-atmosphere > div { animation: none; }"), "the still frame does not freeze the atmosphere");
+  assert.ok(cssSrc.includes(".cb-intro-still .cb-intro-chrome { animation: cbIntroStillIn"), "the still frame has no composed entrance");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("DotField discipline");
+group("DotField discipline (component retained; no longer the door's ambient)");
 
 await test("the field is capped, pausable, and faint", () => {
   assert.ok(src.includes("Math.min(window.devicePixelRatio || 1, 1.5)"), "DPR not capped at 1.5");
@@ -293,10 +362,19 @@ await test("the consent gate renders exactly once, in the app shell", () => {
   assert.ok(appSrc.includes("{!legalOk && ("), "the shell gate is no longer unconditional");
 });
 
-await test("the stage drops the desktop sidebar and centres one column", () => {
+await test("the stage keeps one centred column inside the standard shell", () => {
+  /* Contract revised 2026-10-13 on Dusty's directive ("bring back
+     the side bar but make it better"), superseding the plate pass
+     contract this test originally pinned: the desktop sidebar renders
+     on the stage exactly as it does over a thread, and the main
+     offset is the standard sidebar offset. What survives from the
+     plate pass is the single centred 720 column, so the scatter
+     cannot return. The fuller pin set for the restored stage lives
+     in tests/core-identity.mjs ("Home stage: sidebar restored"). */
   assert.ok(appSrc.includes('const homeStage = view === "search" && !started'), "homeStage not derived from the empty state");
-  assert.ok(appSrc.includes("(!homeStage || isMobile)"), "sidebar not conditional on the stage");
-  assert.ok(appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "sidebar offset survives on the stage");
+  assert.ok(!appSrc.includes("(!homeStage || isMobile)"), "sidebar is still conditional on the stage");
+  assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216)"), "main offset is not the standard sidebar offset");
+  assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
 });
 
 await test("the stage carries the plate order and no corpus number", () => {
@@ -363,7 +441,10 @@ await test("the stage bar carries no centre running head to truncate", () => {
   assert.ok(!stage.includes("Scientific literature, traced"), "stage bar still renders the truncating centre text");
   assert.ok(!stage.includes("headCenter"), "stage still passes a headCenter");
   const introFn2 = src.slice(src.indexOf("function Intro({"), src.indexOf("function CerebrumFieldCanvas"));
-  assert.ok(introFn2.includes("Scientific literature, traced"), "intro lost its running head centre");
+  /* Restored door (2026-10-13 directive): the intro carries no running
+     head at all. The plate's centre text belonged to the plate door,
+     which the directive superseded the day it shipped. */
+  assert.ok(!introFn2.includes("Scientific literature, traced"), "the restored intro grew a running head centre");
 });
 
 await test("recents open only on the visitor's own engagement", () => {
