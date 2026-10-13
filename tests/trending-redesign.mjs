@@ -128,6 +128,93 @@ await test("clustering actually runs and groups reports of one event", async () 
   assert.equal(deduped.length, 1, "the same DOI twice is one record");
 });
 
+await test("clustering: the CRS-35 launch pair groups across outlets", async () => {
+  // Shaped on the live edition's one genuine same event pair, which
+  // the trend signal pass measured at 5 shared title tokens, jaccard
+  // 0.417, containment 0.625: under the old rule it never grouped,
+  // because "launches" and "launch" tokenized as different words.
+  const { clusterTrendingItems } = await import(join(root, "src/trendingUtils.js"));
+  const sfn = { title: "SpaceX launches CRS-35 Dragon cargo capsule to the space station", url: "https://sfn.example/crs35", summary: "s" };
+  const nasa = { title: "NASA CRS-35 Dragon cargo launch reaches the International Space Station", url: "https://nasa.example/crs35", summary: "a longer report" };
+  const out = clusterTrendingItems([sfn, nasa]);
+  assert.equal(out.length, 1, "the two CRS-35 launch reports stayed separate stories");
+  assert.equal(out[0].coverageCount, 2);
+  assert.deepEqual(out[0].coverage.map((c) => c.url).sort(), [nasa.url, sfn.url].sort(), "the story must carry both outlets as coverage");
+});
+
+await test("clustering: a three outlet event is one story, singletons stay singletons", async () => {
+  const { clusterTrendingItems } = await import(join(root, "src/trendingUtils.js"));
+  const mk = (title, url) => ({ title, url, summary: "wire report" });
+  const edition = [
+    mk("SpaceX launches CRS-35 Dragon cargo capsule to the space station", "https://sfn.example/crs35"),
+    mk("NASA CRS-35 Dragon cargo launch reaches the International Space Station", "https://nasa.example/crs35"),
+    mk("Artemis II astronauts complete historic Moon flyby mission", "https://a.example/artemis"),
+    mk("NASA Artemis II astronauts complete Moon flyby mission", "https://b.example/artemis"),
+    mk("Artemis II astronauts complete Moon flyby as crowds cheer return", "https://c.example/artemis"),
+    mk("SpaceX launches Falcon 9 rocket with Starlink satellites", "https://sfn.example/falcon9"),
+    mk("SpaceX CRS-34 Dragon cargo capsule launches to the space station", "https://sfn.example/crs34"),
+    mk("Rocket Lab launches Electron rocket with small satellites from New Zealand", "https://rl.example/electron"),
+    mk("NASA telescope captures sharpest image yet of distant galaxy", "https://nasa.example/telescope"),
+    mk("Ocean microbes produce oxygen in complete darkness", "https://p.example/microbes1"),
+    mk("Volcanic microbes thrive in acidic hot springs", "https://p.example/microbes2"),
+    mk("New exoplanet found in habitable zone of nearby star", "https://p.example/exoplanet"),
+  ];
+  const out = clusterTrendingItems(edition);
+  assert.equal(out.length, 9, "12 reports should read as 9 stories");
+  const byCoverage = (u) => out.find((s) => (s.coverage || [s]).some((c) => c.url === u));
+  assert.equal(byCoverage("https://sfn.example/crs35").coverageCount, 2, "CRS-35 reports did not group");
+  const artemis = byCoverage("https://a.example/artemis");
+  assert.equal(artemis.coverageCount, 3, "the three Artemis II reports did not form one story");
+  assert.deepEqual(artemis.coverage.map((c) => c.url).sort(),
+    ["https://a.example/artemis", "https://b.example/artemis", "https://c.example/artemis"].sort());
+  // Distinct stories sharing vocabulary stay apart: a different
+  // launch, a different mission number in parallel wording (the old
+  // rule merged CRS-34 into CRS-35 at containment 0.875), a
+  // different rocket, a different NASA topic, two different papers
+  // sharing a genus, and a lone paper.
+  for (const u of ["https://sfn.example/falcon9", "https://sfn.example/crs34", "https://rl.example/electron",
+    "https://nasa.example/telescope", "https://p.example/microbes1", "https://p.example/microbes2",
+    "https://p.example/exoplanet"]) {
+    const s = byCoverage(u);
+    assert.ok(s && !s.coverage, `${u} should be a singleton story`);
+  }
+});
+
+await test("clustering: shared common vocabulary alone cannot group two stories", async () => {
+  // The fish and coral items share 6 stems at containment 0.667,
+  // enough for the event path on overlap alone. Every stem they
+  // share also appears in at least three other items in this
+  // edition, so none of them is edition rare, and the pair must
+  // stay apart: they are different findings in common words, not
+  // one event reported twice.
+  const { clusterTrendingItems } = await import(join(root, "src/trendingUtils.js"));
+  const mk = (title, url) => ({ title, url, summary: "wire report" });
+  const out = clusterTrendingItems([
+    mk("Climate driven ocean warming affects fish populations along coast", "https://p.example/fish"),
+    mk("Climate driven ocean warming affects coral populations in tropical seas", "https://p.example/coral"),
+    mk("Climate change and ocean warming bleach coral reefs", "https://n.example/1"),
+    mk("Climate panel warns warming affects ocean currents", "https://n.example/2"),
+    mk("Ocean temperatures climb to record levels in Pacific", "https://n.example/3"),
+    mk("Warming driven drought strains water supplies for farm populations", "https://n.example/4"),
+    mk("Warming driven storms affect bird populations at lakes", "https://n.example/5"),
+  ]);
+  assert.equal(out.length, 7, "stories sharing only common vocabulary merged");
+  assert.ok(out.every((s) => !s.coverage), "no story in this edition should carry coverage");
+});
+
+await test("clustering tokens: light stemming, identifiers exact, shared tokenizer untouched", async () => {
+  const { trendClusterTokens, trendTitleTokens } = await import(join(root, "src/trendingUtils.js"));
+  const stems = (t) => trendClusterTokens(t);
+  assert.ok(stems("launches").has("launch") && stems("launch").has("launch"), "launches and launch must meet");
+  assert.ok(stems("docking").has("dock") && stems("docked").has("dock") && stems("docks").has("dock"), "dock inflections must meet");
+  assert.ok(stems("satellites").has("satellite") && stems("satellite").has("satellite"), "satellites and satellite must meet");
+  assert.ok(stems("crs-35").has("crs-35"), "identifiers are never stemmed");
+  assert.ok(stems("glass").has("glass") && stems("status").has("status"), "ss and us endings are not stripped");
+  // The modal's up next scorer uses trendTitleTokens; it must stay
+  // exactly as it was, so the stemming cannot leak into it.
+  assert.ok(trendTitleTokens("launches").has("launches"), "the shared tokenizer changed under the clustering fix");
+});
+
 await test("past editions are archived and offered in the masthead", async () => {
   assert.ok(trendingSrc.includes("trending_editions"), "no editions archive table");
   assert.ok(trendingSrc.includes("editionIdOf"), "no edition identifier derived from generatedAt");
