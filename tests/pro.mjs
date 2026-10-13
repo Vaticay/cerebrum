@@ -1080,6 +1080,12 @@ await test("in-app pricing surfaces present every tier, not just Free and Pro", 
   // Usage upgrade panel: a student path next to the Pro and Lite buttons.
   assert.match(src, /Students: full Pro for \$7\.99\/mo/, "usage upgrade panel missing the student path");
   assert.match(src, /onOpenPro\("student"\)/, "usage upgrade panel student button must open the Student plan");
+  // Settings membership section: Pro Student is named with its terms, and
+  // its See plans control preselects the Student plan.
+  const settings = await readFile(join(root, "src/settings.jsx"), "utf8");
+  assert.match(settings, /label="Pro Student"/, "settings membership section missing the Pro Student row");
+  assert.match(settings, /Full Pro for \$7\.99\/month for the first 12 months with a verified college email/, "settings student row must carry the verified student terms");
+  assert.match(settings, /onOpenPro\("student"\)/, "settings student row must preselect the Student plan");
 });
 
 await test("lifetime list API speaks { email, granted_at }", async () => {

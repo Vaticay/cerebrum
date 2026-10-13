@@ -289,6 +289,13 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           )}
           {rank !== "pro" && (
             <Row
+              label="Pro Student"
+              desc="Full Pro for $7.99/month for the first 12 months with a verified college email (.edu or .ac.uk). Renews at the standard $20/month after the first 12 months unless cancelled."
+              control={goldBtn("See plans", () => onOpenPro("student"))}
+            />
+          )}
+          {rank !== "pro" && (
+            <Row
               label="Pro"
               desc="The meter goes away: unlimited AI answers, document reads and flowcharts, deeper Pro search, investigation templates, API access, plus the badge and four exclusive themes. $20/month or $144/year."
               control={rank === "free" ? goldBtn("Go Pro", onOpenPro) : quietBtn("Go Pro", onOpenPro)}
