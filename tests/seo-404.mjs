@@ -72,9 +72,9 @@ t("Root renders NotFound for the notfound kind", () => {
 });
 
 // --- the NotFound view itself -----------------------------------------------
-t('NotFound sets the "Page not found — Cerebrum" title', () => {
+t('NotFound sets the "Page not found · Cerebrum" title', () => {
   assert.ok(
-    mainJsx.includes('document.title = "Page not found — Cerebrum"'),
+    mainJsx.includes('document.title = "Page not found · Cerebrum"'),
     "NotFound must set the 404 title"
   );
 });

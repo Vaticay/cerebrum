@@ -9,13 +9,13 @@
  * static document and the app cannot drift.
  *
  * Constraints honored here:
- * - Rendered <title> is `${title} — Cerebrum`, which must stay within
- *   50–60 chars (tests/seo-marketing.mjs enforces the rendered length).
- *   With the 11-char " — Cerebrum" suffix that means raw titles of
- *   roughly 38–49 chars.
- * - The lede becomes the meta description and must be 140–160 chars
+ * - Rendered <title> is the raw title, then an em dash, then "Cerebrum",
+ *   and it must stay within 50 to 60 chars (tests/seo-marketing.mjs
+ *   enforces the rendered length). With the 11 char suffix that means raw
+ *   titles of roughly 38 to 49 chars.
+ * - The lede becomes the meta description and must be 140 to 160 chars
  *   (also enforced by the test).
- * - Database counts must say "15 open scholarly databases" — the sanctioned
+ * - Database counts must say "15 open scholarly databases", the sanctioned
  *   number (functions/lib/product.js SOURCE_COUNT; see scripts/check.mjs).
  * - The slogan below is Dusty's, word for word. Never reword it; only the
  *   labeling/styling around it may change.
@@ -88,7 +88,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Where do the answers come from?",
-        a: "From 15 open scholarly databases — including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, and bioRxiv — searched in parallel. Every claim in an answer links to a real paper you can open.",
+        a: "From 15 open scholarly databases, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, and bioRxiv, searched in parallel. Every claim in an answer links to a real paper you can open.",
       },
       {
         q: "Do I need an account?",
@@ -135,7 +135,7 @@ export const MARKETING_PAGES = {
           "Unlimited AI answers, document reads, and flowcharts.",
           "The Pro badge, four exclusive Pro themes, deeper Pro search, and priority rendering.",
           "Pro-only investigation templates, priority search queue, and API access with personal keys.",
-          "Cancel anytime from the billing portal. 7-day money-back guarantee on the first charge of a new subscription — email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
+          "Cancel anytime from the billing portal. 7-day money-back guarantee on the first charge of a new subscription. Email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
         ],
       },
       {
@@ -201,7 +201,7 @@ export const MARKETING_PAGES = {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Document Mode",
     title: "Document Mode: understand long papers and PDFs",
-    lede: "Paste or upload a long paper and Cerebrum reads it section by section, then synthesizes a structured summary — with a live progress bar throughout.",
+    lede: "Paste or upload a long paper and Cerebrum reads it section by section, then synthesizes a structured summary, with a live progress bar throughout.",
     updated: "Updated September 2026.",
     blocks: [
       {
@@ -242,7 +242,7 @@ export const MARKETING_PAGES = {
     blocks: [
       {
         h: "What it does",
-        p: "Describe the pathway, process, or system you want to show — or import an existing .mmd file verbatim — and Diagram Studio renders it with the Mermaid v12 engine: flowcharts, sequence diagrams, class diagrams, and more.",
+        p: "Describe the pathway, process, or system you want to show, or import an existing .mmd file verbatim, and Diagram Studio renders it with the Mermaid v12 engine: flowcharts, sequence diagrams, class diagrams, and more.",
       },
       {
         h: "Built for real work",
@@ -257,7 +257,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "Which diagram types are supported?",
-        a: "Everything Mermaid v12 supports: flowcharts, sequence diagrams, class diagrams, state diagrams, entity-relationship diagrams, Gantt charts, and more — plus verbatim import of your own .mmd files.",
+        a: "Everything Mermaid v12 supports: flowcharts, sequence diagrams, class diagrams, state diagrams, entity-relationship diagrams, Gantt charts, and more, plus verbatim import of your own .mmd files.",
       },
       {
         q: "Can I export my diagrams?",
@@ -293,7 +293,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "How is that different from the Library?",
-        a: "The Library organizes saved papers into collections. Investigations keep the active work — questions, papers, and notes — together while a research thread is in progress.",
+        a: "The Library organizes saved papers into collections. Investigations keep the active work, questions, papers, and notes, together while a research thread is in progress.",
       },
     ],
   },

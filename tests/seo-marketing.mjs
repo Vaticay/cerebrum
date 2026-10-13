@@ -16,7 +16,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { MARKETING_PAGES, MARKETING_SLUGS, SLOGAN } = await import(join(root, "src/marketingContent.js"));
+const { MARKETING_PAGES, MARKETING_SLUGS, SLOGAN, DEMO_QUESTIONS } = await import(join(root, "src/marketingContent.js"));
+const { PAGES: LEGAL_PAGES } = await import(join(root, "src/legalContent.js"));
+const widgetsSrc = await readFile(join(root, "src/marketingWidgets.jsx"), "utf8");
 const { INFO_SLUGS, classifyRoute } = await import(join(root, "src/routeClassify.js"));
 const { SOURCE_COUNT } = await import(join(root, "functions/lib/product.js"));
 
@@ -38,7 +40,7 @@ t("all five marketing slugs exist", () => {
 for (const slug of EXPECTED_SLUGS) {
   const p = MARKETING_PAGES[slug];
   t(`/${slug}: rendered title is 50–60 chars`, () => {
-    const rendered = `${p.title} — Cerebrum`;
+    const rendered = `${p.title} · Cerebrum`;
     assert.ok(rendered.length >= 50 && rendered.length <= 60,
       `got ${rendered.length} chars: "${rendered}"`);
   });
@@ -152,9 +154,9 @@ t("pricing copy presents every verified tier and its headline allowances", () =>
  * disappearing in a future copy edit, keep the two features out of
  * the Pro only list (they ship on answers generally; the MCP
  * endpoint has no tier gate), and hold the new strings to the
- * product rule of no dash characters of any kind. The dash check is
- * scoped to the new strings on purpose: older copy predates the
- * check and is out of scope for this pin. */
+ * product rule of no dash characters of any kind. The dash check
+ * below is scoped to the new strings; the guard at the end of this
+ * file covers every string in the marketing and legal modules. */
 const featuresJson = JSON.stringify(MARKETING_PAGES.features);
 const pricingJson = JSON.stringify(MARKETING_PAGES.pricing);
 const blockByHeading = (page, h) => (page.blocks || []).find((b) => b.h === h);
@@ -258,6 +260,48 @@ t("new product copy strings contain no dash characters of any kind", () => {
     for (const d of DASHES) {
       assert.ok(!piece.includes(d), `dash character ${JSON.stringify(d)} found in new copy: ${piece.slice(0, 110)}`);
     }
+  }
+});
+
+/* ── Dash guard (2026-10-13 polish pass) ───────────────────────────
+ * The rule is absolute: no em or en dash in user visible copy,
+ * because they read as AI generated. The product copy pins above
+ * cover only the strings they added; older marketing and legal copy
+ * predated the rule and shipped dashes on the prerendered routes.
+ * This guard walks every string value exported by the two content
+ * modules, which are the exact strings the prerender pipeline and
+ * the in app InfoPage render, and fails if an em or en dash appears
+ * in any of them. marketingWidgets.jsx cannot be imported by Node
+ * (JSX with React imports), so its string literals are extracted
+ * from source instead; template literal expressions are code, not
+ * copy, and are blanked before extraction. */
+const collectStrings = (value, out = []) => {
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const v of value) collectStrings(v, out);
+  else if (value && typeof value === "object") for (const v of Object.values(value)) collectStrings(v, out);
+  return out;
+};
+const stringLiteralsOf = (src) => {
+  const out = [];
+  const blanked = src.replace(/\$\{[^}]*\}/g, " ");
+  for (const m of blanked.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`\\]*(?:\\.[^`\\]*)*)`/g)) {
+    out.push(m[1] ?? m[2] ?? m[3]);
+  }
+  return out;
+};
+
+t("no em or en dash in any marketing or legal copy string", () => {
+  const strings = [
+    ...collectStrings(MARKETING_PAGES),
+    ...collectStrings(DEMO_QUESTIONS),
+    SLOGAN,
+    ...collectStrings(LEGAL_PAGES),
+    ...stringLiteralsOf(widgetsSrc),
+  ];
+  assert.ok(strings.length > 100, `dash guard collected only ${strings.length} strings`);
+  for (const s of strings) {
+    assert.ok(!s.includes("—"), `em dash in copy: ${s.slice(0, 110)}`);
+    assert.ok(!s.includes("–"), `en dash in copy: ${s.slice(0, 110)}`);
   }
 });
 

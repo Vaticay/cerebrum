@@ -1,5 +1,5 @@
 /**
- * marketingWidgets.jsx — interactive widgets for the marketing/info pages.
+ * marketingWidgets.jsx: interactive widgets for the marketing/info pages.
  *
  * QuotaCalculator (pricing) and LiveDemo (about, features). Rendered by
  * InfoPage in CerebrumApp.jsx from the same data the prerender script uses,

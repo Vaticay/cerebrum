@@ -66,7 +66,7 @@ function renderBlock(b) {
  * its own, and it must not depend on the application's stylesheet loading.
  */
 function renderPage(slug, data, shell) {
-  const title = `${data.title} — Cerebrum`;
+  const title = `${data.title} · Cerebrum`;
   const description = String(data.lede || "").slice(0, 300);
   const canonical = `${ORIGIN}/${slug}`;
   const body = (data.blocks || []).map(renderBlock).join("\n");
@@ -74,7 +74,7 @@ function renderPage(slug, data, shell) {
   /* FAQ section. data.faq is the same array the in-app InfoPage renders,
    * so the static document and the app cannot drift. Questions become h3s
    * under one h2, and the whole set is also emitted as FAQPage structured
-   * data — the format search engines and AI answer products lift most. */
+   * data, the format search engines and AI answer products lift most. */
   const faqHtml = Array.isArray(data.faq) && data.faq.length
     ? `<hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />\n` +
       `<div id="frequently-asked-questions">\n<h2>Frequently asked questions</h2>\n` +
@@ -144,7 +144,7 @@ function renderPage(slug, data, shell) {
     <meta property="og:image" content="${ORIGIN}/og-image.png?v=20260912" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Cerebrum — scientific literature search" />
+    <meta property="og:image:alt" content="Cerebrum · scientific literature search" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${esc(title)}" />
     <meta name="twitter:description" content="${esc(description)}" />

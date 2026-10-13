@@ -181,7 +181,7 @@ function readCookie(k) {
 
 function NotFound() {
   React.useEffect(() => {
-    try { document.title = "Page not found — Cerebrum"; } catch (cbErr) { console.error("[Cerebrum] main.jsx NotFound: document.title = 'Page not found — Cerebrum'; }:", cbErr); }
+    try { document.title = "Page not found · Cerebrum"; } catch (cbErr) { console.error("[Cerebrum] main.jsx NotFound: document.title = 'Page not found · Cerebrum'; }:", cbErr); }
   }, []);
   const paletteName = readCookie("cb_pal") || "Dark";
   const P = PALETTES[isProPalette(paletteName) ? "Dark" : paletteName] || PALETTES.Dark;
@@ -313,7 +313,7 @@ function Root() {
           Zero visual impact. */}
       {kind === "app" && (
         <h1 style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 }}>
-          Cerebrum — free scientific literature search
+          Cerebrum · free scientific literature search
         </h1>
       )}
       {content}

@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    <title>Cerebrum — Free Scientific Literature Search</title>
-    <meta name="description" content="Cerebrum is a free AI scientific literature search engine: ask a research question in plain language and get an evidence-based answer assembled from 15 open scholarly databases — PubMed, Europe PMC, OpenAlex, Semantic Scholar and more — where every claim links to a paper you can open. No ads; an account is optional." />
+    <title>Cerebrum · Free Scientific Literature Search</title>
+    <meta name="description" content="Cerebrum is a free AI scientific literature search engine: ask a research question in plain language and get an evidence-based answer assembled from 15 open scholarly databases (PubMed, Europe PMC, OpenAlex, Semantic Scholar and more), where every claim links to a paper you can open. No ads; an account is optional." />
     <meta name="keywords" content="AI scientific literature search, research paper search engine, AI literature review tool, scientific paper finder, evidence-based research assistant, PubMed, Europe PMC, OpenAlex, peer-reviewed, free research tool, academic search engine, science search" />
     <meta name="author" content="Cerebrum" />
     <meta name="publisher" content="Cerebrum" />
@@ -17,8 +17,8 @@
     <link rel="canonical" href="https://askcerebrum.org/" />
 
     <!-- Type system, loaded from the document head rather than injected by JS
-         after mount (see src/main.jsx's now-removed loadFonts() IIFE) — a
-         font stylesheet requested only after React has mounted and painted
+         after mount (see src/main.jsx's now-removed loadFonts() IIFE).
+         A font stylesheet requested only after React has mounted and painted
          means the hero headline visibly swaps from its fallback (system
          sans) to Space Grotesk mid-render, a flash of unstyled text on
          every single first visit. Requesting it here starts the fetch
@@ -36,7 +36,7 @@
     <!-- Fonts are served from this origin, not from Google.
          Previously three <link>s pointed at fonts.googleapis.com, which meant
          every visitor's IP address and User-Agent reached a third party
-         before the page had rendered a single word — on a site whose whole
+         before the page had rendered a single word, on a site whose whole
          proposition is that your research questions are private. The woff2
          files now live in /fonts (latin + latin-ext subsets only, ~700KB
          total) and the @font-face rules are local.
@@ -53,12 +53,12 @@
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/NGSwv5HMAFg6IuGlBNMjxLsJ8ah8QA.woff2" />
 
     <!-- The one typeface. Inter Tight ships as a variable font (wght
-         100–900) from this origin's /fonts directory — the woff2 files
+         100 to 900) from this origin's /fonts directory. The woff2 files
          were already there but nothing referenced them, so every iPhone
          was rendering the whole app in San Francisco with synthesized
          bold. Two @font-face rules (latin + latin-ext subsets) with the
          real unicode ranges, and one --cb-font token the app uses for
-         everything: body 450–500, controls 600, headings 650–700, all
+         everything: body 450 to 500, controls 600, headings 650 to 700, all
          real weights, no faux-bold. Declared here so the boot splash and
          first paint already use it, before React mounts. -->
     <style>
@@ -89,7 +89,7 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Cerebrum" />
-    <meta property="og:title" content="Cerebrum — Free Scientific Literature Search" />
+    <meta property="og:title" content="Cerebrum · Free Scientific Literature Search" />
     <meta property="og:description" content="Ask a research question. Get answers from 15 open scholarly databases, with every claim linked to a paper you can open. Free, no ads." />
     <meta property="og:url" content="https://askcerebrum.org/" />
     <!-- ?v= cache-buster: bump it whenever public/og-image.png is redrawn,
@@ -98,12 +98,12 @@
     <meta property="og:image" content="https://askcerebrum.org/og-image.png?v=20260912" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Cerebrum — scientific literature search" />
+    <meta property="og:image:alt" content="Cerebrum · scientific literature search" />
     <meta property="og:locale" content="en_US" />
 
     <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Cerebrum — Free Scientific Literature Search" />
+    <meta name="twitter:title" content="Cerebrum · Free Scientific Literature Search" />
     <meta name="twitter:description" content="Ask a research question. Get answers from 15 open scholarly databases, every claim linked to a real paper." />
     <meta name="twitter:image" content="https://askcerebrum.org/og-image.png?v=20260912" />
 
@@ -162,13 +162,13 @@
     <div id="root"><div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#000000;"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#00e5a0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="cb-boot-draw" d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/><path class="cb-boot-draw cb-boot-draw-b" d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/></svg></div><style>.cb-boot-draw{stroke-dasharray:62;stroke-dashoffset:62;animation:cbBootDraw 1.4s cubic-bezier(0.16,1,0.3,1) forwards}.cb-boot-draw-b{animation-delay:0.18s}@keyframes cbBootDraw{0%{stroke-dashoffset:62;opacity:0}15%{opacity:1}100%{stroke-dashoffset:0;opacity:1}}@media (prefers-reduced-motion:reduce){.cb-boot-draw{animation:none;stroke-dashoffset:0;opacity:1}}</style></div>
     <!-- Fallback content for crawlers and browsers with JS disabled. This is
          what non-JS reputation scanners and search engine crawlers actually
-         index. Having real, descriptive content here — not just "loading..." —
+         index. Having real, descriptive content here, not just "loading...",
          is one of the single most-effective ways to be categorized correctly. -->
     <noscript>
       <div style="max-width: 720px; margin: 40px auto; padding: 20px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #18181b;">
         <h1 style="font-size: 32px; font-weight: 700; letter-spacing: -0.02em;">Cerebrum</h1>
-        <p><strong>Cerebrum is a free AI scientific literature search engine.</strong> Ask a research question in plain language — no query syntax to learn — and get an evidence-based answer assembled from 15 open scholarly databases, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS and Zenodo. Use it as a research paper search engine or an AI literature review tool: save sources into collections, compare investigations side by side, and see how your sources relate to one another.</p>
-        <p>Every citation points to a real paper you can open and check yourself — that is what makes Cerebrum an evidence-based research assistant rather than a chatbot answering from memory. Answers are written by a language model from those papers, so they can still be wrong — the sources are there so you do not have to take our word for it. Preprints are labelled as preprints; not everything returned has been peer reviewed.</p>
+        <p><strong>Cerebrum is a free AI scientific literature search engine.</strong> Ask a research question in plain language, no query syntax to learn, and get an evidence-based answer assembled from 15 open scholarly databases, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS and Zenodo. Use it as a research paper search engine or an AI literature review tool: save sources into collections, compare investigations side by side, and see how your sources relate to one another.</p>
+        <p>Every citation points to a real paper you can open and check yourself. That is what makes Cerebrum an evidence-based research assistant rather than a chatbot answering from memory. Answers are written by a language model from those papers, so they can still be wrong. The sources are there so you do not have to take our word for it. Preprints are labelled as preprints; not everything returned has been peer reviewed.</p>
         <p>Cerebrum carries no advertising and sells no data. An account is optional, and is used for saved research, profiles, and messaging other researchers. Questions classified as sensitive are never written to a shared cache. What is stored, and for how long, is set out on the privacy page.</p>
         <p>Cerebrum requires JavaScript to run. Please enable JavaScript in your browser to use the search.</p>
         <p>
