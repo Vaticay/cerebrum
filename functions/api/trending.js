@@ -140,6 +140,63 @@ function scheduleRefresh(env, waitUntil) {
   else p.catch(() => {});
 }
 
+// ── Edition archive ─────────────────────────────────────────────────
+// An edition is one day of the feed, keyed by the UTC date of its
+// generatedAt. Every refresh upserts that day's snapshot (the latest
+// build of the day is the day's edition), the archive keeps the
+// newest fourteen days, and ?edition=YYYY-MM-DD serves a past day
+// read only. Until this existed the surface had no memory at all:
+// yesterday's edition vanished the moment today's was built.
+export function editionIdOf(generatedAt) {
+  const ts = Number(generatedAt);
+  if (!Number.isFinite(ts) || ts <= 0) return null;
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+const EDITION_KEEP = 14;
+let _editionsEnsured = false;
+async function ensureEditionsTable(env) {
+  if (_editionsEnsured) return;
+  await env.DB.exec(
+    "CREATE TABLE IF NOT EXISTS trending_editions (edition_id TEXT PRIMARY KEY, payload TEXT NOT NULL, generated_at INTEGER NOT NULL)"
+  );
+  _editionsEnsured = true;
+}
+
+let _lastArchivedSig = "";
+async function archiveEdition(env, payloadBody, generatedAt) {
+  try {
+    if (!env.DB) return;
+    const id = editionIdOf(generatedAt);
+    if (!id) return;
+    // One archive write per distinct build per isolate is enough; the
+    // serve path calls this on every read otherwise.
+    const sig = id + ":" + generatedAt;
+    if (sig === _lastArchivedSig) return;
+    _lastArchivedSig = sig;
+    await ensureEditionsTable(env);
+    await env.DB.prepare(
+      "INSERT INTO trending_editions (edition_id, payload, generated_at) VALUES (?, ?, ?) ON CONFLICT(edition_id) DO UPDATE SET payload = excluded.payload, generated_at = excluded.generated_at"
+    ).bind(id, payloadBody, generatedAt).run();
+    await env.DB.prepare(
+      "DELETE FROM trending_editions WHERE edition_id NOT IN (SELECT edition_id FROM trending_editions ORDER BY generated_at DESC LIMIT ?)"
+    ).bind(EDITION_KEEP).run();
+  } catch (e) {
+    console.error("Cerebrum trending archive failed:", e);
+  }
+}
+
+async function listEditions(env) {
+  try {
+    if (!env.DB) return [];
+    await ensureEditionsTable(env);
+    const { results } = await env.DB.prepare(
+      "SELECT edition_id, generated_at FROM trending_editions ORDER BY generated_at DESC LIMIT ?"
+    ).bind(EDITION_KEEP).all();
+    return (results || []).map((r) => ({ id: r.edition_id, generatedAt: r.generated_at }));
+  } catch { return []; }
+}
+
 // Refreshes the cache row from upstream. Never throws — this runs
 // detached via waitUntil() where a rejection has nobody to catch it, and
 // a failed background refresh must not affect the response already sent.
@@ -154,10 +211,12 @@ async function refreshCache(env) {
     // cards: those sources ship no thumbnails of their own, so without this
     // enrichment three quarters of the feed can never have lead media.
     items = await enrichTrendingMedia(env, items);
-    const body = JSON.stringify({ items, generatedAt: Date.now(), sourceHealth: feed.sourceHealth });
+    const genAt = Date.now();
+    const body = JSON.stringify({ items, generatedAt: genAt, sourceHealth: feed.sourceHealth });
     await env.DB.prepare(
       "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
     ).bind(body, Date.now()).run();
+    await archiveEdition(env, body, genAt);
   } catch (e) {
     console.error("Cerebrum trending background refresh failed:", e);
   }
@@ -276,11 +335,34 @@ export async function onRequest(context) {
     return errRes("Too many requests. Please wait a moment and try again.", 429, "rate_limited", { ...cors, "Retry-After": "30" });
   }
 
+  // Past editions are served read only from the archive and never
+  // trigger a refresh: asking for yesterday must not rebuild today.
+  const editionParam = new URL(request.url).searchParams.get("edition");
+  if (editionParam && env.DB) {
+    try {
+      await ensureEditionsTable(env);
+      const row = await env.DB.prepare("SELECT payload, generated_at FROM trending_editions WHERE edition_id = ?").bind(editionParam).first();
+      const parsedArchived = row ? parseCachePayload(row) : null;
+      if (parsedArchived && Array.isArray(parsedArchived.items) && parsedArchived.items.length) {
+        const editions = await listEditions(env);
+        return okRes(
+          { items: parsedArchived.items, generatedAt: parsedArchived.generatedAt, ...(parsedArchived.sourceHealth ? { sourceHealth: parsedArchived.sourceHealth } : {}), archived: true, edition: editionParam, editions },
+          200,
+          { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "archive" }
+        );
+      }
+    } catch (e) {
+      console.error("Cerebrum trending archive read failed:", e);
+    }
+    return errRes("That edition is not in the archive yet.", 404, "edition_not_found", cors);
+  }
+
+  let editionsList = [];
   // Serves a cache payload with the consistent { ok: true, ... } shape.
   // The payload is re-serialized (not returned verbatim) so every path out
   // of this endpoint — cache, live, or degraded — carries the same fields.
   const serveCache = (cached, source, extra) => okRes(
-    { items: cached.items, generatedAt: cached.generatedAt, stale: source !== "cache", ...(cached.sourceHealth ? { sourceHealth: cached.sourceHealth } : {}), ...(extra || {}) },
+    { items: cached.items, generatedAt: cached.generatedAt, stale: source !== "cache", edition: editionIdOf(cached.generatedAt), ...(editionsList.length ? { editions: editionsList } : {}), ...(cached.sourceHealth ? { sourceHealth: cached.sourceHealth } : {}), ...(extra || {}) },
     200,
     {
       ...cors,
@@ -306,6 +388,12 @@ export async function onRequest(context) {
       if (parsed && isUsableCachePayload(parsed)) {
         const { state, ageMs } = classifyCacheAge(parsed.fetchedAt, Date.now());
         const cached = { ...parsed, ageMs };
+        editionsList = await listEditions(env);
+        // Make sure today's edition exists in the archive even when the
+        // row was written by the manual refresh endpoint, which does
+        // not archive on its own. The archive call dedupes per build.
+        const archiveBody = JSON.stringify({ items: cached.items, generatedAt: cached.generatedAt, ...(cached.sourceHealth ? { sourceHealth: cached.sourceHealth } : {}) });
+        if (typeof waitUntil === "function") waitUntil(archiveEdition(env, archiveBody, cached.generatedAt));
         if (state === "fresh") {
           return serveCache(cached, "cache");
         }
@@ -346,8 +434,10 @@ export async function onRequest(context) {
       ).bind(body, generatedAt).run().catch(() => {});
       const after = write.then(() => backfillTrendingMedia(env)).catch(() => {});
       if (typeof waitUntil === "function") waitUntil(after); else await after;
+      await archiveEdition(env, body, generatedAt);
+      editionsList = await listEditions(env);
     }
-    return okRes({ items, generatedAt, sourceHealth: feed.sourceHealth }, 200, { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "live" });
+    return okRes({ items, generatedAt, sourceHealth: feed.sourceHealth, edition: editionIdOf(generatedAt), ...(editionsList.length ? { editions: editionsList } : {}) }, 200, { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "live" });
   } catch (e) {
     console.error("Cerebrum trending endpoint error:", e);
     // Upstream failed. Serve the ancient cache rather than a 5xx when one

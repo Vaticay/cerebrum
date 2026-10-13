@@ -1017,6 +1017,20 @@ export async function onRequest(context) {
           senderDeviceId: m.sender_device_id || null,
           envelopeVersion: m.envelope_version || 1,
         }));
+        // Shared shelf counts, taken over the whole thread rather
+        // than the page of messages above. The client only ever
+        // holds the newest page (plus whatever history it paged in),
+        // so counting on the client quietly understated any long
+        // conversation. One grouped count here covers every message
+        // the thread has ever exchanged. Keys match the client's
+        // attachment kinds: paper, image, audio (voice notes).
+        const sharedRows = await env.DB.prepare(
+          "SELECT attachment_kind, COUNT(*) AS n FROM messages WHERE thread_id = ? AND attachment_kind IS NOT NULL AND attachment_kind != '' GROUP BY attachment_kind"
+        ).bind(threadId).all();
+        const sharedCounts = { paper: 0, image: 0, audio: 0 };
+        for (const r of sharedRows.results || []) {
+          if (sharedCounts[r.attachment_kind] != null) sharedCounts[r.attachment_kind] = r.n || 0;
+        }
         return new Response(JSON.stringify({
           ok: true,
           id: threadRow.id,
@@ -1047,6 +1061,7 @@ export async function onRequest(context) {
           truncated,
           hasMore: truncated,
           readBefore,
+          sharedCounts,
         }), { status: 200, headers: cors });
       }
       // Find People / the network directory. This used to be a hardcoded

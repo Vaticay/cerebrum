@@ -8,7 +8,11 @@
  *      - image XOR video; image preferred.
  *      - {image:null, video:null} = honest nothing → null.
  *      - trending: media absent + legacy image_url → back-compat render;
- *        media present-but-empty beats the legacy url (resolved nothing).
+ *        media present-but-empty ALSO falls back to the legacy url
+ *        (contract corrected 2026-10-13: the backend attaches an
+ *        empty media object to every item, so presence proves
+ *        nothing; the old rule suppressed the Space section's own
+ *        photographs in production).
  *      - document: media always keyed on the final response; absent → null.
  *   2. Wiring: the hero, article modal, digest rows, and Document Mode
  *      analysis all render through the resolvers + MediaFigure/TrendThumb,
@@ -50,11 +54,16 @@ function group(name) {
 // They are declared as top-level `function name(...)` with no nested
 // function declarations, so brace counting is a safe extractor.
 const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
+// The trending and media resolvers moved to src/trendingUtils.js
+// (2026-10-13) so the suite can import them directly elsewhere;
+// docMediaOf remains in CerebrumApp.jsx. Extraction looks in both.
+const utilsSrc = readFileSync(join(root, "src/trendingUtils.js"), "utf8");
 
 function extractFunction(src, name) {
   const marker = `function ${name}(`;
-  const start = src.indexOf(marker);
-  assert.ok(start !== -1, `function ${name} not found in CerebrumApp.jsx`);
+  let start = src.indexOf(marker);
+  if (start === -1 && utilsSrc.indexOf(marker) !== -1) { src = utilsSrc; start = src.indexOf(marker); }
+  assert.ok(start !== -1, `function ${name} not found in CerebrumApp.jsx or trendingUtils.js`);
   // Skip the parameter list (it may destructure: `({ P, media })`), then
   // take the body block. Braces stay balanced through JSX.
   let i = start + marker.length;
@@ -223,12 +232,22 @@ await test("verified media wins outright", () => {
   assert.equal(m.verified, true);
 });
 
-await test("resolved {null,null} beats a legacy image_url (honest nothing)", () => {
+await test("resolved {null,null} falls back to the article's own image_url", () => {
+  // Contract corrected 2026-10-13: enrichment attaches an all null
+  // media object to every item, so an empty object cannot mean
+  // "resolved, nothing exists". The old rule hid the Space section's
+  // own photographs (3 of 40 stories rendered any image). The legacy
+  // url renders, marked unverified, and MediaFigure still removes
+  // the figure if the load fails.
   const item = {
     media: { image: null, video: null, resolvedAt: 1 },
     image_url: "https://example.com/legacy.png",
   };
-  assert.equal(trendingMediaOf(item), null);
+  const m = trendingMediaOf(item);
+  assert.equal(m.kind, "image");
+  assert.equal(m.url, "https://example.com/legacy.png");
+  assert.equal(m.verified, false);
+  assert.equal(trendingMediaOf({ media: { image: null, video: null, resolvedAt: 1 } }), null, "empty media and no legacy url is still honest nothing");
 });
 
 await test("media absent + legacy image_url → back-compat render", () => {

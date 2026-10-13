@@ -56,8 +56,9 @@ await test("the briefing band ranks the edition", () => {
 });
 
 await test("the most cited rail stays hidden while the feed sends no counts", () => {
-  // The live edition payload carries citedByCount 0 on every record
-  // (verified 2026-10-13). A rail ranking by a signal that is not
+  // The live edition payload carries citedByCount null on most
+  // records and a genuine reported zero on the rest (verified
+  // 2026-10-13). A rail ranking by a signal that is not
   // there would be decoration pretending to be data, so the band
   // renders only the newest rail until real counts arrive.
   assert.ok(!appSrc.includes("Most cited in this edition"), "most cited rail is rendered without data");
@@ -97,6 +98,48 @@ await test("summaries are cleaned and missing counts stay missing", async () => 
   assert.equal(cleanTrendingText("A \\emph{big} {Delta} result"), "A big Delta result");
   assert.ok(!cleanTrendingText("Story text. The post X appeared first on Y. More text.").includes("appeared first on"), "syndication boilerplate survives cleaning");
   assert.equal(buildTrendingItem({ title: "T", url: "https://x.example" }, "Space").citedByCount, null, "missing count became a fake zero");
+});
+
+await test("clustering actually runs and groups reports of one event", async () => {
+  const { clusterTrendingItems, trendingMediaOf, dedupeTrendingItems } = await import(join(root, "src/trendingUtils.js"));
+  const a = { title: "CRS-35 cargo ship docks with International Space Station", url: "https://a.example/1", summary: "short" };
+  const b = { title: "CRS-35 cargo ship arrives at the International Space Station", url: "https://b.example/2", summary: "a longer summary of the same docking event" };
+  const other = { title: "New exoplanet found in habitable zone of nearby star", url: "https://c.example/3", summary: "unrelated" };
+  const out = clusterTrendingItems([a, b, other]);
+  assert.equal(out.length, 2, "the two docking reports should be one story, the exoplanet separate");
+  const story = out.find((x) => x.coverageCount === 2);
+  assert.ok(story, "no story carries coverageCount 2");
+  assert.equal(story.coverage.length, 2);
+  const doiPair = clusterTrendingItems([
+    { title: "Completely different headline one", url: "https://doi.org/10.1/abc", summary: "" },
+    { title: "Nothing alike in wording at all", url: "https://doi.org/10.1/abc", summary: "" },
+  ]);
+  assert.equal(doiPair.length, 1, "a shared DOI must cluster even with unlike titles");
+  const mediaItem = trendingMediaOf({ media: { image: null, video: null, resolvedAt: 1 }, image_url: "https://img.example/photo.jpg" });
+  assert.ok(mediaItem && mediaItem.url === "https://img.example/photo.jpg", "an empty media object must not suppress the article image");
+  assert.equal(mediaItem.verified, false);
+  assert.equal(trendingMediaOf({ media: { image: null, video: null } }), null, "no media anywhere must stay no media");
+  const deduped = dedupeTrendingItems([
+    { title: "One", url: "https://doi.org/10.1/abc" },
+    { title: "Two", url: "https://doi.org/10.1/abc" },
+  ]);
+  assert.equal(deduped.length, 1, "the same DOI twice is one record");
+});
+
+await test("past editions are archived and offered in the masthead", async () => {
+  assert.ok(trendingSrc.includes("trending_editions"), "no editions archive table");
+  assert.ok(trendingSrc.includes("editionIdOf"), "no edition identifier derived from generatedAt");
+  assert.ok(trendingSrc.includes('searchParams.get("edition")'), "endpoint cannot serve a past edition");
+  assert.ok(appSrc.includes("Choose an edition"), "no edition selector in the masthead");
+  assert.ok(appSrc.includes("Back to the current edition"), "no way back from an archived edition");
+  assert.ok(appSrc.includes("New edition since your last visit"), "no new since last visit marker");
+  const sourceSrc = await readFile(join(root, "functions/lib/trendingSource.js"), "utf8");
+  assert.ok(sourceSrc.includes("resultType=core"), "Europe PMC fetch does not ask for abstracts");
+  const { editionIdOf } = await import(join(root, "functions/api/trending.js")).catch(() => ({}));
+  if (editionIdOf) {
+    assert.equal(editionIdOf(Date.UTC(2026, 9, 13, 5, 0, 0)), "2026-10-13");
+    assert.equal(editionIdOf(0), null);
+  }
 });
 
 await test("backend comments point at the real view and the real refresh story", () => {

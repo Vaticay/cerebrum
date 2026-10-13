@@ -10,7 +10,8 @@
  *     view numbers are ever invented — the upstream sources do not provide
  *     them and the digest must not print what it does not know.
  *  3. The "why it matters" signal degrades to nothing, never to a fake:
- *     a record without a citation count carries citedByCount 0.
+ *     a record without a citation count carries citedByCount null,
+ *     meaning no data, never a structural zero.
  *
  * Standalone script with its own assertions; run as a child process from
  * tests/run. The backend half runs against the real fetchTrendingItems

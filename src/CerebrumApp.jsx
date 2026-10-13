@@ -73,9 +73,10 @@ import {
    contract, HTML text extraction, highlight guards, durable reading state. */
 import {
   docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight,
-  docTitleOf, loadDocStore, saveDocStore, deleteDocFromStore, DOCMODE_MAX_DOCS, DOCMODE_MAX_TEXT,
+  docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, DOCMODE_MAX_DOCS, DOCMODE_MAX_TEXT,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
+import { trendingDoiOf, cleanMediaUrl, cleanMediaText, verifiedMediaOf, trendingMediaOf, normalizeTrendingUrl, normalizeTrendingTitle, dedupeTrendingItems, clusterTrendingItems, trendStoryKey, trendTitleTokens } from "./trendingUtils.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
 import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
@@ -10595,72 +10596,6 @@ function trendProvenance(item, generatedAt) {
   if (item.citedByCount > 0) parts.push(`Cited by ${item.citedByCount}`);
   return parts.join(" · ");
 }
-function trendingDoiOf(item) {
-  if (!item) return null;
-  if (item.doi) return String(item.doi);
-  const m = String(item.url || "").match(/doi\.org\/(.+)$/i);
-  return m ? decodeURIComponent(m[1]) : null;
-}
-/* ════════════════════════════════════════════════════════════════════
-   VERIFIED MEDIA CONTRACT (2026-09-17)
-   /api/trending items and /api/document analysis responses carry
-     media: { image: {...}|null, video: {...}|null, resolvedAt }
-   Each slot is { url, credit, creditUrl, license, source, verified }.
-   - image XOR video is ever set (image preferred); a video slot carries
-     a poster and is a verified NASA/Commons clip, shown with controls,
-     never autoplayed.
-   - { image: null, video: null } = the resolver ran and found nothing
-     honest → render nothing, never a broken frame.
-   - media ABSENT on a trending item = not resolved yet (the feed
-     backfills within ~1 min) → render nothing, no error state.
-   - image_url is kept for back-compat on trending payloads that predate
-     the media object; precedence: media.image.url → image_url.
-   These resolvers are pure so tests can pin the contract. Anything that
-   fails verification (unverified flag, unsafe URL) is not media — it is
-   nothing, and the caller renders nothing.
-   ════════════════════════════════════════════════════════════════════ */
-const MEDIA_URL_RE = /^https:\/\/[^"'\s<>]+$/i;
-function cleanMediaUrl(u) {
-  const s = String(u || "").trim();
-  return MEDIA_URL_RE.test(s) ? s : null;
-}
-function cleanMediaText(t, max) {
-  const s = String(t || "").trim();
-  return s ? s.slice(0, max) : null;
-}
-/* The verified slot of a media object, normalized, or null. */
-function verifiedMediaOf(media) {
-  if (!media || typeof media !== "object") return null;
-  const pick = (slot, kind) => {
-    if (!slot || typeof slot !== "object" || slot.verified !== true) return null;
-    const url = cleanMediaUrl(slot.url);
-    if (!url) return null;
-    return {
-      kind,
-      url,
-      poster: kind === "video" ? cleanMediaUrl(slot.poster) : null,
-      credit: cleanMediaText(slot.credit, 160),
-      creditUrl: cleanMediaUrl(slot.creditUrl),
-      license: cleanMediaText(slot.license, 60),
-      source: cleanMediaText(slot.source, 40),
-      verified: true,
-    };
-  };
-  return pick(media.image, "image") || pick(media.video, "video") || null;
-}
-/* A trending item → renderable media or null. */
-function trendingMediaOf(item) {
-  if (!item || typeof item !== "object") return null;
-  const v = verifiedMediaOf(item.media);
-  if (v) return v;
-  /* media present but nothing verified = resolved: nothing exists (or an
-     unverified slot) → honest nothing. The legacy url is only a fallback
-     for payloads that predate the media object entirely. */
-  if (item.media) return null;
-  const url = cleanMediaUrl(item.image_url);
-  if (!url) return null;
-  return { kind: "image", url, poster: null, credit: null, creditUrl: null, license: null, source: null, verified: false };
-}
 /* A document analysis payload → renderable media or null. The analysis
    JSON always carries the media key on the final response, so absent =
    not attempted → nothing. */
@@ -10768,7 +10703,7 @@ function TrendThumb({ P, media, title }) {
   );
 }
 
-function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = false, heroLabel = "Lead story" }) {
+function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = false, heroLabel = "First in the edition" }) {
   // The lead story is a briefing card: the words on one side, the
   // verified lead media in its own frame on the other, never a scrim
   // behind text. Text over bright footage drowned. No media, and the
@@ -10849,91 +10784,6 @@ function TrendRailList({ P, title, items, onExpand, generatedAt, mode }) {
   );
 }
 
-function normalizeTrendingUrl(url) {
-  return String(url || "").trim().toLowerCase()
-    .replace(/^https?:\/\//, "").replace(/^www\./, "")
-    .replace(/[?#].*$/, "").replace(/\/+$/, "");
-}
-function normalizeTrendingTitle(title) {
-  return String(title || "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-function dedupeTrendingItems(items) {
-  const seenUrls = new Set();
-  const seenDois = new Set();
-  const titleOwner = new Map();
-  const out = [];
-  for (const item of items) {
-    const urlKey = normalizeTrendingUrl(item.url);
-    const doiKey = trendingDoiOf(item);
-    const titleKey = normalizeTrendingTitle(item.title);
-    if (urlKey && seenUrls.has(urlKey)) continue;
-    if (doiKey && seenDois.has(doiKey)) continue;
-    // Same title, different DOI: two different records that happen to
-    // share a generic title. Only a title match with no DOI on either
-    // side still counts as the same record here; story level grouping
-    // below handles same event coverage.
-    if (titleKey && titleOwner.has(titleKey)) {
-      const ownerDoi = titleOwner.get(titleKey);
-      if (!ownerDoi && !doiKey) continue;
-      if (ownerDoi && !doiKey) continue;
-    }
-    if (urlKey) seenUrls.add(urlKey);
-    if (doiKey) seenDois.add(doiKey);
-    if (titleKey && !titleOwner.has(titleKey)) titleOwner.set(titleKey, doiKey);
-    out.push(item);
-  }
-  return out;
-}
-
-/* Story clustering: several outlets reporting the same event are one
-   story with several reports, not several stories. Two items join a
-   cluster when they share a DOI, or when their titles share most of
-   their meaningful words. The primary is the report with verified
-   media, then the fullest summary; the rest ride along as coverage. */
-const TREND_STOPWORDS = new Set(["the", "a", "an", "of", "for", "and", "in", "on", "to", "with", "from", "by", "at", "as", "is", "are", "new", "study", "shows", "show", "finds", "found", "using", "first", "reveals", "after", "over", "into", "than", "more"]);
-function trendTitleTokens(title) {
-  return new Set(String(title || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter((w) => (w.length >= 3 || /\d/.test(w)) && !TREND_STOPWORDS.has(w)));
-}
-function clusterTrendingItems(items) {
-  const n = items.length;
-  const parent = items.map((_, i) => i);
-  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  const join = (a, b) => { const ra = find(a); const rb = find(b); if (ra !== rb) parent[rb] = ra; };
-  const tokenSets = items.map((x) => trendTitleTokens(x.title));
-  const dois = items.map((x) => trendingDoiOf(x));
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      if (dois[i] && dois[j] && dois[i].toLowerCase() === dois[j].toLowerCase()) { join(i, j); continue; }
-      const a = tokenSets[i];
-      const b = tokenSets[j];
-      if (a.size < 4 || b.size < 4) continue;
-      let shared = 0;
-      for (const w of a) if (b.has(w)) shared++;
-      const jaccard = shared / (a.size + b.size - shared);
-      const containment = shared / Math.min(a.size, b.size);
-      if (shared >= 4 && (jaccard >= 0.6 || containment >= 0.78)) join(i, j);
-    }
-  }
-  const groups = new Map();
-  items.forEach((x, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(x); });
-  const ordered = [...groups.values()]
-    .map((group) => ({ group, first: Math.min(...group.map((x) => items.indexOf(x))) }))
-    .sort((a, b) => a.first - b.first);
-  const out = [];
-  for (const { group } of ordered) {
-    if (group.length === 1) { out.push(group[0]); continue; }
-    const primary = [...group].sort((a, b) =>
-      ((trendingMediaOf(b) ? 1 : 0) - (trendingMediaOf(a) ? 1 : 0)) ||
-      (String(b.summary || "").length - String(a.summary || "").length) ||
-      (items.indexOf(a) - items.indexOf(b))
-    )[0];
-    out.push({ ...primary, coverage: group, coverageCount: group.length });
-  }
-  return out;
-}
-function trendStoryKey(item) {
-  return trendingDoiOf(item) || normalizeTrendingUrl(item && item.url) || normalizeTrendingTitle(item && item.title);
-}
 
 // Article detail — opened by clicking a story instead of leaving the app
 // immediately. Same dialog pattern as InstitutionModal/
@@ -11040,18 +10890,30 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
                 const id = getYouTubeId(v);
                 if (!id) return null;
                 return (
-                  <div key={id} style={{ position: "relative", aspectRatio: "16/9", marginBottom: 12, borderRadius: RADIUS.lg, overflow: "hidden", border: `1px solid ${P.line}` }}>
-                    {/* youtube-nocookie, and no autoplay: a video that starts
-                        talking the moment a card opens is the fastest way to
-                        make someone close the tab. */}
-                    <iframe
-                      src={`https://www.youtube-nocookie.com/embed/${id}`}
-                      title={v.title || "Related video"}
-                      allow="accelerometer; encrypted-media; picture-in-picture"
-                      allowFullScreen
-                      loading="lazy"
-                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
-                    />
+                  <div key={id} style={{ marginBottom: 14 }}>
+                    <div style={{ position: "relative", aspectRatio: "16/9", borderRadius: RADIUS.lg, overflow: "hidden", border: `1px solid ${P.line}` }}>
+                      {/* youtube-nocookie, and no autoplay: a video that starts
+                          talking the moment a card opens is the fastest way to
+                          make someone close the tab. */}
+                      <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${id}`}
+                        title={v.title || "Related video"}
+                        allow="accelerometer; encrypted-media; picture-in-picture"
+                        allowFullScreen
+                        loading="lazy"
+                        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                      />
+                    </div>
+                    {/* Provenance under the frame, like everything else on
+                        this surface: what the video is and whose it is,
+                        instead of a bare embed. */}
+                    {(v.title || v.author) && (
+                      <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>
+                        {v.title ? <span style={{ color: P.ink2 }}>{v.title}</span> : null}
+                        {v.title && v.author ? " · " : null}
+                        {v.author ? <span>{v.author} on YouTube</span> : null}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -11529,6 +11391,14 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // degraded). The view used to drop both on the floor, so a reader
   // could not tell a fresh edition from yesterday's leftovers.
   const [feedMeta, setFeedMeta] = useState({ stale: false, degraded: false });
+  // Past editions: the endpoint archives one edition per day and the
+  // masthead offers the recent ones. Viewing one is read only; the
+  // poll guard below keeps background refreshes of the current
+  // edition from clobbering the archive on screen.
+  const [editions, setEditions] = useState([]);
+  const [viewingEdition, setViewingEdition] = useState(null);
+  const viewingEditionRef = useRef(null);
+  const [newEdition, setNewEdition] = useState(false);
   const [missingSources, setMissingSources] = useState([]);
   const [trendQuery, setTrendQuery] = useState("");
   const [trendSort, setTrendSort] = useState("edition");
@@ -11545,6 +11415,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
     let timer = null;
 
     const load = (isBackground) => {
+      if (viewingEditionRef.current) return;
       if (!isBackground) setStatus((s) => (s === "ready" ? s : "loading"));
       fetch("/api/trending")
         .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
@@ -11563,6 +11434,14 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           setItems(data.items);
           setGeneratedAt(data.generatedAt || Date.now());
           setFeedMeta({ stale: !!data.stale, degraded: !!data.degraded });
+          if (Array.isArray(data.editions)) setEditions(data.editions);
+          if (data.edition) {
+            try {
+              const lastSeen = window.localStorage.getItem("cb_trending_last_edition_v1");
+              if (lastSeen && lastSeen !== data.edition) setNewEdition(true);
+              window.localStorage.setItem("cb_trending_last_edition_v1", data.edition);
+            } catch { /* private mode: the marker is a nicety */ }
+          }
           if (Array.isArray(data.sourceHealth)) setMissingSources(data.sourceHealth.filter((s) => s && !s.ok).map((s) => s.source));
           setStatus("ready");
         })
@@ -11578,6 +11457,32 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
     const tickTimer = setInterval(() => forceTick((n) => n + 1), 30000);
     return () => { cancelled = true; clearInterval(timer); clearInterval(tickTimer); };
   }, [reloadTick]);
+
+  const openEdition = (id) => {
+    if (!id) return;
+    setStatus("loading");
+    fetch(`/api/trending?edition=${encodeURIComponent(id)}`)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) { setStatus("error"); return; }
+        viewingEditionRef.current = id;
+        setViewingEdition(id);
+        setItems(data.items);
+        setGeneratedAt(data.generatedAt || 0);
+        setFeedMeta({ stale: false, degraded: false });
+        if (Array.isArray(data.editions)) setEditions(data.editions);
+        if (Array.isArray(data.sourceHealth)) setMissingSources(data.sourceHealth.filter((s) => s && !s.ok).map((s) => s.source));
+        setExpanded(null);
+        setStatus("ready");
+      })
+      .catch(() => setStatus("error"));
+  };
+  const backToCurrent = () => {
+    viewingEditionRef.current = null;
+    setViewingEdition(null);
+    setReloadTick((n) => n + 1);
+  };
+  const fmtEditionDay = (ts) => new Date(ts).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 
   // Deduped here regardless of what the backend already did (see
   // dedupeTrendingItems above) — a safety net against a stale cache row or
@@ -11614,31 +11519,52 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // edition: filtering used to pull unrelated stories back in through it.
   const newest = [...visibleItems].filter((x) => x.publishedAt).sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()).slice(0, 4);
   const isDefaultView = !query && trendCat === "All" && effectiveSort === "edition";
-  const heroLabel = isDefaultView ? "Lead story" : query ? "First match" : "First in this view";
+  const heroLabel = isDefaultView ? "First in the edition" : query ? "First match" : "First in this view";
   const pubTimes = stories.map((x) => new Date(x.publishedAt || 0).getTime()).filter((t) => t > 0);
   const fmtDay = (ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const pubRange = pubTimes.length > 1 && Math.max(...pubTimes) - Math.min(...pubTimes) > 86400000
     ? `Published ${fmtDay(Math.min(...pubTimes))} to ${fmtDay(Math.max(...pubTimes))}`
     : "";
   // Stories are addressable: opening one writes its key into the hash,
-  // and a shared or reloaded link reopens the same story.
-  const hashRestoredRef = useRef(false);
-  useEffect(() => {
-    if (status !== "ready" || hashRestoredRef.current) return;
-    hashRestoredRef.current = true;
+  // a shared or reloaded link reopens the same story, a link pasted
+  // while the page is already open works too, and the back button
+  // closes a story it opened. The first version restored once on load
+  // and replaced state, so neither of those last two ever happened.
+  const syncFromHash = useCallback(() => {
     try {
       const m = String(window.location.hash || "").match(/story=([^&]+)/);
       if (m) {
         const found = stories.find((x) => trendStoryKey(x) === decodeURIComponent(m[1]));
-        if (found) setExpanded(found);
+        if (found) { setExpanded(found); return; }
       }
+      setExpanded((cur) => (cur ? null : cur));
     } catch { /* a malformed hash is not worth an error state */ }
-  }, [status, stories]);
+  }, [stories]);
+  useEffect(() => {
+    if (status !== "ready") return;
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    window.addEventListener("popstate", syncFromHash);
+    return () => {
+      window.removeEventListener("hashchange", syncFromHash);
+      window.removeEventListener("popstate", syncFromHash);
+    };
+  }, [status, syncFromHash]);
+  const prevExpandedRef = useRef(null);
   useEffect(() => {
     try {
       const base = window.location.pathname + window.location.search;
-      if (expanded) window.history.replaceState(null, "", `${base}#story=${encodeURIComponent(trendStoryKey(expanded))}`);
-      else if (String(window.location.hash || "").includes("story=")) window.history.replaceState(null, "", base);
+      const prev = prevExpandedRef.current;
+      if (expanded) {
+        const hash = `#story=${encodeURIComponent(trendStoryKey(expanded))}`;
+        if (window.location.hash !== hash) {
+          if (!prev) window.history.pushState(null, "", `${base}${hash}`);
+          else window.history.replaceState(null, "", `${base}${hash}`);
+        }
+      } else if (String(window.location.hash || "").includes("story=")) {
+        window.history.replaceState(null, "", base);
+      }
+      prevExpandedRef.current = expanded;
     } catch { /* history is a nicety, not a dependency */ }
   }, [expanded]);
 
@@ -11677,6 +11603,31 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
               <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{pressCount}</strong> press reports</span>
               {pubRange && <span>{pubRange}</span>}
               {generatedAt > 0 && <span>Updated {relativeTime(generatedAt)}</span>}
+            </div>
+          )}
+          {status === "ready" && editions.length > 1 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 14, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                Edition
+                <select aria-label="Choose an edition" value={viewingEdition || ""}
+                  onChange={(e) => { const v = e.target.value; if (v) openEdition(v); else backToCurrent(); }}
+                  style={{ minHeight: 36, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, cursor: "pointer" }}>
+                  <option value="">Current edition</option>
+                  {editions.slice(1).map((e) => (
+                    <option key={e.id} value={e.id}>{fmtEditionDay(e.generatedAt)}</option>
+                  ))}
+                </select>
+              </label>
+              {newEdition && !viewingEdition && <span style={{ color: P.ink2, fontWeight: 600 }}>New edition since your last visit</span>}
+            </div>
+          )}
+          {status === "ready" && viewingEdition && (
+            <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <span>You are reading a past edition, as it was gathered on {fmtEditionDay(generatedAt)}. It does not update.</span>
+              <button type="button" onClick={backToCurrent}
+                style={{ minHeight: 36, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, cursor: "pointer" }}>
+                Back to the current edition
+              </button>
             </div>
           )}
           {status === "ready" && missingSources.length > 0 && (
@@ -15819,6 +15770,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const cite = [identMeta.title, identMeta.authors && identMeta.authors.slice(0, 8).join(", "),
       identMeta.journal, identMeta.year].filter(Boolean).join(". ");
     setDocumentText(`${identMeta.title}\n${cite}\n\nAbstract: ${identMeta.abstract}`);
+    setCustomTitle(null);
     setIdentMeta(null);
     setIdentError("");
   };
@@ -15849,6 +15801,22 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState("");
   const [recentDocs, setRecentDocs] = useState([]); // [{fp,title,words,updatedAt}]
+  // A reader given name for the open document, replacing the first
+  // line guess everywhere the title shows. Null means use the guess.
+  const [customTitle, setCustomTitle] = useState(null);
+  const [renaming, setRenaming] = useState(false);
+  // In app confirmations, replacing window.confirm: the first press
+  // arms the control and shows what will happen, the second commits.
+  const [confirmDeleteFp, setConfirmDeleteFp] = useState(null);
+  const [rerunArmed, setRerunArmed] = useState(false);
+  // Find in document: the current query, the match offsets, and which
+  // match the reader is on.
+  const [findQuery, setFindQuery] = useState("");
+  const [findState, setFindState] = useState(null); // { count, current }
+  // Which mark's note editor is open. Notes render as text by default;
+  // a permanently expanded editor under every mark made the list a
+  // wall of empty boxes.
+  const [editingMarkId, setEditingMarkId] = useState(null);
   const [storeReady, setStoreReady] = useState(false);
   const saveTimer = useRef(null);
   const readBodyRef = useRef(null);
@@ -15962,6 +15930,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setDocumentText(t);
     setError("");
     setSourceView("source");
+    setCustomTitle(saved && saved.title ? saved.title : null);
+    setRenaming(false);
+    setRerunArmed(false);
+    setFindQuery("");
+    setFindState(null);
     if (saved) {
       setSummary(saved.summary && !saved.summary.streaming ? saved.summary : null);
       setQaHistory(Array.isArray(saved.qaHistory) ? saved.qaHistory.filter((h) => !h.streaming) : []);
@@ -15995,10 +15968,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       if (d && d.text) openDocument(d.text, d);
     } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx openRecent: const store = loadDocStore();:", e); }
   };
-  // Delete a document from the shelf and from durable storage. Confirmed:
-  // these can be confidential drafts with no other copy.
+  // Delete a document from the shelf and from durable storage. The
+  // confirm is the two step arm on the shelf button itself (see
+  // confirmDeleteFp), not a window.confirm dialog.
   const deleteRecent = (fp, title) => {
-    if (!window.confirm(`Delete "${title || "this document"}" from this browser? This can't be undone.`)) return;
+    setConfirmDeleteFp(null);
     if (deleteDocFromStore(fp)) {
       setRecentDocs((prev) => prev.filter((d) => d.fp !== fp));
       try {
@@ -16036,13 +16010,21 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         const store = loadDocStore();
         if (text) {
           const fp = docFingerprint(text);
+          // Highlights are measured against the document as displayed,
+          // but the stored text is trimmed. Re anchor every mark by
+          // the trimmed lead so a reopened document does not show
+          // every highlight shifted by the paste's leading whitespace.
+          const leadTrim = documentText.length - documentText.trimStart().length;
+          const storedHighlights = (highlights || [])
+            .map((h) => ({ ...h, start: Math.max(0, h.start - leadTrim), end: Math.max(0, Math.min(h.end - leadTrim, text.length)) }))
+            .filter((h) => h.end > h.start);
           store.docs[fp] = {
-            title: docTitleOf(text),
+            title: customTitle || docTitleOf(text),
             text: text.slice(0, DOCMODE_MAX_TEXT),
             summary: summary && !summary.streaming ? summary : null,
             qaHistory: (qaHistory || []).filter((h) => !h.streaming).slice(-30),
             rightTab,
-            highlights,
+            highlights: storedHighlights,
             docB: docB.slice(0, DOCMODE_MAX_TEXT),
             compareResult: compareResult && !compareResult.streaming ? compareResult : null,
             scrollY: typeof window !== "undefined" ? window.scrollY : 0,
@@ -16065,7 +16047,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx:", e); }
     }, 800);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult]);
+  }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult, customTitle]);
   const onDrop = (e) => {
     e.preventDefault();
     setDragActive(false);
@@ -16073,11 +16055,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (file) readFile(file);
   };
 
-  // Document Mode has a 60s frontend timeout and a cancel button.
+  // Document Reader has a sliding frontend timeout and a cancel button.
   // The old plain fetch() could hang forever with only "Reading it…" showing.
-  // Document reads are metered per account (free: 3/month, Pro: unlimited);
-  // anonymous callers sign in first. The server enforces it — this gate just
-  // routes people to the right door before they spend a click.
+  // Document reads are metered per account (free: 3 reads per 5 days,
+  // Pro: unlimited); anonymous callers sign in first. The server
+  // enforces it — this gate just routes people to the right door
+  // before they spend a click.
   const docIsPro = !!user?.isPro;
   const docCap = proStatus?.docReads?.cap;
   const docUsed = proStatus?.docReads?.used || 0;
@@ -16113,9 +16096,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setError("");
     // The previous summary stays visible while the new run streams, and is
     // kept on failure: a failed re-analysis must not wipe a good result.
-    // Re-running also clears the follow-up Q&A thread — confirm first so a
-    // long interrogation isn't silently discarded.
-    if (qaHistory.length > 0 && !window.confirm("Re-running the analysis will clear your follow-up questions for this document. Continue?")) { setAnalyzing(false); return; }
+    // Re-running also clears the follow-up Q&A thread. The first press
+    // only arms the action and says what will happen (the Inspect
+    // button shows it); the second press runs it. No window.confirm.
+    if (qaHistory.length > 0 && !rerunArmed) { setRerunArmed(true); setAnalyzing(false); return; }
+    setRerunArmed(false);
     setQaHistory([]);
     setRightTab("summary");
     const ctrl = new AbortController();
@@ -16217,7 +16202,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       if (qaGen !== docGen.current) return;
       const finalText = result && result.answer ? result.answer : "";
-      setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: finalText } : x)));
+      setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: finalText, model: (result && result.model) || null, budgetExhausted: !!(result && result.budgetExhausted) } : x)));
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
       if (qaGen !== docGen.current) return;
@@ -16407,6 +16392,90 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (pos < text.length) out.push(<span key="tail">{text.slice(pos)}</span>);
     return out;
   };
+  /* The same marked rendering for one document segment: marks are
+     stored against the whole document, so a segment renders only the
+     marks that intersect it, shifted by the segment's start offset. */
+  const renderMarkedRange = (text, base) => {
+    const marks = highlights
+      .filter((h) => h.end > base && h.start < base + text.length)
+      .slice().sort((a, b) => a.start - b.start);
+    if (!marks.length) return text;
+    const out = [];
+    let pos = 0;
+    marks.forEach((h, i) => {
+      const s = Math.max(0, Math.min(h.start - base, text.length));
+      const e = Math.max(s, Math.min(h.end - base, text.length));
+      if (s > pos) out.push(<span key={`t${i}`}>{text.slice(pos, s)}</span>);
+      out.push(
+        <mark key={h.id || i} data-hl={h.id}
+          style={{ background: withAlpha(accent, 0.22), borderRadius: 6, padding: "1px 0", color: "inherit" }}>
+          {text.slice(s, e)}
+        </mark>
+      );
+      pos = e;
+    });
+    if (pos < text.length) out.push(<span key="tail">{text.slice(pos)}</span>);
+    return out;
+  };
+  /* The document as segments at its detected headings, plus the
+     outline those headings make. Segments partition the text exactly,
+     so selection offsets in the rendered view still match the stored
+     highlight offsets. */
+  const docSegments = useMemo(() => buildDocSegments(documentText, detectDocHeadings(documentText)), [documentText]);
+  const docOutline = docSegments.map((s, i) => (s.heading ? { title: s.heading, seg: i } : null)).filter(Boolean);
+  const docDisplayTitle = customTitle || docTitleOf(documentText);
+  const scrollToSegment = (i) => {
+    const body = readBodyRef.current;
+    if (!body) return;
+    const el = body.querySelector(`[data-seg="${i}"]`);
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const jumpToTextOffset = (offset, len) => {
+    const body = readBodyRef.current;
+    if (!body || typeof document === "undefined") return;
+    try {
+      const walker = document.createTreeWalker(body, 4); // 4 = SHOW_TEXT
+      let acc = 0;
+      let node;
+      while ((node = walker.nextNode())) {
+        const nlen = (node.nodeValue || "").length;
+        if (acc + nlen >= offset) {
+          const range = document.createRange();
+          const local = Math.max(0, offset - acc);
+          range.setStart(node, local);
+          range.setEnd(node, Math.min(nlen, local + Math.max(1, len || 1)));
+          const sel = window.getSelection();
+          if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+          const parent = node.parentElement;
+          if (parent && parent.scrollIntoView) parent.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+        acc += nlen;
+      }
+    } catch { /* find is a nicety; a failure just leaves the reader where they are */ }
+  };
+  const focusDocAsk = () => {
+    if (summary) setRightTab("qa");
+    setTimeout(() => {
+      const el = document.getElementById("cb-doc-ask-input");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        try { el.focus({ preventScroll: true }); } catch { el.focus(); }
+      }
+    }, 80);
+  };
+  const runFind = (dir) => {
+    const q = findQuery.trim().toLowerCase();
+    if (!q) { setFindState(null); return; }
+    const hay = documentText.toLowerCase();
+    const matches = [];
+    let idx = hay.indexOf(q);
+    while (idx >= 0 && matches.length < 500) { matches.push(idx); idx = hay.indexOf(q, idx + Math.max(1, q.length)); }
+    if (!matches.length) { setFindState({ query: q, count: 0, current: 0 }); return; }
+    const cur = findState && findState.query === q ? (findState.current + dir + matches.length) % matches.length : 0;
+    setFindState({ query: q, count: matches.length, current: cur });
+    jumpToTextOffset(matches[cur], q.length);
+  };
   const scrollToHighlight = (h) => {
     const body = readBodyRef.current;
     if (!body) return;
@@ -16468,10 +16537,31 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ ...docEyebrow, marginBottom: 4 }}>The document</div>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hasDoc ? docTitleOf(documentText) : "Nothing open yet"}</div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hasDoc ? docDisplayTitle : "Nothing open yet"}</div>
+            {hasDoc && !renaming && (
+              <button type="button" onClick={() => setRenaming(true)}
+                style={{ minHeight: 32, background: "none", border: "none", cursor: "pointer", padding: "4px 0", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                Rename
+              </button>
+            )}
+            {hasDoc && renaming && (
+              <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+                <input autoFocus defaultValue={docDisplayTitle} id="cb-doc-rename" aria-label="Document title"
+                  style={{ minHeight: 36, padding: "6px 9px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, minWidth: 180 }} />
+                <button type="button"
+                  onClick={() => { const v = (document.getElementById("cb-doc-rename") || {}).value; if (v && v.trim()) setCustomTitle(v.trim().slice(0, 120)); setRenaming(false); }}
+                  style={{ minHeight: 36, padding: "6px 12px", borderRadius: RADIUS.md, border: "none", background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                  Save title
+                </button>
+                <button type="button" onClick={() => setRenaming(false)}
+                  style={{ minHeight: 36, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </span>
+            )}
           </div>
           <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", padding: "4px 11px", borderRadius: RADIUS.pill, color: summary ? STATUS.good : accent, background: summary ? withAlpha(STATUS.good, 0.12) : withAlpha(accent, 0.1), border: `1px solid ${summary ? withAlpha(STATUS.good, 0.3) : withAlpha(accent, 0.25)}` }}>
-            {analyzing ? "Reading…" : summary ? "Analyzed" : hasDoc ? "Ready to inspect" : "Waiting"}
+            {analyzing ? "Reading…" : summary ? (summary.model === "extractive" ? "Basic extract" : summary.partial ? "Partially analyzed" : "Analyzed") : hasDoc ? "Ready to inspect" : "Waiting"}
           </span>
         </div>
         {/* Recent documents: the durable shelf. Only when nothing is open. */}
@@ -16492,11 +16582,19 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     {d.words > 0 && <span style={{ flexShrink: 0, ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{d.words.toLocaleString()} words</span>}
                     {d.updatedAt ? <span style={{ flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span> : null}
                   </button>
-                  <UIButton P={P} variant="ghost" onClick={() => deleteRecent(d.fp, d.title)} aria-label={`Delete ${d.title}`}
-                    title="Delete this document from this browser"
-                    style={{ width: 36, height: 36, minWidth: 36, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-                    <Icon name="trash" size={14} />
-                  </UIButton>
+                  {confirmDeleteFp === d.fp ? (
+                    <button type="button" onClick={() => deleteRecent(d.fp, d.title)} onBlur={() => setConfirmDeleteFp(null)}
+                      aria-label={`Confirm deleting ${d.title}`}
+                      style={{ minHeight: 36, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.45)}`, background: withAlpha(STATUS.bad, 0.08), color: STATUS.bad, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0 }}>
+                      Delete?
+                    </button>
+                  ) : (
+                    <UIButton P={P} variant="ghost" onClick={() => setConfirmDeleteFp(d.fp)} aria-label={`Delete ${d.title}`}
+                      title="Delete this document from this browser"
+                      style={{ width: 36, height: 36, minWidth: 36, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="trash" size={14} />
+                    </UIButton>
+                  )}
                 </div>
               ))}
             </div>
@@ -16524,7 +16622,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: SP.lg }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ ...docEyebrow, marginBottom: 6 }}>Reading</div>
-                <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>{docTitleOf(documentText)}</h2>
+                <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>{docDisplayTitle}</h2>
                 {docStats && (
                   <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
                     <span style={{ ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{docStats.words.toLocaleString()} words</span>
@@ -16539,16 +16637,58 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 Clear
               </button>
             </div>
+            {/* Find and outline: the two things a long document needs
+                before it needs anything else. The outline comes from
+                the document's own heading shaped lines; find walks
+                the rendered text so a jump lands on the real match. */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+              <input value={findQuery} onChange={(e) => { setFindQuery(e.target.value); setFindState(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runFind(e.shiftKey ? -1 : 1); } }}
+                placeholder="Find in document" aria-label="Find in document"
+                style={{ flex: "1 1 170px", minWidth: 0, minHeight: 40, padding: "8px 11px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small }} />
+              <button type="button" onClick={() => runFind(1)} disabled={!findQuery.trim()}
+                style={{ minHeight: 40, padding: "8px 13px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                Find
+              </button>
+              {findState && (
+                <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", gap: 8, alignItems: "center" }}>
+                  {findState.count === 0 ? "No matches" : `${findState.current + 1} of ${findState.count}`}
+                  {findState.count > 1 && (
+                    <>
+                      <button type="button" onClick={() => runFind(-1)} aria-label="Previous match" style={{ minHeight: 32, padding: "4px 9px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, cursor: "pointer" }}>Prev</button>
+                      <button type="button" onClick={() => runFind(1)} aria-label="Next match" style={{ minHeight: 32, padding: "4px 9px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, cursor: "pointer" }}>Next</button>
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+            {docOutline.length >= 2 && (
+              <nav aria-label="Document outline" style={{ marginBottom: 16, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "10px 12px" }}>
+                <div style={{ ...docEyebrow, marginBottom: 8 }}>Outline</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {docOutline.slice(0, 16).map((o) => (
+                    <button key={o.seg} type="button" onClick={() => scrollToSegment(o.seg)}
+                      style={{ minHeight: 36, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 4px", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {o.title}
+                    </button>
+                  ))}
+                </div>
+              </nav>
+            )}
             <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
+              onKeyUp={(e) => { if (e.shiftKey) onReadSelect(); }}
               className="cb-doc-reader"
-              /* Read-view containment: the reader is one normal-flow block.
-                 min-width:0 + width:100% keep it inside its grid column;
-                 overflow-wrap breaks the long unbreakable tokens (DOIs,
-                 URLs, chemical names) that extracted text is full of, so a
-                 single token can never force the text over the card below.
-                 pre-wrap preserves the document's own line breaks. */
-              style={{ ...TYPE.body, fontSize: FONT_SIZES.body, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
-              {renderMarkedText(documentText)}
+              /* Containment: min-width 0 + width 100% keep it inside its
+                 column; overflow-wrap breaks long tokens; pre-wrap keeps
+                 the document's line breaks. Segments partition the text
+                 exactly, so selection offsets still map 1:1 to highlight
+                 offsets. onKeyUp raises Highlight for keyboard selections. */
+              style={{ ...TYPE.body, fontSize: 16, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
+              {docSegments.map((seg, i) => (seg.heading ? (
+                <div key={i} data-seg={i} style={{ fontWeight: 700, fontSize: 17, lineHeight: 1.4, color: P.ink, margin: "20px 0 4px", whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
+              ) : (
+                <div key={i} data-seg={i} style={{ whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
+              )))}
             </div>
             <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
               Select any passage to highlight it. Marks and notes are saved with this document.
@@ -16576,13 +16716,34 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                         {h.quote}{h.quote.length >= 160 ? "…" : ""}
                       </div>
                     </button>
-                    <textarea
-                      value={h.note}
-                      onChange={(e) => setHighlights((prev) => prev.map((x) => (x.id === h.id ? { ...x, note: e.target.value.slice(0, 500) } : x)))}
-                      placeholder="Add a note about this passage…"
-                      aria-label="Note on highlighted passage"
-                      style={{ ...TYPE.body, width: "100%", marginTop: 8, padding: 10, fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, minHeight: 44, resize: "vertical" }}
-                    />
+                    {editingMarkId === h.id ? (
+                      <>
+                        <textarea autoFocus
+                          value={h.note}
+                          onChange={(e) => setHighlights((prev) => prev.map((x) => (x.id === h.id ? { ...x, note: e.target.value.slice(0, 500) } : x)))}
+                          placeholder="Add a note about this passage…"
+                          aria-label="Note on highlighted passage"
+                          style={{ ...TYPE.body, width: "100%", marginTop: 8, padding: 10, fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, minHeight: 44, resize: "vertical" }}
+                        />
+                        <button onClick={() => setEditingMarkId(null)}
+                          style={{ minHeight: 40, marginTop: 4, background: "none", border: "none", color: P.ink2, fontWeight: 600, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", padding: "8px 0" }}>
+                          Done
+                        </button>
+                      </>
+                    ) : h.note ? (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{h.note}</div>
+                        <button onClick={() => setEditingMarkId(h.id)}
+                          style={{ minHeight: 40, background: "none", border: "none", color: P.faint, fontWeight: 600, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", padding: "8px 0" }}>
+                          Edit note
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setEditingMarkId(h.id)}
+                        style={{ minHeight: 40, marginTop: 2, background: "none", border: "none", color: P.faint, fontWeight: 600, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", padding: "8px 0" }}>
+                        Add a note
+                      </button>
+                    )}
                     <button onClick={() => setHighlights((prev) => prev.filter((x) => x.id !== h.id))}
                       style={{ minHeight: 44, marginTop: 4, background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", padding: "12px 0" }}>
                       Remove mark
@@ -16615,7 +16776,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                  the textarea itself is borderless inside it. */}
               <textarea
                 value={documentText}
-                onChange={(e) => setDocumentText(e.target.value)}
+                onChange={(e) => { setDocumentText(e.target.value); setCustomTitle(null); }}
                 aria-label="Document: DOI, PMID, arXiv ID, URL, or the full text of a paper, report, or document"
                 placeholder="DOI, PMID, arXiv ID, or URL. Or paste the full text"
                 rows={docIdentMode ? 2 : 8}
@@ -16709,7 +16870,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     color: (!hasDoc || analyzing) ? P.ink2 : at, fontWeight: 700, fontSize: FONT_SIZES.small, flexShrink: 0,
                     opacity: (!hasDoc || analyzing) ? 0.75 : 1, fontFamily: "var(--cb-font)",
                   }}
-                >{analyzing ? "Reading it…" : "Inspect document"}</UIButton>
+                >{analyzing ? "Reading it…" : rerunArmed ? "Clear questions and re run" : "Inspect document"}</UIButton>
                 {analyzing && (
                   <UIButton P={P} variant="ghost"
                     onClick={cancelAnalyze}
@@ -16722,6 +16883,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   >Cancel</UIButton>
                 )}
               </div>
+              {rerunArmed && (
+                <div role="note" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55, flexBasis: "100%" }}>
+                  Re running the analysis clears your follow up questions for this document. Press the button again to continue.
+                </div>
+              )}
               {(docIsPro || docCap != null) && (
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5, flexBasis: "100%" }}>
                   {docIsPro
@@ -16823,6 +16989,48 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 <UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => openDocument(SAMPLE_DOCUMENT)}>No paper handy? Try the sample</UIButton>
               )}
             </div>
+            {!!docTextTrimmed && !docIdentOnly && (
+              <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${P.line}` }}>
+                <div style={{ ...docEyebrow, marginBottom: 6 }}>Or ask first</div>
+                <p style={{ margin: "0 0 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+                  A document can be questioned before a full analysis, or instead of one. Questions are answered from this document only, and do not use a document read.
+                </p>
+                {qaHistory.map((h, i) => (
+                  <div key={i} style={{ marginTop: i === 0 ? 0 : 22, paddingTop: i === 0 ? 0 : 18, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+                    <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 10, fontFamily: "var(--cb-font)" }}>{h.query}</div>
+                    {h.model === "extractive" && (
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>
+                        {h.budgetExhausted
+                          ? "Basic extract · the monthly AI budget is used up, so this answer is passages from the document."
+                          : "Basic extract · the AI service was unreachable, so this answer is passages from the document."}
+                      </div>
+                    )}
+                    {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8, marginTop: qaHistory.length ? 16 : 0, alignItems: "flex-end" }}>
+                  <textarea id="cb-doc-ask-input" value={qaQuery} rows={2}
+                    onChange={(e) => setQaQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
+                    placeholder="Ask a question about this document…"
+                    aria-label="Ask a question about this document"
+                    disabled={qaBusy}
+                    style={{ flex: 1, minWidth: 0, minHeight: 44, padding: "11px 13px", fontSize: 16, lineHeight: 1.5, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", outline: "none", resize: "vertical" }}
+                  />
+                  {qaBusy ? (
+                    <button onClick={cancelQa} aria-label="Stop" title="Stop"
+                      style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, cursor: "pointer", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="close" size={15} />
+                    </button>
+                  ) : (
+                    <button onClick={askFollowUp} disabled={!qaQuery.trim()} aria-label="Ask"
+                      style={{ width: 44, height: 44, minWidth: 44, borderRadius: "50%", border: "none", background: !qaQuery.trim() ? dimBtnBg : accent, color: !qaQuery.trim() ? P.faint : at, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: !qaQuery.trim() ? "default" : "pointer", flexShrink: 0 }}>
+                      <Icon name="send" size={15} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {analyzing && (
@@ -16863,7 +17071,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div style={{ marginBottom: SP.lg }}>
               <div style={{ ...docEyebrow, marginBottom: SP.sm }}>Document analysis</div>
               <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-                {docTitleOf(documentText)}
+                {docDisplayTitle}
               </h2>
               {docStats && (
                 <div style={{ marginTop: SP.sm, display: "flex", alignItems: "center", gap: SP.sm, flexWrap: "wrap", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
@@ -16871,6 +17079,21 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
                   <span>~{docStats.mins} min read</span>
                   {summary.model ? (<><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span title={summary.model}>{summary.model === "extractive" ? "Basic extract · the AI service was unreachable" : "Summarized by AI"}</span></>) : null}
+                </div>
+              )}
+              {/* Truncation and budget exhaustion are interface facts,
+                  rendered here as notices. They used to be bracketed
+                  notes appended to the summary text itself. */}
+              {summary.truncated && (
+                <div role="note" style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "8px 12px", lineHeight: 1.55 }}>
+                  {summary.truncation
+                    ? `This document runs ${Number(summary.truncation.totalChars).toLocaleString()} characters, and one read covers the first ${Number(summary.truncation.analyzedChars).toLocaleString()}. The tail was not read.`
+                    : "This document is longer than one read covers. The first part was analyzed, and the tail was not read."}
+                </div>
+              )}
+              {summary.budgetExhausted && (
+                <div role="note" style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "8px 12px", lineHeight: 1.55 }}>
+                  The monthly AI token budget is used up, so this is a basic extract of key passages rather than an AI synthesis.
                 </div>
               )}
               {/* The report's table of contents: every section the read
@@ -16887,7 +17110,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   const present = s.field == null ? true : !!(s.field && String(s.field).trim());
                   const active = rightTab === s.tab;
                   return (
-                    <button key={s.label} type="button" onClick={() => setRightTab(s.tab)} aria-pressed={s.label === "Limitations" ? false : active}
+                    <button key={s.label} type="button" onClick={() => setRightTab(s.tab)} aria-pressed={active}
                       style={{ minHeight: 44, padding: "7px 13px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: active ? 700 : 600,
                         background: active ? withAlpha(accent, 0.2) : present ? withAlpha(accent, 0.08) : "transparent",
                         color: present ? P.ink : P.faint,
@@ -16920,7 +17143,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               if (!docMedia) return null;
               return (
                 <div style={{ marginBottom: 22, maxWidth: 640 }}>
-                  <MediaFigure P={P} media={docMedia} title={docTitleOf(documentText)} />
+                  <MediaFigure P={P} media={docMedia} title={docDisplayTitle} />
                 </div>
               );
             })()}
@@ -17009,6 +17232,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   {qaHistory.map((h, i) => (
                     <div key={i} style={{ marginTop: i === 0 ? 0 : 28, paddingTop: i === 0 ? 0 : 24, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
                       <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 12, fontFamily: "var(--cb-font)" }}>{h.query}</div>
+                      {h.model === "extractive" && (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>
+                          {h.budgetExhausted
+                            ? "Basic extract · the monthly AI budget is used up, so this answer is passages from the document."
+                            : "Basic extract · the AI service was unreachable, so this answer is passages from the document."}
+                        </div>
+                      )}
                       {h.answer ? renderAnswer(h.answer, [], P, accent, hoverCite, setHoverCite) : h.errorMsg ? <div style={{ fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{h.errorMsg}</div> : <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Working on the answer…</div>}
                     </div>
                   ))}
@@ -17017,6 +17247,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             </div>
             <div style={{ display: "flex", gap: 8, paddingTop: 14, marginTop: 14, borderTop: `1px solid ${P.line}`, }}>
               <input
+                id="cb-doc-ask-input"
                 value={qaQuery}
                 onChange={(e) => setQaQuery(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
@@ -17145,11 +17376,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         /* ── The page: one centered container, source and reader stacked
             on mobile, two columns on desktop — all in normal flow, so the
             page scrolls instead of trapping scroll inside panes. ── */
+        <>
         <div style={{
           position: "relative", zIndex: Z.content, flex: 1, width: "100%", maxWidth: 1280,
           margin: "0 auto", padding: isMobile ? "20px 16px" : "28px 24px",
           paddingBottom: `max(${isMobile ? 40 : 64}px, env(safe-area-inset-bottom))`,
-          display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 5fr) minmax(0, 7fr)",
+          display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 7fr) minmax(0, 5fr)",
           gap: isMobile ? 24 : 28, alignItems: "start",
         }}>
           {/* SOURCE — the document, rendered by renderDocSource below. */}
@@ -17162,15 +17394,26 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             {renderDocReader()}
           </section>
         </div>
-      ) : (
+        {isMobile && !!docTextTrimmed && (
+          /* A phone reader should never have to scroll past the whole
+             document to ask about it: the ask bar floats above the
+             app bottom navigation and jumps to the composer. */
+          <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", zIndex: 40, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+            <button type="button" onClick={focusDocAsk}
+              style={{ pointerEvents: "auto", minHeight: 48, padding: "12px 22px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: "0 10px 28px rgba(0,0,0,0.3)" }}>
+              Ask this document
+            </button>
+          </div>
+        )}
+      </>) : (
         <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
           {/* LEFT PANE — the source, rendered by renderDocSource below. */}
-          <div style={{ ...paneBase, borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
+          <div style={{ ...paneBase, overflowY: "auto", borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
             {renderDocSource("overlay")}
           </div>
 
           {/* RIGHT PANE — the analysis, rendered by renderDocReader below. */}
-          <div style={{ ...paneBase, padding: 20 }}>
+          <div style={{ ...paneBase, overflowY: "auto", padding: 20 }}>
             {renderDocReader("overlay")}
           </div>
         </div>

@@ -188,7 +188,35 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       return next;
     });
   };
-  const [sending, setSending] = useState(false);
+  // Sends carry their own state on an optimistic row (see
+  // sendMessage below) instead of one global lock: a slow send used
+  // to freeze the whole composer, and a failed send left nothing on
+  // screen but a toast. `encSendBusyRef` still serializes encrypted
+  // sends, because envelope creation shares Olm session state.
+  const encSendBusyRef = useRef(false);
+  const localIdCounterRef = useRef(0);
+  // A failed first open used to fall through to the "Pick a
+  // conversation" placeholder, which reads as "you have no thread"
+  // rather than "something went wrong". threadError carries the
+  // failure for the open conversation specifically; threadRetryNonce
+  // re-runs the open effect when the reader taps Retry;
+  // threadLoadedIdRef remembers which conversation actually loaded,
+  // so a failed poll after a good open never raises the error pane.
+  const [threadError, setThreadError] = useState(null);
+  const [threadRetryNonce, setThreadRetryNonce] = useState(0);
+  const threadLoadedIdRef = useRef(null);
+  // Screen reader announcements for arrivals in the open thread.
+  // Visual readers get the bubble; this is the same news, spoken.
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
+  // Group member removal is two step: the first tap arms the button
+  // (it reads "Remove?"), the second actually removes. Arming fades
+  // on its own after a few seconds or when the button loses focus.
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null);
+  const removeArmTimerRef = useRef(null);
+  useEffect(() => () => { if (removeArmTimerRef.current) clearTimeout(removeArmTimerRef.current); }, []);
+  // The list poll lives inside an effect; the stale banner's Retry
+  // button needs a handle on it from the render tree.
+  const listRefreshRef = useRef(null);
   // The thread list used to render its empty state during the first
   // fetch, telling a returning user on a slow connection that they had
   // no conversations. listLoaded separates "still asking" from "asked
@@ -261,7 +289,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [lightbox, setLightbox] = useState(null);
   // If the user leaves the inbox mid-recording, InboxView unmounts and the
   // mic would stay open with no UI to stop it. Clean up on unmount.
-  useEffect(() => () => { try { stopRecording(); } catch (cbErr) { console.error("[Cerebrum] inbox.jsx: stopRecording(); }:", cbErr); } }, []);
+  useEffect(() => () => { try { stopRecording(); } catch (cbErr) { console.error("[Cerebrum] inbox: stopping the recording on unmount failed:", cbErr); } }, []);
 
   // Downscales to fit inside 1400px and re-encodes as JPEG before upload.
   // A phone photo is several MB; a message row in D1 has roughly 1MB to
@@ -357,12 +385,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         sr.onerror = () => {};
         sr.start();
       }
-    } catch (cbErr) { console.error("[Cerebrum] inbox.jsx if: const SR = window.SpeechRecognition || window.webkitSpeechRecognition;:", cbErr); }
+    } catch (cbErr) { console.error("[Cerebrum] inbox: speech recognition setup failed:", cbErr); }
     const startedAt = Date.now();
     rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
     rec.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
-      try { sr && sr.stop(); } catch (cbErr) { console.error("[Cerebrum] inbox.jsx if: sr && sr.stop(); }:", cbErr); }
+      try { sr && sr.stop(); } catch (cbErr) { console.error("[Cerebrum] inbox: stopping speech recognition failed:", cbErr); }
       const durationMs = Date.now() - startedAt;
       if (durationMs < 700) return; // a mis-tap, not a message
       const blob = new Blob(chunks, { type: mime });
@@ -402,7 +430,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     try { cur.rec.stop(); } catch {
       // If stop() throws (e.g. iOS InvalidStateError), onstop never fires
       // and the mic tracks would leak — stop them directly.
-      try { cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); } catch (cbErr) { console.error("[Cerebrum] inbox.jsx if: cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); }:", cbErr); }
+      try { cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); } catch (cbErr) { console.error("[Cerebrum] inbox: stopping the microphone tracks failed:", cbErr); }
     }
     recRef.current = null;
     recSecondsRef.current = 0;
@@ -422,10 +450,30 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // new arrivals. Seeded on the first poll, never notified for.
     const lastSeenIds = new Map();
     let seeded = false;
+    // Poll backoff: a dead connection polled at full rate forever
+    // just burns battery and data while saying nothing new. Each
+    // consecutive failure doubles the wait, up to a cap, and the
+    // first success returns to the normal rhythm. A setTimeout
+    // chain (not setInterval) so the delay can actually change.
+    let failures = 0;
+    let pollTimer = null;
+    const schedule = (delay) => {
+      if (cancelled) return;
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(refresh, delay);
+    };
     const refresh = () => {
       apiDataGet("inbox").then((data) => {
         if (cancelled) return;
-        if (!data?.items) { setListLoaded(true); setListFailed(true); return; }
+        if (!data?.items) {
+          failures += 1;
+          setListLoaded(true);
+          setListFailed(true);
+          schedule(Math.min(15000 * (2 ** failures), 120000));
+          return;
+        }
+        failures = 0;
+        schedule(15000);
         setListFailed(false);
         setListLoaded(true);
         // Background-tab notifications: a message that lands in a thread
@@ -456,9 +504,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         setThreads(data.items);
       });
     };
+    listRefreshRef.current = refresh;
     refresh();
-    const pollId = setInterval(refresh, 15000);
-    return () => { cancelled = true; clearInterval(pollId); };
+    return () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -645,13 +693,42 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     setUnreadAnchor(null);
     setShowNewMessages(false);
     setLoadingEarlier(false);
+    setThreadError(null);
     if (!activeId) { setActiveThread(null); return; }
     let cancelled = false;
     setLoadingThread(true);
+    // Same backoff contract as the list poll: failures stretch the
+    // wait (doubling, capped), success restores the 5s rhythm.
+    let failures = 0;
+    let pollTimer = null;
+    const schedule = (delay) => {
+      if (cancelled) return;
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(() => refresh(false), delay);
+    };
     const refresh = (isFirst) => {
       apiDataGet("thread", { thread_id: activeId }).then(async (data) => {
         if (cancelled) return;
         if (isFirst) setLoadingThread(false);
+        const okFetch = !!(data && !data.error);
+        if (okFetch) {
+          failures = 0;
+          threadLoadedIdRef.current = activeId;
+          setThreadError(null);
+        } else {
+          failures += 1;
+          // A failed FIRST open, with nothing loaded for this
+          // conversation, is an error the reader should see and be
+          // able to retry, not the empty placeholder. A failed poll
+          // after a good open keeps the thread on screen instead
+          // (the setActiveThread guard below) and raises nothing.
+          if (isFirst && threadLoadedIdRef.current !== activeId) {
+            setThreadError(data && typeof data.error === "string" && data.error
+              ? data.error
+              : "The connection did not answer. Check your connection and try again.");
+          }
+        }
+        schedule(okFetch ? 5000 : Math.min(5000 * (2 ** failures), 60000));
         // Capture the pre-visit read cursor once per conversation.
         // Later polls report a cursor this visit already advanced, so
         // only the first response can anchor the unread divider.
@@ -712,16 +789,24 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 notifiedMsgIds.current.add(fid);
                 if (notifiedMsgIds.current.size > 200) notifiedMsgIds.current.delete(notifiedMsgIds.current.values().next().value);
                 cbBlip(660, 0.07, 0.045);
-                // Encrypted threads never put content in a notification:
-                // the envelope is ciphertext and the plaintext belongs on
-                // Generic notifications for every thread: never message content
-                // in the OS tray — a shared screen or a locked phone should
-                // not read your conversations.
+                // Notifications never carry message content, because a
+                // shared screen or a locked phone should not be able to
+                // read a conversation from the notification tray.
                 const body = "New message.";
+                // The same arrival, announced for a screen reader:
+                // sender plus a short preview, or what kind of thing
+                // arrived when there is no readable text to preview.
+                const previewText = fresh.text || (fresh.e2ee && fresh.e2ee.ok ? fresh.e2ee.text : "")
+                  || (fresh.attachmentKind === "image" ? "sent an image"
+                    : fresh.attachmentKind === "audio" ? "sent a voice note"
+                    : fresh.attachmentKind === "paper" ? "shared a paper"
+                    : fresh.attachmentTitle ? `attached ${fresh.attachmentTitle}`
+                    : "sent a message");
+                setLiveAnnouncement(`${fresh.who || next.name || "Someone"}: ${String(previewText).slice(0, 90)}`);
                 cbNotify(fresh.who || next.name || "New message", body, "cb-msg-" + activeId, "message");
               }
             }
-          } catch (cbErr) { console.error("[Cerebrum] inbox.jsx:", cbErr); }
+          } catch (cbErr) { console.error("[Cerebrum] inbox: arrival notification failed:", cbErr); }
           // Pages of earlier history loaded on demand must survive the
           // poll: the poll only ever fetches the newest page, so any
           // older real messages the reader already pulled in are kept
@@ -730,8 +815,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             const firstNextAt = next.messages[0].createdAt || Infinity;
             const nextIds = new Set(next.messages.map((nm) => nm.id));
             const older = prevThread.messages.filter((m) => m && m.id && !String(m.id).startsWith("local-") && m.createdAt <= firstNextAt && !nextIds.has(m.id));
-            if (older.length > 0) {
-              return { ...next, messages: [...older, ...next.messages], hasMore: prevThread.hasMore ?? next.hasMore, truncated: prevThread.truncated ?? next.truncated };
+            // Optimistic rows still carrying send state were written
+            // by this visit, not the server: keep them at the end of
+            // the thread until their send resolves and replaces them,
+            // or a poll landing mid send would erase a message the
+            // reader is watching go out.
+            const pendingKept = prevThread.messages.filter((m) => m && m.pending && !nextIds.has(m.id));
+            if (older.length > 0 || pendingKept.length > 0) {
+              return { ...next, messages: [...older, ...next.messages, ...pendingKept], hasMore: prevThread.hasMore ?? next.hasMore, truncated: prevThread.truncated ?? next.truncated };
             }
           }
           return next;
@@ -754,10 +845,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // once per activeId and never again), and "Seen" below would only ever
     // catch up the same way. Every poll also re-marks-as-read, which is the
     // right behavior, not a side effect to work around — staying on an open
-    // thread should keep counting as "still reading it."
-    const pollId = setInterval(() => refresh(false), 5000);
-    return () => { cancelled = true; clearInterval(pollId); };
-  }, [activeId]);
+    // thread should keep counting as "still reading it." The chain is
+    // scheduled from inside refresh (see schedule above) so failures can
+    // stretch the interval instead of hammering a dead connection.
+    return () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer); };
+  }, [activeId, threadRetryNonce]);
 
   // E2EE Phase 1.4 — per-thread encryption UI state. Runs when the open
   // thread's identity/encryption changes (not on every poll: the deps are
@@ -856,12 +948,121 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
   };
 
+  // One optimistic row per send. It appears the moment Send is
+  // pressed, carries its own state (sending, failed, partially
+  // sent), and is replaced by the server row when the send lands.
+  // The draft is cleared once, up front: a failed send keeps its
+  // text and its attachment on the row itself, with a Retry control,
+  // so nothing is restored into the composer where a second press
+  // of Send would deliver it twice.
+  const appendLocalRow = (threadId, payload) => {
+    const lid = "local-" + Date.now() + "-" + (++localIdCounterRef.current);
+    const att = payload.attachment || null;
+    const row = {
+      id: lid, mine: true, who: "You", text: payload.text, createdAt: Date.now(),
+      pending: "sending",
+      attachmentKind: att ? att.kind : null,
+      attachmentTitle: att ? (att.title || null) : null,
+      attachmentData: att ? (att.data || null) : null,
+      attachmentUrl: att ? (att.url || null) : null,
+      attachmentMeta: att ? (att.meta || null) : null,
+      _send: payload,
+    };
+    // The local echo shows what was typed, not the ciphertext: the
+    // row is born speaking the cipher display dialect so it renders
+    // as readable text, and the next poll replaces it with the
+    // server rows, decrypted the same way (own echo path).
+    if (payload.encrypted) { row.msgKind = "cipher"; row.e2ee = { ok: true, text: payload.text }; }
+    setActiveThread((t) => (t && t.id === threadId ? { ...t, messages: [...(t.messages || []), row] } : t));
+    return lid;
+  };
+
+  const patchLocalRow = (threadId, lid, patch) => {
+    setActiveThread((t) => (t && t.id === threadId
+      ? { ...t, messages: (t.messages || []).map((m) => (m.id === lid ? { ...m, ...patch } : m)) }
+      : t));
+  };
+
+  const replaceLocalRow = (threadId, lid, nextRow) => {
+    setActiveThread((t) => (t && t.id === threadId
+      ? { ...t, messages: (t.messages || []).map((m) => (m.id === lid ? nextRow : m)) }
+      : t));
+  };
+
+  // The network half of a send, for a row that is already on
+  // screen. Never touches the draft: the row is the record of what
+  // was sent, and its state says how the send went.
+  const performSend = async (threadId, payload, lid) => {
+    try {
+      // Commit 57 — a short confirmation blip on send. Silence after
+      // pressing send leaves a half-second of "did that go?"; every
+      // messaging app answers that with a sound, and it costs one
+      // oscillator. Honors the app's mute setting like every other tone.
+      cbBlip(880, 0.07, 0.05);
+      if (payload.encrypted) {
+        // One envelope per peer device (each device gets its own Olm
+        // session); the rows land as separate cipher messages and each of
+        // the peer's devices decrypts its own. Fail-closed: encryptMessage
+        // throws when any device can't be reached, and nothing is sent.
+        const { envelopes, deviceId } = await encryptMessage({
+          apiAction: apiDataAction,
+          peerUserId: payload.otherId,
+          plaintext: payload.text,
+        });
+        // The envelope loop is where a partial send hides: each
+        // envelope is its own request, so a connection that dies
+        // halfway has already delivered to some devices. Count what
+        // actually landed and say so plainly, instead of reporting
+        // a clean failure that invites a duplicate send.
+        let sentCount = 0;
+        try {
+          for (const env of envelopes) {
+            await apiDataAction("send-message", {
+              thread_id: threadId, text: env.text, sender_device_id: deviceId,
+            });
+            sentCount += 1;
+          }
+        } catch (loopErr) {
+          if (sentCount > 0) {
+            patchLocalRow(threadId, lid, { pending: "partial", partialSent: sentCount, partialTotal: envelopes.length });
+            toast(`Sent to ${sentCount} of ${envelopes.length} devices. The rest did not go through.`, { tone: "error" });
+          } else {
+            patchLocalRow(threadId, lid, { pending: "failed" });
+            toast(loopErr.message || "Couldn't send that message.", { tone: "error" });
+          }
+          return;
+        }
+        patchLocalRow(threadId, lid, { pending: null, senderDeviceId: deviceId });
+        setThreads((prev) => prev.map((t) => (t.id === threadId ? {
+          ...t,
+          lastMessage: { encrypted: true, mine: true, text: payload.text, createdAt: Date.now() },
+        } : t)));
+        return;
+      }
+      const res = await apiDataAction("send-message", {
+        thread_id: threadId, text: payload.text,
+        ...(payload.attachment ? {
+          attachment_kind: payload.attachment.kind,
+          attachment_title: payload.attachment.title || "",
+          attachment_data: payload.attachment.data || "",
+          attachment_url: payload.attachment.url || "",
+          attachment_meta: payload.attachment.meta || null,
+        } : {}),
+      });
+      replaceLocalRow(threadId, lid, { ...res.message, who: "You" });
+      setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, lastMessage: res.message } : t)));
+    } catch (e) {
+      patchLocalRow(threadId, lid, { pending: "failed" });
+      toast(e.message || "Couldn't send that message.", { tone: "error" });
+    }
+  };
+
   const sendMessage = async (attachment) => {
     const text = draft.trim();
-    // An attachment is a complete message on its own — a photo of a gel or
-    // a ten-second voice note doesn't need a caption to be worth sending.
-    if ((!text && !attachment) || !activeId || sending) return;
-    const isEncrypted = !!activeThread?.encrypted;
+    // An attachment is a complete message on its own: a photo of a
+    // gel or a short voice note needs no caption to be worth sending.
+    if ((!text && !attachment) || !activeId || !activeThread) return;
+    const isEncrypted = !!activeThread.encrypted;
     // E2EE Phase 1 is text-only: the server rejects attachments in
     // encrypted threads, so the UI refuses up front with a clear reason
     // instead of letting the send fail at the network.
@@ -869,65 +1070,48 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       toast("Attachments aren't encrypted yet. Send them in an unencrypted conversation for now.", { tone: "error" });
       return;
     }
-    setSending(true);
+    // Encrypted sends stay serialized, because envelope creation
+    // shares Olm session state and two at once could interleave.
+    // The composer itself never locks; only a second encrypted send
+    // is asked to wait for the first.
+    if (isEncrypted && encSendBusyRef.current) {
+      toast("The previous message is still sending.", { tone: "error" });
+      return;
+    }
+    const threadId = activeId;
+    const payload = { text, attachment: attachment || null, encrypted: isEncrypted, otherId: activeThread.otherId };
     updateDraft("");
     // Sending means you are at the conversation's edge: the scroll
     // keeper parks the pane on your message when it lands.
     scrollStateRef.current.atBottom = true;
+    const lid = appendLocalRow(threadId, payload);
+    if (isEncrypted) encSendBusyRef.current = true;
     try {
-      // Commit 57 — a short confirmation blip on send. Silence after
-      // pressing send leaves a half-second of "did that go?"; every
-      // messaging app answers that with a sound, and it costs one
-      // oscillator. Honors the app's mute setting like every other tone.
-      cbBlip(880, 0.07, 0.05);
-      if (isEncrypted) {
-        // One envelope per peer device (each device gets its own Olm
-        // session); the rows land as separate cipher messages and each of
-        // the peer's devices decrypts its own. Fail-closed: encryptMessage
-        // throws when any device can't be reached, and nothing is sent.
-        const { envelopes, deviceId } = await encryptMessage({
-          apiAction: apiDataAction,
-          peerUserId: activeThread.otherId,
-          plaintext: text,
-        });
-        for (const env of envelopes) {
-          await apiDataAction("send-message", {
-            thread_id: activeId, text: env.text, sender_device_id: deviceId,
-          });
-        }
-        // The local echo shows what was typed, not the ciphertext — the
-        // next poll replaces it with the server rows, decrypted the same
-        // way (own-echo path).
-        const localMsg = {
-          id: "local-" + Date.now(), text, mine: true, who: "You",
-          msgKind: "cipher", senderDeviceId: deviceId,
-          createdAt: Date.now(), e2ee: { ok: true, text },
-        };
-        setActiveThread((t) => (t ? { ...t, messages: [...(t.messages || []), localMsg] } : t));
-        setThreads((prev) => prev.map((t) => (t.id === activeId ? {
-          ...t,
-          lastMessage: { encrypted: true, mine: true, text, createdAt: Date.now() },
-        } : t)));
-        return;
-      }
-      const res = await apiDataAction("send-message", {
-        thread_id: activeId, text,
-        ...(attachment ? {
-          attachment_kind: attachment.kind,
-          attachment_title: attachment.title || "",
-          attachment_data: attachment.data || "",
-          attachment_url: attachment.url || "",
-          attachment_meta: attachment.meta || null,
-        } : {}),
-      });
-      setActiveThread((t) => (t ? { ...t, messages: [...(t.messages || []), { ...res.message, who: "You" }] } : t));
-      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, lastMessage: res.message } : t)));
-    } catch (e) {
-      updateDraft(text);
-      toast(e.message || "Couldn't send that message.", { tone: "error" });
+      await performSend(threadId, payload, lid);
     } finally {
-      setSending(false);
+      if (isEncrypted) encSendBusyRef.current = false;
     }
+  };
+
+  // Retry runs the exact payload the failed row still holds,
+  // attachment included, so an image never has to be picked again
+  // and the composer draft is never involved. Partial rows get no
+  // retry: some devices already hold the message, and resending
+  // would hand those devices a duplicate.
+  const retrySend = (lid) => {
+    if (!activeId || !activeThread) return;
+    const row = (activeThread.messages || []).find((m) => m && m.id === lid);
+    if (!row || !row._send || row.pending !== "failed") return;
+    if (row._send.encrypted && encSendBusyRef.current) {
+      toast("The previous message is still sending.", { tone: "error" });
+      return;
+    }
+    patchLocalRow(activeId, lid, { pending: "sending" });
+    scrollStateRef.current.atBottom = true;
+    if (row._send.encrypted) encSendBusyRef.current = true;
+    performSend(activeId, row._send, lid).finally(() => {
+      if (row._send.encrypted) encSendBusyRef.current = false;
+    });
   };
 
   // Commit 48: flips the block for activeThread.otherId and mirrors the
@@ -1022,7 +1206,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     const prevTop = pane ? pane.scrollTop : 0;
     try {
       const data = await apiDataGet("thread", { thread_id: activeId, before: oldest.createdAt, before_id: oldest.id });
-      if (!data || data.error || !Array.isArray(data.messages) || data.messages.length === 0) {
+      // A failed fetch is not the end of history. Only a successful
+      // response with no messages in it may close the book; on any
+      // error the reader keeps their place and their way back, and
+      // hears about it instead of losing both without a word.
+      if (!data || data.error) {
+        toast("Earlier messages did not load. Try again in a moment.", { tone: "error" });
+        return;
+      }
+      if (!Array.isArray(data.messages) || data.messages.length === 0) {
         setActiveThread((t) => (t ? { ...t, hasMore: false } : t));
         return;
       }
@@ -1031,7 +1223,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         try {
           const { deviceId } = await ensureE2EEDevice(apiDataAction);
           older = await decryptThreadMessages({ messages: older, myDeviceId: deviceId, peerUserId: data.otherId });
-        } catch { return; }
+        } catch {
+          toast("Earlier messages could not be read on this device.", { tone: "error" });
+          return;
+        }
       }
       preserveScrollRef.current = { height: prevHeight, top: prevTop };
       setActiveThread((t) => {
@@ -1078,9 +1273,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   }
 
   // What this conversation has actually exchanged: the shelf under
-  // the header counts it from the real messages, so a thread that has
-  // traded three papers says so instead of reading like any chat.
+  // the header says so, so a thread that has traded three papers
+  // reads like it. The server counts the whole thread (see
+  // sharedCounts in the thread payload) and those numbers win when
+  // present; counting the loaded page is only a fallback for an
+  // older payload, because the page is capped and would understate
+  // any long conversation while claiming to speak for all of it.
   const sharedCounts = (() => {
+    const serverCounts = activeThread && activeThread.sharedCounts;
+    if (serverCounts) {
+      return { paper: serverCounts.paper || 0, image: serverCounts.image || 0, audio: serverCounts.audio || 0 };
+    }
     const counts = { paper: 0, image: 0, audio: 0 };
     for (const m of (activeThread && activeThread.messages) || []) {
       if (m && counts[m.attachmentKind] != null) counts[m.attachmentKind] += 1;
@@ -1110,6 +1313,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
 
   return (
     <>
+    {/* Screen reader announcements: an arrival in the open thread is
+        spoken here, by sender with a short preview. Visually it is a
+        single clipped pixel, because the bubble is the visual
+        version of the same news. */}
+    <div aria-live="polite" role="status" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0, padding: 0, margin: -1 }}>{liveAnnouncement}</div>
     {/* Commit 56 — was height:"100%". Its parent chain (S.pageView inside
         S.appMain) only ever sets minHeight, and a percentage height
         resolves against a parent's *height*, not its min-height — so this
@@ -1148,7 +1356,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               />
             </div>
           )}
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 10px 12px" }}>
+          {threads.length > 0 && listFailed && (
+            <div role="status" style={{ margin: "0 18px 10px", padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, background: withAlpha(STATUS.bad, 0.07), display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ flex: 1, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>Connection lost. This list may be out of date.</span>
+              <button onClick={() => { if (listRefreshRef.current) listRefreshRef.current(); }} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0 }}>Retry</button>
+            </div>
+          )}
+          <div aria-busy={!listLoaded} style={{ flex: 1, overflowY: "auto", padding: "0 10px 12px" }}>
             {/* Commit 100 — "No conversations yet." followed by a <br> was
                 the last hand-written empty state left in this file, and it
                 sat in the narrowest column on the screen where a bare grey
@@ -1157,7 +1371,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 reach you is a setting, so the empty inbox is the natural
                 place to say what that setting currently is. */}
             {threads.length === 0 && !listLoaded && (
-              <div aria-hidden="true" style={{ padding: "6px 4px" }}>
+              <div role="status" style={{ padding: "6px 4px" }}>
                 {[0, 1, 2, 3].map((n) => (
                   <div key={n} style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 8px", borderBottom: `1px solid ${P.line}` }}>
                     <span style={{ width: 42, height: 42, borderRadius: "50%", background: P.line, flexShrink: 0 }} />
@@ -1246,7 +1460,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
 
       {showThread && (
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", background: P.surface, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden" }}>
-          {activeThread ? (<>
+          {activeThread && activeThread.id === activeId ? (<>
             <div style={{ padding: "13px 18px", borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {isMobile && (
@@ -1597,7 +1811,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     {/* Commit 48: per-message report — someone else's message
                         only (m.id is always set for a real row; the || i
                         fallback key above never has one), faded in on hover
-                        rather than a permanent extra icon on every bubble. */}
+                        rather than a permanent extra icon on every bubble.
+                        The glyph stays small and quiet, but the button
+                        itself is a full 40px target: a 21px flag is a
+                        control a thumb cannot reliably hit. */}
                     {!m.mine && m.id && (
                       <button
                         onClick={() => setReportModal({ kind: "message", messageId: m.id })}
@@ -1605,10 +1822,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         className="cb-msg-report"
                         style={{
                           opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 150ms ease",
-                          background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, flexShrink: 0,
+                          background: "none", border: "none", color: P.faint, cursor: "pointer",
+                          width: 40, height: 40, padding: 0, flexShrink: 0,
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
                         }}
                       >
-                        <Icon name="flag" size={13} />
+                        <Icon name="flag" size={14} />
                       </button>
                     )}
                   </div>
@@ -1623,15 +1842,32 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         messages from one person, only the last one
                         carries it: the rest are the same moment. */}
                     {timeLabel && <span style={{ fontFamily: "var(--cb-font)" }}>{timeLabel}</span>}
-                    {m.mine && m.id && lastMineMessage?.id === m.id && activeThread?.kind === "dm" && (
+                    {m.mine && m.id && !m.pending && lastMineMessage?.id === m.id && activeThread?.kind === "dm" && (
                       <span>· {seenLastMine ? "Seen" : "Delivered"}</span>
                     )}
-                    {m.mine && m.id && lastMineMessage?.id === m.id && activeThread?.kind === "group" && (
+                    {m.mine && m.id && !m.pending && lastMineMessage?.id === m.id && activeThread?.kind === "group" && (
                       <span title={groupSeenNames.length > 0 ? `Seen by ${groupSeenNames.join(", ")}` : "No one has seen this yet"}>
                         · {groupSeenCount > 0 ? `Seen by ${groupSeenCount}` : "Sent"}
                       </span>
                     )}
                   </div>
+                  )}
+                  {/* The send state lives on the row itself: a message
+                      being sent says so, a failed one stays put with
+                      its Retry instead of vanishing into a toast, and
+                      a partial encrypted send admits exactly how far
+                      it got. */}
+                  {m.mine && m.pending === "sending" && (
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Sending…</div>
+                  )}
+                  {m.mine && m.pending === "failed" && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Failed to send</span>
+                      <button onClick={() => retrySend(m.id)} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Retry</button>
+                    </div>
+                  )}
+                  {m.mine && m.pending === "partial" && (
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4, fontSize: FONT_SIZES.micro, fontWeight: 600, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Sent to {m.partialSent} of {m.partialTotal} devices</div>
                   )}
                 </div>
                 </React.Fragment>
@@ -1672,7 +1908,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   ) : (<>
                   <UIButton P={P} variant="ghost"
                     onClick={() => imageInputRef.current?.click()}
-                    disabled={attachBusy || sending}
+                    disabled={attachBusy}
                     aria-label="Attach an image" title="Attach an image"
                     style={{ width: 44, height: 44, borderRadius: "50%", flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                   ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
@@ -1682,7 +1918,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     onChange={(e) => updateDraft(e.target.value)}
                     placeholder={`Message ${activeThread.name}…`}
                     aria-label="Reply"
-                    disabled={sending}
                     rows={1}
                     style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
@@ -1694,7 +1929,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       button that long while thinking is genuinely awkward. */}
                   <UIButton P={P} variant="ghost"
                     onClick={() => (recording ? stopRecording() : startRecording())}
-                    disabled={attachBusy || sending}
+                    disabled={attachBusy}
                     aria-label={recording ? "Send voice note" : "Record a voice note"}
                     title={recording ? "Stop and send" : "Record a voice note"}
                     style={{
@@ -1705,7 +1940,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       color: recording ? "#fff" : P.ink2,
                     }}
                   ><Icon name={recording ? "send" : "mic"} size={16} /></UIButton>
-                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim() || sending} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() && !sending ? "pointer" : "default", opacity: draft.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
                   </button>}
                 </div>
@@ -1714,7 +1949,27 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 )}
               </>)}
             </div>
-          </>) : (
+          </>) : threadError ? (
+            /* A failed first open gets its own pane: naming the
+               problem and offering the retry beats the placeholder
+               below, which cannot tell "nothing picked yet" from
+               "the conversation would not load". */
+            <div role="alert" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
+              <div style={{
+                width: 46, height: 46, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), marginBottom: 2,
+              }}><Icon name="warning" size={20} /></div>
+              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>This conversation did not load</div>
+              <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
+                {threadError}
+              </div>
+              <button onClick={() => { setThreadError(null); setLoadingThread(true); setThreadRetryNonce((n) => n + 1); }} className="cb-press" style={{ minHeight: 44,
+                marginTop: 8, padding: "9px 24px", borderRadius: RADIUS.pill, cursor: "pointer",
+                background: accent, color: at, border: "none",
+                fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", fontWeight: 700,
+              }}>Retry</button>
+            </div>
+          ) : (
             /* Commit 100 — this pane is the largest single area on the
                Inbox and it held one grey sentence, centred, with nothing
                else. "Nothing here yet." in the middle of a 900px column is
@@ -1933,7 +2188,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       <ModalChrome
         label="Group info" eyebrow="Inbox"
         title="Group info"
-        onClose={() => setGroupInfoOpen(false)}
+        onClose={() => { setGroupInfoOpen(false); setConfirmRemoveId(null); }}
         accent={accent} P={P} drawer={isMobile} width={520}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1977,13 +2232,30 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {!m.mine && (
                     <UIButton
                       P={P} variant="ghost"
-                      onClick={() => removeGroupMember(m)}
+                      onClick={() => {
+                        if (settingsBusy) return;
+                        if (confirmRemoveId === m.id) {
+                          setConfirmRemoveId(null);
+                          if (removeArmTimerRef.current) clearTimeout(removeArmTimerRef.current);
+                          removeGroupMember(m);
+                        } else {
+                          // First tap only arms the button. Removing
+                          // someone sat one stray tap away from done,
+                          // so it asks once, in place, before it acts.
+                          setConfirmRemoveId(m.id);
+                          if (removeArmTimerRef.current) clearTimeout(removeArmTimerRef.current);
+                          removeArmTimerRef.current = setTimeout(() => setConfirmRemoveId(null), 3500);
+                        }
+                      }}
+                      onBlur={() => { if (confirmRemoveId === m.id) setConfirmRemoveId(null); }}
                       disabled={settingsBusy === "remove:" + m.id}
-                      aria-label={`Remove ${m.name || m.username}`}
-                      title={`Remove ${m.name || m.username}`}
-                      style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: settingsBusy === "remove:" + m.id ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                      aria-label={confirmRemoveId === m.id ? `Tap again to remove ${m.name || m.username}` : `Remove ${m.name || m.username}`}
+                      title={confirmRemoveId === m.id ? "Tap again to remove" : `Remove ${m.name || m.username}`}
+                      style={confirmRemoveId === m.id
+                        ? { minWidth: 44, height: 44, padding: "0 14px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }
+                        : { width: 44, height: 44, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: settingsBusy === "remove:" + m.id ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
                     >
-                      {settingsBusy === "remove:" + m.id ? <span style={{ fontSize: FONT_SIZES.micro }}>…</span> : <Icon name="close" size={13} />}
+                      {settingsBusy === "remove:" + m.id ? <span style={{ fontSize: FONT_SIZES.micro }}>…</span> : confirmRemoveId === m.id ? "Remove?" : <Icon name="close" size={13} />}
                     </UIButton>
                   )}
                 </div>

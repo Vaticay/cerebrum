@@ -138,11 +138,20 @@ export async function streamDocumentApi(body, opts = {}) {
     if (signal.aborted) forwardAbort();
     else signal.addEventListener("abort", forwardAbort, { once: true });
   }
-  if (timeoutMs > 0) {
+  // Sliding idle timeout, not a deadline: the timer re arms on every
+  // chunk that arrives, so a long answer that is streaming steadily is
+  // never killed mid flow, while a genuinely hung connection still
+  // dies timeoutMs after its last byte. The old code armed one fixed
+  // timer at call start, so a healthy 120 second stream was cut at
+  // exactly 120 seconds from the first byte.
+  const armTimer = () => {
+    if (!(timeoutMs > 0)) return;
+    if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      try { ctrl.abort(new DOMException("The request took too long.", "TimeoutError")); } catch (cbErr) { console.error("[Cerebrum] docReader.js if: ctrl.abort(new DOMException('The request took too long.', 'TimeoutErro:", cbErr); }
+      try { ctrl.abort(new DOMException("The request took too long.", "TimeoutError")); } catch (cbErr) { console.error("[Cerebrum] docReader.js armTimer: ctrl.abort TimeoutError:", cbErr); }
     }, timeoutMs);
-  }
+  };
+  armTimer();
   const settled = () => {
     if (timer) { clearTimeout(timer); timer = null; }
     if (signal) signal.removeEventListener("abort", forwardAbort);
@@ -178,6 +187,7 @@ export async function streamDocumentApi(body, opts = {}) {
     err.code = (data && data.code) || null;
     throw err;
   }
+  armTimer();
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -186,6 +196,7 @@ export async function streamDocumentApi(body, opts = {}) {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      armTimer();
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -257,6 +268,68 @@ export function docTitleOf(text) {
     .find((l) => l.length > 12);
   if (!line) return "Untitled document";
   return line.length > 80 ? line.slice(0, 77) + "…" : line;
+}
+
+/* Heading detection for plain document text, used to give the Read
+   view an outline and typeset sections. Conservative on purpose: a
+   line only counts when it is short, set off by a blank line or the
+   start of the document, and shaped like a heading (a markdown
+   marker, a numbered section, all caps, or mostly title case). A
+   missed heading costs little; a sentence promoted to a heading
+   costs trust. Returns [{ title, start, end }] with character
+   offsets into the original text. */
+export function detectDocHeadings(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = raw.trim();
+    const start = offset;
+    offset += raw.length + 1;
+    if (!line || line.length < 3 || line.length > 78) continue;
+    const prevBlank = i === 0 || lines[i - 1].trim() === "";
+    if (!prevBlank) continue;
+    if (/[.!?]$/.test(line) && !/^#{1,4}\s/.test(line)) continue;
+    let title = null;
+    const md = line.match(/^#{1,4}\s+(.+)$/);
+    if (md) title = md[1].trim();
+    else if (/^\d+(\.\d+){0,3}\s+[A-Z]/.test(line)) title = line;
+    else if (/^[A-Z0-9][A-Z0-9 ,&'’\-:()]{2,}$/.test(line) && /[A-Z]{3,}/.test(line)) title = line;
+    else {
+      const words = line.split(/\s+/).filter(Boolean);
+      if (words.length === 1 && /^[A-Z][A-Za-z]{2,29}$/.test(words[0])) {
+        // A lone capitalized word on its own blank separated line is
+        // a section head in paper text: Abstract, Introduction,
+        // References. Sentences do not sit alone like that.
+        title = line;
+      } else if (words.length >= 2 && words.length <= 9) {
+        const capped = words.filter((w) => /^[A-Z0-9]/.test(w)).length;
+        if (capped / words.length >= 0.7) title = line;
+      }
+    }
+    if (title) out.push({ title, start, end: start + raw.length });
+  }
+  return out;
+}
+
+/* Split a document into segments at its headings. The segments
+   partition the text exactly (heading lines are their own segments,
+   every other character lands in a body segment), so character
+   offsets measured across the rendered segments still match offsets
+   in the original text, which is what highlights are stored against. */
+export function buildDocSegments(text, headings) {
+  const t = String(text || "");
+  if (!headings || !headings.length) return [{ start: 0, text: t, heading: null }];
+  const segs = [];
+  let pos = 0;
+  for (const h of headings) {
+    if (h.start > pos) segs.push({ start: pos, text: t.slice(pos, h.start), heading: null });
+    segs.push({ start: h.start, text: t.slice(h.start, h.end), heading: h.title });
+    pos = h.end;
+  }
+  if (pos < t.length) segs.push({ start: pos, text: t.slice(pos), heading: null });
+  return segs;
 }
 
 /* Durable per-document reading state. Shape:

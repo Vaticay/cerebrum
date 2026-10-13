@@ -498,10 +498,15 @@ await test("document: exhausted budget degrades to honest extractive, never a 50
   const s = await runSummary(env, text, { costCtl: { userId: uid, tier: "free" } });
   assert.equal(s.model, "extractive", "no LLM burn, deterministic fallback");
   assert.equal(s.partial, true);
-  assert.match(s.answer, /monthly AI token budget is exhausted/, "the user is told WHY it is extractive");
+  // Contract change (2026-10-13): the WHY now travels in the structured
+  // budgetExhausted field and the reader renders it as a notice. It used
+  // to be a bracketed note appended to the answer text.
+  assert.equal(s.budgetExhausted, true, "the user is told WHY it is extractive, via the structured field");
+  assert.ok(!/\[Note:/.test(s.answer), "no bracketed operator note inside the summary prose");
   const q = await runQA(env, text, "What is the powerhouse?", "", { costCtl: { userId: uid, tier: "free" } });
   assert.equal(q.model, "extractive");
-  assert.match(q.answer, /monthly AI token budget is exhausted/);
+  assert.equal(q.budgetExhausted, true);
+  assert.ok(!/\[Note:/.test(q.answer), "no bracketed operator note inside the Q&A answer");
 });
 
 await test("document: map/reduce budget denial also lands extractive with the note", async () => {
@@ -513,7 +518,8 @@ await test("document: map/reduce budget denial also lands extractive with the no
   assert.ok(long.length > 8000);
   const r = await runSummary(env, long, { costCtl: { userId: uid, tier: "free" } });
   assert.equal(r.model, "extractive");
-  assert.match(r.answer, /monthly AI token budget is exhausted/);
+  assert.equal(r.budgetExhausted, true, "map/reduce budget denial also reports the reason structurally");
+  assert.ok(!/\[Note:/.test(r.answer), "no bracketed operator note inside the summary prose");
 });
 
 await test("document: generate enforces prompt caps + budget at its choke point", async () => {

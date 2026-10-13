@@ -109,5 +109,90 @@ await test("the thread list separates loading, failed, and truly empty", () => {
   assert.ok(inboxSrc.includes("Conversations did not load"), "failed copy missing");
 });
 
+// ── Rescore fix pass (2026-10-13, second round) ─────────────────────
+
+await test("a failed first open gets an error pane with a retry, not the picker", () => {
+  assert.ok(inboxSrc.includes("threadError"), "thread error state missing");
+  assert.ok(inboxSrc.includes("This conversation did not load"), "error pane copy missing");
+  assert.ok(inboxSrc.includes("setThreadRetryNonce"), "retry never re-runs the open effect");
+  assert.ok(inboxSrc.includes("threadLoadedIdRef"), "nothing distinguishes a failed open from a failed poll");
+});
+
+await test("a loaded list that goes stale says so above the list, with a retry", () => {
+  assert.ok(inboxSrc.includes("This list may be out of date"), "stale banner copy missing");
+  assert.ok(inboxSrc.includes("threads.length > 0 && listFailed"), "banner is not gated on a loaded list");
+  assert.ok(inboxSrc.includes("listRefreshRef"), "banner retry has no handle on the poll");
+});
+
+await test("a failed history fetch keeps hasMore and speaks up", () => {
+  assert.ok(inboxSrc.includes("Earlier messages did not load"), "history failure is silent again");
+  assert.ok(inboxSrc.includes("!Array.isArray(data.messages) || data.messages.length === 0"), "only an empty success may end history");
+  assert.ok(!inboxSrc.includes("!data || data.error || !Array.isArray(data.messages)"), "the old branch still ends history on any error");
+});
+
+await test("both polls back off on failure and reset on success", () => {
+  assert.ok(inboxSrc.includes("2 ** failures"), "backoff never doubles the delay");
+  assert.ok(inboxSrc.includes("120000"), "list poll backoff has no cap");
+  assert.ok(inboxSrc.includes("60000"), "thread poll backoff has no cap");
+  assert.ok(inboxSrc.includes("pollTimer"), "polls are not on setTimeout chains");
+});
+
+await test("sends are optimistic rows with their own state", () => {
+  assert.ok(inboxSrc.includes("appendLocalRow"), "no optimistic row is appended");
+  assert.ok(inboxSrc.includes('pending: "sending"'), "rows are not born in a sending state");
+  assert.ok(inboxSrc.includes("performSend"), "send network half missing");
+  assert.ok(inboxSrc.includes("Failed to send"), "failed rows carry no label");
+  assert.ok(inboxSrc.includes("retrySend"), "failed rows have no retry");
+  assert.ok(!inboxSrc.includes("updateDraft(text)"), "failure still restores the draft for a duplicate send");
+});
+
+await test("a partial encrypted send reports the device counts honestly", () => {
+  assert.ok(inboxSrc.includes("Sent to ${sentCount} of ${envelopes.length} devices. The rest did not go through."), "partial send toast missing or vague");
+  assert.ok(inboxSrc.includes('pending: "partial"'), "partial rows carry no honest state");
+  assert.ok(inboxSrc.includes("partialSent"), "the row itself does not show how far the send got");
+});
+
+await test("the composer never locks during a send", () => {
+  assert.ok(!inboxSrc.includes("const [sending, setSending]"), "the global send lock is back");
+  assert.ok(!inboxSrc.includes("disabled={sending}"), "the composer still disables while sending");
+  assert.ok(inboxSrc.includes('m.pending === "sending"'), "no visible sending indicator on the row");
+});
+
+await test("a failed image send keeps the image on the row for retry", () => {
+  assert.ok(inboxSrc.includes("_send: payload"), "rows do not hold their own send payload");
+  assert.ok(inboxSrc.includes("attachmentData: att ? (att.data || null) : null"), "the optimistic row drops the image data");
+});
+
+await test("arrivals are announced and loading state is reachable", () => {
+  assert.ok(inboxSrc.includes("aria-live"), "no live region for arrivals");
+  assert.ok(inboxSrc.includes("liveAnnouncement"), "arrivals never reach the live region");
+  assert.ok(inboxSrc.includes("aria-busy"), "list container does not expose its busy state");
+  assert.ok(inboxSrc.includes('<div role="status" style={{ padding: "6px 4px" }}>'), "skeleton loading text is still hidden from assistive tech");
+});
+
+await test("the per message report target is a real touch target", () => {
+  assert.ok(inboxSrc.includes('className="cb-msg-report"'), "report button missing");
+  assert.ok(inboxSrc.includes("width: 40, height: 40, padding: 0"), "report target shrank back below 40px");
+});
+
+await test("group member removal asks once before it acts", () => {
+  assert.ok(inboxSrc.includes("confirmRemoveId"), "removal has no armed state");
+  assert.ok(inboxSrc.includes('"Remove?"'), "the armed button does not say what the second tap does");
+  assert.ok(inboxSrc.includes("setTimeout(() => setConfirmRemoveId(null), 3500)"), "an armed removal never disarms itself");
+});
+
+await test("the shared shelf is counted by the server over the whole thread", () => {
+  assert.ok(dataSrc.includes("sharedCounts"), "thread payload carries no sharedCounts");
+  assert.ok(dataSrc.includes("GROUP BY attachment_kind"), "server counts are not a grouped count over the thread");
+  assert.ok(inboxSrc.includes("activeThread.sharedCounts"), "client ignores the server counts");
+});
+
+await test("the notification privacy comment and log labels read clean", () => {
+  assert.ok(inboxSrc.includes("Notifications never carry message content"), "privacy comment was not rewritten");
+  assert.ok(!inboxSrc.includes("the envelope is ciphertext and the plaintext belongs on"), "the spliced half sentence is still there");
+  assert.ok(!inboxSrc.includes("inbox.jsx if:"), "garbled log labels remain");
+  assert.ok(!inboxSrc.includes("stopRecording(); }:"), "garbled log labels remain");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

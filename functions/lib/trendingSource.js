@@ -178,7 +178,11 @@ const SOURCES = [
     // zero results rather than an error, which would look identical to "the
     // source is down". Sorting by publication date descending gets the same
     // recency with nothing that can silently mis-parse.
-    url: "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=OPEN_ACCESS%3Ay%20AND%20HAS_ABSTRACT%3Ay&format=json&pageSize=12&sort=P_PDATE_D%20desc",
+    // resultType=core is load bearing: the lite response carries no
+    // abstractText at all, so without it every record in this section
+    // arrived summaryless and the page told readers no summary was
+    // published when the fetch had simply never asked for it.
+    url: "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=OPEN_ACCESS%3Ay%20AND%20HAS_ABSTRACT%3Ay&format=json&pageSize=12&sort=P_PDATE_D%20desc&resultType=core",
     parse: (d) => ((d && d.resultList && d.resultList.result) || []).map((r) => ({
       title: (r.title || "").replace(/\.$/, ""),
       // No abstract means NO summary. The old fallback stored the
@@ -188,7 +192,11 @@ const SOURCES = [
       summaryMissing: !r.abstractText,
       url: r.doi ? `https://doi.org/${r.doi}` : (r.fullTextUrlList && r.fullTextUrlList.fullTextUrl && r.fullTextUrlList.fullTextUrl[0] && r.fullTextUrlList.fullTextUrl[0].url) || "",
       source: r.journalTitle || "Europe PMC",
-      publishedAt: r.firstPublicationDate || null,
+      // The sort key is the print publication date, so the date shown
+      // must be that same date. The old code displayed the first
+      // online date, which can sit months earlier, and a story could
+      // read as far older than the edition position it was sorted into.
+      publishedAt: r.printPublicationDate || r.firstPublicationDate || null,
       indexedAt: r.firstIndexDate || null,
       doi: r.doi || null,
       type: /review/i.test(String(r.pubType || "")) ? "Review" : "Paper",
@@ -345,11 +353,14 @@ export async function fetchTrendingFeed() {
   // Per source health rides along in the payload. A source failing
   // silently used to look like an editorial decision to drop its whole
   // section; now the reader can be told the section is missing because
-  // its source did not answer.
+  // its source did not answer. The count is filled in after the edition
+  // is built, below: it must describe the edition the reader sees, not
+  // the raw upstream return, which includes records that validation
+  // and dedup will drop.
   const sourceHealth = SOURCES.map((src, i) => ({
     source: src.category,
     ok: !!(perSource[i] && (perSource[i].items || []).length),
-    count: perSource[i] ? (perSource[i].items || []).length : 0,
+    count: 0,
   }));
 
   const seenUrls = new Set();
@@ -394,6 +405,9 @@ export async function fetchTrendingFeed() {
   const items = [];
   for (let i = 0; items.length < 40 && buckets.some((b) => i < b.length); i++) {
     for (const b of buckets) if (i < b.length) items.push(b[i]);
+  }
+  for (const h of sourceHealth) {
+    h.count = items.filter((it) => it.category === h.source).length;
   }
   return { items, sourceHealth };
 }

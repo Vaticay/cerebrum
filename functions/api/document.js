@@ -654,8 +654,6 @@ function splitSentences(text) {
 // model field ("extractive", which the reader renders as a notice in
 // the masthead), never as a bracketed operator note inside the prose
 // a person is trying to read.
-const EXTRACT_NOTE = "";
-
 function scoreSentence(s) {
   let score = 0;
   const len = s.length;
@@ -712,16 +710,12 @@ export function extractiveSummary(text) {
 
   const section = (title, lines, emptyLine) =>
     "## " + title + "\n" + (lines.length ? lines.join(" ") : emptyLine);
-  return (
-    EXTRACT_NOTE +
-    "\n\n" +
-    [
-      section("Executive Summary", exec, "The document's opening could not be isolated in this extract."),
-      section("Methodology", method, "The document's methods could not be isolated in this extract."),
-      section("Key Findings", findings, "No clearly quantitative findings were isolated in this extract."),
-      section("Limitations", limits, "The document does not state its limitations explicitly in a way this extract could isolate."),
-    ].join("\n\n")
-  );
+  return [
+    section("Executive Summary", exec, "The document's opening could not be isolated in this extract."),
+    section("Methodology", method, "The document's methods could not be isolated in this extract."),
+    section("Key Findings", findings, "No clearly quantitative findings were isolated in this extract."),
+    section("Limitations", limits, "The document does not state its limitations explicitly in a way this extract could isolate."),
+  ].join("\n\n");
 }
 
 const QA_STOPWORDS = new Set(
@@ -736,9 +730,11 @@ export function extractiveQA(text, query) {
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 2 && !QA_STOPWORDS.has(t));
   const sentences = splitSentences(text).filter((s) => s.length >= 40 && s.length <= 600);
-  const header = "[The AI service was unreachable, so instead of an AI-written answer, here are the passages from your document most relevant to your question:]";
+  // No bracketed operator header in the answer text: the result's
+  // model field already says "extractive", and the reader labels the
+  // answer from that field. The passages speak for themselves.
   if (!terms.length || !sentences.length) {
-    return header + "\n\nThe document does not appear to address this question.";
+    return "The document does not appear to address this question.";
   }
   const scored = [];
   for (let i = 0; i < sentences.length; i++) {
@@ -748,11 +744,11 @@ export function extractiveQA(text, query) {
     if (hits > 0) scored.push({ s: sentences[i], i, score: hits });
   }
   if (!scored.length) {
-    return header + "\n\nThe document does not appear to address this question.";
+    return "The document does not appear to address this question.";
   }
   scored.sort((a, b) => b.score - a.score || a.i - b.i);
   const picked = scored.slice(0, 5).sort((a, b) => a.i - b.i);
-  return header + "\n\n" + picked.map((p) => p.s).join("\n\n");
+  return picked.map((p) => p.s).join("\n\n");
 }
 
 // Summarize a document. NEVER THROWS: every failure mode degrades to the
@@ -765,26 +761,21 @@ export function extractiveQA(text, query) {
 // pass them back as `priorSections` and only re-digest the missing ones.
 export async function runSummary(env, documentText, { onProgress = null, onPhase = null, digest = null, generateFn = null, priorSections = null, costCtl = null } = {}) {
   const gen = generateFn || ((e, m, t, o) => generate(e, m, t, o));
-  // A budget denial degrades like any other generate failure — but the
-  // user is told WHY this one is extractive, so an exhausted budget
-  // doesn't look like a broken model.
-  const budgetNote = (e) =>
-    e && e.code === "token_budget_exhausted"
-      ? "\n\n[Note: this account's monthly AI token budget is exhausted, so this is an extractive summary of key passages rather than an AI synthesis.]"
-      : "";
+  // A budget denial degrades like any other generate failure, and the
+  // user is still told WHY this one is extractive, so an exhausted
+  // budget does not look like a broken model. The reason now travels
+  // in the structured budgetExhausted field and the reader renders it
+  // as a notice, instead of a bracketed note appended to the prose.
   const asExtractive = (sourceText, extra = {}) => ({
-    answer: extractiveSummary(sourceText) + budgetNote(extra.cause),
+    answer: extractiveSummary(sourceText),
     model: "extractive",
     partial: true,
+    budgetExhausted: !!(extra.cause && extra.cause.code === "token_budget_exhausted"),
     missingSections: extra.missingSections || [],
     sections: extra.sections || null,
     chunkCount: extra.chunkCount || 0,
     path: "extractive",
   });
-  const missingNote = (failed, total) =>
-    failed.length
-      ? "\n\n[Note: section" + (failed.length > 1 ? "s " : " ") + failed.join(", ") + " of " + total + " could not be read, so " + (failed.length > 1 ? "they are" : "it is") + " not reflected in this summary.]"
-      : "";
   try {
     if (documentText.length <= MAP_REDUCE_THRESHOLD) {
       try {
@@ -889,19 +880,16 @@ export async function runQA(env, documentText, query, historyBlock, { onToken = 
     return { answer: r.answer, model: r.model, partial: false };
   } catch (e) {
     const fb = extractiveQA(documentText, query);
-    const budgetNote = e && e.code === "token_budget_exhausted"
-      ? "\n\n[Note: this account's monthly AI token budget is exhausted, so this is an extractive answer from key passages rather than an AI synthesis.]"
-      : "";
     const handoff = streamed
-      ? "\n\n[The AI answer above was cut short when the service faltered — continuing with the most relevant passages from your document:]\n\n"
+      ? "\n\nThe AI answer was cut short when the service faltered, so here are the most relevant passages from your document:\n\n"
       : "";
-    const tail = handoff + fb + budgetNote;
+    const tail = handoff + fb;
     if (onToken) {
       try {
         onToken(tail);
       } catch (cbErr) { console.error("[Cerebrum] document.js if: onToken(tail);:", cbErr); }
     }
-    return { answer: streamed + tail, model: "extractive", partial: true };
+    return { answer: streamed + tail, model: "extractive", partial: true, budgetExhausted: !!(e && e.code === "token_budget_exhausted") };
   }
 }
 
@@ -1129,10 +1117,14 @@ export async function onRequest(context) {
     // A long document is never refused. There is still a real ceiling
     // (the model's context window), so what changes is the response to
     // hitting it: analyze what fits and say plainly that the tail wasn't
-    // read, rather than analyzing nothing and blaming the input.
-    let truncatedNote = "";
+    // read, rather than analyzing nothing and blaming the input. The
+    // fact travels in the structured truncated flag and these counts,
+    // and the reader renders it as a notice. It used to be a bracketed
+    // note appended to the answer text itself, where it sat inside
+    // the Limitations section pretending to be document prose.
+    let truncatedInfo = null;
     if (documentText.length > MAX_DOCUMENT_LEN) {
-      truncatedNote = `\n\n[Note: this document is ${documentText.length.toLocaleString()} characters; the first ${MAX_DOCUMENT_LEN.toLocaleString()} were analyzed. Sections beyond that point were not read.]`;
+      truncatedInfo = { totalChars: documentText.length, analyzedChars: MAX_DOCUMENT_LEN };
       documentText = documentText.slice(0, MAX_DOCUMENT_LEN);
     }
 
@@ -1151,7 +1143,7 @@ export async function onRequest(context) {
       const { jobId } = await enqueueDocJob(env, {
         userId: docUser.id,
         kind: isQA ? "qa" : "summary",
-        payload: { documentText, query, historyBlock, priorSections, truncatedNote },
+        payload: { documentText, query, historyBlock, priorSections, truncatedInfo },
       });
       const bg = (async () => {
         const total = isQA ? 1 : (documentText.length > MAP_REDUCE_THRESHOLD
@@ -1167,9 +1159,11 @@ export async function onRequest(context) {
             );
             await completeDocJob(env, jobId, {
               mode: "qa",
-              answer: result.answer + truncatedNote,
+              answer: result.answer,
               model: result.model,
               partial: !!result.partial,
+              truncated: !!truncatedInfo,
+              budgetExhausted: !!result.budgetExhausted,
             });
           } else {
             const result = await withTimeout(
@@ -1188,9 +1182,11 @@ export async function onRequest(context) {
             const sectioned = splitSummarySections(result.answer);
             await completeDocJob(env, jobId, {
               mode: "summary",
-              raw: result.answer + truncatedNote,
+              raw: result.answer,
               ...sectioned,
-              truncated: !!truncatedNote,
+              truncated: !!truncatedInfo,
+              ...(truncatedInfo ? { truncation: truncatedInfo } : {}),
+              budgetExhausted: !!result.budgetExhausted,
               partial: !!result.partial,
               missingSections: result.missingSections || [],
               sections: result.sections || null,
@@ -1281,7 +1277,7 @@ export async function onRequest(context) {
                 QA_TIMEOUT_MS + 15000,
                 "document qa"
               );
-              send({ type: "done", mode: "qa", answer: result.answer + truncatedNote, model: result.model, partial: !!result.partial, quota: docQuota() });
+              send({ type: "done", mode: "qa", answer: result.answer, model: result.model, partial: !!result.partial, truncated: !!truncatedInfo, budgetExhausted: !!result.budgetExhausted, quota: docQuota() });
             } else {
               const chunkCount = documentText.length > MAP_REDUCE_THRESHOLD ? chunkDocument(documentText, MAP_CHUNK_CHARS).length : 0;
               send({ type: "start", mode: "summary", chunks: chunkCount, phase: chunkCount ? "map" : "single" });
@@ -1303,13 +1299,15 @@ export async function onRequest(context) {
               // every path that opened one (synthesis or digest-extract).
               if (reduceStarted) send({ type: "progress", phase: "reduce", done: 1, total: 1 });
               const sectioned = splitSummarySections(result.answer);
-              const raw = result.answer + truncatedNote;
+              const raw = result.answer;
               send({
                 type: "done",
                 mode: "summary",
                 raw,
                 ...sectioned,
-                truncated: !!truncatedNote,
+                truncated: !!truncatedInfo,
+                ...(truncatedInfo ? { truncation: truncatedInfo } : {}),
+                budgetExhausted: !!result.budgetExhausted,
                 partial: !!result.partial,
                 missingSections: result.missingSections || [],
                 sections: result.sections || null,
@@ -1326,10 +1324,10 @@ export async function onRequest(context) {
             console.error("Cerebrum document stream failure:", (e && e.message) || e);
             try {
               if (isQA) {
-                send({ type: "done", mode: "qa", answer: extractiveQA(documentText, query) + truncatedNote, model: "extractive", partial: true, quota: docQuota() });
+                send({ type: "done", mode: "qa", answer: extractiveQA(documentText, query), model: "extractive", partial: true, quota: docQuota() });
               } else {
-                const raw = extractiveSummary(documentText) + truncatedNote;
-                send({ type: "done", mode: "summary", raw, ...splitSummarySections(raw), truncated: !!truncatedNote, partial: true, missingSections: [], sections: null, chunkCount: 0, model: "extractive", media: (await mediaPromise).media, quota: docQuota() });
+                const raw = extractiveSummary(documentText);
+                send({ type: "done", mode: "summary", raw, ...splitSummarySections(raw), truncated: !!truncatedInfo, partial: true, missingSections: [], sections: null, chunkCount: 0, model: "extractive", media: (await mediaPromise).media, quota: docQuota() });
               }
             } catch {
               const classified = classifyDocumentError(e);
@@ -1347,20 +1345,23 @@ export async function onRequest(context) {
     }
     if (isQA) {
       const result = await withTimeout(runQA(env, documentText, query, historyBlock, { costCtl: docCostCtl }), QA_TIMEOUT_MS + 15000, "document qa");
-      return okRes({ mode: "qa", answer: result.answer + truncatedNote, model: result.model, partial: !!result.partial, quota: docQuota() }, 200, cors);
+      return okRes({ mode: "qa", answer: result.answer, model: result.model, partial: !!result.partial, truncated: !!truncatedInfo, budgetExhausted: !!result.budgetExhausted, quota: docQuota() }, 200, cors);
     }
     const result = await withTimeout(runSummary(env, documentText, { priorSections, costCtl: docCostCtl }), SUMMARY_TIMEOUT_MS, "document analysis");
     const sectioned = splitSummarySections(result.answer);
-    // The truncation note is appended to what the reader actually sees —
-    // a summary that silently covers only part of a document is worse than
-    // no summary, because nothing on screen says so.
-    const raw = result.answer + truncatedNote;
+    // Truncation rides in the structured fields below, and the reader
+    // renders it as a notice: a summary that silently covers only part
+    // of a document is worse than no summary, because nothing on screen
+    // says so. What it must never do is sit inside the summary prose.
+    const raw = result.answer;
     return okRes(
       {
         mode: "summary",
         raw,
         ...sectioned,
-        truncated: !!truncatedNote,
+        truncated: !!truncatedInfo,
+        ...(truncatedInfo ? { truncation: truncatedInfo } : {}),
+        budgetExhausted: !!result.budgetExhausted,
         partial: !!result.partial,
         missingSections: result.missingSections || [],
         sections: result.sections || null,

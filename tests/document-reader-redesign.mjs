@@ -103,6 +103,35 @@ await test("a partial analysis resumes from its finished sections", () => {
   assert.ok(appSrc.includes("summary.partial && Array.isArray(summary.sections)"), "resume is not gated on a partial summary");
 });
 
+await test("the reading engine detects headings and segments partition the text", async () => {
+  const { detectDocHeadings, buildDocSegments } = await import(new URL("../src/docReader.js", import.meta.url));
+  const text = [
+    "Enzyme Activity in Insect Gut Homogenate",
+    "",
+    "Abstract",
+    "We measured activity in crude extracts from the midgut and report the rates here in full detail.",
+    "",
+    "1. Methods",
+    "Guts were dissected and homogenized in cold buffer before the assay began in earnest.",
+    "This sentence is not a heading even though it follows a heading line directly.",
+    "",
+    "RESULTS AND DISCUSSION",
+    "Activity rose with temperature across every replicate that we ran during the spring season.",
+  ].join("\n");
+  const heads = detectDocHeadings(text);
+  const titles = heads.map((h) => h.title);
+  assert.ok(titles.includes("Abstract"), "title case heading missed: " + titles.join(" | "));
+  assert.ok(titles.includes("1. Methods"), "numbered heading missed");
+  assert.ok(titles.includes("RESULTS AND DISCUSSION"), "all caps heading missed");
+  assert.ok(!titles.some((t) => t.startsWith("This sentence")), "a body sentence was promoted to a heading");
+  const segs = buildDocSegments(text, heads);
+  assert.equal(segs.map((s) => s.text).join(""), text, "segments must partition the text exactly or highlight offsets drift");
+  assert.ok(segs.some((s) => s.heading === "Abstract"), "no segment carries the Abstract heading");
+  const docSrc = await (await import("node:fs/promises")).readFile(new URL("../functions/api/document.js", import.meta.url), "utf8");
+  assert.ok(!docSrc.includes("[Note: this document is"), "truncation note is back in the prose");
+  assert.ok(!docSrc.includes("[Note: this account's monthly AI token budget"), "budget note is back in the prose");
+});
+
 await test("machine notes no longer sit inside the reading matter", async () => {
   const { readFile } = await import("node:fs/promises");
   const docSrc = await readFile(new URL("../functions/api/document.js", import.meta.url), "utf8");
