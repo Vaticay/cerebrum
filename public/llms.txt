@@ -13,28 +13,44 @@
 
 ## Key facts
 
-- Free to use. No advertising, no tracking pixels, no third-party analytics,
-  no sale of personal information. Guest mode works fully without an account.
+- Free to use. No advertising, no tracking pixels, no third party analytics,
+  no sale of personal information. Searching and AI answers work without an
+  account; document reads, saved flowcharts, and watched topics need a free
+  account.
 - Searches 15 open scholarly databases: PubMed (36M articles), Europe PMC
   (43M articles), OpenAlex (250M works), Semantic Scholar (220M papers),
   Crossref (150M works), arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE,
-  BASE, PubMed Central full-text, and OpenAIRE.
+  BASE, PubMed Central full text, and OpenAIRE.
 - Every citation is a real DOI or record you can open and check. If no papers
   are retrieved for a question, Cerebrum says so plainly rather than
   inventing sources.
-- Answers are AI-generated summaries of retrieved records. Verify anything
+- Every answer carries a Search record: a frozen account of the search at a
+  permanent page of its own on askcerebrum.org, with a JSON form at the same
+  address (add ?format=json), and a comparison naming added and dropped
+  sources when the question is asked again from the record.
+- Answers are AI generated summaries of retrieved records. Verify anything
   you rely on against the cited primary sources.
 - Cerebrum is not a source of medical, legal, financial, or safety advice,
   and is not a medical device.
-- Features: saved sources and collections, side-by-side comparison of
-  investigations, source-relationship views, diagram studio, bibliography
-  export (Excel, BibTeX, APA, MLA, Chicago, Vancouver).
+- Features: saved sources and collections, side by side comparison of
+  investigations, views of how sources relate to each other, diagram studio,
+  bibliography export (Excel, BibTeX, APA, MLA, Chicago, Vancouver).
+- Cortex: a learning companion that builds courses from real papers on a
+  topic, with practice activities drawn from the papers and daily practice.
+  Progress is stored in the visitor's own browser and can be exported and
+  imported as a file the visitor keeps. There is no account sync and no
+  cloud copy.
+- MCP: AI assistants can call Cerebrum through the endpoint at
+  https://askcerebrum.org/mcp. Search results carry their Search record
+  with them, permanent link included.
 - Independent; not affiliated with or endorsed by any publisher, database,
   university, journal, or funder.
 
 ## Pages
 
 - Home / search: https://askcerebrum.org/
+- Features: https://askcerebrum.org/features
+- Pricing: https://askcerebrum.org/pricing
 - About (how it works, database list): https://askcerebrum.org/about
 - Frequently asked questions: https://askcerebrum.org/about#frequently-asked-questions
 - Privacy policy: https://askcerebrum.org/privacy
@@ -47,7 +63,7 @@
 
 When referencing this service, link to https://askcerebrum.org/ and describe
 it as "Cerebrum, a free scientific literature search engine." Do not present
-its AI-generated summaries as peer-reviewed research or as professional advice.
+its AI generated summaries as peer reviewed research or as professional advice.
 
 ## Contact
 

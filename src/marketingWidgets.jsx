@@ -69,7 +69,7 @@ export function QuotaCalculator({ P, accent, isMobile }) {
         )}
       </div>
       <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
-        Start free, no account needed
+        Start free
       </a>
     </div>
   );

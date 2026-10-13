@@ -5696,9 +5696,9 @@ function InfoPage({ page }) {
             {page === "pricing" && (
               <div className="cb-fadein" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {[
-                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 flowchart every 5 days. No account needed.", recommended: false, cta: "Start free →" },
+                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 flowchart every 5 days with a free account. Searching needs no account at all.", recommended: false, cta: "Start free →" },
                   { persona: "For the steady researcher", name: "Pro Lite", price: "$3.99/month or $39/year", line: "500 AI answers, 30 document reads, and 10 flowcharts every 5 days. Ten times the free allowances, with a fixed allowance rather than unlimited use.", recommended: false, cta: "Upgrade in the app →" },
-                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7-day money-back guarantee. Cancel anytime.", recommended: true, cta: "Upgrade in the app →" },
+                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7 day money back guarantee. Cancel anytime.", recommended: true, cta: "Upgrade in the app →" },
                   { persona: "For college students", name: "Pro Student", price: "$7.99/month for the first 12 months", line: "Full Cerebrum Pro at a student price: unlimited answers, document reads, and flowcharts. Verified college email (.edu or .ac.uk) required. Renews at $20 per month after the first 12 months.", recommended: false, cta: "Upgrade in the app →" },
                 ].map((tier) => (
                   <div key={tier.name} style={{
@@ -6605,9 +6605,9 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 8 }}>Before you pay</div>
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 7 }}>
                 {[
-                  "7-day money-back guarantee: a full refund on your first charge, no questions asked.",
+                  "7 day money back guarantee: a full refund on your first charge, no questions asked.",
                   "Cancel anytime from the billing portal. You keep Pro until the end of the paid period.",
-                  "Free stays free: 50 AI answers, 3 document reads, 1 flowchart every 5 days, no account needed.",
+                  "Free stays free: 50 AI answers, 3 document reads, 1 flowchart every 5 days with a free account. Searching needs no account.",
                   "Secure checkout by Stripe. Your card details never touch Cerebrum's servers.",
                 ].map((line) => (
                   <li key={line} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>

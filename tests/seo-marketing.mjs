@@ -19,6 +19,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { MARKETING_PAGES, MARKETING_SLUGS, SLOGAN, DEMO_QUESTIONS } = await import(join(root, "src/marketingContent.js"));
 const { PAGES: LEGAL_PAGES } = await import(join(root, "src/legalContent.js"));
 const widgetsSrc = await readFile(join(root, "src/marketingWidgets.jsx"), "utf8");
+const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+const llmsTxt = await readFile(join(root, "public/llms.txt"), "utf8");
 const { INFO_SLUGS, classifyRoute } = await import(join(root, "src/routeClassify.js"));
 const { SOURCE_COUNT } = await import(join(root, "functions/lib/product.js"));
 
@@ -369,6 +371,96 @@ t("no em or en dash in any marketing or legal copy string", () => {
     assert.ok(!s.includes("—"), `em dash in copy: ${s.slice(0, 110)}`);
     assert.ok(!s.includes("–"), `en dash in copy: ${s.slice(0, 110)}`);
   }
+});
+
+/* ── Hyphen guard + copy truth pins (third rescore fix wave) ─────
+ * The no dash rule covers hyphens too, not only em and en dashes:
+ * hyphenated compounds in authored copy (money back, auto renewing,
+ * evidence graded) read as AI generated, and the third panel rescore
+ * named them on the public pages. This guard walks every authored
+ * string in the two content modules and fails on a hyphen between
+ * word characters. Scrubbed before checking, because they are data
+ * rather than compounds: URLs, DOIs, email addresses, and ISO dates.
+ * Two proper technical names keep their hyphens by exemption: NCBI
+ * E-utilities (a product name) and PBKDF2-SHA256 (an algorithm name).
+ * The demo sources are quoted paper titles, not authored copy, so
+ * only the demo questions and answer paragraphs are walked. Widget
+ * and app literals cannot be walked this way (class names, CSS
+ * values, and code identifiers all carry hyphens), so the false
+ * claims this wave fixed there are pinned by source text below. */
+const collectCopyStrings = (value, out = []) => {
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const v of value) collectCopyStrings(v, out);
+  else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) {
+      if (k === "widget") continue; // a widget id, not copy
+      collectCopyStrings(v, out);
+    }
+  }
+  return out;
+};
+const HYPHEN_EXEMPT = ["E-utilities", "PBKDF2-SHA256"];
+const scrubForHyphenCheck = (s) => {
+  let x = s
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/10\.\d{4,}\/\S+/g, " ")
+    .replace(/[\w.]+@[\w.]+/g, " ")
+    .replace(/\d{4}-\d{2}-\d{2}/g, " ");
+  for (const e of HYPHEN_EXEMPT) x = x.split(e).join(" ");
+  return x;
+};
+
+t("no hyphenated compounds in authored marketing or legal copy", () => {
+  const strings = [
+    ...collectCopyStrings(MARKETING_PAGES),
+    ...collectCopyStrings(LEGAL_PAGES),
+    SLOGAN,
+  ];
+  for (const d of DEMO_QUESTIONS) {
+    strings.push(d.q);
+    for (const p of d.paragraphs || []) strings.push(p.text);
+  }
+  assert.ok(strings.length > 100, `hyphen guard collected only ${strings.length} strings`);
+  for (const s of strings) {
+    const x = scrubForHyphenCheck(s);
+    assert.ok(!/[A-Za-z0-9]-[A-Za-z0-9]/.test(x), `hyphenated compound in copy: ${s.slice(0, 110)}`);
+    assert.ok(!x.includes(" - "), `spaced hyphen in copy: ${s.slice(0, 110)}`);
+  }
+});
+
+t("llms.txt carries no hyphenated compounds outside its URLs", () => {
+  const x = scrubForHyphenCheck(llmsTxt);
+  assert.ok(!/[A-Za-z0-9]-[A-Za-z0-9]/.test(x), "hyphenated compound in llms.txt");
+  assert.ok(!x.includes(" - "), "spaced hyphen in llms.txt");
+});
+
+t("public copy sells the Search record as it actually ships", () => {
+  assert.ok(featuresJson.includes("permanent page"), "features copy never gives the record its permanent page");
+  assert.ok(featuresJson.includes("?format=json"), "features copy never mentions the record JSON form");
+  const mcpBlock = blockByHeading(MARKETING_PAGES.features, "Use Cerebrum inside ChatGPT and Claude");
+  assert.ok(mcpBlock, "features page lost its MCP block");
+  assert.ok(JSON.stringify(mcpBlock).includes("Search record"), "MCP block never mentions the Search record carriage");
+  assert.ok(llmsTxt.includes("?format=json"), "llms.txt never mentions the record JSON form");
+});
+
+t("Cortex is present on the public pages, described honestly", () => {
+  const aboutJson = JSON.stringify(LEGAL_PAGES.about);
+  assert.ok(featuresJson.includes("Cortex"), "features copy never mentions Cortex");
+  assert.ok(pricingJson.includes("Cortex"), "pricing copy never mentions Cortex");
+  assert.ok(aboutJson.includes("Cortex"), "about copy never mentions Cortex");
+  assert.ok(featuresJson.includes("no cloud copy"), "features Cortex copy must deny cloud storage plainly");
+  assert.ok(aboutJson.includes("not synced to an account"), "about Cortex copy must deny account sync plainly");
+  assert.ok(llmsTxt.includes("Cortex"), "llms.txt never mentions Cortex");
+});
+
+t("account claims match the code: documents need an account, search does not", () => {
+  const allCopy = JSON.stringify(MARKETING_PAGES) + JSON.stringify(LEGAL_PAGES) + llmsTxt;
+  assert.ok(!allCopy.includes("works fully"), "a surface still claims guest mode works fully without an account");
+  const docFaq = faqByQuestion(MARKETING_PAGES["document-mode"], "Does Document Mode work without an account?");
+  assert.ok(docFaq, "document mode FAQ lost the account question");
+  assert.ok(docFaq.a.startsWith("No."), "document mode FAQ must answer no: the document endpoint returns sign in required");
+  assert.ok(!appSrc.includes("No account needed."), "an in app plan card still bundles the free tier under no account needed");
+  assert.ok(!widgetsSrc.includes("no account needed"), "a marketing widget still claims no account needed");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

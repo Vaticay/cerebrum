@@ -33,23 +33,24 @@ export const MARKETING_PAGES = {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Features",
     title: "Search, read, and map the scientific literature",
-    lede: "Cerebrum searches 15 scholarly databases in parallel and answers with citations you can check. Free; a free account unlocks AI answers, reads, and flowcharts.",
+    lede: "Cerebrum searches 15 scholarly databases in parallel and answers with citations you can check. Searching and AI answers are free, with no account needed.",
     updated: "Updated October 2026.",
     blocks: [
       {
         h: "The promise",
-        p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, OpenAIRE and more in parallel, scores the results for genuine relevance, and writes a summary constrained by what those papers actually say.",
+        p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full text, OpenAIRE and more in parallel, scores the results for genuine relevance, and writes a summary constrained by what those papers actually say.",
       },
       {
         h: "What you get",
         list: [
-          "Evidence-graded answers: every claim links to a real paper you can open, with a confidence note on how strongly the literature supports it.",
-          "Search record and coverage on every answer: what the answer rests on, what was asked, and what ran, ready to copy or download.",
-          "Document Mode: paste or upload a long paper and get a structured, section-by-section summary with live progress.",
+          "Answers graded against the evidence: every claim links to a real paper you can open, with a confidence note on how strongly the literature supports it.",
+          "Search record and coverage on every answer: what the answer rests on, what was asked, and what ran, at a permanent link of its own, with copy and download and a JSON form.",
+          "Document Mode: paste or upload a long paper and get a structured summary built section by section, with live progress. Reading a document needs a free account.",
           "Diagram Studio: turn a pathway, method, or mechanism into an editable Mermaid diagram with SVG, PNG, and .mmd export.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
           "Watched topics: watch a subject from the end of an answer, and your home screen counts the new papers indexed on it since you last looked.",
-          "Private Vault: optional end-to-end encrypted sync for your saved work, with a 24-word recovery phrase only you hold.",
+          "Cortex: courses built from real papers on a topic, with practice activities, daily practice, and progress you can export as a file you keep.",
+          "Private Vault: optional end to end encrypted sync for your saved work, with a 24 word recovery phrase only you hold.",
         ],
       },
       {
@@ -58,7 +59,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "The Search record",
-        p: "Every answer carries a record of its own search, and you can copy it or download it as a file. It freezes the search exactly as it ran: the question as asked and the time it was asked, the queries Cerebrum built from it, every database it asked and how much each one returned, what the funnel kept and what it dropped, the model that wrote the answer, and the full source list with each paper marked cited or further reading. Months later, a reviewer, a collaborator, or your future self can see exactly what a methods section rests on.",
+        p: "Every answer carries a record of its own search, and the record does not live only inside the answer. Each one gets a permanent page of its own on askcerebrum.org, at an address that keeps working, so you can link to it from your notes, a methods draft, or a message to a collaborator, and anyone can open it. Add ?format=json to that address and the same record comes back as JSON, for tools that would rather read it that way. You can still copy the record or download it as a file from under the answer. The record freezes the search exactly as it ran: the question as asked and the time it was asked, the queries Cerebrum built from it, every database it asked and how much each one returned, what the funnel kept and what it dropped, the model that wrote the answer, and the full source list with each paper marked cited or further reading. And the record is not a dead end: ask the same question again from it, and the new run is compared against the earlier one, naming the sources the new run added and the sources it dropped. Months later, a reviewer, a collaborator, or your future self can see exactly what a methods section rests on.",
       },
       {
         h: "Why a record, not just an answer",
@@ -79,11 +80,20 @@ export const MARKETING_PAGES = {
           "Endpoint: https://askcerebrum.org/mcp",
           "search_literature: a cited answer from the literature for a research question you give it.",
           "get_trending: the current Trending in Science edition, headlines grouped by section with links.",
+          "When a search stores a record, the result carries the Search record with it: the permanent link to the record page, the question as asked, and the source and database counts.",
+        ],
+      },
+      {
+        h: "Cortex: learn the papers, not just read them",
+        p: "Cortex turns the literature into courses. Pick a topic from six shelves of science, or start from a subject you care about, and Cortex builds a path of short lessons from real papers on it. The practice comes from the papers themselves: quizzes whose options are real findings, fill in the blank cards, true or false checks, matching and ordering activities, and battles between claims. A daily practice session brings back what is due for review, and a forgiving streak, with two freezes and no lives to lose, keeps the habit going.",
+        list: [
+          "Progress lives in this browser only: your courses, streak, and practice history are stored on your device, not in an account, and there is no cloud copy.",
+          "Export saves your Cortex progress as one file you keep. Import that file in another browser and your progress comes with you.",
         ],
       },
       {
         h: "Built for researchers without a library",
-        p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree all read the same literature and get shut out of the same paywalls. Cerebrum is built for you as well: searching needs no account, a free account carries 50 AI answers every 5 days, and free answers carry the same coverage line and Search record as any other answer. If a tool you relied on moved features you used behind a paywall, the core work here stays free.",
+        p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree all read the same literature and get shut out of the same paywalls. Cerebrum is built for you as well: searching and AI answers need no account, a free account carries the same allowances under your name on any device and adds document reads, and free answers carry the same coverage line and Search record, permanent link included, as any other answer. If a tool you relied on moved features you used behind a paywall, the core work here stays free.",
       },
       {
         h: "What it refuses to do",
@@ -93,7 +103,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "Is Cerebrum free?",
-        a: "Yes. The free tier includes 50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. Searching the databases works without one. Cerebrum Pro ($20/month or $144/year) removes the limits.",
+        a: "Yes. Searching and AI answers are free with no account at all. A free account carries 50 AI answers, 3 document reads, and 1 flowchart every 5 days, and document reads need that account. Cerebrum Pro ($20/month or $144/year) removes the limits.",
       },
       {
         q: "Where do the answers come from?",
@@ -101,15 +111,15 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Do I need an account?",
-        a: "Searching works without an account. A free account unlocks your 50 AI answers, 3 document reads, and 1 flowchart every 5 days, and syncs what you save: articles, collections, history, and your Pro status.",
+        a: "Not to search, and not for AI answers: anonymous use is metered by network up to the same 50 AI answers every 5 days. A free account carries those allowances under your name on any device, adds 3 document reads and 1 saved flowchart every 5 days (document reads and saved flowcharts need an account), and syncs what you save: articles, collections, history, and your Pro status.",
       },
       {
         q: "What is the Search record?",
-        a: "A frozen account of one search that ships with the answer: the question as asked, the queries that ran, every database and how much it returned, the funnel, the model that wrote the answer, and the source list with each paper marked cited or further reading. Copy it or download it from under any answer, and keep it with your notes or your methods draft.",
+        a: "A frozen account of one search that ships with the answer: the question as asked, the queries that ran, every database and how much it returned, the funnel, the model that wrote the answer, and the source list with each paper marked cited or further reading. Every record gets a permanent page of its own on askcerebrum.org, so you can link to it from your notes or your methods draft and anyone can open it. Add ?format=json to that address and the same record comes back as JSON. Ask the question again from the record and the new run is compared with the earlier one, naming the sources added and dropped. You can also copy it or download it from under any answer.",
       },
       {
         q: "Can I use Cerebrum from inside ChatGPT or Claude?",
-        a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, or get_trending for the current Trending in Science edition.",
+        a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, or get_trending for the current Trending in Science edition. Search results carry their Search record with them, permanent link included.",
       },
       {
         q: "Can Cerebrum tell me when new papers appear on a topic?",
@@ -122,7 +132,7 @@ export const MARKETING_PAGES = {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Pricing",
     title: "Cerebrum Pro pricing: plans for every researcher",
-    lede: "Cerebrum is free for everyday research. Cerebrum Pro is $20 a month or $144 a year: unlimited answers and funding for independent, ad-free science search.",
+    lede: "Cerebrum is free for everyday research. Cerebrum Pro is $20 a month or $144 a year: unlimited answers and funding for independent science search with no ads.",
     updated: "Updated October 2026.",
     offers: [
       { name: "Cerebrum Pro, monthly", price: "20", priceCurrency: "USD", billingIncrement: "P1M" },
@@ -137,19 +147,21 @@ export const MARKETING_PAGES = {
         p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. No ads, no tracking pixels, no sale of personal information.",
         list: [
           "Cost: $0, with no payment required.",
-          "Every free answer carries the coverage line and the full Search record, the same as any other answer.",
+          "Searching works with no account at all, and AI answers too, metered by network up to the same free cap.",
+          "Every free answer carries the coverage line and the full Search record, permanent link and JSON form included, the same as any other answer.",
           "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
           "A free account can watch up to 40 topics, and the home screen counts the new papers indexed on each one.",
+          "Cortex is included: courses built from real papers, daily practice, and progress stored in your browser that exports as a file you keep.",
         ],
       },
       {
         h: "Cerebrum Pro",
         list: [
-          "$20 per month or $144 per year, auto-renewing until you cancel.",
+          "$20 per month or $144 per year, renewing automatically until you cancel.",
           "Unlimited AI answers, document reads, and flowcharts.",
           "The Pro badge, four exclusive Pro themes, deeper Pro search, and priority rendering.",
-          "Pro-only investigation templates, priority search queue, and API access with personal keys.",
-          "Cancel anytime from the billing portal. 7-day money-back guarantee on the first charge of a new subscription. Email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
+          "Investigation templates exclusive to Pro, priority search queue, and API access with personal keys.",
+          "Cancel anytime from the billing portal. A 7 day money back guarantee covers the first charge of a new subscription. Email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
         ],
       },
       {
@@ -182,7 +194,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "How much is Cerebrum Pro?",
-        a: "$20 per month or $144 per year, auto-renewing until you cancel. Prices are shown in USD at checkout.",
+        a: "$20 per month or $144 per year, renewing automatically until you cancel. Prices are shown in USD at checkout.",
       },
       {
         q: "What is Pro Lite?",
@@ -194,11 +206,11 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Can I cancel?",
-        a: "Yes, anytime from the billing portal. There are no partial-period refunds outside the money-back window, but you keep Pro until the end of the paid period.",
+        a: "Yes, anytime from the billing portal. There are no refunds for part of a period outside the money back window, but you keep Pro until the end of the paid period.",
       },
       {
         q: "Is there a refund policy?",
-        a: "Yes: a 7-day money-back guarantee on the first charge of a new subscription (monthly or annual). Email dusty@askcerebrum.org within 7 days for a full refund.",
+        a: "Yes: a 7 day money back guarantee on the first charge of a new subscription (monthly or annual). Email dusty@askcerebrum.org within 7 days for a full refund.",
       },
       {
         q: "What happens to my saved work if I cancel Pro?",
@@ -206,7 +218,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Are the Search record and MCP access Pro only?",
-        a: "No. The coverage line and the Search record ship on answers generally, free answers included, and the MCP endpoint is open. Pro removes the limits on answers, reads, and flowcharts; it does not gate the record.",
+        a: "No. The coverage line and the Search record ship on answers generally, free answers included, and every record keeps its own permanent page. The MCP endpoint is open, and search results there carry the record with them. Pro removes the limits on answers, reads, and flowcharts; it does not gate the record.",
       },
     ],
   },
@@ -232,7 +244,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Honest about limits",
-        p: "If a section fails to digest, the summary says so with a placeholder rather than inventing content for it. Free accounts get 3 document reads every 5 days; Pro is unlimited.",
+        p: "If a section fails to digest, the summary says so with a placeholder rather than inventing content for it. Document Mode needs an account: a free account gets 3 document reads every 5 days, and Pro is unlimited.",
       },
     ],
     faq: [
@@ -242,7 +254,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Does Document Mode work without an account?",
-        a: "Yes. Free accounts get 3 document reads every 5 days; Cerebrum Pro ($20/month or $144/year) removes the limit.",
+        a: "No. Reading a document spends Cerebrum's AI budget, so document reads belong to accounts. A free account gets 3 document reads every 5 days, and Cerebrum Pro ($20/month or $144/year) removes the limit.",
       },
     ],
   },
@@ -263,7 +275,7 @@ export const MARKETING_PAGES = {
         list: [
           "Verbatim .mmd import: bring diagrams you already have.",
           "Templates for common scientific diagram shapes.",
-          "Pan, zoom, and fit-to-view, with diagrams saved to a local library.",
+          "Pan, zoom, and fit to view, with diagrams saved to a local library.",
           "Export to SVG, PNG, or .mmd for papers, slides, and posters.",
         ],
       },
@@ -271,7 +283,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "Which diagram types are supported?",
-        a: "Everything Mermaid v12 supports: flowcharts, sequence diagrams, class diagrams, state diagrams, entity-relationship diagrams, Gantt charts, and more, plus verbatim import of your own .mmd files.",
+        a: "Everything Mermaid v12 supports: flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams, Gantt charts, and more, plus verbatim import of your own .mmd files.",
       },
       {
         q: "Can I export my diagrams?",
@@ -297,7 +309,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Private by default",
-        p: "Your investigations live in your account, and with the Private Vault's end-to-end encryption even the server can't read them. Delete anytime; nothing is kept after you do.",
+        p: "Your investigations live in your account, and with the Private Vault's end to end encryption, even the server cannot read them. Delete anytime; nothing is kept after you do.",
       },
     ],
     faq: [
@@ -330,7 +342,7 @@ export const DEMO_QUESTIONS = [
     q: "Does creatine cause hair loss?",
     paragraphs: [
       {
-        text: "No study has directly shown that creatine causes hair loss. The concern comes from one small 2009 trial of 20 college rugby players, which found a rise in DHT, the hormone most tied to male pattern baldness, during three weeks of creatine use. But the trial never measured hair loss, and nothing since has replicated even the DHT finding in a way that points to baldness.",
+        text: "No study has directly shown that creatine causes hair loss. The concern comes from one small 2009 trial of 20 college rugby players, which found a rise in dihydrotestosterone (DHT), the hormone most tied to male pattern baldness, during three weeks of creatine use. But the trial never measured hair loss, and nothing since has replicated even the DHT finding in a way that points to baldness.",
         cites: [2],
       },
       {
