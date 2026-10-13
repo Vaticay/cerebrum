@@ -1,25 +1,33 @@
 /**
  * Specimen-door regression tests.
  *
- * The cinematic intro is a specimen door, not a headline: the first
- * viewport shows ONE verified claim as a museum specimen — the claim in
- * large type, its paper attached, a "traced to a direct finding" verdict —
- * rotating through real published findings. The product demonstrates
- * itself instead of describing itself.
+ * The intro is a specimen door, not a headline: the first viewport
+ * shows ONE verified claim as a museum specimen — the claim in large
+ * type, its paper attached, a "traced to a direct finding" verdict.
+ * The product demonstrates itself instead of describing itself.
  *
- * These tests lock the invariants of the rethink (2026-10-05):
+ * These tests lock the invariants of the rethink (2026-10-05), as
+ * carried into the plate redesign (2026-10-13), which superseded the
+ * timed rotation, the set-of-three placards, the film on the door,
+ * and the "Start researching" CTA:
  *
  *   1. SPECIMENS holds real published findings, each with a claim, a
  *      paper citation, and a DOI link. The old headline and slogan are
  *      gone.
- *   2. Rotation advances on a timer, pauses while the visitor holds the
- *      specimen (hover/focus), while a dialog is open, or under reduced
- *      motion. Dots select specimens directly.
+ *   2. The specimen is stepped by hand, one claim at a time, with a
+ *      real counter. A plate does not turn its own pages: no timer.
  *   3. The film controls must report the video element's ACTUAL playback
  *      state (media events), never inferred intent — the lying
- *      "paused — tap to play" label came from intent flags.
- *   4. The quiet sci-fi language: focus-pull entrance, small tracked
- *      type, a whisper outline CTA with no light sweep.
+ *      "paused — tap to play" label came from intent flags. The reel
+ *      still serves the workspace; the door itself is the DotField.
+ *   4. The plate language: registration corner marks and a mono
+ *      running head from the shared PlateFrame, a serif wordmark with
+ *      a two clause definition, and one full width Enter key.
+ *   5. The specimen previews the trust data: indexes searched, papers
+ *      cited, and the paper's real title, a miniature Search record.
+ *   6. The consent gate renders once, in the app shell, never over
+ *      the intro; the Plate II stage and the Continue heading rules
+ *      are pinned at the end of this file.
  *
  * Run with: node tests/intro-title-card.mjs
  */
@@ -89,36 +97,34 @@ await test("verdict line marks each claim as traced", () => {
   assert.ok(src.includes("Traced to a direct finding"), "verdict line missing");
 });
 
-await test("single CTA reads \"Start researching\"", () => {
-  assert.ok(src.includes("Start researching"), "CTA text missing");
+await test("single CTA reads \"Enter\"", () => {
+  assert.ok(/>Enter<\/button>/.test(src), "Enter CTA missing");
+  assert.ok(!src.includes("Start researching"), "old CTA copy still present");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Rotation — timed, pausable, directly selectable");
+group("Stepping — by hand, one claim at a time (plate redesign)");
 
-await test("rotation advances on a 9s interval", () => {
-  // The interval is written in updater form, advancing a full set of
-  // three: setSpecimenIdx((i) => (i + setSize) % specimenCount).
-  assert.ok(/setInterval\(\s*\(\) => setSpecimenIdx\(\(i\) => \(i \+ setSize\) % specimenCount\)/.test(src), "no rotation interval in set updater form");
-  assert.ok(src.includes("9000"), "rotation interval not 9s on desktop");
-  assert.ok(src.includes("12000"), "rotation interval not 12s on mobile");
+const introFn = src.slice(src.indexOf("function Intro({"), src.indexOf("function CerebrumFieldCanvas"));
+
+await test("no timed rotation: a plate does not turn its own pages", () => {
+  assert.ok(!introFn.includes("setInterval"), "a timer still advances the specimen");
+  assert.ok(!introFn.includes("specimenSet"), "the set of three placards is still built");
+  assert.ok(!introFn.includes("specimenHeld"), "hold to pause machinery survives");
 });
 
-await test("rotation pauses while held, in dialogs, or under reduced motion", () => {
-  assert.ok(src.includes("specimenHeld"), "hold state missing");
-  assert.ok(src.includes("setSpecimenHeld(true)"), "hover/focus hold not wired");
-  // The effect bails when held, when any dialog is open, or under reduced motion.
-  const eff = src.slice(src.indexOf("const [specimenIdx, setSpecimenIdx]"), src.indexOf("const specimen = SPECIMENS"));
-  assert.ok(eff.includes("specimenHeld || howOpen || sourcesOpen"), "pause conditions incomplete");
-  assert.ok(eff.includes("reduced"), "reduced-motion bail missing");
+await test("one specimen renders at a time", () => {
+  assert.ok(introFn.includes("const specimen = SPECIMENS["), "single specimen not selected");
+  assert.ok(introFn.includes("Fig. {specimenIdx + 1}"), "figure number missing");
 });
 
-await test("stepper moves between specimens", () => {
-  // The stepper moves by a full set of three claims.
-  assert.ok(src.includes('aria-label="Previous three claims"'), "prev button missing");
-  assert.ok(src.includes('aria-label="Next three claims"'), "next button missing");
-  assert.ok(src.includes("(i - setSize + specimenCount) % specimenCount"), "prev set wrap not wired");
-  assert.ok(src.includes("(i + setSize) % specimenCount"), "next set wrap not wired");
+await test("stepper moves one claim at a time, wrapping, with a counter", () => {
+  assert.ok(src.includes('aria-label="Previous claim"'), "prev button missing");
+  assert.ok(src.includes('aria-label="Next claim"'), "next button missing");
+  assert.ok(introFn.includes("stepSpecimen(-1)"), "prev step not wired");
+  assert.ok(introFn.includes("stepSpecimen(1)"), "next step not wired");
+  assert.ok(introFn.includes("(i + d + specimenCount) % specimenCount"), "wrap step not wired");
+  assert.ok(introFn.includes("Claim {specimenIdx + 1} of {specimenCount}"), "counter missing");
   assert.ok(!src.includes('role="tablist"'), "tab wall should be gone");
 });
 
@@ -160,9 +166,12 @@ await test("CinematicFilm keeps its media-event truth for the workspace", () => 
   assert.ok(cssSrc.includes("reportPlaying"), "no element-state reporter in the reel");
 });
 
-await test("intro mounts the 4K CinematicFilm reel — Dusty wants the cinema back", () => {
-  assert.ok(src.includes("<CinematicFilm"), "intro does not mount the film reel");
-  assert.ok(src.includes('reel="intro"'), "intro film does not use the dramatic intro reel");
+await test("the door mounts the DotField, not the film reel", () => {
+  // The reel component itself is unchanged and still serves the
+  // workspace (see the media-event test above). The plate redesign
+  // took it off the door: the ambient there is the dot field now.
+  assert.ok(introFn.includes("<DotField"), "intro does not mount the dot field");
+  assert.ok(!introFn.includes("<CinematicFilm"), "intro still mounts the film reel");
   assert.ok(!src.includes("filmPlaying"), "intro still tracks film playback state");
   assert.ok(!src.includes("toggleFilm"), "intro still has a background toggle");
 });
@@ -171,14 +180,15 @@ await test("no inferred autoplay-blocked flag survives", () => {
   assert.ok(!src.includes("autoplayBlocked"), "inferred autoplay flag still present");
 });
 
-await test("intro background is footage, not the static calibration bed", () => {
-  // Superseded by the cinema's return (see the CinematicFilm test
-  // above): the door no longer renders the static instrument bed.
+await test("intro background is the dot field over a static vignette", () => {
+  assert.ok(introFn.includes("radial-gradient(120% 90% at 50% 42%"), "static vignette missing");
   assert.ok(!src.includes("cb-instr-bed"), "static calibration bed still used on the intro");
 });
 
-await test("viewport corner ticks are gone from the intro", () => {
-  assert.ok(!src.includes("cb-instr-viewport"), "viewport tick frame still on the intro");
+await test("registration corner marks come from the shared PlateFrame", () => {
+  assert.ok(src.includes("export function PlateFrame"), "PlateFrame not defined in intro.jsx");
+  assert.ok(introFn.includes("<PlateFrame"), "intro does not render inside the plate frame");
+  assert.ok(!src.includes("cb-instr-viewport"), "old viewport tick frame still referenced");
   assert.ok(!src.includes("TickFrame"), "TickFrame still used on the intro");
 });
 
@@ -201,32 +211,140 @@ await test("old fade-and-rise entrance is fully gone", () => {
   assert.ok(!src.includes("cbTitleIn"), "cbTitleIn keyframes still referenced");
 });
 
-await test("wordmark is small with quiet tracking", () => {
-  // The wide tracked-caps scale (0.32em/0.42em) is gone with the caps
-  // purge; the wordmark keeps a quiet 0.1em.
-  assert.ok(src.includes('letterSpacing: "0.1em"'), "wordmark tracking not at the quiet scale");
+await test("wordmark is a serif display with a two clause definition", () => {
+  assert.ok(introFn.includes('fontFamily: "var(--cb-serif)"'), "serif voice missing from the intro");
+  assert.ok(src.includes("A search instrument for the scientific literature, asked in plain language."), "definition clause (a) missing");
+  assert.ok(src.includes("Every answer is traced to the papers behind it, so any claim can be opened and checked."), "definition clause (b) missing");
   assert.ok(!src.includes('letterSpacing: "0.42em"') && !src.includes('letterSpacing: "0.32em"'),
     "tiny tracked caps scale still present");
 });
 
-await test("CTA is a whisper outline, not a chunky pill", () => {
+await test("running head carries the plate number", () => {
+  assert.ok(introFn.includes("Scientific literature, traced"), "running head centre missing");
+  assert.ok(introFn.includes("Plate I · Entrance"), "plate label missing");
+});
+
+await test("the one way in is a single full width Enter key", () => {
   assert.ok(!src.includes("cb-intro-go::after"), "CTA light sweep still present");
   assert.ok(
     !src.includes("0 14px 34px rgba(163,184,153,0.30)"),
     "old chunky sage CTA shadow still present"
   );
   // The CTA is set in normal case (textTransform "none"), not tracked caps.
-  // (Slice a fixed window: "Start researching" also appears in an
-  // earlier comment, so it cannot anchor the end of the slice.)
   const ctaAt = src.indexOf('className="cb-intro-go"');
   assert.ok(ctaAt > 0, "CTA button missing");
   const cta = src.slice(ctaAt, ctaAt + 700);
   assert.ok(cta.includes('textTransform: "none"'), "CTA not set in normal case");
+  assert.ok(cta.includes('width: "100%"'), "CTA not full width of the column");
   assert.ok(!cta.includes('textTransform: "uppercase"'), "CTA still set as tracked caps");
 });
 
 await test("reduced motion kills the focus-pull", () => {
   assert.ok(cssSrc.includes(".cb-focus-in { animation: none; }"), "reduced-motion override missing");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("The specimen previews the Search record (plate redesign)");
+
+await test("the record strip names indexes, papers cited, and the paper", () => {
+  assert.ok(introFn.includes("Indexes searched"), "indexes cell missing");
+  assert.ok(introFn.includes("Papers cited"), "papers cited cell missing");
+  assert.ok(introFn.includes("String(SCHOLARLY_SOURCES.length)"), "index count is not the real source count");
+  assert.ok(introFn.includes("specimenTitle"), "paper title not rendered");
+});
+
+await test("the paper title is lifted from the real citation, never written", () => {
+  assert.ok(src.includes("match(/“([^”]+)”/)"), "title extraction from the citation string missing");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("The door handle and the collapsed ceremony");
+
+await test("the Return key enters from anywhere that is not a control", () => {
+  assert.ok(introFn.includes('e.key !== "Enter"'), "Enter key handler missing");
+  assert.ok(introFn.includes("howOpen || sourcesOpen"), "dialogs do not keep their own keys");
+});
+
+await test("repeat visits in a session collapse the ceremony", () => {
+  assert.ok(introFn.includes('sessionStorage.getItem("cerebrum-entered")'), "entered flag never read");
+  assert.ok(introFn.includes('sessionStorage.setItem("cerebrum-entered", "1")'), "entered flag never set");
+  assert.ok(introFn.includes("autoFocus={enteredBefore || undefined}"), "returning plate does not focus the way in");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("DotField discipline");
+
+await test("the field is capped, pausable, and faint", () => {
+  assert.ok(src.includes("Math.min(window.devicePixelRatio || 1, 1.5)"), "DPR not capped at 1.5");
+  assert.ok(src.includes("visibilitychange") && src.includes("document.hidden"), "field does not pause when hidden");
+  assert.ok(src.includes("count = 76"), "dot count changed from the plate spec");
+  assert.ok(src.includes("0.05 + rnd() * 0.03"), "dot opacity left the 5 to 8 percent band");
+  assert.ok(src.includes("40000 + rnd() * 20000"), "drift cycle left the 40 to 60 second band");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Plate II, the consent trigger, and the Continue heading");
+
+await test("the consent gate renders exactly once, in the app shell", () => {
+  const n = (appSrc.match(/<ConsentGate/g) || []).length;
+  assert.equal(n, 1, `ConsentGate renders ${n} times`);
+  const introBranch = appSrc.slice(appSrc.indexOf("if (!entered) {"), appSrc.indexOf("const started = turns.length"));
+  assert.ok(!introBranch.includes("ConsentGate"), "the gate still overlays the intro");
+  assert.ok(appSrc.includes("{!legalOk && ("), "the shell gate is no longer unconditional");
+});
+
+await test("the stage drops the desktop sidebar and centres one column", () => {
+  assert.ok(appSrc.includes('const homeStage = view === "search" && !started'), "homeStage not derived from the empty state");
+  assert.ok(appSrc.includes("(!homeStage || isMobile)"), "sidebar not conditional on the stage");
+  assert.ok(appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "sidebar offset survives on the stage");
+});
+
+await test("the stage carries the plate order and no corpus number", () => {
+  const stage = appSrc.slice(
+    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("<div style={{ ...S.workspace,")
+  );
+  assert.ok(stage.length > 1000, "stage block not found");
+  assert.ok(stage.includes("maxWidth: 720"), "stage column is not 720px");
+  assert.ok(stage.includes("Plate II · Inquiry"), "plate label missing from the stage");
+  assert.ok(stage.includes('variant="stage"'), "composer not in its stage variant");
+  assert.ok(stage.includes("coverage disclosure"), "method line does not name the coverage disclosure");
+  assert.ok(stage.includes("Search record"), "method line does not name the Search record");
+  assert.ok(stage.includes("Continue investigation"), "continue row missing");
+  assert.ok(stage.includes("Specimen inquiries"), "inquiries list missing");
+  assert.ok(stage.includes("Traced claim"), "footer claim strip missing");
+  assert.ok(!stage.includes("scholarly indexes"), "a corpus number sits on the stage");
+  assert.ok(!stage.includes("SCHOLARLY_SOURCES.length"), "a corpus count sits on the stage");
+});
+
+await test("the stage composer rotates real specimen questions", () => {
+  assert.ok(appSrc.includes("STAGE_PLACEHOLDER_QUESTIONS"), "placeholder pool missing");
+  assert.ok(appSrc.includes("specimenPlaceholders"), "composer never receives the pool");
+  assert.ok(appSrc.includes("cb-ask--stage"), "stage composer CSS missing");
+  assert.ok(appSrc.includes("cb-ask-go--round"), "round submit key missing");
+});
+
+await test("the Continue heading can never break a sentence", () => {
+  const m = appSrc.match(/function shortSubject\(q\) \{([\s\S]*?)\n\}/);
+  assert.ok(m, "shortSubject not found");
+  const fn = new Function("q", m[1]);
+  const cases = [
+    "What are the advantages are Bayesian statistics vs. p-value statistics?",
+    "What is CRISPR-Cas9 and how does it cut DNA?",
+    "How does the gut microbiome affect digestion in black soldier fly larvae?",
+    "Do GLP-1 drugs like Ozempic protect the heart too?",
+    "soil drying patterns",
+  ];
+  for (const q of cases) {
+    assert.equal(fn(q), q, "heading altered the question: " + q);
+  }
+  assert.ok(!appSrc.includes("your investigation into"), "the glue prefix survives");
+  assert.ok(appSrc.includes("&ldquo;{shortSubject(lastQ)}&rdquo;"), "the deck heading does not quote the question");
+});
+
+await test("deck and stage share the one Continue data walk", () => {
+  const n = (appSrc.match(/lastInvestigationQuestion\(history\)/g) || []).length;
+  assert.ok(n >= 2, `lastInvestigationQuestion used ${n} times, expected the deck and the stage`);
 });
 
 // ══════════════════════════════════════════════════════════════════════════

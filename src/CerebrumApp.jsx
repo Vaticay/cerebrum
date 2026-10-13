@@ -108,6 +108,7 @@ import {
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
   filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog,
   SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
+  PlateFrame, plateHead,
 } from "./intro.jsx";
 
 /* Unified scroll lock (replaces the three competing implementations). */
@@ -287,6 +288,9 @@ const FIRST_RUN_QUESTIONS = [
   "Why does soil crack into patterns as it dries?",
   "What would it take to build a working fusion reactor?",
 ].map((q) => ({ cat: FIRST_RUN_CATS[q], q }));
+/* Plate II: the stage composer's rotating placeholder pool. Real
+   specimen questions, the same ones the inquiries list offers. */
+const STAGE_PLACEHOLDER_QUESTIONS = FIRST_RUN_QUESTIONS.map((e) => e.q);
 const ASK_MODE_EXAMPLES = {};
 for (const e of QUESTION_LIBRARY) {
   if (!e.chip) continue;
@@ -1302,25 +1306,46 @@ function useCallTone(kind, active) {
    because that is the behavior worth reinforcing, it never scolds, and
    breaking it costs nothing but the number. That's the line between a habit
    that serves the person and a slot machine. */
-/* Turn a question into the few words it is actually about.
-   Deliberately mechanical — strip the interrogative opening, drop trailing
-   punctuation, cap the length — rather than asking a model to name the
-   topic. A summariser here would occasionally rename someone's own
-   question back at them, and being wrong about what you were working on is
-   a worse failure than being a little clumsy about it. If nothing useful
-   is left, the caller falls back to the greeting. */
+/* The heading over a continued investigation (2026-10-13 fix).
+
+   This used to strip the interrogative opening off the question and
+   glue the remainder behind a fixed lead in, which produced broken
+   sentences out of real questions: "What are the advantages are
+   Bayesian statistics..." came back as a Continue heading with the
+   words "the advantages are Bayesian statistics" still inside it,
+   ungrammatical under any lead. A heading built by
+   cutting words out of a sentence can always break the sentence, so
+   the heading no longer cuts anything: it returns the question itself,
+   untouched apart from whitespace and a length cap at a word
+   boundary, and the caller quotes it as the person's own words. */
 function shortSubject(q) {
-  let t = String(q || "").trim()
-    .replace(/^(explain the science behind:?|explain|what is|what are|what do we know about|how does|how do|does|is|are|why does|why do|tell me about)\s+/i, "")
-    .replace(/[?.!,;:]+\s*$/, "")
-    .replace(/\s+/g, " ");
+  const t = String(q || "").trim().replace(/\s+/g, " ");
   if (!t) return "";
-  if (t.length > 64) {
-    const cut = t.slice(0, 64);
+  if (t.length > 110) {
+    const cut = t.slice(0, 110);
     const sp = cut.lastIndexOf(" ");
-    t = (sp > 30 ? cut.slice(0, sp) : cut) + "\u2026";
+    return (sp > 40 ? cut.slice(0, sp) : cut) + "\u2026";
   }
-  return "your investigation into " + t.charAt(0).toLowerCase() + t.slice(1);
+  return t;
+}
+
+/* The most recent substantial question in the newest investigation:
+   the Continue row's data, shared by HomeDeck and the Plate II stage
+   so both surfaces resume the same investigation. A stray keystroke,
+   a half typed name, an "ok": fragments do not count, and if the whole
+   session is fragments this returns "" and callers show nothing. */
+function lastInvestigationQuestion(history) {
+  const lastRun = history && history.length ? history[0] : null;
+  if (!lastRun) return "";
+  const substantial = (q) => {
+    const t = String(q || "").trim();
+    return t.length >= 14 && /\s/.test(t);
+  };
+  const turns = Array.isArray(lastRun.turns) ? lastRun.turns : [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (substantial(turns[i] && turns[i].q)) return turns[i].q;
+  }
+  return substantial(lastRun.title) ? lastRun.title : "";
 }
 
 /* Commit 87 — greeting + date line for the returning-user hero.
@@ -1662,27 +1687,10 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
   // built on is specific: it's returning to something you already engaged
   // with that predicts staying active, not being shown something new. So the
   // most recent unfinished investigation gets the most prominent card.
-  const lastRun = history && history.length ? history[0] : null;
-  // Commit 71 — pick the last turn that is actually a question.
-  //
-  // This card is the largest thing on the screen and it was rendering
-  // whatever the final turn happened to be, which in a real session meant
-  // a headline that read, in full, "Saho". A stray keystroke, a
-  // half-typed name, an "ok" — any of them became the lead. Walk backwards
-  // to the most recent turn with real substance, and if the whole session
-  // is fragments, show nothing rather than something that looks broken.
-  const substantial = (q) => {
-    const t = String(q || "").trim();
-    return t.length >= 14 && /\s/.test(t);
-  };
-  const lastQ = (() => {
-    if (!lastRun) return "";
-    const turns = Array.isArray(lastRun.turns) ? lastRun.turns : [];
-    for (let i = turns.length - 1; i >= 0; i--) {
-      if (substantial(turns[i] && turns[i].q)) return turns[i].q;
-    }
-    return substantial(lastRun.title) ? lastRun.title : "";
-  })();
+  // Commit 71 — pick the last turn that is actually a question, not a
+  // fragment. The walk itself lives in lastInvestigationQuestion now,
+  // shared with the Plate II stage's Continue row.
+  const lastQ = lastInvestigationQuestion(history);
 
   // Papers saved but not looked at since the day they were saved. This is
   // the honest version of a "you have unread items" nudge: it's counted from
@@ -1745,7 +1753,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
           }}>
             {lastQ
-              ? <>Continue <span style={{ color: accent }}>{shortSubject(lastQ)}</span></>
+              ? <>Continue <span style={{ color: accent }}>&ldquo;{shortSubject(lastQ)}&rdquo;</span></>
               : <>{greeting()}{greetingName ? <>, <span style={{ color: accent }}>{greetingName}</span></> : null}</>}
           </h2>
           <p style={{
@@ -2217,10 +2225,28 @@ function SignalComposer({
   evidenceFilter = "all",
   setEvidenceFilter,
   sfx,
+  /* Plate II (2026-10-13): the stage variant stands taller, takes a
+     rotating specimen question as its placeholder, and submits from a
+     single round key. Default keeps the thread and bench behaviour. */
+  variant = "default",
+  specimenPlaceholders = null,
 }) {
   const reduced = useReducedMotion();
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
-  const placeholder = isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder;
+  const stageQs = variant === "stage" && Array.isArray(specimenPlaceholders) && specimenPlaceholders.length
+    ? specimenPlaceholders : null;
+  const stageQsKey = stageQs ? stageQs.join("\n") : "";
+  const [phIdx, setPhIdx] = useState(0);
+  const inputEmpty = !String(input || "").trim();
+  useEffect(() => {
+    if (!stageQsKey || reduced || focused || !inputEmpty) return undefined;
+    const list = stageQsKey.split("\n");
+    const t = setInterval(() => setPhIdx((i) => (i + 1) % list.length), 6000);
+    return () => clearInterval(t);
+  }, [stageQsKey, reduced, focused, inputEmpty]);
+  const placeholder = stageQs && askMode === "explain"
+    ? stageQs[phIdx % stageQs.length]
+    : (isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder);
   /* ── Command deck: recent-questions dropdown ──
      Opens on focus when the input is empty and history exists; closes on
      ask, on Esc, and on blur after a grace period so a tap on an item
@@ -2395,7 +2421,7 @@ function SignalComposer({
   return (
     <div
       role="search"
-      className={"cb-ask" + (showRecents ? " cb-ask--recents-open" : "")}
+      className={"cb-ask" + (variant === "stage" ? " cb-ask--stage" : "") + (showRecents ? " cb-ask--recents-open" : "")}
       style={{
         "--cb-acc": accent,
         "--cb-ink": P.ink,
@@ -2417,7 +2443,7 @@ function SignalComposer({
             aria-controls="cb-ask-recents"
             aria-activedescendant={showRecents && recentActive >= 0 ? `cb-ask-recent-opt-${recentActive}` : undefined}
             value={input}
-            rows={1}
+            rows={variant === "stage" ? 3 : 1}
             onChange={(e) => handleComposerChange(e.target.value)}
             onFocus={() => { setFocused(true); setRecentActive(-1); if (recents.length > 0) setRecentOpen(true); }}
             onBlur={() => {
@@ -2460,10 +2486,10 @@ function SignalComposer({
             onClick={doAsk}
             disabled={busy}
             aria-label={busy ? "Searching" : "Ask"}
-            className="cb-ask-go"
+            className={"cb-ask-go" + (variant === "stage" ? " cb-ask-go--round" : "")}
           >{busy
             ? <span className={"cb-ask-spin" + (reduced ? " cb-ask-spin--still" : "")} aria-hidden="true" />
-            : "Ask"}</button>
+            : variant === "stage" ? <span aria-hidden="true" style={{ fontSize: 17, lineHeight: 1 }}>&#8593;</span> : "Ask"}</button>
         </div>
         {showRecents && (
           <div className="cb-ask-recent" role="listbox" aria-label="Recent questions" id="cb-ask-recents">
@@ -18954,21 +18980,32 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
       zIndex={Z.max} width={640}
       scrimStyle={{ background: "rgba(0,0,0,0.72)" }}
       panelStyle={{
-        background: P.bg, color: P.ink,
-        border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, outline: "none",
+        background: P.bg, color: P.ink, position: "relative",
+        border: `1px solid ${P.line2}`, borderRadius: 2, outline: "none",
         boxShadow: "0 30px 90px rgba(0,0,0,0.55)",
         padding: isMobile ? "26px 20px 22px" : "32px 34px 26px",
         fontFamily: "var(--cb-font)", maxHeight: "94dvh", overflowY: "auto",
       }}
     >
+        {/* Plate registration marks (2026-10-13): the gate speaks the
+            same visual language as the door it now follows. Purely
+            presentational; every consent behaviour below is unchanged. */}
+        {[{ top: 7, left: 10 }, { top: 7, right: 10 }, { bottom: 7, left: 10 }, { bottom: 7, right: 10 }].map((pos, i) => (
+          <span key={i} aria-hidden="true" style={{
+            position: "absolute", ...pos, fontFamily: "var(--cb-mono)",
+            fontSize: 12, lineHeight: 1, color: P.faint, pointerEvents: "none",
+          }}>+</span>
+        ))}
         <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18 }}>
           <span className="cb-consent-mark"><Mark size={26} accent={accent} glow={P.dark} /></span>
-          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Cerebrum</span>
+          <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 600, fontFamily: "var(--cb-serif)", letterSpacing: TYPE.heading.letterSpacing }}>Cerebrum</span>
+          <span style={{ flex: 1 }} />
+          <span style={plateHead(P.faint)}>The agreement</span>
         </div>
 
         {declined ? (
           <>
-            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 12px", fontFamily: "var(--cb-font)" }}>
+            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 12px", fontFamily: "var(--cb-serif)" }}>
               That's completely fine
             </h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 20px" }}>
@@ -18982,7 +19019,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
           </>
         ) : (
           <>
-            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 8px", fontFamily: "var(--cb-font)", lineHeight: 1.2 }}>
+            <h2 id="cb-consent-title" style={{ fontSize: FONT_SIZES.heading, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 8px", fontFamily: "var(--cb-serif)", lineHeight: 1.2 }}>
               {hasAcceptedBefore ? "We've updated our terms" : "Before you start"}
             </h2>
             <p style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, margin: "0 0 4px" }}>
@@ -19034,7 +19071,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
               }}>Decline</button>
             </div>
 
-            <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)", marginTop: 14, textAlign: "center" }}>
+            <div style={{ fontSize: FONT_SIZES.micro, color: P.ink2, fontFamily: "var(--cb-mono)", marginTop: 14, textAlign: "center" }}>
               Version {LEGAL_VERSION} · You must be 13 or older (16 in the EEA and UK)
             </div>
           </>
@@ -21941,11 +21978,16 @@ function App() {
   }, [startedNow]);
 
   if (!entered) {
-    // Commit 69 — the gate rides above the Intro too. The Intro is a
-    // landing screen rather than "use of the Service", but there is no
-    // reason to let someone press START EXPLORING and land in the app a
-    // frame before being asked; showing it here means the first
-    // interactive thing anyone sees is the agreement.
+    // Plate redesign (2026-10-13) — the consent gate no longer overlays
+    // the Intro. The trigger moved from page load to the way in, and
+    // the semantics are unchanged, by construction: the app shell below
+    // renders the same gate whenever legalOk is false, unconditionally
+    // blocking, before any query runs, any data loads into view, or
+    // anything is written to an account (see the Commit 69 render at
+    // the end of the shell). The Intro's own submit path was already
+    // guarded on legalOk, so a seeded question still waits in the
+    // composer until the gate is answered. Nobody who had to consent
+    // before can reach any part of the app without consenting now.
     return (
       <>
         <Intro accent={accent} P={P} animationMode={animationMode} user={user}
@@ -21970,18 +22012,25 @@ function App() {
                they are through. */
             if (submit && seed && legalOk) setTimeout(() => { ask(seed); }, 0);
           }} />
-        {!legalOk && (
-          <ConsentGate
-            P={P} accent={accent} at={at} user={user}
-            hasAcceptedBefore={!!(readLegalAccepted() || {}).version}
-            onAccepted={() => setLegalOk(true)}
-          />
-        )}
       </>
     );
   }
 
   const started = turns.length > 0 || busy;
+  /* Plate II (2026-10-13): while the search home is empty it is a
+     stage, not a workspace: no sidebar on desktop, no sidebar offset,
+     one centered column. The moment a thread exists, or the visitor
+     navigates anywhere, the standard shell returns unchanged. On
+     mobile the sidebar is a drawer rather than a layout column, so it
+     stays mounted for the header's menu button. */
+  const homeStage = view === "search" && !started;
+  const stageLastQ = lastInvestigationQuestion(history);
+  const stageInquiries = deckHasContent
+    ? (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3)
+    : FIRST_RUN_QUESTIONS.slice(0, 3);
+  /* The footer strip's traced claim turns over daily: deterministic
+     within a day, so it never flickers between renders. */
+  const stageSpecimen = SPECIMENS[Math.floor(Date.now() / 86400000) % SPECIMENS.length];
   const relColor = (r) => r >= 65 ? STATUS.good : r >= 45 ? STATUS.warn : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
   // Used to color-code Preprint/Reference/Dataset badges differently from
@@ -22245,6 +22294,7 @@ function App() {
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
       {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "calc(24px + env(safe-area-inset-bottom, 0px))") /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? "max(16px, env(safe-area-inset-right, 0px))" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
+      {(!homeStage || isMobile) && (
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -22258,7 +22308,8 @@ function App() {
         onOpenInvestigation={openHistoryItem}
         onOpenPalette={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}
       />
-      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
+      )}
+      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile || homeStage ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
           used to hold (search command bar, Inbox, Profile/Sign-in, the
           brand/back-to-landing mark) already lives in the Sidebar too (see
@@ -22404,224 +22455,200 @@ function App() {
         <SelectionAsk onAsk={(q) => ask(q)} P={P} accent={accent} containerRef={threadRef} />
         <div style={view === "search" ? { ...S.container, maxWidth: 1760 } : S.container}>
           {!started ? (
-            /* The home hero is the first thing anyone sees after the Intro
-               hands off, so it's the one surface where the two motion
-               languages colliding was most obvious: the Intro exits on a
-               1.3-1.7s power3.inOut rise, and this used to arrive on a
-               280ms CSS blur-fade. Same GSAP gesture, slightly quicker than
-               the Intro itself (this is a return-to-home, not a curtain
-               raise), so the handoff reads as one continuous motion. The
-               glow layer is excluded from the stagger — it's a decorative
-               backdrop, not a sequenced element, and having it rise with
-               the content made the whole hero look like it was sliding. */
-            /* Commit 66 — the returning-user hero.
-
-               A signed-in person with history, saved papers or watched
-               topics was getting the same full-height landing hero as a
-               first-time visitor: an 84px wordmark, a 52px-margin tagline
-               explaining what the product is, and a screen's worth of
-               whitespace before anything about THEIR work appeared. The
-               deck was real but below the fold, which made it useless.
-
-               When there's a deck to show, the hero compacts — smaller
-               wordmark, no "here's what this product does" tagline (they
-               know), tighter padding — so the search bar and the first row
-               of deck cards land on the first screen together. A visitor
-               with nothing on the deck still gets the full curtain-raise. */
-            <Reveal style={{ ...S.hero, ...S.heroBench, justifyContent: "center" }} deps={[started, deckHasContent]} y={18} stagger={0.07} duration={1.05} descend={false}>
-              <div style={S.heroGlow} data-cb-no-reveal="" />
-              {/* ══════════════════════════════════════════════════════
-                  Commit 87 — the returning-user hero was still a brand
-                  panel.
-
-                  Commit 66 shrank it, but shrinking was the wrong move: it
-                  was still a logo, the word "Cerebrum" at 50px, and a line
-                  of copy, sitting directly beneath a sidebar whose first
-                  element is a logo and the word "Cerebrum". Two logos and
-                  two wordmarks on one screen, ~200px of vertical space,
-                  spent telling a signed-in person the name of the app they
-                  are already inside.
-
-                  A workspace greets you; a marketing page introduces
-                  itself. So for someone with work in progress this is now
-                  a greeting and their standing — the same move every tool
-                  that wants to feel like a place makes — and the brand
-                  block is kept for the first-time visitor, who genuinely
-                  has not been introduced yet.
-                  ══════════════════════════════════════════════════════ */}
-              {/* For someone with work in progress the centre of this screen
-                  is the composer and nothing else. The greeting, the date
-                  and the streak still exist — they moved down to head the
-                  deck, where they introduce your own work instead of
-                  competing with the one control you came here to use.
-                  A 40px "Good afternoon" directly above the search bar was
-                  taking the focal position and giving it to a salutation. */}
-              {/* The Cerebrum mark is always visible — it's the brand's
-                  signature, not a reward for having an empty account.
-                  When the user has work in progress, it renders compact
-                  so the composer stays the focal point. */}
-              {/* The brand as a quiet masthead, not a marketing
-                  hero — see SearchNameplate. The mark stays the signature. */}
+            /* ══════════════════════════════════════════════════════
+               Plate II (2026-10-13): the empty search home as one
+               centered stage. A single column at 720px carries the
+               method statement, the composer, the method and proof
+               line, the Continue row, the specimen inquiries, and the
+               deck, all at one width with text left aligned inside
+               it, so one vertical line at the composer's left edge
+               aligns everything beneath it. This resolves the old
+               scatter at its root: the bench band aligned to flex
+               start with large left padding, the deck wrapper added
+               the same padding again and shifted right, and the two
+               had different widths. The shell drops the sidebar
+               while this state lasts (see homeStage); the first
+               submit yields to the existing thread layout.
+               ══════════════════════════════════════════════════════ */
+            <Reveal style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
-              {/* ══════════════════════════════════════════════════════════
-                  The Query Bench (2026-10-08). The home screen is an
-                  instrument panel: one TickFrame viewport holds the
-                  console — a mono header strip with the bench name and a
-                  live source status, the question well, the mode selector
-                  strip, the evidence filter — and the specimen tray below
-                  it. No brand masthead (the sidebar carries it), no
-                  rotating greeting headline, no cinematic backdrop. */}
-              <div className="cb-bench-band">
-                {/* The bench is no longer a framed instrument panel. No
-                    TickFrame, no corner ticks, no "QUERY BENCH" header.
-                    Just the question, full width, like a lab notebook
-                    opened to a blank page. The mode is auto-detected from
-                    the question text; the source count lives quietly below. */}
-                <div className="cb-bench"
-                  style={{
-                    width: "100%", maxWidth: 760,
-                    "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
-                    "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
-                  }}>
-                  <div className="cb-bench-body" style={{ padding: 0, border: "none", background: "none" }}>
-              {attachedImage && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
-                  <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
-                  <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
-                  <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
-                </div>
-              )}
-              {/* The question well — see SignalComposer. */}
-              <SignalComposer
-                input={input} setInput={setInput} inputRef={inputRef}
-                ask={ask} busy={busy}
-                askMode={askMode} setAskMode={setAskMode} isMobile={isMobile}
-                accent={accent} P={P}
-                imageInputRef={imageInputRef} attachedImage={attachedImage}
-                focused={composerFocused} setFocused={setComposerFocused}
-                recentQuestions={history.slice(0, 6).map((h) => h.title || (h.turns && h.turns[0] && h.turns[0].q)).filter(Boolean)}
-                evidenceFilter={evidenceFilter} setEvidenceFilter={setEvidenceFilter} sfx={sfx}
-              />
-              {/* Mode-aware "Try asking" examples. The verb pills stay the
-                  primary control (see Commit 83) — but a first-time visitor
-                  staring at an empty composer gets a starting point in the
-                  current mode's voice. Clicking fills the composer so the
-                  question can be edited before asking. Hidden while typing. */}
-              {/* Commit 82 — mode-aware "Try asking" examples, rewritten as
-                  "starter questions". Pills made the examples feel like a
-                  casino of options; numbered keys make them feel like a
-                  curated index — two real questions worth asking, keyed
-                  01 and 02, set as full lines that wrap. Clicking fills
-                  the console so the question can be edited before asking.
-                  Hidden while typing. Keyed by mode so the swap has a
-                  small entrance (see the cb-starter styles). */}
-              {/* First-run onboarding: four one-click real searches across
-                  biology, medicine, environment and physics — tapping one
-                  runs ask() immediately instead of filling the box, so a
-                  new visitor watches a real answer arrive. Returning
-                  visitors keep the two mode-aware starters that fill the
-                  composer for editing. Hidden while typing. */}
-              {!input.trim() && (ASK_MODE_EXAMPLES[askMode] || []).length > 0 && (
-                <div
-                  key={"starter:" + askMode + (deckHasContent ? ":returning" : ":first")}
-                  style={{ marginTop: 20 }}
+              <div style={{
+                width: "100%", maxWidth: 720, padding: isMobile ? "0 20px" : "0 24px",
+                "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
+                "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
+              }}>
+                <PlateFrame
+                  faint={P.faint} line={P.line}
+                  headLeft={<span style={{ fontFamily: "var(--cb-serif)", fontSize: 19, fontWeight: 600, color: P.ink }}>Cerebrum</span>}
+                  headCenter={isMobile ? null : <span style={plateHead(P.faint)}>Scientific literature, traced</span>}
+                  headRight={isMobile ? <span style={plateHead(P.faint)}>Plate II · Inquiry</span> : (
+                    <nav aria-label="Main" style={{ display: "inline-flex", alignItems: "center", gap: 18 }}>
+                      {[
+                        ["Library", () => stableSidebarNavigate("library")],
+                        ["Investigations", () => stableSidebarNavigate("investigations")],
+                        ["Trending", () => stableSidebarNavigate("trending")],
+                        ["Cortex", () => stableSidebarNavigate("learn")],
+                      ].map(([label, fn]) => (
+                        <button key={label} type="button" onClick={fn} className="cb-stage-navlink">{label}</button>
+                      ))}
+                      <a href="/about" className="cb-stage-navlink" style={{ textDecoration: "none" }}>About</a>
+                      {user ? (
+                        <button type="button" onClick={() => stableSidebarNavigate("profile")} className="cb-stage-navlink">Account</button>
+                      ) : (
+                        <button type="button" onClick={() => { setAuthInitialTab("signin"); setAuthOpen(true); }} className="cb-stage-navlink">Sign in</button>
+                      )}
+                    </nav>
+                  )}
                 >
-                  {/* Starters are plain text, not cards. No boxes, no LOAD
-                      buttons, no numbered keys. Just questions worth asking,
-                      in the user's own language. */}
-                  {(!deckHasContent ? FIRST_RUN_QUESTIONS : (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 2)).map((ex) => (
-                    <button key={ex.q} type="button"
-                      onClick={() => {
-                        if (!deckHasContent) { ask(ex.q); }
-                        else { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }
-                      }}
-                      title={!deckHasContent ? `Search: ${ex.q}` : `Ask: ${ex.q}`}
-                      style={{
-                        display: "block", width: "100%", textAlign: "left",
-                        background: "none", border: "none", padding: "8px 0",
-                        cursor: "pointer", color: P.ink2, fontSize: FONT_SIZES.body,
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = accent; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = P.ink2; }}
-                    >
-                      <span style={{ color: P.faint, marginRight: 8 }}>→</span>
-                      {ex.q}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {/* The evidence filter now docks in the console footer (see
-                  SignalComposer) — one line stating the current setting,
-                  opening the chips on demand, announcing itself when it is
-                  NOT the default. It no longer holds its own row here. */}
+                  {/* The method statement: about the method, not a
+                      greeting. */}
+                  <div style={{ paddingTop: isMobile ? 30 : 40 }}>
+                    <div style={plateHead(P.faint)}>Plate II · Inquiry</div>
+                    <p style={{
+                      fontFamily: "var(--cb-serif)", fontWeight: 550,
+                      fontSize: isMobile ? 25 : 31, lineHeight: 1.28,
+                      color: P.ink, margin: "14px 0 0", maxWidth: "34ch",
+                    }}>
+                      Every answer is written from the papers it found first, and every claim in it can be traced back to its source.
+                    </p>
                   </div>
-                  {/* Bench OSD: the machine summarizing its own configuration
-                      in one mono line — mode blurb on the left, evidence
-                      tier on the right. Redundant for screen readers (the
-                      real controls announce themselves), so hidden there. */}
-                  {/* Source count, quiet. No mode indicator, no evidence tier
-                      readout. The mode is auto-detected; the user does not
-                      need a dashboard summarizing the machine's configuration. */}
-                  <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <button type="button" onClick={() => setProvenanceOpen(true)}
-                      aria-haspopup="dialog" title="See the sources this searches"
-                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                        color: P.faint, fontSize: FONT_SIZES.small }}>
-                      {SCHOLARLY_SOURCES.length} scholarly indexes
-                    </button>
+
+                  {/* The composer as an instrument. */}
+                  <div style={{ marginTop: isMobile ? 26 : 34 }}>
+                    {attachedImage && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
+                        <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
+                        <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
+                        <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><Icon name="close" size={14} /></button>
+                      </div>
+                    )}
+                    <SignalComposer
+                      variant="stage"
+                      specimenPlaceholders={STAGE_PLACEHOLDER_QUESTIONS}
+                      input={input} setInput={setInput} inputRef={inputRef}
+                      ask={ask} busy={busy}
+                      askMode={askMode} setAskMode={setAskMode} isMobile={isMobile}
+                      accent={accent} P={P}
+                      imageInputRef={imageInputRef} attachedImage={attachedImage}
+                      focused={composerFocused} setFocused={setComposerFocused}
+                      recentQuestions={history.slice(0, 6).map((h) => h.title || (h.turns && h.turns[0] && h.turns[0].q)).filter(Boolean)}
+                      evidenceFilter={evidenceFilter} setEvidenceFilter={setEvidenceFilter} sfx={sfx}
+                    />
+                  </div>
+
+                  {/* The method and proof line: the coverage
+                      disclosure and the Search record, named in
+                      plain words. No corpus number lives here; the
+                      source list itself stays one click away in
+                      the intro's Research sources and the About
+                      page. */}
+                  <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
+                    <p style={{ margin: 0, fontSize: FONT_SIZES.small, lineHeight: 1.6, color: P.ink2, maxWidth: "58ch" }}>
+                      Each answer opens with a coverage disclosure: how many papers were found, screened, and cited. Its Search record keeps the question, the exact searches run, and every source, so any answer can be checked against the papers it rests on.
+                    </p>
                     {askMode !== "explain" && (
                       <button type="button" onClick={() => setAskMode("explain")}
-                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                          color: P.faint, fontSize: FONT_SIZES.small }}
+                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: P.faint, fontSize: FONT_SIZES.small, flexShrink: 0 }}
                         title="Detected mode. Click to reset to Explain.">
                         {(ASK_MODES.find((m) => m.key === askMode) || {}).label || askMode} · reset
                       </button>
                     )}
                   </div>
-                </div>
-              </div>
 
-              {/* Your work, plain. No TickFrame, no "WORK LOG" header, no
-                  corner ticks. Just the investigations, like entries in a
-                  lab notebook. The count is quiet, not a dashboard metric. */}
-              {deckHasContent ? (
-                <div
-                  style={{
-                    width: "100%", maxWidth: 760,
-                    marginTop: isMobile ? 32 : 56,
-                    paddingLeft: "max(24px, 7vw)",
-                    paddingRight: 24,
-                  }}>
-                  <div style={{
-                    fontSize: FONT_SIZES.small, color: P.faint,
-                    marginBottom: 16,
-                  }}>
-                    {(history || []).length} investigations{(saved || []).length > 0 ? `, ${(saved || []).length} saved` : ""}
+                  {/* Continue investigation: the deck's own data and
+                      actions, as a ruled row. The question is quoted
+                      untouched; a heading is never manufactured by
+                      cutting words out of it. */}
+                  {stageLastQ && (
+                    <div style={{ marginTop: 30, borderTop: `1px solid ${P.line}`, paddingTop: 16 }}>
+                      <div style={plateHead(P.faint)}>Continue investigation</div>
+                      <div style={{
+                        fontFamily: "var(--cb-serif)", fontSize: isMobile ? 18 : 20,
+                        lineHeight: 1.4, color: P.ink, marginTop: 8,
+                        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                      }}>{stageLastQ}</div>
+                      <div style={{ display: "flex", gap: 20, marginTop: 8 }}>
+                        <button type="button" onClick={() => ask(stageLastQ)} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 650 }}>Keep going</button>
+                        <button type="button" onClick={() => setView("investigations")} className="cb-stage-textbtn">History</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Specimen inquiries: three full sentence
+                      questions as a numbered, ruled list. First
+                      timers run the search at a tap, as before;
+                      returning visitors fill the composer to edit
+                      first, as before. Hidden while typing. */}
+                  {!input.trim() && stageInquiries.length > 0 && (
+                    <div style={{ marginTop: 34 }}>
+                      <div style={plateHead(P.faint)}>Specimen inquiries</div>
+                      <div style={{ marginTop: 6 }}>
+                        {stageInquiries.map((ex, i) => (
+                          <button key={ex.q} type="button" className="cb-stage-inq"
+                            onClick={() => {
+                              if (!deckHasContent) { ask(ex.q); }
+                              else { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }
+                            }}
+                            title={!deckHasContent ? `Search: ${ex.q}` : `Ask: ${ex.q}`}
+                            style={{
+                              display: "flex", alignItems: "baseline", gap: 14,
+                              width: "100%", textAlign: "left", background: "none",
+                              border: "none", borderTop: `1px solid ${P.line}`,
+                              padding: "13px 0", cursor: "pointer",
+                            }}
+                          >
+                            <span style={{ fontFamily: "var(--cb-mono)", fontSize: 12, color: accent }}>0{i + 1}</span>
+                            <span className="cb-stage-inq-q" style={{
+                              fontFamily: "var(--cb-serif)", flex: 1,
+                              fontSize: isMobile ? 16.5 : 18, lineHeight: 1.4, color: P.ink2,
+                            }}>{ex.q}</span>
+                            <span className="cb-stage-inq-arrow" aria-hidden="true" style={{ color: accent, fontSize: 16 }}>&#8594;</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Your work, at the stage's own width and left
+                      edge. The deck component is unchanged; only its
+                      wrapper lost the second helping of left padding
+                      and the mismatched width. */}
+                  {deckHasContent && (
+                    <div style={{ marginTop: 34, fontSize: FONT_SIZES.small, color: P.faint }}>
+                      {(history || []).length} investigations{(saved || []).length > 0 ? `, ${(saved || []).length} saved` : ""}
+                    </div>
+                  )}
+                  <div style={{ marginTop: deckHasContent ? 10 : 36 }}>
+                    <HomeDeck
+                      P={P} accent={accent} at={at} user={user} isMobile={isMobile}
+                      greetingName={firstName} flush={deckHasContent}
+                      history={history} saved={saved} sessions={sessions}
+                      watchKey={watchKey}
+                      onAsk={(q) => ask(q)}
+                      onOpenHistory={() => setView("investigations")}
+                      onOpenSaved={() => setView("library")}
+                    />
                   </div>
-                  <HomeDeck
-                    P={P} accent={accent} at={at} user={user} isMobile={isMobile}
-                    greetingName={firstName} flush
-                    history={history} saved={saved} sessions={sessions}
-                    watchKey={watchKey}
-                    onAsk={(q) => ask(q)}
-                    onOpenHistory={() => setView("investigations")}
-                    onOpenSaved={() => setView("library")}
-                  />
-                </div>
-              ) : (
-                <HomeDeck
-                  P={P} accent={accent} at={at} user={user} isMobile={isMobile}
-                  greetingName={firstName}
-                  history={history} saved={saved} sessions={sessions}
-                  watchKey={watchKey}
-                  onAsk={(q) => ask(q)}
-                  onOpenHistory={() => setView("investigations")}
-                  onOpenSaved={() => setView("library")}
-                />
-              )}
-              {/* The provenance line moved into the bench header status —
-                  the count still opens SourcesDialog, wired to the same
-                  list the search handler iterates. */}
+
+                  {/* The footer strip carries the traced claim motif
+                      back onto the home: one claim, its paper, the
+                      way through to it. */}
+                  <div style={{ marginTop: 44, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
+                    <div style={plateHead(P.faint)}>Traced claim</div>
+                    <p style={{
+                      margin: "8px 0 0", fontFamily: "var(--cb-serif)",
+                      fontStyle: "italic", fontSize: 15.5, lineHeight: 1.5, color: P.ink2,
+                    }}>&ldquo;{stageSpecimen.claim}&rdquo;</p>
+                    <p style={{ margin: "6px 0 0", fontFamily: "var(--cb-mono)", fontSize: 11, lineHeight: 1.6, color: P.faint }}>
+                      {stageSpecimen.paper}{" "}
+                      <a href={stageSpecimen.doi} target="_blank" rel="noopener noreferrer"
+                        style={{ color: accent, textDecoration: "none", fontFamily: "var(--cb-font)", fontWeight: 600, fontSize: 12 }}>
+                        Open the paper &#8599;
+                      </a>
+                    </p>
+                  </div>
+                </PlateFrame>
+              </div>
               {provenanceOpen && <SourcesDialog accent={accent} onClose={() => setProvenanceOpen(false)} />}
             </Reveal>
           ) : (
@@ -24553,6 +24580,64 @@ summary::-webkit-details-marker { display: none; }
   animation: cbspin 0.8s linear infinite;
 }
 .cb-ask-spin--still { animation: none; }
+
+/* ── Plate II: the composer as an instrument (2026-10-13) ──
+   On the empty search stage the composer stands taller, its focus
+   state is a registration corner frame rather than a glow ring, and
+   the submit is a single round key. The standard composer above
+   keeps its own field for the bench and thread contexts. */
+.cb-ask--stage { max-width: none; }
+.cb-ask--stage .cb-ask-field {
+  align-items: stretch;
+  background: color-mix(in srgb, var(--cb-bg) 88%, transparent);
+}
+.cb-ask--stage .cb-ask-field::before,
+.cb-ask--stage .cb-ask-field::after {
+  content: "+"; position: absolute; z-index: 2;
+  font-family: var(--cb-mono); font-size: 13px; line-height: 1;
+  color: var(--cb-acc); opacity: 0; transition: opacity 240ms ease;
+  pointer-events: none;
+}
+.cb-ask--stage .cb-ask-field::before { top: 5px; left: 7px; }
+.cb-ask--stage .cb-ask-field::after { bottom: 5px; right: 7px; }
+.cb-ask--stage .cb-ask-field:focus-within {
+  transform: none;
+  box-shadow: 0 12px 36px -12px rgba(0,0,0,0.35),
+              inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.cb-ask--stage .cb-ask-field:focus-within::before,
+.cb-ask--stage .cb-ask-field:focus-within::after { opacity: 0.9; }
+.cb-ask--stage .cb-ask-input {
+  min-height: 96px; padding: 16px 6px 10px 18px; font-size: 17.5px;
+}
+.cb-ask--stage .cb-ask-tools { align-items: flex-end; padding-bottom: 8px; }
+.cb-ask-go--round {
+  width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 6px;
+  border-radius: 50%; flex-shrink: 0;
+}
+
+/* ── Plate II chrome: top bar links, text actions, inquiries ── */
+.cb-stage-navlink {
+  background: none; border: none; cursor: pointer; padding: 6px 0;
+  font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;
+  color: var(--cb-ink2); text-decoration: none; display: inline-block;
+  transition: color 200ms ease;
+}
+.cb-stage-navlink:hover { color: var(--cb-ink); text-decoration: underline; text-underline-offset: 4px; }
+.cb-stage-textbtn {
+  background: none; border: none; cursor: pointer; padding: 8px 0;
+  font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;
+  color: var(--cb-ink2); min-height: 44px;
+}
+.cb-stage-textbtn:hover { text-decoration: underline; text-underline-offset: 4px; }
+.cb-stage-inq .cb-stage-inq-arrow {
+  opacity: 0; transform: translateX(-4px);
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.cb-stage-inq:hover .cb-stage-inq-arrow,
+.cb-stage-inq:focus-visible .cb-stage-inq-arrow { opacity: 1; transform: translateX(0); }
+.cb-stage-inq:hover .cb-stage-inq-q,
+.cb-stage-inq:focus-visible .cb-stage-inq-q { color: var(--cb-ink); }
 
 /* ── The mode words: plain text, not segments ── */
 .cb-modes {

@@ -46,10 +46,14 @@ const designSrc = await readFile(join(root, "src/designSystem.jsx"), "utf8");
 
 group("Workspace ambient reel (revised)");
 await test("workspace CinematicFilm mount exists, darker than before", () => {
-  // 2026-10-08 (refreshed): Dusty asked for video back. Three mounts now:
-  // intro reel (dramatic 4K), calm reel (main page), workspace backdrop.
+  // 2026-10-08: three mounts (intro reel, calm reel, workspace backdrop).
+  // 2026-10-13 plate redesign superseded the intro mount: the door is
+  // the DotField now, so two mounts remain (calm reel on the search
+  // backdrop, workspace backdrop). The component itself is unchanged.
   const mounts = (appSrc.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(mounts.length, 3, `expected intro+calm+workspace mounts, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 2, `expected calm+workspace mounts, found ${mounts.length}`);
+  const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
+  assert.ok(!introFn.includes("<CinematicFilm"), "the intro mounts the film reel again");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
   assert.match(appSrc, /brightness\(0\.72\)/, "extra CSS grade missing on the workspace reel wrapper");
 });
