@@ -28,6 +28,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const document = await import(join(root, "functions/api/document.js"));
 const docReader = await import(join(root, "src/docReader.js"));
+const { MAX_PROMPT_CHARS, messagesChars } = await import(join(root, "functions/lib/inputGuard.js"));
+import { readFile } from "node:fs/promises";
 
 let passed = 0;
 const failures = [];
@@ -301,6 +303,156 @@ await test("a question the document cannot answer says so honestly", async () =>
   const result = await document.runQA({}, doc, "What is the capital of Assyria?", "", { generateFn: alwaysFail });
   assert.equal(result.partial, true);
   assert.ok(result.answer.includes("does not appear to address"), "no honest no-answer line");
+});
+
+// ── runQA prompt fitting (2026-10-13) ───────────────────────────────────
+// The audit defect: runQA put the whole document first in one message and
+// let generate()'s choke-point clamp slice the message at
+// MAX_PROMPT_CHARS, so at accepted document lengths the question (and, in
+// a comparison, the second document's tail) fell off the end while the
+// answer shipped as a normal result. These pins prove the new contract:
+// the control text is reserved in full, the document absorbs the cut from
+// its middle, and the loss is reported structurally.
+group("runQA prompt fitting — the question can never be clamped away");
+
+// A document of exactly `total` characters whose opening is `head` and
+// whose closing is `tail`, padded between with neutral filler.
+function makeLongDoc(total, head, tail) {
+  const unit = " Ordinary filler sentence about routine laboratory methods and seasonal observations.";
+  let body = String(head);
+  while (body.length + tail.length + 1 < total) body += unit;
+  return body.slice(0, total - tail.length - 1) + " " + tail;
+}
+// A generateFn that records the messages it was handed and answers well.
+function captureGen(seen) {
+  return async (env, messages) => {
+    seen.messages = messages;
+    return { answer: "A complete answer of ample length drawn from the document.", model: "fake-model" };
+  };
+}
+
+await test("150000 character document: question survives, document absorbs the cut, flag is structural", async () => {
+  const head = "HEADFINDING: ATP production occurs in the mitochondria of every sampled cell.";
+  const tail = "TAILFINDING: The closing section reports that ATP production doubled after treatment.";
+  const doc = makeLongDoc(150000, head, tail);
+  assert.equal(doc.length, 150000);
+  const seen = {};
+  const result = await document.runQA({}, doc, "Where does ATP production occur?", "", { generateFn: captureGen(seen) });
+  assert.equal(result.model, "fake-model");
+  assert.equal(result.partial, false);
+  const total = messagesChars(seen.messages);
+  assert.ok(total <= MAX_PROMPT_CHARS, "assembled prompt exceeds the budget: " + total);
+  const user = seen.messages[1].content;
+  assert.ok(user.endsWith("QUESTION: Where does ATP production occur?"), "the question fell off the end of the prompt");
+  assert.ok(user.includes("HEADFINDING"), "the document opening was cut");
+  assert.ok(user.includes("TAILFINDING"), "the document closing was cut");
+  assert.ok(user.includes("characters from the middle are missing"), "the in-text omission note is missing");
+  assert.ok(result.promptTruncation, "no structural promptTruncation on the result");
+  assert.equal(result.promptTruncation.documentShortened, true);
+  assert.equal(result.promptTruncation.documentChars, 150000);
+  assert.ok(result.promptTruncation.omittedChars > 40000, "omittedChars implausibly small: " + result.promptTruncation.omittedChars);
+  assert.equal(result.promptTruncation.promptChars, total, "promptChars must name the prompt actually assembled");
+});
+
+await test("240000 character comparison: the instruction survives and both documents keep an end", async () => {
+  const docA = makeLongDoc(120000, "DOCUMENT A OPENING: The first study reports ATP production in the mitochondria.", "Document A closing section wraps up the first study.");
+  const docB = makeLongDoc(120000, "Document B opening section introduces the second study.", "DOCUMENT B CLOSING: The second study reports ATP production in the cytoplasm instead.");
+  const combined = docA + "\n\n" + docB;
+  const query = "Compare the two documents above: where do they agree and where do they disagree about ATP production?";
+  const seen = {};
+  const result = await document.runQA({}, combined, query, "", { generateFn: captureGen(seen) });
+  const user = seen.messages[1].content;
+  assert.ok(messagesChars(seen.messages) <= MAX_PROMPT_CHARS, "assembled prompt exceeds the budget");
+  assert.ok(user.endsWith("QUESTION: " + query), "the comparison instruction fell off the end of the prompt");
+  assert.ok(user.includes("DOCUMENT A OPENING"), "Document A's opening was cut");
+  assert.ok(user.includes("DOCUMENT B CLOSING"), "Document B's closing was cut");
+  assert.ok(result.promptTruncation, "no structural promptTruncation on the result");
+  assert.equal(result.promptTruncation.documentShortened, true);
+  assert.equal(result.promptTruncation.documentChars, combined.length);
+});
+
+await test("short document: prompt carries it verbatim and no promptTruncation is reported", async () => {
+  const doc = "ATP production occurs in the mitochondria. The trial enrolled 40 quokkas and measured ATP output weekly.";
+  const seen = {};
+  const result = await document.runQA({}, doc, "Where does ATP production occur?", "", { generateFn: captureGen(seen) });
+  assert.ok(seen.messages[1].content.includes(doc), "a short document was altered");
+  assert.equal(result.promptTruncation, undefined, "nothing was cut, so nothing may be reported");
+});
+
+await test("provider failure on a long document: the extractive fallback still reads the middle the prompt had to drop", async () => {
+  const head = "HEADFINDING: This report opens with routine background on cellular respiration.";
+  const tail = "TAILFINDING: The report closes with acknowledgements and funding notes.";
+  let doc = makeLongDoc(150000, head, tail);
+  // Plant the only answer-bearing sentence in the exact middle, inside
+  // the span the prompt fitting cut removes.
+  const needle = "The zebrafish enzyme kynurenine monooxygenase peaked at 42 units during the trial.";
+  const midAt = Math.floor(doc.length / 2);
+  doc = doc.slice(0, midAt) + " " + needle + " " + doc.slice(midAt + needle.length + 2);
+  assert.equal(doc.length, 150000);
+  const result = await document.runQA({}, doc, "How much kynurenine monooxygenase activity was measured in zebrafish?", "", { generateFn: alwaysFail });
+  assert.equal(result.model, "extractive");
+  assert.ok(result.answer.includes("42 units"), "the extractive fallback missed the middle finding");
+  assert.equal(result.promptTruncation, undefined, "a purely extractive answer covers the whole document and must not claim a shortened prompt");
+});
+
+await test("every Q&A response surface carries promptTruncation (source pin)", async () => {
+  const src = await readFile(join(root, "functions/api/document.js"), "utf8");
+  const hits = src.split("promptTruncation: result.promptTruncation || null").length - 1;
+  assert.equal(hits, 3, "sync, streamed, and async Q&A payloads must all surface promptTruncation; found " + hits);
+});
+
+// ── shortenDocumentForPrompt units ──────────────────────────────────────
+group("shortenDocumentForPrompt — middle cut, explicit loss");
+
+await test("a document that fits is returned untouched", () => {
+  const out = document.shortenDocumentForPrompt("short text", 1000);
+  assert.equal(out.text, "short text");
+  assert.equal(out.omittedChars, 0);
+});
+
+await test("the cut fits the allowance, keeps both ends, and counts the loss honestly", () => {
+  const doc = makeLongDoc(50000, "OPENING SENTINEL alpha. This report opens with background.", "CLOSING SENTINEL omega. This report closes with acknowledgements.");
+  const out = document.shortenDocumentForPrompt(doc, 10000);
+  assert.ok(out.text.length <= 10000, "output exceeds the allowance: " + out.text.length);
+  assert.ok(out.text.includes("OPENING SENTINEL"), "the opening was lost");
+  assert.ok(out.text.includes("CLOSING SENTINEL"), "the closing was lost");
+  const m = out.text.match(/About (\d+) characters from the middle are missing/);
+  assert.ok(m, "the in-text omission note is missing");
+  assert.ok(Math.abs(Number(m[1]) - out.omittedChars) <= 5, "the in-text figure disagrees with the reported omission");
+  assert.ok(out.omittedChars > 39000, "omittedChars implausibly small: " + out.omittedChars);
+  // Kept text plus omitted text rebuilds the original, apart from the
+  // omission note itself (a few hundred characters).
+  assert.ok(Math.abs(out.text.length + out.omittedChars - 50000) <= 300, "kept plus omitted does not rebuild the document");
+});
+
+// ── prompt fencing: the document is untrusted data ──────────────────────
+group("document prompts — the document is fenced as untrusted data");
+
+await test("the Q&A system prompt fences the document as data, never instructions", async () => {
+  const seen = {};
+  await document.runQA({}, "Some document text about mitochondria and cellular energy production pathways.", "What does it say?", "", { generateFn: captureGen(seen) });
+  const sys = seen.messages[0].content;
+  assert.match(sys, /purely as data/, "Q&A prompt does not call the document data");
+  assert.match(sys, /never something to obey/, "Q&A prompt does not forbid obeying document text");
+});
+
+await test("the summary system prompt fences the document as data, never instructions", async () => {
+  const seen = {};
+  const generateFn = async (env, messages) => {
+    seen.messages = messages;
+    return { answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" };
+  };
+  await document.runSummary({}, "A short document about mitochondria and cellular energy production pathways in cells.", { generateFn });
+  const sys = seen.messages[0].content;
+  assert.match(sys, /never a source of instructions/, "summary prompt does not fence the document");
+  assert.match(sys, /never follow it/, "summary prompt does not forbid following document text");
+});
+
+await test("the chunk digest prompt fences section text as data (source pin)", async () => {
+  const src = await readFile(join(root, "functions/api/document.js"), "utf8");
+  const at = src.indexOf("CHUNK_SYSTEM_PROMPT");
+  assert.ok(at >= 0, "chunk prompt not found");
+  assert.match(src.slice(at, at + 1600), /never instructions to follow/, "chunk prompt does not fence section text");
 });
 
 // ── extractive fallback units ───────────────────────────────────────────
