@@ -6056,7 +6056,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
                 cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.small, fontWeight: 700,
                 color: accent, fontFamily: "var(--cb-font)", lineHeight: 1.45, letterSpacing: TYPE.heading.letterSpacing,
               }}>
-              {source.title ? renderCleanTitle(source.title) : (domain || "Untitled paper")}
+              {source.title ? (terms ? highlightKeywords(renderCleanTitle(source.title), terms) : renderCleanTitle(source.title)) : (domain || "Untitled paper")}
             </button>
             <div style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: P.ink2, marginTop: 5, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word", fontFamily: "var(--cb-font)" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
               .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
