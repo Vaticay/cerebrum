@@ -1880,6 +1880,22 @@ export function buildDynLookup(groups) {
   return map;
 }
 
+/* clampStageLegTimeout: the synthesis stage's clampLegTimeout
+ * treatment, generalized for the two sequential two leg stages
+ * (expansion and validation). Each leg's timeout is clamped against
+ * the stage's REMAINING budget, holding back a reserve for every leg
+ * still to come plus a small final reserve, so a hung first leg can
+ * no longer consume the whole stage and starve the second leg of its
+ * shot. Pure arithmetic (callers pass the clock readings), exported
+ * for tests. The floor keeps a leg's allowance from going negative
+ * or zero when the stage is already over budget; the stage backstop
+ * (the caller's own race) still bounds the total. */
+export function clampStageLegTimeout({ startedAt, now, budgetMs, wantMs, legsAfter = 0, reservePerLegMs = 1750, finalReserveMs = 250, floorMs = 500 }) {
+  const remaining = budgetMs - (now - startedAt);
+  const reserve = Math.max(0, legsAfter) * reservePerLegMs + finalReserveMs;
+  return Math.max(floorMs, Math.min(wantMs, remaining - reserve));
+}
+
 // The model call behind llmConceptGroups, following the same pattern
 // as llmGenerateSearchQueries / selfReason: a small fast model, a
 // whole-operation AbortController timeout armed through the body
@@ -1894,7 +1910,16 @@ export function buildDynLookup(groups) {
 // the synthesis wave 2 roster uses), so the expansion does not depend
 // on a single capped pool. diag.llmExpandedVia records which leg
 // answered, so a live check can prove the mechanism ran.
-async function defaultConceptGroupCall(query, env) {
+export async function defaultConceptGroupCall(query, env, timing) {
+  // Stage budget: llmConceptGroups races this whole call against
+  // 6500ms. Legs are clamped against that remaining budget (see
+  // clampStageLegTimeout): a hung OpenRouter leg used to hold its
+  // full 6000ms abort and leave the Groq leg 500ms before the race
+  // discarded its answer. `timing` lets tests scale the stage down;
+  // production uses the defaults.
+  const stageBudgetMs = (timing && timing.budgetMs) || 6500;
+  const legWantMs = (timing && timing.wantMs) || 6000;
+  const stageStartedAt = Date.now();
   const messages = [
     {
       role: "system",
@@ -1932,9 +1957,16 @@ async function defaultConceptGroupCall(query, env) {
     },
     model: "openai/gpt-oss-20b",
   });
-  for (const leg of legs) {
+  for (let li = 0; li < legs.length; li++) {
+    const leg = legs[li];
     const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 6000);
+    const t = setTimeout(() => c.abort(), clampStageLegTimeout({
+      startedAt: stageStartedAt, now: Date.now(), budgetMs: stageBudgetMs,
+      wantMs: legWantMs, legsAfter: legs.length - li - 1,
+      ...(timing && timing.reservePerLegMs != null ? { reservePerLegMs: timing.reservePerLegMs } : {}),
+      ...(timing && timing.finalReserveMs != null ? { finalReserveMs: timing.finalReserveMs } : {}),
+      ...(timing && timing.floorMs != null ? { floorMs: timing.floorMs } : {}),
+    }));
     try {
       const r = await fetch(leg.url, {
         method: "POST",
@@ -5368,7 +5400,16 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
 // { text, via } from the first leg that answers, or null when both
 // fail; the caller fails open to the unvalidated survivors, exactly
 // the old single leg behavior, only then.
-export async function defaultValidationCall(messages, token, env) {
+export async function defaultValidationCall(messages, token, env, timing) {
+  // Stage budget: the handler's runStage backstop for validation is
+  // 6000ms. Legs are clamped against that remaining budget (see
+  // clampStageLegTimeout), so the pair always fits inside the
+  // backstop and the second leg's answer can actually be used.
+  // `timing` lets tests scale the stage down; production uses the
+  // defaults.
+  const stageBudgetMs = (timing && timing.budgetMs) || 6000;
+  const legWantMs = (timing && timing.wantMs) || 4000;
+  const stageStartedAt = Date.now();
   const legs = [];
   if (token) legs.push({
     via: "openrouter",
@@ -5391,15 +5432,25 @@ export async function defaultValidationCall(messages, token, env) {
     },
     model: "openai/gpt-oss-20b",
   });
-  for (const leg of legs) {
+  for (let li = 0; li < legs.length; li++) {
+    const leg = legs[li];
     const c = new AbortController();
     // 4000ms per leg, the sizing the single leg call always had
     // (OR_VALIDATE returns 400 JSON tokens in ~2s; see the 2026-09-12
-    // note this sizing came from). The abort stays armed through the
-    // body read, disarmed only in the finally. The caller's stage
-    // backstop (6s) still bounds the pair: a hung first leg costs the
-    // second its shot, which is the same fail open the old code had.
-    const t = setTimeout(() => c.abort(), 4000);
+    // note this sizing came from), now clamped against the stage's
+    // remaining budget with a reserve held back for the legs still
+    // to come: the old fixed 4000ms per leg summed to 8000ms against
+    // a 6000ms backstop, so a hung first leg cost the second its
+    // shot and any late answer was discarded by the stage race
+    // anyway. The abort stays armed through the body read, disarmed
+    // only in the finally.
+    const t = setTimeout(() => c.abort(), clampStageLegTimeout({
+      startedAt: stageStartedAt, now: Date.now(), budgetMs: stageBudgetMs,
+      wantMs: legWantMs, legsAfter: legs.length - li - 1,
+      ...(timing && timing.reservePerLegMs != null ? { reservePerLegMs: timing.reservePerLegMs } : {}),
+      ...(timing && timing.finalReserveMs != null ? { finalReserveMs: timing.finalReserveMs } : {}),
+      ...(timing && timing.floorMs != null ? { floorMs: timing.floorMs } : {}),
+    }));
     try {
       const r = await fetch(leg.url, {
         method: "POST",
@@ -7379,6 +7430,47 @@ export async function runStage(name, fn, opts = {}) {
   }
 }
 
+/* publicStageHealth: the one public serialization of the stage
+ * health records. Every response that ships stageHealth goes through
+ * here, so the shape can never drift between the main assembly and
+ * the cached serve paths. A stage's skipReason ships whenever it is
+ * set: the honesty pass taught stages to NAME why they did not
+ * produce (validation's "no leg answered", the synthesis record's
+ * own reasons, a fact check that had nothing to verify), and dropping
+ * the reason at this last step made a shipped record able to show a
+ * stage failed but never why. `ok` passes through untouched: true,
+ * false, and null (skipped . the stage did not run or had nothing to
+ * do, which is neither a success nor a failure) all reach the client
+ * as recorded. */
+export function publicStageHealth(stageHealth) {
+  if (!Array.isArray(stageHealth)) return [];
+  return stageHealth.map((s) => {
+    const o = { name: s.name, ok: s.ok, ms: s.ms };
+    if (s.skipReason) o.skipReason = String(s.skipReason);
+    if (s.name === "validation") {
+      o.via = s.via || null;
+    }
+    if (s.name === "synthesis") {
+      o.winner = s.winner || null;
+      o.winnerMs = s.winnerMs != null ? s.winnerMs : null;
+      o.legs = s.legs || 0;
+      o.failedLegs = s.failedLegs || [];
+    }
+    return o;
+  });
+}
+
+/* stageHealthDegraded: the degraded rule for a stage list. Only a
+ * stage that actually FAILED (ok === false) degrades the answer. A
+ * skipped stage (ok === null: it did not run, or ran and had nothing
+ * to do) is neutral . before this rule existed as one place, the two
+ * inline computations read `!s.ok`, which counted a fact check that
+ * had nothing to verify as a pipeline failure and marked otherwise
+ * healthy answers degraded. */
+export function stageHealthDegraded(stageHealth) {
+  return Array.isArray(stageHealth) && stageHealth.some((s) => s && s.ok === false);
+}
+
 // ── Claim text utilities ────────────────────────────────────────
 // Content words for overlap math: lowercase alphanumeric tokens, stopwords
 // and pure numbers dropped. Reuses the extractive pipeline's own stopword
@@ -8634,7 +8726,9 @@ function recordAuthorsOf(entry) {
  * a kind, so a string that ran both as a rung and as a concept query
  * keeps both provenances. The natural language fallback is not
  * listed separately: it sends the record's own question field, and
- * diag stores only its count. */
+ * diag stores only its count. The raw fallback IS listed (kind
+ * "raw"): its query can differ from the question, because the
+ * organism's name is prefixed onto it before it is sent. */
 function recordExecutedQueries(input, diag) {
   const out = [];
   const seen = new Set();
@@ -8674,6 +8768,22 @@ function recordExecutedQueries(input, diag) {
         if (a && typeof a === "object") push("aspect", a.query);
       }
     }
+    // The handler's LLM rescue searches (diag.llmQueries) also
+    // executed . the strings were recorded on the diag before
+    // assembly but never read here, so a rescued run's record
+    // silently omitted the very queries that found its papers.
+    if (Array.isArray(diag.llmQueries)) {
+      for (const q of diag.llmQueries) push("rescue", q);
+    }
+    if (Array.isArray(diag.clauseQueries)) {
+      for (const q of diag.clauseQueries) push("clause", q);
+    }
+    if (typeof diag.rawFallbackQuery === "string") {
+      push("raw", diag.rawFallbackQuery);
+    }
+    if (Array.isArray(diag.secondaryOrganismQueries)) {
+      for (const q of diag.secondaryOrganismQueries) push("secondary", q);
+    }
   }
   return out.length ? out : null;
 }
@@ -8709,13 +8819,22 @@ function recordPartsOf(input) {
  *   answer           the final answer text (derives cited flags)
  *   diag             gResult._diag, read for anything not passed directly
  * Returns null when retrieval never ran: no funnel and no database
- * outcomes means there is no search to record. No abstracts, no answer
- * text: the record stays small enough to paste into a methods section. */
+ * outcomes means there is no search to record. (A cache serve passes
+ * cachedServe with the stored source list instead . see
+ * buildCachedServeTrust.) No abstracts, no answer text: the record
+ * stays small enough to paste into a methods section. */
 export function buildSearchRecord(input) {
   try {
     if (!input || typeof input !== "object") return null;
     const { diag, sources, funnel, databases } = recordPartsOf(input);
-    if (!funnel && !databases) return null;
+    // A cache serve (input.cachedServe) is the one exception to the
+    // funnel-or-databases gate: its search ran in an earlier request
+    // whose diag is gone, but the stored source list is itself the
+    // evidence a search ran . the cache write side only stores
+    // completed runs with sources. The record then carries the
+    // frozen sources with their cited flags and honestly null
+    // retrieval detail, rather than no record at all.
+    if (!funnel && !databases && !(input.cachedServe && sources && sources.length > 0)) return null;
 
     let askedAt;
     const rawWhen = input.askedAt;
@@ -8843,6 +8962,82 @@ export function buildCoverage(input) {
   } catch {
     return null;
   }
+}
+
+/* buildCachedServeTrust(input): the trust artifacts for a CACHED
+ * serve, recomputed on serve from what the cached payload actually
+ * carries. The standing rule this implements: a cached answer is
+ * served with its trust artifacts recomputed under current rules;
+ * nothing about the answer text changes. The cache stores only the
+ * answer text and its source list, so the cited set is recovered
+ * from the answer's own citation markers against that stored list
+ * (the same derivation the live path uses), the coverage and record
+ * are rebuilt by the same builders the live path uses, and the
+ * confidence line is recomputed by the current builder and
+ * calibration . never served as stored under older rules.
+ *
+ * What cannot be honestly recomputed is omitted, never fabricated:
+ * the synthesis model is null (the cache does not store which model
+ * wrote the answer), and on the early path . where this request ran
+ * no retrieval at all . the funnel's retrieval counts are null and
+ * the record's retrieval detail is null. The later path passes this
+ * request's own diag, databases, and funnel, because that retrieval
+ * genuinely ran and produced the served source list.
+ * Input: { answer, sources, question, askedAt, diag, databases,
+ * funnel, degraded }. `degraded` is the serve's own degraded basis
+ * (the later path passes its stage list's verdict; the early path
+ * false), fed to the confidence builder exactly the way the live
+ * path feeds it. factCheckChecked is false on every cache serve .
+ * no fact check ran on the stored answer in this request . so the
+ * current 59 cap for unchecked answers applies, same as a live
+ * answer whose fact check checked nothing. */
+export function buildCachedServeTrust(input) {
+  const answer = input && typeof input.answer === "string" ? input.answer : "";
+  const labeledSources = labelUncitedSources(
+    input && Array.isArray(input.sources) ? input.sources : [], answer);
+  const citedPapers = labeledSources.filter((s) => s && !s.uncited);
+  // The shipped funnel: the caller's real funnel when retrieval ran
+  // for this response (its cited is re-derived from the flags, one
+  // definition of cited everywhere), otherwise the honest partial .
+  // the cited count the stored payload proves, and null for every
+  // count the original run produced but the cache did not store.
+  const funnel = input && input.funnel && typeof input.funnel === "object"
+    ? { ...input.funnel, cited: citedPapers.length }
+    : {
+        gathered: null, deduped: null, excludedWeak: null,
+        excludedNonEnglish: null, excludedRetracted: null,
+        cited: citedPapers.length,
+      };
+  const coverage = buildCoverage({
+    funnel: input && input.funnel ? input.funnel : null,
+    sources: labeledSources,
+    databases: (input && input.databases) || null,
+    diag: (input && input.diag) || null,
+    answer,
+  });
+  const record = buildSearchRecord({
+    question: input && input.question,
+    askedAt: input && input.askedAt,
+    diag: (input && input.diag) || null,
+    funnel: input && input.funnel ? input.funnel : null,
+    databases: (input && input.databases) || null,
+    synthesisModel: null,
+    sources: labeledSources,
+    answer,
+    cachedServe: true,
+  });
+  let confidence = buildConfidenceLine(citedPapers, null, {
+    degraded: !!(input && input.degraded),
+    extractive: false,
+    factCheckChecked: false,
+  });
+  const citeMatches = (answer.match(/\[\d+\]/g) || []).length;
+  confidence = calibrateConfidenceScore(confidence, {
+    strippedCitations: 0,
+    totalCitations: citeMatches,
+    integrityFlags: 0,
+  });
+  return { labeledSources, funnel, coverage, record, confidence };
 }
 
 // ── Retrieval strategy record (for the no-results "what was tried") ─
@@ -11459,6 +11654,10 @@ async function gatherPapers(rawQuery, opts) {
       openAlex(rawQ, 10, openAlexKey),
     ]);
     results = results.concat(rawFallback);
+    // The query string itself, not just per source counts: it can
+    // differ from the question (organism name prefixed), and the
+    // search record lists the queries retrieval actually ran.
+    diag.rawFallbackQuery = rawQ;
     diag.rawFallback = rawFallback.map((r, i) => ({
       source: ["europePMC","semanticScholar","openAlex"][i],
       count: r.status === "fulfilled" ? (r.value || []).length : 0,
@@ -11668,6 +11867,9 @@ async function gatherPapers(rawQuery, opts) {
       try {
         const subRes = await Promise.allSettled(fanout(sub, false));
         results = results.concat(subRes);
+        // The executed term list as a list, for the search record;
+        // the keyed count below stays for the funnel diagnostics.
+        (diag.clauseQueries || (diag.clauseQueries = [])).push(sub.join(" "));
         diag["clause:" + sub.join("+")] = subRes.reduce(
           (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
       } catch (cbErr) { console.error("[Cerebrum] search.js for: const subRes = await Promise.allSettled(fanout(sub, false));:", cbErr); }
@@ -11687,15 +11889,23 @@ async function gatherPapers(rawQuery, opts) {
     try {
       const decomp = decomposeQuestion(rawQuery, ranked);
       if (decomp.decomposed && decomp.subQueries.length > 0) {
-        diag.questionDecomposition = decomp.aspects.map((a) => ({ aspect: a.aspect, query: a.query }));
-        for (const sq of decomp.subQueries.slice(0, 2)) {
+        // Record only the aspects whose searches actually fire: the
+        // loop below caps at 2 and can break early on budget, and
+        // the search record's executed set must not list a query
+        // that never ran. aspects[i].query is subQueries[i] by
+        // construction (decomposeQuestion pushes them in lockstep).
+        const subs = decomp.subQueries.slice(0, 2);
+        for (let qi = 0; qi < subs.length; qi++) {
           if (!_budgetLeft()) break;
+          const sq = subs[qi];
           const decompRes = await Promise.allSettled([
             europePMC(sq, 8),
             semanticScholar(sq, 6, s2Key),
             openAlex(sq, 6, openAlexKey),
           ]);
           results = results.concat(decompRes);
+          (diag.questionDecomposition || (diag.questionDecomposition = []))
+            .push({ aspect: decomp.aspects[qi].aspect, query: decomp.aspects[qi].query });
           diag["decomp:" + sq.slice(0, 40)] = decompRes.reduce(
             (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
         }
@@ -11733,6 +11943,9 @@ async function gatherPapers(rawQuery, opts) {
           biorxiv(sciName + " " + topicStr2, 6),
         ]);
         results = results.concat(secResults);
+        // The executed query (plain form; boolean engines receive
+        // the same terms in their dialect), for the search record.
+        (diag.secondaryOrganismQueries || (diag.secondaryOrganismQueries = [])).push(sciName + " " + topicStr2);
         diag["secondaryOrganism:" + sciName] = secResults.reduce(
           (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
       } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
@@ -13201,7 +13414,7 @@ export async function onRequest(context) {
   // POST /api/search?stream=1 returns text/event-stream emitting the
   // pipeline's real stage transitions as they happen. The single-fetch
   // path below is unchanged and remains the default + fallback.
-  const shared = { requestDeadline, msLeft, secureCors };
+  const shared = { requestDeadline, msLeft, secureCors, requestT0 };
   if (wantsStream(request)) {
     const sse = createSseStream({ resumeFrom: parseLastEventId(request) });
     const requestId = contextRequestId(context);
@@ -13238,7 +13451,7 @@ async function runSearchPipeline(pctx) {
   const { context } = pctx;
   const { request, env } = context;
   const waitUntil = context.waitUntil;
-  const { requestDeadline, msLeft, secureCors } = (pctx && pctx.shared) || {};
+  const { requestDeadline, msLeft, secureCors, requestT0 } = (pctx && pctx.shared) || {};
   const hooks = (pctx && pctx.hooks) || {};
   const emitStage = hooks.onStage || null;
   const requestId = contextRequestId(pctx && pctx.context);
@@ -13795,7 +14008,7 @@ async function runSearchPipeline(pctx) {
       try {
         const earlyCacheKey = await derivedCacheKey(query, env);
         const earlyHit = await env.DB.prepare(
-          "SELECT answer, sources FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
+          "SELECT answer, sources, created_at FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
         ).bind(earlyCacheKey, Date.now() - CACHE_TTL_MS).first();
         // Nuance #29: hit-rate telemetry for the D1 answer cache . a lookup
         // hit is "a row with an answer existed", regardless of whether the
@@ -13810,16 +14023,40 @@ async function runSearchPipeline(pctx) {
           let cachedSources = [];
           try { cachedSources = JSON.parse(earlyHit.sources || "[]"); } catch (cbErr) { console.error("[Cerebrum] search.js if: cachedSources = JSON.parse(earlyHit.sources || '[]'); }:", cbErr); }
           await meterAiAnswer();
+          // TRUST ON CACHE SERVES (2026-10-13, wave two part two):
+          // this return used to ship the bare answer with none of the
+          // trust artifacts, so the flagship trust features switched
+          // off exactly where repeat traffic lands. Standing rule: a
+          // cached answer is served with its trust artifacts
+          // recomputed under current rules; nothing about the answer
+          // text changes. This request ran no retrieval, so the
+          // funnel's retrieval counts and the record's retrieval
+          // detail are honestly null (see buildCachedServeTrust);
+          // askedAt is the cache row's own store time, when the
+          // recorded search actually ran.
+          const earlyTrust = buildCachedServeTrust({
+            answer: earlyHit.answer,
+            sources: cachedSources,
+            question: query,
+            askedAt: earlyHit.created_at != null ? earlyHit.created_at : undefined,
+            degraded: false,
+          });
           return new Response(
             JSON.stringify({
               answer: italicizeScientificTerms(earlyHit.answer, query),
-              sources: cachedSources,
+              sources: earlyTrust.labeledSources,
               videos,
               factCheck: null,
               related: [],
               source: "Cached (verified)",
               aiQuota: aiQuotaPayload(),
               _cached: true,
+              _funnel: earlyTrust.funnel,
+              _coverage: earlyTrust.coverage,
+              _record: earlyTrust.record,
+              confidence: earlyTrust.confidence,
+              degraded: false,
+              stageHealth: [{ name: "cache", ok: true, ms: Math.max(0, Date.now() - (requestT0 || Date.now())) }],
             }),
             { status: 200, headers: cors }
           );
@@ -15774,10 +16011,42 @@ async function runSearchPipeline(pctx) {
     // an entitlement bypass, and a served hit counts as an AI answer.
     if (cachedAnswer && cachedAnswer.score >= 2 && aiSynthesisAllowed) {
       await meterAiAnswer();
+      // TRUST ON CACHE SERVES (2026-10-13, wave two part two): same
+      // standing rule as the early cache return . a cached answer is
+      // served with its trust artifacts recomputed under current
+      // rules; nothing about the answer text changes. Here retrieval
+      // DID run for this response (the served source list is this
+      // run's), so the funnel, the record, and the stage health are
+      // this run's real values, computed against the SERVED pair
+      // (the stored answer read against this run's sources): the
+      // cited flags the funnel and coverage count come from the
+      // stored answer's markers against this list, the derivation
+      // the main assembly performs. Synthesis model is null . the
+      // cache does not store which model wrote the answer.
+      const laterDiag = (gResult && gResult._diag) || {};
+      const laterF = laterDiag.funnel;
+      const laterNonEng = Array.isArray(laterDiag.nonEnglish) ? laterDiag.nonEnglish.length : 0;
+      const laterTrust = buildCachedServeTrust({
+        answer: cachedAnswer.answer,
+        sources: sourceList,
+        question: query,
+        askedAt: new Date(),
+        diag: gResult && gResult._diag,
+        databases: publicSourcesQueried(),
+        funnel: laterF && typeof laterF.gathered === "number" ? {
+          gathered: laterF.gathered,
+          deduped: typeof laterF.deduped === "number" ? laterF.deduped : null,
+          excludedWeak: typeof laterF.deduped === "number"
+            ? Math.max(0, laterF.deduped - sourceList.length) : null,
+          excludedNonEnglish: (laterNonEng + (excludedNonEnglishOuter || 0)) || null,
+          excludedRetracted: typeof laterF.excludedRetracted === "number" ? laterF.excludedRetracted : null,
+        } : null,
+        degraded: stageHealthDegraded(stageHealth),
+      });
       return new Response(
         JSON.stringify({
           answer: italicizeScientificTerms(cachedAnswer.answer, query),
-          sources: sourceList,
+          sources: laterTrust.labeledSources,
           relevanceGatedOut,
           videos,
           factCheck: null,
@@ -15786,6 +16055,12 @@ async function runSearchPipeline(pctx) {
           aiQuota: aiQuotaPayload(),
           ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag })),
           _cached: true,
+          _funnel: laterTrust.funnel,
+          _coverage: laterTrust.coverage,
+          _record: laterTrust.record,
+          confidence: laterTrust.confidence,
+          degraded: stageHealthDegraded(stageHealth),
+          stageHealth: publicStageHealth(stageHealth),
         }),
         { status: 200, headers: cors }
       );
@@ -17374,6 +17649,13 @@ async function runSearchPipeline(pctx) {
     // actually has the setting on, so the UI stays exactly as opt-in as the
     // toggle promises.
     let factCheckResult = null;
+    // Stage timing and attempt tracking for the fact check stage
+    // record below: the stage reports real elapsed time, and a stage
+    // that never ran (toggle off, budget gone) is distinguished from
+    // one that ran and found nothing to verify . both are recorded as
+    // skips, not failures (see the stage pushes after synthesis).
+    const factCheckT0 = Date.now();
+    let factCheckAttempted = false;
     // Commit 51 . `&& aiOK` added. Without it, the moment every model is
     // rate-limited (!aiOK), `answer` above gets overwritten with the "Unable
     // To Synthesize . Showing Source Papers Directly" fallback: a formatted
@@ -17392,6 +17674,7 @@ async function runSearchPipeline(pctx) {
     // budget is nearly spent, skip it; the zero-network heuristic below
     // still runs, so correctness is kept and only nuance is lost.
     if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000) {
+      factCheckAttempted = true;
       // v34: the deep, claim-by-claim pass is tried first . see deepFactCheck()
       // above for the two-tier LLM strategy and why it can't reuse callOR/
       // callCF. It replaces the old one-line-per-entity output ("References
@@ -17487,8 +17770,15 @@ async function runSearchPipeline(pctx) {
     // replaces the "Fact-check: NOT CHECKED" state.
     if (!factCheckResult && extractiveOK && useEvidence && evidencePapers.length > 0) {
       const aligned = verifyExtractiveAlignment(answer, evidencePapers);
-      if (aligned.checked) factCheckResult = aligned;
-      stageHealth.push({ name: "fact-check", ok: !!factCheckResult, ms: 0 });
+      if (aligned.checked) {
+        factCheckResult = aligned;
+        stageHealth.push({ name: "fact-check", ok: true, ms: Date.now() - factCheckT0 });
+      } else {
+        // The checker ran and found no checkable claims . a skip,
+        // not a failure. Recording ok false here degraded every
+        // healthy answer whose claims the checker could not read.
+        stageHealth.push({ name: "fact-check", ok: null, skipReason: "nothing to verify", ms: Date.now() - factCheckT0 });
+      }
     }
     // (b) AI PATH . conservative mechanical post-check: flag claims with
     // near-zero vocabulary overlap with the paper they cite. Flagged claims
@@ -17548,16 +17838,30 @@ async function runSearchPipeline(pctx) {
           };
         }
       }
-      stageHealth.push({
-        name: "fact-check",
-        ok: !!(
-          factCheckResult &&
-          Array.isArray(factCheckResult.claims) &&
-          factCheckResult.claims.length > 0 &&
-          factCheckResult.checked !== false
-        ),
-        ms: 0,
-      });
+      // The stage's ok means "produced a checked result", the same
+      // convention as validation and synthesis. A result with no
+      // checked claims behind it means the stage had nothing to
+      // verify . or, when the toggle was off or the budget was
+      // gone, that the named check never ran . and both are skips
+      // (ok null, reason attached), never failures: an unchecked
+      // answer is a confidence cap (buildConfidenceLine applies it),
+      // not a pipeline fault, and must not mark the answer degraded.
+      const fcChecked = !!(
+        factCheckResult &&
+        Array.isArray(factCheckResult.claims) &&
+        factCheckResult.claims.length > 0 &&
+        factCheckResult.checked !== false
+      );
+      if (fcChecked) {
+        stageHealth.push({ name: "fact-check", ok: true, ms: Date.now() - factCheckT0 });
+      } else {
+        stageHealth.push({
+          name: "fact-check",
+          ok: null,
+          skipReason: factCheckAttempted ? "nothing to verify" : "fact check did not run",
+          ms: Date.now() - factCheckT0,
+        });
+      }
     }
 
     // NEXT-GEN disagreement intelligence: source-level conflict detection
@@ -17569,6 +17873,7 @@ async function runSearchPipeline(pctx) {
     // set only. The labels are computed from the final answer first;
     // screened papers the answer never cites cannot make a question
     // look settled and cannot inflate the confidence denominator.
+    const disagreementT0 = Date.now();
     const citedLabels = labelUncitedSources(sourceList, answer);
     const citedIndices = [];
     citedLabels.forEach((s, i) => { if (!s.uncited) citedIndices.push(i); });
@@ -17613,7 +17918,7 @@ async function runSearchPipeline(pctx) {
     // sat next to "No opposing findings surfaced".
     const { conflicts: literatureConflicts, verdict: disagreementVerdict } =
       reconcileDisagreementVerdict(detected, textMined);
-    stageHealth.push({ name: "disagreement", ok: true, ms: 0 });
+    stageHealth.push({ name: "disagreement", ok: true, ms: Date.now() - disagreementT0 });
 
     // NEXT-GEN computed answer instruments: gaps, confidence, coverage.
     const evidenceGaps = (useEvidence && evidencePapers.length > 0)
@@ -17625,7 +17930,7 @@ async function runSearchPipeline(pctx) {
     // curve can be fitted from production data.
     let confidence = (useEvidence && evidencePapers.length > 0)
       ? buildConfidenceLine(citedEvidencePapers, disagreementVerdict, {
-          degraded: !!extractiveOK || stageHealth.some((s) => !s.ok),
+          degraded: !!extractiveOK || stageHealthDegraded(stageHealth),
           extractive: !!extractiveOK,
           tier: answerTier,
           factCheckChecked: !!(
@@ -17798,24 +18103,15 @@ async function runSearchPipeline(pctx) {
         ambiguity,               // { ambiguous, term, resolvedAs, interpretations }
         queryAnalysis: queryAnalysisPayload, // { plainEnglish, keyPhrases, organism, questionType, isNameSearch } | null
         smartFollowUps,          // [{ q, why }] from actual evidence gaps (2026-10-08)
-        degraded: stageHealth.some((s) => !s.ok) || responseKind === "no-results",
+        degraded: stageHealthDegraded(stageHealth) || responseKind === "no-results",
         // 2026-09-12: the synthesis entry also carries its per-leg race
         // summary (winner, legs, failedLegs) . see the synthesis
         // stageHealth.push above. Passed through so the public autopsy
-        // can show it; other stages keep the compact shape.
-        stageHealth: stageHealth.map((s) => {
-          const o = { name: s.name, ok: s.ok, ms: s.ms };
-          if (s.name === "validation") {
-            o.via = s.via || null;
-          }
-          if (s.name === "synthesis") {
-            o.winner = s.winner || null;
-            o.winnerMs = s.winnerMs != null ? s.winnerMs : null;
-            o.legs = s.legs || 0;
-            o.failedLegs = s.failedLegs || [];
-          }
-          return o;
-        }),
+        // can show it; other stages keep the compact shape. Serialized
+        // by publicStageHealth, which also ships each stage's
+        // skipReason . the reason a stage did not produce, without
+        // which a health record shows a failure but never why.
+        stageHealth: publicStageHealth(stageHealth),
         evidenceStructure: evidenceMap,
         /* The result of a stress test, or null. `changed` is computed from
            the fact-check's own extracted claims rather than from the prose,

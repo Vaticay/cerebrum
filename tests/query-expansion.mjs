@@ -34,6 +34,10 @@ const {
   llmValidatePapers,
   defaultValidationCall,
   finalizeValidationHealth,
+  defaultConceptGroupCall,
+  clampStageLegTimeout,
+  publicStageHealth,
+  stageHealthDegraded,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -1010,6 +1014,210 @@ await test("an organism question with no content topic left ships the organism p
   assert.ok(out.includes('"apis mellifera"'), `organism no longer resolves: ${out}`);
   assert.ok(!out.includes("tell"), `framing verb shipped in: ${out}`);
   assert.ok(!out.includes("about"), `framing word shipped in: ${out}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("stage budgets — a hung first leg no longer starves the second (wave two part two, 2026-10-13)");
+
+// Validation legs used to run at a fixed 4000ms each against a 6000ms
+// stage backstop (8000 > 6000): a hung OpenRouter leg consumed its
+// whole abort, and any Groq answer arrived after the caller's race
+// had already discarded the stage. Expansion was worse: 6000ms legs
+// against a 6500ms race left the second leg 500ms. Both stages now
+// clamp each leg against the stage's remaining budget with a reserve
+// held back for the legs still to come (clampStageLegTimeout).
+
+await test("clamp arithmetic at production scale: validation pair fits its 6000ms backstop", () => {
+  const t0 = 100000;
+  // Leg 1 keeps its historic full want.
+  assert.equal(clampStageLegTimeout({ startedAt: t0, now: t0, budgetMs: 6000, wantMs: 4000, legsAfter: 1 }), 4000);
+  // Leg 1 hangs for its full allowance; leg 2 still gets a real shot.
+  assert.equal(clampStageLegTimeout({ startedAt: t0, now: t0 + 4000, budgetMs: 6000, wantMs: 4000, legsAfter: 0 }), 1750);
+  // The pair sums inside the backstop, so leg 2's answer is usable.
+  assert.ok(4000 + 1750 <= 6000);
+});
+
+await test("clamp arithmetic at production scale: expansion pair fits its 6500ms race", () => {
+  const t0 = 100000;
+  // Leg 1 is the one that changes: 6000 down to 4500 so the reserve exists.
+  assert.equal(clampStageLegTimeout({ startedAt: t0, now: t0, budgetMs: 6500, wantMs: 6000, legsAfter: 1 }), 4500);
+  assert.equal(clampStageLegTimeout({ startedAt: t0, now: t0 + 4500, budgetMs: 6500, wantMs: 6000, legsAfter: 0 }), 1750);
+  assert.ok(4500 + 1750 <= 6500);
+});
+
+await test("clamp arithmetic: a fast failing first leg leaves the second its full want", () => {
+  const t0 = 100000;
+  // Leg 1 fails in 5ms (today's capped fleet behavior): leg 2 is
+  // clamped by its want, not by the reserve math. Fast fail behavior
+  // is byte for byte the old behavior.
+  assert.equal(clampStageLegTimeout({ startedAt: t0, now: t0 + 5, budgetMs: 6000, wantMs: 4000, legsAfter: 0 }), 4000);
+  assert.equal(clampStageLegTimeout({ startedAt: t0, now: t0 + 5, budgetMs: 6500, wantMs: 6000, legsAfter: 0 }), 6000);
+  // And an already blown budget still yields the floor, never zero or negative.
+  assert.equal(clampStageLegTimeout({ startedAt: t0, now: t0 + 99999, budgetMs: 6000, wantMs: 4000, legsAfter: 0 }), 500);
+});
+
+const hangUntilAbort = (init) => new Promise((_, reject) => {
+  const sig = init && init.signal;
+  if (sig) sig.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+});
+// Scaled stage timings so the hang scenario runs in about a second:
+// budget 1200, want 800, reserve 350 per later leg, final reserve 50.
+// Leg 1 clamps to min(800, 1200-400) = 800; leg 2 then gets 350.
+const SCALED = { budgetMs: 1200, wantMs: 800, reservePerLegMs: 350, finalReserveMs: 50, floorMs: 40 };
+
+await test("a hung OpenRouter validation leg aborts on budget and the Groq leg answers inside the stage", async () => {
+  const realFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = (url, init) => {
+    urls.push(String(url));
+    if (String(url).includes("openrouter.ai")) return hangUntilAbort(init);
+    return Promise.resolve({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: "[{\"id\":1,\"verdict\":\"RELEVANT\"}]" } }] }),
+    });
+  };
+  try {
+    const started = Date.now();
+    const out = await defaultValidationCall([{ role: "user", content: "x" }], "or-token", { GROQ_KEY: "groq-key" }, SCALED);
+    const elapsed = Date.now() - started;
+    assert.equal(out && out.via, "groq", "the second leg must answer after the first hangs");
+    assert.equal(urls.length, 2);
+    assert.ok(urls[0].includes("openrouter.ai") && urls[1].includes("api.groq.com"), "leg order unchanged");
+    assert.ok(elapsed >= 700, `leg 1 should hang until its clamped abort (~800ms), took ${elapsed}ms`);
+    assert.ok(elapsed < 1150, `the pair must land inside the 1200ms stage budget, took ${elapsed}ms`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("a hung OpenRouter expansion leg aborts on budget and the Groq leg answers inside the race", async () => {
+  const realFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = (url, init) => {
+    urls.push(String(url));
+    if (String(url).includes("openrouter.ai")) return hangUntilAbort(init);
+    return Promise.resolve({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: "{\"groups\":[[\"germs\",\"microbes\"]]}" } }] }),
+    });
+  };
+  try {
+    const started = Date.now();
+    const out = await defaultConceptGroupCall("can germs in your belly make you sick", { OPENROUTER_KEY: "or-key", GROQ_KEY: "groq-key" }, SCALED);
+    const elapsed = Date.now() - started;
+    assert.equal(out && out.via, "groq", "the second leg must answer after the first hangs");
+    assert.ok(out.text.includes("microbes"), "the second leg's body is the one returned");
+    assert.equal(urls.length, 2);
+    assert.ok(urls[0].includes("openrouter.ai") && urls[1].includes("api.groq.com"), "leg order unchanged");
+    assert.ok(elapsed >= 700, `leg 1 should hang until its clamped abort (~800ms), took ${elapsed}ms`);
+    assert.ok(elapsed < 1150, `the pair must land inside the 1200ms stage budget, took ${elapsed}ms`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("fast fail is unchanged: an instantly failing first leg costs the second nothing", async () => {
+  const realFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes("openrouter.ai")) return { ok: false, status: 429, json: async () => ({}) };
+    return {
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: "[{\"id\":1,\"verdict\":\"RELEVANT\"}]" } }] }),
+    };
+  };
+  try {
+    const started = Date.now();
+    // No timing override: production budgets. An instant failure must
+    // not burn any of them.
+    const out = await defaultValidationCall([{ role: "user", content: "x" }], "or-token", { GROQ_KEY: "groq-key" });
+    const elapsed = Date.now() - started;
+    assert.equal(out && out.via, "groq");
+    assert.equal(urls.length, 2);
+    assert.ok(elapsed < 1000, `fast fail must stay fast, took ${elapsed}ms`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("stage health plumbing — reasons ship, skips do not degrade (wave two part two, 2026-10-13)");
+
+await test("the serializer ships a failed validation's skipReason", () => {
+  // finalizeValidationHealth records WHY no leg answered; the public
+  // serializer used to whitelist it away.
+  const rec = { name: "validation", ok: true, ms: 38 };
+  finalizeValidationHealth(rec, { llmValidatedVia: null });
+  const shipped = publicStageHealth([rec]);
+  assert.equal(shipped.length, 1);
+  assert.equal(shipped[0].ok, false);
+  assert.equal(shipped[0].via, null);
+  assert.equal(shipped[0].skipReason, "no leg answered");
+});
+
+await test("the serializer ships synthesis skip reasons and omits the field when unset", () => {
+  const shipped = publicStageHealth([
+    { name: "synthesis", ok: false, ms: 9000, skipReason: "all legs failed", winner: null, winnerMs: null, legs: 3, failedLegs: ["groq"] },
+    { name: "retrieval", ok: true, ms: 120 },
+  ]);
+  assert.equal(shipped[0].skipReason, "all legs failed");
+  assert.deepEqual(shipped[0].failedLegs, ["groq"]);
+  assert.ok(!("skipReason" in shipped[1]), "no reason recorded, no reason shipped");
+  assert.deepEqual(publicStageHealth(null), []);
+  assert.deepEqual(publicStageHealth(undefined), []);
+});
+
+await test("a skipped stage passes through with ok null intact, neither success nor failure", () => {
+  const shipped = publicStageHealth([
+    { name: "fact-check", ok: null, skipReason: "nothing to verify", ms: 3 },
+  ]);
+  assert.equal(shipped[0].ok, null);
+  assert.equal(shipped[0].skipReason, "nothing to verify");
+});
+
+await test("a nothing to verify fact check no longer degrades a healthy answer", () => {
+  const healthy = [
+    { name: "retrieval", ok: true },
+    { name: "validation", ok: true },
+    { name: "fact-check", ok: null, skipReason: "nothing to verify" },
+    { name: "synthesis", ok: true },
+    { name: "disagreement", ok: true },
+  ];
+  assert.equal(stageHealthDegraded(healthy), false);
+  assert.equal(stageHealthDegraded([]), false);
+  assert.equal(stageHealthDegraded(null), false);
+});
+
+await test("degraded still fires on a real stage failure", () => {
+  assert.equal(stageHealthDegraded([{ name: "validation", ok: false, skipReason: "no leg answered" }]), true);
+  assert.equal(stageHealthDegraded([{ name: "fact-check", ok: null }, { name: "synthesis", ok: false }]), true);
+});
+
+await test("the handler ships stage health through the serializer and the shared degraded rule", () => {
+  const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
+  assert.match(src, /stageHealth: publicStageHealth\(stageHealth\)/,
+    "the main response does not serialize stage health through publicStageHealth");
+  assert.match(src, /degraded: stageHealthDegraded\(stageHealth\) \|\| responseKind === "no-results"/,
+    "the response degraded flag does not use the shared rule");
+  assert.match(src, /degraded: !!extractiveOK \|\| stageHealthDegraded\(stageHealth\)/,
+    "the confidence degraded input does not use the shared rule");
+  assert.ok(!src.includes("stageHealth.some((s) => !s.ok)"),
+    "an inline !s.ok degraded computation survives somewhere");
+});
+
+await test("fact check stage records skips with reasons and real elapsed time", () => {
+  const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
+  assert.ok(src.includes('skipReason: "nothing to verify"'), "the nothing to verify skip is not recorded");
+  assert.ok(src.includes('skipReason: factCheckAttempted ? "nothing to verify" : "fact check did not run"'),
+    "the did not run skip is not distinguished from nothing to verify");
+  assert.equal((src.match(/Date\.now\(\) - factCheckT0/g) || []).length, 4,
+    "all four fact check pushes (checked and skipped, both paths) must carry real elapsed ms");
+  assert.ok(!src.includes('"fact-check", ok: !!factCheckResult, ms: 0'),
+    "the old extractive fact check push (ok false on nothing to verify, ms 0) survives");
+  assert.ok(!src.includes('stageHealth.push({ name: "disagreement", ok: true, ms: 0 })'),
+    "the disagreement stage still hardcodes ms 0");
+  assert.ok(src.includes("ms: Date.now() - disagreementT0"), "the disagreement stage does not record real elapsed ms");
 });
 
 // ═══════════════════════════════════════════════════════════════════

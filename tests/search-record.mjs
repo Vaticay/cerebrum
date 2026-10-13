@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildSearchRecord, buildCoverage } = await import(join(root, "functions/api/search.js"));
+const { buildSearchRecord, buildCoverage, buildCachedServeTrust } = await import(join(root, "functions/api/search.js"));
 const searchSrc = readFileSync(join(root, "functions/api/search.js"), "utf8");
 const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
 
@@ -521,6 +521,204 @@ await test("the panel source rows show authors and journal too", () => {
   assert.match(panel, /\(s\.authors \|\| s\.journal\) \? \(/, "panel rows do not gate on the record carrying authors or journal");
   assert.ok(panel.includes("s.authors") && panel.includes("s.journal"),
     "panel source rows must print authors and journal, not only title and year");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("cached serves carry recomputed trust artifacts (wave two part two, 2026-10-13)");
+
+// Both cache return paths used to ship the bare answer: no funnel,
+// no coverage, no record, no confidence, no stage health. The trust
+// features switched off exactly where repeat traffic lands. The
+// standing rule: a cached answer is served with its trust artifacts
+// recomputed under current rules; nothing about the answer text
+// changes. These fixtures run the exact builder both cache returns
+// call, on the exact payload shape the cache stores (answer text +
+// source list), and the pipeline smoke suite runs the early return
+// end to end through the handler.
+const STORED_AT = Date.parse("2026-10-12T09:30:00.000Z");
+const STORED_ANSWER =
+  "Wood frogs survive freezing because ice forms in the spaces outside their cells while glucose floods the tissues and protects them [1]. " +
+  "The heart stops entirely for the duration and restarts when the frog thaws [2].";
+const STORED_SOURCES = [
+  { title: "Freeze tolerance in the wood frog", authors: "Storey KB, Storey JM", journal: "Journal of Experimental Biology", year: 2021, relevance: 92, abstract: "Wood frogs tolerate the freezing of up to two thirds of their body water, with ice confined to extracellular spaces.", url: "https://doi.org/10.1000/frog1" },
+  { title: "Glucose as a cryoprotectant in a freeze tolerant frog", authors: "Costanzo JP", journal: "Cryobiology", year: 2019, relevance: 88, abstract: "Glucose accumulates in the tissues of frozen frogs and acts as a colligative cryoprotectant during thaw recovery.", url: "https://doi.org/10.1000/frog2" },
+  { title: "Winter ecology of northern amphibians", authors: "Pinder AW", journal: "Amphibia Notes", year: 2015, relevance: 40, abstract: "A general survey of overwintering strategies across northern amphibian species and their habitats.", url: "https://doi.org/10.1000/frog3" },
+];
+
+await test("a cached serve rebuilds coverage, funnel, and record from the stored payload", () => {
+  const trust = buildCachedServeTrust({
+    answer: STORED_ANSWER,
+    sources: STORED_SOURCES,
+    question: "can wood frogs survive being frozen",
+    askedAt: STORED_AT,
+    degraded: false,
+  });
+  // The cited set is recovered from the answer's own markers: the
+  // third stored source was never cited and is flagged, exactly as
+  // the live path flags it.
+  assert.equal(trust.labeledSources.length, 3);
+  assert.ok(!trust.labeledSources[0].uncited && !trust.labeledSources[1].uncited);
+  assert.equal(trust.labeledSources[2].uncited, true);
+  // The funnel is the honest partial: the cited count the payload
+  // proves, null for every count the original run produced but the
+  // cache did not store.
+  assert.deepEqual(trust.funnel, {
+    gathered: null, deduped: null, excludedWeak: null,
+    excludedNonEnglish: null, excludedRetracted: null, cited: 2,
+  });
+  // Coverage denominators stay on the cited set: the uncited 2015
+  // paper must not stretch the year span.
+  assert.equal(trust.coverage.cited, 2);
+  assert.equal(trust.coverage.furtherReading, 1);
+  assert.equal(trust.coverage.gathered, null);
+  assert.equal(trust.coverage.databasesTotal, null);
+  assert.equal(trust.coverage.databasesAnswered, null);
+  assert.equal(trust.coverage.earliestYear, 2019);
+  assert.equal(trust.coverage.latestYear, 2021);
+  // The record: frozen sources with cited flags, the store time as
+  // askedAt, and honestly null retrieval detail and model.
+  assert.ok(trust.record, "a cached serve must carry a record");
+  assert.equal(trust.record.version, 2);
+  assert.equal(trust.record.question, "can wood frogs survive being frozen");
+  assert.equal(trust.record.askedAt, new Date(STORED_AT).toISOString());
+  assert.equal(trust.record.synthesisModel, null);
+  assert.equal(trust.record.databases, null);
+  assert.equal(trust.record.funnel, null);
+  assert.equal(trust.record.executedQueries, null);
+  assert.deepEqual(trust.record.sources.map((s) => s.cited), [true, true, false]);
+  assert.equal(trust.record.sources[0].authors, "Storey KB, Storey JM");
+  // The builder never touches the answer text.
+  assert.ok(!("answer" in trust), "the trust builder must not carry or mutate the answer");
+});
+
+await test("a cached serve's confidence is recomputed under current caps, not served as stored", () => {
+  const trust = buildCachedServeTrust({
+    answer: STORED_ANSWER,
+    sources: STORED_SOURCES,
+    question: "can wood frogs survive being frozen",
+    askedAt: STORED_AT,
+    degraded: false,
+  });
+  // The cited papers are strong (mean relevance 90), but no fact
+  // check ran on a cache serve, so the current unchecked cap (59)
+  // binds . the same cap a live unchecked answer gets.
+  assert.equal(trust.confidence.score, 59);
+  assert.equal(trust.confidence.cap, 59);
+  assert.match((trust.confidence.capReasons || []).join(" "), /fact checking did not check/);
+  assert.equal(trust.confidence.verdictStatus, null);
+});
+
+await test("the later cache path recomputes against this run's real retrieval", () => {
+  // The second cache return sits AFTER retrieval: the served source
+  // list is this run's, so the funnel, coverage, and record carry
+  // this run's real numbers . with cited still re-derived from the
+  // SERVED pair (the stored answer's markers against this list).
+  const trust = buildCachedServeTrust({
+    answer: STORED_ANSWER,
+    sources: STORED_SOURCES,
+    question: "can wood frogs survive being frozen",
+    askedAt: new Date("2026-10-13T15:00:00.000Z"),
+    diag: {
+      rungs: [{ terms: ["wood", "frog", "freeze"], got: 9, perSource: [] }],
+      llmQueries: ["wood frog freeze tolerance survival"],
+      funnel: { gathered: 42, deduped: 20, ranked: 3, nonEnglishInner: 1 },
+      sourceOutcomes: [
+        { source: "europePMC", ok: true, count: 30 },
+        { source: "openAlex", ok: false, count: 0 },
+      ],
+    },
+    databases: [
+      { source: "europePMC", ok: true, count: 30 },
+      { source: "openAlex", ok: false, count: 0 },
+    ],
+    funnel: { gathered: 42, deduped: 20, excludedWeak: 17, excludedNonEnglish: 1, excludedRetracted: 2 },
+    degraded: false,
+  });
+  // Real retrieval counts survive; cited is the served pair's count.
+  assert.equal(trust.funnel.gathered, 42);
+  assert.equal(trust.funnel.excludedWeak, 17);
+  assert.equal(trust.funnel.excludedRetracted, 2);
+  assert.equal(trust.funnel.cited, 2);
+  assert.equal(trust.coverage.databasesTotal, 2);
+  assert.equal(trust.coverage.databasesAnswered, 1);
+  assert.equal(trust.coverage.gathered, 42);
+  // The record carries this run's databases, funnel, and the queries
+  // retrieval actually ran (rung + rescue) . and still no model,
+  // because the cache does not store who wrote the stored answer.
+  assert.ok(trust.record);
+  assert.equal(trust.record.synthesisModel, null);
+  assert.equal(trust.record.funnel.gathered, 42);
+  assert.equal(trust.record.funnel.cited, 2);
+  assert.deepEqual(trust.record.databases.map((d) => d.source), ["europePMC", "openAlex"]);
+  assert.deepEqual(
+    trust.record.executedQueries.map((e) => e.kind), ["rung", "rescue"]);
+  // Both cache returns ship the artifacts (handler wiring, pinned by
+  // source like the rest of this suite's client pins).
+  assert.ok(searchSrc.includes("_record: earlyTrust.record"), "the early cache return does not ship the record");
+  assert.ok(searchSrc.includes("_record: laterTrust.record"), "the later cache return does not ship the record");
+  assert.ok(searchSrc.includes("stageHealth: publicStageHealth(stageHealth)") && searchSrc.includes("_funnel: laterTrust.funnel"),
+    "the later cache return does not ship funnel and serialized stage health");
+});
+
+await test("the record gate stays shut for non cache callers and for empty cache payloads", () => {
+  // Without cachedServe, sources alone never made a record before
+  // and must not start: no funnel and no databases still means no
+  // search to record.
+  assert.equal(buildSearchRecord({
+    question: "q", sources: STORED_SOURCES, answer: STORED_ANSWER,
+  }), null);
+  // A cache serve with no stored sources has nothing to stand on.
+  assert.equal(buildSearchRecord({
+    question: "q", sources: [], answer: "", cachedServe: true,
+  }), null);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("executed queries — the record reads everything retrieval ran (wave two part two, 2026-10-13)");
+
+// Live records showed exactly one rung entry even on runs where the
+// LLM rescue, clause fanouts, and the raw fallback had executed: the
+// diag held those query strings at assembly, and the builder never
+// read them. (For the plain question shapes the panel probed, diag
+// genuinely holds only the rung set at assembly . the ladder breaks
+// after rung 1 at 8+ papers and every other producer is gated on low
+// counts . so one rung entry there is the honest count, not a
+// builder defect. What WAS a defect is everything below.)
+
+await test("rescue, clause, raw, and secondary queries reach the record with their kinds", () => {
+  const rec = buildSearchRecord({
+    question: "can wood frogs survive being frozen",
+    askedAt: new Date("2026-10-13T14:00:00.000Z"),
+    diag: {
+      rungs: [{ terms: ["wood", "frog", "freeze"], got: 3, perSource: [] }],
+      llmQueries: ["wood frog freeze tolerance survival", "frog frozen heart restart thaw"],
+      clauseQueries: ["heart restart thaw"],
+      rawFallbackQuery: "Rana sylvatica can wood frogs survive being frozen",
+      secondaryOrganismQueries: ["Lithobates clamitans freeze heart"],
+      funnel: { gathered: 9, deduped: 7, ranked: 3 },
+      sourceOutcomes: [{ source: "europePMC", ok: true, count: 9 }],
+    },
+    sources: [{ title: "Freeze tolerance in the wood frog", year: 2021, uncited: false }],
+    answer: "Wood frogs survive freezing [1].",
+  });
+  assert.ok(rec && Array.isArray(rec.executedQueries), "record must carry executed queries");
+  const byKind = (kind) => rec.executedQueries.filter((e) => e.kind === kind).map((e) => e.query);
+  assert.deepEqual(byKind("rung"), ["wood frog freeze"]);
+  assert.deepEqual(byKind("rescue"), ["wood frog freeze tolerance survival", "frog frozen heart restart thaw"]);
+  assert.deepEqual(byKind("clause"), ["heart restart thaw"]);
+  assert.deepEqual(byKind("raw"), ["Rana sylvatica can wood frogs survive being frozen"]);
+  assert.deepEqual(byKind("secondary"), ["Lithobates clamitans freeze heart"]);
+});
+
+await test("retrieval records the executed strings on the diag at the sites that run them", () => {
+  assert.ok(searchSrc.includes("diag.rawFallbackQuery = rawQ"),
+    "the raw fallback's executed query is not recorded");
+  assert.ok(searchSrc.includes("diag.clauseQueries"),
+    "clause fanout term lists are not recorded");
+  assert.ok(searchSrc.includes("diag.secondaryOrganismQueries"),
+    "secondary organism queries are not recorded");
+  assert.ok(!searchSrc.includes("diag.questionDecomposition = decomp.aspects.map"),
+    "decomposition still records aspects whose searches may never run");
 });
 
 // ═══════════════════════════════════════════════════════════════════

@@ -694,8 +694,23 @@ await test("fact check alignment covers Executive Summary and reports zero check
   );
   assert.equal(empty.checked, false);
   assert.match(empty.summary, /No cited claims were found to check/);
-  assert.doesNotMatch(searchSrc, /name: "fact-check", ok: true/,
-    "fact check stage can still report healthy without checked claims");
+  // Pin updated 2026-10-13 (wave two part two) to the corrected
+  // contract, not weakened: the old pin banned the literal
+  // `name: "fact-check", ok: true` anywhere in the source, which was
+  // free to assert only because the old pushes computed ok inline
+  // (and computed it WRONG for this case: ok false on nothing to
+  // verify, which degraded healthy answers). The invariant this pin
+  // protects is unchanged . the stage may report ok true ONLY when
+  // claims were actually checked . and is now pinned at the guard of
+  // each of the two pushes, with the unchecked case an explicit skip.
+  assert.equal((searchSrc.match(/name: "fact-check", ok: true/g) || []).length, 2,
+    "expected exactly two fact check ok pushes, one per path");
+  assert.match(searchSrc, /if \(aligned\.checked\) \{\s*factCheckResult = aligned;\s*stageHealth\.push\(\{ name: "fact-check", ok: true,/,
+    "the extractive fact check push is not guarded by aligned.checked");
+  assert.match(searchSrc, /if \(fcChecked\) \{\s*stageHealth\.push\(\{ name: "fact-check", ok: true,/,
+    "the AI fact check push is not guarded by fcChecked");
+  assert.match(searchSrc, /name: "fact-check", ok: null, skipReason: "nothing to verify"/,
+    "an unchecked fact check must record a skip, never a healthy or failed stage");
 });
 
 // ══════════════════════════════════════════════════════════════════
