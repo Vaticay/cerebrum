@@ -264,6 +264,64 @@ await test("a bare function runner is accepted as the search runner", async () =
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("tools/call search_literature: the Search record block");
+
+// The record finishes travelling here: a search result whose payload
+// carries a record with a permanent id names the record's page, so
+// an assistant can cite the run itself. Counts come from the record
+// as stored, never from the answer's source list.
+const RECORD_PAYLOAD = {
+  ...SEARCH_PAYLOAD,
+  _record: {
+    id: "r_0123456789abcdef0123456789abcdef",
+    url: "https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef",
+    question: "how do wood frogs survive freezing",
+    askedAt: "2026-10-13T14:00:00.000Z",
+    sources: [
+      { n: 1, title: "Freeze tolerance in the wood frog", cited: true },
+      { n: 2, title: "Cryoprotectants in amphibians", cited: false },
+      { n: 3, title: "Winter ecology of northern amphibians", cited: true },
+    ],
+    databases: [
+      { source: "europePMC", ok: true, count: 40 },
+      { source: "pubmed", ok: true, count: 31 },
+      { source: "openAlex", ok: false, count: 0 },
+    ],
+  },
+};
+
+await test("a record with an id appends its permalink, question, time, and counts", () => {
+  const text = formatSearchToolResult(RECORD_PAYLOAD).content[0].text;
+  assert.ok(text.includes("Search record: https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef"),
+    "record permalink missing");
+  assert.ok(text.includes("Question: how do wood frogs survive freezing"), "record question missing");
+  assert.ok(text.includes("Asked: 2026-10-13T14:00:00.000Z"), "record askedAt missing");
+  assert.ok(text.includes("Sources: 3 in the record, 2 cited in the answer."),
+    "record source counts must come from the record's own flags, not the answer's two source list");
+  assert.ok(text.includes("Databases queried: 3."), "record database count missing");
+  assert.ok(text.indexOf("Search record:") > text.indexOf("Sources\n"),
+    "the record block belongs after the answer and its sources");
+});
+
+await test("a record id without a stored url still derives the permalink", () => {
+  const { url, ...recordNoUrl } = RECORD_PAYLOAD._record;
+  const text = formatSearchToolResult({ ...SEARCH_PAYLOAD, _record: recordNoUrl }).content[0].text;
+  assert.ok(text.includes("Search record: https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef"),
+    "the permalink is not derived from the id");
+});
+
+await test("a record without an id adds nothing: byte stable with no record at all", () => {
+  // A recomputed cache serve's record carries no id because nothing
+  // was stored under one. Pointing at a page that does not exist
+  // would be worse than saying nothing, so the output must be
+  // identical to a payload with no record.
+  const idLess = { ...SEARCH_PAYLOAD, _record: { question: "how do wood frogs survive freezing", sources: [] } };
+  assert.deepEqual(formatSearchToolResult(idLess), formatSearchToolResult(SEARCH_PAYLOAD));
+  assert.ok(!formatSearchToolResult(idLess).content[0].text.includes("Search record:"),
+    "an id less record leaked a record block");
+});
+
+// ═══════════════════════════════════════════════════════════════════
 group("tools/call get_trending");
 
 await test("headlines come back grouped by section with links and the edition", async () => {

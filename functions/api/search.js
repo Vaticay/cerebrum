@@ -8801,6 +8801,72 @@ function recordPartsOf(input) {
   return { diag, sources, funnel, databases };
 }
 
+/* The canonical origin a record permalink is built on. The public
+ * record page (functions/record/[id].js) serves under this origin;
+ * the middleware already canonicalizes every other host to it. */
+const SEARCH_RECORD_ORIGIN = "https://askcerebrum.org";
+
+/* mintSearchRecordId(): a fresh permalink id for one search record.
+ * Random, not content derived: two runs of the same question are two
+ * records, and a content hash would collide them into one page that
+ * can only show one run. 128 bits from the platform CSPRNG, hex
+ * encoded behind an r_ prefix; the time and chance fallback exists
+ * only for runtimes without WebCrypto and still carries enough
+ * entropy for an unguessable link. */
+export function mintSearchRecordId() {
+  try {
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      let hex = "";
+      for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+      return "r_" + hex;
+    }
+  } catch { /* fall through to the time and chance mint */ }
+  return "r_" + Date.now().toString(36)
+    + Math.random().toString(36).slice(2, 10)
+    + Math.random().toString(36).slice(2, 10);
+}
+
+/* storeSearchRecord(env, record): persist one record under its id so
+ * its permalink resolves at the public record page. Follows the
+ * repo's self healing pattern (the llm_training_data write below):
+ * the table is created on first use, the insert is INSERT OR IGNORE
+ * (an id is minted once per run, so a duplicate would mean a replay,
+ * and the first stored copy is the run that happened), and every
+ * failure is swallowed into a false return. Best effort by contract:
+ * this never rejects, never throws, and the handler never awaits it
+ * on the response path (it rides waitUntil), so a storage failure
+ * costs the record its page and never costs the user their answer.
+ * A record without an id is not stored at all: there would be no
+ * address to store it under. */
+export async function storeSearchRecord(env, record) {
+  try {
+    if (!env || !env.DB || !record || typeof record !== "object") return false;
+    if (typeof record.id !== "string" || !record.id) return false;
+    await env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS search_records (" +
+      "id TEXT NOT NULL PRIMARY KEY, question TEXT, asked_at TEXT, " +
+      "record TEXT NOT NULL, created_at INTEGER NOT NULL)"
+    ).run();
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO search_records " +
+      "(id, question, asked_at, record, created_at) " +
+      "VALUES (?, ?, ?, ?, ?)"
+    ).bind(
+      record.id,
+      String(record.question || "").slice(0, 1000),
+      String(record.askedAt || ""),
+      JSON.stringify(record),
+      Date.now()
+    ).run();
+    return true;
+  } catch (e) {
+    console.error("[Cerebrum] search record store failed:", e && e.message);
+    return false;
+  }
+}
+
 /* buildSearchRecord(input): the exportable, re runnable record of one
  * search, assembled from data the handler already has at response
  * assembly time. Input fields (all optional, read defensively):
@@ -8818,6 +8884,14 @@ function recordPartsOf(input) {
  *   sources          the frozen final source list
  *   answer           the final answer text (derives cited flags)
  *   diag             gResult._diag, read for anything not passed directly
+ *   recordId         a permalink id minted by the caller (see
+ *                    mintSearchRecordId). When present and well formed
+ *                    the record carries it as `id`, plus `url`, the
+ *                    absolute permalink the public record page serves.
+ *                    The caller that passes an id is responsible for
+ *                    storing the record under it (storeSearchRecord):
+ *                    an id is a promise that the page exists, so a
+ *                    record is never stamped with an id nobody stored.
  * Returns null when retrieval never ran: no funnel and no database
  * outcomes means there is no search to record. (A cache serve passes
  * cachedServe with the stored source list instead . see
@@ -8897,6 +8971,13 @@ export function buildSearchRecord(input) {
       };
     });
 
+    // The permalink identity, stamped only when the caller minted an
+    // id for this record and is storing it under that id. The shape
+    // check keeps a malformed caller value from ever becoming a URL.
+    const recordId = typeof input.recordId === "string"
+      && /^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/.test(input.recordId)
+      ? input.recordId : null;
+
     return {
       // Version 2 (2026-10-13): sources carry authors and journal,
       // and the record carries the executed query set. Consumers read
@@ -8904,6 +8985,7 @@ export function buildSearchRecord(input) {
       // client panel and Markdown renderer name the fields they use),
       // so the richer record is safe to ship under the new version.
       version: 2,
+      ...(recordId ? { id: recordId, url: SEARCH_RECORD_ORIGIN + "/record/" + recordId } : {}),
       askedAt,
       question: String(input.question != null ? input.question : input.query != null ? input.query : "").trim().slice(0, 1000),
       structuredQuery,
@@ -8983,6 +9065,15 @@ export function buildCoverage(input) {
  * the record's retrieval detail is null. The later path passes this
  * request's own diag, databases, and funnel, because that retrieval
  * genuinely ran and produced the served source list.
+ *
+ * The record's identity follows the same rule: a cached serve's
+ * record is recomputed on serve and is NOT stored, so it is built
+ * with no recordId and carries no id and no permalink. The original
+ * run's record, when it was stored, keeps its own id; this serve
+ * must not claim that id (the recomputed record is a different
+ * artifact, rebuilt under current rules) and must not mint one
+ * either (nothing would be stored under it, so the link would 404).
+ * The client panel says as much where the link would sit.
  * Input: { answer, sources, question, askedAt, diag, databases,
  * funnel, degraded }. `degraded` is the serve's own degraded basis
  * (the later path passes its stage list's verdict; the early path
@@ -18057,6 +18148,14 @@ async function runSearchPipeline(pctx) {
       databases: publicSourcesQueried(),
       answer,
     });
+    /* The record gets its permanent id here, at the one assembly
+     * point both the AI and the extractive paths ship from, and is
+     * stored under that id so the permalink in the response resolves
+     * at the public record page. The store is best effort and rides
+     * waitUntil: storeSearchRecord never rejects, and a failed store
+     * costs the record its page, never the user their answer. The
+     * record ships in this response either way. */
+    const searchRecordId = mintSearchRecordId();
     const searchRecord = buildSearchRecord({
       question: query,
       askedAt: new Date(),
@@ -18065,7 +18164,14 @@ async function runSearchPipeline(pctx) {
       synthesisModel: synthWinner ? String(synthWinner.model) : null,
       sources: labeledSources,
       answer,
+      recordId: searchRecordId,
     });
+    if (searchRecord) {
+      const storedRecord = storeSearchRecord(env, searchRecord);
+      if (typeof waitUntil === "function") {
+        try { waitUntil(storedRecord); } catch (cbErr) { console.error("[Cerebrum] search.js record store waitUntil:", cbErr); }
+      }
+    }
 
     return new Response(
       JSON.stringify({

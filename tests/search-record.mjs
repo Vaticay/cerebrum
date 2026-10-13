@@ -26,9 +26,11 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildSearchRecord, buildCoverage, buildCachedServeTrust } = await import(join(root, "functions/api/search.js"));
+const { buildSearchRecord, buildCoverage, buildCachedServeTrust, mintSearchRecordId, storeSearchRecord } = await import(join(root, "functions/api/search.js"));
+const recordRoute = await import(join(root, "functions/record/[id].js"));
 const searchSrc = readFileSync(join(root, "functions/api/search.js"), "utf8");
 const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
+const recordRouteSrc = readFileSync(join(root, "functions/record/[id].js"), "utf8");
 
 let passed = 0;
 const failures = [];
@@ -719,6 +721,343 @@ await test("retrieval records the executed strings on the diag at the sites that
     "secondary organism queries are not recorded");
   assert.ok(!searchSrc.includes("diag.questionDecomposition = decomp.aspects.map"),
     "decomposition still records aspects whose searches may never run");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("record identity: permanent id, permalink, and persistence (2026-10-13)");
+
+// The rescore's record finding: the record had no permanent ID or
+// URL, was stored nowhere addressable, and could not be cited or
+// reopened. The contract now: the handler mints a random id at the
+// one assembly point, buildSearchRecord stamps it (plus the absolute
+// permalink) only when a caller passes it, and the handler stores
+// the record under that id. An id is a promise the page exists, so
+// nothing is stamped that nobody stored: cache serves, whose records
+// are recomputed per serve and stored nowhere, carry no id at all.
+
+await test("a caller passed recordId is stamped with its absolute permalink", () => {
+  const rec = buildSearchRecord({ ...FULL_INPUT, recordId: "r_0123456789abcdef0123456789abcdef" });
+  assert.equal(rec.id, "r_0123456789abcdef0123456789abcdef");
+  assert.equal(rec.url, "https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef");
+});
+
+await test("no recordId means no id and no url keys, the pre permalink shape", () => {
+  const rec = buildSearchRecord(FULL_INPUT);
+  assert.ok(!("id" in rec), "record without a caller id must not gain one");
+  assert.ok(!("url" in rec), "record without a caller id must not gain a url");
+});
+
+await test("a malformed recordId is ignored rather than stamped into a URL", () => {
+  for (const bad of ["has spaces in it", "a/b", "", "short", "x".repeat(200), 42, null]) {
+    const rec = buildSearchRecord({ ...FULL_INPUT, recordId: bad });
+    assert.ok(!("id" in rec), `recordId ${JSON.stringify(bad)} must not stamp`);
+  }
+});
+
+await test("minted ids are r_ prefixed, high entropy, and unique per mint", () => {
+  const a = mintSearchRecordId();
+  const b = mintSearchRecordId();
+  assert.match(a, /^r_[0-9a-f]{32}$/);
+  assert.match(b, /^r_[0-9a-f]{32}$/);
+  assert.notEqual(a, b, "two runs must never mint the same record id");
+});
+
+function fakeRecordDb() {
+  const calls = [];
+  return {
+    calls,
+    prepare(sql) {
+      const call = { sql, binds: null };
+      calls.push(call);
+      return {
+        bind(...args) { call.binds = args; return { run: async () => ({}) }; },
+        run: async () => ({}),
+      };
+    },
+  };
+}
+
+await test("storeSearchRecord creates the table on first use and stores the record under its id", async () => {
+  const db = fakeRecordDb();
+  const rec = buildSearchRecord({ ...FULL_INPUT, recordId: "r_0123456789abcdef0123456789abcdef" });
+  assert.equal(await storeSearchRecord({ DB: db }, rec), true);
+  assert.equal(db.calls.length, 2);
+  assert.match(db.calls[0].sql, /CREATE TABLE IF NOT EXISTS search_records/);
+  assert.match(db.calls[1].sql, /INSERT OR IGNORE INTO search_records/);
+  assert.equal(db.calls[1].binds[0], rec.id);
+  assert.equal(db.calls[1].binds[1], rec.question);
+  assert.equal(db.calls[1].binds[2], rec.askedAt);
+  assert.deepEqual(JSON.parse(db.calls[1].binds[3]), JSON.parse(JSON.stringify(rec)),
+    "the stored JSON is the record itself, id and permalink included");
+});
+
+await test("storeSearchRecord never rejects: no database, no id, and a throwing database all return false", async () => {
+  const rec = buildSearchRecord({ ...FULL_INPUT, recordId: "r_0123456789abcdef0123456789abcdef" });
+  assert.equal(await storeSearchRecord({}, rec), false);
+  assert.equal(await storeSearchRecord(null, rec), false);
+  const noIdDb = fakeRecordDb();
+  assert.equal(await storeSearchRecord({ DB: noIdDb }, buildSearchRecord(FULL_INPUT)), false,
+    "a record with no id has no address to store under");
+  assert.equal(noIdDb.calls.length, 0, "an id less record must not touch the database");
+  const throwingDb = { prepare() { throw new Error("storage is down"); } };
+  assert.equal(await storeSearchRecord({ DB: throwingDb }, rec), false,
+    "a storage failure is a false return, never a rejected promise on the answer path");
+});
+
+await test("the handler mints, stamps, and stores at the one assembly point", () => {
+  assert.match(searchSrc, /const searchRecordId = mintSearchRecordId\(\)/, "the handler does not mint a record id");
+  assert.match(searchSrc, /recordId: searchRecordId/, "the minted id is not passed to buildSearchRecord");
+  assert.match(searchSrc, /storeSearchRecord\(env, searchRecord\)/, "the record is not stored under its id");
+  assert.match(searchSrc, /waitUntil\(storedRecord\)/, "the store does not ride waitUntil off the response path");
+});
+
+await test("a cached serve's recomputed record carries no id and no permalink", () => {
+  // The honesty rule for cache serves: the record is rebuilt on
+  // serve and stored nowhere, so it must neither claim the original
+  // run's id nor mint one whose page would 404.
+  const trust = buildCachedServeTrust({
+    answer: STORED_ANSWER,
+    sources: STORED_SOURCES,
+    question: "can wood frogs survive being frozen",
+    askedAt: STORED_AT,
+    degraded: false,
+  });
+  assert.ok(trust.record, "a cached serve still carries a record");
+  assert.ok(!("id" in trust.record), "a recomputed cache record must not carry an id");
+  assert.ok(!("url" in trust.record), "a recomputed cache record must not carry a permalink");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("public record page: functions/record/[id].js");
+
+const ROUTE_RECORD = {
+  version: 2,
+  id: "r_0123456789abcdef0123456789abcdef",
+  url: "https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef",
+  askedAt: "2026-10-13T14:00:00.000Z",
+  question: "can wood frogs survive being frozen",
+  structuredQuery: "(wood frog) AND (freeze tolerance)",
+  conceptQueries: null,
+  executedQueries: [{ kind: "rung", query: "wood frog freeze" }],
+  llmExpansion: null,
+  databases: [
+    { source: "europePMC", ok: true, count: 40 },
+    { source: "openAlex", ok: false, count: 0 },
+  ],
+  funnel: { gathered: 88, deduped: 61, excludedWeak: 49, excludedNonEnglish: 2, excludedRetracted: 0, cited: 1 },
+  synthesisModel: "groq:openai/gpt-oss-120b",
+  sources: [
+    { n: 1, title: "Freeze tolerance in the wood frog", authors: "Storey KB, Storey JM", journal: "Journal of Experimental Biology", year: 2021, doi: "10.1000/frog1", url: "https://doi.org/10.1000/frog1", cited: true },
+    { n: 2, title: "Winter ecology of northern amphibians", authors: null, journal: null, year: 2015, doi: null, url: "https://example.org/winter", cited: false },
+  ],
+};
+const routeDbWith = (row) => ({ prepare: () => ({ bind: () => ({ first: async () => row }) }) });
+const routeCall = (id, env, suffix = "") => recordRoute.onRequestGet({
+  request: new Request("https://askcerebrum.org/record/" + id + suffix),
+  env,
+  params: { id },
+});
+
+await test("the page renders the record's readable half from the stored JSON", async () => {
+  const res = await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(ROUTE_RECORD) }) });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /text\/html/);
+  const html = await res.text();
+  assert.ok(html.includes("can wood frogs survive being frozen"), "question missing from the page");
+  assert.ok(html.includes("Permanent link: "), "permalink line missing");
+  assert.ok(html.includes("https://askcerebrum.org/record/" + ROUTE_RECORD.id), "permalink address missing");
+  assert.ok(html.includes("Search rung: wood frog freeze"), "executed queries missing or unlabelled");
+  assert.ok(html.includes("europePMC: 40 papers returned"), "database outcomes missing");
+  assert.ok(html.includes("openAlex: did not respond"), "a silent database must read as no response");
+  assert.ok(html.includes("Gathered: 88"), "funnel missing");
+  assert.ok(html.includes("Freeze tolerance in the wood frog"), "source list missing");
+  assert.ok(html.includes("Storey KB, Storey JM"), "source authors missing");
+  assert.ok(html.includes("cited in the answer"), "cited mark missing");
+  assert.ok(html.includes("further reading"), "further reading mark missing");
+  assert.ok(html.includes("Rerun this search"), "rerun action missing");
+  assert.ok(html.includes("/?q=can%20wood%20frogs%20survive%20being%20frozen"), "rerun link does not carry the question");
+  assert.ok(html.includes("?format=json"), "the page does not say how to get the JSON");
+});
+
+await test("the page escapes stored text instead of emitting it as markup", async () => {
+  const hostile = {
+    ...ROUTE_RECORD,
+    question: "can frogs <script>alert(1)</script> freeze",
+    sources: [{ n: 1, title: "A <b>bold</b> claim & an \"quoted\" one", year: 2020, doi: null, url: null, cited: true }],
+  };
+  const res = await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(hostile) }) });
+  const html = await res.text();
+  assert.ok(!html.includes("<script>alert(1)</script>"), "stored question reached the page as live markup");
+  assert.ok(html.includes("&lt;script&gt;"), "stored question was not escaped");
+  assert.ok(html.includes("A &lt;b&gt;bold&lt;/b&gt; claim &amp; an &quot;quoted&quot; one"), "stored title was not escaped");
+});
+
+await test("?format=json returns the stored record JSON verbatim", async () => {
+  const stored = JSON.stringify(ROUTE_RECORD);
+  const res = await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: stored }) }, "?format=json");
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /application\/json/);
+  assert.equal(await res.text(), stored);
+});
+
+await test("an unknown id, a malformed id, and a missing database all get the honest 404 page", async () => {
+  const unknown = await routeCall(ROUTE_RECORD.id, { DB: routeDbWith(null) });
+  assert.equal(unknown.status, 404);
+  assert.ok((await unknown.text()).includes("No search record lives at this address"), "404 page does not say the record is not there");
+  const malformed = await routeCall("not a real id", { DB: routeDbWith({ record: "{}" }) });
+  assert.equal(malformed.status, 404, "a malformed id must never reach the database");
+  const noDb = await routeCall(ROUTE_RECORD.id, {});
+  assert.equal(noDb.status, 404, "no database means no record, stated as a 404");
+  const throwing = await routeCall(ROUTE_RECORD.id, { DB: { prepare() { throw new Error("no table yet"); } } });
+  assert.equal(throwing.status, 404, "a table that does not exist yet is a missing record, not a 500");
+});
+
+await test("the rerun action stashes the baseline under the app's own sessionStorage key", () => {
+  // The page and the app must agree on the key byte for byte, or the
+  // comparison silently never happens. Both sides are pinned to the
+  // same literal here.
+  assert.ok(recordRouteSrc.includes('"cb_record_baseline_v1"'), "the record page writes a different baseline key than the app reads");
+  assert.ok(appSrc.includes('const RECORD_BASELINE_KEY = "cb_record_baseline_v1"'), "the app's baseline key changed");
+  assert.ok(recordRouteSrc.includes("Anyone with this link can read this record"), "the page does not state its shareable by design posture");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("client: permalink, rerun, and the record diff");
+
+await test("the Markdown export prints the permalink when the record carries one", () => {
+  const mdAt = appSrc.indexOf("function searchRecordMarkdown");
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const md = appSrc.slice(mdAt, panelAt);
+  assert.match(md, /if \(record\.url\)/, "the export does not gate the permalink on the record carrying one");
+  assert.match(md, /lines\.push\("Permanent link: " \+ record\.url\)/, "the export does not print the permalink");
+});
+
+await test("the panel shows the permalink with a copy action, and says when there is none", () => {
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const endAt = appSrc.indexOf("function AnswerDiagnostics");
+  const panel = appSrc.slice(panelAt, endAt);
+  assert.match(panel, /sectionRow\("Link", record\.url \|\| "No permanent link was stored for this record\."\)/,
+    "the panel does not show the link or its honest absence");
+  assert.match(panel, /copyToClipboard\(record\.url, "Record link copied"\)/, "no copy action for the permalink");
+  assert.ok(panel.includes("Copy link"), "Copy link action missing");
+});
+
+await test("the panel's rerun stashes its record as baseline and asks the question again", () => {
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const endAt = appSrc.indexOf("function AnswerDiagnostics");
+  const panel = appSrc.slice(panelAt, endAt);
+  assert.ok(panel.includes("Rerun this search"), "Rerun this search action missing from the panel");
+  assert.match(panel, /stashRecordBaseline\(record, t && t\.confidence\)/, "the rerun does not stash the baseline with the turn's confidence");
+  assert.match(panel, /new CustomEvent\("cb:rerun-record", \{ detail: \{ question: record\.question \} \}\)/,
+    "the rerun does not dispatch the rerun event with the question");
+  assert.match(appSrc, /window\.addEventListener\("cb:rerun-record", rerunRecord\)/, "the app shell does not listen for the rerun event");
+  assert.match(appSrc, /askRef\.current\?\.\(q\)/, "the rerun listener does not ask the question");
+});
+
+await test("ask() consumes a matching baseline onto the fresh turn and drops a mismatched one", () => {
+  assert.match(appSrc, /sessionStorage\.getItem\(RECORD_BASELINE_KEY\)/, "ask does not read the baseline stash");
+  assert.match(appSrc, /sessionStorage\.removeItem\(RECORD_BASELINE_KEY\)/, "ask does not consume the stash");
+  assert.match(appSrc, /parsedBaseline\.question\.trim\(\)\.toLowerCase\(\) === question\.trim\(\)\.toLowerCase\(\)/,
+    "the baseline is not gated on the asked question matching");
+  assert.match(appSrc, /_record: data\._record \|\| null, recordBaseline,/, "the fresh turn does not carry the baseline");
+  assert.match(appSrc, /t\.recordBaseline/, "the panel does not read the baseline off the turn");
+  assert.match(appSrc, /<RecordComparison baseline=\{baseline\} record=\{record\} confidence=\{t && t\.confidence\} P=\{P\} \/>/,
+    "the comparison is not rendered in the fresh panel");
+});
+
+function liftDiff() {
+  const fnAt = appSrc.indexOf("function diffSearchRecords(baseline, fresh) {");
+  assert.ok(fnAt > 0, "diffSearchRecords is missing from CerebrumApp.jsx");
+  const fnSrc = appSrc.slice(fnAt, appSrc.indexOf("\n}", fnAt) + 2);
+  return new Function(`${fnSrc}; return diffSearchRecords;`)();
+}
+
+const DIFF_BASE = {
+  question: "can wood frogs survive being frozen",
+  askedAt: "2026-10-12T09:30:00.000Z",
+  databases: [{ source: "europePMC", ok: true, count: 30 }, { source: "pubmed", ok: true, count: 20 }],
+  funnel: { gathered: 40, deduped: 30, excludedWeak: 10, excludedNonEnglish: 0, excludedRetracted: 0, cited: 1 },
+  sources: [
+    { n: 1, title: "Freeze tolerance in the wood frog", doi: "10.1000/frog1", url: "https://doi.org/10.1000/frog1", year: 2021, cited: true },
+    { n: 2, title: "Winter ecology of northern amphibians", doi: "10.1000/frog2", url: "https://doi.org/10.1000/frog2", year: 2015, cited: false },
+  ],
+  confidenceLine: "Moderate confidence: two databases answered and one paper is cited.",
+};
+
+await test("identical records diff to nothing and report unchanged", () => {
+  const diffSearchRecords = liftDiff();
+  const fresh = JSON.parse(JSON.stringify(DIFF_BASE));
+  const d = diffSearchRecords(DIFF_BASE, fresh);
+  assert.equal(d.comparable, true);
+  assert.equal(d.unchanged, true);
+  assert.deepEqual(d.addedSources, []);
+  assert.deepEqual(d.removedSources, []);
+  assert.equal(d.citedDelta, 0);
+  assert.equal(d.gatheredDelta, 0);
+  assert.equal(d.databasesDelta, 0);
+  assert.deepEqual(d.notes, []);
+  assert.equal(d.confidenceLineBefore, DIFF_BASE.confidenceLine);
+  assert.equal(d.confidenceLineAfter, DIFF_BASE.confidenceLine);
+});
+
+await test("an added and a removed source are named, and the count deltas are real", () => {
+  const diffSearchRecords = liftDiff();
+  const fresh = {
+    ...DIFF_BASE,
+    databases: [{ source: "europePMC", ok: true, count: 44 }],
+    funnel: { ...DIFF_BASE.funnel, gathered: 57, cited: 2 },
+    sources: [
+      { n: 1, title: "Winter ecology of northern amphibians", doi: "10.1000/frog2", url: "https://doi.org/10.1000/frog2", year: 2015, cited: true },
+      { n: 2, title: "Glucose as a cryoprotectant in a freeze tolerant frog", doi: "10.1000/frog3", url: "https://doi.org/10.1000/frog3", year: 2019, cited: true },
+    ],
+  };
+  const d = diffSearchRecords(DIFF_BASE, fresh);
+  assert.equal(d.comparable, true);
+  assert.equal(d.unchanged, false);
+  assert.deepEqual(d.addedSources.map((s) => s.title), ["Glucose as a cryoprotectant in a freeze tolerant frog"]);
+  assert.deepEqual(d.removedSources.map((s) => s.title), ["Freeze tolerance in the wood frog"]);
+  assert.equal(d.citedBefore, 1);
+  assert.equal(d.citedAfter, 2);
+  assert.equal(d.citedDelta, 1);
+  assert.equal(d.gatheredDelta, 17);
+  assert.equal(d.databasesDelta, -1);
+});
+
+await test("source identity matches on any shared key: DOI, URL, or normalized title", () => {
+  const diffSearchRecords = liftDiff();
+  // Multi key identity, the bibliography dedupe's own rule: entries
+  // are the same paper when ANY key intersects. The first version of
+  // this diff used a single key by precedence (DOI, else URL, else
+  // title), which could never match a paper whose baseline entry
+  // carried a DOI and whose fresh entry did not. The pin now covers
+  // exactly that cross shape.
+  const fresh = {
+    ...DIFF_BASE,
+    sources: [
+      { n: 1, title: "Freeze tolerance in the wood frog, revised title", doi: "10.1000/FRog1", url: null, year: 2021, cited: true },
+      { n: 2, title: "  winter ecology of northern amphibians ", doi: null, url: null, year: 2015, cited: false },
+    ],
+  };
+  const d = diffSearchRecords(DIFF_BASE, fresh);
+  assert.deepEqual(d.addedSources, [], "a retitled record with the same DOI must not read as a new source");
+  assert.deepEqual(d.removedSources, [], "a paper matched on its title alone must not read as removed");
+});
+
+await test("missing fields degrade to honest notes, never a crash or a fabricated zero", () => {
+  const diffSearchRecords = liftDiff();
+  const noRecord = diffSearchRecords(DIFF_BASE, null);
+  assert.equal(noRecord.comparable, false);
+  assert.ok(noRecord.notes[0].includes("no record"), "a missing record is not named in the notes");
+  assert.equal(noRecord.citedDelta, null);
+  const thin = diffSearchRecords({ question: "q" }, { question: "q", sources: [], funnel: null, databases: null });
+  assert.equal(thin.comparable, true, "two thin records still compare, with notes");
+  assert.ok(thin.notes.some((n) => n.includes("no source list")), "the missing source list is not named");
+  assert.equal(thin.citedBefore, null, "a missing source list is null, not zero");
+  assert.equal(thin.citedAfter, 0, "an empty recorded list is a real zero");
+  assert.equal(thin.gatheredDelta, null);
+  assert.ok(thin.notes.some((n) => n.includes("confidence line is missing")),
+    "a missing confidence line is named instead of compared");
+  assert.equal(thin.confidenceLineBefore, null);
 });
 
 // ═══════════════════════════════════════════════════════════════════

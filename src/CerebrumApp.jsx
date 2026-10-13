@@ -8103,6 +8103,119 @@ const EXECUTED_QUERY_KIND_LABELS = {
   aspect: "Aspect query",
 };
 
+/* The sessionStorage key a rerun baseline waits under. The Search
+   record panel (below) and the public record page (functions/record/
+   [id].js, which writes the same literal) stash an earlier run's
+   record here; ask() picks it up when the asked question matches and
+   rides it onto the fresh turn as recordBaseline, so the fresh
+   panel can compare the two runs. One shot: ask() removes the stash
+   whether it matched or not, so a stale baseline can never attach
+   itself to an unrelated later answer. */
+const RECORD_BASELINE_KEY = "cb_record_baseline_v1";
+
+/* Stash a record as the baseline for the next matching ask. The
+   turn's confidence line rides along on the copy, because the record
+   itself does not store one and the comparison wants both runs'
+   lines; the public record page has no line to stash, so its
+   baselines arrive without one and the diff says so. */
+function stashRecordBaseline(record, confidence) {
+  try {
+    if (!record || typeof record !== "object") return;
+    const baseline = { ...record };
+    if (confidence && typeof confidence.line === "string" && confidence.line) {
+      baseline.confidenceLine = confidence.line;
+    }
+    sessionStorage.setItem(RECORD_BASELINE_KEY, JSON.stringify(baseline));
+  } catch { /* Storage full or blocked: the rerun still runs, just with no baseline to compare against. */ }
+}
+
+/* diffSearchRecords(baseline, fresh): the comparison between an
+   earlier run's record and this run's record, for the rerun view in
+   the Search record panel. Pure: it reads only the two records.
+   Source identity is multi key, the rule the bibliography dedupe
+   already uses: two entries are the same paper when ANY of their
+   keys intersect (DOI, URL, normalized title), because one run may
+   record a paper's DOI while another records only its title.
+   Counts come from the records as stored: cited from the source
+   flags, gathered from the funnel, databases from the outcome list.
+   Either side may carry a confidenceLine string (see
+   stashRecordBaseline); the record itself never stores one. Anything
+   a record does not carry stays null and is named in notes, never
+   smoothed into a fabricated zero. */
+function diffSearchRecords(baseline, fresh) {
+  const usable = (r) => !!r && typeof r === "object";
+  if (!usable(baseline) || !usable(fresh)) {
+    return {
+      comparable: false,
+      notes: ["One of the two runs has no record, so there is nothing to compare."],
+      addedSources: [], removedSources: [],
+      citedBefore: null, citedAfter: null, citedDelta: null,
+      gatheredBefore: null, gatheredAfter: null, gatheredDelta: null,
+      databasesBefore: null, databasesAfter: null, databasesDelta: null,
+      confidenceLineBefore: null, confidenceLineAfter: null,
+      unchanged: false,
+    };
+  }
+  const notes = [];
+  const keysOf = (s) => {
+    if (!s || typeof s !== "object") return [];
+    const keys = [];
+    if (typeof s.doi === "string" && s.doi) keys.push("doi:" + s.doi.toLowerCase());
+    if (typeof s.url === "string" && s.url) keys.push("url:" + s.url);
+    const title = String(s.title || "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (title) keys.push("title:" + title);
+    return keys;
+  };
+  const listOf = (r) => (Array.isArray(r.sources) ? r.sources : null);
+  const baseList = listOf(baseline);
+  const freshList = listOf(fresh);
+  let addedSources = [];
+  let removedSources = [];
+  if (baseList && freshList) {
+    const baseKeys = new Set(baseList.flatMap(keysOf));
+    const freshKeys = new Set(freshList.flatMap(keysOf));
+    addedSources = freshList
+      .filter((s) => !keysOf(s).some((k) => baseKeys.has(k)))
+      .map((s) => ({ title: s.title || "Untitled", year: s.year || null, cited: !!s.cited }));
+    removedSources = baseList
+      .filter((s) => !keysOf(s).some((k) => freshKeys.has(k)))
+      .map((s) => ({ title: s.title || "Untitled", year: s.year || null, cited: !!s.cited }));
+  } else {
+    notes.push("One of the two records has no source list, so source changes cannot be listed.");
+  }
+  const citedOf = (list) => (list ? list.filter((s) => s && s.cited).length : null);
+  const citedBefore = citedOf(baseList);
+  const citedAfter = citedOf(freshList);
+  const gatheredOf = (r) => (r.funnel && typeof r.funnel.gathered === "number" ? r.funnel.gathered : null);
+  const gatheredBefore = gatheredOf(baseline);
+  const gatheredAfter = gatheredOf(fresh);
+  const dbOf = (r) => (Array.isArray(r.databases) ? r.databases.length : null);
+  const databasesBefore = dbOf(baseline);
+  const databasesAfter = dbOf(fresh);
+  const delta = (before, after) => (before === null || after === null ? null : after - before);
+  const citedDelta = delta(citedBefore, citedAfter);
+  const gatheredDelta = delta(gatheredBefore, gatheredAfter);
+  const databasesDelta = delta(databasesBefore, databasesAfter);
+  const confidenceLineBefore = typeof baseline.confidenceLine === "string" && baseline.confidenceLine ? baseline.confidenceLine : null;
+  const confidenceLineAfter = typeof fresh.confidenceLine === "string" && fresh.confidenceLine ? fresh.confidenceLine : null;
+  if (!confidenceLineBefore || !confidenceLineAfter) {
+    notes.push("A confidence line is missing for one of the two runs, so the two cannot be compared line for line.");
+  }
+  const unchanged = addedSources.length === 0 && removedSources.length === 0
+    && citedDelta === 0 && gatheredDelta === 0 && databasesDelta === 0
+    && confidenceLineBefore !== null && confidenceLineBefore === confidenceLineAfter;
+  return {
+    comparable: true,
+    notes,
+    addedSources, removedSources,
+    citedBefore, citedAfter, citedDelta,
+    gatheredBefore, gatheredAfter, gatheredDelta,
+    databasesBefore, databasesAfter, databasesDelta,
+    confidenceLineBefore, confidenceLineAfter,
+    unchanged,
+  };
+}
+
 /* The record as Markdown, built client side from _record so the user
    can paste it into a methods section or a lab notebook and anyone can
    re run the same search. Ends with the record itself as JSON, so the
@@ -8112,6 +8225,10 @@ function searchRecordMarkdown(record) {
   const lines = [];
   lines.push("# Search record");
   lines.push("");
+  if (record.url) {
+    lines.push("Permanent link: " + record.url);
+    lines.push("");
+  }
   lines.push("## Question");
   lines.push(String(record.question || ""));
   lines.push("");
@@ -8199,6 +8316,7 @@ function searchRecordMarkdown(record) {
 function SearchRecordPanel({ t, P }) {
   const coverage = t && t._coverage && typeof t._coverage === "object" ? t._coverage : null;
   const record = t && t._record && typeof t._record === "object" ? t._record : null;
+  const baseline = t && t.recordBaseline && typeof t.recordBaseline === "object" ? t.recordBaseline : null;
   const sentence = coverage ? coverageSentence(coverage) : "";
   if (!sentence && !record) return null;
   const whenLabel = record && record.askedAt
@@ -8231,6 +8349,10 @@ function SearchRecordPanel({ t, P }) {
             {record.funnel && sectionRow("Funnel",
               `Gathered ${record.funnel.gathered} · Deduped ${record.funnel.deduped} · Cited ${record.funnel.cited}`)}
             {sectionRow("Model", record.synthesisModel || "Drafted from sources")}
+            {/* The permalink, or the honest absence of one. A record
+                rebuilt on a cache serve was never stored, so it has
+                no link; saying so beats printing a link that 404s. */}
+            {sectionRow("Link", record.url || "No permanent link was stored for this record.")}
             {Array.isArray(record.sources) && record.sources.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
                 <span style={rowLabel}>Sources</span>
@@ -8260,9 +8382,98 @@ function SearchRecordPanel({ t, P }) {
                 onClick={() => { download("cerebrum-search-record.md", searchRecordMarkdown(record)); }}>
                 Download record
               </button>
+              {record.url ? (
+                <button type="button" className="cb-textbtn" style={{ padding: "6px 0" }}
+                  onClick={() => { copyToClipboard(record.url, "Record link copied"); }}>
+                  Copy link
+                </button>
+              ) : null}
+              {record.question ? (
+                <button type="button" className="cb-textbtn" style={{ padding: "6px 0" }}
+                  onClick={() => {
+                    stashRecordBaseline(record, t && t.confidence);
+                    window.dispatchEvent(new CustomEvent("cb:rerun-record", { detail: { question: record.question } }));
+                  }}>
+                  Rerun this search
+                </button>
+              ) : null}
             </div>
+            {baseline ? (
+              <RecordComparison baseline={baseline} record={record} confidence={t && t.confidence} P={P} />
+            ) : null}
           </div>
         </details>
+      )}
+    </div>
+  );
+}
+
+/* The rerun comparison, rendered inside the fresh turn's Search
+   record disclosure when the turn carries a baseline record (see
+   RECORD_BASELINE_KEY). All numbers come from diffSearchRecords over
+   the two stored records; the fresh side's confidence line is
+   attached here because the record itself never stores one. Nothing
+   renders a number neither record carries: the diff's notes say
+   what could not be compared, in plain words. */
+function RecordComparison({ baseline, record, confidence, P }) {
+  const fresh = { ...record };
+  if (confidence && typeof confidence.line === "string" && confidence.line) {
+    fresh.confidenceLine = confidence.line;
+  }
+  const diff = diffSearchRecords(baseline, fresh);
+  const rowLabel = { fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "normal", textTransform: "none" };
+  const rowValue = { fontSize: 13, color: P.ink2, lineHeight: 1.55, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" };
+  const countRow = (label, before, after) => (before === null || after === null) ? null : (
+    <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
+      <span style={rowLabel}>{label}</span>
+      <span style={rowValue}>{before} in the earlier run, {after} in this run</span>
+    </div>
+  );
+  const sourceList = (label, list) => list.length ? (
+    <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
+      <span style={rowLabel}>{label}</span>
+      <div style={rowValue}>
+        {list.map((s, i) => (
+          <div key={i} style={{ marginBottom: 3 }}>
+            {s.title}{s.year ? ` (${s.year})` : ""}
+            <span style={{ color: P.faint }}>{s.cited ? " · cited" : " · further reading"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null;
+  return (
+    <div style={{ display: "grid", gap: 10, borderTop: `1px solid ${P.line}`, paddingTop: 10 }}>
+      <div style={rowLabel}>Compared with the earlier run</div>
+      {!diff.comparable ? (
+        <p style={{ ...rowValue, margin: 0 }}>{diff.notes[0]}</p>
+      ) : (
+        <>
+          {countRow("Cited", diff.citedBefore, diff.citedAfter)}
+          {countRow("Gathered", diff.gatheredBefore, diff.gatheredAfter)}
+          {countRow("Databases", diff.databasesBefore, diff.databasesAfter)}
+          {sourceList("New in this run", diff.addedSources)}
+          {sourceList("Only in the earlier run", diff.removedSources)}
+          {diff.addedSources.length === 0 && diff.removedSources.length === 0
+            && diff.citedBefore !== null && diff.citedAfter !== null ? (
+              <p style={{ ...rowValue, margin: 0 }}>No sources were added or removed between the two runs.</p>
+            ) : null}
+          {diff.confidenceLineBefore ? (
+            <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
+              <span style={rowLabel}>Confidence, earlier run</span>
+              <span style={rowValue}>{diff.confidenceLineBefore}</span>
+            </div>
+          ) : null}
+          {diff.confidenceLineAfter ? (
+            <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0,1fr)", gap: 12, alignItems: "baseline" }}>
+              <span style={rowLabel}>Confidence, this run</span>
+              <span style={rowValue}>{diff.confidenceLineAfter}</span>
+            </div>
+          ) : null}
+          {diff.notes.map((n, i) => (
+            <p key={i} style={{ ...rowValue, color: P.faint, margin: 0 }}>{n}</p>
+          ))}
+        </>
       )}
     </div>
   );
@@ -20120,14 +20331,26 @@ function App() {
   // Deep components (the answer-footnote quota nudge) open the Pro modal
   // and the auth dialog through window events instead of prop drilling.
   // The event may carry { plan } in detail to preselect a plan.
+  // The Search record panel's Rerun this search rides the same pattern:
+  // it stashes its record as the comparison baseline (see
+  // RECORD_BASELINE_KEY) and dispatches cb:rerun-record with the
+  // question; ask() picks the baseline up when the question matches.
   useEffect(() => {
     const openProEvt = (e) => { setProModalPlan(e?.detail?.plan || "annual"); setProModalOpen(true); };
     const openAuth = () => { setAuthInitialTab("login"); setAuthOpen(true); };
+    const rerunRecord = (e) => {
+      const q = e && e.detail && typeof e.detail.question === "string" ? e.detail.question.trim() : "";
+      if (!q) return;
+      setInput(q);
+      try { askRef.current?.(q); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: rerun record ask:", cbErr); }
+    };
     window.addEventListener("cb:open-pro", openProEvt);
     window.addEventListener("cb:open-auth", openAuth);
+    window.addEventListener("cb:rerun-record", rerunRecord);
     return () => {
       window.removeEventListener("cb:open-pro", openProEvt);
       window.removeEventListener("cb:open-auth", openAuth);
+      window.removeEventListener("cb:rerun-record", rerunRecord);
     };
   }, []);
 
@@ -21342,6 +21565,26 @@ function App() {
       if (data && data.responseKind === "no-results") {
         logZeroResult(question, { filtered: effEvidenceFilter !== "all", suggestions: ((data.noResults && data.noResults.reformulations) || []).length });
       }
+      /* RERUN WITH DIFF (2026-10-13): a baseline record stashed by
+         the Search record panel or the public record page (see
+         RECORD_BASELINE_KEY) rides onto this turn when the question
+         matches, so the fresh panel can compare the two runs. The
+         stash is consumed either way: a baseline for some other
+         question is dropped here, never carried silently onto an
+         unrelated answer. */
+      let recordBaseline = null;
+      try {
+        const stashedBaseline = sessionStorage.getItem(RECORD_BASELINE_KEY);
+        if (stashedBaseline) {
+          sessionStorage.removeItem(RECORD_BASELINE_KEY);
+          const parsedBaseline = JSON.parse(stashedBaseline);
+          if (parsedBaseline && typeof parsedBaseline === "object"
+            && typeof parsedBaseline.question === "string"
+            && parsedBaseline.question.trim().toLowerCase() === question.trim().toLowerCase()) {
+            recordBaseline = parsedBaseline;
+          }
+        }
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: record baseline pickup:", cbErr); }
       const turnId = Date.now() + Math.random();
       const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", impact: data.impact || null, answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
@@ -21351,7 +21594,7 @@ function App() {
         /* TRUST RELEASE (2026-10-13): per answer coverage disclosure and
            the exportable search record, straight from the response. Absent
            on older cached turns; SearchRecordPanel renders nothing then. */
-        _coverage: data._coverage || null, _record: data._record || null,
+        _coverage: data._coverage || null, _record: data._record || null, recordBaseline,
         /* NEXT-GEN answer instruments — computed by the backend on every
            evidence path (AI and deterministic). Absent on older cached
            turns; every renderer below treats absence as "not computed",

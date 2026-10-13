@@ -208,6 +208,37 @@ function answerQualityLine(d) {
   return "";
 }
 
+// The Search record block: when the payload carries a record with a
+// permanent id, the tool result names where that record lives, so an
+// assistant can point at the run itself and not only its answer. The
+// counts come from the record as stored: the source list length, the
+// cited flags on it, and the database outcome list. A record without
+// an id (a recomputed cache serve: nothing was stored, so there is
+// no page to point at) gets no block, and a payload without a record
+// stays byte identical to before.
+function searchRecordBlock(data) {
+  const rec = isObject(data && data._record) ? data._record : null;
+  if (!rec || typeof rec.id !== "string" || !rec.id) return "";
+  const url = typeof rec.url === "string" && rec.url
+    ? rec.url
+    : "https://askcerebrum.org/record/" + rec.id;
+  const lines = ["Search record: " + url];
+  if (typeof rec.question === "string" && rec.question.trim()) {
+    lines.push("Question: " + rec.question.trim());
+  }
+  if (typeof rec.askedAt === "string" && rec.askedAt) {
+    lines.push("Asked: " + rec.askedAt);
+  }
+  if (Array.isArray(rec.sources)) {
+    const cited = rec.sources.filter((s) => isObject(s) && s.cited).length;
+    lines.push(`Sources: ${rec.sources.length} in the record, ${cited} cited in the answer.`);
+  }
+  if (Array.isArray(rec.databases) && rec.databases.length) {
+    lines.push(`Databases queried: ${rec.databases.length}.`);
+  }
+  return lines.join("\n");
+}
+
 // Shape a parsed /api/search payload into an MCP tool result. Pure and
 // defensive: every field it reads may be absent, because the search
 // payload carries several diagnostics only on some paths.
@@ -237,6 +268,8 @@ export function formatSearchToolResult(data) {
   if (typeof d.coverageNote === "string" && d.coverageNote.trim()) {
     text += "\n\nCoverage note: " + d.coverageNote.trim();
   }
+  const record = searchRecordBlock(d);
+  if (record) text += "\n\n" + record;
   return { content: [{ type: "text", text }], isError: false };
 }
 
