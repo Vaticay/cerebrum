@@ -263,6 +263,72 @@ t("new product copy strings contain no dash characters of any kind", () => {
   }
 });
 
+/* ── Watched topics copy pass (2026-10-13) ─────────────────────────
+ * The watch topic flow shipped in the app (WatchTopicButton in
+ * src/CerebrumApp.jsx, watch-topic actions in functions/api/data.js)
+ * with zero marketing presence. These pins keep the published claims
+ * tied to the shipped mechanics: the button's real name, the home
+ * screen card's real name, counts from Europe PMC, the server's real
+ * 40 topic cap, and no tier gate (the API actions carry no plan
+ * check, so the copy names the flow with the free offer and keeps it
+ * out of the Pro list, like the record and MCP above). */
+const WATCH_BLOCK_HEADING = "Watch a topic and new papers surface for you";
+const WATCH_FAQ_QUESTION = "Can Cerebrum tell me when new papers appear on a topic?";
+
+t("features page presents watched topics with the real mechanics", () => {
+  const block = blockByHeading(MARKETING_PAGES.features, WATCH_BLOCK_HEADING);
+  assert.ok(block, "features page is missing the watched topics block");
+  const blockJson = JSON.stringify(block);
+  for (const text of ["Watch this topic", "Topics you're watching", "Europe PMC", "40 topics"]) {
+    assert.ok(blockJson.includes(text), `watched topics copy is missing: ${text}`);
+  }
+  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What you get");
+  assert.ok(whatYouGet, "features page lost its What you get block");
+  const bullet = (whatYouGet.list || []).find((li) => li.includes("Watched topics"));
+  assert.ok(bullet, "What you get lost its Watched topics bullet");
+  const faq = faqByQuestion(MARKETING_PAGES.features, WATCH_FAQ_QUESTION);
+  assert.ok(faq, "features FAQ lost the watched topics answer");
+  assert.ok(faq.a.includes("Europe PMC"), "watched topics FAQ never names Europe PMC");
+  assert.ok(faq.a.includes("40 topics"), "watched topics FAQ never states the 40 topic cap");
+});
+
+t("pricing names watched topics with the free offer, not as a Pro gate", () => {
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
+  assert.ok(freeBlock, "pricing page lost its Free, forever block");
+  const freeJson = JSON.stringify(freeBlock);
+  assert.ok(/watch/i.test(freeJson), "watched topics not listed with the free offer");
+  const proBlock = blockByHeading(MARKETING_PAGES.pricing, "Cerebrum Pro");
+  assert.ok(proBlock, "pricing page lost its Cerebrum Pro block");
+  const proJson = JSON.stringify(proBlock.list || []);
+  assert.ok(!/watch/i.test(proJson), "watched topics must not be listed as a Pro feature");
+});
+
+t("watched topics copy strings contain no dash characters of any kind", () => {
+  const DASHES = ["-", "–", "—"];
+  const pieces = [];
+  const block = blockByHeading(MARKETING_PAGES.features, WATCH_BLOCK_HEADING);
+  assert.ok(block, "missing watched topics block for dash check");
+  pieces.push(JSON.stringify(block));
+  const faq = faqByQuestion(MARKETING_PAGES.features, WATCH_FAQ_QUESTION);
+  assert.ok(faq, "missing watched topics FAQ entry for dash check");
+  pieces.push(JSON.stringify(faq));
+  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What you get");
+  assert.ok(whatYouGet, "features page lost its What you get block for dash check");
+  const bullet = (whatYouGet.list || []).find((li) => li.includes("Watched topics"));
+  assert.ok(bullet, "missing Watched topics bullet for dash check");
+  pieces.push(JSON.stringify(bullet));
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
+  assert.ok(freeBlock && Array.isArray(freeBlock.list), "Free, forever list missing for dash check");
+  const freeBullet = freeBlock.list.find((li) => /watch/i.test(li));
+  assert.ok(freeBullet, "missing pricing free watch bullet for dash check");
+  pieces.push(JSON.stringify(freeBullet));
+  for (const piece of pieces) {
+    for (const d of DASHES) {
+      assert.ok(!piece.includes(d), `dash character ${JSON.stringify(d)} found in watch copy: ${piece.slice(0, 110)}`);
+    }
+  }
+});
+
 /* ── Dash guard (2026-10-13 polish pass) ───────────────────────────
  * The rule is absolute: no em or en dash in user visible copy,
  * because they read as AI generated. The product copy pins above

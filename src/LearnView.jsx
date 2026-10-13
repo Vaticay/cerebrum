@@ -209,6 +209,21 @@ function seededShuffle(arr, seed) {
   }
   return out;
 }
+/* The lesson Player is a modal layer, so Tab must cycle inside it
+   instead of leaking to the page behind. Given how many focusable
+   controls the shell holds, which one currently has focus (its index
+   in the list, or a negative number when focus sits on the shell
+   itself), and whether Shift is held, decide where Tab goes next.
+   Returns the index to focus, "hold" when nothing inside can take
+   focus yet (keep focus on the shell), or null when the browser's
+   natural move already lands inside the shell. */
+export function focusTrapStep(count, activeIndex, shiftKey) {
+  if (!count || count <= 0) return "hold";
+  if (activeIndex < 0 || activeIndex >= count) return shiftKey ? count - 1 : 0;
+  if (!shiftKey && activeIndex === count - 1) return 0;
+  if (shiftKey && activeIndex === 0) return count - 1;
+  return null;
+}
 function normKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -1811,12 +1826,26 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   exitRef.current = onExit;
 
   /* The Player is a full screen layer: focus moves into it on open
-     and back to whatever held it on close, and Escape closes it. */
+     and back to whatever held it on close, Escape closes it, and Tab
+     cycles inside it for as long as it is open. The listener is
+     removed with the Player, so a closed Player never traps Tab. */
   useEffect(() => {
     const prevFocus = typeof document !== "undefined" ? document.activeElement : null;
     const node = shellRef.current;
     if (node && node.focus) node.focus({ preventScroll: true });
-    const onKey = (e) => { if (e.key === "Escape" && exitRef.current) exitRef.current(); };
+    const onKey = (e) => {
+      if (e.key === "Escape" && exitRef.current) { exitRef.current(); return; }
+      if (e.key !== "Tab") return;
+      const shellNode = shellRef.current;
+      if (!shellNode || typeof shellNode.querySelectorAll !== "function") return;
+      const focusables = Array.from(shellNode.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter((el) => el.getClientRects().length > 0);
+      const step = focusTrapStep(focusables.length, focusables.indexOf(document.activeElement), e.shiftKey);
+      if (step === null) return;
+      e.preventDefault();
+      if (typeof step === "number" && focusables[step]) focusables[step].focus({ preventScroll: true });
+    };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
@@ -2020,7 +2049,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   };
 
   const shell = (children) => (
-    <div ref={shellRef} tabIndex={-1} style={{
+    <div ref={shellRef} tabIndex={-1} role="dialog" aria-modal="true"
+      aria-label={finished ? "Course complete: " + course.title : "Lesson: " + (lesson ? lesson.title : course.title)}
+      style={{
       position: "fixed", inset: 0, zIndex: 210, background: P.bg, color: P.ink,
       overflowY: "auto", fontFamily: "var(--cb-font)", WebkitOverflowScrolling: "touch",
       outline: "none",
@@ -2111,9 +2142,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     return shell(
       <div style={{ maxWidth: 620, margin: "0 auto", padding: "26px 24px 48px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}>
-          <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 6 }}>✕</button>
+          <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 6, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
           <span style={{ fontSize: FONT_SIZES.caption, color: P.muted, letterSpacing: "0.05em" }}>LESSON {lessonIdx + 1} OF {course.lessons.length}</span>
-          <span style={{ width: 34 }} />
+          <span style={{ width: 44 }} />
         </div>
         <div className="lv-rise" style={{ textAlign: "center", paddingTop: "6vh" }}>
           <Cover title={course.title} height={150} radius={20} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
@@ -2278,7 +2309,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       {/* top bar: close, segmented course progress, session XP */}
       <div style={{ maxWidth: 680, width: "100%", margin: "0 auto", padding: "20px 24px 0", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 21, lineHeight: 1, padding: 4 }}>✕</button>
+          <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 21, lineHeight: 1, padding: 4, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
           <div style={{ display: "flex", gap: 5, flex: 1 }}>
             {course.lessons.map((l, li) => (
               <div key={l.id} style={{ flex: 1, height: 10, borderRadius: 999, background: P.line, overflow: "hidden" }}>

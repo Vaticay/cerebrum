@@ -1021,7 +1021,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
           }}>
             <Icon name="edit" size={13} />
-            <span><strong>Draft.</strong> These steps were lifted from the answer — review every node before you trust the chart.</span>
+            <span><strong>Draft.</strong> These steps were lifted from the answer. Review every node before you trust the chart.</span>
             <button type="button" onClick={() => setDraftNotice(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption }}>Dismiss</button>
           </div>
         )}
@@ -1055,7 +1055,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} isMobile={isMobile} onClick={() => addNode(t)} />)}
             {!isMobile && (
               <div style={{ marginTop: "auto", padding: "12px 6px 2px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                <span style={{ color: P.ink2, fontWeight: 650 }}>Tip</span> — double-click a node to rename it.
+                <span style={{ color: P.ink2, fontWeight: 650 }}>Tip</span>: double-click a node to rename it.
               </div>
             )}
           </div>
@@ -1232,7 +1232,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   Click a node or arrow to edit it here.
                 </div>
                 <div style={{ marginTop: 12, padding: 10, borderRadius: RADIUS.lg, background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.18)}`, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65 }}>
-                  <span style={{ fontWeight: 700, color: accent }}>Connect</span> links two nodes — click the source, then the target.
+                  <span style={{ fontWeight: 700, color: accent }}>Connect</span> links two nodes. Click the source, then the target.
                   {sources && sources.length > 0 && <span> Evidence nodes can cite this answer's papers.</span>}
                 </div>
               </div>
@@ -1957,7 +1957,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             <button onClick={newDiagram} style={{ ...railItem, borderRadius: 6, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 600, marginBottom: 8 }}>
               <span aria-hidden="true">＋</span> New diagram
             </button>
-            <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file — loaded verbatim"
+            <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file, loaded verbatim"
               style={{ ...railItem, borderRadius: 6, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 600, marginBottom: 8 }}>
               <span aria-hidden="true">⤒</span> Import .mmd
             </button>

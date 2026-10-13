@@ -379,7 +379,7 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
       {newKey && (
         <div style={{ margin: "0 0 12px", padding: 14, borderRadius: 12, border: `1px solid ${STATUS.good}`, background: withAlpha(STATUS.good, 0.07) }}>
           <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
-            Your new key — copy it now, it won't be shown again
+            Your new key. Copy it now, it won't be shown again
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <code style={{ flex: 1, fontSize: FONT_SIZES.small, color: P.ink, background: P.surface, border: `1px solid ${P.line}`, borderRadius: 8, padding: "8px 12px", overflowX: "auto", whiteSpace: "nowrap", fontFamily: "ui-monospace, monospace" }}>
@@ -781,7 +781,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
       {phraseMode === "setup" && challengeOn && (
         <div style={{ marginTop: 4 }}>
           <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)" }}>
-            Prove you wrote them down — type the requested words:
+            Prove you wrote them down. Type the requested words:
           </div>
           {challenges.map((c) => (
             <div key={c.index} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -1328,11 +1328,11 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
             <div style={{ ...fieldLabel, fontSize: FONT_SIZES.small, color: P.ink, marginBottom: 10 }}>Before you turn this on, three things you should know:</div>
             <div style={warnLine}>
               <Icon name="warning" size={15} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
-              <span>If you lose your recovery phrase and lose all your devices, your saved papers and investigations are gone forever. Cerebrum cannot get them back — there is no backdoor, and support can't override this.</span>
+              <span>If you lose your recovery phrase and lose all your devices, your saved papers and investigations are gone forever. Cerebrum cannot get them back. There is no backdoor, and support can't override this.</span>
             </div>
             <div style={warnLine}>
               <Icon name="warning" size={15} style={{ color: statusWarn(P), flexShrink: 0, marginTop: 1 }} />
-              <span>Anything you saved before today was readable from Cerebrum's servers. Those items stay labeled that way, honestly — encryption can't rewrite history.</span>
+              <span>Anything you saved before today was readable from Cerebrum's servers. Those items stay labeled that way, honestly. Encryption can't rewrite history.</span>
             </div>
             <div style={{ ...warnLine, marginBottom: 14 }}>
               <Icon name="warning" size={15} style={{ color: statusWarn(P), flexShrink: 0, marginTop: 1 }} />
@@ -1369,7 +1369,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         {enableStep === "migrating" && (
           <div style={noteBox}>
             <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-              Making your library private — encrypting everything on this device, uploading it, then removing the old readable copies. Keep this tab open.
+              Making your library private: encrypting everything on this device, uploading it, then removing the old readable copies. Keep this tab open.
             </div>
           </div>
         )}
@@ -1454,7 +1454,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
             </label>
             {!disableConsent && (
               <div style={{ ...warnLine, marginBottom: 12 }}>
-                <span>Unchecked, your library stays only in this browser until you save or change something — then normal syncing resumes as readable data.</span>
+                <span>Unchecked, your library stays only in this browser until you save or change something. Then normal syncing resumes as readable data.</span>
               </div>
             )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -3051,7 +3051,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {resetOpen && (
         <Dialog label="Reset all settings" onClose={() => setResetOpen(false)} zIndex={240}>
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
-            Put every preference back to its default — theme, accent, sounds, motion, answer style, notifications, everything on the Appearance, Sound & motion, and Answers tabs.
+            Put every preference back to its default: theme, accent, sounds, motion, answer style, notifications, everything on the Appearance, Sound & motion, and Answers tabs.
           </p>
           <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Your library, history and watchlist are untouched.
@@ -3065,7 +3065,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {deleteOpen && (
         <Dialog label="Delete account" onClose={() => setDeleteOpen(false)} zIndex={240}>
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 450, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
-            Permanently delete your account and all its data — email, library, history, everything on our servers.
+            Permanently delete your account and all its data: email, library, history, everything on our servers.
           </p>
           <p style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Immediately, and for good. If you have an active subscription,{" "}

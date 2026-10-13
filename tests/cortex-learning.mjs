@@ -55,7 +55,7 @@ const WANTED = [
   "flattenPathLessons", "isLessonUnlocked", "pathProgress",
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
   "MASTERY_MIN_PCT", "isLessonMastered", "orderScore", "parseRichText",
-  "TOUR_STEPS",
+  "TOUR_STEPS", "focusTrapStep",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -83,6 +83,7 @@ const {
   LEARNING_PATHS, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
   pathProgress, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
   MASTERY_MIN_PCT, isLessonMastered, orderScore, parseRichText, TOUR_STEPS,
+  focusTrapStep,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -538,6 +539,44 @@ await test("the Player manages focus and Escape", () => {
   assert.ok(learnSrc.includes("tabIndex={-1}"), "the Player shell is not a focus target");
   assert.ok(learnSrc.includes("shellRef"), "the Player shell has no ref for focus");
   assert.ok(learnSrc.includes('e.key === "Escape"'), "Escape does not close the Player");
+});
+
+await test("the Player shell is a labelled modal dialog", () => {
+  assert.ok(learnSrc.includes('role="dialog"'), "the Player shell has no dialog role");
+  assert.ok(learnSrc.includes('aria-modal="true"'), "the Player shell is not marked modal");
+  assert.ok(learnSrc.includes('"Lesson: " + (lesson ? lesson.title : course.title)'), "the dialog label does not name the lesson being played");
+  assert.ok(learnSrc.includes('"Course complete: " + course.title'), "the finished screen label does not name the course");
+});
+
+await test("focusTrapStep wraps focus at both ends of the Player", () => {
+  // Focus on the shell itself (index below zero) enters at an end.
+  assert.equal(focusTrapStep(3, -1, false), 0, "Tab from the shell should land on the first control");
+  assert.equal(focusTrapStep(3, -1, true), 2, "Shift Tab from the shell should land on the last control");
+  // The ends wrap.
+  assert.equal(focusTrapStep(3, 2, false), 0, "Tab on the last control should wrap to the first");
+  assert.equal(focusTrapStep(3, 0, true), 2, "Shift Tab on the first control should wrap to the last");
+  // Moves that stay inside are left to the browser.
+  assert.equal(focusTrapStep(3, 0, false), null, "Tab mid list should move naturally");
+  assert.equal(focusTrapStep(3, 1, false), null, "Tab mid list should move naturally");
+  assert.equal(focusTrapStep(3, 1, true), null, "Shift Tab mid list should move naturally");
+  assert.equal(focusTrapStep(3, 2, true), null, "Shift Tab mid list should move naturally");
+  // A single control cycles onto itself; none at all holds focus.
+  assert.equal(focusTrapStep(1, 0, false), 0, "a lone control should keep focus under Tab");
+  assert.equal(focusTrapStep(1, 0, true), 0, "a lone control should keep focus under Shift Tab");
+  assert.equal(focusTrapStep(0, -1, false), "hold", "with no controls, focus must stay on the shell");
+});
+
+await test("the Player traps Tab through the pure step helper", () => {
+  assert.ok(learnSrc.includes('e.key !== "Tab"'), "the Player key handler ignores Tab");
+  assert.ok(learnSrc.includes("focusTrapStep(focusables.length"), "the trap does not run focusTrapStep over the shell controls");
+  assert.ok(learnSrc.includes("shellNode.querySelectorAll"), "the trap does not collect the shell's focusable controls");
+});
+
+await test("the Player close buttons meet the 44px target floor", () => {
+  const closes = learnSrc.match(/aria-label="Close lesson"[^>]*minHeight: 44/g) || [];
+  assert.equal(closes.length, 2, `both glyph close buttons need minHeight 44, found ${closes.length}`);
+  const wide = learnSrc.match(/aria-label="Close lesson"[^>]*minWidth: 44/g) || [];
+  assert.equal(wide.length, 2, `both glyph close buttons need minWidth 44, found ${wide.length}`);
 });
 
 await test("match pair buttons expose their selection state", () => {

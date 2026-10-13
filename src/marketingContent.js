@@ -48,6 +48,7 @@ export const MARKETING_PAGES = {
           "Document Mode: paste or upload a long paper and get a structured, section-by-section summary with live progress.",
           "Diagram Studio: turn a pathway, method, or mechanism into an editable Mermaid diagram with SVG, PNG, and .mmd export.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
+          "Watched topics: watch a subject from the end of an answer, and your home screen counts the new papers indexed on it since you last looked.",
           "Private Vault: optional end-to-end encrypted sync for your saved work, with a 24-word recovery phrase only you hold.",
         ],
       },
@@ -62,6 +63,14 @@ export const MARKETING_PAGES = {
       {
         h: "Why a record, not just an answer",
         p: "A summary on its own asks to be trusted. A record can be checked. When your methods section has to say how the literature was found, the Search record is the thing you point to: the search itself, documented and kept, instead of a result you have to take on faith.",
+      },
+      {
+        h: "Watch a topic and new papers surface for you",
+        p: "At the end of an answer, the Watch this topic button starts tracking the subject of that answer, not the wording of one question. Your home screen then carries a Topics you're watching card. For every topic it counts, from Europe PMC, the papers indexed since you last looked, and shows the count beside the topic. Cerebrum can also send a browser notification when new papers land on a watched topic. Open a topic and the count clears while Cerebrum asks what is new in it and summarizes the most recent findings. When nothing new has been published, the count stays at zero and the card says nothing new yet. The counts are real literature counts, never invented to pull you back.",
+        list: [
+          "Watching needs a free account, because the list lives in your account. No plan gates it, and Pro does not raise it.",
+          "Watch up to 40 topics at once, and stop watching any of them with one click.",
+        ],
       },
       {
         h: "Use Cerebrum inside ChatGPT and Claude",
@@ -102,6 +111,10 @@ export const MARKETING_PAGES = {
         q: "Can I use Cerebrum from inside ChatGPT or Claude?",
         a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, or get_trending for the current Trending in Science edition.",
       },
+      {
+        q: "Can Cerebrum tell me when new papers appear on a topic?",
+        a: "Yes. Use the Watch this topic button at the end of an answer. Your home screen watchlist then counts, for each topic, the papers Europe PMC has indexed since you last looked, and opening a topic clears its count and summarizes what is new. Watching needs a free account, covers up to 40 topics at once, and no plan gates it.",
+      },
     ],
   },
 
@@ -126,6 +139,7 @@ export const MARKETING_PAGES = {
           "Cost: $0, with no payment required.",
           "Every free answer carries the coverage line and the full Search record, the same as any other answer.",
           "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
+          "A free account can watch up to 40 topics, and the home screen counts the new papers indexed on each one.",
         ],
       },
       {
