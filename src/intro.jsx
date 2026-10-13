@@ -13,7 +13,7 @@ import {
   TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING,
 } from "./designSystem.jsx";
 import {
-  setCookie, getCookie, APP_VERSION_LABEL, useIsMobile,
+  setCookie, getCookie, APP_VERSION_LABEL, useIsMobile, useWindowWidth, useWindowHeight,
 } from "./appUtils.js";
 import { safeHref } from "./textUtils.js";
 import { staticFieldCss } from "./cerebrumField.js";
@@ -138,15 +138,17 @@ const FILM_CLIPS_CALM = [
    orientation cannot be determined, because a landscape clip cropped on a
    phone still looks like footage; the reverse does not. `pro` selects the
    members-only reel (see FILM_CLIPS_PRO_* above) — offered only to Pro
-   members, never to anyone else. */
-function filmReel(pro, reel) {
-  if (typeof window === "undefined") return FILM_CLIPS_LANDSCAPE;
+   members, never to anyone else. `portrait` arrives from the caller,
+   which reads it through the resize aware viewport hooks in appUtils
+   (useWindowHeight against useWindowWidth), so the pick follows
+   rotation and resize instead of freezing at first render; the hooks'
+   windowless defaults land on landscape, the fallback above. */
+function filmReel(pro, reel, portrait) {
   // Named reels (2026-10-08): "intro" for the dramatic 4K door clips,
   // "calm" for the quieter main-page clips. These bypass the portrait
   // check — the clips are chosen to crop well.
   if (reel === "intro") return FILM_CLIPS_INTRO;
   if (reel === "calm") return FILM_CLIPS_CALM;
-  const portrait = window.innerHeight > window.innerWidth;
   // 2026-10-07: Pro clips (science-*) are 404 on the CDN — they were never
   // uploaded. Pro users get the working ambient reel until the Pro clips
   // actually exist. Selling a broken reel is worse than no Pro reel.
@@ -1696,9 +1698,22 @@ export const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, 
   // member sees the members-only backdrop immediately, not after the
   // current free clip's hold expires. idxRef restarts at the head of the
   // new order (the lists are disjoint, so no index can carry over).
-  if (!orderRef.current || orderProRef.current !== proReel || orderRef.current._reel !== reel) {
-    const o = filmReel(proReel, reel).slice();
-    o._reel = reel;
+  /* Orientation comes from the resize aware viewport hooks in
+     appUtils, so the reel pick below follows rotation and resize.
+     First paint reads the same values the old one shot window read
+     did; the hooks' windowless defaults keep the landscape fallback. */
+  const winW = useWindowWidth();
+  const winH = useWindowHeight();
+  const portrait = winH > winW;
+  /* The reshuffle keys on the picked list itself: a new pick (a reel
+     switch, a Pro switch, or an orientation flip on the unnamed reel)
+     reshuffles at once, exactly as the Pro switch always has, while a
+     named reel's list is orientation blind and never restarts on a
+     rotation. */
+  const reelClips = filmReel(proReel, reel, portrait);
+  if (!orderRef.current || orderProRef.current !== proReel || orderRef.current._clips !== reelClips) {
+    const o = reelClips.slice();
+    o._clips = reelClips;
     for (let i = o.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const t = o[i]; o[i] = o[j]; o[j] = t;
@@ -1759,12 +1774,12 @@ export const CinematicFilm = forwardRef(function CinematicFilm({ intensity = 1, 
 
   const slotsOf = () => [aRef.current, bRef.current];
 
-  /* Object-position is decided once per mount rather than per frame: the
-     crop only changes when the window's aspect ratio does, and a resize
-     listener writing inline styles onto a playing video is a repaint
-     nobody asked for. */
-  const narrow = typeof window !== "undefined" && window.matchMedia
-    ? window.matchMedia("(max-width: 900px)").matches : false;
+  /* Object-position is applied when a clip is assigned to a slot, not
+     restyled onto a playing video mid resize: `narrow` tracks the
+     resize aware width hook above, at the same 900px line the old one
+     shot matchMedia read drew (max-width, boundary included), and
+     framePos reads it fresh each time a slot takes a clip. */
+  const narrow = winW <= 900;
   const framePos = (src) => {
     const scene = FILM_SCENES[src];
     if (!scene) return "50% 50%";

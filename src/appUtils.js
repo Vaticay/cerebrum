@@ -252,6 +252,18 @@ function useIsMobile() {
   return m;
 }
 
+/* The height companion, for the one test that is about orientation
+   rather than mode: the film reel's portrait pick in intro.jsx
+   compares height against width. The no window default (800, against
+   useWindowWidth's 1200) keeps a windowless first paint on the
+   landscape side of that comparison, the reel's documented fallback
+   when the orientation cannot be determined. */
+function useWindowHeight() {
+  const [h, setH] = useState(typeof window !== "undefined" ? window.innerHeight : 800);
+  useEffect(() => { const onR = () => setH(window.innerHeight); window.addEventListener("resize", onR); return () => window.removeEventListener("resize", onR); }, []);
+  return h;
+}
+
 const TONES = [
   { h: 152, s: 26 }, // moss
   { h: 186, s: 30 }, // teal
@@ -299,4 +311,4 @@ function toast(message, opts = {}) {
     }));
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
-export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
+export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, useWindowHeight, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };

@@ -193,6 +193,49 @@ await test("CinematicFilm keeps its media-event truth for the workspace", () => 
   assert.ok(cssSrc.includes("reportPlaying"), "no element-state reporter in the reel");
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+group("Orientation — the reel pick and the framing follow resize");
+
+await test("the two one shot orientation reads are gone", () => {
+  assert.ok(!src.includes("window.innerHeight > window.innerWidth"),
+    "a one shot innerHeight/innerWidth comparison survives in intro.jsx");
+  assert.ok(!src.includes('matchMedia("(max-width: 900px)")'),
+    "a one shot matchMedia width read survives in intro.jsx");
+});
+
+await test("filmReel takes the orientation from its caller", () => {
+  assert.ok(src.includes("function filmReel(pro, reel, portrait)"),
+    "filmReel does not take the orientation as an argument");
+  assert.ok(src.includes("return portrait && FILM_CLIPS_PORTRAIT.length ? FILM_CLIPS_PORTRAIT : FILM_CLIPS_LANDSCAPE;"),
+    "filmReel's portrait pick changed shape");
+});
+
+await test("CinematicFilm reads orientation and framing width through the hooks", () => {
+  const filmFn = src.slice(src.indexOf("export const CinematicFilm"));
+  assert.ok(src.includes("useIsMobile, useWindowWidth, useWindowHeight"),
+    "intro.jsx does not import the resize aware width and height hooks");
+  assert.ok(filmFn.includes("const winW = useWindowWidth();"), "CinematicFilm does not read the width hook");
+  assert.ok(filmFn.includes("const winH = useWindowHeight();"), "CinematicFilm does not read the height hook");
+  assert.ok(filmFn.includes("const portrait = winH > winW;"), "the portrait test is not built from the two hooks");
+  assert.ok(filmFn.includes("filmReel(proReel, reel, portrait)"), "the reel pick does not receive the hook orientation");
+  assert.ok(filmFn.includes("orderRef.current._clips !== reelClips"),
+    "the reshuffle is not keyed on the picked list, so an orientation flip would not re-pick");
+  assert.ok(filmFn.includes("const narrow = winW <= 900;"),
+    "the framing does not derive from the hook width at the old matchMedia line");
+});
+
+await test("appUtils carries the height hook in the same style as the width hook", async () => {
+  const appUtilsSrc = await readFile(join(root, "src/appUtils.js"), "utf8");
+  const hAt = appUtilsSrc.indexOf("function useWindowHeight()");
+  assert.ok(hAt > 0, "useWindowHeight is missing from appUtils.js");
+  const hSrc = appUtilsSrc.slice(hAt, appUtilsSrc.indexOf("const TONES", hAt));
+  assert.ok(hSrc.includes("window.innerHeight : 800"),
+    "useWindowHeight lost the windowless default that keeps the reel on its landscape fallback");
+  assert.ok(hSrc.includes('addEventListener("resize"'), "useWindowHeight does not subscribe to resize");
+  assert.ok(appUtilsSrc.includes("widthToMode, useWindowHeight"),
+    "useWindowHeight is not exported from appUtils");
+});
+
 await test("the calm air is present: atmosphere and grain over the film", () => {
   assert.ok(introFn.includes("cb-intro-atmosphere"), "atmosphere layer missing");
   assert.ok(introFn.includes("cb-atmo-a") && introFn.includes("cb-atmo-well"), "atmosphere fields missing");

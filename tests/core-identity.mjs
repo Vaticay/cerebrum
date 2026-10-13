@@ -436,9 +436,6 @@ await test("no render decides its viewport mode from a one shot width read", asy
     // paint time around coordinates captured at hover or selection.
     { file: "CerebrumApp.jsx", frag: "window.innerWidth - 228", count: 1 },
     { file: "CerebrumApp.jsx", frag: "window.innerWidth : 400", count: 1 },
-    // filmReel picks a clip set when a reel is chosen; it stores no
-    // layout state, and orientation arrives with the next reel pick.
-    { file: "intro.jsx", frag: "window.innerHeight > window.innerWidth", count: 1 },
     // The DotField sizes its canvas backing store inside its own
     // effect, which keeps its own resize subscription.
     { file: "intro.jsx", frag: "canvas.clientWidth || window.innerWidth", count: 1 },
