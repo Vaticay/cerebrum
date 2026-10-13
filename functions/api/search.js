@@ -1648,54 +1648,84 @@ export function buildDynLookup(groups) {
   return map;
 }
 
-// The one model call behind llmConceptGroups, following the same
-// pattern as llmGenerateSearchQueries / selfReason: the small
-// OR_VALIDATE model, a whole-operation AbortController timeout armed
-// through the body read, strict JSON out. Returns the raw reply text
-// (or null); validation happens in llmConceptGroups.
+// The model call behind llmConceptGroups, following the same pattern
+// as llmGenerateSearchQueries / selfReason: a small fast model, a
+// whole-operation AbortController timeout armed through the body
+// read, strict JSON out. Returns the raw reply text (or null);
+// validation happens in llmConceptGroups.
+//
+// Two legs, tried in order. The first is the OR_VALIDATE model on
+// OpenRouter, whose free pool has a daily cap; on the day that cap is
+// hit, EVERY expansion would silently fail open and the feature would
+// look broken in exactly the conditions where the fleet is already
+// limping. The second leg is Groq's small gpt-oss-20b (the same model
+// the synthesis wave 2 roster uses), so the expansion does not depend
+// on a single capped pool. diag.llmExpandedVia records which leg
+// answered, so a live check can prove the mechanism ran.
 async function defaultConceptGroupCall(query, env) {
-  const token = env ? openRouterKey(env) : "";
-  if (!token) return null;
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), 6000);
-  try {
-    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-        "HTTP-Referer": "https://askcerebrum.org",
-        "X-Title": "Cerebrum",
-      },
-      body: JSON.stringify({
-        model: OR_VALIDATE,
-        temperature: 0.1,
-        max_tokens: 350,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a scientific literature search specialist. A researcher's question sometimes words a concept differently from the papers that answer it: the question says one thing, the literature says the same thing in its standard technical wording. Your job is to propose alternate wording ONLY for concepts already present in the question.\n" +
-              "Rules:\n" +
-              "- Alternates must be synonyms or the standard wording the literature uses for the SAME thing: method preparations, technical terms, species names.\n" +
-              "- Never drop a constraint of the question.\n" +
-              "- Never introduce a new topic, organism, or method that the question does not name.\n" +
-              "- Only include a concept when a wording mismatch is plausible. If the question already uses the literature's wording, return an empty array.\n" +
-              "- Output ONLY a JSON array of objects shaped {\"term\": \"wording from the question, lowercased\", \"alternates\": [\"alternate wording\", \"...\"]} with 2 to 6 alternates per term and at most 4 terms. No markdown, no explanation.",
-          },
-          { role: "user", content: String(query || "") },
-        ],
-      }),
-      signal: c.signal,
-    });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return (j?.choices?.[0]?.message?.content || "").trim() || null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a scientific literature search specialist. A researcher's question sometimes words a concept differently from the papers that answer it: the question says one thing, the literature says the same thing in its standard technical wording. Your job is to propose alternate wording ONLY for concepts already present in the question.\n" +
+        "Rules:\n" +
+        "- Alternates must be synonyms or the standard wording the literature uses for the SAME thing: method preparations, technical terms, species names.\n" +
+        "- Never drop a constraint of the question.\n" +
+        "- Never introduce a new topic, organism, or method that the question does not name.\n" +
+        "- Only include a concept when a wording mismatch is plausible. If the question already uses the literature's wording, return an empty array.\n" +
+        "- Output ONLY a JSON array of objects shaped {\"term\": \"wording from the question, lowercased\", \"alternates\": [\"alternate wording\", \"...\"]} with 2 to 6 alternates per term and at most 4 terms. No markdown, no explanation.",
+    },
+    { role: "user", content: String(query || "") },
+  ];
+  const legs = [];
+  const orToken = env ? openRouterKey(env) : "";
+  if (orToken) legs.push({
+    via: "openrouter",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + orToken,
+      "HTTP-Referer": "https://askcerebrum.org",
+      "X-Title": "Cerebrum",
+    },
+    model: OR_VALIDATE,
+  });
+  const groqKey = env ? (env.GROQ_KEY || env.GROQ_API_KEY || "") : "";
+  if (groqKey) legs.push({
+    via: "groq",
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + groqKey,
+    },
+    model: "openai/gpt-oss-20b",
+  });
+  for (const leg of legs) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 6000);
+    try {
+      const r = await fetch(leg.url, {
+        method: "POST",
+        headers: leg.headers,
+        body: JSON.stringify({
+          model: leg.model,
+          temperature: 0.1,
+          max_tokens: 350,
+          messages,
+        }),
+        signal: c.signal,
+      });
+      if (!r.ok) continue;
+      const j = await r.json();
+      const text = (j?.choices?.[0]?.message?.content || "").trim();
+      if (text) return { text, via: leg.via };
+    } catch {
+      // fall through to the next leg
+    } finally {
+      clearTimeout(t);
+    }
   }
+  return null;
 }
 
 // Ask the model for concept groups covering this question's wording,
@@ -1715,7 +1745,12 @@ export async function llmConceptGroups(query, env, callImpl) {
       timeout,
     ]);
     if (raw == null) return [];
-    return validateExpansionGroups(raw, query);
+    // The default call reports which leg answered as { text, via };
+    // injected calls may return raw text or a parsed value instead.
+    const isLegResult = raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.text === "string";
+    const groups = validateExpansionGroups(isLegResult ? raw.text : raw, query);
+    if (groups.length && isLegResult && raw.via) groups.via = raw.via;
+    return groups;
   } catch {
     return [];
   } finally {
@@ -9956,7 +9991,10 @@ async function gatherPapers(rawQuery, opts) {
   _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
-  if (dynGroups.length > 0) diag.llmExpanded = dynGroups;
+  if (dynGroups.length > 0) {
+    diag.llmExpanded = dynGroups;
+    diag.llmExpandedVia = dynGroups.via || null;
+  }
   const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire","preprints"];
 
   let accumulated = [];
@@ -16337,6 +16375,17 @@ async function runSearchPipeline(pctx) {
           subQuestions: selfReasonResult.sub_questions,
           keyTerms: selfReasonResult.key_terms,
         } : null,
+        /* Which model proposed synonym groups this run carried, if any:
+         * the validated groups plus the provider leg that answered.
+         * This is the attribution surface for the vocabulary expansion:
+         * without it there is no way to prove from outside that the
+         * expansion fired on a given question. Groups only, no provider
+         * internals beyond the leg name. */
+        _expansion: (() => {
+          const g = gResult && gResult._diag && gResult._diag.llmExpanded;
+          if (!Array.isArray(g) || g.length === 0) return null;
+          return { via: gResult._diag.llmExpandedVia || null, groups: g };
+        })(),
 
         /* SECURITY: `_aiAttempts` and the raw `_diag` shipped on EVERY
          * successful response, and both carry upstream error text .
