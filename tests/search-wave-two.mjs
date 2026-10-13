@@ -493,8 +493,12 @@ await test("the cache schema carries the wave two bump", () => {
   // then to v25 by the extractive evidence fix at the end of this
   // file (extractive answers prune their evidence and tail to the
   // gate standard and pass failed papers leave shipped lists, so
-  // the shipped list changes for the same stored inputs).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v25"'), "CACHE_SCHEMA_VERSION must be v25");
+  // the shipped list changes for the same stored inputs), then to
+  // v26 by the topic filter grouped accounting at the end of this
+  // file (a multi group question's papers must touch two resolved
+  // concept groups, not two loose words, so collision papers leave
+  // the shipped list for the same stored inputs).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v26"'), "CACHE_SCHEMA_VERSION must be v26");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -630,6 +634,17 @@ await test("the surviving shelf cites at least two on point papers through the b
 });
 
 await test("a repeated everyday word is ONE distinct concept in the topic filter", () => {
+  // UPDATED 2026-10-13 (topic filter grouped accounting, end of this
+  // file): this test originally pinned the content dedupe contract
+  // through the reason string ("4 distinct concepts after dedupe").
+  // The dedupe fix itself stands (it is what made the count honest),
+  // but the accounting it fed is superseded: when a question
+  // resolves two or more concept groups, the requirement is now
+  // over those groups alone and ungrouped words like "baby" count
+  // for nothing, so the repeated word cannot inflate OR satisfy
+  // anything. The behavior pinned here is unchanged (the baby only
+  // paper dies, the two group paper survives); the reason now names
+  // the grouped accounting that produced the death.
   const babyOnly = {
     title: "World's smallest baby doing well",
     abstract: "Doctors said the baby, born at 23 weeks, is doing well and gaining strength in intensive care.",
@@ -639,8 +654,8 @@ await test("a repeated everyday word is ONE distinct concept in the topic filter
   assert.ok(out.some((p) => p.url.endsWith("infant-gut-growth")), "the two concept paper must survive");
   assert.ok(!out.some((p) => p.url.endsWith("cc-baby-only")), "a paper touching only the repeated word must die");
   assert.ok(
-    String(babyOnly._filteredReason || "").includes("4 distinct"),
-    `the count must be 4 distinct concepts after dedupe, got: ${babyOnly._filteredReason}`
+    String(babyOnly._filteredReason || "").includes("resolved concept groups"),
+    `the reason must name the grouped accounting, got: ${babyOnly._filteredReason}`
   );
 });
 
@@ -1103,6 +1118,224 @@ await test("a paper a pass stamped as failed never enters through the tail", () 
   const unstamped = { ...CC_STUNTING_PAPER(), relevance: 88 };
   const tail2 = buildFurtherReadingTail([evidencePaper, unstamped], [evidencePaper]);
   assert.equal(tail2.length, 1, "the unstamped paper remains tail eligible");
+});
+
+group("topic filter grouped accounting — the requirement is over resolved concept groups");
+// The residual defect (production, build 33532ab): the baby belly
+// question's AI answer cited 3 on point papers and its extractive
+// path was clean, but its further reading list still carried the
+// belly dance in labor paper, a prune belly case report, the
+// surrogacy law paper, and a big belly case report. Trace:
+// topicOverlapFilter counted DISTINCT concepts over a mixed set —
+// real concept groups (microbes, gut) plus ungrouped singleton
+// words from the question (baby, grows). The collisions passed on
+// gut (via the word "belly") plus "baby": two loose hits, neither
+// a subject concept. The both concepts gate barred them from
+// citation, but the filter had already admitted them to the
+// shipped list as further reading. The filter now defines the
+// requirement over the question's resolved CONCEPT GROUPS alone
+// (questionConceptGroups, hand and model merged) when two or more
+// resolve: a paper must touch at least two distinct groups,
+// counted by paperConceptGroupHits, the gate's own counter, so
+// the filter and the gate apply one standard. Questions resolving
+// fewer than two groups keep the singleton accounting untouched
+// (the fallback branch pinned below). Cache schema v26.
+
+// Production shaped collisions: each prints the question's literal
+// words (that is how it cleared the handler constraint verdict and
+// the old mixed accounting), and each touches exactly ONE resolved
+// group — the gut group, via "belly" or "abdominal".
+const GA_BELLY_DANCE = () => ({
+  title: "The Influence of Belly Dance on the Second Stage of Labor and the Condition of the Baby",
+  abstract:
+    "Belly dance was taught to pregnant women in labor preparation classes. " +
+    "Trainers reported the baby tolerated the movements well, and mothers " +
+    "described less pain in the second stage of labor.",
+  url: "https://example.com/ga-belly-dance",
+  relevance: 96,
+});
+const GA_PRUNE_BELLY = () => ({
+  title: "Prune belly syndrome in a newborn baby: a case report",
+  abstract:
+    "The baby presented with a deficient abdominal wall and urinary tract " +
+    "anomalies. Management of prune belly syndrome in the newborn is reviewed.",
+  url: "https://example.com/ga-prune-belly",
+  relevance: 94,
+});
+const GA_SURROGACY = () => ({
+  title: "Her Belly, Their Baby: A Contract Solution for Surrogacy Agreements",
+  abstract:
+    "Surrogacy agreements raise contract questions when the surrogate changes " +
+    "her mind. This article examines the pregnant woman's belly as the site " +
+    "of the legal dispute and proposes a contract solution protecting the baby.",
+  url: "https://example.com/ga-surrogacy",
+  relevance: 92,
+});
+const GA_BIG_BELLY = () => ({
+  title: "The Baby with a Big Belly: Life-threatening Abdominal Distention in a Newborn",
+  abstract:
+    "A newborn baby presented with a big belly and abdominal distention. " +
+    "Imaging showed an intestinal obstruction requiring urgent surgery.",
+  url: "https://example.com/ga-big-belly",
+  relevance: 89,
+});
+const GA_COLLISIONS = [GA_BELLY_DANCE, GA_PRUNE_BELLY, GA_SURROGACY, GA_BIG_BELLY];
+
+// The on point shelf the brief names, in the field's vocabulary.
+const GA_CESAREAN_RESTORATION = () => ({
+  title: "Partial restoration of the microbiota of cesarean-born infants via vaginal microbial transfer",
+  abstract:
+    "Infants born by cesarean section miss the microbial transfer of vaginal " +
+    "delivery. Vaginal microbial transfer partially restored the gut " +
+    "microbiota of cesarean born infants, whose intestinal communities then " +
+    "resembled those of vaginally born infants in the first month.",
+  url: "https://example.com/ga-cesarean-restoration",
+  relevance: 97,
+});
+const GA_GLYCOLIPIDS = () => ({
+  title: "Exploring the interplay between dietary plant glycolipids and gut microbiota: a systematic review",
+  abstract:
+    "Dietary glycolipids reach the intestine largely intact. This review " +
+    "synthesizes evidence that plant glycolipids reshape gut microbiota " +
+    "composition, microbial metabolite production, and intestinal barrier function.",
+  url: "https://example.com/ga-glycolipids",
+  relevance: 90,
+});
+const GA_GROUPS = () => questionConceptGroups(CC_QUESTION, null);
+
+await test("the production collisions each touch exactly one resolved group", () => {
+  const groups = GA_GROUPS();
+  assert.equal(groups.length, 2, "the baby belly question resolves the microbe and gut groups");
+  for (const make of GA_COLLISIONS) {
+    assert.equal(paperConceptGroupHits(make(), groups), 1,
+      `${make().url} must touch exactly one group (gut, via the body word)`);
+  }
+  assert.equal(paperConceptGroupHits(GA_CESAREAN_RESTORATION(), groups), 2);
+  assert.equal(paperConceptGroupHits(GA_GLYCOLIPIDS(), groups), 2);
+});
+
+await test("the collisions clear the handler verdict and then die at the topic filter", () => {
+  // The production shape: the handler is not where they die (they
+  // print the literal words), and the old mixed accounting let
+  // them through on gut plus the "baby" singleton. Grouped
+  // accounting leaves them at one group of the two required.
+  for (const make of GA_COLLISIONS) {
+    assert.ok(ccPassesHandlerFilter(make(), CC_QUESTION),
+      `${make().url} must clear the handler verdict, as it did in production`);
+  }
+  const shelf = [...GA_COLLISIONS.map((m) => m()), GUT_MICROBE_PAPER()];
+  const judged = shelf.map((p) => ({ ...p }));
+  const out = topicOverlapFilter(CC_QUESTION, judged);
+  assert.deepEqual(out.map((p) => p.url), ["https://example.com/infant-gut-growth"],
+    "only the two group paper survives the grouped accounting");
+  for (const make of GA_COLLISIONS) {
+    const dead = judged.find((p) => p.url === make().url);
+    assert.ok(String(dead._filteredReason || "").includes("resolved concept groups"),
+      `${dead.url} must die by the grouped accounting, got: ${dead._filteredReason}`);
+  }
+});
+
+await test("the accepted remainder: a two group paper in field vocabulary stays admissible", () => {
+  // The spinach paper touches two real groups on its abstract
+  // (microbiome; gastrointestinal terms) while printing none of
+  // the question's subject words as its topic. That is an honest
+  // two concept paper, not a collision: grouped accounting keeps
+  // it admissible as further reading, by design.
+  const spinach = {
+    title: "Metabolomic Characterization of Baby Spinach Phenolics Transformation During Gastrointestinal Digestion",
+    abstract:
+      "Spinach phenolics were tracked through simulated digestion. " +
+      "Microbiome modulation by the phenolic metabolites was assessed in vitro.",
+    url: "https://example.com/ga-spinach",
+  };
+  assert.equal(paperConceptGroupHits(spinach, GA_GROUPS()), 2,
+    "the spinach paper touches the microbe and gut groups");
+  const out = topicOverlapFilter(CC_QUESTION, [{ ...spinach }]);
+  assert.ok(out.some((p) => p.url.endsWith("ga-spinach")),
+    "a genuine two group paper stays admissible under grouped accounting");
+});
+
+await test("the AI assembly: collisions appear nowhere in the shipped list, the named shelf ships cited", () => {
+  const drawBySlug = Object.fromEntries(buildDrawShelf().map((p) => [slugOf(p), p]));
+  const onPoint = [
+    GA_CESAREAN_RESTORATION(),
+    drawBySlug["draw-bifido-imprinting"],
+    drawBySlug["draw-microbial-shifts"],
+    drawBySlug["draw-human-microbiome-growth"],
+    drawBySlug["draw-enteropathy"],
+    GA_GLYCOLIPIDS(),
+  ];
+  const shelf = [...onPoint, ...GA_COLLISIONS.map((m) => m())];
+  const afterHandler = shelf.filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  assert.equal(afterHandler.length, shelf.length,
+    "every fixture, collisions included, clears the handler verdict (the production shape)");
+  const passedPapers = programmaticValidationPasses(CC_QUESTION, afterHandler.map((p) => ({ ...p })), null);
+  for (const make of GA_COLLISIONS) {
+    assert.ok(!passedPapers.some((p) => p.url === make().url),
+      `${make().url} must die in the programmatic passes under grouped accounting`);
+  }
+  for (const p of onPoint) {
+    assert.ok(passedPapers.some((x) => x.url === p.url), `${slugOf(p)} must survive the passes`);
+  }
+  const evidence = applyRelevanceGate(passedPapers).slice(0, 12);
+  const tail = buildFurtherReadingTail(passedPapers, evidence);
+  const shipped = [...evidence, ...tail];
+  for (const make of GA_COLLISIONS) {
+    assert.ok(!shipped.some((p) => p.url === make().url),
+      `${make().url} must appear nowhere in the shipped list, evidence or tail`);
+  }
+  for (const p of onPoint) {
+    assert.ok(shipped.some((x) => x.url === p.url), `${slugOf(p)} must ship`);
+  }
+  // The AI assembly: an answer citing three of the shipped on
+  // point papers keeps every marker through the both concepts
+  // gate (the gate is unchanged; the filter now agrees with it).
+  const idxOf = (slug) => evidence.findIndex((p) => slugOf(p) === slug) + 1;
+  const answer =
+    `Vaginal microbial transfer restores the first gut colonists of cesarean born infants [${idxOf("ga-cesarean-restoration")}]. ` +
+    `Intestinal bacteria and enteropathy track linear growth shortfalls [${idxOf("draw-enteropathy")}]. ` +
+    `Dietary glycolipids reshape the gut microbiota and its metabolites [${idxOf("ga-glycolipids")}].`;
+  const gated = applyConceptCoverageGate(answer, evidence, CC_QUESTION, null);
+  assert.deepEqual(gated.demoted, [], "no on point citation may be demoted");
+  const labeled = labelUncitedSources(evidence.map((p) => ({ title: p.title, url: p.url })), gated.text);
+  assert.ok(labeled.filter((s) => !s.uncited).length >= 2,
+    "at least two on point sources stay cited on the AI assembly");
+});
+
+await test("the sleep and colds set: the filter now agrees with the gate", () => {
+  // Same fixtures as the gate pins above, judged by the filter
+  // with the same dynLookup: the two group paper survives, the
+  // one group papers die here too, instead of shipping as
+  // further reading behind a demoted citation.
+  const out = topicOverlapFilter(SLEEP_Q, SLEEP_PAPERS().map((p) => ({ ...p })), SLEEP_DYN());
+  assert.deepEqual(out.map((p) => p.url), ["https://example.com/both-concepts"],
+    "only the paper touching both resolved groups survives the filter");
+});
+
+await test("fallback branch: a single concept question retrieves its shelf by singleton accounting", () => {
+  // The frog question resolves no concept groups, so the grouped
+  // branch must not engage and the singleton accounting below it
+  // decides, exactly as before this fix.
+  const frogQ = "can a frog survive being frozen solid?";
+  assert.ok(questionConceptGroups(frogQ, null).length < 2,
+    "control: the frog question stays below the grouped branch's threshold");
+  const freezePaper = {
+    title: "Freeze tolerance in the wood frog",
+    abstract:
+      "The wood frog survives being frozen solid: ice forms in body " +
+      "cavities while glucose protects the cells until the spring thaw.",
+    url: "https://example.com/ga-frog-freeze",
+  };
+  const offPaper = {
+    title: "Quantum dot synthesis in colloidal suspension",
+    abstract: "Quantum dots were synthesized in colloidal suspension and their optical spectra recorded.",
+    url: "https://example.com/ga-quantum",
+  };
+  const out = topicOverlapFilter(frogQ, [{ ...freezePaper }, { ...offPaper }]);
+  assert.ok(out.some((p) => p.url.endsWith("ga-frog-freeze")),
+    "the on topic paper must survive through the fallback's singleton accounting");
+  assert.ok(!out.some((p) => p.url.endsWith("ga-quantum")),
+    "the unrelated paper must still die in the fallback branch");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

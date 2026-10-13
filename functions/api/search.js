@@ -739,7 +739,16 @@ export function isNonLiterature(p) {
 // so the shipped source list changes for the same stored inputs
 // even though retrieval, the evidence set, and citation numbering
 // are unchanged.
-const CACHE_SCHEMA_VERSION = "v25";
+// v26 (2026-10-13, topic filter grouped accounting): when a
+// question resolves to two or more distinct concept groups,
+// topicOverlapFilter now requires a paper to touch at least two
+// of those groups (the both concepts gate's own counting) instead
+// of mixing group hits with ungrouped singleton words, so
+// collision papers that passed on two loose hits (belly dance via
+// "belly" plus "baby") leave the shipped list entirely. Filtered
+// shelves and further reading tails change for multi concept
+// questions; single concept questions keep the singleton path.
+const CACHE_SCHEMA_VERSION = "v26";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -5550,6 +5559,50 @@ function programmaticPaperFilter(rawQuery, papers) {
 // fields" the way CONTAMINANT_ORGANISMS does for organisms.
 export function topicOverlapFilter(rawQuery, papers, dynLookup) {
   if (!papers.length) return papers;
+
+  // ── Grouped accounting (2026-10-13, residual fix) ──────────────
+  // When the question resolves to two or more DISTINCT concept
+  // groups (questionConceptGroups: hand written and model proposed
+  // merged, the same resolution the both concepts gate uses), the
+  // requirement is defined over those groups alone: a paper passes
+  // by touching at least two of them, counted by
+  // paperConceptGroupHits, the gate's own counter. Ungrouped
+  // singleton words from the question (baby, grows) no longer count
+  // toward the requirement in that case. The defect this closes:
+  // the accept set accounting below mixes real groups with
+  // singletons, so a collision paper passed on two loose hits,
+  // neither of them a subject concept ("belly dance in labor"
+  // touched gut via "belly" plus the singleton "baby" and shipped
+  // as further reading on the baby belly question even after the
+  // citation gate correctly barred it from being cited). With the
+  // requirement over groups, the filter and the gate apply one
+  // standard of what "on topic" means, and a paper admitted here
+  // on grouped accounting is one the gate counts the same way.
+  // Questions resolving fewer than two groups (a genuinely thin or
+  // single concept question: the frog freeze controls, definition
+  // style questions, a named organism or chemical with no group
+  // coverage) keep the singleton based accounting below, byte for
+  // byte, so they retrieve exactly as before.
+  const resolvedGroups = questionConceptGroups(rawQuery, dynLookup);
+  if (resolvedGroups.length >= 2) {
+    const survivors = papers.filter((p) => {
+      const hits = paperConceptGroupHits(p, resolvedGroups);
+      if (hits === 0) {
+        p._filteredReason = "Paper touches none of the query's resolved concept groups . likely a different research field entirely";
+        return false;
+      }
+      if (hits < 2) {
+        p._filteredReason = `Paper touches only ${hits} of the query's ${resolvedGroups.length} resolved concept groups (needs 2) . one concept in common is a phrase collision, not the question's subject`;
+        return false;
+      }
+      return true;
+    });
+    // Same never zero contract as the singleton path below: if the
+    // accounting would eliminate every paper, fall back to whatever
+    // scored best originally rather than returning zero evidence.
+    if (survivors.length === 0) return papers.slice(0, 3);
+    return survivors;
+  }
 
   const qLower = rawQuery.toLowerCase();
   const qTerms = qLower
