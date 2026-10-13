@@ -197,13 +197,26 @@ const PROBE_GROUPS = [
   { term: "whole gut preparations", alternates: ["entire gut extract", "whole intestinal homogenate", "full gut preparation"] },
 ];
 
+// CORRECTED CONTRACT (2026-10-13, phrase merge): this pin used to
+// assert the rung was the model group verbatim ("whole gut
+// preparations" OR "entire gut extract" OR ...). That was the other
+// half of the midgut defect: "whole gut preparations" is ALSO a
+// member of the hand written homogenate group, and conceptSetFor's
+// model first precedence meant the hand group's field vocabulary
+// (midgut homogenate, midgut extract) never shipped on the model
+// present path — the path production takes. When a phrase resolves
+// in both lookups the rung now MERGES, hand multi word members
+// first, so the shipped rung is the merged one pinned here (the
+// model alternates fall past the member cap behind the hand group's
+// 20+ multi word members). The merge pins proper are in the phrase
+// merge section below.
 await test("a validated multi word phrase group becomes a rung of the shipped query", () => {
   const validated = validateExpansionGroups(PROBE_GROUPS, PROBE_Q);
   assert.equal(validated.length, 1, "probe group should survive the validator");
   const out = buildStructuredQuery(PROBE_Q.toLowerCase(), buildDynLookup(validated));
   assert.ok(
-    out.includes('("whole gut preparations" OR "entire gut extract" OR "whole intestinal homogenate" OR "full gut preparation")'),
-    `preparation group missing from shipped query: ${out}`
+    out.includes('("whole gut preparations" OR "crude extract" OR "crude extracts" OR "gut extract" OR "gut extracts" OR "midgut homogenate" OR "midgut extract")'),
+    `merged preparation group missing from shipped query: ${out}`
   );
   assert.ok(out.includes("homogenate"), `homogenate wording missing from: ${out}`);
 });
@@ -215,9 +228,18 @@ await test("the phrase group replaces its component word anchors inside the grou
   assert.ok(rungs[0].includes("whole gut preparations"), `phrase group should lead: ${out}`);
 });
 
-await test("without a dynLookup the probe query carries no homogenate wording", () => {
+// CORRECTED CONTRACT (2026-10-13, midgut coverage): this pin used to
+// assert the probe query carried NO homogenate wording without a
+// dynLookup. That absence was the defect, not the contract: the hand
+// written table held the preparation phrasings all along, but
+// buildStructuredQuery only ever scanned dynLookup for phrase keys,
+// so the deterministic rung could not fire. It now fires (full pins
+// in the midgut section below); the zorblaxin pin above still covers
+// the no-invention rule for terms the table does not know.
+await test("without a dynLookup the probe query carries the deterministic preparation rung", () => {
   const out = buildStructuredQuery(PROBE_Q.toLowerCase());
-  assert.ok(!out.includes("homogenate"), `unexpected expansion in: ${out}`);
+  assert.ok(out.includes("homogenate"), `deterministic preparation rung missing from: ${out}`);
+  assert.ok(out.includes('"midgut homogenate"'), `midgut vocabulary missing from: ${out}`);
 });
 
 await test("a phrase group whose phrase is absent from the question changes nothing", () => {
@@ -527,6 +549,91 @@ await test("a gut homogenate question accepts a paper that only says whole gut p
     urls.includes("https://example.com/prep"),
     "the preparation wording paper must survive via the shared group: " + JSON.stringify(urls)
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("midgut coverage — the deterministic preparation rung (2026-10-13)");
+
+// Live evidence (build 7b06b0a), two questions minutes apart. The
+// homogenate wording question shipped ("insect gut homogenate" OR
+// "insect midgut homogenate" OR ...) from the model group and
+// retrieved the real shelf: 88 gathered, 4 cited, answer Yes. The
+// whole gut preparations question shipped a preparation rung whose
+// alternates came ONLY from the model ("whole gut extract", "entire
+// gut preparation", "whole gut lysate") with no midgut form anywhere,
+// and failed for the third build in a row (50 gathered, 2 off topic
+// cited, scoped No). Trace: buildStructuredQuery's phrase anchor scan
+// iterated dynLookup keys only; the hand written preparation phrasings
+// in CONCEPT_GROUPS were invisible to it (topicOverlapFilter scanned
+// them, the builder did not), and the homogenate group's member order
+// put the midgut forms past the rung cap besides. These pins run the
+// real builder with NO dynLookup: the rung must be deterministic.
+const MIDGUT_Q = PROBE_Q;
+
+await test("the whole gut preparations question ships a midgut rung with no model call", () => {
+  const out = buildStructuredQuery(MIDGUT_Q.toLowerCase());
+  const rungs = out.split(" AND ");
+  assert.equal(rungs.length, 4, `expected 4 AND groups inside the budget, got ${rungs.length}: ${out}`);
+  const prep = rungs.find((r) => r.includes("whole gut preparations"));
+  assert.ok(prep, `preparation rung missing from: ${out}`);
+  assert.ok(prep.includes('"midgut homogenate"'), `midgut homogenate missing from preparation rung: ${prep}`);
+  assert.ok(prep.includes('"midgut extract"'), `midgut extract missing from preparation rung: ${prep}`);
+});
+
+await test("the homogenate wording question is byte identical to its pre fix form", () => {
+  // This question already keyed the homogenate group through the
+  // single word "homogenate"; its phrase "gut homogenate" is claimed
+  // by that word, so the new phrase scan must add nothing.
+  const q = "Are there any research papers that use insect gut homogenate in order to study enzyme activity, as opposed to purifying the enzymes from the gut homogenate?";
+  const expected =
+    "(gut OR intestinal OR intestine OR digestive OR midgut OR hindgut OR foregut) AND " +
+    "(homogenate OR homogenates OR homogenized OR homogenised OR homogenization OR \"crude extract\" OR \"crude extracts\") AND " +
+    "(enzymes OR enzyme OR enzymatic OR oxidase OR oxidases OR hydrolase OR hydrolases) AND " +
+    "(gut OR intestinal OR intestine OR digestive OR midgut OR hindgut OR foregut)";
+  assert.equal(buildStructuredQuery(q.toLowerCase()), expected);
+});
+
+await test("an unrelated preparation question gains no midgut rung", () => {
+  const out = buildStructuredQuery("Has anyone assayed enzyme activity in leaf preparations from plants?".toLowerCase());
+  assert.ok(!out.includes("midgut"), `midgut leaked into an unrelated query: ${out}`);
+  assert.ok(!out.includes("homogenate"), `homogenate leaked into an unrelated query: ${out}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("phrase merge — a phrase in both lookups ships the hand vocabulary (2026-10-13)");
+
+// The midgut pins above run with NO dynLookup. Live production runs
+// WITH one, and there the model group won outright: these are the
+// alternates the model actually proposed for the probe phrase across
+// three live runs (builds up to 7b06b0a), and not one is a midgut
+// form. The phrase is a member of the hand written homogenate group
+// too, so the rung must merge — hand multi word members first, model
+// alternates after — instead of shipping the model's set alone.
+const LIVE_MODEL_GROUPS = [
+  { term: "whole gut preparations", alternates: ["whole gut extract", "entire gut preparation", "whole gut lysate", "entire gut extract", "whole gut homogenate"] },
+];
+
+await test("the probe question fed the model's live alternates still ships the midgut forms", () => {
+  const out = buildStructuredQuery(PROBE_Q.toLowerCase(), buildDynLookup(LIVE_MODEL_GROUPS));
+  const prep = out.split(" AND ").find((r) => r.includes("whole gut preparations"));
+  assert.ok(prep, `preparation rung missing from: ${out}`);
+  assert.ok(prep.includes('"midgut homogenate"'), `midgut homogenate missing from preparation rung: ${prep}`);
+  assert.ok(prep.includes('"midgut extract"'), `midgut extract missing from preparation rung: ${prep}`);
+  // Parity with the deterministic path: the hand group's multi word
+  // members saturate the member cap ahead of the model alternates,
+  // so the preparation rung is the same rung the no model run ships.
+  const bare = buildStructuredQuery(PROBE_Q.toLowerCase());
+  const barePrep = bare.split(" AND ").find((r) => r.includes("whole gut preparations"));
+  assert.equal(prep, barePrep, `merged rung differs from the deterministic rung:\n${prep}\n${barePrep}`);
+});
+
+await test("a leaf preparations control gains no midgut wording even with the live model group loaded", () => {
+  const out = buildStructuredQuery(
+    "Has anyone assayed enzyme activity in leaf preparations from plants?".toLowerCase(),
+    buildDynLookup(LIVE_MODEL_GROUPS)
+  );
+  assert.ok(!out.includes("midgut"), `midgut leaked into an unrelated query: ${out}`);
+  assert.ok(!out.includes("homogenate"), `homogenate leaked into an unrelated query: ${out}`);
 });
 
 // ═══════════════════════════════════════════════════════════════════

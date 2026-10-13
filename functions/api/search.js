@@ -410,6 +410,12 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
+// v17 (2026-10-13, midgut coverage): buildStructuredQuery now scans
+// the question for multi word CONCEPT_GROUPS members, not just model
+// proposed phrases, so a preparation phrasing ("whole gut
+// preparations") deterministically ships a rung carrying the field's
+// midgut vocabulary, and phrase anchored rungs render their phrase
+// alternates first. Shipped query shapes change for those questions.
 // v16 (2026-10-13, negation rung fix): a concept group whose term
 // begins with a negation lead ("without isolat enzyme") can no
 // longer become a required AND rung in the shipped structured
@@ -420,7 +426,7 @@ function isNonLiterature(p) {
 // longer become structured query anchors and preparation phrasings
 // now bridge to the homogenate concept group, so both the shipped
 // queries and the filtered shelves change for cached questions.
-const CACHE_SCHEMA_VERSION = "v16";
+const CACHE_SCHEMA_VERSION = "v17";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1385,7 +1391,8 @@ const CONCEPT_GROUPS = [
   // them out as weak. One preparation, several names in print.
   ["homogenate", "homogenates", "homogenized", "homogenised", "homogenization",
    "crude extract", "crude extracts", "gut extract", "gut extracts",
-   "midgut homogenate", "midgut homogenates", "tissue homogenate", "tissue extract",
+   "midgut homogenate", "midgut extract", "midgut homogenates",
+   "tissue homogenate", "tissue extract",
    "crude enzyme", "crude enzymatic", "enzyme preparation",
    // 2026-10-13 (fleet and coverage pass): the preparation PHRASINGS as
    // keys in the same group. The entries above only fire when a
@@ -1400,7 +1407,14 @@ const CONCEPT_GROUPS = [
    // preparation phrasing to homogenate vocabulary with no model call.
    "whole gut preparation", "whole gut preparations", "gut preparation",
    "gut preparations", "whole gut", "whole gut homogenate",
-   "gut homogenate", "gut homogenates"],
+   "gut homogenate", "gut homogenates",
+   // 2026-10-13 (midgut coverage): the field's dominant word for an
+   // insect gut preparation is MIDGUT (midgut homogenate, midgut
+   // extract), and the preparation phrasings above must reach those
+   // forms deterministically too. "midgut extract" sits up in the
+   // phrase run beside "midgut homogenate"; these tail forms widen
+   // the group for the filter bridge and the phrase anchored rung.
+   "midgut preparation", "midgut lysate", "insect midgut homogenate"],
   // 2026-10-09: BSFL concept group. The query term "bsfl" was not matching
   // papers that only wrote "Hermetia illucens" or "black soldier fly" because
   // SYNONYMS (used for query expansion) was not connected to CONCEPT_LOOKUP
@@ -2399,6 +2413,51 @@ export function buildStructuredQuery(query, dynLookup) {
       if (key.indexOf(" ") !== -1 && qLower.includes(key)) phraseAnchors.push(key);
     }
   }
+  // 2026-10-13: the HAND WRITTEN table had the same blind spot, and it
+  // is the deterministic half of the homogenate failure. CONCEPT_GROUPS
+  // carries multi word members (the preparation phrasings added to the
+  // homogenate group: "whole gut preparation", "gut homogenate", ...),
+  // and topicOverlapFilter already scans the raw question for them,
+  // but this builder never did, so with no model call (or a model group
+  // whose alternates missed the field's vocabulary) the shipped query
+  // had no preparation rung at all. Live evidence, build 7b06b0a: the
+  // whole gut preparations question shipped a preparation rung only
+  // because the model proposed one, and its alternates ("whole gut
+  // extract", "entire gut preparation", "whole gut lysate") contained
+  // no MIDGUT form, while the sibling question whose wording keyed
+  // the hand group ("insect midgut homogenate") retrieved the real
+  // shelf (88 gathered, 4 cited). Midgut is the dominant word for
+  // insect gut preparations in print, so the deterministic rung must
+  // carry it. Mirror the filter's scan here: a multi word CONCEPT_GROUPS
+  // member literally present in the question becomes a phrase anchor,
+  // longest match per group, behind any model phrase for the same
+  // string (conceptSetFor already prefers dynLookup, so a duplicate
+  // anchor would only waste budget).
+  // One guard keeps this from duplicating a rung a word anchor already
+  // produces: when a component word of the phrase resolves to the very
+  // same group ("gut homogenate" is claimed by "homogenate"), the word
+  // anchor below brings the group in on its own and the phrase adds
+  // nothing, so it is skipped. That is what leaves questions that
+  // already key the group by a single word byte identical.
+  {
+    const seenPhrases = new Set(phraseAnchors);
+    for (const group of CONCEPT_GROUPS) {
+      let best = null;
+      for (const member of group) {
+        if (member.indexOf(" ") === -1 || !qLower.includes(member)) continue;
+        const memberSet = CONCEPT_LOOKUP.get(member);
+        const claimed = member
+          .split(" ")
+          .some((w) => CONCEPT_LOOKUP.get(w) && CONCEPT_LOOKUP.get(w) === memberSet);
+        if (claimed) continue;
+        if (!best || member.length > best.length) best = member;
+      }
+      if (best && !seenPhrases.has(best)) {
+        phraseAnchors.push(best);
+        seenPhrases.add(best);
+      }
+    }
+  }
   // 2026-10-13: a negation led phrase ("without isolat enzyme") is an
   // absence, not a concept, and can never be an AND rung: papers do
   // not phrase absences, so the rung starves the boolean (live probe,
@@ -2440,11 +2499,50 @@ export function buildStructuredQuery(query, dynLookup) {
     .filter((t) => !coveredWords.has(t) && !hasNegationLead(t))
     .slice(0, Math.max(0, 4 - usablePhraseAnchors.length));
   const groups = [...usablePhraseAnchors, ...tokenAnchors].map((t) => {
-    const set = conceptSetFor(t, dynLookup);
+    let set = conceptSetFor(t, dynLookup);
+    // 2026-10-13 (phrase merge): a phrase anchor can resolve in BOTH
+    // lookups at once — the model proposed a group for the phrase and
+    // the phrase is also a member of a hand written group.
+    // conceptSetFor prefers the model set outright, so the hand
+    // group's curated field vocabulary vanished on exactly the path
+    // production takes: live, the model's alternates for "whole gut
+    // preparations" ("whole gut extract", "entire gut preparation",
+    // "whole gut lysate", ...) carried no midgut form, and the
+    // deterministic midgut rung above only fired when the model was
+    // absent or failed. Merge instead: hand written multi word
+    // members first (the concept's names in print), then the model's
+    // alternates that are not already present, then the hand group's
+    // single word members; the member cap below trims the tail as
+    // before. Phrase anchors only — word anchored rungs keep
+    // conceptSetFor's precedence untouched, and a phrase present in
+    // just one lookup keeps that lookup's set exactly as before.
+    if (set && t.indexOf(" ") !== -1 && dynLookup && dynLookup.has(t) && CONCEPT_LOOKUP.has(t)) {
+      const hand = CONCEPT_LOOKUP.get(t);
+      const merged = new Set();
+      for (const m of hand) if (m.indexOf(" ") !== -1) merged.add(m);
+      for (const m of dynLookup.get(t)) merged.add(m);
+      for (const m of hand) merged.add(m);
+      set = merged;
+    }
     if (!set) return t;
     // Cap expansion so the request URL stays reasonable, and keep the original
     // term first so it carries the most weight in relevance-ranked engines.
-    const members = [t, ...[...set].filter((m) => m !== t)].slice(0, 7);
+    const others = [...set].filter((m) => m !== t);
+    // 2026-10-13: a PHRASE anchored rung renders its multi word members
+    // first. The phrases are the concept's actual names in print
+    // ("midgut homogenate", "gut extract"); the single word members are
+    // mostly morphological variants of the head noun (homogenized,
+    // homogenised) that the engines stem anyway, and under the cap
+    // they crowded the field vocabulary out of the preparation rung
+    // entirely. Word anchored rungs keep the table order untouched.
+    const ordered =
+      t.indexOf(" ") !== -1
+        ? [
+            ...others.filter((m) => m.indexOf(" ") !== -1),
+            ...others.filter((m) => m.indexOf(" ") === -1),
+          ]
+        : others;
+    const members = [t, ...ordered].slice(0, 7);
     return "(" + members.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
   });
   return groups.join(" AND ");
