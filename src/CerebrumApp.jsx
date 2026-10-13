@@ -73,10 +73,10 @@ import {
    contract, HTML text extraction, highlight guards, durable reading state. */
 import {
   docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight,
-  docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, DOCMODE_MAX_DOCS, DOCMODE_MAX_TEXT,
+  docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, evictOldestDocs, docEvictionNote, DOCMODE_MAX_TEXT,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
-import { trendingDoiOf, cleanMediaUrl, cleanMediaText, verifiedMediaOf, trendingMediaOf, normalizeTrendingUrl, normalizeTrendingTitle, dedupeTrendingItems, clusterTrendingItems, trendStoryKey, trendTitleTokens } from "./trendingUtils.js";
+import { trendingDoiOf, cleanMediaUrl, cleanMediaText, verifiedMediaOf, trendingMediaOf, normalizeTrendingUrl, normalizeTrendingTitle, dedupeTrendingItems, clusterTrendingItems, trendStoryKey, trendTitleTokens, trendPersistenceLabel, compareByTrend } from "./trendingUtils.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
 import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
@@ -108,7 +108,7 @@ import {
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
   filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog,
   SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
-  PlateFrame, plateHead,
+  plateHead,
 } from "./intro.jsx";
 
 /* Unified scroll lock (replaces the three competing implementations). */
@@ -8068,6 +8068,16 @@ function coverageSentence(coverage) {
   return sentence + ".";
 }
 
+/* Plain names for the executed query set's kinds, so the record's
+   readable half reads like a methods note instead of a data dump. */
+const EXECUTED_QUERY_KIND_LABELS = {
+  rung: "Search rung",
+  concept: "Concept query",
+  recall: "Topic memory recall",
+  relaxed: "Relaxed boolean",
+  aspect: "Aspect query",
+};
+
 /* The record as Markdown, built client side from _record so the user
    can paste it into a methods section or a lab notebook and anyone can
    re run the same search. Ends with the record itself as JSON, so the
@@ -8095,6 +8105,15 @@ function searchRecordMarkdown(record) {
   }
   if (!record.structuredQuery && !record.conceptQueries && !record.llmExpansion) {
     lines.push("The question was searched as written.");
+  }
+  lines.push("");
+  lines.push("## Executed queries");
+  if (Array.isArray(record.executedQueries) && record.executedQueries.length) {
+    for (const q of record.executedQueries) {
+      if (q && q.query) lines.push((EXECUTED_QUERY_KIND_LABELS[q.kind] || q.kind || "Query") + ": " + q.query);
+    }
+  } else {
+    lines.push("The individual queries that ran were not recorded for this search.");
   }
   lines.push("");
   lines.push("## Databases");
@@ -8126,7 +8145,14 @@ function searchRecordMarkdown(record) {
   if (Array.isArray(record.sources) && record.sources.length) {
     for (const s of record.sources) {
       const id = s.doi ? "https://doi.org/" + s.doi : s.url || "";
-      lines.push(`${s.n}. ${s.title}` + (s.year ? ` (${s.year})` : "") + (id ? " · " + id : "") + (s.cited ? " · cited in the answer" : " · further reading"));
+      // Authors and journal print when the record carries them, and
+      // nothing stands in for them when it does not.
+      let line = `${s.n}. ${s.title}` + (s.year ? ` (${s.year})` : "");
+      if (s.authors) line += " · " + s.authors;
+      if (s.journal) line += " · " + s.journal;
+      if (id) line += " · " + id;
+      line += s.cited ? " · cited in the answer" : " · further reading";
+      lines.push(line);
     }
   } else {
     lines.push("No sources were recorded for this search.");
@@ -8188,6 +8214,9 @@ function SearchRecordPanel({ t, P }) {
                     <div key={s.n} style={{ marginBottom: 3 }}>
                       {s.n}. {s.title}
                       {s.year ? ` (${s.year})` : ""}
+                      {(s.authors || s.journal) ? (
+                        <span style={{ color: P.faint }}>{s.authors ? ` · ${s.authors}` : ""}{s.journal ? ` · ${s.journal}` : ""}</span>
+                      ) : null}
                       <span style={{ color: P.faint }}>{s.cited ? " · cited" : " · further reading"}</span>
                       {(s.doi || s.url) ? (
                         <span style={{ color: P.faint }}> · {s.doi ? "https://doi.org/" + s.doi : s.url}</span>
@@ -10858,6 +10887,11 @@ function trendProvenance(item, generatedAt) {
   if (item.indexedAt) parts.push(`Indexed ${relativeTime(new Date(item.indexedAt).getTime())}`);
   if (kind === "Press item") parts.push("not synthesized");
   if (item.citedByCount > 0) parts.push(`Cited by ${item.citedByCount}`);
+  // Persistence rides the same quiet line: a story in the edition
+  // several days running says so; a first day story says nothing,
+  // because on a young archive every story would read the same.
+  const persistence = trendPersistenceLabel(item);
+  if (persistence) parts.push(persistence);
   return parts.join(" · ");
 }
 /* A document analysis payload → renderable media or null. The analysis
@@ -11084,6 +11118,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
   const publishedLabel = item.publishedAt
     ? new Date(item.publishedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
     : "";
+  const persistenceLabel = trendPersistenceLabel(item);
   return (
     <Dialog label={item.title || "Article"} onClose={close} zIndex={217} width={640}
       panelStyle={{
@@ -11109,7 +11144,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
             </span>
           )}
           <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", marginTop: 10 }}>{item.title}</div>
-          {publishedLabel && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>Published {publishedLabel}{item.citedByCount > 0 ? ` · Cited by ${item.citedByCount}` : ""}</div>}
+          {(publishedLabel || persistenceLabel) && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{[publishedLabel ? `Published ${publishedLabel}` : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : null, persistenceLabel].filter(Boolean).join(" · ")}</div>}
           {item.summary
             ? <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
             : <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, marginTop: 18, fontStyle: "italic" }}>No summary was published with this record. The full text is at the source.</div>}
@@ -11195,7 +11230,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
                     cursor: "pointer", fontFamily: "var(--cb-font)",
                   }}>
                   <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{nx.title}</span>
-                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{[nx.category, nx.source].filter(Boolean).join(" · ")}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{[nx.category, nx.source, trendPersistenceLabel(nx)].filter(Boolean).join(" · ")}</span>
                 </button>
               ))}
             </div>
@@ -11781,7 +11816,9 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
     ? filteredItems
     : [...filteredItems].sort((a, b) => effectiveSort === "cited"
       ? citedOf(b) - citedOf(a)
-      : new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
+      : effectiveSort === "trend"
+        ? compareByTrend(a, b)
+        : new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
   const [hero, ...rest] = visibleItems;
   const categories = ["All", ...Array.from(new Set(stories.map((x) => x.category).filter(Boolean)))];
   const categoryCount = (cat) => (cat === "All" ? stories.length : stories.filter((x) => x.category === cat).length);
@@ -11953,7 +11990,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                 style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
             </div>
             <div role="group" aria-label="Sort stories" style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
-              {[{ id: "edition", label: "Edition order" }, ...(hasCitedData ? [{ id: "cited", label: "Most cited" }] : []), { id: "newest", label: "Newest" }].map((o) => {
+              {[{ id: "edition", label: "Edition order" }, { id: "trend", label: "Trending" }, ...(hasCitedData ? [{ id: "cited", label: "Most cited" }] : []), { id: "newest", label: "Newest" }].map((o) => {
                 const on = effectiveSort === o.id;
                 return (
                   <button key={o.id} type="button" onClick={() => setTrendSort(o.id)} aria-pressed={on}
@@ -16115,6 +16152,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // a permanently expanded editor under every mark made the list a
   // wall of empty boxes.
   const [editingMarkId, setEditingMarkId] = useState(null);
+  /* Persistence honesty: a failed save, a stored copy cut to the text
+     cap, and a shelf eviction are each named to the reader in plain
+     words instead of passing silently. saveFailed flips with every
+     save attempt's real outcome; storedShortened rides the saved
+     entry and is restored with it, so a reopened document whose stored
+     copy was cut still says so; evictedNote holds the latest shelf
+     eviction's wording until the component unmounts. */
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [storedShortened, setStoredShortened] = useState(false);
+  const [evictedNote, setEvictedNote] = useState("");
   const [storeReady, setStoreReady] = useState(false);
   const saveTimer = useRef(null);
   const readBodyRef = useRef(null);
@@ -16237,6 +16284,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const t = Array.isArray(text) ? text.join("\n\n") : String(text || "");
     setDocumentText(t);
     setError("");
+    // A reopened document whose stored copy was cut to the text cap
+    // carries that fact on its entry; it must still say so here.
+    setStoredShortened(!!(saved && saved.storedShortened));
     setSourceView("source");
     setCustomTitle(saved && saved.title ? saved.title : null);
     setRenaming(false);
@@ -16327,6 +16377,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       try {
         const text = documentText.trim();
         const store = loadDocStore();
+        let saveWasCut = false;
         if (text) {
           const fp = docFingerprint(text);
           // Highlights are measured against the document as displayed,
@@ -16337,9 +16388,17 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           const storedHighlights = (highlights || [])
             .map((h) => ({ ...h, start: Math.max(0, h.start - leadTrim), end: Math.max(0, Math.min(h.end - leadTrim, text.length)) }))
             .filter((h) => h.end > h.start);
+          // The stored copy is cut when this text runs past the cap,
+          // and the cut stays true while the open text is the stored
+          // cut text itself: a reopened shortened document must not
+          // lose the fact on its first autosave.
+          const wasCut = text.length > DOCMODE_MAX_TEXT
+            || !!(store.docs[fp] && store.docs[fp].storedShortened && store.docs[fp].text === text);
+          saveWasCut = wasCut;
           store.docs[fp] = {
             title: customTitle || docTitleOf(text),
             text: text.slice(0, DOCMODE_MAX_TEXT),
+            storedShortened: wasCut,
             summary: summary && !summary.streaming && analysisText === documentText ? summary : null,
             qaHistory: analysisText === documentText ? (qaHistory || []).filter((h) => !h.streaming).slice(-30) : [],
             rightTab,
@@ -16350,14 +16409,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             updatedAt: Date.now(),
           };
           store.lastOpened = fp;
-          const fps = Object.keys(store.docs).sort((a, b) => (store.docs[a].updatedAt || 0) - (store.docs[b].updatedAt || 0));
-          while (fps.length > DOCMODE_MAX_DOCS) delete store.docs[fps.shift()];
+          const evicted = evictOldestDocs(store);
+          if (evicted.length) setEvictedNote(docEvictionNote(evicted));
         } else {
           // Cleared: don't auto-reopen it on the next visit. The entry
           // stays on the recent shelf until LRU evicts it.
           store.lastOpened = null;
         }
-        saveDocStore(store);
+        const savedOk = saveDocStore(store);
+        setSaveFailed(!savedOk);
+        if (text) setStoredShortened(saveWasCut);
         setRecentDocs(
           Object.entries(store.docs || {})
             .map(([fp2, d]) => ({ fp: fp2, title: d.title || "Untitled document", words: d.text ? d.text.split(/\s+/).length : 0, updatedAt: d.updatedAt || 0 }))
@@ -16912,6 +16973,21 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             {analyzing ? "Reading…" : summary ? (analysisStale ? "Edited since analysis" : summary.model === "extractive" ? "Basic extract" : summary.partial ? "Partially analyzed" : "Analyzed") : hasDoc ? "Ready to inspect" : "Waiting"}
           </span>
         </div>
+        {/* Persistence honesty: a save that failed, and a stored copy
+            cut to the text cap, are named here in the same note family
+            as the stale analysis notices. Silence on either would let
+            the reader trust a copy of the document that is not whole,
+            or not there at all. */}
+        {hasDoc && saveFailed && (
+          <div role="note" style={{ fontSize: FONT_SIZES.small, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "8px 12px", marginBottom: 12, lineHeight: 1.55 }}>
+            This document could not be saved on this device, so it will not be here when you come back.
+          </div>
+        )}
+        {hasDoc && (storedShortened || docTextTrimmed.length > DOCMODE_MAX_TEXT) && (
+          <div role="note" style={{ fontSize: FONT_SIZES.small, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "8px 12px", marginBottom: 12, lineHeight: 1.55 }}>
+            What is stored on this device is shortened to the first {DOCMODE_MAX_TEXT.toLocaleString()} characters of this document.
+          </div>
+        )}
         {/* Recent documents: the durable shelf. Only when nothing is open. */}
         {!hasDoc && recentDocs.length > 0 && (
           <div style={{ marginBottom: 16 }}>
@@ -16946,6 +17022,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
               ))}
             </div>
+            {/* An eviction is named on the shelf it shrank, so a
+                document never just vanishes from the list. */}
+            {evictedNote && (
+              <div role="note" style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 8, lineHeight: 1.55 }}>
+                {evictedNote}
+              </div>
+            )}
           </div>
         )}
         <div style={{ marginBottom: 14, }}>
@@ -22187,12 +22270,18 @@ function App() {
   }
 
   const started = turns.length > 0 || busy;
-  /* Plate II (2026-10-13): while the search home is empty it is a
-     stage, not a workspace: no sidebar on desktop, no sidebar offset,
-     one centered column. The moment a thread exists, or the visitor
-     navigates anywhere, the standard shell returns unchanged. On
-     mobile the sidebar is a drawer rather than a layout column, so it
-     stays mounted for the header's menu button. */
+  /* The search home stage (the Plate II column of 2026-10-13, with
+     the sidebar restored the same day on Dusty's word: bring back the
+     side bar but make it better). While the search home is empty its
+     content is one centered column, but the shell around it is the
+     standard one: the desktop sidebar renders here exactly as it
+     does over a thread, with the usual main offset. What made the
+     old bench layout scatter (a flex start band with large left
+     padding, a deck wrapper repeating the padding, two widths) stays
+     dead: the column alone carries the stage, centered in the space
+     beside the sidebar. On mobile the sidebar is a drawer rather
+     than a layout column, so it stays mounted for the header's menu
+     button, as everywhere. */
   const homeStage = view === "search" && !started;
   const stageLastQ = lastInvestigationQuestion(history);
   const stageInquiries = deckHasContent
@@ -22464,7 +22553,6 @@ function App() {
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
       {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "calc(24px + env(safe-area-inset-bottom, 0px))") /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? "max(16px, env(safe-area-inset-right, 0px))" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
-      {(!homeStage || isMobile) && (
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -22478,8 +22566,7 @@ function App() {
         onOpenInvestigation={openHistoryItem}
         onOpenPalette={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}
       />
-      )}
-      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile || homeStage ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
+      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
           used to hold (search command bar, Inbox, Profile/Sign-in, the
           brand/back-to-landing mark) already lives in the Sidebar too (see
@@ -22580,7 +22667,7 @@ function App() {
                 const isActiveTab = view === t.key;
                 return (
                   <button key={t.key} onClick={() => { sfx(); stableSidebarNavigate(t.key); }}
-                    aria-label={t.label} aria-current={isActiveTab ? "page" : undefined}
+                    aria-label={t.badge > 0 ? `${t.label}, ${t.badge} unread` : t.label} aria-current={isActiveTab ? "page" : undefined}
                     style={{
                       flex: 1, minHeight: 64, display: "flex", flexDirection: "column",
                       alignItems: "center", justifyContent: "center", gap: 3,
@@ -22601,7 +22688,14 @@ function App() {
                     ) : (
                       <span style={{ position: "relative", display: "inline-flex" }}>
                         <Icon name={t.icon} size={20} />
-                        {t.badge > 0 && <span style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: "#e5484d", color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
+                        {/* The badge ground is a step darker than the
+                            status red: white on #e5484d computes to
+                            3.91 to 1, under the 4.5 floor for the
+                            numeral it carries. #d13438 computes to
+                            4.93 to 1 and reads as the same red. The
+                            count itself is spoken by the button's
+                            aria-label above; the badge stays hidden. */}
+                        {t.badge > 0 && <span style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: 8, background: "#d13438", color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
                       </span>
                     )}
                     <span>{t.label}</span>
@@ -22627,18 +22721,23 @@ function App() {
           {!started ? (
             /* ══════════════════════════════════════════════════════
                Plate II (2026-10-13): the empty search home as one
-               centered stage. A single column at 720px carries the
-               method statement, the composer, the method and proof
-               line, the Continue row, the specimen inquiries, and the
-               deck, all at one width with text left aligned inside
-               it, so one vertical line at the composer's left edge
-               aligns everything beneath it. This resolves the old
-               scatter at its root: the bench band aligned to flex
-               start with large left padding, the deck wrapper added
-               the same padding again and shifted right, and the two
-               had different widths. The shell drops the sidebar
-               while this state lasts (see homeStage); the first
-               submit yields to the existing thread layout.
+               centered stage, now inside the standard shell. A single
+               column at 720px carries the eyebrow, the method
+               statement, the composer, the method and proof line,
+               the Continue row, the specimen inquiries, and the deck,
+               all at one width with text left aligned inside it, so
+               one vertical line at the composer's left edge aligns
+               everything beneath it. The column is centered in the
+               space beside the sidebar, which renders here as it does
+               over a thread (see homeStage): navigation lives in the
+               sidebar alone, and the stage's old hairline top bar,
+               with its duplicate nav links and second wordmark, is
+               gone, so no destination or brand mark appears twice.
+               This keeps the old scatter dead at its root: the bench
+               band aligned to flex start with large left padding,
+               the deck wrapper added the same padding again and
+               shifted right, and the two had different widths. The
+               first submit yields to the existing thread layout.
                ══════════════════════════════════════════════════════ */
             <Reveal style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
@@ -22647,37 +22746,11 @@ function App() {
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
-                {/* No centre text on the stage bar: the wordmark on
-                    the left and the six nav links on the right leave
-                    the centre span too little room, so the running
-                    head clipped mid word ("SCIENTIFIC LITERAT…"). The
-                    plate identity is already carried by the Plate II
-                    eyebrow directly under the bar, so the centre
-                    yields entirely. The intro keeps its centre text:
-                    its right side is one short plate label and the
-                    centre fits there. */}
-                <PlateFrame
-                  faint={P.faint} line={P.line}
-                  headLeft={<span style={{ fontFamily: "var(--cb-serif)", fontSize: 19, fontWeight: 600, color: P.ink }}>Cerebrum</span>}
-                  headRight={isMobile ? <span style={plateHead(P.faint)}>Plate II · Inquiry</span> : (
-                    <nav aria-label="Main" style={{ display: "inline-flex", alignItems: "center", gap: 18 }}>
-                      {[
-                        ["Library", () => stableSidebarNavigate("library")],
-                        ["Investigations", () => stableSidebarNavigate("investigations")],
-                        ["Trending", () => stableSidebarNavigate("trending")],
-                        ["Cortex", () => stableSidebarNavigate("learn")],
-                      ].map(([label, fn]) => (
-                        <button key={label} type="button" onClick={fn} className="cb-stage-navlink">{label}</button>
-                      ))}
-                      <a href="/about" className="cb-stage-navlink" style={{ textDecoration: "none" }}>About</a>
-                      {user ? (
-                        <button type="button" onClick={() => stableSidebarNavigate("profile")} className="cb-stage-navlink">Account</button>
-                      ) : (
-                        <button type="button" onClick={() => { setAuthInitialTab("signin"); setAuthOpen(true); }} className="cb-stage-navlink">Sign in</button>
-                      )}
-                    </nav>
-                  )}
-                >
+                {/* No top bar on the stage: navigation lives in the
+                    sidebar alone, and nothing up here duplicates its
+                    destinations or its brand mark. The plate label
+                    sits once, as the eyebrow over the method
+                    statement below. */}
                   {/* The method statement: about the method, not a
                       greeting. */}
                   <div style={{ paddingTop: isMobile ? 30 : 40 }}>
@@ -22826,7 +22899,6 @@ function App() {
                       </a>
                     </p>
                   </div>
-                </PlateFrame>
               </div>
               {provenanceOpen && <SourcesDialog accent={accent} onClose={() => setProvenanceOpen(false)} />}
             </Reveal>
@@ -24795,14 +24867,8 @@ summary::-webkit-details-marker { display: none; }
   border-radius: 50%; flex-shrink: 0;
 }
 
-/* ── Plate II chrome: top bar links, text actions, inquiries ── */
-.cb-stage-navlink {
-  background: none; border: none; cursor: pointer; padding: 6px 0;
-  font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;
-  color: var(--cb-ink2); text-decoration: none; display: inline-block;
-  transition: color 200ms ease;
-}
-.cb-stage-navlink:hover { color: var(--cb-ink); text-decoration: underline; text-underline-offset: 4px; }
+/* ── Plate II chrome: text actions and inquiries (the stage top bar
+   and its link styles went with the bar when the sidebar returned) ── */
 .cb-stage-textbtn {
   background: none; border: none; cursor: pointer; padding: 8px 0;
   font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;

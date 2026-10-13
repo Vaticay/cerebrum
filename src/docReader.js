@@ -36,8 +36,12 @@
  *  - canAddHighlight: overlap guard for text highlights.
  *  - docTitleOf: a human title for a document (recent-documents list).
  *  - loadDocStore / saveDocStore: localStorage persistence for
- *    per-document reading state. Failures (private mode, quota) degrade
- *    to an empty store instead of throwing.
+ *    per-document reading state. Loads degrade to an empty store
+ *    instead of throwing; saves report success or failure so the
+ *    caller can tell the reader when a document did not persist.
+ *  - evictOldestDocs / docEvictionNote: the shelf's size cap, and the
+ *    plain words that name an eviction instead of letting a document
+ *    vanish silently.
  */
 
 export const DOCMODE_STORE_KEY = "cb_docmode_docs_v1";
@@ -353,12 +357,43 @@ export function loadDocStore() {
   }
 }
 
+/* Persist the store. Returns true when the write landed and false
+   when it did not (private mode, quota): a failed save must not look
+   identical to a successful one, because the reader is owed the
+   difference. Reading still works either way; it just won't persist. */
 export function saveDocStore(store) {
   try {
     localStorage.setItem(DOCMODE_STORE_KEY, JSON.stringify(store));
+    return true;
   } catch {
-    /* Private mode / quota: reading still works, it just won't persist. */
+    return false;
   }
+}
+
+/* Enforce the shelf cap on a store, oldest first by updatedAt, and
+   report what was removed as [{ fp, title }] so the caller can name
+   the eviction to the reader. A document must never disappear from
+   the shelf without a word. Mutates the store it is given. */
+export function evictOldestDocs(store, maxDocs = DOCMODE_MAX_DOCS) {
+  if (!store || typeof store !== "object" || !store.docs || typeof store.docs !== "object") return [];
+  const fps = Object.keys(store.docs).sort((a, b) => (store.docs[a].updatedAt || 0) - (store.docs[b].updatedAt || 0));
+  const evicted = [];
+  while (fps.length > maxDocs) {
+    const fp = fps.shift();
+    const entry = store.docs[fp];
+    evicted.push({ fp, title: entry && entry.title ? entry.title : "Untitled document" });
+    delete store.docs[fp];
+  }
+  return evicted;
+}
+
+/* Reader facing words for an eviction, in the shelf's own voice.
+   Empty string when nothing was evicted, so render sites can show
+   the result only when it says something. No dashes, house rule. */
+export function docEvictionNote(evicted) {
+  if (!Array.isArray(evicted) || evicted.length === 0) return "";
+  if (evicted.length === 1) return `The oldest document was removed to make room: ${evicted[0].title}.`;
+  return `The ${evicted.length} oldest documents were removed to make room: ${evicted.map((e) => e.title).join(", ")}.`;
 }
 
 /* Delete one document from the shelf. Returns true when something was

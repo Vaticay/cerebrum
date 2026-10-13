@@ -472,5 +472,57 @@ await test("new user visible copy carries no dash characters", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("client: the record's readable half carries the v2 fields");
+
+await test("the markdown sources print authors and journal when the record has them", () => {
+  const mdAt = appSrc.indexOf("function searchRecordMarkdown");
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  assert.ok(mdAt > 0 && panelAt > mdAt, "could not isolate searchRecordMarkdown");
+  const md = appSrc.slice(mdAt, panelAt);
+  // Conditional on the record carrying the fields: absent authors or
+  // journal print nothing, never a placeholder standing in for them.
+  assert.match(md, /if \(s\.authors\) line \+= " · " \+ s\.authors;/, "markdown does not print authors per source");
+  assert.match(md, /if \(s\.journal\) line \+= " · " \+ s\.journal;/, "markdown does not print journal per source");
+  const sourcesAt = md.indexOf('lines.push("## Sources")');
+  const jsonAt = md.indexOf('lines.push("## Record as JSON")');
+  assert.ok(sourcesAt > 0 && jsonAt > sourcesAt, "sources section must sit above the JSON dump");
+  const sourcesBlock = md.slice(sourcesAt, jsonAt);
+  assert.ok(sourcesBlock.includes("s.authors") && sourcesBlock.includes("s.journal"),
+    "authors and journal must print in the readable sources list, not only in the JSON");
+});
+
+await test("the markdown carries an executed queries section in prose, above the JSON dump", () => {
+  const mdAt = appSrc.indexOf("function searchRecordMarkdown");
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const md = appSrc.slice(mdAt, panelAt);
+  const sectionAt = md.indexOf('lines.push("## Executed queries")');
+  assert.ok(sectionAt > 0, "markdown has no executed queries section");
+  const jsonAt = md.indexOf('lines.push("## Record as JSON")');
+  assert.ok(sectionAt < jsonAt, "the executed queries section must sit above the JSON dump");
+  assert.match(md, /record\.executedQueries/, "the section does not read the executed query set");
+  assert.match(md, /EXECUTED_QUERY_KIND_LABELS\[q\.kind\]/, "the section does not name each query by kind");
+  const labelsAt = appSrc.indexOf("const EXECUTED_QUERY_KIND_LABELS");
+  assert.ok(labelsAt > 0, "the kind label map is missing");
+  const labels = appSrc.slice(labelsAt, labelsAt + 400);
+  for (const kind of ["rung", "concept", "recall", "relaxed", "aspect"]) {
+    assert.ok(labels.includes(`${kind}:`), `kind label missing for ${kind}`);
+  }
+  // A record without the set says so in words rather than printing an
+  // empty section or an invented list.
+  assert.ok(md.includes("The individual queries that ran were not recorded for this search."),
+    "the section has no honest fallback when the set was not recorded");
+});
+
+await test("the panel source rows show authors and journal too", () => {
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const endAt = appSrc.indexOf("function AnswerDiagnostics");
+  assert.ok(panelAt > 0 && endAt > panelAt, "could not isolate SearchRecordPanel");
+  const panel = appSrc.slice(panelAt, endAt);
+  assert.match(panel, /\(s\.authors \|\| s\.journal\) \? \(/, "panel rows do not gate on the record carrying authors or journal");
+  assert.ok(panel.includes("s.authors") && panel.includes("s.journal"),
+    "panel source rows must print authors and journal, not only title and year");
+});
+
+// ═══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

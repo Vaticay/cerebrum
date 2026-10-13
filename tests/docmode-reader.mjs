@@ -51,6 +51,8 @@ const {
   docTitleOf,
   loadDocStore,
   saveDocStore,
+  evictOldestDocs,
+  docEvictionNote,
   DOCMODE_STORE_KEY,
   DOCMODE_MAX_DOCS,
   DOCMODE_MAX_TEXT,
@@ -410,6 +412,97 @@ await test("corrupt storage degrades to an empty store", () => {
 await test("storage constants are sane", () => {
   assert.ok(DOCMODE_MAX_DOCS >= 1 && DOCMODE_MAX_DOCS <= 50);
   assert.ok(DOCMODE_MAX_TEXT >= 50000, "text cap must hold a real paper");
+});
+
+// ── Persistence honesty: saves report, cuts and evictions are named ──
+group("persistence honesty — a failed save, a cut copy, and an eviction are never silent");
+
+await test("saveDocStore reports success and failure as different outcomes", () => {
+  const restore = stubLocalStorage();
+  try {
+    assert.equal(saveDocStore({ docs: {}, lastOpened: null }), true, "a landed save must report true");
+    const throwing = {
+      getItem: () => null,
+      setItem: () => { throw new Error("QuotaExceededError"); },
+      removeItem: () => {},
+    };
+    Object.defineProperty(globalThis, "localStorage", { value: throwing, configurable: true, writable: true });
+    assert.equal(saveDocStore({ docs: {}, lastOpened: null }), false,
+      "a failed save must report false, never look identical to a success");
+  } finally {
+    restore();
+  }
+});
+
+await test("evictOldestDocs removes the oldest past the cap and names them", () => {
+  const docs = {};
+  for (let i = 0; i < DOCMODE_MAX_DOCS + 2; i++) {
+    docs["fp" + i] = { title: "Doc " + i, text: "t", updatedAt: 1000 + i };
+  }
+  const store = { docs, lastOpened: null };
+  const evicted = evictOldestDocs(store);
+  assert.equal(evicted.length, 2, "exactly the overflow is evicted");
+  assert.deepEqual(evicted.map((e) => e.title), ["Doc 0", "Doc 1"], "the oldest go first, in order");
+  assert.equal(Object.keys(store.docs).length, DOCMODE_MAX_DOCS, "the shelf is left at the cap");
+  assert.ok(!store.docs.fp0 && !store.docs.fp1, "evicted entries are gone from the store");
+  assert.deepEqual(evictOldestDocs(store), [], "at the cap nothing more is evicted");
+  assert.deepEqual(evictOldestDocs(null), [], "a malformed store evicts nothing");
+  assert.deepEqual(evictOldestDocs({}), [], "a store without docs evicts nothing");
+});
+
+await test("the eviction note names what was removed and carries no dashes", () => {
+  assert.equal(docEvictionNote([]), "", "no eviction, no note");
+  assert.equal(docEvictionNote([{ fp: "a", title: "Frogs" }]),
+    "The oldest document was removed to make room: Frogs.");
+  assert.equal(docEvictionNote([{ fp: "a", title: "Frogs" }, { fp: "b", title: "Bees" }]),
+    "The 2 oldest documents were removed to make room: Frogs, Bees.");
+  assert.ok(!/[-\u2010-\u2015]/.test(docEvictionNote([{ fp: "a", title: "Frogs" }])),
+    "eviction copy must contain no dash characters");
+});
+
+await test("the desk reads the save outcome and shows the failure instead of swallowing it", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /const savedOk = saveDocStore\(store\);/, "the durable save does not capture the outcome");
+  assert.match(src, /setSaveFailed\(!savedOk\);/, "the save outcome never reaches reader facing state");
+  assert.match(src, /const \[saveFailed, setSaveFailed\] = useState\(false\);/, "no state carries the save failure");
+  assert.ok(src.includes("This document could not be saved on this device, so it will not be here when you come back."),
+    "save failure notice copy missing");
+  assert.match(src, /hasDoc && saveFailed && \(/, "the failure notice is not gated on the failure state");
+});
+
+await test("a stored copy cut to the cap is flagged on the entry and named on reopen", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The save effect records the cut on the entry it writes, computed
+  // from the cap constant, and keeps it true while the open text is
+  // the stored cut text itself.
+  const saveAt = src.indexOf("store.docs[fp] = {");
+  assert.ok(saveAt > 0, "durable save assignment missing");
+  const saveBlock = src.slice(saveAt - 600, saveAt + 400);
+  assert.match(saveBlock, /const wasCut = text\.length > DOCMODE_MAX_TEXT/, "the cut is not computed from the cap constant");
+  assert.match(saveBlock, /store\.docs\[fp\]\.storedShortened && store\.docs\[fp\]\.text === text/, "the cut is not sticky for a reopened cut document");
+  assert.match(saveBlock, /storedShortened: wasCut/, "the entry does not carry the cut flag");
+  // Reopening restores the flag into state, and the notice names the
+  // cap from the constant rather than a second hardcoded number.
+  assert.match(src, /setStoredShortened\(!!\(saved && saved\.storedShortened\)\);/, "reopening does not restore the cut flag");
+  assert.ok(src.includes("What is stored on this device is shortened to the first {DOCMODE_MAX_TEXT.toLocaleString()} characters of this document."),
+    "shortened storage notice missing, or its number is not computed from DOCMODE_MAX_TEXT");
+  assert.match(src, /hasDoc && \(storedShortened \|\| docTextTrimmed\.length > DOCMODE_MAX_TEXT\) && \(/, "the shortened notice is not gated on the cut");
+});
+
+await test("the save effect evicts through the shared helper and the shelf names the eviction", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /const evicted = evictOldestDocs\(store\);/, "the save effect does not evict through evictOldestDocs");
+  assert.match(src, /if \(evicted\.length\) setEvictedNote\(docEvictionNote\(evicted\)\);/, "an eviction never becomes a reader facing note");
+  assert.match(src, /\{evictedNote && \(/, "the shelf does not render the eviction note");
+  const copies = [
+    "This document could not be saved on this device, so it will not be here when you come back.",
+    "What is stored on this device is shortened to the first",
+    "characters of this document.",
+  ];
+  for (const c of copies) {
+    assert.ok(src.includes(c), "persistence notice copy missing: " + c);
+    assert.ok(!/[-\u2010-\u2015]/.test(c), "persistence notice copy contains a dash character: " + c);
+  }
 });
 
 // ── OpenRouter key alias (document.js) ─────────────────────────────────

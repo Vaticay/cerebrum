@@ -46,17 +46,22 @@ const designSrc = await readFile(join(root, "src/designSystem.jsx"), "utf8");
 const appUtilsSrc = await readFile(join(root, "src/appUtils.js"), "utf8");
 const palettesSrc = await readFile(join(root, "src/palettes.js"), "utf8");
 const inboxSrc = await readFile(join(root, "src/inbox.jsx"), "utf8");
+const flowchartsSrc = await readFile(join(root, "src/flowcharts.jsx"), "utf8");
 
 group("Workspace ambient reel (revised)");
 await test("workspace CinematicFilm mount exists, darker than before", () => {
   // 2026-10-08: three mounts (intro reel, calm reel, workspace backdrop).
-  // 2026-10-13 plate redesign superseded the intro mount: the door is
-  // the DotField now, so two mounts remain (calm reel on the search
+  // 2026-10-13 plate redesign superseded the intro mount for a day: the
+  // door was the DotField, so two mounts remained. Dusty's directive the
+  // same day ("Bring back the old intro page just make it better")
+  // restored the film door, so the intro mount is back and three mounts
+  // stand again (intro reel on the door, calm reel on the search
   // backdrop, workspace backdrop). The component itself is unchanged.
   const mounts = (appSrc.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(mounts.length, 2, `expected calm+workspace mounts, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 3, `expected intro+calm+workspace mounts, found ${mounts.length}`);
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
-  assert.ok(!introFn.includes("<CinematicFilm"), "the intro mounts the film reel again");
+  assert.ok(introFn.includes("<CinematicFilm"), "the restored intro no longer mounts the film reel");
+  assert.ok(introFn.includes('reel="intro"'), "the door does not run the intro reel");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
   assert.match(appSrc, /brightness\(0\.72\)/, "extra CSS grade missing on the workspace reel wrapper");
 });
@@ -199,12 +204,16 @@ group("No dashes in app copy (whole app guard)");
   // Dusty's standing rule is absolute: no dashes of any kind in user
   // visible copy, because they read as AI generated. Modeled on the
   // Cortex lesson copy pin in tests/cortex-learning.mjs, widened to the
-  // whole app: parse both app sources and walk every string literal,
-  // template quasi, and JSX text node, which are the three places user
-  // visible copy can live. Scope, stated honestly: JS comments are not
-  // rendered and the parser drops them, so they are out of scope by
-  // construction; CSS comments inside template strings are stripped
-  // before checking for the same reason. One value is exempted by exact
+  // whole app: parse each surface's source and walk every string
+  // literal, template quasi, and JSX text node, which are the three
+  // places user visible copy can live. The walk covers the main app,
+  // the inbox, the settings surface, and the flowchart studio: every
+  // surface a signed in user reads, including the high trust settings
+  // flows (API keys, recovery phrase, vault encryption). Scope, stated
+  // honestly: JS comments are not rendered and the parser drops them,
+  // so they are out of scope by construction; CSS comments inside
+  // template strings are stripped before checking for the same reason.
+  // One value is exempted by exact
   // match below: a RegExp character class that names the em dash in
   // order to strip it out of AI generated section headers. That is code,
   // not copy, and the exemption cannot hide anything else.
@@ -232,7 +241,7 @@ group("No dashes in app copy (whole app guard)");
     })(ast.program);
     return out;
   };
-  for (const [name, src] of [["CerebrumApp.jsx", appSrc], ["inbox.jsx", inboxSrc]]) {
+  for (const [name, src] of [["CerebrumApp.jsx", appSrc], ["inbox.jsx", inboxSrc], ["settings.jsx", settingsSrc], ["flowcharts.jsx", flowchartsSrc]]) {
     await test(`no em or en dashes in ${name} copy`, () => {
       const strings = copyStrings(src);
       assert.ok(strings.length > 500, `suspiciously little copy collected from ${name}: ${strings.length}`);
@@ -243,6 +252,76 @@ group("No dashes in app copy (whole app guard)");
     });
   }
 }
+
+group("Home stage: sidebar restored, one column, one navigation");
+{
+  // 2026-10-13, Dusty's directive: "bring back the side bar but make
+  // it better." The plate pass made the empty search home a
+  // sidebarless stage with its own hairline top bar carrying a second
+  // navigation. The restoration keeps the plate pass's single centred
+  // 720 column (the scatter fix: one width, one left edge, no repeated
+  // padding) and puts the standard shell back around it. The older
+  // stage pins live in tests/intro-title-card.mjs; this group pins the
+  // restored contract.
+  const stage = appSrc.slice(
+    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("<div style={{ ...S.workspace,")
+  );
+  await test("the sidebar renders on the stage with the standard offset", () => {
+    assert.ok(stage.length > 1000, "stage block not found");
+    assert.ok(!appSrc.includes("(!homeStage || isMobile)"), "sidebar render is still gated on the stage");
+    const mount = appSrc.slice(appSrc.indexOf("<Sidebar"), appSrc.indexOf('id="cb-main"'));
+    assert.ok(mount.includes("onNavigate={stableSidebarNavigate}"), "sidebar mount lost its navigate wiring");
+    assert.ok(mount.includes("isMobile={isMobile} mobileOpen={sidebarMobileOpen}"), "mobile drawer wiring changed");
+    assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216)"), "main offset is not the standard sidebar offset");
+    assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
+  });
+  await test("the stage column keeps one width and one left edge", () => {
+    assert.ok(stage.includes('width: "100%", maxWidth: 720'), "stage column is not the single 720 column");
+    assert.ok(!stage.includes("paddingLeft"), "a second left padding crept into the stage column");
+    assert.ok(stage.includes("<HomeDeck"), "deck missing from the stage column");
+    assert.ok(stage.includes("Continue investigation"), "continue row missing from the column");
+  });
+  await test("navigation exists exactly once: no stage top bar", () => {
+    assert.ok(!stage.includes("<nav"), "stage still renders its own nav");
+    assert.ok(!appSrc.includes("cb-stage-navlink"), "stage top bar link styles survive");
+    const mainNavs = appSrc.match(/<nav[^>]*aria-label="Main"/g) || [];
+    assert.strictEqual(mainNavs.length, 1, `expected exactly one Main nav (the sidebar's), found ${mainNavs.length}`);
+  });
+  await test("New search tops the sidebar, wired to the reset", () => {
+    const newItem = appSrc.indexOf('["new", "New search", "plus"]');
+    const searchItem = appSrc.indexOf('["search", "Search", "search"]');
+    assert.ok(newItem !== -1 && searchItem !== -1 && newItem < searchItem, "New search is not the sidebar's first item");
+    assert.ok(appSrc.includes('case "new": newSession();'), "the new case is not wired to the session reset");
+  });
+  await test("the stage still renders exactly one Continue row", () => {
+    const deckUse = stage.slice(stage.indexOf("<HomeDeck"));
+    assert.ok(deckUse.startsWith("<HomeDeck\n                      suppressContinue"), "the stage deck lost suppressContinue");
+    assert.ok(appSrc.includes("lastQ && !suppressContinue"), "the deck card is no longer gated on the prop");
+  });
+}
+
+group("Mobile tab bar unread badge");
+await test("the tab button speaks the unread count and the badge numeral clears 4.5 to 1", () => {
+  // The badge itself is aria-hidden decoration; the count has to
+  // live in the button's accessible name, the same pattern the
+  // sidebar Inbox button and the inbox thread pill already use.
+  assert.ok(appSrc.includes("aria-label={t.badge > 0 ? `${t.label}, ${t.badge} unread` : t.label}"),
+    "the tab button's accessible name drops the unread count");
+  const badgeAt = appSrc.indexOf("minWidth: 16, height: 16, borderRadius: 8");
+  assert.ok(badgeAt > 0, "the tab badge span is gone");
+  const badgeSpan = appSrc.slice(badgeAt, badgeAt + 340);
+  assert.ok(badgeSpan.includes('aria-hidden="true"'), "the tab badge is no longer hidden from assistive tech");
+  const ground = (badgeSpan.match(/background: "(#[0-9a-fA-F]{6})"/) || [])[1];
+  assert.ok(ground, "the tab badge carries no ground color");
+  // WCAG contrast of the white numeral on the badge ground,
+  // computed from the hex the app actually ships, not a copy of it.
+  const lum = (hex) => [0, 2, 4].map((i) => parseInt(hex.slice(i + 1, i + 3), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)))
+    .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+  const ratio = (lum("#ffffff") + 0.05) / (lum(ground) + 0.05);
+  assert.ok(ratio >= 4.5, `the tab badge numeral computes to ${ratio.toFixed(2)} to 1, under 4.5`);
+});
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

@@ -315,11 +315,28 @@ await test("fixture edition: floor, finished summaries, completed counts, truthf
 
   // Source health describes the edition that was built, not the raw
   // upstream return (Europe PMC sent three, the edition holds two).
-  for (const h of sourceHealth) {
+  // The citation completion entry is not a section of the edition, so
+  // the per section contract is checked on the section entries only;
+  // the completion entry carries its own contract, asserted below.
+  for (const h of sourceHealth.filter((x) => x.source !== "Citation counts")) {
     assert.equal(h.count, items.filter((i) => i.category === h.source).length, `health count wrong for ${h.source}`);
     assert.equal(h.ok, h.count > 0, `health ok flag wrong for ${h.source}`);
   }
   assert.equal(sourceHealth.find((h) => h.source === "Biology & Medicine").count, 2);
+
+  // The completion leg reports itself: three items needed a count
+  // (the fresh paper, the preprint, the arXiv paper), OpenAlex
+  // resolved two of them, both positive, and no fallback ran.
+  const cites = sourceHealth.find((h) => h.source === "Citation counts");
+  assert.ok(cites, "no citation completion entry in source health");
+  assert.equal(cites.ok, true, "completion leg should read healthy when OpenAlex answers");
+  assert.equal(cites.attempted, 3, "completion attempted count wrong");
+  assert.equal(cites.resolved, 2, "completion resolved count wrong");
+  assert.equal(cites.positive, 2, "completion positive count wrong");
+  assert.equal(cites.count, 2, "completion entry count should be its resolved count");
+  assert.equal(cites.error, null, "healthy completion leg carries an error");
+  assert.deepEqual(cites.legs.map((l) => l.provider), ["OpenAlex"], "Crossref ran after an OpenAlex success");
+  assert.equal(cites.legs[0].error, null);
 
   // Every summary ends at a sentence boundary or admits its cut.
   const sentenceEnd = /[.!?]["'”’)\]]*$/;
@@ -350,6 +367,150 @@ await test("fixture edition: floor, finished summaries, completed counts, truthf
   assert.ok(openAlexRequests[0].includes("10.48550/arXiv.2601.00001"), "arXiv lookup DOI form wrong");
   assert.ok(!openAlexRequests[0].includes("2601.00001v1"), "versioned arXiv id sent as a DOI");
   assert.ok(!openAlexRequests[0].includes("10.9/counted"), "already counted work was looked up again");
+});
+
+// ── Citation completion: fallback and honest health ───────────────
+// The production edition of 2026-10-13 shipped with zero of its
+// twenty resolvable DOIs populated and no surface able to say why:
+// the OpenAlex leg swallowed its error whole. These scenarios stub
+// the providers around the same five item edition and pin the new
+// contract: the leg reports itself in source health, a failed
+// OpenAlex gives the same DOI set to Crossref, counts are never
+// invented, and a source's own report is never even asked about.
+
+function citationScenario({ openAlex, crossref }) {
+  const requests = { openAlex: [], crossref: [] };
+  const handler = (url) => {
+    const u = String(url);
+    if (u.includes("europepmc")) {
+      return jsonResponse({ resultList: { result: [
+        { title: "Counted journal paper.", abstractText: "An abstract that ends properly.",
+          doi: "10.9/counted", journalTitle: "J Fixture", firstPublicationDate: isoDaysAgo(3), citedByCount: 5 },
+        { title: "Fresh journal paper.", abstractText: "An abstract that ends properly.",
+          doi: "10.9/fresh", journalTitle: "J Fixture", firstPublicationDate: isoDaysAgo(2) },
+      ] } });
+    }
+    if (u.includes("biorxiv")) {
+      return jsonResponse({ collection: [
+        { title: "Preprint with a citation history", abstract: "A complete abstract.",
+          doi: "10.1101/2025.01.01.000001", category: "neuroscience", date: isoDaysAgo(1) },
+      ] });
+    }
+    if (u.includes("export.arxiv.org")) {
+      const xml = `<feed><entry><title>An arXiv paper</title><summary>Arxiv abstract.</summary>` +
+        `<id>http://arxiv.org/abs/2601.00001v1</id><published>${new Date().toISOString()}</published>` +
+        `<category term="physics.chem-ph"/></entry></feed>`;
+      return new Response(xml, { status: 200, headers: { "Content-Type": "application/atom+xml" } });
+    }
+    if (u.includes("spaceflightnewsapi")) {
+      return jsonResponse({ results: [
+        { title: "Launch campaign update", summary: "A complete summary.",
+          url: "https://news.example/launch", image_url: "", news_site: "Fixture News", published_at: new Date().toISOString() },
+      ] });
+    }
+    if (u.includes("api.openalex.org")) { requests.openAlex.push(u); return openAlex(u); }
+    if (u.includes("api.crossref.org")) { requests.crossref.push(u); return crossref(u); }
+    throw new Error("unexpected url: " + u);
+  };
+  return { handler, requests };
+}
+
+function crossrefStub(counts) {
+  return (u) => {
+    const doi = decodeURIComponent(u.split("/works/")[1].split("?")[0]).toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(counts, doi)) {
+      return new Response("not found", { status: 404 });
+    }
+    return jsonResponse({ message: { DOI: doi, "is-referenced-by-count": counts[doi] } });
+  };
+}
+
+async function buildScenario(opts) {
+  const { handler, requests } = citationScenario(opts);
+  const restore = stubFetchGlobal(handler);
+  let feed;
+  try { feed = await (await import(join(root, "functions/lib/trendingSource.js"))).fetchTrendingFeed(); }
+  finally { restore(); }
+  return { feed, requests };
+}
+
+await test("citation completion: OpenAlex failure falls back to Crossref and health names both legs", async () => {
+  const { feed, requests } = await buildScenario({
+    openAlex: () => new Response("upstream down", { status: 503 }),
+    // Crossref would offer 42 for the counted paper if it were ever
+    // asked; the completion leg must never ask about a work whose own
+    // source already reported a count.
+    crossref: crossrefStub({
+      "10.1101/2025.01.01.000001": 11,
+      "10.48550/arxiv.2601.00001": 0,
+      "10.9/fresh": 4,
+      "10.9/counted": 42,
+    }),
+  });
+  const { items, sourceHealth } = feed;
+  const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
+  assert.equal(byTitle["Preprint with a citation history"].citedByCount, 11, "Crossref count not applied to the preprint");
+  assert.equal(byTitle["An arXiv paper"].citedByCount, 0, "a real Crossref zero must land as zero, not stay null");
+  assert.equal(byTitle["Fresh journal paper"].citedByCount, 4, "Crossref count not applied to the fresh paper");
+  assert.equal(byTitle["Counted journal paper"].citedByCount, 5, "a source's own count was overwritten by the fallback");
+  assert.ok(requests.crossref.length > 0, "Crossref was never called after the OpenAlex failure");
+  assert.ok(requests.crossref.every((u) => !decodeURIComponent(u).includes("10.9/counted")),
+    "Crossref was asked about a work already counted by its own source");
+
+  const cites = sourceHealth.find((h) => h.source === "Citation counts");
+  assert.ok(cites, "no citation completion entry in source health");
+  assert.equal(cites.ok, true, "the leg should read healthy when the fallback answers");
+  assert.deepEqual(cites.legs.map((l) => l.provider), ["OpenAlex", "Crossref"], "health does not name both legs");
+  assert.equal(cites.legs[0].error, "HTTP 503", "the OpenAlex failure class is not reported");
+  assert.equal(cites.legs[1].error, null, "the answering Crossref leg carries an error");
+  assert.ok(cites.error && cites.error.includes("OpenAlex") && cites.error.includes("HTTP 503"),
+    "the entry error does not name the failed leg and its class");
+  assert.equal(cites.attempted, 3);
+  assert.equal(cites.resolved, 3, "all three attempted items should resolve through the fallback");
+  assert.equal(cites.positive, 2, "the Crossref zero is resolved but not positive");
+});
+
+await test("citation completion: both providers failing leaves counts null and health reports the failure", async () => {
+  const { feed } = await buildScenario({
+    openAlex: () => { throw new TypeError("fetch failed"); },
+    crossref: () => new Response("server error", { status: 500 }),
+  });
+  const { items, sourceHealth } = feed;
+  const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
+  assert.equal(byTitle["Preprint with a citation history"].citedByCount, null, "a count appeared from two dead providers");
+  assert.equal(byTitle["An arXiv paper"].citedByCount, null, "a count appeared from two dead providers");
+  assert.equal(byTitle["Fresh journal paper"].citedByCount, null, "a count appeared from two dead providers");
+  assert.equal(byTitle["Counted journal paper"].citedByCount, 5, "a source's own count was disturbed");
+
+  const cites = sourceHealth.find((h) => h.source === "Citation counts");
+  assert.ok(cites, "no citation completion entry in source health");
+  assert.equal(cites.ok, false, "a leg both of whose providers failed must read as failed");
+  assert.equal(cites.resolved, 0);
+  assert.equal(cites.count, 0);
+  assert.equal(cites.legs[0].error, "network error", "the OpenAlex failure class is wrong");
+  assert.equal(cites.legs[1].error, "HTTP 500", "the Crossref failure class is wrong");
+  assert.ok(cites.error.includes("network error") && cites.error.includes("HTTP 500"),
+    "the entry error does not carry both failure classes");
+});
+
+await test("citation completion: a malformed OpenAlex reply is named, and the fallback still lands", async () => {
+  const { feed } = await buildScenario({
+    openAlex: () => jsonResponse({ meta: { count: 0 } }),
+    crossref: crossrefStub({ "10.1101/2025.01.01.000001": 2 }),
+  });
+  const { items, sourceHealth } = feed;
+  const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
+  assert.equal(byTitle["Preprint with a citation history"].citedByCount, 2, "fallback did not land after the malformed reply");
+  // Crossref answering 404 for works it does not know is the leg
+  // doing its job: those items stay null and the leg is not failed.
+  assert.equal(byTitle["An arXiv paper"].citedByCount, null, "an unknown work gained an invented count");
+  assert.equal(byTitle["Fresh journal paper"].citedByCount, null, "an unknown work gained an invented count");
+
+  const cites = sourceHealth.find((h) => h.source === "Citation counts");
+  assert.equal(cites.legs[0].error, "malformed reply", "the malformed reply was not named as its class");
+  assert.equal(cites.legs[1].error, null, "Crossref 404s for unknown works were treated as a leg failure");
+  assert.equal(cites.ok, true);
+  assert.equal(cites.resolved, 1);
 });
 
 await test("summary finishing: boundaries, decimals, and the marker", async () => {
@@ -407,6 +568,79 @@ await test("trend history: days present across editions, first seen, ordering", 
   ];
   const ordered = [...shuffled].sort(compareByTrend).map((i) => i.doi);
   assert.deepEqual(ordered, ["v", "w", "x", "y", "z"], "trend ordering is not days, then citations, then recency");
+});
+
+// ── The persistence signal reaches the reader ────────────────────
+// The server has stamped trend { daysPresent, firstSeenEdition } on
+// every item since the signal pass, and compareByTrend ordered by
+// it server side, but the client rendered daysPresent nowhere and
+// offered no trend ordering: the signal was computed and dropped.
+// These pins cover the client half: the comparator's order, its
+// parity with the server's, and the marker's render rule.
+
+await test("client trend ordering: days, then citation presence and size, then recency", async () => {
+  const { compareByTrend } = await import(join(root, "src/trendingUtils.js"));
+  const mk = (doi, daysPresent, citedByCount, publishedAt) => ({ doi, trend: { daysPresent }, citedByCount, publishedAt });
+  const shuffled = [
+    mk("z", 1, 40, "2026-10-13"),       // most cited, newest, but only one day present
+    mk("y", 2, 0, "2026-10-12"),        // a reported zero still outranks a missing count
+    mk("x", 3, 0, "2026-10-10"),
+    mk("w", 3, 12, "2026-10-09"),
+    mk("v", 3, 12, "2026-10-11"),       // same days and count as w, newer, so first
+    mk("u", 2, null, "2026-10-13"),     // missing count ranks below any reported one
+  ];
+  const ordered = [...shuffled].sort(compareByTrend).map((i) => i.doi);
+  assert.deepEqual(ordered, ["v", "w", "x", "y", "u", "z"], "client trend ordering is not days, then citations, then recency");
+  // A story with no trend field at all reads as zero days, never as
+  // a phantom veteran, and an all first day edition still orders by
+  // the tiebreakers alone.
+  const young = [mk("b", 1, null, "2026-10-12"), mk("a", 1, 3, "2026-10-11"), { doi: "c", citedByCount: 9, publishedAt: "2026-10-13" }];
+  assert.deepEqual([...young].sort(compareByTrend).map((i) => i.doi), ["a", "b", "c"],
+    "missing trend data or a one day archive must fall through to citations, then recency");
+});
+
+await test("client trend ordering matches the server comparator on the same stories", async () => {
+  const client = await import(join(root, "src/trendingUtils.js"));
+  const server = await import(join(root, "functions/lib/trendingSource.js"));
+  const mk = (doi, daysPresent, citedByCount, publishedAt) => ({ doi, trend: { daysPresent, firstSeenEdition: "2026-10-10" }, citedByCount, publishedAt });
+  const stories = [
+    mk("p", 4, null, "2026-10-08"),
+    mk("q", 4, 2, "2026-10-07"),
+    mk("r", 1, 90, "2026-10-13"),
+    mk("s", 2, 2, "2026-10-12"),
+    mk("t", 2, 2, "2026-10-11"),
+  ];
+  const byClient = [...stories].sort(client.compareByTrend).map((i) => i.doi);
+  const byServer = [...stories].sort(server.compareByTrend).map((i) => i.doi);
+  assert.deepEqual(byClient, ["q", "p", "s", "t", "r"], "client trend fixture order wrong");
+  assert.deepEqual(byClient, byServer, "client and server trend orderings disagree");
+});
+
+await test("persistence marker: named only above the first day", async () => {
+  const { trendPersistenceLabel } = await import(join(root, "src/trendingUtils.js"));
+  assert.equal(trendPersistenceLabel({ trend: { daysPresent: 1 } }), null, "a first day story earned a marker");
+  assert.equal(trendPersistenceLabel({ trend: { daysPresent: 2 } }), "Day 2 in Trending");
+  assert.equal(trendPersistenceLabel({ trend: { daysPresent: 5, firstSeenEdition: "2026-10-09" } }), "Day 5 in Trending");
+  assert.equal(trendPersistenceLabel({}), null, "a story with no trend field earned a marker");
+  assert.equal(trendPersistenceLabel({ trend: { daysPresent: "3" } }), null, "a string day count earned a marker");
+  assert.equal(trendPersistenceLabel({ trend: { daysPresent: NaN } }), null, "a NaN day count earned a marker");
+  assert.equal(trendPersistenceLabel(null), null, "a missing story earned a marker");
+});
+
+await test("the view offers the trend ordering and renders the persistence marker", () => {
+  assert.ok(appSrc.includes("compareByTrend(a, b)"), "the client sort never calls the trend comparator");
+  assert.ok(appSrc.includes('{ id: "trend", label: "Trending" }'), "no Trending sort option");
+  const optionsAt = appSrc.indexOf('id: "edition", label: "Edition order"');
+  const optionsSlice = appSrc.slice(optionsAt, optionsAt + 240);
+  assert.ok(optionsSlice.indexOf('id: "trend"') > -1 && optionsSlice.indexOf('id: "trend"') < optionsSlice.indexOf("hasCitedData"),
+    "the Trending option is gated on citation data it does not need");
+  assert.ok(appSrc.includes('trendSort === "cited" && !hasCitedData'), "the cited ordering lost its data gate");
+  // The marker reaches every story surface through one helper: the
+  // provenance line the hero, digest rows, and rail all render, and
+  // the story modal's own meta line and up next rows.
+  assert.ok(appSrc.includes("const persistence = trendPersistenceLabel(item);"), "provenance never carries the marker");
+  assert.ok(appSrc.includes("const persistenceLabel = trendPersistenceLabel(item);"), "the modal never computes the marker");
+  assert.ok(appSrc.includes("trendPersistenceLabel(nx)"), "the modal's up next rows never carry the marker");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
