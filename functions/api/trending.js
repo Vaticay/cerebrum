@@ -21,7 +21,7 @@
 // Labeled "Preview" on screen, not "Fact-Checked": unlike a single search
 // answer, nothing here has gone through Cerebrum's own fact-check pass —
 // this is a live feed of other outlets' reporting, not Cerebrum's own
-// verified output. See TrendingView in src/main.jsx for exactly how that's
+// verified output. See TrendingView in src/CerebrumApp.jsx for exactly how that's
 // worded on screen.
 
 import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";

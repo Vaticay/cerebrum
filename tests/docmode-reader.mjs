@@ -511,7 +511,7 @@ await test("sidebar is the flat toolbelt: no New investigation row by design", a
   assert.ok(navAt > 0, "Investigations nav item missing");
   const navBlock = src.slice(src.indexOf("const NAV_ITEMS"), src.indexOf("const NAV_ITEMS") + 900);
   assert.ok(!/\["new", "New investigation"/.test(navBlock), "flat nav must not carry a New investigation row");
-  for (const item of ['["search", "Search"', '["document", "Document Mode"', '["library", "Library"', '["learn", "Cortex"']) {
+  for (const item of ['["search", "Search"', '["document", "Document Reader"', '["library", "Library"', '["learn", "Cortex"']) {
     assert.ok(navBlock.includes(item), `flat nav missing ${item}`);
   }
   // All nav rows get 44px targets via S.sidebarItem (no per-row override needed).

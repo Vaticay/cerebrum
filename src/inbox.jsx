@@ -8,10 +8,52 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad } from "./appUtils.js";
-import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, Icon, UIButton } from "./designSystem.jsx";
+import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, Icon, UIButton } from "./designSystem.jsx";
 import { ensureE2EEDevice, decryptThreadMessages, getSafetyNumber, getRecoveryPhrase, isPeerEncryptionReady, upgradeThread, markSafetyNumberVerified, clearSafetyNumberVerified, encryptMessage } from "./e2ee/messaging.js";
 import { safeHref } from "./textUtils.js";
 import { Dialog, ModalChrome } from "./flowcharts.jsx";
+
+/* Group threads need to tell speakers apart at a glance. One stable
+   color per person, hashed from their id, so the same researcher is
+   the same color in every group and on every visit. */
+const SENDER_COLORS = ["#7c6cf0", "#2f9e6e", "#d97706", "#c2506b", "#2f7fc1", "#8a9a2f", "#0e9594", "#b25cd6"];
+function senderColor(seed) {
+  const s = String(seed || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h * 31) + s.charCodeAt(i)) >>> 0;
+  return SENDER_COLORS[h % SENDER_COLORS.length];
+}
+
+/* URLs and DOIs inside a message were dead text: in a tool built
+   around sharing papers, every pasted source had to be copied by hand
+   before it could be opened. Linkify both. A DOI becomes its resolver
+   link and reads as the paper's permanent address. */
+const MSG_LINK_RE = /((?:https?:\/\/|www\.)[^\s<]+|doi:\s*10\.[^\s<]+|10\.\d{4,9}\/[^\s<]+)/gi;
+function renderLinkedText(text) {
+  const parts = String(text || "").split(MSG_LINK_RE);
+  return parts.map((part, i) => {
+    if (!part) return null;
+    const isLink = /^(?:https?:\/\/|www\.)/i.test(part) || /^doi:\s*10\./i.test(part) || /^10\.\d{4,9}\//.test(part);
+    if (!isLink) return <React.Fragment key={i}>{part}</React.Fragment>;
+    let href = part;
+    let label = part;
+    let suffix = "";
+    if (/^(?:https?:\/\/|www\.)/i.test(part)) {
+      const trail = part.match(/[.,;:!?)\]]+$/);
+      if (trail) { href = part.slice(0, part.length - trail[0].length); label = href; suffix = trail[0]; }
+      if (/^www\./i.test(href)) href = "https://" + href;
+    } else if (/^doi:/i.test(part)) {
+      href = "https://doi.org/" + part.replace(/^doi:\s*/i, "");
+    } else {
+      href = "https://doi.org/" + part;
+    }
+    return (
+      <React.Fragment key={i}>
+        <a href={safeHref(href)} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: 2 }}>{label}</a>{suffix}
+      </React.Fragment>
+    );
+  });
+}
 
 function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, reportedUserId, messageId, onClose }) {
   const [reason, setReason] = useState("harassment");
@@ -126,8 +168,46 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // there must be idempotent.
   const notifiedMsgIds = useRef(new Set());
   const [loadingThread, setLoadingThread] = useState(false);
-  const [draft, setDraft] = useState("");
+  // Drafts live per conversation and survive switching away mid
+  // sentence. The old single draft was wiped on every thread switch,
+  // so looking at another conversation destroyed the reply you were
+  // writing. Persisted locally, like every other messaging app.
+  const [draftsByThread, setDraftsByThread] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("cb_inbox_drafts_v1") || "{}") || {}; } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("cb_inbox_drafts_v1", JSON.stringify(draftsByThread)); } catch {}
+  }, [draftsByThread]);
+  const draft = activeId ? (draftsByThread[activeId] || "") : "";
+  const updateDraft = (value, threadId) => {
+    const tid = threadId || activeId;
+    if (!tid) return;
+    setDraftsByThread((prev) => {
+      const next = { ...prev };
+      if (value) next[tid] = value; else delete next[tid];
+      return next;
+    });
+  };
   const [sending, setSending] = useState(false);
+  // The thread list used to render its empty state during the first
+  // fetch, telling a returning user on a slow connection that they had
+  // no conversations. listLoaded separates "still asking" from "asked
+  // and there really are none"; listFailed keeps a dead connection
+  // from impersonating an empty inbox.
+  const [listLoaded, setListLoaded] = useState(false);
+  const [listFailed, setListFailed] = useState(false);
+  // Scroll and place keeping. The message pane had no scroll
+  // management at all, so a long conversation opened on its oldest
+  // message. scrollStateRef tracks whether the reader is parked at
+  // the latest message; unreadAnchor is the server's read cursor from
+  // before this visit marked the thread read.
+  const scrollStateRef = useRef({ threadId: null, atBottom: true, lastCount: 0 });
+  const preserveScrollRef = useRef(null);
+  const anchorThreadRef = useRef(null);
+  const composerRef = useRef(null);
+  const [unreadAnchor, setUnreadAnchor] = useState(null);
+  const [showNewMessages, setShowNewMessages] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   // Commit 47: search-as-you-type filter over the already-loaded thread
   // list — no API round trip, this app has a handful of conversations per
   // person at most (same reasoning as the inbox N+1 query comment below),
@@ -344,7 +424,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     let seeded = false;
     const refresh = () => {
       apiDataGet("inbox").then((data) => {
-        if (cancelled || !data?.items) return;
+        if (cancelled) return;
+        if (!data?.items) { setListLoaded(true); setListFailed(true); return; }
+        setListFailed(false);
+        setListLoaded(true);
         // Background-tab notifications: a message that lands in a thread
         // you're not looking at should reach you even when this tab is
         // hidden. The open-thread poll covers the active conversation;
@@ -554,7 +637,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   }, [threads, activeId, initialThreadId, isMobile]);
 
   useEffect(() => {
-    setDraft("");
+    // A new conversation starts parked at its latest message, with no
+    // unread anchor until its first fetch reports the old cursor.
+    scrollStateRef.current = { threadId: activeId, atBottom: true, lastCount: 0 };
+    preserveScrollRef.current = null;
+    anchorThreadRef.current = null;
+    setUnreadAnchor(null);
+    setShowNewMessages(false);
+    setLoadingEarlier(false);
     if (!activeId) { setActiveThread(null); return; }
     let cancelled = false;
     setLoadingThread(true);
@@ -562,6 +652,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       apiDataGet("thread", { thread_id: activeId }).then(async (data) => {
         if (cancelled) return;
         if (isFirst) setLoadingThread(false);
+        // Capture the pre-visit read cursor once per conversation.
+        // Later polls report a cursor this visit already advanced, so
+        // only the first response can anchor the unread divider.
+        if (data && !data.error && data.readBefore && anchorThreadRef.current !== activeId) {
+          anchorThreadRef.current = activeId;
+          setUnreadAnchor(data.readBefore);
+        }
         let thread = data && !data.error ? data : null;
         // E2EE Phase 1.3 — encrypted threads are decrypted client-side
         // before they reach state. Ciphertext never renders: rows become
@@ -621,6 +718,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               }
             }
           } catch (cbErr) { console.error("[Cerebrum] inbox.jsx:", cbErr); }
+          // Pages of earlier history loaded on demand must survive the
+          // poll: the poll only ever fetches the newest page, so any
+          // older real messages the reader already pulled in are kept
+          // in front of it instead of being wiped every five seconds.
+          if (prevThread && next && prevThread.id === next.id && Array.isArray(prevThread.messages) && Array.isArray(next.messages) && next.messages.length > 0) {
+            const firstNextAt = next.messages[0].createdAt || Infinity;
+            const nextIds = new Set(next.messages.map((nm) => nm.id));
+            const older = prevThread.messages.filter((m) => m && m.id && !String(m.id).startsWith("local-") && m.createdAt < firstNextAt && !nextIds.has(m.id));
+            if (older.length > 0) {
+              return { ...next, messages: [...older, ...next.messages], hasMore: prevThread.hasMore ?? next.hasMore, truncated: prevThread.truncated ?? next.truncated };
+            }
+          }
           return next;
         });
         // The backend marks this thread read as part of that same GET (see
@@ -629,7 +738,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         // Sidebar's unread-count badge clear immediately instead of waiting
         // for this view's next full inbox refetch.
         if (data && !data.error) {
-          setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false } : t)));
+          setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false, unreadCount: 0 } : t)));
         }
       });
     };
@@ -757,7 +866,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       return;
     }
     setSending(true);
-    setDraft("");
+    updateDraft("");
+    // Sending means you are at the conversation's edge: the scroll
+    // keeper parks the pane on your message when it lands.
+    scrollStateRef.current.atBottom = true;
     try {
       // Commit 57 — a short confirmation blip on send. Silence after
       // pressing send leaves a half-second of "did that go?"; every
@@ -807,7 +919,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       setActiveThread((t) => (t ? { ...t, messages: [...(t.messages || []), { ...res.message, who: "You" }] } : t));
       setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, lastMessage: res.message } : t)));
     } catch (e) {
-      setDraft(text);
+      updateDraft(text);
       toast(e.message || "Couldn't send that message.", { tone: "error" });
     } finally {
       setSending(false);
@@ -848,6 +960,96 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · ")))
     : "";
 
+  // Scroll keeper: the pane opens on the newest message, stays glued
+  // to it while the reader is parked there, and offers a way back
+  // instead of yanking the scroll when a message lands mid history.
+  useEffect(() => {
+    const pane = msgPaneRef.current;
+    if (!pane || !activeThread) return;
+    const count = (activeThread.messages || []).length;
+    const st = scrollStateRef.current;
+    if (st.threadId !== activeThread.id) { st.threadId = activeThread.id; st.atBottom = true; st.lastCount = 0; }
+    if (preserveScrollRef.current) {
+      const p = preserveScrollRef.current;
+      preserveScrollRef.current = null;
+      requestAnimationFrame(() => {
+        const delta = pane.scrollHeight - p.height;
+        pane.scrollTop = p.top + Math.max(0, delta);
+      });
+      st.lastCount = count;
+      return;
+    }
+    if (st.atBottom || st.lastCount === 0) {
+      requestAnimationFrame(() => { pane.scrollTop = pane.scrollHeight; });
+      setShowNewMessages(false);
+    } else if (count > st.lastCount) {
+      setShowNewMessages(true);
+    }
+    st.lastCount = count;
+  }, [activeThread && activeThread.id, activeThread && (activeThread.messages || []).length, loadingThread]);
+
+  const handleMsgScroll = () => {
+    const pane = msgPaneRef.current;
+    if (!pane) return;
+    const dist = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
+    const atBottom = dist < 90;
+    scrollStateRef.current.atBottom = atBottom;
+    if (atBottom) setShowNewMessages(false);
+  };
+
+  const jumpToLatest = () => {
+    const pane = msgPaneRef.current;
+    scrollStateRef.current.atBottom = true;
+    if (pane) pane.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
+    setShowNewMessages(false);
+  };
+
+  // History on demand: fetch the page older than the oldest held
+  // message and prepend it, keeping the reader's place by restoring
+  // the scroll offset against the grown scroll height.
+  const loadEarlier = async () => {
+    if (!activeThread || loadingEarlier) return;
+    const msgs = activeThread.messages || [];
+    const oldest = msgs.find((m) => m && m.id && !String(m.id).startsWith("local-"));
+    if (!oldest) return;
+    setLoadingEarlier(true);
+    const pane = msgPaneRef.current;
+    const prevHeight = pane ? pane.scrollHeight : 0;
+    const prevTop = pane ? pane.scrollTop : 0;
+    try {
+      const data = await apiDataGet("thread", { thread_id: activeId, before: oldest.createdAt, before_id: oldest.id });
+      if (!data || data.error || !Array.isArray(data.messages) || data.messages.length === 0) {
+        setActiveThread((t) => (t ? { ...t, hasMore: false } : t));
+        return;
+      }
+      let older = data.messages;
+      if (data.encrypted) {
+        try {
+          const { deviceId } = await ensureE2EEDevice(apiDataAction);
+          older = await decryptThreadMessages({ messages: older, myDeviceId: deviceId, peerUserId: data.otherId });
+        } catch { return; }
+      }
+      preserveScrollRef.current = { height: prevHeight, top: prevTop };
+      setActiveThread((t) => {
+        if (!t || t.id !== activeId) return t;
+        const ids = new Set((t.messages || []).map((m) => m.id));
+        const fresh = older.filter((m) => m && m.id && !ids.has(m.id));
+        return { ...t, messages: [...fresh, ...(t.messages || [])], hasMore: !!(data.hasMore ?? data.truncated) };
+      });
+    } finally {
+      setLoadingEarlier(false);
+    }
+  };
+
+  // The composer grows with the draft instead of clipping a paragraph
+  // into a one line slot.
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
+  }, [draft, activeId]);
+
   // Read receipts — DMs show "Seen"/"Delivered" on your last message;
   // groups show "Seen by N" (count of other members whose lastReadAt is
   // at or past your last message). Same placement as every real messaging
@@ -870,6 +1072,23 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     groupSeenCount = seen.length;
     groupSeenNames = seen.map((m) => m.name || m.username || "Someone");
   }
+
+  // What this conversation has actually exchanged: the shelf under
+  // the header counts it from the real messages, so a thread that has
+  // traded three papers says so instead of reading like any chat.
+  const sharedCounts = (() => {
+    const counts = { paper: 0, image: 0, audio: 0 };
+    for (const m of (activeThread && activeThread.messages) || []) {
+      if (m && counts[m.attachmentKind] != null) counts[m.attachmentKind] += 1;
+    }
+    return counts;
+  })();
+  const sharedTotal = sharedCounts.paper + sharedCounts.image + sharedCounts.audio;
+  // The first message this visit had not caught up with, anchored to
+  // the read cursor captured before opening marked the thread read.
+  const firstUnreadIdx = unreadAnchor
+    ? ((activeThread && activeThread.messages) || []).findIndex((m) => m && !m.mine && m.createdAt && m.createdAt > unreadAnchor)
+    : -1;
 
   // Mobile: show one pane at a time (list, or the open thread with a way
   // back) instead of squeezing both into one narrow column.
@@ -895,11 +1114,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         everything else. A viewport-relative height is resolvable no matter
         what the ancestors declare; dvh (not vh) so mobile browser chrome
         collapsing doesn't leave the composer under the address bar. */}
-    <div style={{ height: "100dvh", maxHeight: "100dvh", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
+    <div style={{ height: "100dvh", maxHeight: "100dvh", display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? "calc(72px + env(safe-area-inset-bottom, 0px))" : 16, paddingLeft: isMobile ? 0 : 16 }}>
       {showList && (
-        <div style={{ width: isMobile ? "100%" : 300, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`, display: "flex", flexDirection: "column", height: "100%" }}>
-          <div style={{ padding: "22px 22px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Inbox</div>
+        <div style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
+          <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Inbox</h1>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Messages and shared papers</div>
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="network" size={16} />
@@ -910,17 +1132,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           </div>
           {threads.length > 0 && (
-            <div style={{ padding: "0 22px 12px" }}>
+            <div style={{ padding: "0 18px 12px" }}>
               <input
                 value={threadQuery}
                 onChange={(e) => setThreadQuery(e.target.value)}
                 placeholder="Search conversations"
                 aria-label="Search conversations"
-                style={{ width: "100%", padding: "8px 12px", borderRadius: 2, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, boxSizing: "border-box" }}
               />
             </div>
           )}
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 10px 12px" }}>
             {/* Commit 100 — "No conversations yet." followed by a <br> was
                 the last hand-written empty state left in this file, and it
                 sat in the narrowest column on the screen where a bare grey
@@ -928,7 +1150,29 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 was not doing: after this commit, whether a stranger can
                 reach you is a setting, so the empty inbox is the natural
                 place to say what that setting currently is. */}
-            {threads.length === 0 && (
+            {threads.length === 0 && !listLoaded && (
+              <div aria-hidden="true" style={{ padding: "6px 4px" }}>
+                {[0, 1, 2, 3].map((n) => (
+                  <div key={n} style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 8px", borderBottom: `1px solid ${P.line}` }}>
+                    <span style={{ width: 42, height: 42, borderRadius: "50%", background: P.line, flexShrink: 0 }} />
+                    <span style={{ flex: 1 }}>
+                      <span style={{ display: "block", height: 10, borderRadius: 5, background: P.line, width: n % 2 ? "52%" : "68%", marginBottom: 7 }} />
+                      <span style={{ display: "block", height: 9, borderRadius: 5, background: P.line, width: "84%", opacity: 0.7 }} />
+                    </span>
+                  </div>
+                ))}
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, padding: "12px 8px 0", fontFamily: "var(--cb-font)" }}>Loading your conversations…</div>
+              </div>
+            )}
+            {threads.length === 0 && listLoaded && listFailed && (
+              <div style={{ padding: "16px 12px", lineHeight: 1.6 }}>
+                <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, marginBottom: 5 }}>Conversations did not load</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
+                  The connection did not answer. This list keeps retrying on its own, and anything already open stays where it is.
+                </div>
+              </div>
+            )}
+            {threads.length === 0 && listLoaded && !listFailed && (
               <div style={{ padding: "16px 12px", lineHeight: 1.6 }}>
                 <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, marginBottom: 5 }}>No conversations yet</div>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
@@ -957,26 +1201,32 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               // row rendering identically regardless of read state.
               return (
                 <button key={t.id} onClick={() => setActiveId(t.id)} className="cb-row" style={{ minHeight: 44,
-                  width: "100%", textAlign: "left", padding: "11px 12px 11px 4px", borderRadius: 0, border: "none",
+                  width: "100%", textAlign: "left", padding: "12px 10px", borderRadius: 0, border: "none",
                   borderBottom: `1px solid ${P.line}`, cursor: "pointer",
                   background: activeId === t.id ? withAlpha(accent, 0.08) : "transparent",
                   boxShadow: activeId === t.id ? `inset 2px 0 0 ${accent}` : "none",
-                  display: "flex", gap: 10, alignItems: "flex-start", fontFamily: "var(--cb-font)",
+                  display: "flex", gap: 11, alignItems: "flex-start", fontFamily: "var(--cb-font)",
                 }}>
-                  <span style={{ width: 36, height: 36, borderRadius: "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{initials}</span>
+                  <span style={{ width: 42, height: 42, borderRadius: "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "baseline" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         {t.unread && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />}
                         <span style={{ fontSize: FONT_SIZES.small, fontWeight: t.unread ? 800 : 600, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+                        {t.otherUsername && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, whiteSpace: "nowrap", flexShrink: 0 }}>@{t.otherUsername}</span>}
                         {/* E2EE Phase 1.4 — list badge ONLY when the server
                             says encrypted. Same promise as the header badge. */}
                         {t.encrypted && <Icon name="lock" size={11} style={{ color: STATUS.good, flexShrink: 0 }} title="Encrypted" />}
                         {t.kind === "group" && <Icon name="network" size={12} style={{ color: P.faint, flexShrink: 0 }} title="Group" />}
                       </span>
-                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        {t.unreadCount > 0 && (
+                          <span aria-label={`${t.unreadCount} unread`} style={{ minWidth: 19, height: 19, borderRadius: 10, background: STATUS.bad, color: "#fff", fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px", fontVariantNumeric: "tabular-nums" }}>{t.unreadCount > 99 ? "99+" : t.unreadCount}</span>
+                        )}
+                        <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
+                      </span>
                     </span>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: t.unread ? P.ink2 : P.faint, fontWeight: t.unread ? 600 : 400, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</span>
+                    <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", fontSize: FONT_SIZES.caption, color: t.unread ? P.ink2 : P.faint, fontWeight: t.unread ? 600 : 400, marginTop: 3, overflow: "hidden", lineHeight: 1.5 }}>{preview}</span>
                   </span>
                 </button>
               );
@@ -986,15 +1236,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       )}
 
       {showThread && (
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", background: P.surface, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden" }}>
           {activeThread ? (<>
-            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ padding: "13px 18px", borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {isMobile && (
-                  <button onClick={() => setActiveId(null)} aria-label="Back to conversations" style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", padding: 4, display: "inline-flex", flexShrink: 0 }}>
+                  <button onClick={() => setActiveId(null)} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: "50%", color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
                   </button>
                 )}
+                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: "50%", ...avatarSkin(activeThread.name || activeThread.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+                  {activeThread.kind === "group" ? <Icon name="network" size={16} /> : (activeThread.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}
+                </span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                     {activeThread.kind === "group" ? (
@@ -1044,7 +1297,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     style={{
                       background: withAlpha(accent, 0.05), border: "none", borderRadius: "50%", color: P.faint,
                       cursor: "default", opacity: 0.4,
-                      width: 38, height: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                     }}
                   ><Icon name="camera" size={16} /></button>
                 ) : (<>
@@ -1055,7 +1308,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   style={{
                     background: withAlpha(accent, 0.1), border: "none", borderRadius: "50%", color: accent,
                     cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
-                    width: 38, height: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                   }}
                 ><Icon name="phone" size={16} /></button>
                 <button
@@ -1066,7 +1319,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   style={{
                     background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: "50%", color: accent,
                     cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
-                    width: 38, height: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                   }}
                 ><Icon name="camera" size={16} /></button>
                 </>)}
@@ -1107,6 +1360,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 )}
               </div>
             </div>
+            {sharedTotal > 0 && (
+              <div style={{ padding: "8px 18px", borderBottom: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                <Icon name="bookOpen" size={12} style={{ color: accent, flexShrink: 0 }} />
+                <span>Shared in this conversation</span>
+                {sharedCounts.paper > 0 && <span style={{ color: P.ink2, fontWeight: 600 }}>{sharedCounts.paper} {sharedCounts.paper === 1 ? "paper" : "papers"}</span>}
+                {sharedCounts.image > 0 && <span style={{ color: P.ink2, fontWeight: 600 }}>{sharedCounts.image} {sharedCounts.image === 1 ? "image" : "images"}</span>}
+                {sharedCounts.audio > 0 && <span style={{ color: P.ink2, fontWeight: 600 }}>{sharedCounts.audio} voice {sharedCounts.audio === 1 ? "note" : "notes"}</span>}
+              </div>
+            )}
             {activeThread.blocked && (
               <div style={{ padding: "12px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
                 <Icon name="block" size={14} style={{ color: statusBad(P), flexShrink: 0 }} />
@@ -1155,9 +1417,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 keeps a short thread resting on the composer, exactly as it
                 does everywhere else, and has no effect once the thread is
                 long enough to scroll. */}
-            <div ref={msgPaneRef} style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0 }}>
+            <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.bg }}>
               {(activeThread.messages || []).length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet. Say hello.</div>
+              )}
+              {activeThread.hasMore && (
+                <button onClick={loadEarlier} disabled={loadingEarlier} style={{ alignSelf: "center", minHeight: 44, padding: "8px 18px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)", cursor: loadingEarlier ? "default" : "pointer", opacity: loadingEarlier ? 0.6 : 1 }}>
+                  {loadingEarlier ? "Loading earlier messages…" : "Show earlier messages"}
+                </button>
               )}
               {(activeThread.messages || []).map((m, i) => {
                 const key = m.id || i;
@@ -1195,8 +1462,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 // wasn't. Skipped rows (other-device) don't count as
                 // history either way.
                 const showLegacyDivider = isCipher && i === legacyDividerIdx;
+                // Consecutive messages from one person inside five
+                // minutes read as one thought: the sender label opens
+                // the group, the timestamp closes it, and the bubbles
+                // between them sit closer together.
+                const senderKey = m.senderId || m.who || "";
+                const next = i + 1 < (activeThread.messages || []).length ? activeThread.messages[i + 1] : null;
+                const sameSender = (a, b) => !!a && !!b && a.mine === b.mine && (a.senderId || a.who || "") === (b.senderId || b.who || "");
+                const nearInTime = (a, b) => Math.abs(((a && a.createdAt) || 0) - ((b && b.createdAt) || 0)) < 5 * 60 * 1000;
+                const groupedWithPrev = sameSender(prev, m) && nearInTime(prev, m) && !showDay;
+                const groupedWithNext = sameSender(m, next) && nearInTime(m, next) && (!next || dayOf(next.createdAt) === dayOf(m.createdAt));
+                const showUnreadDivider = i === firstUnreadIdx;
                 return (
                 <React.Fragment key={key}>
+                {showUnreadDivider && (
+                  <div role="separator" aria-label="New messages" style={{ display: "flex", alignItems: "center", gap: 10, margin: "8px 0 2px" }}>
+                    <span style={{ flex: 1, height: 1, background: withAlpha(STATUS.bad, 0.45) }} />
+                    <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.bad, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>New messages</span>
+                    <span style={{ flex: 1, height: 1, background: withAlpha(STATUS.bad, 0.45) }} />
+                  </div>
+                )}
                 {showLegacyDivider && (
                   <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: 2, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
@@ -1206,25 +1491,29 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showDay && (
                   <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
-                <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start" }}
+                <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -8 : 0 }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                 >
                   {/* Group threads show who said what — DMs don't need it, you
-                      already know who you're talking to. */}
-                  {activeThread?.kind === "group" && !m.mine && m.who && (
-                    <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, marginBottom: 3, paddingLeft: 2 }}>{m.who}</div>
+                      already know who you're talking to. One label per
+                      group of messages, with the person's own color. */}
+                  {activeThread?.kind === "group" && !m.mine && m.who && !groupedWithPrev && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, paddingLeft: 2 }}>
+                      <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", ...avatarSkin(senderKey), display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, fontFamily: "var(--cb-font)" }}>{(m.who || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: senderColor(senderKey), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
+                    </div>
                   )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
                       {bubbleText && (
                         <div style={{
-                          padding: "12px 16px", fontSize: FONT_SIZES.small, lineHeight: 1.6,
-                          borderRadius: m.mine ? "16px 16px 2px 16px" : "16px 16px 16px 2px",
+                          padding: "11px 15px", fontSize: FONT_SIZES.body, lineHeight: 1.6,
+                          borderRadius: m.mine ? `${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.sm}px ${RADIUS.xl}px` : `${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.sm}px`,
                           color: m.mine ? at : P.ink,
-                          background: m.mine ? accent : P.line,
-                          border: m.mine ? "none" : (P.dark ? "1px solid rgba(255,255,255,0.06)" : "1px solid rgba(0,0,0,0.05)"),
+                          background: m.mine ? accent : (P.raised || P.surface),
+                          border: m.mine ? "none" : `1px solid ${P.line}`,
                           ...(e2eeError ? { fontStyle: "italic", opacity: 0.72 } : {}),
-                        }}>{bubbleText}</div>
+                        }}>{e2eeError ? bubbleText : renderLinkedText(bubbleText)}</div>
                       )}
                       {/* Image: shown at real size in the thread (a figure
                           you have to click to evaluate is a figure you
@@ -1314,13 +1603,16 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       </button>
                     )}
                   </div>
+                  {(!groupedWithNext || (m.mine && lastMineMessage?.id === m.id)) && (
                   <div style={{
                     display: "flex", alignItems: "center", gap: 6, marginTop: 4,
                     justifyContent: m.mine ? "flex-end" : "flex-start",
                     fontSize: FONT_SIZES.micro, color: P.faint,
                   }}>
                     {/* A message with no time on it is a message you can't
-                        place in a conversation. */}
+                        place in a conversation. Inside a group of
+                        messages from one person, only the last one
+                        carries it: the rest are the same moment. */}
                     {timeLabel && <span style={{ fontFamily: "var(--cb-font)" }}>{timeLabel}</span>}
                     {m.mine && m.id && lastMineMessage?.id === m.id && activeThread?.kind === "dm" && (
                       <span>· {seenLastMine ? "Seen" : "Delivered"}</span>
@@ -1331,18 +1623,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       </span>
                     )}
                   </div>
+                  )}
                 </div>
                 </React.Fragment>
                 );
               })}
             </div>
-            <div style={{ padding: "16px 24px 16px", borderTop: `1px solid ${P.line}` }}>
+            {showNewMessages && (
+              <div style={{ display: "flex", justifyContent: "center", padding: "9px 0", background: P.surface, borderTop: `1px solid ${P.line}` }}>
+                <button onClick={jumpToLatest} style={{ minHeight: 44, padding: "7px 18px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: SHADOW.sm(P) }}>
+                  New messages ↓
+                </button>
+              </div>
+            )}
+            <div style={{ padding: "13px 18px", borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: P.surface }}>
               {activeThread.blocked ? (
                 <div style={{ textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, padding: "8px 0" }}>
                   You've blocked {activeThread.name}. Unblock above to send a message.
                 </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              ) : (<>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} aria-hidden="true" />
                   {/* While recording, the composer becomes the recorder —
                       one obvious thing to look at and one obvious way out,
@@ -1365,16 +1665,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     onClick={() => imageInputRef.current?.click()}
                     disabled={attachBusy || sending}
                     aria-label="Attach an image" title="Attach an image"
-                    style={{ width: 38, height: 38, borderRadius: "50%", flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ width: 44, height: 44, borderRadius: "50%", flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                   ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
-                  <input
+                  <textarea
+                    ref={composerRef}
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={(e) => updateDraft(e.target.value)}
                     placeholder={`Message ${activeThread.name}…`}
                     aria-label="Reply"
                     disabled={sending}
-                    style={{ flex: 1, padding: "12px 16px", borderRadius: 2, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } }}
+                    rows={1}
+                    style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                   />
                   </>)}
                   {/* Record / stop. Recording is the one action here that
@@ -1387,7 +1689,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     aria-label={recording ? "Send voice note" : "Record a voice note"}
                     title={recording ? "Stop and send" : "Record a voice note"}
                     style={{
-                      width: 40, height: 40, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
+                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       background: recording ? STATUS.bad : "transparent",
                       border: recording ? "none" : `1px solid ${P.line}`,
@@ -1398,7 +1700,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     <Icon name="send" size={16} />
                   </button>}
                 </div>
-              )}
+                {!isMobile && !recording && (
+                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Enter to send · Shift + Enter for a new line · Drafts are kept per conversation</div>
+                )}
+              </>)}
             </div>
           </>) : (
             /* Commit 100 — this pane is the largest single area on the

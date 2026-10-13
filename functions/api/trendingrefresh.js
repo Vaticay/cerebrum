@@ -1,16 +1,12 @@
-// Hourly refresh job for the "Trending in Science" feed's D1 cache.
+// Manual refresh for the "Trending in Science" feed's D1 cache.
 //
-// Cloudflare Pages Functions have no scheduled()/cron trigger of their
-// own — Cron Triggers are a Workers-only feature (configured on a
-// Worker's own wrangler.toml), and Cloudflare's own docs and staff
-// guidance on the community forum are explicit that a Pages project needs
-// a separate Worker for that, as of this writing. Standing up and
-// maintaining a whole second Cloudflare project just to fetch a news feed
-// once an hour would be a lot of moving parts for very little — so
-// instead, the "clock" lives in this repo's own GitHub Actions, which can
-// already run on a schedule for free: .github/workflows/refresh-trending.yml
-// calls this endpoint once an hour, and this endpoint does the one thing
-// that actually matters, fetch real articles and refresh the cache.
+// History: this used to be called hourly by a GitHub Actions workflow.
+// That cron is gone (Commit 89, see functions/api/trending.js): the
+// read endpoint now keeps the cache warm itself with
+// stale-while-revalidate, so no external clock is needed. This
+// endpoint remains as a protected manual refresh: call it to rebuild
+// the cache on demand, and it does the one thing that matters, fetch
+// real articles and refresh the cache.
 //
 // Protected by a shared-secret bearer token (TRENDING_REFRESH_SECRET — set
 // as a Cloudflare Pages environment variable, and as a GitHub Actions repo

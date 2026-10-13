@@ -52,8 +52,10 @@ t("hook defined with { accent, busy, unread } signature", () => {
   assert.match(appSrc, /function useDynamicFavicon\(\{ accent, busy, unread \}\)/);
 });
 
-t("hook wired in App with busy + unread thread count", () => {
-  assert.match(appSrc, /useDynamicFavicon\(\{ accent, busy, unread: threads\.filter\(\(t\) => t\.unread\)\.length \}\);/);
+t("hook wired in App with busy + unread message count", () => {
+  // The badge counts unread messages, not unread threads: one waiting
+  // message and forty used to draw the same badge.
+  assert.match(appSrc, /useDynamicFavicon\(\{ accent, busy, unread: \(threads \|\| \[\]\)\.reduce\(\(n, t\) => n \+ \(t\.unreadCount \|\| \(t\.unread \? 1 : 0\)\), 0\) \}\);/);
 });
 
 t("animation loop runs only while busy", () => {

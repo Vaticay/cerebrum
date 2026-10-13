@@ -725,11 +725,13 @@ export async function onRequest(context) {
         const items = [];
         for (const t of threadRows.results || []) {
           const last = await env.DB.prepare(
-            "SELECT sender_id, text, attachment_title, attachment_kind, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
+            "SELECT id, sender_id, text, attachment_title, attachment_kind, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
           ).bind(t.id).first();
           const isEncrypted = encryptedSet.has(t.id);
           let displayName = t.name;
           let otherId = null;
+          let otherUsername = null;
+          let otherAffiliation = null;
           if (t.kind === "dm") {
             const other = await env.DB.prepare(
               // Commit 100 — `u.email` selected here too, as the last fallback
@@ -738,11 +740,15 @@ export async function onRequest(context) {
               // email address. The username always exists (auth.js assigns
               // one at signup), so the fallback was unreachable in practice
               // and only a leak in waiting.
-              `SELECT u.id, u.name, u.username FROM thread_participants tp
+              `SELECT u.id, u.name, u.username, u.affiliation, u.show_affiliation FROM thread_participants tp
                JOIN users u ON u.id = tp.user_id
                WHERE tp.thread_id = ? AND tp.user_id != ?`
             ).bind(t.id, user.id).first();
             otherId = other ? other.id : null;
+            otherUsername = other ? (other.username || null) : null;
+            // Same privacy rule as the thread payload: affiliation only
+            // rides along when that person chose to show it.
+            otherAffiliation = other && other.show_affiliation !== 0 ? (other.affiliation || null) : null;
             if (!displayName) displayName = other ? (other.name || other.username || "Conversation") : "Conversation";
           }
           // Commit 48: a DM with either direction of block in place is
@@ -759,20 +765,35 @@ export async function onRequest(context) {
           // so any real message counts as unread, which is the right
           // default for a thread you've never looked at).
           const unread = !!(last && last.sender_id !== user.id && lastCreatedAt > toEpochMs(t.last_read_at));
+          // A boolean badge compresses one waiting message and forty
+          // into the same dot. Count the real number so the list, the
+          // tab badge, and the favicon can all say how much is waiting.
+          const readAtMs = toEpochMs(t.last_read_at);
+          const msgRows = await env.DB.prepare(
+            "SELECT sender_id, created_at FROM messages WHERE thread_id = ?"
+          ).bind(t.id).all();
+          const unreadCount = (msgRows.results || []).filter(
+            (r) => r.sender_id !== user.id && toEpochMs(r.created_at) > readAtMs
+          ).length;
           items.push({
             id: t.id,
             kind: t.kind,
             name: displayName || "Conversation",
             otherId,
+            otherUsername,
+            otherAffiliation,
             blocked,
             unread,
+            unreadCount,
             encrypted: isEncrypted,
             lastMessage: last ? (isEncrypted ? {
+              id: last.id,
               encrypted: true,
               senderId: last.sender_id,
               createdAt: lastCreatedAt,
               mine: last.sender_id === user.id,
             } : {
+              id: last.id,
               text: last.text,
               attachmentTitle: last.attachment_title || null,
               attachmentKind: last.attachment_kind || null,
@@ -864,6 +885,16 @@ export async function onRequest(context) {
           "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
         ).bind(threadId, user.id).first();
         if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+        // The read cursor as it stood BEFORE this fetch marks the
+        // thread read. The client anchors its "New messages" divider to
+        // it: without the pre-update value, opening a conversation
+        // erased the one signal that told you where you left off.
+        let readBefore = null;
+        try {
+          const rr = await env.DB.prepare("SELECT last_read_at FROM thread_participants WHERE thread_id = ? AND user_id = ?")
+            .bind(threadId, user.id).first();
+          readBefore = rr ? toEpochMs(rr.last_read_at) : null;
+        } catch (e) { console.error("Couldn't read thread cursor:", e); }
         // Commit 47: opening a thread is what "read" means here — no
         // separate mark-as-read action, matching how every real DM inbox
         // (Instagram, iMessage, etc.) actually behaves. Awaited rather than
@@ -939,9 +970,19 @@ export async function onRequest(context) {
         // tells the client when it bit, instead of silently dropping the
         // oldest messages.
         const MAX_THREAD_MESSAGES = 1000;
-        const messageRows = await env.DB.prepare(
-          "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?"
-        ).bind(threadId, MAX_THREAD_MESSAGES + 1).all();
+        // Cursor pagination for history: `before` (epoch ms) plus
+        // `before_id` fetch the page of messages older than the oldest
+        // one the client already holds, so a long conversation's past
+        // is reachable instead of silently capped at the newest 1000.
+        const beforeTs = Number(url.searchParams.get("before")) || null;
+        const beforeId = url.searchParams.get("before_id") || null;
+        const messageRows = beforeTs
+          ? await env.DB.prepare(
+              "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version FROM messages WHERE thread_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?"
+            ).bind(threadId, beforeTs, beforeTs, beforeId || "", MAX_THREAD_MESSAGES + 1).all()
+          : await env.DB.prepare(
+              "SELECT id, sender_id, text, attachment_title, attachment_kind, attachment_data, attachment_url, attachment_meta, created_at, msg_kind, sender_device_id, envelope_version FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?"
+            ).bind(threadId, MAX_THREAD_MESSAGES + 1).all();
         const fetchedMessages = messageRows.results || [];
         const truncated = fetchedMessages.length > MAX_THREAD_MESSAGES;
         // E2EE Phase 1 — the thread's encryption flag rides along so the
@@ -995,6 +1036,8 @@ export async function onRequest(context) {
           e2eeProtocol: e2eeRow ? e2eeRow.protocol : null,
           messages,
           truncated,
+          hasMore: truncated,
+          readBefore,
         }), { status: 200, headers: cors });
       }
       // Find People / the network directory. This used to be a hardcoded

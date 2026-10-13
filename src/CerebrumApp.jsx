@@ -4881,7 +4881,7 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
           <UIButton P={P} variant="ghost" onClick={onSimplify} style={ghostBtn}>Simplify the question</UIButton>
         )}
         {actions.includes("document") && (
-          <UIButton P={P} variant="ghost" onClick={onDocumentMode} style={ghostBtn}>Try Document Mode</UIButton>
+          <UIButton P={P} variant="ghost" onClick={onDocumentMode} style={ghostBtn}>Try the Document Reader</UIButton>
         )}
       </div>
     </div>
@@ -10701,45 +10701,74 @@ function TrendThumb({ P, media, title }) {
   );
 }
 
-function TrendingHero({ P, accent, item, onExpand, generatedAt }) {
-  // The lead story carries its verified lead media again (Commons stills,
-  // NASA/Commons clips) — as a figure ABOVE the headline, never a scrim
-  // behind text. Text over bright footage drowned; the words sit on the
-  // page, the picture sits in its own frame. No media → the flat
-  // editorial block, unchanged.
+function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = false }) {
+  // The lead story is a briefing card: the words on one side, the
+  // verified lead media in its own frame on the other, never a scrim
+  // behind text. Text over bright footage drowned. No media, and the
+  // card is words alone at full width.
   const media = trendingMediaOf(item);
   return (
     <button
       type="button" onClick={() => onExpand(item)} className="cb-row"
       style={{
-        display: "block", width: "100%", textAlign: "left",
-        background: "transparent", border: "none", borderLeft: `2px solid ${accent}`,
-        margin: "0 0 0 12px", padding: "6px 0 6px 22px",
+        display: "grid", gridTemplateColumns: isMobile || !media ? "1fr" : "minmax(0, 1.05fr) minmax(0, 0.95fr)",
+        gap: 24, alignItems: "start", width: "100%", textAlign: "left",
+        background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl,
+        padding: isMobile ? 18 : 24, boxShadow: SHADOW.sm(P),
         font: "inherit", cursor: "pointer",
       }}
     >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: at, background: accent, borderRadius: RADIUS.pill, padding: "4px 11px", fontFamily: "var(--cb-font)" }}>Lead story</span>
+          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{trendKind(item)}{item.category ? ` · ${item.category}` : ""}</span>
+        </div>
+        <div style={{ fontSize: "clamp(24px, 3.2vw, 36px)", fontWeight: 650, color: P.ink, lineHeight: 1.16, letterSpacing: "-0.02em" }}>
+          {item.title}
+        </div>
+        {item.summary && (
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.65, marginTop: 12, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {item.summary}
+          </div>
+        )}
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>
+          {trendProvenance(item, generatedAt)}
+        </div>
+        <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, fontFamily: "var(--cb-font)", marginTop: 14 }}>
+          Read the story brief
+        </div>
+      </div>
       {media && (
-        <div style={{ marginBottom: 18, maxWidth: 860 }}>
+        <div style={{ minWidth: 0 }}>
           {/* Inside a button: still mode (poster + play badge for video)
-              and an unlinked credit — nested interactives would be invalid. */}
-          <MediaFigure P={P} media={media} title={item.title} still linkCredit={false} />
+              and an unlinked credit, since nested interactives would be invalid. */}
+          <MediaFigure P={P} media={media} title={item.title} still linkCredit={false} aspect="4/3" />
         </div>
       )}
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
-        Lead story · {trendKind(item)}
-      </div>
-      <div style={{ fontSize: "clamp(24px, 3.2vw, 38px)", fontWeight: 650, color: P.ink, lineHeight: 1.14, letterSpacing: "-0.02em", maxWidth: 820 }}>
-        {item.title}
-      </div>
-      {item.summary && (
-        <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 680, marginTop: 12 }}>
-          {item.summary}
-        </div>
-      )}
-      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 12 }}>
-        {trendProvenance(item, generatedAt)}
-      </div>
     </button>
+  );
+}
+
+/* One rail of the briefing band: a short ranked list (most cited,
+   newest) drawn from the same edition the digest shows, so a reader
+   in a hurry gets the shape of the day without scanning every row. */
+function TrendRailList({ P, title, items, onExpand, generatedAt, mode }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <section aria-label={title} style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: "16px 18px 8px" }}>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, marginBottom: 4 }}>{title}</div>
+      {items.map((x, i) => (
+        <button key={x.url || x.title || i} type="button" onClick={() => onExpand(x)} className="cb-row"
+          style={{ display: "flex", gap: 10, width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: i === items.length - 1 ? "none" : `1px solid ${P.line}`, padding: "10px 2px", cursor: "pointer", fontFamily: "var(--cb-font)", alignItems: "baseline" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{x.title}</span>
+            <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>
+              {mode === "cited" ? `Cited by ${x.citedByCount}` : trendProvenance(x, generatedAt)}
+            </span>
+          </span>
+        </button>
+      ))}
+    </section>
   );
 }
 
@@ -11338,6 +11367,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // present rather than a hardcoded list, so a source going down removes
   // its section instead of leaving a filter that finds nothing.
   const [trendCat, setTrendCat] = useState("All");
+  // The endpoint reports feed health on every response (stale,
+  // degraded). The view used to drop both on the floor, so a reader
+  // could not tell a fresh edition from yesterday's leftovers.
+  const [feedMeta, setFeedMeta] = useState({ stale: false, degraded: false });
+  const [trendQuery, setTrendQuery] = useState("");
+  const [trendSort, setTrendSort] = useState("edition");
 
   useEffect(() => {
     let cancelled = false;
@@ -11358,6 +11393,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           }
           setItems(data.items);
           setGeneratedAt(data.generatedAt || Date.now());
+          setFeedMeta({ stale: !!data.stale, degraded: !!data.degraded });
           setStatus("ready");
         })
         .catch(() => { if (!cancelled && !isBackground) setStatus("error"); });
@@ -11375,9 +11411,24 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   const deduped = useMemo(() => dedupeTrendingItems(items), [items]);
   // The category filter is applied once, here, so every view below is fed
   // the same already-narrowed list and no future view can forget it.
-  const visibleItems = deduped.filter((x) => trendCat === "All" || x.category === trendCat);
+  const query = trendQuery.trim().toLowerCase();
+  const filteredItems = deduped.filter((x) => {
+    if (trendCat !== "All" && x.category !== trendCat) return false;
+    if (!query) return true;
+    return `${x.title || ""} ${x.summary || ""} ${x.source || ""} ${x.category || ""}`.toLowerCase().includes(query);
+  });
+  const visibleItems = trendSort === "edition"
+    ? filteredItems
+    : [...filteredItems].sort((a, b) => trendSort === "cited"
+      ? (b.citedByCount || 0) - (a.citedByCount || 0)
+      : new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
   const [hero, ...rest] = visibleItems;
   const categories = ["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))];
+  const categoryCount = (cat) => (cat === "All" ? deduped.length : deduped.filter((x) => x.category === cat).length);
+  const paperCount = deduped.filter((x) => trendKind(x) !== "Press item").length;
+  const pressCount = deduped.length - paperCount;
+  const mostCited = [...deduped].filter((x) => (x.citedByCount || 0) > 0).sort((a, b) => (b.citedByCount || 0) - (a.citedByCount || 0)).slice(0, 4);
+  const newest = [...deduped].filter((x) => x.publishedAt).sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()).slice(0, 4);
 
   // A newspaper dateline, not a "Live" badge. The feed refreshes on a real
   // hourly clock; the honest signal is when this edition was printed.
@@ -11404,6 +11455,21 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
             Not curated by us, not fact checked like an answer. Read the source before you cite it.
           </div>
+          {status === "ready" && deduped.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 22px", marginTop: 14, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+              <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{deduped.length}</strong> stories in this edition</span>
+              <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{paperCount}</strong> papers and preprints</span>
+              <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{pressCount}</strong> press reports</span>
+              {generatedAt > 0 && <span>Updated {relativeTime(generatedAt)}</span>}
+            </div>
+          )}
+          {status === "ready" && (feedMeta.degraded || feedMeta.stale) && (
+            <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
+              {feedMeta.degraded
+                ? "The live feed did not answer, so this is the last good edition. Stories stay readable while it recovers."
+                : "A fresher edition is being gathered in the background. This one stays up until it lands."}
+            </div>
+          )}
         </div>
 
         {/* ══════════════════════════════════════════════════════
@@ -11430,10 +11496,21 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                     color: on ? P.ink : P.ink2,
                     border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
                   }}
-                >{cat}</UIButton>
+                >{cat}<span style={{ opacity: 0.6, marginLeft: 6, fontVariantNumeric: "tabular-nums" }}>{categoryCount(cat)}</span></UIButton>
               );
             })}
           </nav>
+        )}
+
+        {status === "ready" && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
+            <div style={{ flex: "1 1 260px", maxWidth: 420 }}>
+              <input value={trendQuery} onChange={(e) => setTrendQuery(e.target.value)} placeholder="Search this edition" aria-label="Search this edition"
+                style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
+            </div>
+            <SegControl P={P} accent={accent} ariaLabel="Sort stories" value={trendSort} onChange={setTrendSort}
+              options={[{ id: "edition", label: "Edition order" }, { id: "cited", label: "Most cited" }, { id: "newest", label: "Newest" }]} />
+          </div>
         )}
 
         {/* A loading state is a line of text, not six shimmering cards.
@@ -11488,9 +11565,25 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
 
         {status === "ready" && (
           <>
+            {visibleItems.length === 0 && (
+              <WorkspaceEmpty P={P} accent={accent} icon="chart" isMobile={isMobile}
+                title="Nothing in this edition matches"
+                body={query ? `No story here matches "${trendQuery.trim()}". Clear the search or pick another section.` : "This section has no stories in the current edition. Pick another section above, or read the whole edition."}
+                action={(
+                  <UIButton P={P} variant="ghost" onClick={() => { setTrendQuery(""); setTrendCat("All"); }}
+                    style={{ minHeight: 44, padding: "10px 20px", borderRadius: RADIUS.pill, background: accent, color: at, border: "none", fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)", cursor: "pointer" }}
+                  >Show the whole edition</UIButton>
+                )} />
+            )}
             {/* The lead story, full width. The digest below is the index;
                 this is the front-page feature. */}
-            {hero && <div style={{ marginBottom: 30 }}><TrendingHero P={P} accent={accent} item={hero} onExpand={setExpanded} generatedAt={generatedAt} /></div>}
+            {hero && <div style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} /></div>}
+            {visibleItems.length > 0 && (mostCited.length > 0 || newest.length > 0) && (
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 28 }}>
+                <TrendRailList P={P} title="Most cited in this edition" items={mostCited} onExpand={setExpanded} generatedAt={generatedAt} mode="cited" />
+                <TrendRailList P={P} title="Newest in this edition" items={newest} onExpand={setExpanded} generatedAt={generatedAt} mode="newest" />
+              </div>
+            )}
             {/* ══════════════════════════════════════════════════
                 The digest. One ruled line per story: number, headline,
                 summary, and the source line. The whole day fits on a
@@ -11498,7 +11591,13 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                 reading. This used to be one tab of two; the card grid
                 was the generic news-template residue and it is gone.
                 ══════════════════════════════════════════════════ */}
-            <div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
+            {rest.length > 0 && (
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, margin: "2px 0 2px" }}>
+                <h2 style={{ margin: 0, fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>The digest</h2>
+                <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{rest.length} more {rest.length === 1 ? "story" : "stories"}</span>
+              </div>
+            )}
+            {rest.length > 0 && (<div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
               {rest.map((item, i) => (
                 <button key={item.url || i} onClick={() => setExpanded(item)} className="cb-row"
                   style={{
@@ -11522,7 +11621,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   <TrendThumb P={P} media={trendingMediaOf(item)} title={item.title} />
                 </button>
               ))}
-            </div>
+            </div>)}
           </>
         )}
       </div>
@@ -15336,7 +15435,7 @@ const NOTEBOOK_TABS = [
    no real claims — so a researcher without a PDF at hand can still watch
    Document Mode work end to end. */
 const SAMPLE_DOCUMENT = [
-  "SAMPLE PAPER: for trying Document Mode, not a real publication.",
+  "SAMPLE PAPER: for trying the Document Reader, not a real publication.",
   "",
   "Brief exposure to urban green space restores directed attention:",
   "a randomized crossover trial (excerpt)",
@@ -16088,6 +16187,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     };
     return (
       <>
+        {/* The desk header: what is open, and what state the read is in. */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ ...docEyebrow, marginBottom: 4 }}>The document</div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{hasDoc ? docTitleOf(documentText) : "Nothing open yet"}</div>
+          </div>
+          <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", padding: "4px 11px", borderRadius: RADIUS.pill, color: summary ? STATUS.good : accent, background: summary ? withAlpha(STATUS.good, 0.12) : withAlpha(accent, 0.1), border: `1px solid ${summary ? withAlpha(STATUS.good, 0.3) : withAlpha(accent, 0.25)}` }}>
+            {analyzing ? "Reading…" : summary ? "Analyzed" : hasDoc ? "Ready to inspect" : "Waiting"}
+          </span>
+        </div>
         {/* Recent documents: the durable shelf. Only when nothing is open. */}
         {!hasDoc && recentDocs.length > 0 && (
           <div style={{ marginBottom: 16 }}>
@@ -16296,7 +16405,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 Upload PDF or text file
               </UIButton>
               {!hasDoc && !analyzing && (
-                <button onClick={() => openDocument(SAMPLE_DOCUMENT)} title="Load a short sample paper to try Document Mode"
+                <button onClick={() => openDocument(SAMPLE_DOCUMENT)} title="Load a short sample paper to try the Document Reader"
                   className="cb-textbtn" style={{ minHeight: 44, padding: "12px 4px" }}>
                   Try a sample
                 </button>
@@ -16345,7 +16454,15 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
               )}
             </div>
-            {error && <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{error}</div>}
+            {error && (
+              <div role="alert" style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "flex-start", background: withAlpha(STATUS.bad, 0.08), border: `1px solid ${withAlpha(STATUS.bad, 0.3)}`, borderRadius: RADIUS.md, padding: "11px 13px" }}>
+                <Icon name="warning" size={16} style={{ color: statusBad(P), flexShrink: 0, marginTop: 1 }} />
+                <div style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>{error}</div>
+                {hasDoc && !analyzing && (
+                  <button onClick={analyze} style={{ minHeight: 44, padding: "6px 12px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, background: "transparent", color: statusBad(P), fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0 }}>Try again</button>
+                )}
+              </div>
+            )}
             {/* COMPARE — a second document slot. The comparison itself
                 streams in the reader's Compare tab. */}
             <div style={{ marginTop: 16, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
@@ -16399,15 +16516,31 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     return (
       <>
         {!summary && !analyzing && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: P.faint, textAlign: "center", padding: isMobile ? "32px 8px" : "64px 16px" }}>
-            <WorkspaceEmpty P={P} accent={accent} icon="bookOpen"
-              /* Pass 3 (2026-09-17): operational copy. "Read a paper with
-                 me" was companion-speak; this is an instrument — it says
-                 what goes in and what comes out. */
-              title="Start with a document"
-              body="Paste the text or upload the PDF. Cerebrum maps what the study found, how it was done, and where it's weak — then you can question it like a colleague who just read it."
-              action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => openDocument(SAMPLE_DOCUMENT)}>No paper handy? Try the sample</UIButton>}
-              isMobile={isMobile} />
+          <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm(P), padding: isMobile ? SP.xl : SP.xxl }}>
+            <div style={{ ...docEyebrow, marginBottom: SP.sm }}>The reading desk</div>
+            <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: "0 0 8px" }}>Start with a document</h2>
+            <p style={{ margin: "0 0 18px", fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.65, maxWidth: 520, fontFamily: "var(--cb-font)" }}>
+              Paste the text or upload the PDF on the left. The read comes back as a report you can question, in four parts:
+            </p>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {[
+                ["Executive summary", "The whole paper in one short page: what it set out to learn and what it concluded."],
+                ["Methodology", "How the study was run, in plain language, so you can judge the result yourself."],
+                ["Findings and limitations", "What the evidence actually showed, and where it is weak or missing."],
+                ["Follow up questions", "Ask anything about the paper and get answers drawn only from its text."],
+              ].map(([t, b], i) => (
+                <div key={t} style={{ display: "flex", gap: 12, padding: "11px 0", borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums", paddingTop: 2 }}>{String(i + 1).padStart(2, "0")}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>{t}</span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, marginTop: 2 }}>{b}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 18 }}>
+              <UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => openDocument(SAMPLE_DOCUMENT)}>No paper handy? Try the sample</UIButton>
+            </div>
           </div>
         )}
         {analyzing && (
@@ -16430,6 +16563,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Reading the document section by section.</div>
             )}
             <DiveInline P={P} accent={accent} label="Reading document" />
+            <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 4 }}>
+              {[92, 100, 84, 96, 64].map((w, i) => (
+                <div key={i} style={{ height: 11, borderRadius: 6, background: P.line, width: `${w}%`, opacity: 0.75 }} />
+              ))}
+            </div>
           </div>
         )}
         {summary && (
@@ -16451,6 +16589,30 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   {summary.model ? (<><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>Analyzed by {summary.model}</span></>) : null}
                 </div>
               )}
+              {/* The report's table of contents: every section the read
+                  promises, marked present or honestly missing, each one
+                  a jump to its tab. */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 12 }} aria-label="Report sections">
+                {[
+                  { tab: "summary", label: "Summary", field: summary.executiveSummary },
+                  { tab: "methodology", label: "Methodology", field: summary.methodology },
+                  { tab: "findings", label: "Findings", field: summary.keyFindings },
+                  { tab: "findings", label: "Limitations", field: summary.limitations },
+                  { tab: "qa", label: "Questions", field: null },
+                ].map((s) => {
+                  const present = s.field == null ? true : !!(s.field && String(s.field).trim());
+                  const active = rightTab === s.tab;
+                  return (
+                    <button key={s.label} type="button" onClick={() => setRightTab(s.tab)} aria-pressed={active}
+                      style={{ minHeight: 44, padding: "7px 13px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: active ? 700 : 600,
+                        background: active ? withAlpha(accent, 0.2) : present ? withAlpha(accent, 0.08) : "transparent",
+                        color: present ? P.ink : P.faint,
+                        border: `1px solid ${active ? withAlpha(accent, 0.5) : present ? withAlpha(accent, 0.3) : P.line}` }}>
+                      {s.label}{s.field != null && !present ? " · missing" : ""}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div className="cb-doc-tabs" style={{ marginBottom: 14, }}>
               <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
@@ -16592,10 +16754,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </button>
               )}
             </div>
-            {/* Honest cost: each follow-up question consumes one document
-                read, the same as an analysis — say so before they ask. */}
+            {/* Follow ups are answered from the document already read:
+                they do not consume another document read (see the QA
+                gate in functions/api/document.js). Say so plainly. */}
             <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, paddingTop: 8 }}>
-              Each question uses one of your document reads.
+              Questions are answered from this document only, and do not use another document read.
             </div>
           </div>
         )}
@@ -16617,7 +16780,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
        regions, no 48%-of-the-screen split: on a phone the whole page is
        one vertical reflow. */
     <div
-      role="region" aria-label="Document Mode"
+      role="region" aria-label="Document Reader"
       style={asPage
         ? {
             position: "relative", display: "flex", flexDirection: "column",
@@ -16653,7 +16816,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               border: `1px solid ${withAlpha(accent, 0.22)}`,
             }}><Icon name="bookOpen" size={18} /></span>
             <div style={{ minWidth: 0 }}>
-              <h1 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>Document Mode</h1>
+              <h1 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>Document Reader</h1>
               {!isMobile && (
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {!!docTextTrimmed && !docIdentOnly && docStats
@@ -16663,7 +16826,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               )}
             </div>
           </div>
-          <button onClick={close} aria-label="Close Document Mode"
+          <button onClick={close} aria-label="Close Document Reader"
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink; }}
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.color = P.faint; }}
             style={{
@@ -16683,11 +16846,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               border: `1px solid ${withAlpha(accent, 0.22)}`,
             }}><Icon name="bookOpen" size={18} /></span>
             <div>
-              <h1 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>Document Mode</h1>
+              <h1 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>Document Reader</h1>
               {!isMobile && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Put in one paper and ask questions about it</div>}
             </div>
           </div>
-          <button onClick={close} aria-label="Close Document Mode"
+          <button onClick={close} aria-label="Close Document Reader"
             onMouseEnter={(e) => { e.currentTarget.style.color = P.ink; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
             style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 6, display: "inline-flex", transition: "color 150ms ease" }}><Icon name="close" size={20} /></button>
@@ -16703,7 +16866,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           margin: "0 auto", padding: isMobile ? "20px 16px" : "28px 24px",
           paddingBottom: `max(${isMobile ? 40 : 64}px, env(safe-area-inset-bottom))`,
           display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 5fr) minmax(0, 7fr)",
-          gap: isMobile ? 32 : 40, alignItems: "start",
+          gap: isMobile ? 24 : 28, alignItems: "start",
         }}>
           {/* SOURCE — the document, rendered by renderDocSource below. */}
           <section aria-label="Document source" style={{ minWidth: 0, ...docPanelCard }}>
@@ -17765,7 +17928,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      instruments, then the working surfaces. */
   const NAV_ITEMS = [
     ["search", "Search", "search"],
-    ["document", "Document Mode", "bookOpen"],
+    ["document", "Document Reader", "bookOpen"],
     ["studio", "Diagram Studio", "flowchart"],
     ["trending", "Trending", "chart"],
     ["investigations", "Investigations", "history"],
@@ -19942,7 +20105,7 @@ function App() {
      Placed after `accent` is initialized — calling it earlier threw
      "Cannot access before initialization" on every render (production
      outage, 2026-09-12). */
-  useDynamicFavicon({ accent, busy, unread: threads.filter((t) => t.unread).length });
+  useDynamicFavicon({ accent, busy, unread: (threads || []).reduce((n, t) => n + (t.unreadCount || (t.unread ? 1 : 0)), 0) });
   // v6.4 perf: makeStyles() builds a large tree of inline-style objects —
   // previously rebuilt from scratch on every single render (every keystroke
   // in the search box, every hover-state change, every busy tick during a
@@ -21393,13 +21556,13 @@ function App() {
           on the header opens the command palette. */}
       {isMobile && <style>{`body{padding-bottom:calc(72px + env(safe-area-inset-bottom)) !important;}`}</style>}
       {isMobile && (() => {
-        const VIEW_TITLES = { search: "Search", document: "Document Mode", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Cortex" };
+        const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Cortex" };
         let headerTitle = VIEW_TITLES[view] || "Cerebrum";
         if (view === "search" && turns.length > 0 && (history || []).length > 0) {
           const recent = [...history].sort((a, b) => (b.lastOpened || b.ts || 0) - (a.lastOpened || a.ts || 0))[0];
           if (recent && recent.title) headerTitle = recent.title;
         }
-        const unreadCount = (threads || []).filter((t) => t.unread).length;
+        const unreadCount = (threads || []).reduce((n, t) => n + (t.unreadCount || (t.unread ? 1 : 0)), 0);
         return (
           <React.Fragment>
             <div
@@ -23170,6 +23333,10 @@ summary::-webkit-details-marker { display: none; }
    paragraphs carry inline line-height from the shared renderer.) */
 .cb-doc-analysis-card .cb-doc-reader p,
 .cb-doc-analysis-card .cb-doc-reader li { line-height: 1.75 !important; }
+/* A reading measure, not a billboard: on wide screens the analysis
+   column runs past ninety characters a line, which tires the eye and
+   buries the findings. Cap the prose at a bookish measure. */
+.cb-doc-analysis-card .cb-doc-reader { max-width: 72ch; }
 .cb-doc-reader img, .cb-doc-reader video { max-width: 100%; height: auto; }
 .cb-doc-reader pre { max-width: 100%; overflow-x: auto; }
 .cb-doc-reader table { display: block; max-width: 100%; overflow-x: auto; }
