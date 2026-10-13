@@ -410,11 +410,17 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
+// v16 (2026-10-13, negation rung fix): a concept group whose term
+// begins with a negation lead ("without isolat enzyme") can no
+// longer become a required AND rung in the shipped structured
+// query . it starved the boolean on absence wording papers never
+// use . so the shipped queries and the filtered shelves change
+// again for cached questions.
 // v15 (2026-10-13, fleet and coverage pass): framing words can no
 // longer become structured query anchors and preparation phrasings
 // now bridge to the homogenate concept group, so both the shipped
 // queries and the filtered shelves change for cached questions.
-const CACHE_SCHEMA_VERSION = "v15";
+const CACHE_SCHEMA_VERSION = "v16";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1591,6 +1597,44 @@ const EXPANSION_FRAMING_WORDS = new Set([
   "person", "someone", "anyone",
 ]);
 
+// Negation leads (2026-10-13): a concept that denotes an ABSENCE can
+// never be a positive boolean requirement. Live probe on build
+// 553caa4: "Has anyone assayed digestive enzymes in whole gut
+// preparations from insects without isolating the enzymes?" shipped
+// a structured query whose second rung was ("without isolat enzyme"
+// OR "without isolated enzyme" OR "without purified enzyme" OR
+// "without enzyme purification") . a REQUIRED AND constraint.
+// Papers almost never phrase an absence, so the boolean starved
+// (gathered 42, against 80 on the looser prior build) and the answer
+// was a scoped No again. A negation led group is therefore rejected
+// at the validator and skipped again, defensively, when
+// buildStructuredQuery forms its AND rungs. Widening uses (OR
+// fallbacks, topicOverlapFilter accept sets) are unaffected: an
+// absence term may help ACCEPT a paper, it just may never GATE one.
+const EXPANSION_NEGATION_LEADS = new Set([
+  "without", "not", "no", "never", "non", "lacking",
+]);
+const EXPANSION_NEGATION_PHRASES = ["absence of", "free of"];
+
+// True when a cleaned, lowercased term BEGINS with a negation lead as
+// a whole word (or as a whole lead phrase). Whole word matching is
+// deliberate on both sides:
+//   . "nitrogen fixation" is safe: its first word is "nitrogen",
+//     not "no" . the letters n-o inside a longer word are not a lead.
+//   . Closed "non" compounds are safe: "noncoding", "nonlinear", and
+//     "non-photosynthetic" (a real CONCEPT_GROUPS member, in the
+//     parasitic plant group) are ordinary positive vocabulary that
+//     papers use constantly. Only a standalone "non" ("non coding")
+//     counts as a lead.
+export function hasNegationLead(term) {
+  const t = String(term || "").toLowerCase().trim().replace(/\s+/g, " ");
+  if (!t) return false;
+  for (const phrase of EXPANSION_NEGATION_PHRASES) {
+    if (t === phrase || t.startsWith(phrase + " ")) return true;
+  }
+  return EXPANSION_NEGATION_LEADS.has(t.split(" ")[0]);
+}
+
 // Strict gate for model-proposed expansion groups. Accepts the model's
 // reply as an already-parsed value or as raw text (JSON, possibly
 // fenced). Returns a clean array of { term, alternates }:
@@ -1598,6 +1642,8 @@ const EXPANSION_FRAMING_WORDS = new Set([
 //   . alternates are 2 to 6 unique strings of 1 to 4 words, letters,
 //     spaces, and hyphens only, none equal to the term, none a framing
 //     word
+//   . the term never begins with a negation lead (hasNegationLead):
+//     an absence cannot be a boolean requirement
 //   . at most 4 groups
 // Anything invalid, at any level, degrades toward [] and never throws.
 export function validateExpansionGroups(raw, query) {
@@ -1647,6 +1693,9 @@ export function validateExpansionGroups(raw, query) {
     if (!term || seenTerms.has(term)) continue;
     if (term.split(" ").length > 4 || !isCleanWording(term)) continue;
     if (EXPANSION_FRAMING_WORDS.has(term)) continue;
+    // An absence is not a searchable concept: a negation led group
+    // can never become a boolean requirement (see hasNegationLead).
+    if (hasNegationLead(term)) continue;
     if (!inQuery(term)) continue;
     if (!Array.isArray(entry.alternates)) continue;
     // An oversized list is the model spraying, not proposing
@@ -2350,7 +2399,17 @@ export function buildStructuredQuery(query, dynLookup) {
       if (key.indexOf(" ") !== -1 && qLower.includes(key)) phraseAnchors.push(key);
     }
   }
-  const coveredWords = new Set(phraseAnchors.flatMap((p) => p.split(" ")));
+  // 2026-10-13: a negation led phrase ("without isolat enzyme") is an
+  // absence, not a concept, and can never be an AND rung: papers do
+  // not phrase absences, so the rung starves the boolean (live probe,
+  // build 553caa4: gathered fell from 80 to 42 and the answer was a
+  // scoped No). The validator already rejects these groups; this is
+  // the defensive second line so hand written groups and future
+  // callers that bypass the validator get the same protection. The
+  // component words are NOT covered by a skipped phrase, so they stay
+  // eligible as ordinary anchors below.
+  const usablePhraseAnchors = phraseAnchors.filter((k) => !hasNegationLead(k));
+  const coveredWords = new Set(usablePhraseAnchors.flatMap((p) => p.split(" ")));
 
   const ranked = qTerms
     .map((t) => ({ t, spec: termSpecificity(t) }))
@@ -2371,16 +2430,16 @@ export function buildStructuredQuery(query, dynLookup) {
     .filter((x) => x.spec >= 0.5 && !QUERY_FRAMING_WORDS.has(x.t))
     .slice(0, 4)
     .map((x) => x.t);
-  if (!phraseAnchors.length && anchors.length < 2) {
+  if (!usablePhraseAnchors.length && anchors.length < 2) {
     // Not enough specific terms to build groups . OR the best few so we still
     // get recall rather than an over-narrow AND.
     return ranked.slice(0, 4).map((x) => x.t).join(" OR ");
   }
 
   const tokenAnchors = anchors
-    .filter((t) => !coveredWords.has(t))
-    .slice(0, Math.max(0, 4 - phraseAnchors.length));
-  const groups = [...phraseAnchors, ...tokenAnchors].map((t) => {
+    .filter((t) => !coveredWords.has(t) && !hasNegationLead(t))
+    .slice(0, Math.max(0, 4 - usablePhraseAnchors.length));
+  const groups = [...usablePhraseAnchors, ...tokenAnchors].map((t) => {
     const set = conceptSetFor(t, dynLookup);
     if (!set) return t;
     // Cap expansion so the request URL stays reasonable, and keep the original

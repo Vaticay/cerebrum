@@ -555,5 +555,82 @@ await test("short questions cannot spend anchor slots on has or anyone", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("negation led groups — an absence is never an AND rung (2026-10-13)");
+
+// Live regression (build 553caa4): the fleet pass made the rest of
+// this question's query excellent — digestive enzyme group, whole
+// gut preparation group with homogenate wording, insect group, no
+// framing tail — except one rung: ("without isolat enzyme" OR
+// "without isolated enzyme" OR "without purified enzyme" OR
+// "without enzyme purification"). A negation phrase became a
+// REQUIRED AND constraint; papers almost never phrase an absence,
+// so gathered fell to 42 (80 on the looser prior build), the only
+// cited papers were off topic, and the answer was a scoped No.
+// Production reaches these functions with the resolver normalized
+// (lemmatized, stopword stripped) question, the form the pins use.
+const PROBE_Q_NORMALIZED =
+  "has anyone assayed digestive enzymes in whole gut preparations from insects without isolat enzyme";
+const WITHOUT_GROUP = {
+  term: "without isolat enzyme",
+  alternates: ["without isolated enzyme", "without purified enzyme", "without enzyme purification"],
+};
+
+await test("validateExpansionGroups drops the without led group and keeps the normal group beside it", () => {
+  const out = validateExpansionGroups([PROBE_GROUPS[0], WITHOUT_GROUP], PROBE_Q_NORMALIZED);
+  assert.deepEqual(out, PROBE_GROUPS);
+});
+
+await test("other negation leads are dropped at the validator too", () => {
+  const cases = [
+    [{ term: "never exposed", alternates: ["unexposed seedlings", "dark grown seedlings"] },
+      "do seedlings never exposed to light germinate"],
+    [{ term: "free of pathogens", alternates: ["pathogen free seedlings", "sterile seedlings"] },
+      "are seedlings free of pathogens in sterile culture"],
+    [{ term: "lacking chlorophyll", alternates: ["achlorophyllous plants", "albino seedlings"] },
+      "how do plants lacking chlorophyll survive"],
+    [{ term: "absence of light", alternates: ["darkness", "dark conditions"] },
+      "does the absence of light stop germination"],
+    [{ term: "not photosynthetic", alternates: ["heterotrophic plants", "achlorophyllous plants"] },
+      "which plants are not photosynthetic"],
+  ];
+  for (const [g, q] of cases) {
+    assert.deepEqual(validateExpansionGroups([g], q), [], `negation led term survived: ${g.term}`);
+  }
+});
+
+await test("the probe query ships no without rung, and the other groups stay intact", () => {
+  // Built WITHOUT the validator on purpose: buildStructuredQuery is
+  // the defensive second line for callers that bypass the gate.
+  const dyn = buildDynLookup([PROBE_GROUPS[0], WITHOUT_GROUP]);
+  const out = buildStructuredQuery(PROBE_Q_NORMALIZED, dyn);
+  const rungs = out.split(" AND ");
+  assert.ok(!out.includes("without"), `negation wording leaked into the shipped query: ${out}`);
+  assert.equal(rungs.length, 4, `expected 4 AND groups, got ${rungs.length}: ${out}`);
+  assert.ok(rungs[0].includes("whole gut preparations"), `preparation group should lead: ${out}`);
+  assert.ok(out.includes("homogenate"), `homogenate wording missing from: ${out}`);
+  assert.ok(rungs.some((r) => r.includes("digestive")), `digestive group missing from: ${out}`);
+  assert.ok(rungs.some((r) => r.includes("enzymes")), `enzyme group missing from: ${out}`);
+  assert.ok(rungs.some((r) => r.includes("insects")), `insect group missing from: ${out}`);
+});
+
+await test("a term that merely contains a negation word still validates (nitrogen fixation)", () => {
+  const out = validateExpansionGroups(
+    [{ term: "nitrogen fixation", alternates: ["biological nitrogen fixation", "diazotrophy"] }],
+    "how does nitrogen fixation support plant growth"
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0].term, "nitrogen fixation");
+});
+
+await test("a closed non compound still validates (non-photosynthetic is real vocabulary)", () => {
+  const out = validateExpansionGroups(
+    [{ term: "non-photosynthetic", alternates: ["achlorophyllous", "mycoheterotrophic"] }],
+    "how do non-photosynthetic plants get carbon"
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0].term, "non-photosynthetic");
+});
+
+// ═══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
