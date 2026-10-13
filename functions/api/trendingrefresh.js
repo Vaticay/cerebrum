@@ -15,7 +15,8 @@
 // write on every call, which is exactly the kind of endpoint that
 // shouldn't be left open to the public internet.
 
-import { fetchTrendingItems } from "../lib/trendingSource.js";
+import { fetchTrendingFeed } from "../lib/trendingSource.js";
+import { enrichTrendingMedia } from "./trending.js";
 
 let _tableEnsured = false;
 async function ensureTable(env) {
@@ -51,14 +52,19 @@ export async function onRequest(context) {
   }
 
   try {
-    const items = await fetchTrendingItems();
+    const feed = await fetchTrendingFeed();
+    let items = feed.items;
     if (!items.length) {
       // The source returned nothing usable this run — leave whatever's
       // already cached in place rather than overwriting a good feed with
       // an empty one. The next hourly run gets another try.
       return json({ ok: false, reason: "Source returned no usable articles; existing cache left unchanged." }, 502);
     }
-    const payload = JSON.stringify({ items, generatedAt: Date.now() });
+    // Same enrichment as the read endpoint's own refresh: writing raw
+    // items here used to strip every resolved media slot from the cache
+    // until the next background cycle put them back.
+    items = await enrichTrendingMedia(env, items);
+    const payload = JSON.stringify({ items, generatedAt: Date.now(), sourceHealth: feed.sourceHealth });
     await ensureTable(env);
     await env.DB.prepare(
       "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"

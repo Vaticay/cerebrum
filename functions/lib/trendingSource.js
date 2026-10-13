@@ -155,6 +155,18 @@ export function cleanTrendingText(s) {
     return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : m;
   });
   t = t.replace(/<[^>]*>/g, " ");
+  // TeX remnants ride along in arXiv and bioRxiv abstracts
+  // (\emph{...}, {Delta}, $...$). Unwrap commands, drop the braces and
+  // math delimiters, keep the words.
+  t = t.replace(/\\[a-zA-Z]+\{([^{}]*)\}/g, "$1");
+  t = t.replace(/\\[a-zA-Z]+/g, " ");
+  t = t.replace(/\$/g, "");
+  t = t.replace(/[{}]/g, "");
+  // Syndication boilerplate and upstream truncation markers are not
+  // summary text.
+  t = t.replace(/The post [\s\S]*? appeared first on [^.]*\./gi, " ");
+  t = t.replace(/\s*\[…\]/g, "");
+  t = t.replace(/\s*\[\.\.\.\]\s*$/g, "");
   return t.replace(/\s+/g, " ").trim();
 }
 
@@ -169,15 +181,22 @@ const SOURCES = [
     url: "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=OPEN_ACCESS%3Ay%20AND%20HAS_ABSTRACT%3Ay&format=json&pageSize=12&sort=P_PDATE_D%20desc",
     parse: (d) => ((d && d.resultList && d.resultList.result) || []).map((r) => ({
       title: (r.title || "").replace(/\.$/, ""),
-      summary: r.abstractText || `${r.journalTitle || "Journal"} · ${r.authorString || "Authors unlisted"}`,
+      // No abstract means NO summary. The old fallback stored the
+      // journal and author line in the summary field, and the UI then
+      // presented bibliographic metadata as if it were an abstract.
+      summary: r.abstractText || "",
+      summaryMissing: !r.abstractText,
       url: r.doi ? `https://doi.org/${r.doi}` : (r.fullTextUrlList && r.fullTextUrlList.fullTextUrl && r.fullTextUrlList.fullTextUrl[0] && r.fullTextUrlList.fullTextUrl[0].url) || "",
       source: r.journalTitle || "Europe PMC",
       publishedAt: r.firstPublicationDate || null,
+      indexedAt: r.firstIndexDate || null,
+      doi: r.doi || null,
+      type: /review/i.test(String(r.pubType || "")) ? "Review" : "Paper",
       // Europe PMC's own citation count for the record — a real, grounded
       // "why this matters" signal for journal articles. Shown only when
       // positive; the other three sources don't provide one, so no label
       // is ever invented for them.
-      citedByCount: Number(r.citedByCount) > 0 ? Math.floor(Number(r.citedByCount)) : 0,
+      citedByCount: r.citedByCount,
     })),
   },
   {
@@ -193,12 +212,21 @@ const SOURCES = [
       const d = (offsetDays) => new Date(Date.now() - offsetDays * 86400000).toISOString().slice(0, 10);
       return `https://api.biorxiv.org/details/biorxiv/${d(4)}/${d(0)}`;
     },
-    parse: (d) => ((d && d.collection) || []).slice(0, 12).map((r) => ({
+    parse: (d) => [...((d && d.collection) || [])]
+      // The API returns its window in no promised order; the old code
+      // took the first 12 as they came, which in practice meant every
+      // record dated from the first day of the window. Newest first.
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+      .slice(0, 12).map((r) => ({
       title: (r.title || "").trim(),
-      summary: (r.abstract || `${r.category || "Preprint"} · ${r.authors || ""}`).trim(),
+      summary: (r.abstract || "").trim(),
+      summaryMissing: !r.abstract,
       url: r.doi ? `https://doi.org/${r.doi}` : "",
       source: `bioRxiv${r.category ? " · " + r.category : ""}`,
       publishedAt: r.date || null,
+      doi: r.doi || null,
+      type: "Preprint",
+      discipline: r.category || null,
     })),
   },
   {
@@ -221,12 +249,18 @@ const SOURCES = [
           return m ? m[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
         };
         const linkMatch = e.match(/<id>([\s\S]*?)<\/id>/);
+        const catMatch = e.match(/<category[^>]*term="([^"]+)"/);
+        const catTerm = catMatch ? catMatch[1] : "";
+        const url = linkMatch ? linkMatch[1].trim() : "";
         return {
           title: pick("title"),
           summary: pick("summary"),
-          url: linkMatch ? linkMatch[1].trim() : "",
+          url,
           source: "arXiv",
           publishedAt: pick("published") || null,
+          doi: url.includes("arxiv.org/abs/") ? url.split("arxiv.org/abs/")[1] : null,
+          type: "Preprint",
+          discipline: catTerm || null,
         };
       });
     },
@@ -241,6 +275,8 @@ const SOURCES = [
       image_url: typeof a.image_url === "string" ? a.image_url : "",
       source: (a.news_site || "Spaceflight News").trim(),
       publishedAt: a.published_at || null,
+      type: "Press",
+      discipline: "Space",
     })),
   },
 ];
@@ -265,19 +301,33 @@ export function buildTrendingItem(a, category) {
     // Decode entities/strip tags BEFORE anything else: a title that is
     // nothing but markup is not a title.
     title: cleanTrendingText(a.title),
-    summary: cleanTrendingText(a.summary).slice(0, 900),
+    // 3000 chars: the story modal promises the fullest summary the
+    // source provided; the old 900 char cap cut abstracts mid sentence.
+    summary: cleanTrendingText(a.summary).slice(0, 3000),
+    summaryMissing: !!a.summaryMissing,
     url: (a.url || "").trim(),
     image_url: a.image_url || "",
     source: a.source || category,
     publishedAt: a.publishedAt || null,
+    indexedAt: a.indexedAt || null,
+    doi: a.doi || null,
+    // Publication type and discipline are separate facts. Type says
+    // what the record IS (paper, preprint, press), discipline says
+    // what it is ABOUT; the category bucket alone conflated them.
+    type: a.type || null,
+    discipline: a.discipline || null,
     category,
     // Carried through from the source parse only; never invented here.
-    // Europe PMC is currently the only source that provides one.
-    citedByCount: Number(a.citedByCount) > 0 ? Math.floor(Number(a.citedByCount)) : 0,
+    // A source that provides no count gets null (no data), NOT zero:
+    // zero means the source reported zero citations, and ranking the
+    // two against each other was meaningless.
+    citedByCount: a.citedByCount === null || a.citedByCount === undefined || a.citedByCount === ""
+      ? null
+      : (Number.isFinite(Number(a.citedByCount)) ? Math.max(0, Math.floor(Number(a.citedByCount))) : null),
   };
 }
 
-export async function fetchTrendingItems() {
+export async function fetchTrendingFeed() {
   const perSource = await Promise.all(SOURCES.map(async (src) => {
     try {
       // Source URLs may be thunks (see the bioRxiv entry) so date windows
@@ -292,8 +342,19 @@ export async function fetchTrendingItems() {
     } catch { return null; }
   }));
 
+  // Per source health rides along in the payload. A source failing
+  // silently used to look like an editorial decision to drop its whole
+  // section; now the reader can be told the section is missing because
+  // its source did not answer.
+  const sourceHealth = SOURCES.map((src, i) => ({
+    source: src.category,
+    ok: !!(perSource[i] && (perSource[i].items || []).length),
+    count: perSource[i] ? (perSource[i].items || []).length : 0,
+  }));
+
   const seenUrls = new Set();
-  const seenTitles = new Set();
+  const seenDois = new Set();
+  const titleOwner = new Map();
   const buckets = [];
   for (const group of perSource) {
     if (!group) continue;
@@ -305,10 +366,22 @@ export async function fetchTrendingItems() {
       // nothing to show and nowhere to send anyone.
       if (!item.title || !item.url) continue;
       const urlKey = normalizeUrl(item.url);
+      const doiKey = item.doi ? String(item.doi).toLowerCase() : null;
       const titleKey = normalizeTitle(item.title);
-      if (seenUrls.has(urlKey) || seenTitles.has(titleKey)) continue;
+      if (seenUrls.has(urlKey)) continue;
+      if (doiKey && seenDois.has(doiKey)) continue;
+      // Same title alone no longer suppresses a record: two different
+      // papers can share a generic title. A title match only dedupes
+      // when neither record carries a DOI to tell them apart, or when
+      // the DOIs agree (already handled above).
+      if (titleOwner.has(titleKey)) {
+        const ownerDoi = titleOwner.get(titleKey);
+        if (!ownerDoi && !doiKey) continue;
+        if (ownerDoi && !doiKey) continue;
+      }
       seenUrls.add(urlKey);
-      seenTitles.add(titleKey);
+      if (doiKey) seenDois.add(doiKey);
+      if (!titleOwner.has(titleKey)) titleOwner.set(titleKey, doiKey);
       clean.push(item);
     }
     if (clean.length) buckets.push(clean);
@@ -322,5 +395,10 @@ export async function fetchTrendingItems() {
   for (let i = 0; items.length < 40 && buckets.some((b) => i < b.length); i++) {
     for (const b of buckets) if (i < b.length) items.push(b[i]);
   }
+  return { items, sourceHealth };
+}
+
+export async function fetchTrendingItems() {
+  const { items } = await fetchTrendingFeed();
   return items;
 }

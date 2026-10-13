@@ -67,6 +67,38 @@ await test("section pills carry story counts", () => {
   assert.ok(appSrc.includes("categoryCount"), "category counts missing");
 });
 
+await test("the cited sort can never run before its helper exists, and hides without data", () => {
+  const helperAt = appSrc.indexOf("const citedOf");
+  const sortAt = appSrc.indexOf("const visibleItems");
+  assert.ok(helperAt > 0 && sortAt > helperAt, "citedOf is still declared after the sort that uses it");
+  assert.ok(appSrc.includes("hasCitedData"), "cited sort is not gated on real counts");
+  assert.ok(appSrc.includes('effectiveSort === "cited"'), "sort does not fall back without data");
+});
+
+await test("stories group into coverage clusters and are addressable", () => {
+  assert.ok(appSrc.includes("clusterTrendingItems"), "no story clustering");
+  assert.ok(appSrc.includes("#story="), "stories are not written to the URL hash");
+  assert.ok(appSrc.includes("More coverage of this story"), "modal has no coverage list");
+});
+
+await test("the modal starts each story clean", () => {
+  assert.ok(appSrc.includes("setVideos([])"), "modal video state is not cleared on story change");
+  assert.ok(appSrc.includes("bodyRef.current.scrollTop = 0"), "modal scroll is not reset on story change");
+});
+
+await test("the bibliography starts at cited sources and folds away", () => {
+  assert.ok(appSrc.includes("Show all ${sources.length} sources"), "no show all sources control");
+  assert.ok(appSrc.includes("Hide bibliography"), "no bibliography fold control");
+  assert.ok(appSrc.includes("Ask a follow up"), "jump rail has no follow up action");
+});
+
+await test("summaries are cleaned and missing counts stay missing", async () => {
+  const { cleanTrendingText, buildTrendingItem } = await import("../functions/lib/trendingSource.js");
+  assert.equal(cleanTrendingText("A \\emph{big} {Delta} result"), "A big Delta result");
+  assert.ok(!cleanTrendingText("Story text. The post X appeared first on Y. More text.").includes("appeared first on"), "syndication boilerplate survives cleaning");
+  assert.equal(buildTrendingItem({ title: "T", url: "https://x.example" }, "Space").citedByCount, null, "missing count became a fake zero");
+});
+
 await test("backend comments point at the real view and the real refresh story", () => {
   assert.ok(!trendingSrc.includes("src/main.jsx"), "trending.js still points at a file that does not hold the view");
   assert.ok(!refreshSrc.includes(".github/workflows/refresh-trending.yml calls"), "refresh endpoint still claims a deleted workflow calls it");

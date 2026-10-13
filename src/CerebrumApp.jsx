@@ -5718,6 +5718,25 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
       if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
     });
   };
+  // The full ledger is long, and it sits between the answer and the
+  // follow up box. Default to the sources the answer actually cites,
+  // with the rest one tap away, and let the whole ledger fold away.
+  const [showAllBib, setShowAllBib] = useState(false);
+  const [bibHidden, setBibHidden] = useState(false);
+  const citedIdx = useMemo(() => {
+    const set = new Set();
+    const text = String(answer || "");
+    for (const m of text.matchAll(/\[([\d,\s]+)\]/g)) {
+      for (const part of m[1].split(/[\s,]+/)) {
+        const n = parseInt(part, 10);
+        if (Number.isFinite(n) && n >= 1 && n <= (sources || []).length) set.add(n);
+      }
+    }
+    return set;
+  }, [answer, sources]);
+  const bibDefaultVisible = (n) => (citedIdx.size > 0 ? citedIdx.has(n) : n <= 8);
+  const bibVisibleCount = (sources || []).filter((_, i) => bibDefaultVisible(i + 1)).length;
+  const bibHiddenCount = (sources || []).length - bibVisibleCount;
   const [excelBusy, setExcelBusy] = useState(false);
   const exportExcel = async () => {
     if (excelBusy || !sources || !sources.length) return;
@@ -5755,6 +5774,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   };
   // Jump bar: first letters of the author field, for long lists.
   const jumpLetters = useMemo(() => {
+    if (bibHidden) return null;
     if (!sources || sources.length <= 12) return null;
     const seen = [];
     for (const s of sources) {
@@ -5860,10 +5880,11 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
       {/* Hanging-indent typography lives inside each row's content column —
          the numeral sits in the contract's number gutter, wrapped lines
          align under the text. */}
-      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column" }}>
+      <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: bibHidden ? "none" : "flex", flexDirection: "column" }}>
         {(() => {
           const seen = new Set();
           return sources.map((s, i) => {
+            if (!showAllBib && !bibDefaultVisible(i + 1)) return null;
             const L = String(s.authors || s.title || "").trim().charAt(0).toUpperCase();
             const anchor = jumpLetters && L && /[A-Z]/.test(L) && !seen.has(L) ? (seen.add(L), L) : null;
             const doi = normalizeSourceDoi(s);
@@ -5874,6 +5895,17 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
           });
         })()}
       </ol>
+      {!bibHidden && bibHiddenCount > 0 && (
+        <button type="button" onClick={() => setShowAllBib((v) => !v)} aria-expanded={showAllBib}
+          style={{ minHeight: 44, marginTop: 10, padding: "8px 4px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent }}>
+          {showAllBib ? "Show cited sources only" : `Show all ${sources.length} sources (${bibHiddenCount} more in further reading)`}
+        </button>
+      )}
+      {bibHidden && (
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", padding: "6px 2px 2px" }}>
+          {sources.length} sources · {citedIdx.size} cited in this answer. Copy and export still cover the full list.
+        </div>
+      )}
     </div>
   );
   // Zero sources: the designed empty state, never a silent gap. The retry
@@ -5899,7 +5931,13 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   if (bare) {
     return (
       <div>
-        <div style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>{controls}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+          <button type="button" onClick={() => setBibHidden((v) => !v)} aria-expanded={!bibHidden}
+            style={{ minHeight: 44, padding: "8px 4px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2 }}>
+            {bibHidden ? "Show bibliography" : "Hide bibliography"}
+          </button>
+          <span>{controls}</span>
+        </div>
       {ledger}
       {/* Honesty: the backend relevance gate withholds papers that score below
           the citation floor instead of citing them. Say how many were held
@@ -7568,7 +7606,7 @@ function QueryRetryForm({ P, accent, onAsk, id }) {
    failed (bad). Statuses are derived from the turn's real data in
    TurnInner, not invented here. Buttons, so touch works; nothing here
    depends on hover. */
-function JumpRail({ items, P, accent, onJump, isMobile }) {
+function JumpRail({ items, P, accent, onJump, isMobile, onFollowUp = null }) {
   /* Four tabs, not seven: Answer, Evidence, Videos stay; Fact-check,
      Disagreements, Compare and Open questions move behind "More".
      No status dots — a count says "has content" better than a 6px dot
@@ -7659,6 +7697,12 @@ function JumpRail({ items, P, accent, onJump, isMobile }) {
             </div>
           )}
         </div>
+        {onFollowUp && (
+          <button type="button" onClick={onFollowUp}
+            style={{ minHeight: 44, marginLeft: "auto", display: "inline-flex", alignItems: "center", padding: "12px 12px", background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 700, letterSpacing: TYPE.heading.letterSpacing, color: accent }}>
+            Ask a follow up
+          </button>
+        )}
       </div>
     </div>
   );
@@ -8427,7 +8471,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
 
 function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null,
   /* #10/#15: contextual discovery + zero-result recovery wiring. */
-  onSaveInvestigation = null, onOpenDocumentMode = null, onShowLearn = null, evidenceFilter = "all", onClearFilterAndRetry = null }) {
+  onSaveInvestigation = null, onOpenDocumentMode = null, onShowLearn = null, evidenceFilter = "all", onClearFilterAndRetry = null, onFollowUp = null }) {
   /* ANSWER ASSEMBLY: paragraphs arrive with a stagger on fresh turns
      instead of character-by-character typing. History turns render
      complete. `done` follows the reveal — the toolbar lands when the
@@ -9077,7 +9121,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {/* Jump rail — sticky under the answer card, mono labels with live
           ready/empty/failed status from the turn's real data. Buttons, so
           touch works; nothing here depends on hover. */}
-      {done && t.answer && <JumpRail items={railItems} P={P} accent={accent} onJump={jumpToSection} isMobile={typeof window !== "undefined" && window.innerWidth < 900} />}
+      {done && t.answer && <JumpRail items={railItems} P={P} accent={accent} onJump={jumpToSection} onFollowUp={onFollowUp} isMobile={typeof window !== "undefined" && window.innerWidth < 900} />}
       {/* The Evidence band: Bibliography + Videos as tabs in one band,
           directly under the answer. Always rendered — the shells inside are
           honest about empty/loading instead of vanishing. */}
@@ -10521,23 +10565,41 @@ const SOURCE_FULL_NAMES = {
    digest never runs them through the answer engine — only papers behind
    answers get that. */
 function trendKind(item) {
+  // Type is its own field now (paper, preprint, press, review). Older
+  // cached payloads without one fall back to the category guess.
+  const t = String((item && item.type) || "").toLowerCase();
+  if (t === "press") return "Press item";
+  if (t === "preprint") return "Preprint";
+  if (t === "review") return "Review";
+  if (t === "paper") return "Paper";
   const cat = String((item && item.category) || "").toLowerCase();
   if (cat === "space") return "Press item";
   if (cat === "preprints") return "Preprint";
   return "Paper";
 }
+function trendImageCredit(item) {
+  const m = trendingMediaOf(item);
+  if (!m || !m.credit) return null;
+  return m.license ? `${m.credit} · ${m.license}` : m.credit;
+}
 function trendProvenance(item, generatedAt) {
   const kind = trendKind(item);
   const parts = [kind];
   if (item.source) parts.push(item.source);
-  if (kind === "Press item") {
-    if (generatedAt) parts.push(`indexed ${relativeTime(generatedAt)}`);
-    parts.push("not synthesized");
-  } else {
-    if (item.publishedAt) parts.push(relativeTime(new Date(item.publishedAt).getTime()));
-    if (item.citedByCount > 0) parts.push(`Cited by ${item.citedByCount}`);
-  }
+  // Publication time is the item's own. The old line presented the
+  // whole edition's build time as this article's indexing time; an
+  // indexed time is only shown when the source reports one per item.
+  if (item.publishedAt) parts.push(`Published ${relativeTime(new Date(item.publishedAt).getTime())}`);
+  if (item.indexedAt) parts.push(`Indexed ${relativeTime(new Date(item.indexedAt).getTime())}`);
+  if (kind === "Press item") parts.push("not synthesized");
+  if (item.citedByCount > 0) parts.push(`Cited by ${item.citedByCount}`);
   return parts.join(" · ");
+}
+function trendingDoiOf(item) {
+  if (!item) return null;
+  if (item.doi) return String(item.doi);
+  const m = String(item.url || "").match(/doi\.org\/(.+)$/i);
+  return m ? decodeURIComponent(m[1]) : null;
 }
 /* ════════════════════════════════════════════════════════════════════
    VERIFIED MEDIA CONTRACT (2026-09-17)
@@ -10618,6 +10680,10 @@ function docMediaOf(summary) {
 function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect = "16/9", rounded = 12 }) {
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
+  // The modal reuses this component across stories: a failed or loaded
+  // state from the previous story must never suppress or pre reveal
+  // the next story's figure.
+  useEffect(() => { setFailed(false); setReady(false); }, [media && media.url, media && media.poster]);
   if (!media || failed) return null;
   const creditHref = media.creditUrl && safeHref(media.creditUrl) !== "#" ? safeHref(media.creditUrl) : null;
   const showVideo = media.kind === "video" && !still;
@@ -10678,6 +10744,7 @@ function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect
    thumb; the row reads fine without it. */
 function TrendThumb({ P, media, title }) {
   const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [media && media.url, media && media.poster]);
   if (!media || failed) return null;
   const src = media.kind === "video" ? media.poster || null : media.url;
   if (!src) return null;
@@ -10701,7 +10768,7 @@ function TrendThumb({ P, media, title }) {
   );
 }
 
-function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = false }) {
+function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = false, heroLabel = "Lead story" }) {
   // The lead story is a briefing card: the words on one side, the
   // verified lead media in its own frame on the other, never a scrim
   // behind text. Text over bright footage drowned. No media, and the
@@ -10720,20 +10787,29 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
     >
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: at, background: accent, borderRadius: RADIUS.pill, padding: "4px 11px", fontFamily: "var(--cb-font)" }}>Lead story</span>
+          <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: at, background: accent, borderRadius: RADIUS.pill, padding: "4px 11px", fontFamily: "var(--cb-font)" }}>{heroLabel}</span>
           <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{trendKind(item)}{item.category ? ` · ${item.category}` : ""}</span>
         </div>
         <div style={{ fontSize: "clamp(24px, 3.2vw, 36px)", fontWeight: 650, color: P.ink, lineHeight: 1.16, letterSpacing: "-0.02em" }}>
           {item.title}
         </div>
-        {item.summary && (
+        {item.summary ? (
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.65, marginTop: 12, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {item.summary}
+          </div>
+        ) : (
+          <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.65, marginTop: 12, fontStyle: "italic" }}>
+            No summary was published with this record.
           </div>
         )}
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>
           {trendProvenance(item, generatedAt)}
         </div>
+        {item.coverageCount > 1 && (
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 6 }}>
+            Covered by {item.coverageCount} reports in this edition
+          </div>
+        )}
         <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: accent, fontFamily: "var(--cb-font)", marginTop: 14 }}>
           Read the story brief
         </div>
@@ -10783,17 +10859,80 @@ function normalizeTrendingTitle(title) {
 }
 function dedupeTrendingItems(items) {
   const seenUrls = new Set();
-  const seenTitles = new Set();
+  const seenDois = new Set();
+  const titleOwner = new Map();
   const out = [];
   for (const item of items) {
     const urlKey = normalizeTrendingUrl(item.url);
+    const doiKey = trendingDoiOf(item);
     const titleKey = normalizeTrendingTitle(item.title);
-    if ((urlKey && seenUrls.has(urlKey)) || (titleKey && seenTitles.has(titleKey))) continue;
+    if (urlKey && seenUrls.has(urlKey)) continue;
+    if (doiKey && seenDois.has(doiKey)) continue;
+    // Same title, different DOI: two different records that happen to
+    // share a generic title. Only a title match with no DOI on either
+    // side still counts as the same record here; story level grouping
+    // below handles same event coverage.
+    if (titleKey && titleOwner.has(titleKey)) {
+      const ownerDoi = titleOwner.get(titleKey);
+      if (!ownerDoi && !doiKey) continue;
+      if (ownerDoi && !doiKey) continue;
+    }
     if (urlKey) seenUrls.add(urlKey);
-    if (titleKey) seenTitles.add(titleKey);
+    if (doiKey) seenDois.add(doiKey);
+    if (titleKey && !titleOwner.has(titleKey)) titleOwner.set(titleKey, doiKey);
     out.push(item);
   }
   return out;
+}
+
+/* Story clustering: several outlets reporting the same event are one
+   story with several reports, not several stories. Two items join a
+   cluster when they share a DOI, or when their titles share most of
+   their meaningful words. The primary is the report with verified
+   media, then the fullest summary; the rest ride along as coverage. */
+const TREND_STOPWORDS = new Set(["the", "a", "an", "of", "for", "and", "in", "on", "to", "with", "from", "by", "at", "as", "is", "are", "new", "study", "shows", "show", "finds", "found", "using", "first", "reveals", "after", "over", "into", "than", "more"]);
+function trendTitleTokens(title) {
+  return new Set(String(title || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter((w) => (w.length >= 3 || /\d/.test(w)) && !TREND_STOPWORDS.has(w)));
+}
+function clusterTrendingItems(items) {
+  const n = items.length;
+  const parent = items.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const join = (a, b) => { const ra = find(a); const rb = find(b); if (ra !== rb) parent[rb] = ra; };
+  const tokenSets = items.map((x) => trendTitleTokens(x.title));
+  const dois = items.map((x) => trendingDoiOf(x));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (dois[i] && dois[j] && dois[i].toLowerCase() === dois[j].toLowerCase()) { join(i, j); continue; }
+      const a = tokenSets[i];
+      const b = tokenSets[j];
+      if (a.size < 4 || b.size < 4) continue;
+      let shared = 0;
+      for (const w of a) if (b.has(w)) shared++;
+      const jaccard = shared / (a.size + b.size - shared);
+      const containment = shared / Math.min(a.size, b.size);
+      if (shared >= 4 && (jaccard >= 0.6 || containment >= 0.78)) join(i, j);
+    }
+  }
+  const groups = new Map();
+  items.forEach((x, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(x); });
+  const ordered = [...groups.values()]
+    .map((group) => ({ group, first: Math.min(...group.map((x) => items.indexOf(x))) }))
+    .sort((a, b) => a.first - b.first);
+  const out = [];
+  for (const { group } of ordered) {
+    if (group.length === 1) { out.push(group[0]); continue; }
+    const primary = [...group].sort((a, b) =>
+      ((trendingMediaOf(b) ? 1 : 0) - (trendingMediaOf(a) ? 1 : 0)) ||
+      (String(b.summary || "").length - String(a.summary || "").length) ||
+      (items.indexOf(a) - items.indexOf(b))
+    )[0];
+    out.push({ ...primary, coverage: group, coverageCount: group.length });
+  }
+  return out;
+}
+function trendStoryKey(item) {
+  return trendingDoiOf(item) || normalizeTrendingUrl(item && item.url) || normalizeTrendingTitle(item && item.title);
 }
 
 // Article detail — opened by clicking a story instead of leaving the app
@@ -10809,14 +10948,19 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
   // playing inline, a one-tap route into Cerebrum's own literature search on
   // the same subject, and what to read next.
   const [videos, setVideos] = useState([]);
+  const bodyRef = useRef(null);
   useEffect(() => {
+    // Switching stories starts clean: the previous story's videos clear
+    // immediately, and the reader lands at the top of the new story.
+    setVideos([]);
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
     let cancelled = false;
     const q = (item.title || "").slice(0, 120);
     if (!q) return;
     fetch(`/api/videos?q=${encodeURIComponent(q)}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled && d && Array.isArray(d.videos)) setVideos(d.videos.slice(0, 2)); })
-      .catch(() => {});
+      .then((d) => { if (!cancelled) setVideos(d && Array.isArray(d.videos) ? d.videos.slice(0, 2) : []); })
+      .catch(() => { if (!cancelled) setVideos([]); });
     return () => { cancelled = true; };
   }, [item.title]);
   /* Lead media via the verified contract: media.image.url → legacy
@@ -10843,7 +10987,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
           )}
           <button onClick={close} aria-label="Close" style={{ minWidth: 44, minHeight: 44, position: "absolute", top: 8, right: 8, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: 26 }}>
+        <div ref={bodyRef} style={{ flex: 1, overflowY: "auto", padding: 26 }}>
           {item.source && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
@@ -10851,8 +10995,21 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
             </span>
           )}
           <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", marginTop: 10 }}>{item.title}</div>
-          {publishedLabel && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{publishedLabel}{item.citedByCount > 0 ? ` · Cited by ${item.citedByCount}` : ""}</div>}
-          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
+          {publishedLabel && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>Published {publishedLabel}{item.citedByCount > 0 ? ` · Cited by ${item.citedByCount}` : ""}</div>}
+          {item.summary
+            ? <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
+            : <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, marginTop: 18, fontStyle: "italic" }}>No summary was published with this record. The full text is at the source.</div>}
+          {Array.isArray(item.coverage) && item.coverage.length > 1 && (
+            <div style={{ marginTop: 22 }}>
+              <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>More coverage of this story · {item.coverage.length} reports</div>
+              {item.coverage.filter((c) => c.url !== item.url).map((c, i) => (
+                <a key={c.url || i} href={safeHref(c.url)} target="_blank" rel="noreferrer" style={{ display: "block", padding: "9px 0", borderBottom: `1px solid ${P.line}`, textDecoration: "none" }}>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{c.title}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{c.source || c.category}</span>
+                </a>
+              ))}
+            </div>
+          )}
           {/* The primary action is now the one that keeps someone here and
               is genuinely more useful than the source page: Cerebrum can
               answer what the science actually says, with citations. Reading
@@ -10860,7 +11017,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               thing on offer. */}
           <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 24 }}>
             <UIButton P={P} variant="ghost"
-              onClick={() => { if (onAsk) { onAsk(`What does the research actually show about this: ${item.title}`); close(); } }}
+              onClick={() => { if (onAsk) { const doi = trendingDoiOf(item); onAsk(`What does the research actually show about this: ${item.title}${doi ? ` (DOI: ${doi})` : ""}${item.source ? ` — reported by ${item.source}` : ""}`); close(); } }}
               style={{ minHeight: 44,
                 display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 16px",
                 fontSize: FONT_SIZES.small, fontWeight: 700, color: at, background: accent,
@@ -11372,8 +11529,16 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // degraded). The view used to drop both on the floor, so a reader
   // could not tell a fresh edition from yesterday's leftovers.
   const [feedMeta, setFeedMeta] = useState({ stale: false, degraded: false });
+  const [missingSources, setMissingSources] = useState([]);
   const [trendQuery, setTrendQuery] = useState("");
   const [trendSort, setTrendSort] = useState("edition");
+  const [winW, setWinW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1200));
+  useEffect(() => {
+    const onResize = () => setWinW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const narrow = winW < 560;
 
   useEffect(() => {
     let cancelled = false;
@@ -11388,16 +11553,24 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) {
             // A background poll that comes back empty shouldn't nuke a
             // feed that's already on screen — only a genuine first-load
-            // failure shows the error state.
+            // failure shows the error state. But the reader should be
+            // told the edition on screen is aging: health reporting
+            // used to vanish entirely after a successful first load.
             if (!isBackground) setStatus("error");
+            else setFeedMeta((prev) => ({ ...prev, stale: true }));
             return;
           }
           setItems(data.items);
           setGeneratedAt(data.generatedAt || Date.now());
           setFeedMeta({ stale: !!data.stale, degraded: !!data.degraded });
+          if (Array.isArray(data.sourceHealth)) setMissingSources(data.sourceHealth.filter((s) => s && !s.ok).map((s) => s.source));
           setStatus("ready");
         })
-        .catch(() => { if (!cancelled && !isBackground) setStatus("error"); });
+        .catch(() => {
+          if (cancelled) return;
+          if (!isBackground) setStatus("error");
+          else setFeedMeta((prev) => ({ ...prev, stale: true }));
+        });
     };
 
     load(false);
@@ -11410,32 +11583,64 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // dedupeTrendingItems above) — a safety net against a stale cache row or
   // a future source change, never a substitute for the server-side dedup.
   const deduped = useMemo(() => dedupeTrendingItems(items), [items]);
+  // Reports of the same event group into one story with coverage.
+  const stories = useMemo(() => clusterTrendingItems(deduped), [deduped]);
+  // Citation counts: null means the source reported no count at all,
+  // which is not a zero. Sorting and the rail only exist when at least
+  // two stories carry a real positive count.
+  const citedOf = (x) => (typeof x.citedByCount === "number" ? x.citedByCount : -1);
+  const hasCitedData = stories.filter((x) => citedOf(x) > 0).length >= 2;
+  const effectiveSort = trendSort === "cited" && !hasCitedData ? "edition" : trendSort;
   // The category filter is applied once, here, so every view below is fed
   // the same already-narrowed list and no future view can forget it.
   const query = trendQuery.trim().toLowerCase();
-  const filteredItems = deduped.filter((x) => {
+  const filteredItems = stories.filter((x) => {
     if (trendCat !== "All" && x.category !== trendCat) return false;
     if (!query) return true;
-    return `${x.title || ""} ${x.summary || ""} ${x.source || ""} ${x.category || ""}`.toLowerCase().includes(query);
+    const hay = [x, ...((x && x.coverage) || [])].map((c) => `${c.title || ""} ${c.summary || ""} ${c.source || ""} ${c.category || ""}`).join(" ").toLowerCase();
+    return hay.includes(query);
   });
-  const visibleItems = trendSort === "edition"
+  const visibleItems = effectiveSort === "edition"
     ? filteredItems
-    : [...filteredItems].sort((a, b) => trendSort === "cited"
+    : [...filteredItems].sort((a, b) => effectiveSort === "cited"
       ? citedOf(b) - citedOf(a)
       : new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime());
   const [hero, ...rest] = visibleItems;
-  const categories = ["All", ...Array.from(new Set(deduped.map((x) => x.category).filter(Boolean)))];
-  const categoryCount = (cat) => (cat === "All" ? deduped.length : deduped.filter((x) => x.category === cat).length);
-  const paperCount = deduped.filter((x) => trendKind(x) !== "Press item").length;
-  const pressCount = deduped.length - paperCount;
-  /* The edition feed carries citedByCount 0 on every record (checked
-     against the live payload), so the most cited rail and sort have
-     no data today: they stay hidden and inert rather than ranking by
-     a signal that is not there. If the feed starts sending real
-     counts, citedOf revives and both come back on their own. */
-  const citedOf = (x) => (x.citedByCount || 0);
-  const mostCited = [...deduped].map((x) => ({ x, c: citedOf(x) })).filter((r) => r.c > 0).sort((a, b) => b.c - a.c).slice(0, 4).map((r) => r.x);
-  const newest = [...deduped].filter((x) => x.publishedAt).sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()).slice(0, 4);
+  const categories = ["All", ...Array.from(new Set(stories.map((x) => x.category).filter(Boolean)))];
+  const categoryCount = (cat) => (cat === "All" ? stories.length : stories.filter((x) => x.category === cat).length);
+  const paperCount = stories.filter((x) => trendKind(x) !== "Press item").length;
+  const pressCount = stories.length - paperCount;
+  // The Newest rail belongs to the view on screen, not the unfiltered
+  // edition: filtering used to pull unrelated stories back in through it.
+  const newest = [...visibleItems].filter((x) => x.publishedAt).sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()).slice(0, 4);
+  const isDefaultView = !query && trendCat === "All" && effectiveSort === "edition";
+  const heroLabel = isDefaultView ? "Lead story" : query ? "First match" : "First in this view";
+  const pubTimes = stories.map((x) => new Date(x.publishedAt || 0).getTime()).filter((t) => t > 0);
+  const fmtDay = (ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const pubRange = pubTimes.length > 1 && Math.max(...pubTimes) - Math.min(...pubTimes) > 86400000
+    ? `Published ${fmtDay(Math.min(...pubTimes))} to ${fmtDay(Math.max(...pubTimes))}`
+    : "";
+  // Stories are addressable: opening one writes its key into the hash,
+  // and a shared or reloaded link reopens the same story.
+  const hashRestoredRef = useRef(false);
+  useEffect(() => {
+    if (status !== "ready" || hashRestoredRef.current) return;
+    hashRestoredRef.current = true;
+    try {
+      const m = String(window.location.hash || "").match(/story=([^&]+)/);
+      if (m) {
+        const found = stories.find((x) => trendStoryKey(x) === decodeURIComponent(m[1]));
+        if (found) setExpanded(found);
+      }
+    } catch { /* a malformed hash is not worth an error state */ }
+  }, [status, stories]);
+  useEffect(() => {
+    try {
+      const base = window.location.pathname + window.location.search;
+      if (expanded) window.history.replaceState(null, "", `${base}#story=${encodeURIComponent(trendStoryKey(expanded))}`);
+      else if (String(window.location.hash || "").includes("story=")) window.history.replaceState(null, "", base);
+    } catch { /* history is a nicety, not a dependency */ }
+  }, [expanded]);
 
   // A newspaper dateline, not a "Live" badge. The feed refreshes on a real
   // hourly clock; the honest signal is when this edition was printed.
@@ -11462,12 +11667,21 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
             Not curated by us, not fact checked like an answer. Read the source before you cite it.
           </div>
-          {status === "ready" && deduped.length > 0 && (
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6, maxWidth: 640, lineHeight: 1.6 }}>
+            How this edition is built: recent stories from four sources, balanced across sections in source order. It is not ranked by clicks, shares, or citation speed.
+          </div>
+          {status === "ready" && stories.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 22px", marginTop: 14, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-              <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{deduped.length}</strong> stories in this edition</span>
+              <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{stories.length}</strong> stories in this edition</span>
               <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{paperCount}</strong> papers and preprints</span>
               <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{pressCount}</strong> press reports</span>
+              {pubRange && <span>{pubRange}</span>}
               {generatedAt > 0 && <span>Updated {relativeTime(generatedAt)}</span>}
+            </div>
+          )}
+          {status === "ready" && missingSources.length > 0 && (
+            <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
+              Missing this round: {missingSources.join(", ")}. That section is absent because its source did not answer, not because nothing was published.
             </div>
           )}
           {status === "ready" && (feedMeta.degraded || feedMeta.stale) && (
@@ -11515,8 +11729,17 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
               <input value={trendQuery} onChange={(e) => setTrendQuery(e.target.value)} placeholder="Search this edition" aria-label="Search this edition"
                 style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
             </div>
-            <SegControl P={P} accent={accent} ariaLabel="Sort stories" value={trendSort} onChange={setTrendSort}
-              options={[{ id: "edition", label: "Edition order" }, { id: "cited", label: "Most cited" }, { id: "newest", label: "Newest" }]} />
+            <div role="group" aria-label="Sort stories" style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
+              {[{ id: "edition", label: "Edition order" }, ...(hasCitedData ? [{ id: "cited", label: "Most cited" }] : []), { id: "newest", label: "Newest" }].map((o) => {
+                const on = effectiveSort === o.id;
+                return (
+                  <button key={o.id} type="button" onClick={() => setTrendSort(o.id)} aria-pressed={on}
+                    style={{ minHeight: 44, padding: "9px 14px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: on ? 700 : 500, background: on ? withAlpha(accent, 0.24) : "transparent", color: on ? P.ink : P.ink2, border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}` }}>
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -11525,7 +11748,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         {status === "loading" && (
           <div style={{ padding: "72px 0", textAlign: "center" }}>
             <div style={{ fontSize: FONT_SIZES.body, color: P.faint, fontFamily: "var(--cb-font)" }}>
-              Gathering today&apos;s science stories…
+              Gathering the latest science stories…
             </div>
           </div>
         )}
@@ -11584,10 +11807,10 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             )}
             {/* The lead story, full width. The digest below is the index;
                 this is the front-page feature. */}
-            {hero && <div style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} /></div>}
+            {hero && <div style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} heroLabel={heroLabel} /></div>}
             {visibleItems.length > 0 && newest.length > 1 && (
               <div style={{ marginBottom: 28 }}>
-                <TrendRailList P={P} title="Newest in this edition" items={newest} onExpand={setExpanded} generatedAt={generatedAt} mode="newest" />
+                <TrendRailList P={P} title={isDefaultView ? "Newest in this edition" : "Newest in this view"} items={newest} onExpand={setExpanded} generatedAt={generatedAt} mode="newest" />
               </div>
             )}
             {/* ══════════════════════════════════════════════════
@@ -11607,24 +11830,37 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
               {rest.map((item, i) => (
                 <button key={item.url || i} onClick={() => setExpanded(item)} className="cb-row"
                   style={{
-                    display: "flex", alignItems: "baseline", gap: 16, width: "100%", textAlign: "left",
+                    display: "flex", flexDirection: narrow ? "column" : "row", alignItems: narrow ? "stretch" : "baseline", gap: narrow ? 6 : 16, width: "100%", textAlign: "left",
                     padding: "24px 6px", background: "transparent", border: "none",
                     borderBottom: `1px solid ${P.line}`, cursor: "pointer", fontFamily: "var(--cb-font)",
                   }}
                 >
-                  <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", width: 32, flexShrink: 0, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>
+                  {!narrow && <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", width: 32, flexShrink: 0, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>}
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
-                    {item.summary && (
+                    {item.summary ? (
                       <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
+                    ) : (
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 6, display: "block", fontStyle: "italic" }}>No summary was published with this record.</span>
                     )}
                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
                       {trendProvenance(item, generatedAt)}
                     </span>
+                    {item.coverageCount > 1 && (
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
+                        Covered by {item.coverageCount} reports
+                      </span>
+                    )}
+                    {trendImageCredit(item) && (
+                      <span style={{ display: "block", fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 4 }}>
+                        Image: {trendImageCredit(item)}
+                      </span>
+                    )}
                   </span>
-                  {/* Verified lead media as a small thumb. Absent/unverified
-                      media renders nothing — the row reads fine without it. */}
-                  <TrendThumb P={P} media={trendingMediaOf(item)} title={item.title} />
+                  {/* Verified lead media as a small thumb. On narrow
+                      phones the row goes full width text instead, so a
+                      headline never gets squeezed beside a thumbnail. */}
+                  {!narrow && <TrendThumb P={P} media={trendingMediaOf(item)} title={item.title} />}
                 </button>
               ))}
             </div>)}
@@ -11636,7 +11872,22 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           P={P} accent={accent} at={at} item={expanded}
           close={() => setExpanded(null)}
           onAsk={onAsk}
-          upNext={visibleItems.filter((x) => x.url !== expanded.url).slice(0, 4)}
+          upNext={(() => {
+            // Relevance, not list adjacency: same section first, then
+            // shared title words with the story being read.
+            const curTokens = trendTitleTokens(expanded.title);
+            return visibleItems
+              .filter((x) => trendStoryKey(x) !== trendStoryKey(expanded))
+              .map((x) => {
+                const toks = trendTitleTokens(x.title);
+                let shared = 0;
+                for (const w of toks) if (curTokens.has(w)) shared++;
+                return { x, score: (x.category === expanded.category ? 3 : 0) + Math.min(shared, 4) };
+              })
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 4)
+              .map((r) => r.x);
+          })()}
           onOpenItem={(nx) => setExpanded(nx)}
         />
       )}
@@ -21940,7 +22191,7 @@ function App() {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}

@@ -96,7 +96,7 @@ function cannedFetch(map) {
   };
 }
 
-await test("Europe PMC citation counts carry through; missing means zero, never a guess", async () => {
+await test("Europe PMC citation counts carry through; missing means no data, never a guess", async () => {
   const epmc = {
     resultList: { result: [
       { title: "Cited paper.", abstractText: "A.", doi: "10.9/z", journalTitle: "J Test",
@@ -117,12 +117,12 @@ await test("Europe PMC citation counts carry through; missing means zero, never 
   // Europe PMC titles have trailing periods stripped by the parse step.
   const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
   assert.equal(byTitle["Cited paper"].citedByCount, 42, "real count did not carry through");
-  assert.equal(byTitle["Uncited paper"].citedByCount, 0, "missing count was not normalized to 0");
+  assert.equal(byTitle["Uncited paper"].citedByCount, null, "missing count was not kept as no data");
   assert.equal(byTitle["Zero paper"].citedByCount, 0, "explicit zero was not kept at 0");
-  assert.ok(items.every((i) => Number.isInteger(i.citedByCount) && i.citedByCount >= 0), "count is not a non-negative integer");
+  assert.ok(items.every((i) => i.citedByCount === null || (Number.isInteger(i.citedByCount) && i.citedByCount >= 0)), "count is not null or a non-negative integer");
 });
 
-await test("malformed citation counts degrade to zero", async () => {
+await test("malformed citation counts degrade to no data, never a fake zero", async () => {
   const epmc = {
     resultList: { result: [
       { title: "Weird paper.", abstractText: "A.", doi: "10.9/z", journalTitle: "J Test",
@@ -135,7 +135,9 @@ await test("malformed citation counts degrade to zero", async () => {
   let items;
   try { items = await fetchTrendingItems(); } finally { restore(); }
   assert.equal(items.length, 2);
-  assert.ok(items.every((i) => i.citedByCount === 0), "malformed counts were not degraded to 0");
+  assert.ok(items.every((i) => i.citedByCount === null || i.citedByCount === 0), "malformed counts were not degraded honestly");
+  assert.equal(items.find((i) => i.title === "Weird paper").citedByCount, null, "non numeric count should be no data");
+  assert.equal(items.find((i) => i.title === "Negative paper").citedByCount, 0, "negative count should clamp to zero");
 });
 
 await test("spaceflight nav-chrome summaries degrade to honest attribution", async () => {

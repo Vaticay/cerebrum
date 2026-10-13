@@ -26,7 +26,7 @@
 
 import { corsHeaders, readOriginAllowed, requireTrustedOrigin, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 import { checkRateLimit } from "../lib/rateLimit.js";
-import { fetchTrendingItems } from "../lib/trendingSource.js";
+import { fetchTrendingFeed } from "../lib/trendingSource.js";
 import { resolveLeadMedia } from "./image.js";
 
 
@@ -92,6 +92,7 @@ export function parseCachePayload(row) {
     return {
       items,
       generatedAt: parsed && parsed.generatedAt != null ? parsed.generatedAt : null,
+      sourceHealth: parsed && Array.isArray(parsed.sourceHealth) ? parsed.sourceHealth : null,
       fetchedAt: Number(row.fetched_at) || 0,
     };
   } catch {
@@ -144,7 +145,8 @@ function scheduleRefresh(env, waitUntil) {
 // a failed background refresh must not affect the response already sent.
 async function refreshCache(env) {
   try {
-    let items = await fetchTrendingItems();
+    const feed = await fetchTrendingFeed();
+    let items = feed.items;
     if (!Array.isArray(items) || items.length === 0) return;
     // Every item leaves here carrying verified lead media (or an honest
     // empty) — see attachMedia/enrichTrendingMedia below. This is the pass
@@ -152,7 +154,7 @@ async function refreshCache(env) {
     // cards: those sources ship no thumbnails of their own, so without this
     // enrichment three quarters of the feed can never have lead media.
     items = await enrichTrendingMedia(env, items);
-    const body = JSON.stringify({ items, generatedAt: Date.now() });
+    const body = JSON.stringify({ items, generatedAt: Date.now(), sourceHealth: feed.sourceHealth });
     await env.DB.prepare(
       "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
     ).bind(body, Date.now()).run();
@@ -241,7 +243,7 @@ async function backfillTrendingMedia(env) {
     if (!parsed || !isUsableCachePayload(parsed)) return;
     if (parsed.items.every((it) => it && it.media)) return;
     const items = await enrichTrendingMedia(env, parsed.items);
-    const body = JSON.stringify({ items, generatedAt: parsed.generatedAt });
+    const body = JSON.stringify({ items, generatedAt: parsed.generatedAt, sourceHealth: parsed.sourceHealth || undefined });
     await env.DB.prepare(
       "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"
     ).bind(body, Date.now()).run();
@@ -278,7 +280,7 @@ export async function onRequest(context) {
   // The payload is re-serialized (not returned verbatim) so every path out
   // of this endpoint — cache, live, or degraded — carries the same fields.
   const serveCache = (cached, source, extra) => okRes(
-    { items: cached.items, generatedAt: cached.generatedAt, stale: source !== "cache", ...(extra || {}) },
+    { items: cached.items, generatedAt: cached.generatedAt, stale: source !== "cache", ...(cached.sourceHealth ? { sourceHealth: cached.sourceHealth } : {}), ...(extra || {}) },
     200,
     {
       ...cors,
@@ -326,9 +328,10 @@ export async function onRequest(context) {
 
   // ---- Fallback: cache missing, stale, ancient, or no DB bound. Fetch live. ----
   try {
-    const items = await fetchTrendingItems();
+    const feed = await fetchTrendingFeed();
+    const items = feed.items;
     const generatedAt = Date.now();
-    const body = JSON.stringify({ items, generatedAt });
+    const body = JSON.stringify({ items, generatedAt, sourceHealth: feed.sourceHealth });
     // Opportunistically warm the cache with this live result too, so the
     // next visitor — and the next hourly refresh, whenever it lands —
     // isn't starting from nothing either. Media enrichment happens in the
@@ -344,7 +347,7 @@ export async function onRequest(context) {
       const after = write.then(() => backfillTrendingMedia(env)).catch(() => {});
       if (typeof waitUntil === "function") waitUntil(after); else await after;
     }
-    return okRes({ items, generatedAt }, 200, { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "live" });
+    return okRes({ items, generatedAt, sourceHealth: feed.sourceHealth }, 200, { ...cors, "Cache-Control": "public, max-age=300", "X-Trending-Source": "live" });
   } catch (e) {
     console.error("Cerebrum trending endpoint error:", e);
     // Upstream failed. Serve the ancient cache rather than a 5xx when one
