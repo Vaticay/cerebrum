@@ -719,7 +719,13 @@ export function isNonLiterature(p) {
 // longer become structured query anchors and preparation phrasings
 // now bridge to the homogenate concept group, so both the shipped
 // queries and the filtered shelves change for cached questions.
-const CACHE_SCHEMA_VERSION = "v21";
+// v22 (2026-10-13, citation collapse fix): verifyPaperConstraints
+// counts a concept group mention toward its partial verdict and a
+// fully matched constraint is never off-topic, and topicOverlapFilter
+// dedupes its accept sets by content so a repeated ungrouped word is
+// one concept, not two. Filtered shelves change for everyday language
+// questions whose papers use the field's own vocabulary.
+const CACHE_SCHEMA_VERSION = "v22";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -4106,13 +4112,51 @@ export function verifyPaperConstraints(paper, analysis) {
       if (matched.includes(c.phrase)) continue;
       const hitTerms = c.terms.filter((t) => {
         const re = constraintPhraseRegex(t);
-        return re && re.test(normText);
+        if (re && re.test(normText)) return true;
+        // Concept mention (2026-10-13, citation collapse fix): a term
+        // also counts as mentioned when the paper uses the field's own
+        // word for the same concept . any member of the term's concept
+        // group, the same vocabulary bridge gatherPapers' matcher,
+        // topicOverlapFilter, and the both concepts gate already use
+        // via conceptSetFor. This test used to count literal words
+        // only, which inverted the filter for everyday language
+        // questions: for "Do the germs in a baby belly change how well
+        // the baby grows" (constraints "germs baby belly" / "change
+        // well baby"), the real infant gut papers mention NONE of the
+        // literal terms (they write microbiota, intestinal, growth)
+        // and were judged off-topic, while phrase collisions that
+        // happen to print "belly" (belly dance, prune belly syndrome)
+        // were judged partial and kept. The handler filter downstream
+        // keeps on-topic and partial and drops off-topic, so the
+        // on point shelf died at this verdict while the collisions
+        // passed. Full phrase matching above is unchanged: a concept
+        // mention earns partial (adjacent evidence), never on-topic.
+        const group = conceptSetFor(String(t).toLowerCase(), null);
+        if (group) {
+          for (const member of group) {
+            const m = String(member || "").toLowerCase();
+            if (!m || m === String(t).toLowerCase()) continue;
+            if (textMentionsPhrase(text, m, [])) return true;
+          }
+        }
+        return false;
       });
       if (hitTerms.length > 0) partialHits.push("\"" + hitTerms.join(" ") + "\" without \"" + c.phrase + "\"");
     }
     if (partialHits.length > 0) {
       verdict = "partial";
       explanation = "Mentions " + partialHits.join("; ") + ". About an adjacent topic, not the requested one.";
+    } else if (matched.length > 0) {
+      // A fully matched constraint is the strictest evidence this
+      // function has (the phrase itself, adjacent or in proximity):
+      // a paper that satisfies one whole constraint and none of
+      // another glued phrase is partial by definition, never
+      // off-topic. The partial test above only inspects UNMATCHED
+      // constraints, so before this branch a crop rotation paper
+      // matching "crop rotation soil" outright was judged off-topic
+      // for missing the window glued "fertility time" entirely.
+      verdict = "partial";
+      explanation = "Covers " + matched.map((m) => "\"" + m + "\"").join(", ") + " but not " + missing.map((m) => "\"" + m + "\"").join(" or ") + ".";
     } else {
       verdict = "off-topic";
       explanation = "Does not mention " + missing.map((m) => "\"" + m + "\"").join(" or ") + ".";
@@ -5545,10 +5589,23 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
   // "genetic" both hitting gene/genes/genetic) so it counts as ONE concept,
   // not two . otherwise the "require 2+" check below is trivially satisfied
   // by two words from the very same idea.
-  const seenSetRefs = new Set();
+  // 2026-10-13 (citation collapse fix): the dedupe compares CONTENT, not
+  // object identity. Identity missed two producers of the same concept:
+  // a term with no concept group mints a fresh Set([term]) per query
+  // occurrence, and the phrase scans above push new Set(group) copies of
+  // a group the term path already returned. Everyday questions repeat
+  // their plain words ("Do the germs in a baby belly change how well
+  // the baby grows" says "baby" twice), so the ungrouped word became
+  // TWO "distinct concepts": the required count below inflated to 3,
+  // a paper printing the literal word earned the concept twice, and
+  // the field's papers (microbiome + gut = the two real concepts)
+  // died at 2 of 5. Identical content is the same concept however it
+  // was produced; the count now reflects distinct concepts only.
+  const seenSetSigs = new Set();
   const acceptSets = [];
   for (const s of acceptSetsRaw) {
-    if (!seenSetRefs.has(s)) { seenSetRefs.add(s); acceptSets.push(s); }
+    const sig = [...s].map((x) => String(x).toLowerCase()).sort().join("\u0000");
+    if (!seenSetSigs.has(sig)) { seenSetSigs.add(sig); acceptSets.push(s); }
   }
 
   const survivors = papers.filter((p) => {

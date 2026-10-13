@@ -52,6 +52,8 @@ const {
   hasRetractedTitleMarker,
   hasNonLiteratureTitleFraming,
   isNonLiterature,
+  analyzeQuery,
+  verifyPaperConstraints,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -471,7 +473,188 @@ await test("the existence rule survives word for word", () => {
 });
 
 await test("the cache schema carries the wave two bump", () => {
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v21"'), "CACHE_SCHEMA_VERSION must be v21");
+  // Bumped to v22 by the citation collapse fix below (verdict and
+  // topic filter semantics changed, so cached shelves are stale).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v22"'), "CACHE_SCHEMA_VERSION must be v22");
+});
+
+group("citation collapse — the verdict and the topic filter count concepts, not literal words");
+// The production record for "Do the germs in a baby belly change how
+// well the baby grows" (build ab97581): gathered 77, deduped 72,
+// cited 1, source list of exactly one. Local end to end accounting
+// found the shelf died in two discriminative steps (full numbers in
+// the delivery report):
+//  (a) The handler constraint filter. analyzeQuery glues the everyday
+//      question into window phrases ("germs baby belly", "change
+//      well baby") and verifyPaperConstraints judged a paper's
+//      "partial" credit on LITERAL term mentions only — the one judge
+//      in the pipeline not using the concept groups. The real infant
+//      gut papers mention none of the literal terms (they write
+//      microbiota, intestinal, growth) and were off-topic; belly
+//      dance and prune belly print "belly" and passed as partial.
+//  (b) topicOverlapFilter deduped its accept sets by OBJECT IDENTITY,
+//      so the repeated ungrouped word "baby" (the question says it
+//      twice) became two distinct concepts: the requirement inflated
+//      to 3 of 5, a literal "baby" earned the concept twice, and the
+//      field's papers touching the two real concepts (microbes, gut)
+//      died at 2 of 5.
+// Fixes: a concept group mention earns partial (never on-topic) in
+// verifyPaperConstraints, a fully matched constraint is never
+// off-topic, and the accept set dedupe compares content. Fixtures
+// below are worded in everyday language against papers written in
+// the field's vocabulary, per the standing mismatched language rule.
+
+const CC_QUESTION = "Do the germs in a baby belly change how well the baby grows";
+const CC_STUNTING_PAPER = () => ({
+  title: "Early life gut microbiome and stunting in rural infants",
+  abstract:
+    "Gut microbiome samples from infants in rural Malawi were sequenced. " +
+    "Children with immature gut microbiota communities showed more stunting and poorer linear growth.",
+  url: "https://example.com/cc-stunting",
+});
+const CC_CESAREAN_PAPER = () => ({
+  title: "Cesarean delivery and the neonatal gut microbiota: colonization patterns and later weight gain",
+  abstract:
+    "Gut microbiota colonization differed by delivery mode. The intestinal microbial " +
+    "communities assembled in the first week predicted weight gain through toddlerhood.",
+  url: "https://example.com/cc-cesarean",
+});
+const CC_BELLY_DANCE = () => ({
+  title: "Belly dance during pregnancy: obstetric outcomes",
+  abstract: "Belly dance classes in pregnancy improved posture. No infant outcomes were measured.",
+  url: "https://example.com/cc-belly-dance",
+});
+const CC_PRUNE_BELLY = () => ({
+  title: "Prune belly syndrome: a case series",
+  abstract: "Prune belly syndrome presents with abdominal wall deficiency in newborns.",
+  url: "https://example.com/cc-prune-belly",
+});
+const CC_GHRELIN = () => ({
+  title: "Ghrelin pharmacology and appetite",
+  abstract: "Ghrelin receptor agonists changed food intake in adults with gastroparesis.",
+  url: "https://example.com/cc-ghrelin",
+});
+const CC_NO_VOCAB_PAPER = () => ({
+  title: "Soil nematode communities under no till farming",
+  abstract:
+    "Nematode assemblages were counted in field plots under three tillage regimes. " +
+    "Species richness tracked soil moisture across seasons.",
+  url: "https://example.com/cc-nematode",
+});
+const ccVerdict = (paper, q) => verifyPaperConstraints(paper, analyzeQuery(q)).verdict;
+const ccPassesHandlerFilter = (paper, q) => {
+  const v = ccVerdict(paper, q);
+  return v === "on-topic" || v === "partial";
+};
+
+await test("the baby belly question still glues into window constraints (the shape under test)", () => {
+  const phrases = analyzeQuery(CC_QUESTION).constraints.map((c) => c.phrase);
+  assert.deepEqual(phrases, ["germs baby belly", "change well baby"]);
+});
+
+await test("on point infant gut papers earn partial through the concept bridge, never off-topic", () => {
+  for (const make of [GUT_MICROBE_PAPER, CC_STUNTING_PAPER, CC_CESAREAN_PAPER]) {
+    const v = ccVerdict(make(), CC_QUESTION);
+    assert.equal(v, "partial", `${make().url} must be partial via concept mentions, got ${v}`);
+  }
+});
+
+await test("papers sharing no vocabulary with the question stay off-topic at the verdict", () => {
+  assert.equal(ccVerdict(CC_GHRELIN(), CC_QUESTION), "off-topic", "ghrelin review must stay off-topic");
+  assert.equal(ccVerdict(CC_NO_VOCAB_PAPER(), CC_QUESTION), "off-topic", "soil nematode paper must stay off-topic");
+});
+
+await test("the collisions are not promoted at the verdict (they die downstream, as before)", () => {
+  assert.notEqual(ccVerdict(CC_BELLY_DANCE(), CC_QUESTION), "on-topic");
+  assert.notEqual(ccVerdict(CC_PRUNE_BELLY(), CC_QUESTION), "on-topic");
+});
+
+await test("the baby belly shelf keeps three on point sources through the handler filter and the topic filter", () => {
+  const shelf = [
+    GUT_MICROBE_PAPER(), CC_STUNTING_PAPER(), CC_CESAREAN_PAPER(),
+    CC_BELLY_DANCE(), CC_PRUNE_BELLY(), CC_GHRELIN(), CC_NO_VOCAB_PAPER(),
+  ];
+  const afterHandler = shelf.filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  const onPoint = ["infant-gut-growth", "cc-stunting", "cc-cesarean"];
+  for (const slug of onPoint) {
+    assert.ok(afterHandler.some((p) => p.url.endsWith(slug)), `${slug} must survive the handler constraint filter`);
+  }
+  assert.ok(!afterHandler.some((p) => p.url.endsWith("cc-ghrelin")), "ghrelin must die at the handler filter");
+  assert.ok(!afterHandler.some((p) => p.url.endsWith("cc-nematode")), "no vocabulary paper must die at the handler filter");
+  const afterTopic = topicOverlapFilter(CC_QUESTION, afterHandler.map((p) => ({ ...p })));
+  assert.deepEqual(
+    afterTopic.map((p) => p.url.split("/").pop()).sort(),
+    ["cc-cesarean", "cc-stunting", "infant-gut-growth"],
+    "exactly the three on point papers survive the topic filter; the belly collisions touch one concept and die"
+  );
+});
+
+await test("the surviving shelf cites at least two on point papers through the both concepts gate", () => {
+  const shelf = topicOverlapFilter(CC_QUESTION, [
+    GUT_MICROBE_PAPER(), CC_STUNTING_PAPER(), CC_CESAREAN_PAPER(),
+  ]);
+  const ans = {
+    text:
+      "The microbes that settle in an infant's gut in the first months shape how the gut matures [1]. " +
+      "Children whose gut communities stay immature show more stunting [2]. " +
+      "Delivery mode changes which microbes colonize first, and that tracks later weight gain [3].",
+    sources: shelf,
+  };
+  const gated = applyConceptCoverageGate(ans.text, ans.sources, CC_QUESTION, null);
+  for (const marker of ["[1]", "[2]", "[3]"]) {
+    assert.ok(gated.text.includes(marker), `marker ${marker} must survive the both concepts gate`);
+  }
+  assert.deepEqual(gated.demoted, [], "no on point paper may be demoted by the gate");
+  const labeled = labelUncitedSources(ans.sources, gated.text);
+  assert.equal(labeled.length, 3, "the shipped source list carries all three on point sources");
+  assert.ok(labeled.filter((s) => !s.uncited).length >= 2, "at least two on point sources must be cited");
+});
+
+await test("a repeated everyday word is ONE distinct concept in the topic filter", () => {
+  const babyOnly = {
+    title: "World's smallest baby doing well",
+    abstract: "Doctors said the baby, born at 23 weeks, is doing well and gaining strength in intensive care.",
+    url: "https://example.com/cc-baby-only",
+  };
+  const out = topicOverlapFilter(CC_QUESTION, [GUT_MICROBE_PAPER(), babyOnly]);
+  assert.ok(out.some((p) => p.url.endsWith("infant-gut-growth")), "the two concept paper must survive");
+  assert.ok(!out.some((p) => p.url.endsWith("cc-baby-only")), "a paper touching only the repeated word must die");
+  assert.ok(
+    String(babyOnly._filteredReason || "").includes("4 distinct"),
+    `the count must be 4 distinct concepts after dedupe, got: ${babyOnly._filteredReason}`
+  );
+});
+
+await test("sibling shape: germs on your skin, papers in wound care vocabulary", () => {
+  const q = "do the germs on your skin change how fast a cut heals";
+  const woundPaper = {
+    title: "Cutaneous microbiota and wound closure after surgery",
+    abstract:
+      "The cutaneous microbiota was sampled before surgery and wound closure tracked for two weeks. " +
+      "Commensal staphylococci predicted faster closure and fewer postoperative infections.",
+    url: "https://example.com/cc-skin-wound",
+  };
+  assert.equal(ccVerdict(woundPaper, q), "partial", "the wound paper must earn partial via the microbe concept");
+  const out = topicOverlapFilter(q, [{ ...woundPaper }, CC_GHRELIN()]);
+  assert.ok(out.some((p) => p.url.endsWith("cc-skin-wound")), "the wound paper must survive the topic filter");
+  assert.ok(!out.some((p) => p.url.endsWith("cc-ghrelin")), "the ghrelin paper must die in the same batch");
+});
+
+await test("single concept control: a fully matched constraint is partial, never off-topic", () => {
+  const q = "does crop rotation improve soil fertility over time";
+  assert.ok(questionConceptGroups("can a frog survive being frozen solid?").length < 2,
+    "control: the frog question stays a single concept question (gate inert), unchanged by this fix");
+  const rotationPaper = {
+    title: "Long term crop rotation effects on soil organic matter",
+    abstract:
+      "Crop rotation was compared with continuous monoculture over twelve seasons. " +
+      "Rotation increased soil organic carbon and aggregate stability.",
+    url: "https://example.com/cc-rotation",
+  };
+  const v = verifyPaperConstraints(rotationPaper, analyzeQuery(q));
+  assert.ok(v.matched.includes("crop rotation soil"), "the rotation constraint must fully match");
+  assert.equal(v.verdict, "partial", `a fully matched constraint must not be off-topic, got ${v.verdict}`);
+  assert.equal(ccVerdict(CC_GHRELIN(), q), "off-topic", "an unrelated paper stays off-topic for the control question");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
