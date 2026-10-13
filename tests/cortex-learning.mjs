@@ -139,6 +139,96 @@ await test("the validator catches broken content", () => {
 });
 
 // ─═════════════════════════════════════════════════════════════════
+group("Tier two: a second staircase above the first");
+
+const TIER_TWO = [
+  { unit: "Fair Tests and Honest Answers", lessons: ["Change One Thing at a Time", "Not Fooling Yourself"] },
+  { unit: "Air and Fuel", lessons: ["Breathing: Trading Gases", "Digestion: The Long Way Down"] },
+  { unit: "The Moon and the Far Beyond", lessons: ["The Moon and Its Changing Face", "Galaxies and the Light Year"] },
+  { unit: "The Restless Earth", lessons: ["Rocks That Change", "Plates on the Move"] },
+];
+
+await test("every path has a third unit, for 24 lessons in all", () => {
+  let total = 0;
+  for (const p of LEARNING_PATHS) {
+    assert.equal(p.units.length, 3, `${p.title} has ${p.units.length} units`);
+    assert.equal(flattenPathLessons(p).length, 6, `${p.title} should hold 6 lessons`);
+    total += flattenPathLessons(p).length;
+  }
+  assert.equal(total, 24, `curriculum holds ${total} lessons, not 24`);
+});
+
+await test("the tier two units and lessons are the authored ones", () => {
+  LEARNING_PATHS.forEach((p, i) => {
+    const flat = flattenPathLessons(p);
+    assert.equal(flat[4].unitTitle, TIER_TWO[i].unit, `${p.title} tier two unit renamed`);
+    assert.equal(flat[5].unitTitle, TIER_TWO[i].unit);
+    assert.deepEqual([flat[4].title, flat[5].title], TIER_TWO[i].lessons,
+      `${p.title} tier two lessons are not the authored pair`);
+  });
+});
+
+await test("every tier two lesson follows the six card lesson shape", () => {
+  for (const p of LEARNING_PATHS) {
+    const flat = flattenPathLessons(p);
+    for (const l of [flat[4], flat[5]]) {
+      const kinds = l.cards.map((c) => c.kind);
+      assert.equal(kinds.length, 6, `${p.title} / ${l.title} has ${kinds.length} cards`);
+      assert.equal(kinds[0], "note", `${l.title} should open with a note`);
+      assert.equal(kinds[1], "quiz", `${l.title} card two should be a quiz`);
+      assert.ok(kinds[2] === "match" || kinds[2] === "order", `${l.title} card three should be match or order`);
+      assert.equal(kinds[3], "truefalse", `${l.title} card four should be true or false`);
+      assert.equal(kinds[4], "quiz", `${l.title} card five should be a quiz`);
+      assert.equal(kinds[5], "deepen", `${l.title} should close with a deepen card`);
+    }
+  }
+});
+
+await test("tier two stays locked until the last tier one lesson is done", () => {
+  for (const p of LEARNING_PATHS) {
+    const flat = flattenPathLessons(p);
+    let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+    assert.equal(isLessonUnlocked(p, flat[4].id, prog), false, `${p.title} tier two starts open`);
+    for (let i = 0; i < 4; i++) prog = applyLessonResult(prog, p, flat[i].id, 90);
+    assert.equal(isLessonUnlocked(p, flat[4].id, prog), true, `${p.title} tier two should open after tier one`);
+    assert.equal(isLessonUnlocked(p, flat[5].id, prog), false, `${p.title} second tier two lesson should wait its turn`);
+    prog = applyLessonResult(prog, p, flat[4].id, 90);
+    assert.equal(isLessonUnlocked(p, flat[5].id, prog), true);
+  }
+});
+
+await test("a tier two lesson masters and counts like any other", () => {
+  const p0 = LEARNING_PATHS[0];
+  const flat = flattenPathLessons(p0);
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  for (let i = 0; i < 4; i++) prog = applyLessonResult(prog, p0, flat[i].id, 100);
+  prog = applyLessonResult(prog, p0, flat[4].id, 100);
+  assert.equal(prog.lessons[flat[4].id].mastered, true);
+  const pp = pathProgress(p0, prog);
+  assert.equal(pp.done, 5);
+  assert.equal(pp.mastered, 5);
+  assert.equal(pp.total, 6);
+  assert.equal(pp.complete, false, "one lesson remains, so the path is not complete");
+});
+
+await test("daily practice samples finished tier two lessons", () => {
+  const p0 = LEARNING_PATHS[0];
+  const flat = flattenPathLessons(p0);
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  for (let i = 0; i < 4; i++) prog = applyLessonResult(prog, p0, flat[i].id, 100);
+  prog = applyLessonResult(prog, p0, flat[4].id, 20);
+  prog = applyLessonResult(prog, p0, flat[5].id, 20);
+  const tierTwoCards = [flat[4], flat[5]].flatMap((l) => l.cards.filter(isInteractiveCard));
+  const tierOneCards = new Set(flat.slice(0, 4).flatMap((l) => l.cards));
+  const out = buildDailyPracticeCards({ progress: prog, dueCards: [], seed: 3, limit: tierTwoCards.length });
+  assert.equal(out.length, tierTwoCards.length);
+  for (const c of out) {
+    assert.ok(tierTwoCards.includes(c), "the session should fill from the unmastered tier two lessons");
+    assert.ok(!tierOneCards.has(c), "mastered tier one cards wait behind unmastered tier two cards");
+  }
+});
+
+// ─═════════════════════════════════════════════════════════════════
 group("Every card is answerable exactly as written");
 
 await test("every quiz and truefalse has a reachable correct answer", () => {
