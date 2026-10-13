@@ -114,12 +114,16 @@ export const MARKETING_PAGES = {
     offers: [
       { name: "Cerebrum Pro, monthly", price: "20", priceCurrency: "USD", billingIncrement: "P1M" },
       { name: "Cerebrum Pro, annual", price: "144", priceCurrency: "USD", billingIncrement: "P1Y" },
+      { name: "Lite Monthly", price: "3.99", priceCurrency: "USD", billingIncrement: "P1M" },
+      { name: "Lite Annual", price: "39", priceCurrency: "USD", billingIncrement: "P1Y" },
+      { name: "Pro Student", price: "7.99", priceCurrency: "USD", billingIncrement: "P1M" },
     ],
     blocks: [
       {
         h: "Free, forever",
         p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. No ads, no tracking pixels, no sale of personal information.",
         list: [
+          "Cost: $0, with no payment required.",
           "Every free answer carries the coverage line and the full Search record, the same as any other answer.",
           "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
         ],
@@ -132,6 +136,23 @@ export const MARKETING_PAGES = {
           "The Pro badge, four exclusive Pro themes, deeper Pro search, and priority rendering.",
           "Pro-only investigation templates, priority search queue, and API access with personal keys.",
           "Cancel anytime from the billing portal. 7-day money-back guarantee on the first charge of a new subscription — email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
+        ],
+      },
+      {
+        h: "Pro Lite",
+        p: "Lite Monthly costs $3.99 per month. Lite Annual costs $39 per year.",
+        list: [
+          "500 AI answers, 30 document reads, and 10 flowcharts every 5 days.",
+          "Ten times the free allowances, with a fixed allowance rather than unlimited use.",
+          "The Pro badge and the exclusive Pro themes stay with Cerebrum Pro.",
+        ],
+      },
+      {
+        h: "Pro Student",
+        p: "Verified college students can get Cerebrum Pro for $7.99 per month for the first 12 months.",
+        list: [
+          "Full Cerebrum Pro while subscribed, including unlimited AI answers, document reads, and flowcharts.",
+          "After the first 12 months, the subscription renews at the standard $20 monthly price unless cancelled.",
         ],
       },
       {
@@ -148,6 +169,14 @@ export const MARKETING_PAGES = {
       {
         q: "How much is Cerebrum Pro?",
         a: "$20 per month or $144 per year, auto-renewing until you cancel. Prices are shown in USD at checkout.",
+      },
+      {
+        q: "What is Pro Lite?",
+        a: "A paid plan with larger allowances than Free: 500 AI answers, 30 document reads, and 10 flowcharts every 5 days. Lite Monthly is $3.99 per month, and Lite Annual is $39 per year.",
+      },
+      {
+        q: "How does Pro Student pricing work?",
+        a: "Verified college students get Cerebrum Pro for $7.99 per month for the first 12 months. The subscription then renews at the standard $20 monthly price unless cancelled.",
       },
       {
         q: "Can I cancel?",

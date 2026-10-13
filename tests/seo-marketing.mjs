@@ -103,6 +103,48 @@ t("pricing offers are the real plans ($20/mo, $144/yr USD)", () => {
   assert.ok(offers.some((o) => o.price === "144" && o.priceCurrency === "USD"), `no $144 USD offer (${prices})`);
 });
 
+const EXPECTED_PRICING_OFFERS = [
+  { name: "Cerebrum Pro, monthly", price: "20", billingIncrement: "P1M" },
+  { name: "Cerebrum Pro, annual", price: "144", billingIncrement: "P1Y" },
+  { name: "Lite Monthly", price: "3.99", billingIncrement: "P1M" },
+  { name: "Lite Annual", price: "39", billingIncrement: "P1Y" },
+  { name: "Pro Student", price: "7.99", billingIncrement: "P1M" },
+];
+
+t("pricing offers cover every verified paid plan", () => {
+  const offers = MARKETING_PAGES.pricing.offers;
+  assert.ok(Array.isArray(offers), "pricing offers are missing");
+  for (const expected of EXPECTED_PRICING_OFFERS) {
+    assert.ok(
+      offers.some((o) => o.name === expected.name && o.price === expected.price &&
+        o.priceCurrency === "USD" && o.billingIncrement === expected.billingIncrement),
+      `pricing offers are missing ${expected.name} at USD ${expected.price}`
+    );
+  }
+});
+
+t("pricing copy presents every verified tier and its headline allowances", () => {
+  const pricingCopy = JSON.stringify(MARKETING_PAGES.pricing);
+  const required = [
+    "Free, forever",
+    "Cost: $0, with no payment required.",
+    "50 AI answers, 3 document reads, and 1 flowchart every 5 days",
+    "Pro Lite",
+    "Lite Monthly costs $3.99 per month",
+    "Lite Annual costs $39 per year",
+    "500 AI answers, 30 document reads, and 10 flowcharts every 5 days",
+    "Pro Student",
+    "$7.99 per month for the first 12 months",
+    "standard $20 monthly price",
+    "Cerebrum Pro",
+    "$20 per month or $144 per year",
+    "Unlimited AI answers, document reads, and flowcharts",
+  ];
+  for (const text of required) {
+    assert.ok(pricingCopy.includes(text), `pricing copy is missing: ${text}`);
+  }
+});
+
 /* ── Product copy pass (2026-10-13) ────────────────────────────────
  * The Search record, the coverage disclosure, MCP access, and the
  * unaffiliated researcher audience are real and live, and the copy
@@ -130,6 +172,12 @@ const NEW_FAQ_QUESTIONS = [
   "Can I use Cerebrum from inside ChatGPT or Claude?",
   "Are the Search record and MCP access Pro only?",
 ];
+const NEW_PRICING_HEADINGS = ["Pro Lite", "Pro Student"];
+const NEW_PRICING_FAQ_QUESTIONS = [
+  "What is Pro Lite?",
+  "How does Pro Student pricing work?",
+];
+const NEW_PRICING_OFFER_NAMES = ["Lite Monthly", "Lite Annual", "Pro Student"];
 
 t("features page presents the Search record and the coverage disclosure", () => {
   assert.ok(featuresJson.includes("Search record"), "features copy never says Search record");
@@ -181,6 +229,21 @@ t("new product copy strings contain no dash characters of any kind", () => {
   const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
   assert.ok(freeBlock && Array.isArray(freeBlock.list), "Free, forever list missing for dash check");
   pieces.push(JSON.stringify(freeBlock.list));
+  for (const h of NEW_PRICING_HEADINGS) {
+    const b = blockByHeading(MARKETING_PAGES.pricing, h);
+    assert.ok(b, `missing pricing block for dash check: ${h}`);
+    pieces.push(JSON.stringify(b));
+  }
+  for (const q of NEW_PRICING_FAQ_QUESTIONS) {
+    const f = faqByQuestion(MARKETING_PAGES.pricing, q);
+    assert.ok(f, `missing pricing FAQ entry for dash check: ${q}`);
+    pieces.push(JSON.stringify(f));
+  }
+  for (const name of NEW_PRICING_OFFER_NAMES) {
+    const offer = (MARKETING_PAGES.pricing.offers || []).find((o) => o.name === name);
+    assert.ok(offer, `missing pricing offer for dash check: ${name}`);
+    pieces.push(JSON.stringify(offer));
+  }
   for (const q of NEW_FAQ_QUESTIONS) {
     const f = faqByQuestion(MARKETING_PAGES.features, q) || faqByQuestion(MARKETING_PAGES.pricing, q);
     assert.ok(f, `missing FAQ entry for dash check: ${q}`);
