@@ -410,7 +410,7 @@ function isNonLiterature(p) {
  *
  * The old CACHE_SCHEMA_VERSION constant is gone with it; the version now
  * lives inside the derived key so bumping it retires the cache. */
-const CACHE_SCHEMA_VERSION = "v12";
+const CACHE_SCHEMA_VERSION = "v13";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1949,6 +1949,7 @@ const SYNONYMS = {
   "silkworm": ["bombyx mori"],
   "mosquito": ["aedes aegypti", "anopheles gambiae"],
   "frog": ["xenopus laevis"],
+  "wood frog": ["rana sylvatica", "lithobates sylvaticus"],
   "chicken": ["gallus gallus"],
   "pig": ["sus scrofa"],
   "cow": ["bos taurus"],
@@ -2120,19 +2121,25 @@ function correctBinomialTypos(query) {
 
 function expansionsFor(tokens) {
   const out = [];
-  // Check individual tokens
-  for (const t of tokens) {
-    const key = t.toLowerCase();
-    if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
-  }
-  // Also check multi-word phrases (e.g. "black soldier fly" is 3 tokens but
-  // one SYNONYMS key). Without this, common-name organism queries never
-  // resolve to their scientific name during expansion.
   const joined = tokens.join(" ").toLowerCase();
+  // Multi word phrases first (e.g. "black soldier fly" is 3 tokens but
+  // one SYNONYMS key; without this, common name organism queries never
+  // resolve to their scientific name during expansion). A matched
+  // phrase also CLAIMS its words: "wood frog" matching must stop the
+  // bare token "frog" from expanding to a different animal entirely
+  // (it resolved a wood frog question to Xenopus laevis, 2026-10-13).
+  const claimed = new Set();
   for (const key of Object.keys(SYNONYMS)) {
     if (key.includes(" ") && joined.includes(key)) {
       out.push(...SYNONYMS[key]);
+      for (const w of key.split(" ")) claimed.add(w);
     }
+  }
+  // Then individual tokens the phrases did not claim.
+  for (const t of tokens) {
+    const key = t.toLowerCase();
+    if (claimed.has(key)) continue;
+    if (SYNONYMS[key]) out.push(...SYNONYMS[key]);
   }
   return [...new Set(out)]; // deduplicate
 }
@@ -2183,15 +2190,26 @@ function splitOrganismTopic(query) {
   const toks = q.split(/\s+/).filter((t) => t.length > 2);
   const exp = expansionsFor(toks);
   const orgPhrases = new Set(exp);
-  for (const phrase of ORGANISM_PHRASES) {
-    if (q.includes(phrase)) {
-      orgPhrases.add(phrase);
-      // Also resolve the phrase to its scientific name immediately
-      const syns = SYNONYMS[phrase] || [];
-      for (const s of syns) orgPhrases.add(s);
-    }
+  // Matched multi word names (from either list) claim their words, so
+  // a shorter name inside them ("frog" inside "wood frog") cannot pull
+  // in a second, wrong organism alongside the right one.
+  const phraseMatches = new Set(ORGANISM_PHRASES.filter((p) => q.includes(p)));
+  for (const key of Object.keys(SYNONYMS)) {
+    if (key.includes(" ") && q.includes(key)) phraseMatches.add(key);
+  }
+  const claimed = new Set();
+  for (const p of phraseMatches) {
+    if (p.includes(" ")) for (const w of p.split(" ")) claimed.add(w);
+  }
+  for (const phrase of phraseMatches) {
+    if (!phrase.includes(" ") && claimed.has(phrase)) continue;
+    orgPhrases.add(phrase);
+    // Also resolve the phrase to its scientific name immediately
+    const syns = SYNONYMS[phrase] || [];
+    for (const s of syns) orgPhrases.add(s);
   }
   for (const t of toks) {
+    if (claimed.has(t)) continue;
     if (SYNONYMS[t]) {
       orgPhrases.add(t);
       // Add expansions of individual tokens too
@@ -2325,6 +2343,14 @@ const STOPWORDS = new Set([
   // must too.
   "studies","study","involving","involved","involves","involve",
   "papers","paper","research","researching","regarding",
+  // 2026-10-13: light verbs that frame questions. "What lets a wood
+  // frog survive..." ranked "lets" as a content term, so the boolean
+  // query ANDed the organism against (lets OR wood) and the expansion
+  // trigger wasted its one call proposing groups for "lets". These
+  // verbs carry no scientific content in a question.
+  "let","lets","make","makes","made","allow","allows","allowed",
+  "help","helps","helped","keep","keeps","kept","take","takes","took",
+  "become","becomes","became","come","comes","came",
 ]);
 
 // Verb lemmatization for search terms (2026-10-08 search reliability fix).
@@ -2949,6 +2975,14 @@ const QUERY_FRAMING_WORDS = new Set([
   // thing ("organisms") and the asking ("commonly found") are framing, not
   // constraints; the constraint is "gut microbiome".
   "organism", "organisms", "commonly", "found", "find", "finds",
+  // 2026-10-13: light verbs and "being". "What lets a wood frog survive
+  // being frozen" built the load bearing phrases "lets wood being" and
+  // "frozen months time", so the pool was gated on wording no paper
+  // uses. These words frame the asking, never the science.
+  "let", "lets", "being", "make", "makes", "made", "allow", "allows",
+  "allowed", "help", "helps", "helped", "keep", "keeps", "kept",
+  "take", "takes", "took", "become", "becomes", "became", "come",
+  "comes", "came",
 ]);
 
 // Life-stage words describe the organism, not the topic. "What organisms are

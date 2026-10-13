@@ -26,6 +26,7 @@ const {
   buildDynLookup,
   llmConceptGroups,
   buildStructuredQuery,
+  analyzeQuery,
   topicOverlapFilter,
   retrievalStrategiesTried,
 } = await import(join(root, "functions/api/search.js"));
@@ -238,6 +239,21 @@ await test("a valid reply passes through the validator", async () => {
   assert.deepEqual(out, CLEAN);
   const out2 = await llmConceptGroups(QUERY, {}, async () => CLEAN);
   assert.deepEqual(out2, CLEAN);
+});
+
+await test("question framing verbs never become content phrases", () => {
+  const a = analyzeQuery("What lets a wood frog survive being frozen for months at a time?");
+  const joined = (a.keyPhrases || []).join(" ");
+  assert.ok(!/\blets\b/.test(joined), "lets leaked into key phrases: " + joined);
+  assert.ok(!/\bbeing\b/.test(joined), "being leaked into key phrases: " + joined);
+});
+
+await test("a multi word organism name claims its words", () => {
+  const a = analyzeQuery("What lets a wood frog survive being frozen for months at a time?");
+  assert.equal(a.organism, "rana sylvatica");
+  assert.ok(!(a.organismPhrases || []).includes("xenopus laevis"), "bare frog expansion leaked: " + JSON.stringify(a.organismPhrases));
+  const b = analyzeQuery("Can black soldier fly larvae break down used cooking oil?");
+  assert.equal(b.organism, "hermetia illucens");
 });
 
 await test("a reply wrapped in prose still yields its bracketed array", async () => {
