@@ -391,9 +391,34 @@ export function isWithinEditionWindow(item, now) {
 // whose own source reported nothing. Verified against the live
 // edition of 2026-10-13: OpenAlex resolved 20 of the 20 resolvable
 // DOIs and returned positive counts where Europe PMC's window
-// structurally cannot (7 and 1 on two bioRxiv papers). An item
-// OpenAlex does not know stays null: no data, never a guessed zero.
-// A reported count from the item's own source is never overwritten.
+// structurally cannot (7 and 1 on two bioRxiv papers). An item no
+// provider knows stays null: no data, never a guessed zero. A
+// reported count from the item's own source is never overwritten.
+//
+// Two hard lessons are built into the shape of this leg:
+//
+// OBSERVABILITY. The first version swallowed its error in a bare
+// catch, and the production edition of 2026-10-13 came back with
+// zero of its twenty resolvable DOIs populated while every surface
+// reported health: the code was proven sound locally three ways and
+// the failure existed nowhere anyone could see it. The leg now
+// returns a health entry that fetchTrendingFeed appends to
+// sourceHealth: how many items it set out to complete, how many it
+// resolved, how many came back positive, which providers ran, and
+// the failure class of any leg that failed. A failed leg reads as a
+// failed leg in the payload the client already receives.
+//
+// FALLBACK. When the OpenAlex batch fails outright, or answers but
+// resolves nothing while attempts existed, the same DOI set is put
+// to Crossref, the other index this pipeline already trusts from
+// production (search.js reads its is-referenced-by-count the same
+// way). Crossref has no batch DOI lookup in the shape this repo
+// uses, so the fallback is a bounded per DOI pass: at most
+// CROSSREF_ATTEMPT_CAP lookups, CROSSREF_CONCURRENCY at a time, each
+// with its own short timeout. A partial OpenAlex success is a
+// success and does not trigger the fallback; the works it resolved
+// are never shopped to the second provider, and works neither
+// provider knows stay null.
 function openAlexLookupDoi(item) {
   const raw = item && item.doi ? String(item.doi).trim() : "";
   if (!raw) return null;
@@ -405,34 +430,150 @@ function openAlexLookupDoi(item) {
   return null;
 }
 
+// Failure classes in plain words. The health entry is an API surface
+// the client renders, so a class reads like a label, not a code:
+// an HTTP status, a timeout, a network error, or a malformed reply.
+function citationFailureClass(e) {
+  if (e && e.name === "AbortError") return "timeout";
+  const msg = String((e && e.message) || "");
+  const http = /^HTTP (\d{3})\b/.exec(msg);
+  if (http) return "HTTP " + http[1];
+  if (e instanceof SyntaxError || /size limit/i.test(msg)) return "malformed reply";
+  return "network error";
+}
+
+async function openAlexCitationLeg(wanted) {
+  const leg = { provider: "OpenAlex", attempted: 0, resolved: 0, positive: 0, error: null };
+  for (const w of wanted.values()) leg.attempted += w.items.length;
+  if (!leg.attempted) return leg;
+  try {
+    const url = "https://api.openalex.org/works?filter=doi:" + [...wanted.values()].map((w) => w.doi).join("|") +
+      "&select=doi,cited_by_count&per-page=100&mailto=contact@askcerebrum.org";
+    const data = await getJSON(url, 8000);
+    if (!data || !Array.isArray(data.results)) {
+      // The provider answered but not in its documented shape: that
+      // is a failed leg, not an empty one, and it is named as such.
+      leg.error = "malformed reply";
+      return leg;
+    }
+    for (const w of data.results) {
+      const key = String(w.doi || "").replace(/^https?:\/\/doi\.org\//i, "").toLowerCase();
+      const target = wanted.get(key);
+      if (!target) continue;
+      const n = Number(w.cited_by_count);
+      if (!Number.isFinite(n) || n < 0) continue;
+      for (const item of target.items) {
+        item.citedByCount = Math.floor(n);
+        leg.resolved++;
+        if (n > 0) leg.positive++;
+      }
+    }
+  } catch (e) {
+    leg.error = citationFailureClass(e);
+  }
+  return leg;
+}
+
+const CROSSREF_ATTEMPT_CAP = 24;
+const CROSSREF_CONCURRENCY = 6;
+
+async function crossrefCitationLeg(wanted) {
+  const leg = { provider: "Crossref", attempted: 0, resolved: 0, positive: 0, error: null };
+  const queue = [...wanted.values()].slice(0, CROSSREF_ATTEMPT_CAP);
+  let answered = 0;
+  let firstFailure = null;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < queue.length) {
+      const entry = queue[cursor++];
+      leg.attempted += entry.items.length;
+      try {
+        const url = "https://api.crossref.org/works/" + encodeURIComponent(entry.doi) +
+          "?mailto=contact@askcerebrum.org";
+        const data = await getJSON(url, 4000);
+        const msg = data && data.message;
+        if (!msg || typeof msg !== "object") {
+          if (!firstFailure) firstFailure = "malformed reply";
+          continue;
+        }
+        answered++;
+        const n = msg["is-referenced-by-count"];
+        if (typeof n === "number" && Number.isFinite(n) && n >= 0) {
+          for (const item of entry.items) {
+            item.citedByCount = Math.floor(n);
+            leg.resolved++;
+            if (n > 0) leg.positive++;
+          }
+        }
+      } catch (e) {
+        const cls = citationFailureClass(e);
+        // A 404 is the provider answering "not a work I know": the
+        // work stays null, and the leg itself did its job.
+        if (cls === "HTTP 404") { answered++; continue; }
+        if (!firstFailure) firstFailure = cls;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CROSSREF_CONCURRENCY, queue.length) }, () => worker()));
+  // The leg failed only if it attempted lookups and not one of them
+  // produced a definitive answer; its class is the first failure met.
+  if (queue.length && !answered && firstFailure) leg.error = firstFailure;
+  return leg;
+}
+
+// Completes counts in place and returns the leg's health entry. The
+// entry's `count` follows the sourceHealth convention: how many
+// items in the finished edition this entry accounts for, here the
+// items whose displayed count the completion leg supplied.
 async function enrichCitationCounts(items) {
   const wanted = new Map();
   for (const item of items || []) {
     if (item.citedByCount !== null && item.citedByCount !== undefined) continue;
     const doi = openAlexLookupDoi(item);
     if (!doi) continue;
-    // Keyed lowercase for matching OpenAlex's normalized reply, but
-    // the request itself carries the DOI in its canonical form.
+    // Keyed lowercase for matching provider replies, but requests
+    // carry the DOI in its canonical form.
     const key = doi.toLowerCase();
     if (!wanted.has(key)) wanted.set(key, { doi, items: [] });
     wanted.get(key).items.push(item);
   }
-  if (!wanted.size) return;
-  try {
-    const url = "https://api.openalex.org/works?filter=doi:" + [...wanted.values()].map((w) => w.doi).join("|") +
-      "&select=doi,cited_by_count&per-page=100&mailto=contact@askcerebrum.org";
-    const data = await getJSON(url, 8000);
-    for (const w of (data && data.results) || []) {
-      const key = String(w.doi || "").replace(/^https?:\/\/doi\.org\//i, "").toLowerCase();
-      const target = wanted.get(key);
-      if (!target) continue;
-      const n = Number(w.cited_by_count);
-      if (!Number.isFinite(n) || n < 0) continue;
-      for (const item of target.items) item.citedByCount = Math.floor(n);
+  const health = {
+    source: "Citation counts",
+    ok: true,
+    count: 0,
+    attempted: 0,
+    resolved: 0,
+    positive: 0,
+    error: null,
+    legs: [],
+  };
+  for (const w of wanted.values()) health.attempted += w.items.length;
+  if (!wanted.size) return health;
+
+  const openAlex = await openAlexCitationLeg(wanted);
+  health.legs.push(openAlex);
+
+  if (openAlex.error || openAlex.resolved === 0) {
+    const remaining = new Map();
+    for (const [key, w] of wanted) {
+      const open = w.items.filter((it) => it.citedByCount === null || it.citedByCount === undefined);
+      if (open.length) remaining.set(key, { doi: w.doi, items: open });
     }
-  } catch {
-    // OpenAlex unreachable: counts stay "no data", never guessed.
+    if (remaining.size) health.legs.push(await crossrefCitationLeg(remaining));
   }
+
+  for (const leg of health.legs) {
+    health.resolved += leg.resolved;
+    health.positive += leg.positive;
+  }
+  health.count = health.resolved;
+  const failed = health.legs.filter((l) => l.error);
+  if (failed.length) health.error = failed.map((l) => l.provider + ": " + l.error).join("; ");
+  // The leg is healthy when at least one provider that ran answered;
+  // it is failed only when every provider that ran failed, and the
+  // failure classes above say why.
+  health.ok = health.legs.some((l) => !l.error);
+  return health;
 }
 
 // ── Trend signal: persistence across the edition archive ───────────
@@ -569,11 +710,16 @@ export async function fetchTrendingFeed() {
   }
   // Complete the citation picture for items whose own source reported
   // nothing, before health counts are taken: the counts below describe
-  // this finished edition, and so do the counts on its items.
-  await enrichCitationCounts(items);
+  // this finished edition, and so do the counts on its items. The
+  // completion leg reports itself as a health entry of its own,
+  // appended after the per source entries: it is not a section of the
+  // edition, and its ok flag means a provider answered, not that a
+  // section is present.
+  const citationHealth = await enrichCitationCounts(items);
   for (const h of sourceHealth) {
     h.count = items.filter((it) => it.category === h.source).length;
   }
+  sourceHealth.push(citationHealth);
   return { items, sourceHealth };
 }
 

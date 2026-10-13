@@ -245,3 +245,30 @@ export function clusterTrendingItems(items) {
 export function trendStoryKey(item) {
   return trendingDoiOf(item) || normalizeTrendingUrl(item && item.url) || normalizeTrendingTitle(item && item.title);
 }
+
+/* The persistence label a story earns once it has been in the
+   edition more than one day running: "Day 3 in Trending". A story
+   on its first day gets no label: while the archive is young every
+   item reads 1, so the label would say nothing, and a missing or
+   malformed trend field reads as day 1, never as a claim. */
+export function trendPersistenceLabel(item) {
+  const days = item && item.trend && Number.isFinite(item.trend.daysPresent) ? item.trend.daysPresent : 1;
+  return days > 1 ? `Day ${days} in Trending` : null;
+}
+
+/* The edition's trend ordering, the client counterpart of the
+   server's compareByTrend in functions/lib/trendingSource.js: most
+   days present first, then most cited (a missing count ranks below
+   any reported one, since null means unreported, not zero), then
+   newest. While every item reads one day the ordering falls
+   through to its tiebreakers, which is the honest behavior on a
+   young archive: it ranks by what the edition actually knows. */
+export function compareByTrend(a, b) {
+  const da = a && a.trend && Number.isFinite(a.trend.daysPresent) ? a.trend.daysPresent : 0;
+  const db = b && b.trend && Number.isFinite(b.trend.daysPresent) ? b.trend.daysPresent : 0;
+  if (db !== da) return db - da;
+  const ca = a && typeof a.citedByCount === "number" ? a.citedByCount : -1;
+  const cb = b && typeof b.citedByCount === "number" ? b.citedByCount : -1;
+  if (cb !== ca) return cb - ca;
+  return new Date((b && b.publishedAt) || 0).getTime() - new Date((a && a.publishedAt) || 0).getTime();
+}
