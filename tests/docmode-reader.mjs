@@ -565,5 +565,100 @@ await test("the note is gated on documentShortened, names the omitted count, and
   assert.ok(!/[-\u2010-\u2015]/.test(fn), "note copy must contain no dash characters");
 });
 
+// ── Edited documents: reading state goes stale, never resurrects ────
+group("edited documents — analysis state is flagged stale and never saved under a new fingerprint");
+
+await test("every piece of reading state tracks the text it was computed from", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /const \[analysisText, setAnalysisText\] = useState\(null\);/, "no tracker for the summary and Q&A");
+  assert.match(src, /const \[marksText, setMarksText\] = useState\(null\);/, "no tracker for the marks");
+  assert.match(src, /const \[comparePair, setComparePair\] = useState\(null\);/, "no tracker for the comparison");
+  // Staleness is derived from the live text on every render, so any
+  // edit flips it and an exact undo clears it.
+  assert.match(src, /const analysisStale = !!summary && analysisText !== documentText;/, "summary staleness not derived from the tracker");
+  assert.match(src, /const qaStale = qaHistory\.length > 0 && analysisText !== documentText;/, "Q&A staleness not derived from the tracker");
+  assert.match(src, /const marksStale = highlights\.length > 0 && marksText !== documentText;/, "marks staleness not derived from the tracker");
+  assert.match(src, /const compareStale = !!compareResult && !compareResult\.streaming && comparePair !== compareKeyOf\(documentText\.trim\(\), docB\.trim\(\)\);/, "comparison staleness not derived from the pair key");
+});
+
+await test("opening a document binds its restored state to its own text", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const openAt = src.indexOf("const openDocument");
+  const openBlock = src.slice(openAt, openAt + 4200);
+  assert.match(openBlock, /setAnalysisText\(saved && \(saved\.summary \|\|/, "restored summary and Q&A not bound to the opened text");
+  assert.match(openBlock, /setMarksText\(saved && Array\.isArray\(saved\.highlights\)/, "restored marks not bound to the opened text");
+  assert.match(openBlock, /setComparePair\(saved && saved\.compareResult/, "restored comparison not bound to the opened pair");
+});
+
+await test("an edit stops the desk calling the document Analyzed", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The stale label wins over every standing label, including Analyzed.
+  assert.match(src, /analysisStale \? "Edited since analysis" : summary\.model === "extractive"/, "desk chip does not prefer the stale label");
+});
+
+await test("the durable save writes state only under the fingerprint it belongs to", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const saveAt = src.indexOf("store.docs[fp] = {");
+  assert.ok(saveAt > 0, "durable save assignment missing");
+  const saveBlock = src.slice(saveAt, saveAt + 1200);
+  assert.match(saveBlock, /summary: summary && !summary\.streaming && analysisText === documentText \? summary : null/, "summary saved without checking its text");
+  assert.match(saveBlock, /qaHistory: analysisText === documentText \?/, "Q&A saved without checking its text");
+  assert.match(saveBlock, /highlights: marksText === documentText \? storedHighlights : \[\]/, "marks saved without checking their text");
+  assert.match(saveBlock, /compareResult: compareResult && !compareResult\.streaming && comparePair === compareKeyOf\(text, docB\.trim\(\)\) \? compareResult : null/, "comparison saved without checking its pair");
+});
+
+await test("analysis records its text, and resume digests are offered only for that text", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /setSummary\(result\);\s+setAnalysisText\(srcText\);/, "a finished analysis does not record the text it read");
+  assert.match(src, /const resumeSections = summary && analysisText === documentText && summary\.partial/, "resume digests not gated on the text they describe");
+});
+
+await test("asking about an edited document sends no stale context and retires the old thread", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /const retireStaleQa = analysisText !== srcText;/, "ask does not detect a stale thread");
+  assert.match(src, /const historyForRequest = retireStaleQa\s+\? \[\]/, "stale turns still ride along as request context");
+  assert.match(src, /retireStaleQa \? \[entry\] : h\.map/, "a new answer joins the stale thread instead of retiring it");
+  assert.match(src, /if \(retireStaleQa\) setAnalysisText\(srcText\);/, "the fresh thread is not bound to the asked text");
+});
+
+await test("stale marks are not painted, and a new mark retires them", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const rangeAt = src.indexOf("const renderMarkedRange");
+  assert.match(src.slice(rangeAt, rangeAt + 300), /if \(marksStale\) return text;/, "segment renderer paints stale marks");
+  const textAt = src.indexOf("const renderMarkedText");
+  assert.match(src.slice(textAt, textAt + 500), /if \(marksStale\) return text;/, "plain renderer paints stale marks");
+  const addAt = src.indexOf("const addPendingHighlight");
+  const addBlock = src.slice(addAt, addAt + 1800);
+  assert.match(addBlock, /if \(marksText !== documentText\) setHighlights\(\[mark\]\);/, "a new mark mixes with stale marks instead of retiring them");
+  assert.match(addBlock, /setMarksText\(documentText\);/, "a new mark does not bind the marks to the current text");
+});
+
+await test("the comparison keeps the model and budget fields and labels degradation like Q&A does", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /setCompareResult\(\{ streaming: false, text: result && result\.answer \? result\.answer : "", model: \(result && result\.model\) \|\| null, budgetExhausted: !!\(result && result\.budgetExhausted\), promptTruncation: \(result && result\.promptTruncation\) \|\| null \}\);/, "compare result drops the model or budget fields");
+  assert.match(src, /setComparePair\(compareKeyOf\(a, b\)\);/, "a finished comparison does not record its text pair");
+  assert.match(src, /compareResult\.model === "extractive"/, "compare view never checks for an extractive result");
+});
+
+await test("the stale notices are present on every surface and carry no dashes", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const notices = [
+    "This document has been edited since this analysis was run, so the analysis describes the earlier text. Run the analysis again to bring it up to date.",
+    "These answers describe the earlier version of this document. The text has been edited since they were written.",
+    "This document has been edited since these marks were made, so they are no longer placed in the text. The passages below are the words as they were marked.",
+    "One of these documents has been edited since this comparison was run, so it describes the earlier texts. Compare again to update it.",
+    "Basic extract · the monthly AI budget is used up, so this comparison is passages from the documents.",
+    "Basic extract · the AI service was unreachable, so this comparison is passages from the documents.",
+  ];
+  for (const n of notices) {
+    assert.ok(src.includes(n), "stale or degradation notice missing: " + n);
+    assert.ok(!/[-\u2010-\u2015]/.test(n), "notice copy contains a dash character: " + n);
+  }
+  // The Q&A stale notice renders on both surfaces that list answers
+  // (the ask first panel and the notebook Q&A tab).
+  const qaNotices = src.split("These answers describe the earlier version of this document.").length - 1;
+  assert.equal(qaNotices, 2, "both Q&A surfaces must carry the stale notice; found " + qaNotices);
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

@@ -16084,9 +16084,19 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [docB, setDocB] = useState(""); // second document, for comparison
   const [docBError, setDocBError] = useState("");
   const [showDocB, setShowDocB] = useState(false);
-  const [compareResult, setCompareResult] = useState(null); // {streaming, text, promptTruncation}
+  const [compareResult, setCompareResult] = useState(null); // {streaming, text, model, budgetExhausted, promptTruncation}
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState("");
+  /* Which text each piece of reading state belongs to. The summary,
+     the Q&A history, the marks, and the comparison are each computed
+     from one exact text; editing the source afterwards must flag them
+     stale, never let them pose as a read of the edited text. Each
+     tracker holds the text (or text pair key) its state was computed
+     against, and the render and the durable save both compare the
+     tracker against the live text before trusting the state. */
+  const [analysisText, setAnalysisText] = useState(null); // documentText the summary and Q&A describe
+  const [marksText, setMarksText] = useState(null); // documentText the highlight offsets were measured on
+  const [comparePair, setComparePair] = useState(null); // "fpA:fpB" key of the texts the comparison was run on
   const [recentDocs, setRecentDocs] = useState([]); // [{fp,title,words,updatedAt}]
   // A reader given name for the open document, replacing the first
   // line guess everywhere the title shows. Null means use the guess.
@@ -16199,6 +16209,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       .catch((e) => { if (gen === docGen.current) setDocBError(e.message || "Couldn't read that file."); });
   };
 
+  /* Staleness, derived fresh on every render: a piece of reading
+     state is current only while the text it was computed from is
+     still the open text. Any edit, however small, flips the flag;
+     editing back to the exact earlier text clears it again. */
+  const compareKeyOf = (a, b) => `${docFingerprint(a)}:${docFingerprint(b)}`;
+  const analysisStale = !!summary && analysisText !== documentText;
+  const qaStale = qaHistory.length > 0 && analysisText !== documentText;
+  const marksStale = highlights.length > 0 && marksText !== documentText;
+  const compareStale = !!compareResult && !compareResult.streaming && comparePair !== compareKeyOf(documentText.trim(), docB.trim());
+
   /* Open a document: with a saved entry, its whole reading state comes
      back (analysis, Q&A, marks, scroll); otherwise everything resets.
      A streaming (unfinished) payload is never restored — a half-written
@@ -16247,6 +16267,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       setCompareResult(null);
       setCompareError("");
     }
+    // The trackers: whatever state came back belongs to this exact
+    // text, because the store only ever saves state under the
+    // fingerprint of the text it was computed from (see the save
+    // effect's guard). A fresh document has no state to track.
+    setAnalysisText(saved && (saved.summary || (Array.isArray(saved.qaHistory) && saved.qaHistory.some((h) => !h.streaming))) ? t : null);
+    setMarksText(saved && Array.isArray(saved.highlights) && saved.highlights.length ? t : null);
+    setComparePair(saved && saved.compareResult && !saved.compareResult.streaming ? compareKeyOf(t.trim(), String(saved.docB || "").trim()) : null);
   };
   const openRecent = (fp) => {
     try {
@@ -16287,7 +16314,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   /* Durable reading state: debounced save of the open document keyed by
      its fingerprint. Unfinished (streaming) payloads are stripped before
      saving, so a reload can never resurrect a partial answer as final;
-     the store is LRU-capped so it can never grow without bound. */
+     the store is LRU-capped so it can never grow without bound. Reading
+     state is saved only while the text it was computed from is still
+     the open text: state whose tracker no longer matches is dropped,
+     never written under the edited text's fingerprint, so a reopened
+     document can never show a read of its earlier version as its own. */
   useEffect(() => {
     if (!storeReady) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -16308,12 +16339,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           store.docs[fp] = {
             title: customTitle || docTitleOf(text),
             text: text.slice(0, DOCMODE_MAX_TEXT),
-            summary: summary && !summary.streaming ? summary : null,
-            qaHistory: (qaHistory || []).filter((h) => !h.streaming).slice(-30),
+            summary: summary && !summary.streaming && analysisText === documentText ? summary : null,
+            qaHistory: analysisText === documentText ? (qaHistory || []).filter((h) => !h.streaming).slice(-30) : [],
             rightTab,
-            highlights: storedHighlights,
+            highlights: marksText === documentText ? storedHighlights : [],
             docB: docB.slice(0, DOCMODE_MAX_TEXT),
-            compareResult: compareResult && !compareResult.streaming ? compareResult : null,
+            compareResult: compareResult && !compareResult.streaming && comparePair === compareKeyOf(text, docB.trim()) ? compareResult : null,
             scrollY: typeof window !== "undefined" ? window.scrollY : 0,
             updatedAt: Date.now(),
           };
@@ -16334,7 +16365,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx:", e); }
     }, 800);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult, customTitle]);
+  }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult, customTitle, analysisText, marksText, comparePair]);
   const onDrop = (e) => {
     e.preventDefault();
     setDragActive(false);
@@ -16369,8 +16400,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (!text || analyzing) return;
     // Resume: if the standing summary of this document is partial and
     // carries its section digests, hand them back so the backend re
-    // digests only the missing chunks instead of the whole paper.
-    const resumeSections = summary && summary.partial && Array.isArray(summary.sections) && summary.sections.length > 0
+    // digests only the missing chunks instead of the whole paper. The
+    // digests describe the text they were computed from, so they are
+    // offered only while that text is still the open text.
+    const resumeSections = summary && analysisText === documentText && summary.partial && Array.isArray(summary.sections) && summary.sections.length > 0
       ? summary.sections
       : null;
     if (!docGate()) return;
@@ -16393,6 +16426,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const ctrl = new AbortController();
     analyzeAbort.current = ctrl;
     const gen = docGen.current;
+    // The text this run reads. If the reader edits while it runs, the
+    // tracker keeps the run's text, so the landed summary reads stale
+    // against the edited text instead of posing as its analysis.
+    const srcText = documentText;
     try {
       // The backend's contract: documentText carries the text, the absence
       // of `query` selects analysis mode, and stream:true selects the SSE
@@ -16416,6 +16453,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         }
       );
       setSummary(result);
+      setAnalysisText(srcText);
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
       if (gen !== docGen.current) return;
@@ -16458,9 +16496,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (!user) { if (onOpenAuth) onOpenAuth("signin"); return; }
     // Prior turns ride along for context; the backend bounds and formats
     // them, and is instructed to verify every fact against the document.
-    const historyForRequest = qaHistory
-      .filter((h) => h.answer)
-      .flatMap((h) => [{ role: "user", text: h.query }, { role: "assistant", text: h.answer }]);
+    // Turns from before an edit describe the earlier text: they are not
+    // context for this question, and the new answer retires them
+    // instead of joining a thread that no longer matches the document.
+    const srcText = documentText;
+    const retireStaleQa = analysisText !== srcText;
+    const historyForRequest = retireStaleQa
+      ? []
+      : qaHistory
+        .filter((h) => h.answer)
+        .flatMap((h) => [{ role: "user", text: h.query }, { role: "assistant", text: h.answer }]);
     setQaBusy(true);
     setQaQuery("");
     setRightTab("qa");
@@ -16489,7 +16534,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       if (qaGen !== docGen.current) return;
       const finalText = result && result.answer ? result.answer : "";
-      setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: finalText, model: (result && result.model) || null, promptTruncation: (result && result.promptTruncation) || null, budgetExhausted: !!(result && result.budgetExhausted) } : x)));
+      const entry = { query: q, answer: finalText, model: (result && result.model) || null, promptTruncation: (result && result.promptTruncation) || null, budgetExhausted: !!(result && result.budgetExhausted) };
+      setQaHistory((h) => (retireStaleQa ? [entry] : h.map((x, i) => (i === h.length - 1 ? entry : x))));
+      if (retireStaleQa) setAnalysisText(srcText);
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
       if (qaGen !== docGen.current) return;
@@ -16508,7 +16555,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         // Clear the streaming flag on failure: the persistence filter drops
         // streaming entries, so a failed question must not keep the flag or
         // it vanishes on reload — untraceable and unrecoverable.
-        setQaHistory((h) => h.map((x, i) => (i === h.length - 1 ? { query: q, answer: "", streaming: false, errorMsg: msg } : x)));
+        const errEntry = { query: q, answer: "", streaming: false, errorMsg: msg };
+        setQaHistory((h) => (retireStaleQa ? [errEntry] : h.map((x, i) => (i === h.length - 1 ? errEntry : x))));
       }
     } finally {
       if (qaAbort.current === ctrl) qaAbort.current = null;
@@ -16563,7 +16611,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         }
       );
       if (cmpGen !== docGen.current) return;
-      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "", promptTruncation: (result && result.promptTruncation) || null });
+      // The comparison keeps the same fields the Q&A answers keep
+      // (model, budget state, truncation), so a degraded comparison
+      // is labeled the same way a degraded answer is.
+      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "", model: (result && result.model) || null, budgetExhausted: !!(result && result.budgetExhausted), promptTruncation: (result && result.promptTruncation) || null });
+      setComparePair(compareKeyOf(a, b));
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
       if (cmpGen !== docGen.current) return;
@@ -16645,21 +16697,28 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const addPendingHighlight = () => {
     if (!pendingHL) return;
     const { start, end, quote } = pendingHL;
-    if (!canAddHighlight(highlights, start, end)) {
+    if (!canAddHighlight(marksText === documentText ? highlights : [], start, end)) {
       setPendingHL(null);
       try { window.getSelection().removeAllRanges(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx addPendingHighlight: window.getSelection().removeAllRanges(); }:", e); }
       return;
     }
-    setHighlights((prev) => [
-      ...prev,
-      { id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), start, end, quote: quote || documentText.slice(start, end).slice(0, 160), note: "", createdAt: Date.now() },
-    ]);
+    const mark = { id: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())), start, end, quote: quote || documentText.slice(start, end).slice(0, 160), note: "", createdAt: Date.now() };
+    // Marks are offsets into one exact text. If the document was
+    // edited since the standing marks were made, their offsets no
+    // longer point at the passages they quote, so a new mark retires
+    // them rather than mixing two texts' offsets in one list.
+    if (marksText !== documentText) setHighlights([mark]);
+    else setHighlights((prev) => [...prev, mark]);
+    setMarksText(documentText);
     setPendingHL(null);
     try { window.getSelection().removeAllRanges(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx catch: window.getSelection().removeAllRanges(); }:", e); }
   };
   /* Render the document with highlights as marked ranges. Plain text only
      — the passage text is never interpreted as HTML. */
   const renderMarkedText = (text) => {
+    // Stale marks are not painted: their offsets were measured on the
+    // earlier text and would highlight the wrong words here.
+    if (marksStale) return text;
     const marks = highlights.slice().sort((a, b) => a.start - b.start);
     if (!marks.length) return text;
     const out = [];
@@ -16683,6 +16742,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      stored against the whole document, so a segment renders only the
      marks that intersect it, shifted by the segment's start offset. */
   const renderMarkedRange = (text, base) => {
+    if (marksStale) return text;
     const marks = highlights
       .filter((h) => h.end > base && h.start < base + text.length)
       .slice().sort((a, b) => a.start - b.start);
@@ -16847,8 +16907,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               </span>
             )}
           </div>
-          <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", padding: "4px 11px", borderRadius: RADIUS.pill, color: summary ? statusGood(P) : accent, background: summary ? withAlpha(STATUS.good, 0.12) : withAlpha(accent, 0.1), border: `1px solid ${summary ? withAlpha(STATUS.good, 0.3) : withAlpha(accent, 0.25)}` }}>
-            {analyzing ? "Reading…" : summary ? (summary.model === "extractive" ? "Basic extract" : summary.partial ? "Partially analyzed" : "Analyzed") : hasDoc ? "Ready to inspect" : "Waiting"}
+          <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", padding: "4px 11px", borderRadius: RADIUS.pill, color: summary ? (analysisStale ? statusWarn(P) : statusGood(P)) : accent, background: summary ? (analysisStale ? withAlpha(STATUS.warn, 0.12) : withAlpha(STATUS.good, 0.12)) : withAlpha(accent, 0.1), border: `1px solid ${summary ? (analysisStale ? withAlpha(STATUS.warn, 0.3) : withAlpha(STATUS.good, 0.3)) : withAlpha(accent, 0.25)}` }}>
+            {analyzing ? "Reading…" : summary ? (analysisStale ? "Edited since analysis" : summary.model === "extractive" ? "Basic extract" : summary.partial ? "Partially analyzed" : "Analyzed") : hasDoc ? "Ready to inspect" : "Waiting"}
           </span>
         </div>
         {/* Recent documents: the durable shelf. Only when nothing is open. */}
@@ -16995,6 +17055,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             {highlights.length > 0 && (
               <section aria-label="Your marks" style={{ marginTop: 22 }}>
                 <div style={{ ...docEyebrow, marginBottom: 6 }}>Marks · {highlights.length}</div>
+                {marksStale && (
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6, marginBottom: 8 }}>
+                    This document has been edited since these marks were made, so they are no longer placed in the text. The passages below are the words as they were marked.
+                  </div>
+                )}
                 {highlights.slice().sort((a, b) => a.start - b.start).map((h) => (
                   <div key={h.id} style={{ borderTop: `1px solid ${P.line}`, padding: "12px 0" }}>
                     <button onClick={() => scrollToHighlight(h)} title="Jump to this passage"
@@ -17282,6 +17347,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 <p style={{ margin: "0 0 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
                   A document can be questioned before a full analysis, or instead of one. Questions are answered from this document only, and do not use a document read.
                 </p>
+                {qaStale && (
+                  <div role="note" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6, marginBottom: 14 }}>
+                    These answers describe the earlier version of this document. The text has been edited since they were written.
+                  </div>
+                )}
                 {qaHistory.map((h, i) => (
                   <div key={i} style={{ marginTop: i === 0 ? 0 : 22, paddingTop: i === 0 ? 0 : 18, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
                     <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 10, fontFamily: "var(--cb-font)" }}>{h.query}</div>
@@ -17415,6 +17485,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
                 options={allTabOptions} />
             </div>
+            {/* An edited document must not wear its earlier read as
+                current: the analysis below describes the text as it
+                was when the analysis ran. */}
+            {analysisStale && (
+              <div role="note" style={{ fontSize: FONT_SIZES.small, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "8px 12px", marginBottom: 12, lineHeight: 1.55 }}>
+                This document has been edited since this analysis was run, so the analysis describes the earlier text. Run the analysis again to bring it up to date.
+              </div>
+            )}
             {/* Partial analyses must not render as complete: the backend
                 marks degraded runs with partial:true and missingSections. */}
             {summary.partial && Array.isArray(summary.missingSections) && summary.missingSections.length > 0 && (
@@ -17474,7 +17552,19 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   {compareResult && (
                     <>
                       {compareResult.streaming && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 8 }}>Writing the comparison…</div>}
+                      {!compareResult.streaming && compareResult.model === "extractive" && (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>
+                          {compareResult.budgetExhausted
+                            ? "Basic extract · the monthly AI budget is used up, so this comparison is passages from the documents."
+                            : "Basic extract · the AI service was unreachable, so this comparison is passages from the documents."}
+                        </div>
+                      )}
                       {compareResult.text ? renderAnswer(compareResult.text, [], P, accent, hoverCite, setHoverCite) : null}
+                      {!compareResult.streaming && compareStale && (
+                        <div role="note" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 8, lineHeight: 1.6 }}>
+                          One of these documents has been edited since this comparison was run, so it describes the earlier texts. Compare again to update it.
+                        </div>
+                      )}
                       {!compareResult.streaming && compareResult.promptTruncation && compareResult.promptTruncation.documentShortened ? (
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{promptTruncationNote(compareResult.promptTruncation, "comparison")}</div>
                       ) : null}
@@ -17522,6 +17612,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               {rightTab === "qa" && (
                 <>
                   {qaHistory.length === 0 && <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>Answers come only from this document.</div>}
+                  {qaStale && (
+                    <div role="note" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6, marginBottom: 14 }}>
+                      These answers describe the earlier version of this document. The text has been edited since they were written.
+                    </div>
+                  )}
                   {qaHistory.map((h, i) => (
                     <div key={i} style={{ marginTop: i === 0 ? 0 : 28, paddingTop: i === 0 ? 0 : 24, borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
                       <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink, marginBottom: 12, fontFamily: "var(--cb-font)" }}>{h.query}</div>
