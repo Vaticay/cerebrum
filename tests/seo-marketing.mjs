@@ -103,5 +103,100 @@ t("pricing offers are the real plans ($20/mo, $144/yr USD)", () => {
   assert.ok(offers.some((o) => o.price === "144" && o.priceCurrency === "USD"), `no $144 USD offer (${prices})`);
 });
 
+/* ── Product copy pass (2026-10-13) ────────────────────────────────
+ * The Search record, the coverage disclosure, MCP access, and the
+ * unaffiliated researcher audience are real and live, and the copy
+ * has to say so. These pins keep the presences from silently
+ * disappearing in a future copy edit, keep the two features out of
+ * the Pro only list (they ship on answers generally; the MCP
+ * endpoint has no tier gate), and hold the new strings to the
+ * product rule of no dash characters of any kind. The dash check is
+ * scoped to the new strings on purpose: older copy predates the
+ * check and is out of scope for this pin. */
+const featuresJson = JSON.stringify(MARKETING_PAGES.features);
+const pricingJson = JSON.stringify(MARKETING_PAGES.pricing);
+const blockByHeading = (page, h) => (page.blocks || []).find((b) => b.h === h);
+const faqByQuestion = (page, q) => (page.faq || []).find((f) => f.q === q);
+
+const NEW_FEATURE_HEADINGS = [
+  "Every answer shows its coverage",
+  "The Search record",
+  "Why a record, not just an answer",
+  "Use Cerebrum inside ChatGPT and Claude",
+  "Built for researchers without a library",
+];
+const NEW_FAQ_QUESTIONS = [
+  "What is the Search record?",
+  "Can I use Cerebrum from inside ChatGPT or Claude?",
+  "Are the Search record and MCP access Pro only?",
+];
+
+t("features page presents the Search record and the coverage disclosure", () => {
+  assert.ok(featuresJson.includes("Search record"), "features copy never says Search record");
+  assert.ok(/coverage/.test(featuresJson), "features copy never says coverage");
+  for (const h of NEW_FEATURE_HEADINGS.slice(0, 3)) {
+    assert.ok(blockByHeading(MARKETING_PAGES.features, h), `features page is missing the block: ${h}`);
+  }
+});
+
+t("features page presents MCP access with the copyable endpoint", () => {
+  assert.ok(blockByHeading(MARKETING_PAGES.features, "Use Cerebrum inside ChatGPT and Claude"),
+    "features page is missing the MCP block");
+  assert.ok(featuresJson.includes("https://askcerebrum.org/mcp"), "endpoint address missing from features copy");
+  assert.ok(featuresJson.includes("search_literature"), "search_literature tool not named");
+  assert.ok(featuresJson.includes("get_trending"), "get_trending tool not named");
+  assert.ok(pricingJson.includes("https://askcerebrum.org/mcp"), "endpoint address missing from pricing copy");
+});
+
+t("features page names the unaffiliated researcher audience", () => {
+  assert.ok(blockByHeading(MARKETING_PAGES.features, "Built for researchers without a library"),
+    "features page is missing the audience block");
+  assert.ok(featuresJson.includes("unaffiliated"), "copy never says unaffiliated");
+  assert.ok(/independent/i.test(featuresJson), "copy never says independent");
+});
+
+t("pricing lists the record and MCP with the free offer, not as Pro gates", () => {
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
+  assert.ok(freeBlock, "pricing page lost its Free, forever block");
+  const freeJson = JSON.stringify(freeBlock);
+  assert.ok(freeJson.includes("Search record"), "Search record not listed with the free offer");
+  assert.ok(freeJson.includes("MCP"), "MCP not listed with the free offer");
+  const proBlock = blockByHeading(MARKETING_PAGES.pricing, "Cerebrum Pro");
+  assert.ok(proBlock, "pricing page lost its Cerebrum Pro block");
+  const proJson = JSON.stringify(proBlock.list || []);
+  assert.ok(!proJson.includes("Search record"), "Search record must not be listed as a Pro feature");
+  assert.ok(!proJson.includes("MCP"), "MCP access must not be listed as a Pro feature");
+  assert.ok(faqByQuestion(MARKETING_PAGES.pricing, "Are the Search record and MCP access Pro only?"),
+    "pricing FAQ lost the not Pro only answer");
+});
+
+t("new product copy strings contain no dash characters of any kind", () => {
+  const DASHES = ["-", "–", "—"];
+  const pieces = [];
+  for (const h of NEW_FEATURE_HEADINGS) {
+    const b = blockByHeading(MARKETING_PAGES.features, h);
+    assert.ok(b, `missing block for dash check: ${h}`);
+    pieces.push(JSON.stringify(b));
+  }
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
+  assert.ok(freeBlock && Array.isArray(freeBlock.list), "Free, forever list missing for dash check");
+  pieces.push(JSON.stringify(freeBlock.list));
+  for (const q of NEW_FAQ_QUESTIONS) {
+    const f = faqByQuestion(MARKETING_PAGES.features, q) || faqByQuestion(MARKETING_PAGES.pricing, q);
+    assert.ok(f, `missing FAQ entry for dash check: ${q}`);
+    pieces.push(JSON.stringify(f));
+  }
+  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What you get");
+  assert.ok(whatYouGet, "features page lost its What you get block");
+  const recordBullet = (whatYouGet.list || []).find((li) => li.includes("Search record"));
+  assert.ok(recordBullet, "What you get lost its Search record bullet");
+  pieces.push(JSON.stringify(recordBullet));
+  for (const piece of pieces) {
+    for (const d of DASHES) {
+      assert.ok(!piece.includes(d), `dash character ${JSON.stringify(d)} found in new copy: ${piece.slice(0, 110)}`);
+    }
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

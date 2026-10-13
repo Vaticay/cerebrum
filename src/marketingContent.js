@@ -34,7 +34,7 @@ export const MARKETING_PAGES = {
     eyebrow: "Features",
     title: "Search, read, and map the scientific literature",
     lede: "Cerebrum searches 15 scholarly databases in parallel and answers with citations you can check. Free; a free account unlocks AI answers, reads, and flowcharts.",
-    updated: "Updated September 2026.",
+    updated: "Updated October 2026.",
     blocks: [
       {
         h: "The promise",
@@ -44,11 +44,37 @@ export const MARKETING_PAGES = {
         h: "What you get",
         list: [
           "Evidence-graded answers: every claim links to a real paper you can open, with a confidence note on how strongly the literature supports it.",
+          "Search record and coverage on every answer: what the answer rests on, what was asked, and what ran, ready to copy or download.",
           "Document Mode: paste or upload a long paper and get a structured, section-by-section summary with live progress.",
           "Diagram Studio: turn a pathway, method, or mechanism into an editable Mermaid diagram with SVG, PNG, and .mmd export.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
           "Private Vault: optional end-to-end encrypted sync for your saved work, with a 24-word recovery phrase only you hold.",
         ],
+      },
+      {
+        h: "Every answer shows its coverage",
+        p: "Under each answer, a short line states what the answer rests on: how many papers were gathered, how many the answer actually cites, how many more sit alongside as further reading, which databases answered, and the years the sources span. When the shelf is thin, the line says so. You can judge an answer before you trust it.",
+      },
+      {
+        h: "The Search record",
+        p: "Every answer carries a record of its own search, and you can copy it or download it as a file. It freezes the search exactly as it ran: the question as asked and the time it was asked, the queries Cerebrum built from it, every database it asked and how much each one returned, what the funnel kept and what it dropped, the model that wrote the answer, and the full source list with each paper marked cited or further reading. Months later, a reviewer, a collaborator, or your future self can see exactly what a methods section rests on.",
+      },
+      {
+        h: "Why a record, not just an answer",
+        p: "A summary on its own asks to be trusted. A record can be checked. When your methods section has to say how the literature was found, the Search record is the thing you point to: the search itself, documented and kept, instead of a result you have to take on faith.",
+      },
+      {
+        h: "Use Cerebrum inside ChatGPT and Claude",
+        p: "Cerebrum speaks MCP, the open protocol that AI assistants use to call outside tools. Connect a compatible assistant to the endpoint below and it can search the literature through Cerebrum and bring back a cited answer with a numbered source list, or fetch the current Trending in Science edition. It is live now.",
+        list: [
+          "Endpoint: https://askcerebrum.org/mcp",
+          "search_literature: a cited answer from the literature for a research question you give it.",
+          "get_trending: the current Trending in Science edition, headlines grouped by section with links.",
+        ],
+      },
+      {
+        h: "Built for researchers without a library",
+        p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree all read the same literature and get shut out of the same paywalls. Cerebrum is built for you as well: searching needs no account, a free account carries 50 AI answers every 5 days, and free answers carry the same coverage line and Search record as any other answer. If a tool you relied on moved features you used behind a paywall, the core work here stays free.",
       },
       {
         h: "What it refuses to do",
@@ -68,6 +94,14 @@ export const MARKETING_PAGES = {
         q: "Do I need an account?",
         a: "Searching works without an account. A free account unlocks your 50 AI answers, 3 document reads, and 1 flowchart every 5 days, and syncs what you save: articles, collections, history, and your Pro status.",
       },
+      {
+        q: "What is the Search record?",
+        a: "A frozen account of one search that ships with the answer: the question as asked, the queries that ran, every database and how much it returned, the funnel, the model that wrote the answer, and the source list with each paper marked cited or further reading. Copy it or download it from under any answer, and keep it with your notes or your methods draft.",
+      },
+      {
+        q: "Can I use Cerebrum from inside ChatGPT or Claude?",
+        a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, or get_trending for the current Trending in Science edition.",
+      },
     ],
   },
 
@@ -76,7 +110,7 @@ export const MARKETING_PAGES = {
     eyebrow: "Pricing",
     title: "Cerebrum Pro pricing: plans for every researcher",
     lede: "Cerebrum is free for everyday research. Cerebrum Pro is $20 a month or $144 a year: unlimited answers and funding for independent, ad-free science search.",
-    updated: "Updated September 2026.",
+    updated: "Updated October 2026.",
     offers: [
       { name: "Cerebrum Pro, monthly", price: "20", priceCurrency: "USD", billingIncrement: "P1M" },
       { name: "Cerebrum Pro, annual", price: "144", priceCurrency: "USD", billingIncrement: "P1Y" },
@@ -85,6 +119,10 @@ export const MARKETING_PAGES = {
       {
         h: "Free, forever",
         p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. No ads, no tracking pixels, no sale of personal information.",
+        list: [
+          "Every free answer carries the coverage line and the full Search record, the same as any other answer.",
+          "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
+        ],
       },
       {
         h: "Cerebrum Pro",
@@ -122,6 +160,10 @@ export const MARKETING_PAGES = {
       {
         q: "What happens to my saved work if I cancel Pro?",
         a: "Nothing is deleted. Your saved articles, collections, and history stay exactly where they were; only the Pro limits and badge go away.",
+      },
+      {
+        q: "Are the Search record and MCP access Pro only?",
+        a: "No. The coverage line and the Search record ship on answers generally, free answers included, and the MCP endpoint is open. Pro removes the limits on answers, reads, and flowcharts; it does not gate the record.",
       },
     ],
   },
