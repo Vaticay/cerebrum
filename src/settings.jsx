@@ -6,7 +6,7 @@
  * privacy, encryption, TTS, system/config status).
  */
 
-import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, ensureDyslexicFont, kbdLabel, notifyPref, relativeTime, setNotifyPref, statusBad, toast, useIsMobile } from "./appUtils.js";
+import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, ensureDyslexicFont, kbdLabel, notifyPref, relativeTime, setNotifyPref, statusBad, statusWarn, statusGood, toast, useIsMobile } from "./appUtils.js";
 import { FONT_SIZES, Icon, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBadge, UIButton, UISelect, UIRow, Z, withAlpha } from "./designSystem.jsx";
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
@@ -836,7 +836,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
         <Row
           label="Encrypted messaging"
           desc="This device can send and read encrypted messages."
-          control={statusPill("On", STATUS.good)}
+          control={statusPill("On", statusGood(P))}
         />
         {!confirmed && (
           <Row
@@ -1310,7 +1310,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         {needE2ee && (
           <div style={noteBox}>
             <div style={warnLine}>
-              <Icon name="warning" size={15} style={{ color: STATUS.warn, flexShrink: 0, marginTop: 1 }} />
+              <Icon name="warning" size={15} style={{ color: statusWarn(P), flexShrink: 0, marginTop: 1 }} />
               <span>Private Vault uses the same recovery phrase as encrypted conversations, and this device doesn't have one yet. Set up encrypted conversations above first, then come back here.</span>
             </div>
             <UIButton P={P} variant="ghost" onClick={() => { sfx(); setNeedE2ee(false); }} style={ghostBtn}>OK</UIButton>
@@ -1324,11 +1324,11 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
               <span>If you lose your recovery phrase and lose all your devices, your saved papers and investigations are gone forever. Cerebrum cannot get them back — there is no backdoor, and support can't override this.</span>
             </div>
             <div style={warnLine}>
-              <Icon name="warning" size={15} style={{ color: STATUS.warn, flexShrink: 0, marginTop: 1 }} />
+              <Icon name="warning" size={15} style={{ color: statusWarn(P), flexShrink: 0, marginTop: 1 }} />
               <span>Anything you saved before today was readable from Cerebrum's servers. Those items stay labeled that way, honestly — encryption can't rewrite history.</span>
             </div>
             <div style={{ ...warnLine, marginBottom: 14 }}>
-              <Icon name="warning" size={15} style={{ color: STATUS.warn, flexShrink: 0, marginTop: 1 }} />
+              <Icon name="warning" size={15} style={{ color: statusWarn(P), flexShrink: 0, marginTop: 1 }} />
               <span>Server backups may keep old readable copies until the backup retention window passes.</span>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1371,7 +1371,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         <Row
           label="Private Vault"
           desc="Private Vault is locked on this device."
-          control={statusPill("Locked", STATUS.warn)}
+          control={statusPill("Locked", statusWarn(P))}
         />
         {vaultCtl.migPending && (
           <Row
@@ -1407,7 +1407,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         <Row
           label="Private Vault"
           desc="Private Vault is on. Cerebrum's servers cannot read these items."
-          control={statusPill("On", STATUS.good)}
+          control={statusPill("On", statusGood(P))}
         />
         <Row
           label="Rotate vault key"
@@ -1660,7 +1660,7 @@ function SystemStatus({ P, accent }) {
     setRows(out);
   }, []);
   useEffect(() => { check(); }, [check]);
-  const tone = (st) => (st === "ok" ? STATUS.good : st === "missing" ? STATUS.bad : STATUS.warn);
+  const tone = (st) => (st === "ok" ? statusGood(P) : st === "missing" ? STATUS.bad : statusWarn(P));
   return (
     <div>
       {(rows || []).map((r) => (
@@ -2484,7 +2484,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                         padding: "4px 12px", borderRadius: 2,
-                        color: founderStatus.configured ? (P.dark ? STATUS.good : "#047857") : statusBad(P, paletteName),
+                        color: founderStatus.configured ? statusGood(P) : statusBad(P, paletteName),
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
                       }}>{founderStatus.configured ? "Configured" : "Missing"}</span>
                     }
@@ -2497,7 +2497,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       <span style={{
                         fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                         padding: "4px 12px", borderRadius: 2,
-                        color: founderStatus.youAreFounder ? (P.dark ? STATUS.good : "#047857") : P.faint,
+                        color: founderStatus.youAreFounder ? statusGood(P) : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
                       }}>{founderStatus.youAreFounder ? "You" : "No"}</span>
                     }
@@ -2700,7 +2700,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     <span style={{
                       fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                       padding: "4px 12px", borderRadius: 2,
-                      color: notifPerm === "granted" ? (P.dark ? STATUS.good : "#047857") : P.faint,
+                      color: notifPerm === "granted" ? statusGood(P) : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
                     }}>{notifPerm === "granted" ? "On" : notifPerm === "denied" ? "Blocked" : "Unavailable"}</span>
                   )

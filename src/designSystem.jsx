@@ -33,6 +33,9 @@ export const FONT_SIZES = {
   micro: 12, small: 13, subhead: 18, heading: 18,
 };
 
+// Raw status hues. For status TEXT on a themed surface, never use these
+// directly: the light theme variants live with statusBad/statusWarn/
+// statusGood in appUtils.js (the raw warn and good fail 4.5:1 on light).
 export const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 
 // Pro brand color: the deliberate emerald used for Pro surfaces (upgrade

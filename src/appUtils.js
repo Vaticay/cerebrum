@@ -135,6 +135,25 @@ function statusBad(P, pn) {
   return P.dark ? (pn === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31";
 }
 
+/* Light theme variants for warn and good, mirroring statusBad (2026-10-13,
+   second panel in a row to flag it). The raw STATUS hues fail WCAG text
+   contrast on the Light palette: warn #d9a520 is 2.13:1 and good #10b981
+   is 2.41:1 on the light surface #f9f9f7. The variants below clear 4.5:1
+   on every Light surface (bg #f1f0ec, surface #f9f9f7, raised #ffffff)
+   while staying in hue: #876614 is #d9a520 darkened in place (43° amber
+   either way), and #047857 is the emerald the app already hand-rolled at
+   the settings and Cortex call sites, now served from one place. Dark
+   palettes keep the raw STATUS values untouched. Unlike bad, neither
+   needs a Mid brightening: on Mid's lightest surface both raw hues
+   already pass (warn 4.71:1, good 4.99:1 on Mid surface). */
+function statusWarn(P) {
+  return P.dark ? STATUS.warn : "#876614";
+}
+
+function statusGood(P) {
+  return P.dark ? STATUS.good : "#047857";
+}
+
 function selectChrome(P) {
   const arrow = P.dark ? "9ca3af" : "6b7280";
   return {
@@ -258,4 +277,4 @@ function toast(message, opts = {}) {
     }));
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
-export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
+export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
