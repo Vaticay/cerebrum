@@ -39,6 +39,7 @@ import {
   postCheckAIAlignment,
   stripUnsupportedCitations,
   reattachAuthorCitations,
+  extractBinomial,
   buildEvidenceGaps,
   buildConfidenceLine,
   buildCoverageNote,
@@ -721,6 +722,21 @@ test("reattachAuthorCitations leaves ambiguous surnames and cited sentences alon
   assert.equal(reattachAuthorCitations(ambiguous, papers), ambiguous);
   const cited = "Smith et al. reported higher soil carbon under wheat [1].";
   assert.equal(reattachAuthorCitations(cited, [papers[0]]), cited);
+});
+
+test("extractBinomial does not mistake a topic phrase for a species", () => {
+  // "Bayesian statistics" fits the Genus species shape exactly. Read as
+  // a binomial it gated evidence on the phrase and italicized it
+  // through the whole answer in production.
+  assert.equal(extractBinomial("What are the advantages of Bayesian statistics vs p-value statistics?"), null);
+  assert.equal(extractBinomial("How does population dynamics shape fisheries?"), null);
+});
+
+test("extractBinomial still finds real species names", () => {
+  const b = extractBinomial("How does diet change the gut microbiome of Hermetia illucens larvae?");
+  assert.ok(b && b.full === "Hermetia illucens", "real binomial missed: " + JSON.stringify(b));
+  const later = extractBinomial("Compare the microbial diversity in Hermetia illucens larvae");
+  assert.ok(later && later.full === "Hermetia illucens", "later binomial missed: " + JSON.stringify(later));
 });
 
 test("stripUnsupportedCitations evaluates each marker independently", () => {

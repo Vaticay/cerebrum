@@ -2370,7 +2370,22 @@ async function pubmed(query, limit = 10, apiKey = "") {
 // Returns the binomial object, or null. Used to enforce strict species matching:
 // searches for one species must NOT surface papers about a sibling species in the
 // same genus (huge source of false positives in taxonomic queries).
-function extractBinomial(raw) {
+// Eponymous adjectives and field nouns are never a genus or an
+// epithet, but they fit the binomial shape perfectly: "Bayesian
+// statistics" is a topic, not a species. Returned as one, it gated
+// evidence on the phrase and italicized it through the whole answer.
+const NON_GENUS_FIRST_WORDS = new Set([
+  "bayesian", "gaussian", "markovian", "newtonian", "euclidean",
+  "cartesian", "boolean", "darwinian", "mendelian", "poisson",
+  "bernoulli", "fourier", "laplacian", "hamiltonian",
+]);
+const NON_SPECIES_SECOND_WORDS = new Set([
+  "statistics", "analysis", "regression", "probability", "inference",
+  "theory", "method", "methods", "learning", "modeling", "modelling",
+  "distribution", "estimation", "hypothesis", "dynamics",
+]);
+
+export function extractBinomial(raw) {
   const s = raw.trim();
   // Common non-taxonomic word pairs that fit the pattern
   const commonNonTaxonomic = new Set([
@@ -2387,6 +2402,7 @@ function extractBinomial(raw) {
   while ((m = re.exec(s)) !== null) {
     const test = m[0].toLowerCase();
     if (commonNonTaxonomic.has(test)) continue;
+    if (NON_GENUS_FIRST_WORDS.has(m[1].toLowerCase()) || NON_SPECIES_SECOND_WORDS.has(m[2].toLowerCase())) continue;
     // Reject ordinary English words even when sentence-initial capitalization
     // makes them LOOK taxonomic. Without this guard, every question starting
     // "Can you...", "Compare the...", "Does the..." etc. (i.e. nearly every
