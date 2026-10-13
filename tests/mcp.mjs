@@ -110,6 +110,25 @@ await test("tools/list contains both tools with input schemas", async () => {
   for (const t of res.result.tools) assert.ok(t.description && t.description.length > 20, "tool needs a real description");
 });
 
+await test("tools/list carries a title and the full annotation set for both tools", async () => {
+  // Directory requirement: Anthropic requires a title and the
+  // applicable hints on every tool, and OpenAI's scan imports them
+  // from this response. The values are the ones drafted in
+  // docs/mcp-listing/claude-listing.json, and they are true of the
+  // tools: both only read, neither is destructive, and both reach
+  // the open scholarly web rather than a closed data set.
+  const res = await handleRpcMessage(rpc("tools/list"), fakeRunners);
+  const byName = Object.fromEntries(res.result.tools.map((t) => [t.name, t]));
+  assert.equal(byName.search_literature.title, "Search the literature");
+  assert.equal(byName.get_trending.title, "Trending in Science");
+  const expected = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
+  for (const t of res.result.tools) {
+    assert.deepEqual(t.annotations, expected, `annotations wrong on ${t.name}`);
+    for (const hint of Object.values(t.annotations)) assert.equal(typeof hint, "boolean", "hints are explicit booleans");
+    assert.ok(!/[-—–]/.test(t.title), `dash in title of ${t.name}`);
+  }
+});
+
 await test("authored tool descriptions contain no dashes", () => {
   for (const t of TOOLS) {
     assert.ok(!/[-—–]/.test(t.description), `dash in description of ${t.name}`);

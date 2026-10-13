@@ -36,11 +36,22 @@ export const MCP_RATE_WINDOW_MS = 60000;
 const MCP_USER_AGENT = "Cerebrum MCP 1.0.0 (https://askcerebrum.org)";
 const TRENDING_PER_SECTION = 5;
 
+// Tool titles and annotations are the values drafted in
+// docs/mcp-listing/claude-listing.json for the directory submissions,
+// verified against what the tools actually do. Both tools only read:
+// neither writes, deletes, or changes any state. Both reach the open
+// scholarly web (search queries the public indexes, trending serves
+// the current edition built from live sources), so both are open
+// world in the MCP sense. Anthropic's directory requires a title and
+// the applicable hints on every tool, and OpenAI's submission scan
+// imports them from this response.
 export const TOOLS = [
   {
     name: "search_literature",
+    title: "Search the literature",
     description:
       "Search the scientific literature for a research question and return a cited answer with a numbered source list. Use this when you need evidence from papers rather than general knowledge.",
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
       type: "object",
       properties: {
@@ -55,8 +66,10 @@ export const TOOLS = [
   },
   {
     name: "get_trending",
+    title: "Trending in Science",
     description:
       "Get the current Trending in Science edition and return the top headlines grouped by section with links to the original stories.",
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
       type: "object",
       properties: {},
