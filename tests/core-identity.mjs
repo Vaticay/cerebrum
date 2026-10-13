@@ -43,6 +43,9 @@ const introSrc = await readFile(join(root, "src/intro.jsx"), "utf8");
 const diveSrc = await readFile(join(root, "src/DiveParticles.jsx"), "utf8");
 const settingsSrc = await readFile(join(root, "src/settings.jsx"), "utf8");
 const designSrc = await readFile(join(root, "src/designSystem.jsx"), "utf8");
+const appUtilsSrc = await readFile(join(root, "src/appUtils.js"), "utf8");
+const palettesSrc = await readFile(join(root, "src/palettes.js"), "utf8");
+const inboxSrc = await readFile(join(root, "src/inbox.jsx"), "utf8");
 
 group("Workspace ambient reel (revised)");
 await test("workspace CinematicFilm mount exists, darker than before", () => {
@@ -127,6 +130,69 @@ await test("slogan is byte-identical", () => {
     "specimen verdict missing"
   );
 });
+
+group("Status colors: light theme variants clear 4.5:1");
+{
+  // 2026-10-13: the rescore panel's standing Mobile/A11y defect. The raw
+  // STATUS warn (#d9a520, 2.13:1) and good (#10b981, 2.41:1) fail WCAG
+  // text contrast on the Light palette; bad already had a light variant
+  // via statusBad in appUtils.js, warn and good now mirror it.
+  const relLum = (hex) => {
+    const c = (v) => { const n = parseInt(v, 16) / 255; return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); };
+    return 0.2126 * c(hex.slice(1, 3)) + 0.7152 * c(hex.slice(3, 5)) + 0.0722 * c(hex.slice(5, 7));
+  };
+  const ratio = (a, b) => { const x = relLum(a), y = relLum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const statusM = designSrc.match(/export const STATUS = \{ good: "(#[0-9a-f]{6})", warn: "(#[0-9a-f]{6})", bad: "(#[0-9a-f]{6})" \}/);
+  const lightM = palettesSrc.match(/Light: \{ dark: false, bg: "(#[0-9a-f]{6})", surface: "(#[0-9a-f]{6})", raised: "(#[0-9a-f]{6})"/);
+  const darkM = palettesSrc.match(/Dark:\s+\{ dark: true,\s+bg: "(#[0-9a-f]{6})", surface: "(#[0-9a-f]{6})"/);
+  const midM = palettesSrc.match(/Mid:\s+\{ dark: true,\s+bg: "(#[0-9a-f]{6})", surface: "(#[0-9a-f]{6})"/);
+  const warnLightM = appUtilsSrc.match(/function statusWarn\(P\) \{\s*return P\.dark \? STATUS\.warn : "(#[0-9a-f]{6})";\s*\}/);
+  const goodLightM = appUtilsSrc.match(/function statusGood\(P\) \{\s*return P\.dark \? STATUS\.good : "(#[0-9a-f]{6})";\s*\}/);
+  const badLightM = appUtilsSrc.match(/function statusBad\(P, pn\) \{\s*return P\.dark \? \(pn === "Mid" \? "#ff7a7a" : STATUS\.bad\) : "(#[0-9a-f]{6})";\s*\}/);
+
+  await test("raw STATUS hues are unchanged", () => {
+    assert.ok(statusM, "STATUS definition not found in designSystem.jsx");
+    assert.deepStrictEqual(statusM.slice(1), ["#10b981", "#d9a520", "#e5484d"]);
+  });
+  await test("statusWarn and statusGood mirror statusBad and are exported", () => {
+    assert.ok(badLightM, "statusBad no longer matches its established shape");
+    assert.ok(warnLightM, "statusWarn(P) must return STATUS.warn on dark and a light hex otherwise");
+    assert.ok(goodLightM, "statusGood(P) must return STATUS.good on dark and a light hex otherwise");
+    assert.match(appUtilsSrc, /export \{[^}]*statusBad, statusWarn, statusGood,[^}]*\}/, "helpers missing from the appUtils export list");
+    assert.match(appSrc, /statusBad, statusWarn, statusGood,/, "CerebrumApp does not import the status helpers");
+    assert.match(settingsSrc, /statusBad, statusWarn, statusGood,/, "settings does not import the status helpers");
+    assert.match(inboxSrc, /statusBad, statusGood \} from "\.\/appUtils\.js"/, "inbox does not import statusGood");
+  });
+  await test("light variants clear 4.5:1 on every Light surface; raw hues fail", () => {
+    assert.ok(lightM, "Light palette surfaces not found in palettes.js");
+    const surfaces = lightM.slice(1);
+    for (const [name, m] of [["warn", warnLightM], ["good", goodLightM], ["bad", badLightM]]) {
+      assert.ok(m, `status ${name} light variant missing`);
+      for (const s of surfaces) {
+        assert.ok(ratio(m[1], s) >= 4.5, `${name} light variant ${m[1]} is ${ratio(m[1], s).toFixed(2)}:1 on light surface ${s}`);
+      }
+    }
+    // The defect itself, pinned so the helpers are never "simplified" away:
+    assert.ok(ratio(statusM[2], surfaces[1]) < 4.5, "raw warn should still fail on the light surface");
+    assert.ok(ratio(statusM[1], surfaces[1]) < 4.5, "raw good should still fail on the light surface");
+  });
+  await test("dark surfaces keep the raw hues at passing contrast (no regression)", () => {
+    assert.ok(darkM && midM, "Dark/Mid palette surfaces not found in palettes.js");
+    for (const s of [...darkM.slice(1), ...midM.slice(1)]) {
+      assert.ok(ratio(statusM[2], s) >= 4.5, `raw warn is ${ratio(statusM[2], s).toFixed(2)}:1 on dark surface ${s}`);
+      assert.ok(ratio(statusM[1], s) >= 4.5, `raw good is ${ratio(statusM[1], s).toFixed(2)}:1 on dark surface ${s}`);
+    }
+  });
+  await test("foreground status text routes through the helpers", () => {
+    for (const [name, src] of [["CerebrumApp", appSrc], ["settings", settingsSrc], ["inbox", inboxSrc]]) {
+      assert.ok(!/color: STATUS\.(warn|good)/.test(src), `${name} still sets a foreground color from raw STATUS`);
+    }
+    assert.match(appSrc, /tone === "warn" \? statusWarn\(P\)/, "toneColor does not route warn through statusWarn");
+    assert.match(appSrc, /const relColor = \(r\) => r >= 65 \? statusGood\(P\)/, "relColor does not route through the helpers");
+    assert.match(settingsSrc, /st === "ok" \? statusGood\(P\)/, "settings tone() does not route through the helpers");
+    assert.match(settingsSrc, /statusPill\("Locked", statusWarn\(P\)\)/, "Locked pill does not route warn through statusWarn");
+  });
+}
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

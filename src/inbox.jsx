@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad } from "./appUtils.js";
+import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad, statusGood } from "./appUtils.js";
 import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, Icon, UIButton } from "./designSystem.jsx";
 import { ensureE2EEDevice, decryptThreadMessages, getSafetyNumber, getRecoveryPhrase, isPeerEncryptionReady, upgradeThread, markSafetyNumberVerified, clearSafetyNumberVerified, encryptMessage } from "./e2ee/messaging.js";
 import { safeHref } from "./textUtils.js";
@@ -97,7 +97,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
     >
         {submitted ? (
           <div style={{ textAlign: "center", padding: "16px 0" }}>
-            <div style={{ width: 40, height: 40, borderRadius: "50%", background: withAlpha(STATUS.good, 0.12), color: STATUS.good, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+            <div style={{ width: 40, height: 40, borderRadius: "50%", background: withAlpha(STATUS.good, 0.12), color: statusGood(P), display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
               <Icon name="check" size={18} />
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink }}>Report received</div>
@@ -228,10 +228,20 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // management at all, so a long conversation opened on its oldest
   // message. scrollStateRef tracks whether the reader is parked at
   // the latest message; unreadAnchor is the server's read cursor from
-  // before this visit marked the thread read.
+  // before this visit's first read acknowledgement advanced it.
   const scrollStateRef = useRef({ threadId: null, atBottom: true, lastCount: 0 });
   const preserveScrollRef = useRef(null);
   const anchorThreadRef = useRef(null);
+  // Read acknowledgement bookkeeping. lastAckRef remembers the newest
+  // rendered message this visit has already told the server about, so
+  // the 5s poll re-posts a claim only when something newer has
+  // actually rendered. unreadHoldRef names a thread the reader
+  // explicitly marked as unread during this view: acknowledgements
+  // pause for it until the reader leaves and opens it again, so their
+  // explicit "keep this unread" is not undone seconds later by the
+  // poll of the very screen they are looking at.
+  const lastAckRef = useRef({ threadId: null, upTo: 0 });
+  const unreadHoldRef = useRef(null);
   const composerRef = useRef(null);
   const [unreadAnchor, setUnreadAnchor] = useState(null);
   const [showNewMessages, setShowNewMessages] = useState(false);
@@ -243,11 +253,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [threadQuery, setThreadQuery] = useState("");
   // Commit 48: block/report — a small overflow menu on the open thread's
   // header (Block/Unblock, Report this person), plus per-message hover
-  // report actions. `reportModal` carries the target: { kind, messageId? } —
-  // `kind: "user"` reports activeThread.otherId, `kind: "message"` also
-  // carries which message.
+  // report actions. The same menu now also carries "Mark as unread",
+  // the one item that applies to every thread kind. `reportModal`
+  // carries the target: { kind, messageId? } — `kind: "user"` reports
+  // activeThread.otherId, `kind: "message"` also carries which message.
   const [menuOpen, setMenuOpen] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
+  const [markUnreadBusy, setMarkUnreadBusy] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [hoverMsgId, setHoverMsgId] = useState(null);
   // Group creation — name input, people search with multi-select, create.
@@ -690,6 +702,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     scrollStateRef.current = { threadId: activeId, atBottom: true, lastCount: 0 };
     preserveScrollRef.current = null;
     anchorThreadRef.current = null;
+    // A mark-as-unread hold lasts only while the reader stays in the
+    // thread they marked. Opening a different conversation releases
+    // it, so coming back to the marked one later is a fresh open —
+    // and a fresh open reads. The acknowledgement ledger restarts per
+    // conversation, so the first successful load of each thread posts
+    // its claim even if another thread ended at the same message.
+    if (unreadHoldRef.current && unreadHoldRef.current !== activeId) unreadHoldRef.current = null;
+    lastAckRef.current = { threadId: activeId, upTo: 0 };
     setUnreadAnchor(null);
     setShowNewMessages(false);
     setLoadingEarlier(false);
@@ -827,13 +847,30 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           }
           return next;
         });
-        // The backend marks this thread read as part of that same GET (see
-        // the "thread" resource handler in functions/api/data.js) — mirror it
-        // here optimistically so the list's bold/dot treatment and the
-        // Sidebar's unread-count badge clear immediately instead of waiting
-        // for this view's next full inbox refetch.
-        if (data && !data.error) {
-          setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false, unreadCount: 0 } : t)));
+        // Read is acknowledged, never assumed. The thread GET no longer
+        // moves the read cursor (see functions/api/data.js): this fetch
+        // succeeding is what proves the messages loaded, and the
+        // setActiveThread above is what puts them on screen — so only
+        // now does the client tell the server "read up to the newest
+        // message I rendered". A failed load or an abandoned open posts
+        // nothing, and the unread state survives intact. The claim
+        // re-posts whenever the newest
+        // rendered message advances past the last one acknowledged
+        // (arrivals while reading count as read, exactly as before),
+        // and pauses entirely for a thread the reader marked unread
+        // this visit. A failed ack needs no retry plumbing: the next
+        // poll's claim covers everything up to its newest message.
+        if (data && !data.error && thread) {
+          const newestAt = (thread.messages || []).reduce((mx, m) => Math.max(mx, (m && m.createdAt) || 0), 0);
+          const alreadyAcked = lastAckRef.current.threadId === activeId ? lastAckRef.current.upTo : 0;
+          if (unreadHoldRef.current !== activeId && newestAt > alreadyAcked) {
+            lastAckRef.current = { threadId: activeId, upTo: newestAt };
+            apiDataAction("mark-thread-read", { thread_id: activeId, up_to: newestAt }).catch(() => {});
+            // Mirror the claim in the list immediately so the bold/dot
+            // treatment and the Sidebar's unread-count badge clear
+            // without waiting for this view's next full inbox refetch.
+            setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: false, unreadCount: 0 } : t)));
+          }
         }
       });
     };
@@ -843,9 +880,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // person sends while you're already looking at this conversation never
     // shows up until you leave and come back (the fetch above used to run
     // once per activeId and never again), and "Seen" below would only ever
-    // catch up the same way. Every poll also re-marks-as-read, which is the
-    // right behavior, not a side effect to work around — staying on an open
-    // thread should keep counting as "still reading it." The chain is
+    // catch up the same way. Every poll also re-acknowledges read up to
+    // the newest message it delivered (the ack inside refresh above),
+    // which is the right behavior, not a side effect to work around —
+    // staying on an open thread should keep counting as "still reading
+    // it." The chain is
     // scheduled from inside refresh (see schedule above) so failures can
     // stretch the interval instead of hammering a dead connection.
     return () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer); };
@@ -1114,6 +1153,33 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     });
   };
 
+  // Mark as unread: asks the server to rewind my read cursor to just
+  // before the newest message someone else sent, then mirrors the
+  // server's recomputed unread state into the list — the numbers come
+  // from the response, not from a client-side guess. The hold stops
+  // this visit's read acknowledgements from instantly undoing the
+  // reader's explicit choice; it releases when they open a different
+  // conversation (see the open effect), so coming back here afterwards
+  // reads normally. When nobody else has written in this thread there
+  // is nothing to un-read, and the toast says so instead of claiming
+  // a dot that never appeared.
+  const markThreadUnread = async () => {
+    if (!activeId || markUnreadBusy) return;
+    setMarkUnreadBusy(true);
+    setMenuOpen(false);
+    try {
+      const res = await apiDataAction("mark-thread-unread", { thread_id: activeId });
+      unreadHoldRef.current = activeId;
+      lastAckRef.current = { threadId: activeId, upTo: 0 };
+      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, unread: !!res.unread, unreadCount: res.unread_count || 0 } : t)));
+      toast(res.unread_count > 0 ? "Marked as unread." : "Nothing here from anyone else to mark as unread.");
+    } catch (e) {
+      toast(e.message || "Couldn't mark that as unread.", { tone: "error" });
+    } finally {
+      setMarkUnreadBusy(false);
+    }
+  };
+
   // Commit 48: flips the block for activeThread.otherId and mirrors the
   // result into both activeThread (so the composer/Huddle gate below reacts
   // immediately) and the thread list (so re-opening this conversation from
@@ -1292,9 +1358,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   })();
   const sharedTotal = sharedCounts.paper + sharedCounts.image + sharedCounts.audio;
   // The first message this visit had not caught up with, anchored to
-  // the read cursor captured before opening marked the thread read.
-  // A never opened thread reports a read cursor of 0, which is a real
-  // anchor (everything in it is unread), not a missing one.
+  // the read cursor captured before this visit's first acknowledgement
+  // advanced it. A never opened thread reports a read cursor of 0,
+  // which is a real anchor (everything in it is unread), not a missing
+  // one.
   const firstUnreadIdx = unreadAnchor != null
     ? ((activeThread && activeThread.messages) || []).findIndex((m) => m && !m.mine && m.createdAt && m.createdAt > unreadAnchor)
     : -1;
@@ -1439,7 +1506,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         {t.otherUsername && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, whiteSpace: "nowrap", flexShrink: 0 }}>@{t.otherUsername}</span>}
                         {/* E2EE Phase 1.4 — list badge ONLY when the server
                             says encrypted. Same promise as the header badge. */}
-                        {t.encrypted && <Icon name="lock" size={11} style={{ color: STATUS.good, flexShrink: 0 }} title="Encrypted" />}
+                        {t.encrypted && <Icon name="lock" size={11} style={{ color: statusGood(P), flexShrink: 0 }} title="Encrypted" />}
                         {t.kind === "group" && <Icon name="network" size={12} style={{ color: P.faint, flexShrink: 0 }} title="Group" />}
                       </span>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -1492,7 +1559,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         says this thread is encrypted. No badge on plaintext
                         threads, ever: a badge is a promise. */}
                     {activeThread.encrypted && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 2, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 2, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
                         <Icon name="lock" size={11} /> Encrypted
                       </span>
                     )}
@@ -1546,13 +1613,16 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   }}
                 ><Icon name="camera" size={16} /></button>
                 </>)}
-                {/* Commit 48: block/report menu — DM-only (see user_blocks'
-                    scope note in schema.sql: groups have no membership-
-                    removal flow to pair blocking with yet), and only once
-                    the thread fetch has actually resolved who "the other
-                    person" is. */}
-                {activeThread.kind === "dm" && activeThread.otherId && (
-                  <div style={{ position: "relative" }}>
+                {/* Conversation options menu. It started as Commit 48's
+                    block/report menu — DM-only, because blocking is (see
+                    user_blocks' scope note in schema.sql: groups have no
+                    membership-removal flow to pair blocking with yet),
+                    and those two items still are. The menu itself now
+                    renders for every thread kind because its first item,
+                    Mark as unread, applies to groups exactly as it does
+                    to DMs. Block and Report additionally wait until the
+                    thread fetch has resolved who "the other person" is. */}
+                <div style={{ position: "relative" }}>
                     <UIButton P={P} variant="ghost" onClick={() => setMenuOpen((v) => !v)} aria-label="Conversation options" aria-haspopup="true" aria-expanded={menuOpen} style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", background: menuOpen ? withAlpha(accent, 0.12) : "transparent", color: P.ink2, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                       <Icon name="moreVertical" size={17} />
                     </UIButton>
@@ -1563,12 +1633,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         background: P.dark ? "rgba(22,24,34,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
                         boxShadow: "0 12px 32px rgba(0,0,0,0.22)", padding: 6, display: "flex", flexDirection: "column",
                       }}>
+                        <UIButton P={P} variant="ghost" onClick={markThreadUnread} disabled={markUnreadBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: markUnreadBusy ? "default" : "pointer", textAlign: "left" }}>
+                          <Icon name="mail" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Mark as unread
+                        </UIButton>
+                        {activeThread.kind === "dm" && activeThread.otherId && (<>
                         <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ minHeight: 44, color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
                         </UIButton>
                         <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
+                        </>)}
                         {/* E2EE Phase 1.4 — safety numbers. Only on encrypted
                             DMs: there's nothing to verify on a plaintext
                             thread. */}
@@ -1580,7 +1655,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       </div>
                     </>)}
                   </div>
-                )}
               </div>
             </div>
             {sharedTotal > 0 && (
@@ -2081,7 +2155,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               {safetyModal.verified ? (<>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 700, color: STATUS.good, background: withAlpha(STATUS.good, 0.12), padding: "7px 16px", borderRadius: 2, fontFamily: "var(--cb-font)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "7px 16px", borderRadius: 2, fontFamily: "var(--cb-font)" }}>
                   <Icon name="check" size={14} /> Verified
                 </span>
                 <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)" }}>

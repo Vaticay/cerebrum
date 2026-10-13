@@ -894,28 +894,27 @@ export async function onRequest(context) {
           "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
         ).bind(threadId, user.id).first();
         if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
-        // The read cursor as it stood BEFORE this fetch marks the
-        // thread read. The client anchors its "New messages" divider to
-        // it: without the pre-update value, opening a conversation
-        // erased the one signal that told you where you left off.
+        // The read cursor as it stands when this fetch begins. The
+        // client anchors its "New messages" divider to it: without the
+        // pre-visit value, opening a conversation erases the one signal
+        // that tells you where you left off. (A never opened thread has
+        // a NULL cursor, which toEpochMs reports as 0 — a real anchor
+        // meaning "everything here is unread", not a missing one.)
         let readBefore = null;
         try {
           const rr = await env.DB.prepare("SELECT last_read_at FROM thread_participants WHERE thread_id = ? AND user_id = ?")
             .bind(threadId, user.id).first();
           readBefore = rr ? toEpochMs(rr.last_read_at) : null;
         } catch (e) { console.error("Couldn't read thread cursor:", e); }
-        // Commit 47: opening a thread is what "read" means here — no
-        // separate mark-as-read action, matching how every real DM inbox
-        // (Instagram, iMessage, etc.) actually behaves. Awaited rather than
-        // fire-and-forget: a Workers/Pages Function's execution can be torn
-        // down right after its Response is returned unless the extra work is
-        // wrapped in waitUntil(), so an un-awaited write here could silently
-        // never land. A non-fatal try/catch — a failed mark-as-read should
-        // never take down the actual thread fetch underneath it.
-        try {
-          await env.DB.prepare("UPDATE thread_participants SET last_read_at = ? WHERE thread_id = ? AND user_id = ?")
-            .bind(Date.now(), threadId, user.id).run();
-        } catch (e) { console.error("Couldn't mark thread read:", e); }
+        // This fetch deliberately does NOT mark the thread read. It
+        // used to (Commit 47), as part of this same GET — which meant
+        // a fetch that failed, timed out, or landed on a screen the
+        // reader never actually looked at still erased the unread
+        // state, permanently: nothing anywhere could give it back.
+        // The cursor now advances only when the client posts
+        // mark-thread-read after the messages have loaded and rendered
+        // (see that action below), so a failed or abandoned open
+        // leaves last_read_at exactly where it was.
         const threadRow = await env.DB.prepare("SELECT id, kind, name FROM threads WHERE id = ?").bind(threadId).first();
         if (!threadRow) return errRes("That conversation no longer exists.", 404, "not_found", cors);
         // last_read_at rides along per participant so a DM can report
@@ -2769,6 +2768,90 @@ export async function onRequest(context) {
       if (!callerMember) return errRes("You're not part of that group.", 403, "not_member", cors);
       await env.DB.prepare("UPDATE threads SET name = ? WHERE id = ?").bind(name, threadId).run();
       return okRes({ thread_id: threadId, name }, 200, cors);
+    }
+
+    // Read cursor, client-acknowledged. The thread GET used to advance
+    // last_read_at as a side effect of fetching (Commit 47), so a load
+    // that failed, timed out, or was abandoned still marked the thread
+    // read — and nothing could restore the unread state afterwards.
+    // The cursor now moves only when the client posts this action after
+    // the messages have loaded and rendered, carrying `up_to`: the
+    // created_at of the newest message it actually put on screen. A
+    // reader can only vouch for what reached their screen, so the
+    // server honors exactly that claim — clamped to now (a skewed
+    // client clock can't mark the future read) and monotonic (the
+    // conditional WHERE means a late or replayed ack can never rewind
+    // the cursor, in particular it cannot undo a mark-thread-unread
+    // that landed after the ack was sent).
+    if (action === "mark-thread-read") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      const now = Date.now();
+      let upTo = Number(body.up_to);
+      if (!Number.isFinite(upTo) || upTo <= 0) upTo = now;
+      if (upTo > now) upTo = now;
+      await env.DB.prepare(
+        "UPDATE thread_participants SET last_read_at = ? WHERE thread_id = ? AND user_id = ? AND (last_read_at IS NULL OR last_read_at < ?)"
+      ).bind(upTo, threadId, user.id, upTo).run();
+      const row = await env.DB.prepare(
+        "SELECT last_read_at FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      return okRes({ thread_id: threadId, last_read_at: row ? toEpochMs(row.last_read_at) : upTo }, 200, cors);
+    }
+
+    // Mark as unread: rewind the caller's own cursor to just before
+    // the most recent message someone else sent, so that message (and
+    // the badge count over it) counts as unread again. There is no
+    // separate "unread" flag to keep in sync — unread is derived from
+    // this cursor everywhere it is shown (inbox list, counts, the
+    // divider on the next open), so rewinding the cursor is the whole
+    // operation and it cannot drift. Only the caller's participant row
+    // moves; everyone else's read receipts are untouched. A thread
+    // where nobody else has ever written has nothing to un-read: the
+    // cursor goes back to NULL (never opened) and the recomputed count
+    // honestly comes back 0 rather than a dot pretending otherwise.
+    if (action === "mark-thread-unread") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      const latestRow = await env.DB.prepare(
+        "SELECT MAX(created_at) AS latest FROM messages WHERE thread_id = ? AND sender_id != ?"
+      ).bind(threadId, user.id).first();
+      const latestIncoming = latestRow ? toEpochMs(latestRow.latest) : 0;
+      const cursor = latestIncoming > 0 ? latestIncoming - 1 : null;
+      if (cursor == null) {
+        await env.DB.prepare(
+          "UPDATE thread_participants SET last_read_at = NULL WHERE thread_id = ? AND user_id = ?"
+        ).bind(threadId, user.id).run();
+      } else {
+        await env.DB.prepare(
+          "UPDATE thread_participants SET last_read_at = ? WHERE thread_id = ? AND user_id = ?"
+        ).bind(cursor, threadId, user.id).run();
+      }
+      // Recompute exactly what the inbox list will show for this
+      // thread (same two derivations, same SQL counted count), so the
+      // client mirrors the server's truth instead of guessing whether
+      // the rewind took effect.
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM messages WHERE thread_id = ? AND sender_id != ? AND created_at > ?"
+      ).bind(threadId, user.id, cursor || 0).first();
+      const lastRow = await env.DB.prepare(
+        "SELECT sender_id, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
+      ).bind(threadId).first();
+      const unread = !!(lastRow && lastRow.sender_id !== user.id && toEpochMs(lastRow.created_at) > (cursor || 0));
+      return okRes({
+        thread_id: threadId,
+        last_read_at: cursor,
+        unread,
+        unread_count: countRow ? (countRow.n || 0) : 0,
+      }, 200, cors);
     }
 
     // Commit 48: block/unblock the other person in a DM. Storage is

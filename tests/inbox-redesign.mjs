@@ -194,5 +194,61 @@ await test("the notification privacy comment and log labels read clean", () => {
   assert.ok(!inboxSrc.includes("stopRecording(); }:"), "garbled log labels remain");
 });
 
+// ── Read state ordering (2026-10-13, third round) ─────────────────
+// The panel's top Inbox defect, verified twice: the thread GET marked
+// the thread read on the server as a side effect of opening it, so a
+// failed open erased the unread state permanently and no mark as
+// unread existed anywhere. These pins hold the corrected contract:
+// the GET is a pure read, the cursor moves only on a client
+// acknowledgement posted after a successful load and render, and an
+// explicit mark as unread rewinds it again.
+
+await test("opening a thread no longer marks it read on the server", () => {
+  const start = dataSrc.indexOf('if (resource === "thread")');
+  const end = dataSrc.indexOf('if (resource === "search-users")');
+  assert.ok(start > -1 && end > start, "thread GET handler not found");
+  const block = dataSrc.slice(start, end);
+  assert.ok(!block.includes("UPDATE thread_participants SET last_read_at"), "the thread GET still writes the read cursor as a side effect");
+  assert.ok(block.includes("readBefore"), "the pre-visit cursor no longer rides along for the divider");
+});
+
+await test("read advances only on a client acknowledgement, monotonic and clamped", () => {
+  const idx = dataSrc.indexOf('action === "mark-thread-read"');
+  assert.ok(idx > -1, "mark-thread-read action missing");
+  const block = dataSrc.slice(idx, idx + 2400);
+  assert.ok(block.includes("up_to"), "the ack ignores the client's rendered up to claim");
+  assert.ok(block.includes("last_read_at < ?"), "the ack is not monotonic — a late ack could rewind the cursor");
+  assert.ok(block.includes("upTo > now"), "the ack is not clamped — a skewed client clock could mark the future read");
+});
+
+await test("the client acknowledges only after a successful load, and mirrors only then", () => {
+  assert.ok(inboxSrc.includes('apiDataAction("mark-thread-read"'), "the client never acknowledges a read");
+  assert.ok(inboxSrc.includes("if (data && !data.error && thread)"), "the ack is not gated on the successful load path");
+  assert.ok(inboxSrc.includes("lastAckRef"), "nothing stops the poll re-posting the same claim every five seconds");
+  assert.ok(!inboxSrc.includes("The backend marks this thread read as part of that same GET"), "the old read on open claim is still in the client");
+});
+
+await test("mark as unread rewinds to the newest incoming message and reports real state", () => {
+  const idx = dataSrc.indexOf('action === "mark-thread-unread"');
+  assert.ok(idx > -1, "mark-thread-unread action missing");
+  const block = dataSrc.slice(idx, idx + 3400);
+  assert.ok(block.includes("MAX(created_at)"), "unread does not anchor to the newest incoming message");
+  assert.ok(block.includes("sender_id != ?"), "unread anchors to any message, including the reader's own");
+  assert.ok(block.includes("unread_count"), "the endpoint does not return the recomputed count");
+  assert.ok(block.includes('SELECT COUNT(*) AS n FROM messages'), "the returned count is not the SQL counted one the list uses");
+});
+
+await test("mark as unread is in the header menu for groups and DMs alike", () => {
+  assert.ok(inboxSrc.includes("Mark as unread"), "no mark as unread control in the UI");
+  assert.ok(inboxSrc.includes('apiDataAction("mark-thread-unread"'), "the control never reaches the endpoint");
+  assert.ok(inboxSrc.includes("unreadHoldRef"), "nothing stops this visit's acks from undoing a mark as unread");
+  // The menu that carries it must not sit behind the DM only gate its
+  // block and report items live under.
+  const menuIdx = inboxSrc.indexOf('aria-label="Conversation options"');
+  assert.ok(menuIdx > -1, "conversation options menu missing");
+  const before = inboxSrc.slice(Math.max(0, menuIdx - 1600), menuIdx);
+  assert.ok(!before.includes('activeThread.kind === "dm" && activeThread.otherId && ('), "the options menu is still gated to DMs only");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
