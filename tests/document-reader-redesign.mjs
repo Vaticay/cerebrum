@@ -70,5 +70,33 @@ await test("analysis prose is capped at a reading measure", () => {
   assert.ok(appSrc.includes(".cb-doc-analysis-card .cb-doc-reader { max-width: 72ch; }"), "measure cap missing");
 });
 
+await test("the sample action can no longer replace a loaded document", () => {
+  assert.ok(appSrc.includes("Inspect this document"), "loaded document CTA missing");
+});
+
+await test("progress names the synthesis phase instead of mislabeling it", () => {
+  assert.ok(appSrc.includes("Writing your summary…"), "reduce phase label missing");
+  assert.ok(appSrc.includes("(done, total, phase)"), "phase is dropped by the analyze handler");
+});
+
+await test("questions and comparisons get the backend's full time budget", () => {
+  const n = appSrc.split("timeoutMs: 120000").length - 1;
+  assert.ok(n >= 3, `expected at least 3 long timeout call sites, found ${n}`);
+});
+
+await test("compare refuses an oversized combined payload up front", () => {
+  assert.ok(appSrc.includes("240,000 characters combined"), "combined compare guard missing");
+});
+
+await test("the masthead names the summarizer in human terms", () => {
+  assert.ok(appSrc.includes("Summarized by AI"), "human model label missing");
+  assert.ok(appSrc.includes("Basic extract · the AI service was unreachable"), "extractive notice missing");
+  assert.ok(!appSrc.includes("Analyzed by {summary.model}"), "raw model id is printed again");
+});
+
+await test("the shelf shows every stored document, with dates", () => {
+  assert.ok(appSrc.includes("recentDocs.slice(0, 8)"), "shelf still hides stored documents");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

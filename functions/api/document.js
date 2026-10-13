@@ -329,7 +329,10 @@ const callOR = async (env, model, messages, maxTokens, { timeoutMs = 20000, idle
 const callCF = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
   if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding");
   const out = await Promise.race([
-    env.AI.run(model, { messages, max_tokens: Math.min(maxTokens, 2048) }),
+    // Capped at the summary contract's budget (SUMMARY_MAX_TOKENS,
+    // 2400): a lower cap here truncated four section summaries and the
+    // shortfall surfaced as missing sections in the reader.
+    env.AI.run(model, { messages, max_tokens: Math.min(maxTokens, 2400) }),
     new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), timeoutMs)),
   ]);
   const cleaned = cleanAIResponse((out && out.response) || "");

@@ -15870,7 +15870,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           // digestion plus the final synthesis); the client must not give
           // up first.
           timeoutMs: 120000,
-          onProgress: (done, total) => setAnalyzeProgress({ done, total }),
+          onProgress: (done, total, phase) => setAnalyzeProgress({ done, total, phase }),
           onQuota: onUsageChanged ? () => onUsageChanged() : undefined,
         }
       );
@@ -15935,6 +15935,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         { documentText: documentText.trim(), query: q, history: historyForRequest, stream: true },
         {
           signal: ctrl.signal,
+          // The backend budgets Q&A past 60s; the client's old fixed
+          // ceiling cut answers that were still streaming.
+          timeoutMs: 120000,
           onToken: (t) => {
             if (!t) return;
             if (qaGen !== docGen.current) return;
@@ -15986,6 +15989,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     // Same paste cap as analysis: two large documents must not sail into
     // an oversized request that the backend rejects with a 413.
     if (a.length > DOCMODE_MAX_TEXT || b.length > DOCMODE_MAX_TEXT) { setCompareError("Those documents are too long to compare. Try shorter excerpts under about 200,000 characters each."); return; }
+    // The backend caps the combined payload, not each document: two
+    // individually legal documents could silently lose the second
+    // one's tail server side. Refuse up front instead.
+    if (a.length + b.length > 240000) { setCompareError("Together these documents are too long to compare in one pass (about 240,000 characters combined). Trim one of them and try again."); return; }
     setCompareBusy(true);
     setCompareError("");
     setCompareResult({ streaming: true, text: "" });
@@ -16005,6 +16012,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         },
         {
           signal: ctrl.signal,
+          timeoutMs: 120000,
           onToken: (t) => {
             if (!t) return;
             if (cmpGen !== docGen.current) return;
@@ -16202,7 +16210,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           <div style={{ marginBottom: 16 }}>
             <div style={{ ...docEyebrow, marginBottom: 8 }}>Recent documents</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {recentDocs.slice(0, 5).map((d) => (
+              {recentDocs.slice(0, 8).map((d) => (
                 <div key={d.fp}
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.background = withAlpha(accent, 0.05); }}
                   onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line; e.currentTarget.style.background = "transparent"; }}
@@ -16213,6 +16221,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     <Icon name="document" size={15} style={{ color: P.faint, flexShrink: 0 }} />
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>{d.title}</span>
                     {d.words > 0 && <span style={{ flexShrink: 0, ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{d.words.toLocaleString()} words</span>}
+                    {d.updatedAt ? <span style={{ flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span> : null}
                   </button>
                   <UIButton P={P} variant="ghost" onClick={() => deleteRecent(d.fp, d.title)} aria-label={`Delete ${d.title}`}
                     title="Delete this document from this browser"
@@ -16371,7 +16380,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     )}
                   </div>
                   {identError && (
-                    <div style={{ padding: "4px 0 8px 94px", fontSize: FONT_SIZES.caption, color: statusBad(P), fontFamily: "var(--cb-font)" }}>{identError}</div>
+                    <div role="alert" style={{ padding: "4px 0 8px 94px", fontSize: FONT_SIZES.caption, color: statusBad(P), fontFamily: "var(--cb-font)" }}>{identError}</div>
                   )}
                   {identMeta && (
                     <div style={{ padding: "4px 0 8px 94px", fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
@@ -16494,7 +16503,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       Remove
                     </button>
                   </div>
-                  {docBError && <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{docBError}</div>}
+                  {docBError && <div role="alert" style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: STATUS.bad }}>{docBError}</div>}
                 </>
               )}
             </div>
@@ -16539,7 +16548,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               ))}
             </div>
             <div style={{ marginTop: 18 }}>
-              <UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => openDocument(SAMPLE_DOCUMENT)}>No paper handy? Try the sample</UIButton>
+              {!!docTextTrimmed && !docIdentOnly ? (
+                <UIButton P={P} accent={accent} at={at} variant="primary" onClick={analyze}>Inspect this document</UIButton>
+              ) : (
+                <UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => openDocument(SAMPLE_DOCUMENT)}>No paper handy? Try the sample</UIButton>
+              )}
             </div>
           </div>
         )}
@@ -16549,7 +16562,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             {analyzeProgress && analyzeProgress.total > 0 ? (
               <>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
-                  Reading section {Math.min(analyzeProgress.done + 1, analyzeProgress.total)} of {analyzeProgress.total}…
+                  {analyzeProgress.phase === "reduce"
+                    ? "Writing your summary…"
+                    : <>Reading section {Math.min(analyzeProgress.done + 1, analyzeProgress.total)} of {analyzeProgress.total}…</>}
                 </div>
                 <div style={{ height: 3, borderRadius: 6, background: P.line, overflow: "hidden" }}>
                   <div style={{
@@ -16586,7 +16601,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   <span style={{ ...TYPE.mono, fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{docStats.words.toLocaleString()} words</span>
                   <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
                   <span>~{docStats.mins} min read</span>
-                  {summary.model ? (<><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>Analyzed by {summary.model}</span></>) : null}
+                  {summary.model ? (<><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span title={summary.model}>{summary.model === "extractive" ? "Basic extract · the AI service was unreachable" : "Summarized by AI"}</span></>) : null}
                 </div>
               )}
               {/* The report's table of contents: every section the read
