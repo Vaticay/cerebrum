@@ -95,6 +95,10 @@ await test("assembles the full record from diag, funnel and sources", () => {
 });
 
 await test("converts the internal diag funnel to the public shape", () => {
+  // Corrected contract (2026-10-13 honesty pass): funnel cited is the
+  // count of cited flags on the source list. FULL_INPUT labels two
+  // sources cited and one uncited, so the old expectation of 3 pinned
+  // the defective whole list count.
   const rec = buildSearchRecord(FULL_INPUT);
   assert.deepEqual(rec.funnel, {
     gathered: 88,
@@ -102,7 +106,7 @@ await test("converts the internal diag funnel to the public shape", () => {
     excludedWeak: 49,
     excludedNonEnglish: 2,
     excludedRetracted: 0,
-    cited: 3,
+    cited: 2,
   });
 });
 
@@ -169,6 +173,41 @@ await test("sources are numbered in order with doi or url identifiers", () => {
 await test("cited flags follow the uncited labels on the final list", () => {
   const rec = buildSearchRecord(FULL_INPUT);
   assert.deepEqual(rec.sources.map((s) => s.cited), [true, true, false]);
+});
+
+await test("record funnel, coverage, and source flags use one cited definition", () => {
+  const sources = Array.from({ length: 12 }, (_, i) => ({
+    title: `Paper ${i + 1}`,
+    year: 2020 + (i % 3),
+    uncited: i >= 3,
+  }));
+  const input = {
+    funnel: { gathered: 95, deduped: 90, excludedWeak: 20, excludedNonEnglish: 0, excludedRetracted: 0, cited: 12 },
+    sources,
+    answer: "The answer cites the first three papers [1][2][3].",
+  };
+  const rec = buildSearchRecord(input);
+  const cov = buildCoverage(input);
+  assert.equal(rec.funnel.cited, 3, "record funnel counted the whole source list");
+  assert.equal(cov.cited, 3, "coverage cited disagrees with the source flags");
+  assert.equal(cov.furtherReading, 9);
+  assert.equal(rec.sources.filter((s) => s.cited).length, 3);
+});
+
+await test("markers that appear only in a Sources bibliography do not cite", () => {
+  const input = {
+    funnel: { gathered: 9, deduped: 9, excludedWeak: 0, excludedNonEnglish: 0, excludedRetracted: 0, cited: 3 },
+    sources: [{ title: "A", year: 2020 }, { title: "B", year: 2021 }, { title: "C", year: 2022 }],
+    answer:
+      "The first paper reports a detailed experimental result that supports this claim [1].\n\n" +
+      "### Sources\n\n- **A** [1]\n- **B** [2]\n- **C** [3]",
+  };
+  const rec = buildSearchRecord(input);
+  const cov = buildCoverage(input);
+  assert.deepEqual(rec.sources.map((s) => s.cited), [true, false, false]);
+  assert.equal(rec.funnel.cited, 1);
+  assert.equal(cov.cited, 1);
+  assert.equal(cov.furtherReading, 2);
 });
 
 await test("cited flags derive from the answer markers when labels are absent", () => {

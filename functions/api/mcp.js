@@ -155,7 +155,16 @@ function funnelOf(data) {
   const f = isObject(data && data._funnel) ? data._funnel : isObject(data && data._coverage) ? data._coverage : null;
   if (!f) return null;
   const gathered = typeof f.gathered === "number" && Number.isFinite(f.gathered) ? Math.max(0, Math.floor(f.gathered)) : null;
-  const cited = typeof f.cited === "number" && Number.isFinite(f.cited) ? Math.max(0, Math.floor(f.cited)) : null;
+  let cited = typeof f.cited === "number" && Number.isFinite(f.cited) ? Math.max(0, Math.floor(f.cited)) : null;
+  const sources = isObject(data) && Array.isArray(data.sources) ? data.sources
+    : isObject(data) && Array.isArray(data.papers) ? data.papers : null;
+  if (sources) {
+    cited = sources.filter((s) => {
+      if (!isObject(s)) return false;
+      if (typeof s.cited === "boolean") return s.cited;
+      return !s.uncited;
+    }).length;
+  }
   if (gathered === null && cited === null) return null;
   return { gathered, cited };
 }

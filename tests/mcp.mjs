@@ -148,6 +148,22 @@ await test("a fake runner returns shaped content with a numbered source list", a
   assert.ok(text.includes("cited 1 source"), "funnel cited number missing");
 });
 
+await test("coverage line derives cited from source flags when the funnel disagrees", () => {
+  const out = formatSearchToolResult({
+    answer: "A grounded answer [1].",
+    sources: [
+      { title: "Cited paper", year: 2024 },
+      { title: "Further reading one", year: 2023, uncited: true },
+      { title: "Further reading two", year: 2022, uncited: true },
+    ],
+    _funnel: { gathered: 95, deduped: 90, cited: 12 },
+  });
+  const text = out.content[0].text;
+  assert.ok(text.includes("gathered 95 records"), "gathered count missing");
+  assert.ok(text.includes("cited 1 source"), "flag derived cited count missing");
+  assert.ok(!text.includes("cited 12"), "whole list count leaked into the coverage line");
+});
+
 await test("missing query yields -32602", async () => {
   for (const args of [{}, { query: "   " }, { query: 42 }, undefined]) {
     const params = args === undefined ? { name: "search_literature" } : { name: "search_literature", arguments: args };

@@ -118,8 +118,8 @@ await test("no conflicts anywhere stays settled with 3+ sources", () => {
   const { conflicts, verdict } = reconcileDisagreementVerdict(detected, []);
   assert.equal(conflicts.length, 0);
   assert.equal(verdict.status, "settled");
-  assert.match(verdict.summary, /consistent/);
-  assert.match(verdict.summary, /3 sources/);
+  assert.match(verdict.summary, /No opposing findings were detected/);
+  assert.match(verdict.summary, /3 cited sources/);
 });
 
 await test("fewer than 3 sources still yields thin, not a false consensus", () => {

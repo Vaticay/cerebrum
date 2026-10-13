@@ -5843,6 +5843,85 @@ export function assessExtractionQuality(items, ctx = {}) {
   return out;
 }
 
+// ── Existence questions in deterministic answers (2026-10-13) ────
+// The AI prompt already carries the scoped negative rule. The
+// deterministic tiers need the same rule in code: a direct report in
+// a retrieved paper earns a yes; anything else earns only a statement
+// about the retrieved set, never a literature wide no.
+export function isExistenceQuestion(query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return false;
+  return (
+    /^(?:do|does|did|can|could|is|are|was|were)\b[^?]*\bever\b/.test(q) ||
+    /^has\s+(?:anyone|anybody|a researcher|any researcher|research)\b/.test(q) ||
+    /^have\s+(?:researchers|scientists|studies|papers)\b/.test(q) ||
+    /^(?:are|is)\s+there\b[^?]*\b(?:papers?|studies|research|evidence)\b/.test(q) ||
+    /\bany\s+(?:papers?|studies)\s+(?:that|which|on|about)\b/.test(q)
+  );
+}
+
+export function findExistenceSupport(items, query, queryAnalysis = null) {
+  if (!isExistenceQuestion(query)) return null;
+  const qTerms = significantQueryTerms(query);
+  if (qTerms.length === 0) return null;
+  let phrases = (queryAnalysis && queryAnalysis.keyPhrases) || [];
+  if (!phrases.length) {
+    try { phrases = analyzeQuery(query).keyPhrases || []; } catch { phrases = []; }
+  }
+  phrases = phrases
+    .map((p) => String(p || "").toLowerCase().trim())
+    .filter((p) => p.length >= 8);
+  const requiredHits = Math.min(4, Math.max(2, Math.ceil(qTerms.length / 2)));
+  let best = null;
+  const list = Array.isArray(items) ? items : [];
+  for (let pos = 0; pos < list.length; pos++) {
+    const it = list[pos] || {};
+    const p = it.p || it;
+    const idx = Number(it.idx) || pos + 1;
+    const rel = paperRelevance(p);
+    const claims = [];
+    if (Array.isArray(it.findings)) claims.push(...it.findings);
+    if (it.titleClaim) claims.push(it.titleClaim);
+    if (p && p.abstract) {
+      // A direct practice report can sit in a sentence the finding
+      // scorer did not rank, so the abstract itself is always scanned.
+      claims.push(...extractSentences(usableAbstract(p)).slice(0, 4));
+    }
+    if (claims.length === 0 && p && p.title) claims.push(p.title);
+    for (const rawClaim of claims) {
+      const claim = stripClaimTags(String(rawClaim || "")).trim();
+      if (claim.length < 25) continue;
+      const low = claim.toLowerCase();
+      const singular = (w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w);
+      const claimTokens = new Set(low.split(/[^a-z0-9]+/).filter(Boolean).map(singular));
+      const hits = qTerms.filter((term) => claimTokens.has(singular(term)));
+      const phraseHits = phrases.filter((phrase) => low.includes(phrase));
+      const direct =
+        (phraseHits.length > 0 && hits.length >= 2) ||
+        hits.length >= requiredHits ||
+        (rel >= EXTRACT_STRONG_RELEVANCE && hits.length >= 3);
+      if (!direct) continue;
+      const score = hits.length * 2 + phraseHits.length * 5 + (rel >= EXTRACT_STRONG_RELEVANCE ? 2 : 0);
+      if (!best || score > best.score) {
+        best = { idx, claim, score, hits, phraseHits, encyclopedia: isEncyclopediaSource(p) };
+      }
+    }
+  }
+  return best;
+}
+
+function existenceAnswerLine(support, pluralNoun = "papers") {
+  if (support) {
+    let claim = String(support.claim || "").trim();
+    if (!/[.!?]$/.test(claim)) claim += ".";
+    const noun = support.encyclopedia ? "source" : "paper";
+    return "Yes. At least one retrieved " + noun + " reports this practice directly: " +
+      claim + " [" + support.idx + "]";
+  }
+  const plural = pluralNoun.endsWith("s") ? pluralNoun : pluralNoun + "s";
+  return "None of the retrieved " + plural + " report this practice directly.";
+}
+
 // The honest answer for a failed honesty gate: no synthesized claims, no
 // "short answer" . the closest papers listed for the reader, the reasons
 // stated plainly, and reformulations to try. Section headings deliberately
@@ -5854,12 +5933,20 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
   const hasRef = (pool || []).some((it) => { const p = (it && it.p) || it || {}; return p.type === "Reference" || /wikipedia/i.test(p.journal || "") || /wikipedia/i.test(p.url || ""); });
   const unitWord = hasRef ? (n === 1 ? "source" : "sources") : (n === 1 ? "paper" : "papers");
   let md = "## Couldn't find a direct answer\n\n";
+  const existenceSupport = isExistenceQuestion(q)
+    ? findExistenceSupport(items, q, ctx && ctx.queryAnalysis)
+    : null;
+  if (isExistenceQuestion(q)) {
+    md += existenceAnswerLine(existenceSupport, unitWord) + " " +
+      "The evidence was too thin to build a fuller summary, so the closest " +
+      unitWord + " are listed below.\n";
+  }
   // CONSTRAINT FAILURE LEAD (2026-10-09): when the intelligence layer found
   // that no paper satisfies the query's key constraints, say so directly
   // instead of the generic "couldn't build a reliable summary". The user
   // asked about X; the papers are about Y. Name both.
   const cc = quality && quality.constraintCheck;
-  if (cc && cc.keyPhrases && cc.keyPhrases.length > 0 && cc.onTopic === 0) {
+  if (!isExistenceQuestion(q) && cc && cc.keyPhrases && cc.keyPhrases.length > 0 && cc.onTopic === 0) {
     const phraseList = cc.keyPhrases.map((p) => "\"" + p + "\"").join(" and ");
     md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
       ", but none of them are actually about " + phraseList + ". ";
@@ -5869,7 +5956,7 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
     }
     md += "So instead of answering a different question confidently, here are the closest " +
       unitWord + " to read directly.\n";
-  } else {
+  } else if (!isExistenceQuestion(q)) {
     md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
       ", but couldn't build a reliable summary from them. " +
       "So instead of stitching together sentences that don't actually answer your question, " +
@@ -5982,6 +6069,10 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       const n = encItems.length;
       const srcWord = n === 1 ? "background source" : "background sources";
       let md = "## Background\n\n";
+      if (isExistenceQuestion(q)) {
+        const support = findExistenceSupport(encItems, q, ctx && ctx.queryAnalysis);
+        md += existenceAnswerLine(support, "sources") + "\n\n";
+      }
       md += "Cerebrum found " + n + " " + srcWord + (q ? " for \"" + q + "\"" : "") +
         ". No primary research turned up, so here is what the reference overviews say. " +
         "This is background, not research findings.\n\n";
@@ -6072,6 +6163,10 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
     if (picked.length > 0) {
       const n = paperItems.length;
       let md = "## What the sources say\n\n";
+      if (isExistenceQuestion(q)) {
+        const support = findExistenceSupport(paperItems, q, ctx && ctx.queryAnalysis);
+        md += existenceAnswerLine(support, "papers") + "\n\n";
+      }
       md += n + " of the papers above had abstracts detailed enough to draw findings from directly" + (q ? " for \"" + q + "\"" : "") + ". " +
         "The sentences below are the ones that speak to the question most closely.\n\n";
       for (const p of picked) {
@@ -6199,7 +6294,7 @@ export function buildDefinitionAnswer(term, papers, ctx = {}) {
   // Confidence + ambiguity instruments, same as every other answer path.
   try {
     const cited = defs.map((d) => d.paper);
-    const conf = buildConfidenceLine(cited, null);
+    const conf = buildConfidenceLine(cited, null, { extractive: true, tier: "definition", factCheckChecked: false });
     if (conf && conf.line) md += "\n**Evidence Strength** " + conf.line + "\n";
   } catch { /* instruments are best-effort */ }
   if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
@@ -6389,6 +6484,10 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
 
     const unitWord = pool.length === 1 ? "source" : "sources";
     let md = "## Executive Summary\n\n";
+    if (isExistenceQuestion(ctx && ctx.query)) {
+      const support = findExistenceSupport(items, ctx.query, ctx.queryAnalysis);
+      md += existenceAnswerLine(support, "papers") + "\n\n";
+    }
     // The TLDR lede: 2–3 plain sentences, each carrying its own citation .
     // no meta-framing ("Across the N sources below, the clearest reported
     // findings are:"), no citation soup, no extraction tags. The old lede
@@ -6590,7 +6689,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       sourcesQueried: ctx.sourcesQueried || null,
       relevanceGatedOut: ctx.relevanceGatedOut || 0,
     });
-    const conf = buildConfidenceLine(citedPapers, dVerdict);
+    const conf = buildConfidenceLine(citedPapers, dVerdict, { extractive: true, tier: "research", factCheckChecked: false });
     md += "\n## How solid is this?\n\n" + conf.line + "\n";
     // The 8-cite cap means relevant papers can go uncited: say so plainly,
     // with the exact counts, so "withheld" (relevance bar) is never confused
@@ -6873,18 +6972,21 @@ export function extractPaperClaims(paper, maxClaims = 3, briefTexts = null) {
 // idxA, idxB }) plus a computed verdict that replaces the old default text:
 //
 //   divided . at least one genuine opposing pair surfaced.
-//   thin    . fewer than 3 sources: no divide surfaced, but that is thin
-//             evidence, not consensus. Computed, not a shrug.
-//   settled . 3+ sources, no opposing pairs: reads as consistent.
+//   thin    . fewer than 3 cited sources: no divide surfaced, but that
+//             is thin evidence, not consensus. Computed, not a shrug.
+//   settled . 3+ cited sources, no opposing pairs detected. The
+//             summary says exactly that; it never claims the cited
+//             sources all agree. (2026-10-13 honesty pass: the count
+//             is the cited set, not the screened evidence set.)
 //
 // The verdict is ALWAYS computed from the FINAL conflict list the
 // Flashpoints panel renders (source-level pairs + the text-mining recall
 // pass) . never from the source-level pass alone. A verdict computed from
 // a partial list is how "1 conflicting claim pair" once sat next to "No
 // opposing findings surfaced": both instruments must read the same list.
-export function buildDisagreementVerdict(conflicts, nSources) {
+export function buildDisagreementVerdict(conflicts, nCitedSources) {
   const list = Array.isArray(conflicts) ? conflicts : [];
-  const n = nSources || 0;
+  const n = nCitedSources || 0;
   if (list.length > 0) {
     const topic = list[0] && list[0].topic ? " (" + list[0].topic + ")" : "";
     const sharpest = list[0] && list[0].topic ? list[0].topic : "the pair below";
@@ -6892,21 +6994,23 @@ export function buildDisagreementVerdict(conflicts, nSources) {
       status: "divided",
       conflictCount: list.length,
       summary: list.length === 1
-        ? "The sources genuinely split on one point" + topic + ". Both sides are cited below."
-        : "The sources genuinely split on " + list.length + " points . the sharpest is " + sharpest + ". Both sides are cited below.",
+        ? "The cited sources genuinely split on one point" + topic + ". Both sides are cited below."
+        : "The cited sources genuinely split on " + list.length + " points . the sharpest is " + sharpest + ". Both sides are cited below.",
     };
   }
   if (n < 3) {
     return {
       status: "thin",
       conflictCount: 0,
-      summary: "No divide surfaced, but with only " + n + " source" + (n === 1 ? "" : "s") + " that is thin evidence . not a consensus.",
+      summary: "No opposing findings were detected, but only " + n + " cited source" + (n === 1 ? "" : "s") +
+        " could be checked. That is thin evidence, not a consensus.",
     };
   }
   return {
     status: "settled",
     conflictCount: 0,
-    summary: "No opposing findings surfaced across the " + n + " sources. As cited, the literature reads as consistent on this question.",
+    summary: "No opposing findings were detected among the " + n + " cited sources checked. " +
+      "That absence does not show that every cited source agrees.",
   };
 }
 
@@ -7045,14 +7149,26 @@ export function detectSourceConflicts(papers, briefClaims = null) {
 export function verifyExtractiveAlignment(answer, papers) {
   const text = String(answer || "");
   const n = (papers || []).length;
-  const CHECKED_SECTIONS = new Set(["the short answer", "what the research shows", "where researchers disagree"]);
+  // Check the sections each deterministic tier actually emits. The
+  // research tier leads with Executive Summary, the limited tier uses
+  // What the sources say, and the background tier uses Background.
+  // Any later heading, including the appended Sources list, closes the
+  // checked section so bibliography lines are never treated as claims.
+  const CHECKED_SECTIONS = new Set([
+    "the short answer",
+    "executive summary",
+    "what the research shows",
+    "what the sources say",
+    "background",
+    "where researchers disagree",
+  ]);
   let section = "";
   const claims = [];
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
-    const h2 = line.match(/^##\s+(.+?)\s*$/);
-    if (h2) { section = h2[1].toLowerCase(); continue; }
-    if (!CHECKED_SECTIONS.has(section)) continue;
+    const heading = line.match(/^#{2,6}\s+(.+?)\s*$/);
+    if (heading) { section = heading[1].toLowerCase(); continue; }
+    if (!CHECKED_SECTIONS.has(section) && !/^what is .+\?$/.test(section)) continue;
     const s = line.replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim();
     if (s.length < 40) continue;
     const cites = [...s.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]));
@@ -7372,9 +7488,9 @@ export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut })
 // human-readable list of the factors behind it. Levels stay
 // strong ≥75 / moderate 50–74 / thin <50. The `line` copy is kept short
 // for the UI; `factors` explains the number for anyone who asks "why".
-export function buildConfidenceLine(papers, verdict) {
+export function buildConfidenceLine(papers, verdict, context = {}) {
   const n = (papers || []).length;
-  if (n === 0) return { level: "thin", score: 0, line: "No evidence to check, so no confidence score.", factors: [] };
+  if (n === 0) return { level: "thin", score: 0, line: "No cited evidence to check, so no confidence score.", factors: [] };
   const status = verdict && verdict.status;
   const factors = [];
   let score = 0;
@@ -7412,7 +7528,7 @@ export function buildConfidenceLine(papers, verdict) {
   }
   const qualPts = Math.round(15 * (qSum / Math.max(1, n)));
   score += qualPts;
-  factors.push("citation quality (peer-reviewed weight) (+" + qualPts + ")");
+  factors.push("citation quality (peer reviewed weight) (+" + qualPts + ")");
 
   // 5. Recency (0-10): stale evidence is weaker evidence.
   const years = (papers || []).map((p) => Number(p.year)).filter((y) => y > 1900 && y <= new Date().getFullYear() + 1);
@@ -7431,7 +7547,7 @@ export function buildConfidenceLine(papers, verdict) {
   const withAbs = (papers || []).filter((p) => usableAbstract(p)).length;
   const absPts = Math.round(10 * (withAbs / Math.max(1, n)));
   score += absPts;
-  factors.push(withAbs + "/" + n + " sources with accessible abstracts (+" + absPts + ")");
+  factors.push(withAbs + "/" + n + " cited sources with accessible abstracts (+" + absPts + ")");
 
   // 7. Semantic agreement (0-10): when the reranker scored papers, high
   // mean semantic similarity to the query means the set is on-topic.
@@ -7446,44 +7562,71 @@ export function buildConfidenceLine(papers, verdict) {
 
   score = Math.max(0, Math.min(100, Math.round(score)));
 
-  // Hard caps preserve the old honesty guarantees: divided evidence can
-  // never read as "strong"; tangential sources can never read as solid.
-  let level;
-  if (status === "divided") {
-    level = "moderate";
-    score = Math.min(score, 70);
-  } else if (avgRelevance < 40) {
-    level = "thin";
-    score = Math.min(score, 45);
-  } else if (score >= 60) {
-    level = "strong";
-  } else if (score >= 50) {
-    level = "moderate";
-  } else {
-    level = "thin";
+  // Hard caps preserve the honesty guarantees. Divided evidence can
+  // never read as strong, tangential cited papers can never read as
+  // solid, and a degraded or deterministic answer can never borrow the
+  // certainty of a fully checked AI answer. The caps are bands, not a
+  // claim that the underlying heuristic became a measurement.
+  let cap = 100;
+  const capReasons = [];
+  const applyCap = (limit, reason) => {
+    if (limit < cap) cap = limit;
+    if (reason && !capReasons.includes(reason)) capReasons.push(reason);
+  };
+  if (status === "divided") applyCap(70, null);
+  if (avgRelevance < 40) applyCap(45, "the cited papers have low mean relevance");
+  const tier = String((context && context.tier) || "");
+  if (tier === "limited" || tier === "weak" || tier === "background") {
+    applyCap(45, "the answer came from a limited fallback tier");
+  } else if (context && context.extractive) {
+    applyCap(59, "the answer was assembled from source excerpts");
+  }
+  if (context && context.degraded) {
+    applyCap(59, "part of the answer pipeline degraded");
+  }
+  if (context && context.factCheckChecked === false) {
+    applyCap(59, "fact checking did not check any claims");
+  }
+  if (cap < 100) {
+    score = Math.min(score, cap);
+    for (const reason of capReasons) factors.push("confidence capped: " + reason);
   }
 
-  // The user-facing line states the level and the real basis (source count,
-  // agreement) with NO pseudo-precise number. A 0-100 score built from
-  // arbitrary point allocations is not a measurement and must never be
-  // presented as one. The numeric score stays in the return value for
-  // internal calibration only.
-  const line =
-    level === "strong"
-      ? (n === 1
-          ? "Strong confidence: 1 source backs this answer."
-          : "Strong confidence: " + n + " sources point the same way.")
-      : level === "moderate"
-        ? "Moderate confidence: " + n + " sources agree, but " +
-          (status === "divided"
-            ? "they split on " + (verdict.conflictCount || "some") + " point" + (verdict.conflictCount === 1 ? "" : "s") + ". Treat conclusions as provisional."
-            : "the evidence base is narrow. Treat this as a starting point.")
-        : "Low confidence: " +
-          (n <= 2
-            ? "only " + n + " source" + (n === 1 ? "" : "s") + " cleared the bar. Treat this answer as provisional."
-            : "the sources are only tangentially related to this question. Treat this answer as provisional.");
+  let level;
+  if (cap <= 45 || score < 50) level = "thin";
+  else if (cap <= 59 || status === "divided" || score < 60) level = "moderate";
+  else level = "strong";
 
-  return { level, score, line, factors };
+  // The user facing line states the level and the real basis with no
+  // pseudo precise number. A heuristic score built from point
+  // allocations is not a measurement and must never be presented as
+  // one. The numeric score stays in the return value for internal
+  // calibration only.
+  const citedWord = n === 1 ? "cited source" : "cited sources";
+  let line;
+  if (level === "strong") {
+    line = "Strong confidence: " + n + " " + citedWord + " support this answer.";
+  } else if (level === "moderate") {
+    line = status === "divided"
+      ? "Moderate confidence: " + n + " " + citedWord + " are cited, and they split on " +
+        (verdict.conflictCount || "some") + " point" + (verdict.conflictCount === 1 ? "" : "s") +
+        ". Treat conclusions as provisional."
+      : "Moderate confidence: this answer rests on " + n + " " + citedWord +
+        ". No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim.";
+  } else {
+    line = n <= 2
+      ? "Low confidence: only " + n + " " + citedWord + " support this answer. Treat this answer as provisional."
+      : avgRelevance < 40
+        ? "Low confidence: the " + n + " " + citedWord +
+          " are only tangentially related to this question. Treat this answer as provisional."
+        : "Low confidence: this answer rests on " + n + " " + citedWord +
+          ", and the available checks do not support a stronger claim. Treat this answer as provisional.";
+  }
+  if (capReasons.length > 0 && level !== "strong") {
+    line += " Confidence is capped because " + capReasons.join(" and ") + ".";
+  }
+
+  return { level, score, line, factors, cap: cap < 100 ? cap : null, capReasons };
 }
 
 // ── CONFIDENCE CALIBRATION (2026-10-07) ───────────────────────────
@@ -7635,10 +7778,28 @@ function recordDoiOf(entry) {
   return null;
 }
 
+/* The answer body ends where an appended bibliography begins. The
+ * limited and background fallbacks append a Sources list whose [N]
+ * markers identify the entries; they do not cite claims. The older
+ * Related papers append has the same status. Every cited flag
+ * derivation shares this boundary so a bibliography marker can never
+ * promote an uncited paper. */
+function answerBodyBeforeBibliography(answer) {
+  let text = String(answer || "");
+  let cut = text.length;
+  const relIdx = text.indexOf("Related papers found");
+  if (relIdx >= 0) cut = Math.min(cut, relIdx);
+  const sourcesHeading = text.match(/(^|\n)\s*#{2,6}\s+Sources\s*(?:\n|$)/i);
+  if (sourcesHeading && typeof sourcesHeading.index === "number") {
+    cut = Math.min(cut, sourcesHeading.index + (sourcesHeading[1] ? sourcesHeading[1].length : 0));
+  }
+  return text.slice(0, cut);
+}
+
 /* Per source cited flags, in list order. An explicit `cited` boolean
  * wins, then the `uncited` flag labelUncitedSources stamps, then the
  * answer's own citation markers (same rule as labelUncitedSources,
- * including ignoring the "Related papers found" append). With none of
+ * including ignoring appended bibliography lists). With none of
  * those signals the entry is part of the evidence list the answer was
  * built from, so it counts as cited. */
 function recordCitedFlags(sources, answer) {
@@ -7646,9 +7807,7 @@ function recordCitedFlags(sources, answer) {
   let citedSet = null;
   if (typeof answer === "string" && answer) {
     citedSet = new Set();
-    let text = answer;
-    const relIdx = text.indexOf("Related papers found");
-    if (relIdx >= 0) text = text.slice(0, relIdx);
+    const text = answerBodyBeforeBibliography(answer);
     const re = /\[(\d+)\]/g;
     let m;
     while ((m = re.exec(text)) !== null) citedSet.add(Number(m[1]));
@@ -7773,6 +7932,13 @@ export function buildSearchRecord(input) {
     const synthesisModel = typeof modelRaw === "string" && modelRaw ? modelRaw : null;
 
     const flags = recordCitedFlags(sources || [], input.answer);
+    // One definition of cited everywhere: when a source list exists,
+    // the funnel count is the number of entries whose cited flag is
+    // true. An upstream funnel number cannot outrank the flags printed
+    // in this same record.
+    const recordFunnel = funnel && Array.isArray(sources)
+      ? { ...funnel, cited: flags.filter(Boolean).length }
+      : funnel;
     const recordSources = (sources || []).map((s, i) => {
       const entry = s && typeof s === "object" ? s : {};
       const title = String(entry.title || "").trim() || "Untitled";
@@ -7795,7 +7961,7 @@ export function buildSearchRecord(input) {
       conceptQueries,
       llmExpansion,
       databases,
-      funnel,
+      funnel: recordFunnel,
       synthesisModel,
       sources: recordSources,
     };
@@ -8318,11 +8484,9 @@ export function labelUncitedSources(sources, answer) {
   const cited = new Set();
   const re = /\[(\d+)\]/g;
   let m;
-  // The "Related papers found" append is explicitly labeled further reading,
-  // not citations . its [N] markers must not count as citing.
-  let text = String(answer || "");
-  const relIdx = text.indexOf("Related papers found");
-  if (relIdx >= 0) text = text.slice(0, relIdx);
+  // Appended bibliography lists are further reading, not citations.
+  // Their [N] markers identify entries and must not count as citing.
+  const text = answerBodyBeforeBibliography(answer);
   while ((m = re.exec(text)) !== null) cited.add(Number(m[1]));
   return (sources || []).map((s, i) => {
     if (cited.has(i + 1)) return s;
@@ -16421,7 +16585,16 @@ async function runSearchPipeline(pctx) {
           };
         }
       }
-      stageHealth.push({ name: "fact-check", ok: true, ms: 0 });
+      stageHealth.push({
+        name: "fact-check",
+        ok: !!(
+          factCheckResult &&
+          Array.isArray(factCheckResult.claims) &&
+          factCheckResult.claims.length > 0 &&
+          factCheckResult.checked !== false
+        ),
+        ms: 0,
+      });
     }
 
     // NEXT-GEN disagreement intelligence: source-level conflict detection
@@ -16429,20 +16602,48 @@ async function runSearchPipeline(pctx) {
     // independent of the generated prose. The old answer-text mining runs
     // only as a secondary recall pass when the source-level pass finds
     // nothing. The verdict (divided/settled/thin) is always computed.
-    const detected = detectSourceConflicts(sourceList, briefClaims);
+    // HONESTY PASS (2026-10-13): both instruments below read the cited
+    // set only. The labels are computed from the final answer first;
+    // screened papers the answer never cites cannot make a question
+    // look settled and cannot inflate the confidence denominator.
+    const citedLabels = labelUncitedSources(sourceList, answer);
+    const citedIndices = [];
+    citedLabels.forEach((s, i) => { if (!s.uncited) citedIndices.push(i); });
+    const conflictPool = useEvidence ? evidencePapers : sourceList;
+    const citedConflictPapers = citedIndices
+      .map((i) => conflictPool[i])
+      .filter(Boolean);
+    const citedEvidencePapers = useEvidence ? citedConflictPapers : [];
+    const citedBriefClaims = [];
+    for (const bc of (briefClaims || [])) {
+      if (!bc || !bc.idx) continue;
+      const pos = citedIndices.indexOf(bc.idx - 1);
+      if (pos >= 0) citedBriefClaims.push({ ...bc, idx: pos + 1 });
+    }
+    const detectedSubset = detectSourceConflicts(citedConflictPapers, citedBriefClaims);
     // SEMANTIC CONFLICTS (2026-10-07): second pass over same-topic pairs
     // the keyword pass missed (paraphrased disagreements). Merged into the
     // detected set before the verdict is computed, so the verdict reflects
     // all found conflicts. Zero new embedding spend (cached vectors only).
     try {
-      const semConflicts = await detectSemanticConflicts(sourceList, env, detected.conflicts);
+      const semConflicts = await detectSemanticConflicts(citedConflictPapers, env, detectedSubset.conflicts);
       if (semConflicts.length > 0) {
-        detected.conflicts.push(...semConflicts);
+        detectedSubset.conflicts.push(...semConflicts);
         // Recompute the verdict with the merged conflict list.
-        detected.verdict = buildDisagreementVerdict(detected.conflicts, detected.sourceCount);
+        detectedSubset.verdict = buildDisagreementVerdict(detectedSubset.conflicts, detectedSubset.sourceCount);
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js semantic conflicts:", cbErr); }
-    const textMined = detected.conflicts.length === 0 ? extractLiteratureConflicts(answer, sourceList) : [];
+    const detected = {
+      ...detectedSubset,
+      conflicts: detectedSubset.conflicts.map((c) => ({
+        ...c,
+        idxA: citedIndices[c.idxA - 1],
+        idxB: citedIndices[c.idxB - 1],
+      })),
+    };
+    const textMined = detected.conflicts.length === 0
+      ? extractLiteratureConflicts(answerBodyBeforeBibliography(answer), sourceList)
+      : [];
     // The verdict is computed from the FINAL list the Flashpoints panel
     // renders (source-level pairs + the recall pass) . computing it from
     // the source-level pass alone is how "1 conflicting claim pair" once
@@ -16460,7 +16661,17 @@ async function runSearchPipeline(pctx) {
     // integrity flags discount it. The calibration is logged to D1 so the
     // curve can be fitted from production data.
     let confidence = (useEvidence && evidencePapers.length > 0)
-      ? buildConfidenceLine(evidencePapers, disagreementVerdict)
+      ? buildConfidenceLine(citedEvidencePapers, disagreementVerdict, {
+          degraded: !!extractiveOK || stageHealth.some((s) => !s.ok),
+          extractive: !!extractiveOK,
+          tier: answerTier,
+          factCheckChecked: !!(
+            factCheckResult &&
+            Array.isArray(factCheckResult.claims) &&
+            factCheckResult.claims.length > 0 &&
+            factCheckResult.checked !== false
+          ),
+        })
       : null;
     if (confidence) {
       try {
@@ -16565,7 +16776,7 @@ async function runSearchPipeline(pctx) {
         excludedWeak: Math.max(0, deduped - ranked),
         excludedNonEnglish: n(f.nonEnglishInner) + n(excludedNonEnglishOuter),
         excludedRetracted: 0,
-        cited: n(sourceList ? sourceList.length : 0),
+        cited: labeledSources.filter((s) => s && !s.uncited).length,
       };
     })();
     const coverageDisclosure = buildCoverage({

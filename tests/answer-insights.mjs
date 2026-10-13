@@ -535,5 +535,169 @@ await test("fact-check status beats the body-citation default", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════
+group("Honesty pass — cited denominators, fallback rules, and fact check coverage");
+
+const backend = await import(join(root, "functions/api/search.js"));
+const {
+  buildConfidenceLine: backendConfidence,
+  buildDisagreementVerdict: backendVerdict,
+  buildExtractiveSynthesis: backendExtractive,
+  labelUncitedSources: backendLabelUncited,
+  verifyExtractiveAlignment: backendVerifyAlignment,
+} = backend;
+
+const strongCitedPapers = Array.from({ length: 12 }, (_, i) => ({
+  title: `Cited paper ${i + 1}`,
+  abstract: "A detailed abstract reports a measured result with enough supporting detail for the answer.",
+  year: 2025,
+  relevance: 90,
+  type: "Journal",
+  semanticScore: 80,
+}));
+
+await test("disagreement verdict counts only the cited set it was given", () => {
+  const settled = backendVerdict([], 3);
+  assert.equal(settled.status, "settled");
+  assert.match(settled.summary, /3 cited sources checked/);
+  assert.match(settled.summary, /does not show that every cited source agrees/);
+  const thin = backendVerdict([], 2);
+  assert.equal(thin.status, "thin");
+  assert.match(thin.summary, /only 2 cited sources could be checked/);
+  assert.match(thin.summary, /not a consensus/);
+});
+
+await test("confidence counts cited papers and caps degraded or unchecked answers", () => {
+  const clean = backendConfidence(strongCitedPapers, { status: "settled" }, { factCheckChecked: true });
+  assert.equal(clean.level, "strong");
+  assert.equal(clean.score, 100);
+  assert.match(clean.line, /12 cited sources support this answer/);
+
+  const degraded = backendConfidence(strongCitedPapers, { status: "settled" }, { degraded: true, factCheckChecked: true });
+  assert.ok(degraded.score <= 59, `degraded answer was not capped: ${degraded.score}`);
+  assert.equal(degraded.level, "moderate");
+  assert.match(degraded.line, /Confidence is capped/);
+
+  const unchecked = backendConfidence(strongCitedPapers, { status: "settled" }, { factCheckChecked: false });
+  assert.ok(unchecked.score <= 59, `unchecked answer was not capped: ${unchecked.score}`);
+  assert.notEqual(unchecked.level, "strong");
+
+  const limited = backendConfidence(strongCitedPapers, { status: "settled" }, { tier: "limited", factCheckChecked: true });
+  assert.ok(limited.score <= 45, `limited answer was not capped: ${limited.score}`);
+  assert.equal(limited.level, "thin");
+
+  const lowRelevance = backendConfidence(
+    strongCitedPapers.map((p) => ({ ...p, relevance: 30 })),
+    { status: "settled" },
+    { factCheckChecked: true }
+  );
+  assert.ok(lowRelevance.score <= 45, `low relevance answer was not capped: ${lowRelevance.score}`);
+  assert.equal(lowRelevance.level, "thin");
+});
+
+await test("handler wires verdict and confidence to the cited subset", () => {
+  assert.match(searchSrc, /detectSourceConflicts\(citedConflictPapers, citedBriefClaims\)/,
+    "disagreement detection does not read the cited subset");
+  assert.match(searchSrc, /buildConfidenceLine\(citedEvidencePapers, disagreementVerdict/,
+    "confidence does not read the cited subset");
+  assert.match(searchSrc, /cited: labeledSources\.filter\(\(s\) => s && !s\.uncited\)\.length/,
+    "handler funnel cited does not count cited flags");
+});
+
+await test("bibliography markers in a fallback Sources list do not cite papers", () => {
+  const out = backendLabelUncited(
+    [{ title: "A" }, { title: "B" }, { title: "C" }],
+    "The first paper reports a detailed experimental result that supports this claim [1].\n\n" +
+    "### Sources\n\n- **A** [1]\n- **B** [2]\n- **C** [3]"
+  );
+  assert.equal(out[0].uncited, undefined);
+  assert.equal(out[1].uncited, true);
+  assert.equal(out[2].uncited, true);
+});
+
+await test("deterministic existence rule answers yes from a direct retrieved report", () => {
+  const md = backendExtractive(
+    [{
+      title: "Digestive enzyme activity in whole gut homogenates of adult cockroaches",
+      abstract:
+        "Researchers ground whole insect guts and assayed digestive enzyme activity in the resulting homogenate without purifying the enzymes. " +
+        "Activity remained measurable in the crude preparation across repeated samples.",
+      year: 2023,
+      journal: "J Test",
+      relevance: 90,
+    }],
+    null,
+    { query: "Do researchers ever just grind up insect intestines and test the juice for enzymes?" }
+  );
+  assert.ok(md, "expected a deterministic answer");
+  assert.match(md, /Yes\. At least one retrieved paper reports this practice directly/);
+  assert.match(md, /\[1\]/);
+});
+
+await test("deterministic existence rule scopes a negative to the retrieved papers", () => {
+  const md = backendExtractive(
+    [
+      {
+        title: "Insect gut microbiome survey",
+        abstract: "Researchers sequenced bacterial communities from insect intestines and compared taxa across several diets and host species.",
+        year: 2022,
+        journal: "J Test",
+        relevance: 35,
+      },
+      {
+        title: "Purified enzyme kinetics in vitro",
+        abstract: "Purified enzymes were isolated from insect tissue and their kinetics were measured in vitro under controlled conditions.",
+        year: 2021,
+        journal: "J Test",
+        relevance: 35,
+      },
+    ],
+    null,
+    { query: "Do researchers ever just grind up insect intestines and test the juice for enzymes?" }
+  );
+  assert.ok(md, "expected a deterministic answer");
+  assert.match(md, /None of the retrieved papers report this practice directly/);
+  assert.doesNotMatch(md, /No researchers ever|No studies exist|does not exist in the literature/);
+});
+
+await test("fact check alignment covers the limited fallback section and stops at Sources", () => {
+  const paper = {
+    title: "Desiccation cracking in clay soils",
+    abstract: "Desiccation cracking was observed in clay soil samples under controlled drying conditions.",
+    year: 2023,
+  };
+  const res = backendVerifyAlignment(
+    "## What the sources say\n\n" +
+    "Desiccation cracking was observed in clay soil samples under controlled drying conditions [1].\n\n" +
+    "### Sources\n\n- **Desiccation cracking in clay soils** [1]",
+    [paper]
+  );
+  assert.equal(res.checked, true);
+  assert.equal(res.claims.length, 1, "bibliography line was treated as a second claim");
+  assert.equal(res.claims[0].status, "supported");
+});
+
+await test("fact check alignment covers Executive Summary and reports zero checked claims honestly", () => {
+  const paper = {
+    title: "Desiccation cracking in clay soils",
+    abstract: "Desiccation cracking was observed in clay soil samples under controlled drying conditions.",
+    year: 2023,
+  };
+  const checked = backendVerifyAlignment(
+    "## Executive Summary\n\nDesiccation cracking was observed in clay soil samples under controlled drying conditions [1].",
+    [paper]
+  );
+  assert.equal(checked.checked, true);
+  assert.equal(checked.claims.length, 1);
+  const empty = backendVerifyAlignment(
+    "## What the sources say\n\nA short paragraph with no citation marker at all.",
+    [paper]
+  );
+  assert.equal(empty.checked, false);
+  assert.match(empty.summary, /No cited claims were found to check/);
+  assert.doesNotMatch(searchSrc, /name: "fact-check", ok: true/,
+    "fact check stage can still report healthy without checked claims");
+});
+
+// ══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

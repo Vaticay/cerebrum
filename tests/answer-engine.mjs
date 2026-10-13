@@ -602,7 +602,8 @@ test("consistent sources produce a computed settled verdict", () => {
   const { conflicts, verdict } = detectSourceConflicts([INC_PAPER, AGREE_PAPER, INC_PAPER]);
   assert.equal(conflicts.length, 0);
   assert.equal(verdict.status, "settled");
-  assert.match(verdict.summary, /consistent/);
+  assert.match(verdict.summary, /No opposing findings were detected/);
+  assert.match(verdict.summary, /cited sources checked/);
 });
 
 test("fewer than 3 sources yields thin, not a false consensus", () => {
@@ -1190,8 +1191,8 @@ const INCIDENT_QUERY = "How does the insect gut microbiome degrade lignocellulos
 test("every source count in the answer derives from the cited pool", () => {
   const md = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY });
   assert.ok(md, "expected a synthesis");
-  const disagree = md.match(/across the (\d+) sources/);
-  const conf = md.match(/(\d+) sources point the same way/);
+  const disagree = md.match(/among the (\d+) cited sources checked/);
+  const conf = md.match(/(\d+) cited sources/);
   assert.ok(disagree, "disagreement source count missing");
   assert.ok(conf, "confidence source count missing");
   assert.equal(disagree[1], conf[1], `count mismatch: disagree=${disagree[1]} confidence=${conf[1]}`);
@@ -1244,7 +1245,7 @@ test("confidence line never shows a pseudo-precise /100 score", () => {
   const strong = buildConfidenceLine(many, { status: "settled" });
   assert.doesNotMatch(strong.line, /\/100/, "confidence line shows pseudo-precise score: " + strong.line);
   assert.match(strong.line, /Strong confidence/, "level missing");
-  assert.match(strong.line, /8 sources/, "real basis (source count) missing");
+  assert.match(strong.line, /8 cited sources/, "real basis (cited source count) missing");
   const thin = buildConfidenceLine([INC_PAPER], { status: "thin" });
   assert.doesNotMatch(thin.line, /\/100/, "thin line shows pseudo-precise score");
 });

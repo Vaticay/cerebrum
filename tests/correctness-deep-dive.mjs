@@ -142,7 +142,7 @@ test("confidence line has no pseudo-precise score at any level", () => {
 
 test("confidence line states the real basis", () => {
   const conf = buildConfidenceLine(BSFL_PAPERS, { status: "settled" });
-  assert.match(conf.line, /8 sources/, "source count missing from line");
+  assert.match(conf.line, /8 cited sources/, "cited source count missing from line");
   assert.match(conf.line, /Strong confidence/, "level missing from line");
   // The numeric score stays available internally for calibration
   assert.ok(typeof conf.score === "number", "internal score missing");
