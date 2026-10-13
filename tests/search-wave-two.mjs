@@ -56,6 +56,10 @@ const {
   verifyPaperConstraints,
   programmaticValidationPasses,
   applyRelevanceGate,
+  buildFurtherReadingTail,
+  FURTHER_READING_TAIL_CAP,
+  buildCoverage,
+  buildSearchRecord,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -479,8 +483,11 @@ await test("the cache schema carries the wave two bump", () => {
   // topic filter semantics changed, so cached shelves are stale),
   // then to v23 by the reorder at the end of this file (the
   // programmatic passes run before the evidence cut, so the
-  // shipped shelf changes for the same stored inputs).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v23"'), "CACHE_SCHEMA_VERSION must be v23");
+  // shipped shelf changes for the same stored inputs), then to
+  // v24 by the further reading tail at the end of this file (the
+  // shipped source list gains tail entries for the same stored
+  // inputs, though retrieval and the evidence set are unchanged).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v24"'), "CACHE_SCHEMA_VERSION must be v24");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -866,6 +873,148 @@ await test("the draw: papers ranked 13 to 25 reach the passes and the shipped sh
     assert.ok(!shippedNew.some((p) => slugOf(p) === slug),
       `the collision ${slug} must still die before the cut, exactly as the wave two fixtures pin`);
   }
+});
+
+group("further reading tail — the discarded shelf ships as further reading");
+// The shipped source list was assembled from the final evidence
+// set only, so two classes of good papers vanished from it: papers
+// that passed every programmatic pass but ranked below the
+// maxEvidence cut, and papers the LLM validation pass dropped
+// (production's baby belly record shipped exactly 2 sources, both
+// cited, further reading 0, on a shelf holding a dozen on point
+// papers). The handler now snapshots the post passes shelf and, at
+// the final labeling step only, appends a capped tail of its non
+// evidence members, labeled separately so no citation marker can
+// resolve to a tail entry. The evidence list, the synthesis
+// prompts, and the both concepts gate are untouched. Fixtures
+// compose the real stages over the draw shelf above.
+
+await test("the handler snapshots the post passes shelf and joins the tail only at labeling", () => {
+  assert.ok(src.includes("programmaticShelf = papers.slice();"),
+    "the post passes snapshot is missing from the handler");
+  assert.ok(
+    src.includes("buildFurtherReadingTail(programmaticShelf, evidencePapers).map(toSourceEntry)"),
+    "the tail must be built from the snapshot against the final evidence set"
+  );
+  assert.ok(
+    src.includes('labelUncitedSources(furtherReadingTail, "")'),
+    "the tail must be labeled against an empty answer so no marker can resolve to it"
+  );
+  const listIdx = src.indexOf("const sourceList = ");
+  const tailIdx = src.indexOf("const furtherReadingTail = ");
+  assert.ok(listIdx > 0 && tailIdx > listIdx,
+    "the tail is built beside the evidence list, never inside it");
+});
+
+await test("the draw: the tail carries the stranded papers and names the production discards", () => {
+  const handlerShelf = buildDrawShelf().filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  const prePassed = programmaticValidationPasses(CC_QUESTION, handlerShelf.map((p) => ({ ...p })), null);
+  assert.equal(prePassed.length, 20, "the passes leave 20 on point papers on the draw shelf");
+  const cut = applyRelevanceGate(prePassed).slice(0, 12);
+  assert.equal(cut.length, 12, "the cut fills the evidence set before validation");
+  // Production shape: the LLM validation pass then dropped all
+  // but the two papers the live answer cited (the cesarean
+  // microbiota paper, with the stunting paper as its stand in).
+  const evidence = cut.filter((p) => ["cc-cesarean", "cc-stunting"].includes(slugOf(p)));
+  assert.equal(evidence.length, 2, "the modeled production evidence set is the cited pair");
+  const tail = buildFurtherReadingTail(prePassed, evidence);
+  // 18 candidates (10 cut papers the model leg dropped, 8 more
+  // below the cut) and room for 10: the cap binds.
+  assert.equal(FURTHER_READING_TAIL_CAP, 10, "the tail cap is the stated 10");
+  assert.equal(tail.length, FURTHER_READING_TAIL_CAP, "the tail is capped, not a second evidence set");
+  // The three papers the citation collapse diagnosis named, all
+  // stranded by the old assembly, ride the tail.
+  for (const slug of DRAW_NAMED) {
+    assert.ok(tail.some((p) => slugOf(p) === slug), `${slug} must appear in the tail`);
+  }
+  // No collision ever appears (they died in the passes, so they
+  // are not in the snapshot), and no evidence paper repeats.
+  for (const slug of DRAW_COLLISIONS) {
+    assert.ok(!tail.some((p) => slugOf(p) === slug), `collision ${slug} must never enter the tail`);
+  }
+  for (const p of tail) {
+    assert.ok(!evidence.some((e) => e.url === p.url), "a tail entry must not duplicate the evidence");
+  }
+  // Shelf order is preserved: relevance descends along the tail.
+  const rels = tail.map((p) => p.relevance);
+  assert.deepEqual(rels, [...rels].sort((a, b) => b - a), "the tail keeps the shelf's relevance order");
+});
+
+await test("below the cut only: a full evidence set leaves the rest of the shelf as the tail", () => {
+  const handlerShelf = buildDrawShelf().filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  const prePassed = programmaticValidationPasses(CC_QUESTION, handlerShelf.map((p) => ({ ...p })), null);
+  const evidence = applyRelevanceGate(prePassed).slice(0, 12);
+  const tail = buildFurtherReadingTail(prePassed, evidence);
+  assert.deepEqual(tail.map(slugOf), [
+    "draw-probiotic-growth", "draw-enteropathy", "draw-delivery-adiposity",
+    "draw-catch-up", "draw-twin-heritability", "draw-zinc-infants",
+    "draw-sanitation-trial", "draw-prebiotic",
+  ], "with no validation drops, the tail is exactly the shelf below the cut, in order");
+});
+
+await test("the shipped list: evidence cited, tail further reading, counts agree across coverage and record", () => {
+  const handlerShelf = buildDrawShelf().filter((p) => ccPassesHandlerFilter(p, CC_QUESTION));
+  const prePassed = programmaticValidationPasses(CC_QUESTION, handlerShelf.map((p) => ({ ...p })), null);
+  const cut = applyRelevanceGate(prePassed).slice(0, 12);
+  const evidence = cut.filter((p) => ["cc-cesarean", "cc-stunting"].includes(slugOf(p)));
+  const tailPapers = buildFurtherReadingTail(prePassed, evidence);
+  const entry = (p) => ({ title: p.title, url: p.url, relevance: p.relevance, type: "Reference" });
+  // The answer cites both evidence entries and, adversarially, a
+  // stray marker aimed at a tail position. The shipped list must
+  // still show the tail as further reading: the tail was labeled
+  // against an empty answer, and the record's flag rule honors
+  // the stamped uncited flag over marker positions.
+  const answer =
+    "Delivery mode shapes the first gut colonists [2]. Immature gut communities track stunting and poorer growth [1]. " +
+    "A stray marker [7] cites nothing that shipped.";
+  const shipped = [
+    ...labelUncitedSources(evidence.map(entry), answer),
+    ...labelUncitedSources(tailPapers.map(entry), ""),
+  ];
+  assert.equal(shipped.length, 12, "the shipped list is the cited pair plus the capped tail");
+  assert.deepEqual(
+    shipped.map((s) => !!s.uncited),
+    [false, false, true, true, true, true, true, true, true, true, true, true],
+    "evidence entries read cited, every tail entry reads further reading"
+  );
+  const funnel = { gathered: 77, deduped: 72, excludedWeak: 47, excludedNonEnglish: 0, excludedRetracted: 0, cited: 2 };
+  const coverage = buildCoverage({ funnel, sources: shipped, answer });
+  assert.equal(coverage.cited, 2, "coverage cited counts the evidence only");
+  assert.equal(coverage.furtherReading, 10, "coverage further reading counts the tail");
+  const record = buildSearchRecord({
+    question: CC_QUESTION, askedAt: new Date("2026-10-13T12:00:00.000Z"),
+    funnel, sources: shipped, answer,
+  });
+  assert.ok(record, "the record must build over a tailed source list");
+  assert.equal(record.sources.length, 12, "the record freezes the tail alongside the evidence");
+  assert.deepEqual(
+    record.sources.map((s) => s.cited),
+    [true, true, false, false, false, false, false, false, false, false, false, false],
+    "the record's per source cited flags agree with the shipped labels"
+  );
+  assert.equal(record.funnel.cited, 2, "the record funnel cited count agrees with coverage");
+});
+
+await test("tail membership: sub floor, retracted, and duplicate papers never enter", () => {
+  const base = { ...GUT_MICROBE_PAPER(), relevance: 90 };
+  const shelf = [
+    { ...base },
+    { title: "A passing mention of gut bacteria in passing", abstract: "A brief mention.", url: "https://example.com/tail-weak", relevance: 40 },
+    { title: "[RETRACTED] Gut microbiota and infant growth", abstract: "Withdrawn.", url: "https://example.com/tail-retracted", relevance: 88 },
+    { title: base.title, abstract: "A second record of the same work.", url: "https://example.com/tail-duplicate", relevance: 85 },
+  ];
+  const tail = buildFurtherReadingTail(shelf, [{ ...base }]);
+  assert.deepEqual(tail, [],
+    "the evidence paper itself, a sub floor paper, a retracted paper, and a duplicate record all stay out");
+});
+
+await test("no tail candidates: the tail is empty, so the shipped list stays the evidence alone", () => {
+  const shelf = [GUT_MICROBE_PAPER(), CC_STUNTING_PAPER(), CC_CESAREAN_PAPER()]
+    .map((p, i) => ({ ...p, relevance: 90 - i * 5 }));
+  assert.deepEqual(buildFurtherReadingTail(shelf, shelf), [],
+    "when everything that passed is evidence, there is no tail");
+  assert.deepEqual(buildFurtherReadingTail([], shelf), [], "an empty shelf has no tail");
+  assert.deepEqual(buildFurtherReadingTail(null, shelf), [], "a missing shelf has no tail");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

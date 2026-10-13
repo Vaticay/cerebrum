@@ -593,6 +593,34 @@ await test("a cached serve rebuilds coverage, funnel, and record from the stored
   assert.ok(!("answer" in trust), "the trust builder must not carry or mutate the answer");
 });
 
+await test("a cached serve keeps stored further reading tail entries uncited, with counts agreeing", () => {
+  // A stored source list carrying further reading tail entries
+  // (appended after the evidence entries, already stamped uncited
+  // by the live path's labeling) must recompute consistently: the
+  // tail stays further reading in the shipped labels, in coverage,
+  // and in the record, and the year span stays on the cited pair.
+  const stored = [
+    ...STORED_SOURCES.slice(0, 2),
+    { title: "Antifreeze proteins in overwintering frogs", authors: "Duman JG", journal: "Cryobiology", year: 2015, relevance: 61, url: "https://doi.org/10.1000/frog4", uncited: true, uncitedReason: "Not cited in the answer . listed for further reading." },
+    { title: "Hibernation physiology of temperate anurans", authors: "Pinder AW", journal: "Amphibia Notes", year: 2012, relevance: 55, url: "https://doi.org/10.1000/frog5", uncited: true, uncitedReason: "Not cited in the answer . listed for further reading." },
+  ];
+  const trust = buildCachedServeTrust({
+    answer: STORED_ANSWER,
+    sources: stored,
+    question: "can wood frogs survive being frozen",
+    askedAt: STORED_AT,
+    degraded: false,
+  });
+  assert.equal(trust.labeledSources.length, 4);
+  assert.deepEqual(trust.labeledSources.map((s) => !!s.uncited), [false, false, true, true]);
+  assert.equal(trust.funnel.cited, 2, "the funnel cited count stays the evidence pair");
+  assert.equal(trust.coverage.cited, 2);
+  assert.equal(trust.coverage.furtherReading, 2, "the stored tail counts as further reading, not cited");
+  assert.equal(trust.coverage.earliestYear, 2019, "tail years must not widen the cited set's span");
+  assert.equal(trust.coverage.latestYear, 2021);
+  assert.deepEqual(trust.record.sources.map((s) => s.cited), [true, true, false, false]);
+});
+
 await test("a cached serve's confidence is recomputed under current caps, not served as stored", () => {
   const trust = buildCachedServeTrust({
     answer: STORED_ANSWER,

@@ -732,7 +732,14 @@ export function isNonLiterature(p) {
 // passes kill no longer occupy evidence slots and papers ranked
 // below the cut reach the passes. The shipped shelf changes for
 // questions whose top ranks held pass failing papers.
-const CACHE_SCHEMA_VERSION = "v23";
+// v24 (2026-10-13, further reading tail): the shipped source list
+// now appends a further reading tail (papers that passed the
+// programmatic passes but fell below the evidence cut or were
+// dropped by the LLM validation pass) after the evidence entries,
+// so the shipped source list changes for the same stored inputs
+// even though retrieval, the evidence set, and citation numbering
+// are unchanged.
+const CACHE_SCHEMA_VERSION = "v24";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -9931,6 +9938,62 @@ export function labelUncitedSources(sources, answer) {
   });
 }
 
+// ── Further reading tail ────────────────────────────────────────
+// The shipped source list was assembled from the final evidence
+// set only, and that list doubles as the model's numbered
+// evidence. Two discard points fed it, both invisible to the
+// reader: papers that passed every programmatic pass but ranked
+// below the maxEvidence cut never entered the list at all, and
+// papers the LLM validation pass dropped were deleted outright.
+// The both concepts gate never treats its demotions that way: a
+// demoted paper stays in the bibliography, labeled further
+// reading. This helper gives the discarded shelf the same
+// treatment. Membership, in order:
+//   - The input shelf is the handler's snapshot of the ranked
+//     list right after programmaticValidationPasses ran. The
+//     passes are the source of truth for the set: a paper they
+//     killed (the collision papers on the baby belly draw among
+//     them) is not in the snapshot and can never enter the tail.
+//   - The paper must clear the same relevance floor the evidence
+//     cleared. Papers the gate withheld are reported through
+//     relevanceGatedOut; the tail is not a way around that count.
+//   - A title marked retraction never enters. The evidence path
+//     screens those out of the answer entirely; the tail is not
+//     a way back in.
+//   - The paper must not be the same work as an evidence entry or
+//     an earlier tail entry, under the multi key identity rule
+//     (any of DOI, PMID/PMC/arXiv, or normalized title
+//     intersecting: the same rule the Search record diff uses).
+//     The check is deliberately conservative for a reading list:
+//     a wrongly excluded entry costs a line of further reading,
+//     while a wrongly included one prints a duplicate paper.
+// Order is the shelf's own order, which is relevance order. The
+// cap keeps the tail a reading list rather than a second
+// evidence set: 10 sits just below the standard evidence cap of
+// 12 and bounds the fullest shipped list at 22 entries, which
+// covers the ranks the cut most often strands (13 to 22).
+export const FURTHER_READING_TAIL_CAP = 10;
+export function buildFurtherReadingTail(shelf, evidence) {
+  if (!Array.isArray(shelf) || shelf.length === 0) return [];
+  const evidenceKeys = new Set();
+  for (const p of evidence || []) {
+    for (const k of paperDedupeKeys(p || {})) evidenceKeys.add(k);
+  }
+  const tailKeys = new Set();
+  const tail = [];
+  for (const p of shelf) {
+    if (tail.length >= FURTHER_READING_TAIL_CAP) break;
+    if (!p || !p.title) continue;
+    if (hasRetractedTitleMarker(p.title)) continue;
+    const keys = paperDedupeKeys(p);
+    if (keys.some((k) => evidenceKeys.has(k) || tailKeys.has(k))) continue;
+    if (applyRelevanceGate([p]).length === 0) continue;
+    for (const k of keys) tailKeys.add(k);
+    tail.push(p);
+  }
+  return tail;
+}
+
 // ── "What would change this" (computed falsification) ───────────
 // Concrete, state-derived conditions that would force revision . the
 // same job the AI's section does, built from the actual evidence state.
@@ -15531,8 +15594,18 @@ async function runSearchPipeline(pctx) {
     const _dynForValidation = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
       ? buildDynLookup(gResult._diag.llmExpanded)
       : null;
+    // Snapshot of the shelf the programmatic passes returned, kept
+    // for the further reading tail at source list assembly (see
+    // buildFurtherReadingTail): the passes' output is the one set
+    // of papers known to have passed them, and the tail is drawn
+    // from it after the evidence set settles. A slice, so nothing
+    // downstream can mutate the snapshot's membership; the paper
+    // objects themselves are shared with the evidence pipeline by
+    // design, the same references the gates read.
+    let programmaticShelf = null;
     if (!isNameSearch && papers.length > 0) {
       papers = programmaticValidationPasses(query, papers, _dynForValidation);
+      programmaticShelf = papers.slice();
     }
 
     // The citation gate. Every paper that reaches the answer must clear
@@ -15751,23 +15824,42 @@ async function runSearchPipeline(pctx) {
     // list, in the exact same order, that the AI was given. Otherwise the model
     // writes "[3]" meaning its third source while the UI renders a different
     // paper as entry 3. This was silently misattributing citations.
-    const sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(
-      ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType, thinEvidence }) => ({
-        title,
-        url,
-        journal,
-        authors,
-        year,
-        citations,
-        relevance: relevance == null ? null : relevance,
-        type: type || "Reference",
-        tldr: tldr || null,
-        retracted: !!retracted,
-        concern: !!concern,
-        updateType: updateType || null,
-        thinEvidence: !!thinEvidence,  // 2026-10-12: was dropped, UI never saw it
-      })
-    );
+    const toSourceEntry = ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType, thinEvidence }) => ({
+      title,
+      url,
+      journal,
+      authors,
+      year,
+      citations,
+      relevance: relevance == null ? null : relevance,
+      type: type || "Reference",
+      tldr: tldr || null,
+      retracted: !!retracted,
+      concern: !!concern,
+      updateType: updateType || null,
+      thinEvidence: !!thinEvidence,  // 2026-10-12: was dropped, UI never saw it
+    });
+    const sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(toSourceEntry);
+
+    // FURTHER READING TAIL (2026-10-13): papers that passed the
+    // programmatic passes but are not in the final evidence set
+    // (they ranked below the maxEvidence cut, or the LLM
+    // validation pass dropped them) ship after the evidence
+    // entries as further reading instead of being deleted. They
+    // are NOT part of sourceList: sourceList is the model's
+    // numbered evidence, and every index based consumer between
+    // here and the response (citation alignment, conflict
+    // detection, the evidence structure map) reads it as exactly
+    // the evidence set, so synthesis prompts and citation
+    // numbering are untouched. The tail joins only at the final
+    // labeling step below, labeled separately so no citation
+    // marker can resolve to it. Name search and follow up modes
+    // are exempt, mirroring the exemptions of the passes and the
+    // relevance gate: name search never ran the passes on this
+    // shelf, and a follow up answer anchors on its own set.
+    const furtherReadingTail = (useEvidence && !isNameSearch && !isFollowupMode && programmaticShelf)
+      ? buildFurtherReadingTail(programmaticShelf, evidencePapers).map(toSourceEntry)
+      : [];
 
     // Bug: abstracts went into the prompt at their full ingestion length
     // (up to 1200-1500 chars each, uncapped here) no matter how many papers
@@ -18624,7 +18716,21 @@ async function runSearchPipeline(pctx) {
      * _funnel field ships, computed by the same code that used to run
      * inline in the literal. Response only additions: retrieval,
      * scoring and synthesis above are untouched. */
-    const labeledSources = labelUncitedSources(sourceList, answer);
+    /* The shipped list: the labeled evidence, then the further
+     * reading tail. The tail is labeled separately, against an
+     * empty answer, so every tail entry is stamped uncited by
+     * construction: the model's evidence, and therefore every
+     * marker the answer can contain, ends at the evidence entries,
+     * so no marker can resolve to a tail entry. The funnel,
+     * coverage, and record built below all read this one list, and
+     * their cited counts stay evidence only because
+     * recordCitedFlags honors the stamped uncited flag over marker
+     * positions. With an empty tail the shipped list is the
+     * labeled evidence alone, exactly what shipped before the tail
+     * existed. */
+    const labeledSources = furtherReadingTail.length > 0
+      ? [...labelUncitedSources(sourceList, answer), ...labelUncitedSources(furtherReadingTail, "")]
+      : labelUncitedSources(sourceList, answer);
     const publicFunnel = (() => {
       const f = gResult && gResult._diag && gResult._diag.funnel;
       if (!f || typeof f.gathered !== "number") return null;
