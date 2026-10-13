@@ -732,6 +732,14 @@ test("extractBinomial does not mistake a topic phrase for a species", () => {
   assert.equal(extractBinomial("How does population dynamics shape fisheries?"), null);
 });
 
+test("rescue wave builds its second leg on a live Groq model", () => {
+  // llama-3.3-70b-versatile is deprecated for this key tier and
+  // returned HTTP 404 in production legs, which silently left the
+  // last resort rescue racing a single model.
+  assert.ok(!searchSrc.includes('rescueCall("meta-llama/llama-3.3-70b-versatile"'), "rescue still calls the retired Groq model");
+  assert.ok(searchSrc.includes('rescueCall("openai/gpt-oss-20b"'), "rescue second leg missing");
+});
+
 test("extractBinomial still finds real species names", () => {
   const b = extractBinomial("How does diet change the gut microbiome of Hermetia illucens larvae?");
   assert.ok(b && b.full === "Hermetia illucens", "real binomial missed: " + JSON.stringify(b));

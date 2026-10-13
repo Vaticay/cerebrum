@@ -50,9 +50,9 @@ export async function answerFromContext(query, history, env, action) {
     return r?.response;
   });
   for (const [key, url, model] of [
-    ['GROQ_KEY', 'https://api.groq.com/openai/v1/chat/completions', 'llama-3.3-70b-versatile'],
-    ['CEREBRAS_KEY', 'https://api.cerebras.ai/v1/chat/completions', 'llama-3.3-70b'],
-    ['GEMINI_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', 'gemini-2.0-flash'],
+    ['GROQ_KEY', 'https://api.groq.com/openai/v1/chat/completions', 'openai/gpt-oss-120b'],
+    ['CEREBRAS_KEY', 'https://api.cerebras.ai/v1/chat/completions', 'gpt-oss-120b'],
+    ['GEMINI_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', 'gemini-3.8-flash'],
     ['MISTRAL_KEY', 'https://api.mistral.ai/v1/chat/completions', 'mistral-small-latest'],
     ['GITHUB_MODELS_KEY', 'https://models.inference.ai.azure.com/chat/completions', 'gpt-4o-mini'],
     ['NVIDIA_KEY', 'https://integrate.api.nvidia.com/v1/chat/completions', 'meta/llama-3.3-70b-instruct'],

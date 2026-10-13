@@ -15096,6 +15096,11 @@ async function runSearchPipeline(pctx) {
     // provider that has actually been carrying production (Groq),
     // across two of its models with separate rate limit buckets, on
     // the compact prompt. A slower real answer beats a fast list.
+    // The second leg used to be llama-3.3-70b-versatile, which the
+    // roster note above already flags as deprecated for this key
+    // tier; live legs confirmed it (HTTP 404 on 2026-10-12), leaving
+    // the rescue with one working leg. gpt-oss-20b is a current
+    // production model with its own bucket.
     if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {
       const groqProvider = activeProviders.find((p) => p.id === "groq");
       if (groqProvider) {
@@ -15103,7 +15108,7 @@ async function runSearchPipeline(pctx) {
         const rescueMsgs = compactMessages || messages;
         const rescueLegs = [
           raceEntry(5, "groq:openai/gpt-oss-120b", rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000)),
-          raceEntry(5, "groq:meta-llama/llama-3.3-70b-versatile", rescueCall("meta-llama/llama-3.3-70b-versatile", rescueMsgs, maxTokens, 12000)),
+          raceEntry(5, "groq:openai/gpt-oss-20b", rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000)),
         ];
         try {
           const winner = await raceBest(rescueLegs, query, 1000);
