@@ -10,12 +10,16 @@
  * text is `ink2`, caption metadata is `faint`), and how one table
  * header in src/CerebrumApp.jsx read P.panel for its background.
  *
- * This suite parses the two palette consuming surfaces with the real
- * Babel parser and checks every member read `P.<token>` (including
+ * This suite parses EVERY .js/.jsx file under src/ with the real Babel
+ * parser and checks every member read `P.<token>` (including
  * `P?.<token>`) against the actual PALETTES objects imported from
  * src/palettes.js: the token must exist on EVERY palette, because any
- * of them can be the active one. One exemption, named: a read that is
- * the left operand of `||` supplies its own fallback by construction
+ * of them can be the active one. (The first version of this gate only
+ * scanned LearnView.jsx and CerebrumApp.jsx; the fifth audit panel
+ * pointed out that a bad token introduced in inbox.jsx, settings.jsx,
+ * or flowcharts.jsx would have sailed past it, so the scan now walks
+ * the whole tree.) One exemption, named: a read that is the left
+ * operand of `||` supplies its own fallback by construction
  * (`P.warn || "#b98a2f"`), so it cannot resolve to undefined and is
  * not flagged. String literals and comments are never member
  * expressions, so degree strings ("M.P.H.") and prose cannot trip it.
@@ -24,7 +28,7 @@
  */
 
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "@babel/parser";
@@ -99,13 +103,32 @@ function badReadsIn(source, label) {
   return { reads, bad };
 }
 
-for (const rel of ["src/LearnView.jsx", "src/CerebrumApp.jsx"]) {
-  await test(`${rel}: every unguarded P.<token> read exists on all palettes`, () => {
-    const { reads, bad } = badReadsIn(readFileSync(join(root, rel), "utf8"), rel);
-    assert.ok(reads.length > 50, `expected the palette reads of ${rel}, found only ${reads.length}`);
-    assert.deepEqual(bad, [], `undefined palette tokens:\n${bad.join("\n")}`);
-  });
+/* Every source file under src/, recursively: the guard's whole point
+ * is that no palette consuming surface sits outside it. */
+function* srcFiles(dir) {
+  for (const entry of readdirSync(dir)) {
+    const p = join(dir, entry);
+    if (statSync(p).isDirectory()) yield* srcFiles(p);
+    else if (/\.jsx?$/.test(entry)) yield p;
+  }
 }
+
+await test("every unguarded P.<token> read under src/ exists on all palettes", () => {
+  let totalReads = 0;
+  const bad = [];
+  for (const file of srcFiles(join(root, "src"))) {
+    const label = file.slice(root.length + 1);
+    const { reads, bad: fileBad } = badReadsIn(readFileSync(file, "utf8"), label);
+    totalReads += reads.length;
+    bad.push(...fileBad);
+  }
+  // Non-vacuity floor, not a quota: the tree carries ~2,283 unguarded
+  // reads today. If the total ever falls under this, the walk stopped
+  // reaching the surfaces it exists to check (or a surface stopped
+  // reading P at all) — either way the gate passing would mean nothing.
+  assert.ok(totalReads > 2000, `expected the palette reads of the whole src tree, found only ${totalReads}`);
+  assert.deepEqual(bad, [], `undefined palette tokens:\n${bad.join("\n")}`);
+});
 
 await test("the checker itself is not vacuous: it catches a planted undefined token and spares guarded and valid reads", () => {
   const { bad } = badReadsIn(

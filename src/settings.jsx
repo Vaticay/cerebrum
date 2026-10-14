@@ -221,7 +221,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   // the product's own Pro brand, used once, for the single primary action.
   const goldBtn = (label, onClick, disabled) => (
     <UIButton P={P} variant="ghost" onClick={onClick} disabled={disabled} style={{
-      padding: "9px 16px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 700,
+      padding: "9px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700,
       background: "#34d399", color: "#06281c", border: "none", borderRadius: RADIUS.md,
       cursor: disabled ? "default" : "pointer", fontFamily: "var(--cb-font)",
       whiteSpace: "nowrap", flexShrink: 0, opacity: disabled ? 0.6 : 1,
@@ -229,7 +229,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   );
   const quietBtn = (label, onClick, disabled) => (
     <UIButton P={P} variant="ghost" onClick={onClick} disabled={disabled} style={{
-      padding: "8px 16px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 600,
+      padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 600,
       background: "transparent", color: P.ink, border: `1px solid ${P.line2}`,
       borderRadius: RADIUS.md, cursor: disabled ? "default" : "pointer", fontFamily: "var(--cb-font)",
       whiteSpace: "nowrap", flexShrink: 0,
@@ -385,12 +385,12 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
             <code style={{ flex: 1, fontSize: FONT_SIZES.small, color: P.ink, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "8px 12px", overflowX: "auto", whiteSpace: "nowrap", fontFamily: "ui-monospace, monospace" }}>
               {newKey.key}
             </code>
-            <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={copyKey} style={{ minHeight: 40, flexShrink: 0 }}>
+            <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={copyKey} style={{ minHeight: 44, flexShrink: 0 }}>
               {copied ? "Copied" : "Copy"}
             </UIButton>
           </div>
           <div style={{ marginTop: 8 }}>
-            <UIButton P={P} variant="ghost" onClick={() => setNewKey(null)} style={{ minHeight: 36, fontSize: FONT_SIZES.small }}>
+            <UIButton P={P} variant="ghost" onClick={() => setNewKey(null)} style={{ minHeight: 44, fontSize: FONT_SIZES.small }}>
               Done
             </UIButton>
           </div>
@@ -403,8 +403,8 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
           <div style={{ display: "flex", gap: 8 }}>
             <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") create(); }}
               placeholder="Key name, e.g. my script" autoComplete="off" aria-label="API key name"
-              style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, fontFamily: "var(--cb-font)", width: 170 }} />
-            <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={create} disabled={busy || (keys && keys.length >= 5)} style={{ minHeight: 40, flexShrink: 0 }}>
+              style={{ padding: "8px 12px", fontSize: 16, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, fontFamily: "var(--cb-font)", width: 170 }} />
+            <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={create} disabled={busy || (keys && keys.length >= 5)} style={{ minHeight: 44, flexShrink: 0 }}>
               {busy ? "…" : "Create key"}
             </UIButton>
           </div>
@@ -433,7 +433,7 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
           desc={usageLine}
           control={
             <UIButton P={P} variant="ghost" onClick={() => revoke(k.id)} disabled={busy}
-              style={{ minHeight: 40, padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              style={{ minHeight: 44, padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
               Revoke
             </UIButton>
           }
@@ -480,8 +480,8 @@ function ProGrantPanel({ P, accent, at, Section, Row, onProChanged }) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run("grant", email); }}
               placeholder="name@example.com" type="email" autoComplete="off" aria-label="Email address to grant access"
-              style={{ padding: "8px 12px", fontSize: FONT_SIZES.small, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, fontFamily: "var(--cb-font)", flex: "1 1 160px", minWidth: 0, maxWidth: 260 }} />
-            <UIButton P={P} variant="ghost" onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", minHeight: 40, fontSize: FONT_SIZES.small, fontWeight: 700, background: busy ? P.raised : "#34d399", color: busy ? P.faint : "#1a1405", border: "none", borderRadius: RADIUS.md, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+              style={{ padding: "8px 12px", fontSize: 16, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, fontFamily: "var(--cb-font)", flex: "1 1 160px", minWidth: 0, maxWidth: 260 }} />
+            <UIButton P={P} variant="ghost" onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 700, background: busy ? P.raised : "#34d399", color: busy ? P.faint : "#1a1405", border: "none", borderRadius: RADIUS.md, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
               {busy ? "…" : "Grant"}
             </UIButton>
           </div>
@@ -2442,7 +2442,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   <Row label="API access, templates & priority queue"
                     desc="API keys with usage dashboards, 4 investigation templates, and skip-the-line search when it's busy."
                     control={
-                      <UIButton P={P} accent={accent} at={at} variant="primary" onClick={onOpenPro} style={{ minHeight: 40, flexShrink: 0 }}>
+                      <UIButton P={P} accent={accent} at={at} variant="primary" onClick={onOpenPro} style={{ minHeight: 44, flexShrink: 0 }}>
                         See Pro
                       </UIButton>
                     } last />

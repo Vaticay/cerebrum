@@ -146,7 +146,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="Add context for the review team (optional)" placeholder="Add context for the review team" style={{
-                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: RADIUS.md,
+                width: "100%", padding: "11px 13px", fontSize: 16, borderRadius: RADIUS.md,
                 border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
                 color: P.ink, fontFamily: "var(--cb-font)", resize: "vertical", outline: "none",
               }} />
@@ -672,6 +672,20 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* Push wake-up. When a push lands while a tab is visible, the
+     service worker shows no notification; it posts "cb-push-message"
+     to the open pages instead (public/sw.js), and src/main.jsx
+     re-dispatches that as the window event "cb:push-message". This
+     listener is the consumer that chain exists for: the thread list
+     refreshes immediately instead of waiting out the rest of its
+     15s poll. The open thread keeps its own 5s poll, and the event
+     carries only a thread id, never message content. */
+  useEffect(() => {
+    const onPush = () => { if (listRefreshRef.current) listRefreshRef.current(); };
+    window.addEventListener("cb:push-message", onPush);
+    return () => window.removeEventListener("cb:push-message", onPush);
+  }, []);
+
   /* Presence heartbeat. There is no realtime channel to ride, so
      presence is this: while the inbox is open, this client tells the
      server "I am here" on mount, every 45 seconds, and whenever the
@@ -976,22 +990,36 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               if (fresh && !fresh.mine && fid && !notifiedMsgIds.current.has(fid)) {
                 notifiedMsgIds.current.add(fid);
                 if (notifiedMsgIds.current.size > 200) notifiedMsgIds.current.delete(notifiedMsgIds.current.values().next().value);
-                cbBlip(660, 0.07, 0.045);
-                // Notifications never carry message content, because a
-                // shared screen or a locked phone should not be able to
-                // read a conversation from the notification tray.
-                const body = "New message.";
-                // The same arrival, announced for a screen reader:
-                // sender plus a short preview, or what kind of thing
-                // arrived when there is no readable text to preview.
-                const previewText = fresh.text || (fresh.e2ee && fresh.e2ee.ok ? fresh.e2ee.text : "")
-                  || (fresh.attachmentKind === "image" ? "sent an image"
-                    : fresh.attachmentKind === "audio" ? "sent a voice note"
-                    : fresh.attachmentKind === "paper" ? "shared a paper"
-                    : fresh.attachmentTitle ? `attached ${fresh.attachmentTitle}`
-                    : "sent a message");
-                setLiveAnnouncement(`${fresh.who || next.name || "Someone"}: ${String(previewText).slice(0, 90)}`);
-                cbNotify(fresh.who || next.name || "New message", body, "cb-msg-" + activeId, "message");
+                // Mute means silence on this surface too. The list poll
+                // already skips muted threads and the contract at
+                // toggleThreadMuted is "nothing notifies"; this path
+                // used to blip and notify for a muted conversation
+                // anyway, so a muted thread read open in a hidden tab
+                // still announced every arrival. The dedupe mark above
+                // stands either way, so unmuting later never replays
+                // arrivals that landed while muted. Prefer the flag on
+                // the thread this poll just fetched; fall back to the
+                // open thread's own state, which the mute toggle keeps
+                // current between polls.
+                const threadMuted = next && next.muted != null ? !!next.muted : !!(prevThread && prevThread.muted);
+                if (!threadMuted) {
+                  cbBlip(660, 0.07, 0.045);
+                  // Notifications never carry message content, because a
+                  // shared screen or a locked phone should not be able to
+                  // read a conversation from the notification tray.
+                  const body = "New message.";
+                  // The same arrival, announced for a screen reader:
+                  // sender plus a short preview, or what kind of thing
+                  // arrived when there is no readable text to preview.
+                  const previewText = fresh.text || (fresh.e2ee && fresh.e2ee.ok ? fresh.e2ee.text : "")
+                    || (fresh.attachmentKind === "image" ? "sent an image"
+                      : fresh.attachmentKind === "audio" ? "sent a voice note"
+                      : fresh.attachmentKind === "paper" ? "shared a paper"
+                      : fresh.attachmentTitle ? `attached ${fresh.attachmentTitle}`
+                      : "sent a message");
+                  setLiveAnnouncement(`${fresh.who || next.name || "Someone"}: ${String(previewText).slice(0, 90)}`);
+                  cbNotify(fresh.who || next.name || "New message", body, "cb-msg-" + activeId, "message");
+                }
               }
             }
           } catch (cbErr) { console.error("[Cerebrum] inbox: arrival notification failed:", cbErr); }
@@ -1521,8 +1549,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
 
   // Mute and unmute: the conversation stays in the list with its
   // unread count, but nothing notifies — the server leaves muted
-  // recipients out of its web push, and this client's list poll
-  // leaves muted threads out of its notifications.
+  // recipients out of its web push, and both of this client's polls
+  // (the list poll and the open thread poll) leave muted threads out
+  // of their notifications, announcements, and sounds.
   const toggleThreadMuted = async () => {
     if (!activeId || prefBusy) return;
     const row = threads.find((t) => t.id === activeId);
@@ -1799,7 +1828,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           {threads.length > 0 && listFailed && (
             <div role="status" style={{ margin: "0 18px 10px", padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, background: withAlpha(STATUS.bad, 0.07), display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ flex: 1, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>Connection lost. This list may be out of date.</span>
-              <button onClick={() => { if (listRefreshRef.current) listRefreshRef.current(); }} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0 }}>Retry</button>
+              <button onClick={() => { if (listRefreshRef.current) listRefreshRef.current(); }} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0 }}>Retry</button>
             </div>
           )}
           <div aria-busy={!listLoaded} style={{ flex: 1, overflowY: "auto", padding: "0 10px 12px" }}>
@@ -1995,18 +2024,33 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     ring). The buttons below used to render on group threads
                     promising what the engine cannot do. On groups they now
                     render disabled with an honest tooltip instead of a lie. */}
-                {activeThread.kind === "group" ? (
+                {activeThread.kind === "group" ? (<>
+                  {/* Both call buttons render on groups, matching the DM
+                      header's shape: audio and video alike, both disabled
+                      with the same explanation. Rendering only the camera
+                      (the old shape) made audio look like it might work
+                      somewhere else in the header. */}
                   <button
                     disabled
                     aria-label="Group calls aren't supported yet"
-                    title="Group calls aren't supported yet. Video calls work in direct messages"
+                    title="Group calls aren't supported yet. Calls work in direct messages"
+                    style={{
+                      background: withAlpha(accent, 0.05), border: "none", borderRadius: "50%", color: P.faint,
+                      cursor: "default", opacity: 0.4,
+                      width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  ><Icon name="phone" size={16} /></button>
+                  <button
+                    disabled
+                    aria-label="Group calls aren't supported yet"
+                    title="Group calls aren't supported yet. Calls work in direct messages"
                     style={{
                       background: withAlpha(accent, 0.05), border: "none", borderRadius: "50%", color: P.faint,
                       cursor: "default", opacity: 0.4,
                       width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                     }}
                   ><Icon name="camera" size={16} /></button>
-                ) : (<>
+                </>) : (<>
                 <button
                   onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId, { audioOnly: true }); }}
                   disabled={activeThread.blocked}
@@ -2364,14 +2408,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {m.mine && m.pending === "failed" && (
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Failed to send</span>
-                      <button onClick={() => retrySend(m.id)} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Retry</button>
-                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
+                      <button onClick={() => retrySend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Retry</button>
+                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
                     </div>
                   )}
                   {m.mine && m.pending === "partial" && (
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Sent to {m.partialSent} of {m.partialTotal} devices</span>
-                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 40, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
+                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
                     </div>
                   )}
                 </div>

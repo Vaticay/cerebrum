@@ -395,6 +395,61 @@ await test("a muted recipient is left out of the web push fan-out", () => {
   assert.ok(inboxSrc.includes("!t.muted"), "the client list poll still notifies for muted threads");
 });
 
+await test("a muted conversation stays silent on the open thread poll too", () => {
+  // The fifth audit panel: the list poll guarded its notifications
+  // with the muted flag, but the open thread poll's arrival path fired
+  // its blip, its screen reader announcement, and its system
+  // notification with no muted check at all, so a muted thread open in
+  // a background tab still announced every arrival. The contract at
+  // toggleThreadMuted is "nothing notifies"; this pins the open thread
+  // half of it structurally: the arrival block must compute the
+  // thread's muted state and gate every sound it can make on it.
+  const start = inboxSrc.indexOf("const fresh = nextMsgs[nextMsgs.length - 1];");
+  assert.ok(start > -1, "open thread arrival block not found");
+  const notifyAt = inboxSrc.indexOf("cbNotify(fresh.who", start);
+  assert.ok(notifyAt > -1, "open thread arrival notification not found");
+  const block = inboxSrc.slice(start, notifyAt + 120);
+  assert.ok(block.includes("next.muted"), "the arrival block never reads the muted flag off the thread the poll just fetched");
+  assert.ok(block.includes("prevThread.muted"), "the arrival block has no fallback to the open thread's own muted state");
+  const guardAt = block.indexOf("if (!threadMuted)");
+  assert.ok(guardAt > -1, "the arrival sounds are not gated on the muted flag");
+  for (const sound of ["cbBlip(660", "setLiveAnnouncement", "cbNotify(fresh.who"]) {
+    const at = block.indexOf(sound);
+    assert.ok(at > -1, `${sound} left the arrival block (the unmuted path must keep announcing)`);
+    assert.ok(guardAt < at, `${sound} fires before the muted gate, so a muted thread still announces`);
+  }
+});
+
+await test("the push wake-up event has a real consumer: the inbox refreshes its list", () => {
+  // public/sw.js posts "cb-push-message" to open pages when a push
+  // lands on a visible tab, and src/main.jsx re-dispatches it as the
+  // window event "cb:push-message". For a long time nothing listened:
+  // the chain claimed a refresh that never happened. The inbox is the
+  // consumer; pin the listener, the refresh it triggers, and its
+  // cleanup so the chain cannot quietly go dead again.
+  assert.ok(inboxSrc.includes('window.addEventListener("cb:push-message"'), "nothing in the inbox listens for the push wake-up event");
+  assert.ok(inboxSrc.includes('window.removeEventListener("cb:push-message"'), "the push wake-up listener is never removed on unmount");
+  const idx = inboxSrc.indexOf('addEventListener("cb:push-message"');
+  const block = inboxSrc.slice(Math.max(0, idx - 400), idx + 200);
+  assert.ok(block.includes("listRefreshRef.current()"), "the push wake-up handler does not refresh the thread list");
+});
+
+await test("group threads show both call buttons, both disabled with the same explanation", () => {
+  // The group header used to render only a disabled camera button:
+  // video looked unavailable while audio looked merely absent. Both
+  // buttons render now, matching the DM header's shape, and both
+  // carry the same honest explanation.
+  const start = inboxSrc.indexOf('activeThread.kind === "group" ? (<>');
+  assert.ok(start > -1, "group call button branch not found");
+  const block = inboxSrc.slice(start, inboxSrc.indexOf("</>) : (<>", start));
+  assert.ok(block.includes('<Icon name="phone"'), "group threads lost the audio call button entirely");
+  assert.ok(block.includes('<Icon name="camera"'), "group threads lost the video call button");
+  const explanations = block.split("Group calls aren't supported yet. Calls work in direct messages").length - 1;
+  assert.equal(explanations, 2, "both group call buttons must carry the same explanation");
+  assert.equal((block.match(/<button/g) || []).length, 2, "the group header must render exactly the two call buttons");
+  assert.equal((block.match(/<button\s+disabled/g) || []).length, 2, "both group call buttons must be disabled");
+});
+
 await test("message content search exists and its encryption boundary is absolute", () => {
   const idx = dataSrc.indexOf('resource === "search-messages"');
   assert.ok(idx > -1, "search-messages resource missing");

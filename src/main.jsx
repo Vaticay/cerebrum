@@ -345,8 +345,10 @@ if (typeof window !== "undefined" && "serviceWorker" in navigator) {
   // The service worker forwards push events to us instead of notifying
   // when a tab is already visible (see public/sw.js) — a push arriving
   // here means "something happened while you were looking elsewhere in
-  // the app". Bumping a revision counter lets the inbox and call UI
-  // refresh without polling faster.
+  // the app". The event is re-dispatched on window; the inbox listens
+  // for it and refreshes its thread list immediately (src/inbox.jsx).
+  // The call UI keeps its own incoming-calls poll in CerebrumApp.jsx
+  // and does not consume this event.
   try {
     navigator.serviceWorker.addEventListener("message", (event) => {
       const data = event && event.data;
