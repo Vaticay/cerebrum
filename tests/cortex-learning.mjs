@@ -88,6 +88,7 @@ const WANTED = [
   "LEAGUE_GROUP_SIZE", "LEAGUE_DAILY_POINTS_CAP", "LEAGUES_WEEKLY_ACTIVE_GATE",
   "leagueDailyPoints", "leagueWeeklyPoints", "leagueGroupFor", "leaguesAreOpen",
   "shareCardModel",
+  "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -146,6 +147,7 @@ const {
   LEAGUE_GROUP_SIZE, LEAGUE_DAILY_POINTS_CAP, LEAGUES_WEEKLY_ACTIVE_GATE,
   leagueDailyPoints, leagueWeeklyPoints, leagueGroupFor, leaguesAreOpen,
   shareCardModel,
+  visitGapDays, shelfGlyphFor, shelfObjects,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -705,11 +707,22 @@ await test("order checks score through the per position helper", () => {
 });
 
 await test("feedback tones come from the design system, not borrowed brand colours", () => {
-  for (const hex of ["#58CC02", "#FF4B4B", "#D7FFB8", "#FFDFE0"]) {
+  // Updated 2026-10-14 (design wave 3): this pin used to require
+  // the STATUS green and red as the Player's verdict tones. The
+  // reconciled Nova discipline supersedes that contract, so the
+  // pin now asserts the corrected one: a correct answer takes the
+  // muted gold accent, a wrong answer stays neutral (the warm
+  // gray WRONG_LINE on the same cream card), the old bright blue
+  // selection literals are gone too, and STATUS keeps its job on
+  // true status surfaces (the course delete confirm) instead of
+  // grading answers.
+  for (const hex of ["#58CC02", "#FF4B4B", "#D7FFB8", "#FFDFE0", "#84D8FF", "#DDF4FF"]) {
     assert.ok(!learnSrc.includes(hex), `borrowed palette literal still present: ${hex}`);
   }
-  assert.ok(learnSrc.includes("STATUS.good") && learnSrc.includes("STATUS.bad"), "STATUS tones are not used");
-  assert.ok(learnSrc.includes("withAlpha(STATUS.good"), "no STATUS wash fills");
+  assert.ok(learnSrc.includes("const toneGood = accent"), "the correct state is not the gold accent");
+  assert.ok(learnSrc.includes("const toneBad = WRONG_LINE"), "the wrong state is not the neutral line");
+  assert.ok(!learnSrc.includes("withAlpha(STATUS.good"), "the green verdict wash survived in the Player");
+  assert.ok(learnSrc.includes("STATUS.bad"), "STATUS tones vanished entirely instead of staying on status surfaces");
 });
 
 await test("the feedback sheet and action bar sit on solid surfaces, never a bare wash", () => {
@@ -857,7 +870,13 @@ await test("parser rejects a section with the wrong shape", () => {
   assert.equal(parseCortexImport(JSON.stringify(doc2)).ok, false);
 });
 
-await test("export and import controls render in the home progress surface", () => {
+// Placement note, 2026-10-14 (design wave 3): the export and
+// import controls moved off the home into the Nova settings
+// screen, per the organization ruling. The assertions below pin
+// presence and wiring in LearnView, not the home specifically,
+// so they stand unchanged; only this test's name moves with the
+// controls.
+await test("export and import controls render in the Nova settings progress surface", () => {
   assert.ok(learnSrc.includes("Export progress"), "no export control on the Cortex home");
   assert.ok(learnSrc.includes("Import progress"), "no import control on the Cortex home");
   assert.ok(learnSrc.includes("buildCortexExport({ courses, claims, profile, builtinProgress, sound: soundOn }"), "export button does not build from the live state");
@@ -2665,6 +2684,56 @@ await test("the home carries quests, the Sparks shop, reminders, leagues, share 
   ]) {
     assert.ok(learnSrc.includes(needle), `the loop surface is missing: ${needle}`);
   }
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Wave 3: the Nova home rebuild");
+
+await test("the shelf holds one object per completed authored path, and nothing else", () => {
+  const bodyPath = LEARNING_PATHS.find((p) => p.id === "the-human-body");
+  const progress = { lessons: {} };
+  for (const l of flattenPathLessons(bodyPath)) progress.lessons[l.id] = { done: true, best: 100 };
+  const shelf = shelfObjects([...LEARNING_PATHS, ...TOPIC_COURSES], progress);
+  assert.equal(shelf.length, 1, `expected exactly the finished body path on the shelf, got ${JSON.stringify(shelf)}`);
+  assert.equal(shelf[0].pathId, "the-human-body");
+  assert.equal(shelf[0].title, "The Human Body");
+  assert.equal(shelf[0].glyph, "heart", "The Human Body should leave a heart on the shelf");
+  assert.deepEqual(asJSON(shelfObjects(LEARNING_PATHS, { lessons: {} })), [], "an untouched learner should have an empty shelf");
+  assert.equal(shelfGlyphFor(LEARNING_PATHS.find((p) => p.id === "how-science-works")), "flask", "the science path glyph should be its flask, not its category glyph");
+  assert.equal(shelfGlyphFor(LEARNING_PATHS.find((p) => p.id === "space-and-the-solar-system")), "planet", "the space path glyph should be its ringed planet");
+  const earthTopic = TOPIC_COURSES.find((p) => p.category === "Earth and Climate");
+  assert.equal(shelfGlyphFor(earthTopic), "cloud", "topic paths should fall back to their category glyph");
+});
+
+await test("the return greeting gap counts whole days and ignores a missing stamp", () => {
+  const now = new Date("2026-10-14T15:00:00").getTime();
+  assert.equal(visitGapDays(0, now), 0, "no stamp should read as no gap");
+  assert.equal(visitGapDays(new Date("2026-10-14T08:00:00").getTime(), now), 0, "earlier today is not an absence");
+  assert.equal(visitGapDays(new Date("2026-10-12T23:00:00").getTime(), now), 2, "two calendar days ago should read as a two day gap");
+  assert.equal(visitGapDays(new Date("2026-10-10T09:00:00").getTime(), now), 4);
+});
+
+await test("the wave 3 home carries its zones, its settings surface, and Nova's presence", () => {
+  for (const needle of [
+    "NOVA'S SHELF", "Nothing on the shelf yet", "There you are. Your reviews waited.",
+    "Due for review", "Nova settings", "lv-nova-live", "lv-band", "lv-status", "lv-cols",
+    'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
+    'pose="asleep"', "Start daily practice", "LAST_VISIT_KEY",
+  ]) {
+    assert.ok(learnSrc.includes(needle), `the wave 3 home is missing: ${needle}`);
+  }
+  assert.ok(!learnSrc.includes("lv-pills"), "the old stat chip row survived the rebuild");
+  assert.ok(!learnSrc.includes("YOUR RANK · RUNG"), "the old rank card survived the rebuild");
+  assert.ok(!learnSrc.includes('fontStyle: "italic"'), "an italic style survived in LearnView chrome");
+  assert.ok(!learnSrc.includes("maxWidth: 880"), "the home is still the old phone width column");
+});
+
+await test("the share card draws the wave 3 layout: cream circle, gold glow, two pills, plain footer", () => {
+  assert.ok(learnSrc.includes('ctx.fillStyle = "#0F0F0F"'), "share card ground is not the spec near black");
+  assert.ok(learnSrc.includes("rgba(196, 163, 90, 0.08)"), "share card lost its 8 percent gold glow");
+  assert.ok(learnSrc.includes("Cerebrum · askcerebrum.org"), "share card footer is not the spec footer");
+  assert.ok(!learnSrc.includes("ctx.strokeRect(36, 36"), "the old share card frame survived");
+  assert.ok(!learnSrc.includes("Nova · askcerebrum.org"), "the old share card footer survived");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

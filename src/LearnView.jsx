@@ -1248,8 +1248,28 @@ const CSS = `
 @keyframes lvPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.28); } 50% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
 .lv-node { transition: transform .15s; }
 .lv-node:hover { transform: translateY(-2px); }
+/* Nova's idle life (wave 3, 2026-10-14): a slow gill sway and a
+   breath, run on the pose art itself. Two quiet motions on one
+   track, ease in out both ways, never a bounce, never a loop that
+   performs. Reduced motion stills it completely. */
+.lv-nova-live { animation: lvNovaLive 7s ease-in-out infinite; transform-origin: 50% 88%; }
+@keyframes lvNovaLive {
+  0%, 100% { transform: rotate(-0.6deg) scale(1, 1); }
+  50% { transform: rotate(0.6deg) scale(1.008, 1.016); }
+}
+/* The wave 3 home layout: band, status row, and the two column
+   body are grid zones on desktop and a single column on mobile. */
+.lv-band { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: stretch; }
+.lv-status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.lv-cols { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start; }
+.lv-nodes { display: flex; align-items: flex-start; overflow-x: auto; padding: 6px 2px 10px; scrollbar-width: none; }
+.lv-nodes::-webkit-scrollbar { display: none; }
+@media (max-width: 900px) {
+  .lv-band { grid-template-columns: 1fr; }
+  .lv-cols { grid-template-columns: 1fr; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse { animation: none !important; }
+  .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse, .lv-nova-live { animation: none !important; }
   .lv-btn, .lv-opt, .lv-fill, .lv-node, .lv-topic, .lv-chip { transition: none !important; }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
@@ -1259,10 +1279,10 @@ const CSS = `
 @media (max-width: 680px) {
   .lv-home { padding: 22px 16px 44px !important; }
   .lv-head { flex-direction: column !important; gap: 12px !important; }
-  .lv-h1 { font-size: 29px !important; }
+  .lv-wordmark { font-size: 27px !important; }
   .lv-sub { font-size: 14.5px !important; }
-  .lv-pills { flex-wrap: nowrap !important; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
-  .lv-pills::-webkit-scrollbar { display: none; }
+  .lv-status { grid-template-columns: 1fr; }
+  .lv-band-primary { position: sticky; bottom: 10px; z-index: 5; }
   .lv-catalog { grid-template-columns: 1fr 1fr; gap: 12px; }
   .lv-hero-title { font-size: 21px !important; }
 }
@@ -1369,15 +1389,91 @@ const CHARACTER_POSES = {
   asleep: "/cortex/character/nova-asleep.webp",
 };
 
-function CharacterPose({ pose, size = 54 }) {
+function CharacterPose({ pose, size = 54, live = false }) {
   const [ok, setOk] = useState(false);
   const src = CHARACTER_POSES[pose] || null;
   useEffect(() => { setOk(false); }, [src]);
   if (!src) return null;
   return (
     <img src={src} alt="" aria-hidden="true" loading="lazy"
+      className={live ? "lv-nova-live" : undefined}
       onLoad={() => setOk(true)} onError={() => setOk(false)}
       style={{ display: ok ? "block" : "none", width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
+  );
+}
+
+/* ── wave 3 (2026-10-14): the Nova home discipline ─────────────────
+   Warm cream is the learning surface: status cards, review rows,
+   and the Player's answer cards sit on cream with near black
+   text, on the site's dark ground, and muted gold is the only
+   accent. These four constants are that surface, named once so
+   the home, the bench, and the Player cannot drift apart. */
+const CREAM = "#F5F0E8";
+const CREAM_INK = "#1A1A1A";
+const CREAM_FAINT = "#6E675C";
+const CREAM_LINE = "rgba(26, 26, 26, 0.16)";
+const CREAM_GOLD = "#F0E3C0";
+const WRONG_LINE = "#A79E8D";
+
+/* The last visit stamp lives in its own storage key, outside the
+   profile and outside the export document, so the return greeting
+   costs the learner record nothing: no new profile field, no new
+   export section, nothing an import has to validate. */
+const LAST_VISIT_KEY = "cerebrum-learn2-lastvisit";
+
+export function visitGapDays(lastVisitMs, nowMs) {
+  if (!lastVisitMs || !Number.isFinite(lastVisitMs)) return 0;
+  const startOfDay = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  return Math.max(0, Math.round((startOfDay(nowMs) - startOfDay(lastVisitMs)) / DAY_MS));
+}
+
+/* ── Nova's shelf ──────────────────────────────────────────────────
+   One object per completed authored path, drawn as a small flat
+   mark in the house style: warm ink line, one gold part. The set
+   is derived from progress the learner already has; the shelf
+   itself stores nothing. Path glyphs win over category glyphs,
+   so The Human Body leaves a heart and the science path leaves
+   its flask whatever shelf they share. */
+const SHELF_GLYPH_BY_PATH = {
+  "how-science-works": "flask",
+  "space-and-the-solar-system": "planet",
+};
+const SHELF_GLYPH_BY_CATEGORY = {
+  "Mind and Brain": "mind",
+  "Body and Health": "heart",
+  "Life and Evolution": "leaf",
+  "Earth and Climate": "cloud",
+  "Space and Physics": "prism",
+};
+
+export function shelfGlyphFor(path) {
+  if (!path) return "spark";
+  return SHELF_GLYPH_BY_PATH[path.id] || SHELF_GLYPH_BY_CATEGORY[path.category] || "spark";
+}
+
+export function shelfObjects(paths, progress) {
+  return (paths || [])
+    .filter((p) => pathProgress(p, progress).complete)
+    .map((p) => ({ pathId: p.id, title: p.title, glyph: shelfGlyphFor(p) }));
+}
+
+const SHELF_GLYPH_ART = {
+  heart: (<><path d="M24 41 C11 31.5 6.5 23.5 6.5 16.5 C6.5 10.8 10.6 7 15.2 7 C19 7 22.2 9.2 24 12.6 C25.8 9.2 29 7 32.8 7 C37.4 7 41.5 10.8 41.5 16.5 C41.5 23.5 37 31.5 24 41 Z" fill="#C4A35A" fillOpacity="0.3" /><path d="M24 41 C11 31.5 6.5 23.5 6.5 16.5 C6.5 10.8 10.6 7 15.2 7 C19 7 22.2 9.2 24 12.6 C25.8 9.2 29 7 32.8 7 C37.4 7 41.5 10.8 41.5 16.5 C41.5 23.5 37 31.5 24 41 Z" /></>),
+  flask: (<><path d="M20 5 L28 5 M24 5 L24 16 L13.5 35.5 C12.4 37.6 13.9 40 16.2 40 L31.8 40 C34.1 40 35.6 37.6 34.5 35.5 L24 16" /><path d="M17.5 31 L30.5 31" stroke="#C4A35A" /><circle cx="22" cy="35" r="1.7" fill="#C4A35A" stroke="none" /><circle cx="27.5" cy="36.5" r="1.2" fill="#C4A35A" stroke="none" /></>),
+  planet: (<><circle cx="24" cy="24" r="9.5" /><ellipse cx="24" cy="24" rx="19" ry="6" transform="rotate(-16 24 24)" stroke="#C4A35A" /><circle cx="20.5" cy="20.5" r="2" fill="#C4A35A" stroke="none" /></>),
+  cloud: (<><circle cx="33" cy="13" r="5" stroke="#C4A35A" /><path d="M12 37 L34 37 C39 37 42.5 33.4 42.5 28.9 C42.5 24.8 39.6 21.5 35.7 20.7 C34.4 15.1 29.4 11 23.5 11 C16.9 11 11.6 15.9 10.9 22.2 C7.9 23.3 5.8 26.2 5.8 29.5 C5.8 33.6 8.6 37 12 37 Z" /></>),
+  prism: (<><path d="M24 7 L41 38 L7 38 Z" /><path d="M4 20 L17 24" stroke="#C4A35A" /><path d="M31 27 L44 22 M31.5 31 L43 31" stroke="#C4A35A" /></>),
+  mind: (<><circle cx="24" cy="24" r="16.5" /><circle cx="24" cy="24" r="9.5" stroke="#C4A35A" /><circle cx="24" cy="24" r="2.4" fill="#C4A35A" stroke="none" /></>),
+  leaf: (<><path d="M38 9 C24 10 12 16 10.5 30 C10.2 33 10.6 36 11.5 38.5 C14 39.4 17 39.8 20 39.5 C34 38 39 24 38 9 Z" /><path d="M13 36 C19 27 27 19 35 13" stroke="#C4A35A" /></>),
+  spark: (<><path d="M24 5 L27.5 20.5 L43 24 L27.5 27.5 L24 43 L20.5 27.5 L5 24 L20.5 20.5 Z" /><circle cx="24" cy="24" r="2.4" fill="#C4A35A" stroke="none" /></>),
+};
+
+function ShelfObjectMark({ glyph }) {
+  return (
+    <svg width="34" height="34" viewBox="0 0 48 48" fill="none" aria-hidden="true"
+      stroke="#3A352C" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+      {SHELF_GLYPH_ART[glyph] || SHELF_GLYPH_ART.spark}
+    </svg>
   );
 }
 
@@ -6247,12 +6343,17 @@ function ShareCardButton({ model, P, accent }) {
       canvas.width = 1080; canvas.height = 1080;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      ctx.fillStyle = (P && P.bg) || "#1c1917";
+      /* The wave 3 share card (2026-10-14), drawn to the reconciled
+         spec: near black ground, name and tagline at the top, Nova
+         large inside a soft cream circle with a whisper of gold
+         behind it, then the kind line, the title in serif, two
+         stats as cream pills, and the footer. Nothing else is on
+         the image: no ring, no frame, no white square, no dead
+         space the layout does not account for. */
+      const INK = "#E8E4DC";
+      const GOLD = "#C4A35A";
+      ctx.fillStyle = "#0F0F0F";
       ctx.fillRect(0, 0, 1080, 1080);
-      ctx.strokeStyle = accent; ctx.lineWidth = 14;
-      ctx.beginPath(); ctx.arc(540, 300, 150, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = accent; ctx.lineWidth = 6;
-      ctx.strokeRect(36, 36, 1008, 1008);
       const src = CHARACTER_POSES[model.pose] || null;
       const img = src ? await new Promise((resolve) => {
         const im = new Image();
@@ -6260,34 +6361,95 @@ function ShareCardButton({ model, P, accent }) {
         im.onerror = () => resolve(null);
         im.src = src;
       }) : null;
-      if (img) { try { ctx.drawImage(img, 440, 190, 200, 200); } catch { /* draw without it */ } }
       ctx.textAlign = "center";
-      ctx.fillStyle = accent;
-      ctx.font = "700 30px Georgia, serif";
-      ctx.fillText("Nova", 540, 110);
-      ctx.fillStyle = (P && P.ink2) || "#d4d4d8";
-      ctx.font = "400 26px Georgia, serif";
-      ctx.fillText(CORTEX_TAGLINE, 540, 150);
-      ctx.fillStyle = accent;
-      ctx.font = "700 28px Georgia, serif";
-      ctx.fillText(String(model.eyebrow || ""), 540, 510);
-      ctx.fillStyle = (P && P.ink) || "#ffffff";
-      ctx.font = "600 62px Georgia, serif";
-      const words = String(model.title || "").split(/\s+/);
-      const wrapped = [];
-      let lineNow = "";
-      for (const w of words) {
-        const trial = lineNow ? lineNow + " " + w : w;
-        if (ctx.measureText(trial).width > 880 && lineNow) { wrapped.push(lineNow); lineNow = w; } else lineNow = trial;
+      ctx.fillStyle = INK;
+      ctx.font = "600 68px 'Inter Tight', 'Segoe UI', sans-serif";
+      ctx.fillText("Nova", 540, 138);
+      ctx.fillStyle = GOLD;
+      ctx.font = "400 34px 'Inter Tight', 'Segoe UI', sans-serif";
+      ctx.fillText(CORTEX_TAGLINE, 540, 188);
+      /* gold glow at 8 percent, behind the circle only */
+      const glow = ctx.createRadialGradient(540, 448, 60, 540, 448, 330);
+      glow.addColorStop(0, "rgba(196, 163, 90, 0.08)");
+      glow.addColorStop(1, "rgba(196, 163, 90, 0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(210, 118, 660, 660);
+      /* the cream circle, 420 across, Nova filling it */
+      ctx.beginPath(); ctx.arc(540, 448, 210, 0, Math.PI * 2);
+      ctx.fillStyle = CREAM; ctx.fill();
+      if (img) {
+        try {
+          ctx.save();
+          ctx.beginPath(); ctx.arc(540, 448, 210, 0, Math.PI * 2); ctx.clip();
+          ctx.drawImage(img, 540 - 252, 448 - 252, 504, 504);
+          ctx.restore();
+        } catch { /* the cream circle stands on its own */ }
       }
-      if (lineNow) wrapped.push(lineNow);
-      wrapped.slice(0, 3).forEach((ln, i) => ctx.fillText(ln, 540, 590 + i * 72));
-      ctx.fillStyle = (P && P.ink) || "#ffffff";
-      ctx.font = "400 36px Georgia, serif";
-      (model.lines || []).slice(0, 5).forEach((ln, i) => ctx.fillText(String(ln), 540, 790 + i * 52));
-      ctx.fillStyle = (P && P.faint) || "#a1a1aa";
-      ctx.font = "400 26px Georgia, serif";
-      ctx.fillText("Nova · askcerebrum.org", 540, 1010);
+      /* kind line */
+      ctx.fillStyle = GOLD;
+      ctx.font = "600 27px 'Inter Tight', 'Segoe UI', sans-serif";
+      const eyebrow = String(model.eyebrow || "");
+      try { ctx.letterSpacing = "6px"; } catch { /* older canvas */ }
+      ctx.fillText(eyebrow, 540, 742);
+      try { ctx.letterSpacing = "0px"; } catch { /* older canvas */ }
+      /* the title, serif, shrunk to fit two lines at most */
+      ctx.fillStyle = INK;
+      let titleSize = 84;
+      const wrapTitle = (size) => {
+        ctx.font = "600 " + size + "px Georgia, 'Times New Roman', serif";
+        const words = String(model.title || "").split(/\s+/);
+        const lines = [];
+        let lineNow = "";
+        for (const w of words) {
+          const trial = lineNow ? lineNow + " " + w : w;
+          if (ctx.measureText(trial).width > 900 && lineNow) { lines.push(lineNow); lineNow = w; } else lineNow = trial;
+        }
+        if (lineNow) lines.push(lineNow);
+        return lines;
+      };
+      let wrapped = wrapTitle(titleSize);
+      while (wrapped.length > 2 && titleSize > 44) { titleSize -= 8; wrapped = wrapTitle(titleSize); }
+      wrapped.slice(0, 2).forEach((ln, i) => ctx.fillText(ln, 540, 812 + i * (titleSize + 14)));
+      let belowY = 812 + wrapped.slice(0, 2).length * (titleSize + 14);
+      /* any further model lines belong to the title block as one
+         quiet subline (a lesson share names its course here) */
+      const extra = (model.lines || []).slice(2).map(String).filter(Boolean);
+      if (extra.length) {
+        ctx.fillStyle = "rgba(232, 228, 220, 0.66)";
+        ctx.font = "400 30px Georgia, 'Times New Roman', serif";
+        ctx.fillText(extra.join(" · "), 540, belowY + 6);
+        belowY += 48;
+      }
+      /* two stats, cream pills side by side */
+      const stats = (model.lines || []).slice(0, 2).map(String).filter(Boolean);
+      if (stats.length) {
+        ctx.font = "500 30px 'Inter Tight', 'Segoe UI', sans-serif";
+        const widths = stats.map((s) => ctx.measureText(s).width + 56);
+        const total = widths.reduce((a, b) => a + b, 0) + (stats.length - 1) * 20;
+        let px = 540 - total / 2;
+        stats.forEach((s, i) => {
+          const w = widths[i];
+          const rx = px, ry = belowY + 18, rw = w, rh = 58, rr = 29;
+          ctx.beginPath();
+          ctx.moveTo(rx + rr, ry);
+          ctx.lineTo(rx + rw - rr, ry);
+          ctx.arcTo(rx + rw, ry, rx + rw, ry + rr, rr);
+          ctx.lineTo(rx + rw, ry + rh - rr);
+          ctx.arcTo(rx + rw, ry + rh, rx + rw - rr, ry + rh, rr);
+          ctx.lineTo(rx + rr, ry + rh);
+          ctx.arcTo(rx, ry + rh, rx, ry + rh - rr, rr);
+          ctx.lineTo(rx, ry + rr);
+          ctx.arcTo(rx, ry, rx + rr, ry, rr);
+          ctx.closePath();
+          ctx.fillStyle = CREAM; ctx.fill();
+          ctx.fillStyle = CREAM_INK;
+          ctx.fillText(s, px + w / 2, belowY + 57);
+          px += w + 20;
+        });
+      }
+      ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.font = "400 25px 'Inter Tight', 'Segoe UI', sans-serif";
+      ctx.fillText("Cerebrum · askcerebrum.org", 540, 1016);
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) return;
       const file = typeof File !== "undefined" ? new File([blob], "novashare.png", { type: "image/png" }) : null;
@@ -6676,7 +6838,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </p>
           )}
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
-            <CharacterPose pose="celebrate" size={64} />
+            <CharacterPose pose="celebrate" size={128} live />
           </div>
           <div style={{ margin: "0 auto 18px" }}>
             <ShareCardButton P={P} accent={accent} model={shareCardModel("course", { title: course.title, accuracy: answered ? Math.round((right / answered) * 100) : 100, xp: sessionXp })} />
@@ -6740,7 +6902,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         </div>
         <div className="lv-rise" style={{ textAlign: "center", paddingTop: "6vh" }}>
           <Cover title={course.title} height={150} radius={20} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
-          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.2, margin: "30px 0 12px" }}>{lesson.title}</h2>
+          {/* Nova opens every lesson (wave 3): centered above the
+              title at the identity spec's lesson start size, with
+              its slow idle life. It never sits beside a question. */}
+          <div style={{ display: "flex", justifyContent: "center", margin: "26px 0 2px" }}>
+            <CharacterPose pose="greeting" size={128} live />
+          </div>
+          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.2, margin: "18px 0 12px" }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, margin: "0 0 22px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
           {(() => {
@@ -6813,7 +6981,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               : "+" + lessonXp + " XP. The questions from this lesson are on your review schedule now."}
           </p>
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 6px" }}>
-            <CharacterPose pose="celebrate" size={64} />
+            <CharacterPose pose="celebrate" size={128} live />
           </div>
           {rankSummary && (
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>
@@ -6886,22 +7054,25 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const cardKindLabel = (c) => c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "build" ? "Build" : c.kind === "visualq" ? "Look" : c.kind === "spoterror" ? "Spot the error" : c.kind === "predict" ? "Predict" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
 
-  /* Feedback tones are Cerebrum's own, from the design system's
-     STATUS palette: the strong hue for borders and the sheet button,
-     a wash of it for fills, and the theme aware ink pairing the rest
-     of the app uses for status text. No borrowed brand colours.
-     The wash is a tint only, never a background on its own: the
-     feedback sheet slides up over the card, and a translucent
-     sheet double exposes whatever sits beneath it (the garbled
-     finding in Dusty's 2026-10-13 photo). The sheet's background
-     is the solid surface token with the wash layered over it as
-     an image, so the composite is opaque in every palette. */
-  const toneGood = STATUS.good;
-  const toneBad = STATUS.bad;
-  const goodInk = P.dark ? STATUS.good : "#047857";
-  const badInk = P.dark ? STATUS.bad : "#b92c31";
-  const goodWash = withAlpha(STATUS.good, P.dark ? 0.2 : 0.13);
-  const badWash = withAlpha(STATUS.bad, P.dark ? 0.2 : 0.13);
+  /* Feedback tones (wave 3, 2026-10-14): the reconciled Nova
+     discipline replaces the STATUS green and red in the Player.
+     A correct answer takes the muted gold, border, wash, and
+     sheet alike; a wrong answer stays neutral, a warm gray line
+     on the same cream card, with no red anywhere and no shake.
+     The wash is still a tint only, never a background on its
+     own: the feedback sheet slides up over the card, and a
+     translucent sheet double exposes whatever sits beneath it
+     (the garbled finding in Dusty's 2026-10-13 photo). The
+     sheet's background is the solid surface token with the wash
+     layered over it as an image, so the composite is opaque in
+     every palette. STATUS keeps its job on true status surfaces
+     (the course delete confirm in PathView), not on verdicts. */
+  const toneGood = accent;
+  const toneBad = WRONG_LINE;
+  const goodInk = accent;
+  const badInk = P.ink2;
+  const goodWash = withAlphaSafe(accent, P.dark ? 0.2 : 0.13);
+  const badWash = withAlphaSafe(WRONG_LINE, P.dark ? 0.16 : 0.12);
 
   const sheetGood = checked && (card.kind === "battle" || isRight);
   const sheet = checked ? (
@@ -6962,8 +7133,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         )}
         <button className="lv-btn" onClick={advance}
           style={{
-            marginTop: 18, width: "100%", background: sheetGood ? toneGood : toneBad, color: accentText(sheetGood ? toneGood : toneBad),
-            border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 800,
+            marginTop: 18, width: "100%", background: sheetGood ? toneGood : P.raised, color: sheetGood ? accentText(toneGood) : P.ink,
+            border: sheetGood ? "none" : "1px solid " + P.line, borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 800,
             cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54, boxShadow: "0 4px 0 rgba(0,0,0,.25)",
           }}>
           {cardIdx === lesson.cards.length - 1 ? "Finish lesson" : "Continue"}
@@ -7014,7 +7185,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 {course.img && <img src={course.img} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
                 <div style={{ position: "absolute", inset: 0, background: course.img ? "linear-gradient(180deg, rgba(6,10,6,0.16), rgba(6,10,6,0.85))" : "linear-gradient(135deg, " + withAlphaSafe(accent, 0.22) + ", transparent 65%)" }} />
                 <div style={{ position: "relative", padding: "64px 22px 20px" }}>
-                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: course.img ? "#cfe8b8" : accent, marginBottom: 10 }}>{(card.kicker || "").toUpperCase()}</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: course.img ? "#F5F0E8" : accent, marginBottom: 10 }}>{(card.kicker || "").toUpperCase()}</div>
                   <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.22, margin: 0, color: course.img ? "#fff" : P.ink }}>{card.title}</h2>
                 </div>
               </div>
@@ -7072,12 +7243,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }
                 : { display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
                 {(displayOptions || []).map((opt, i) => {
-                  let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                  if (checked && i === displayCorrect) { bg = goodWash; border = toneGood; color = P.ink; }
-                  else if (checked && i === picked) { bg = badWash; border = toneBad; color = P.ink; }
-                  else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
+                  /* Cream answer cards (wave 3): cream in every state,
+                     gold for the correct card, a warm gray line for
+                     a wrong pick, gold border while selected. */
+                  let bg = CREAM, border = CREAM_LINE, color = CREAM_INK;
+                  if (checked && i === displayCorrect) { bg = CREAM_GOLD; border = toneGood; }
+                  else if (checked && i === picked) { border = toneBad; }
+                  else if (!checked && picked === i) { border = toneGood; }
                   return (
-                    <button key={i} className={"lv-opt" + (checked && picked === i && i !== displayCorrect ? " lv-shake" : "")}
+                    <button key={i} className="lv-opt"
                       onClick={() => pick(i)} disabled={checked}
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
@@ -7088,9 +7262,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       }}>
                       <span aria-hidden="true" style={{
                         flexShrink: 0, width: 26, height: 26, borderRadius: RADIUS.md, marginTop: 1,
-                        border: "1.5px solid " + (checked && i === displayCorrect ? toneGood : checked && i === picked ? toneBad : border),
+                        background: checked && i === displayCorrect ? toneGood : "transparent",
+                        border: "1.5px solid " + (checked && i === displayCorrect ? toneGood : checked && i === picked ? toneBad : !checked && picked === i ? toneGood : CREAM_LINE),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: FONT_SIZES.label, fontWeight: 700, color: checked && i === displayCorrect ? goodInk : color, opacity: 0.9,
+                        fontSize: FONT_SIZES.label, fontWeight: 700, color: CREAM_INK, opacity: 0.9,
                       }}>{checked && i === displayCorrect ? "✓" : "ABCD"[i] || ""}</span>
                       <span style={{ minWidth: 0, overflowWrap: "break-word" }}><RichText text={opt} /></span>
                     </button>
@@ -7141,12 +7316,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {(displayOptions || ["True", "False"]).map((label, i) => {
-                  let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                  if (checked && i === displayCorrect) { bg = goodWash; border = toneGood; color = P.ink; }
-                  else if (checked && i === picked) { bg = badWash; border = toneBad; color = P.ink; }
-                  else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
+                  let bg = CREAM, border = CREAM_LINE, color = CREAM_INK;
+                  if (checked && i === displayCorrect) { bg = CREAM_GOLD; border = toneGood; }
+                  else if (checked && i === picked) { border = toneBad; }
+                  else if (!checked && picked === i) { border = toneGood; }
                   return (
-                    <button key={label} className={"lv-opt" + (checked && picked === i && i !== displayCorrect ? " lv-shake" : "")}
+                    <button key={label} className="lv-opt"
                       onClick={() => pick(i)} disabled={checked}
                       style={{
                         appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
@@ -7169,12 +7344,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>The claim below is built from pieces. Exactly one piece is wrong. Tap it, then check.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
                 {(card.parts || []).map((part, i) => {
-                  let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                  if (checked && i === card.wrong) { bg = badWash; border = toneBad; color = P.ink; }
-                  else if (checked && i === picked) { bg = goodWash; border = toneGood; color = P.ink; }
-                  else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
+                  /* The hunted piece is the answer here, so it takes
+                     the gold reveal; a wrong pick stays neutral. */
+                  let bg = CREAM, border = CREAM_LINE, color = CREAM_INK;
+                  if (checked && i === card.wrong) { bg = CREAM_GOLD; border = toneGood; }
+                  else if (checked && i === picked) { border = toneBad; }
+                  else if (!checked && picked === i) { border = toneGood; }
                   return (
-                    <button key={i} className={"lv-opt" + (checked && picked === i && i !== card.wrong ? " lv-shake" : "")}
+                    <button key={i} className="lv-opt"
                       onClick={() => pick(i)} disabled={checked} aria-pressed={picked === i}
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
@@ -7206,10 +7383,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         className="lv-opt" aria-pressed={selected || donePair}
                         style={{
                           appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
-                          background: donePair ? goodWash : selected ? (P.dark ? "#274b63" : "#DDF4FF") : (P.dark ? "#242b24" : "#ffffff"),
-                          border: "2px solid " + (donePair ? toneGood : selected ? "#84D8FF" : P.line), borderRadius: 14,
+                          background: donePair ? CREAM_GOLD : CREAM,
+                          border: "2px solid " + (donePair ? toneGood : selected ? toneGood : CREAM_LINE), borderRadius: RADIUS.xl,
                           padding: "13px 14px", fontSize: FONT_SIZES.body, fontWeight: 700, lineHeight: 1.45, textAlign: "left",
-                          color: P.ink, cursor: donePair || checked ? "default" : "pointer",
+                          color: CREAM_INK, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
                         <RichText text={pair.left} />{donePair ? " ✓" : ""}
@@ -7223,13 +7400,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                     const flash = matchFlash === pairIdx;
                     return (
                       <button key={"r" + pairIdx} onClick={() => matchRightTap(pairIdx)} disabled={donePair || checked}
-                        className={"lv-opt" + (flash ? " lv-shake" : "")} aria-pressed={donePair}
+                        className="lv-opt" aria-pressed={donePair}
                         style={{
                           appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
-                          background: donePair ? goodWash : flash ? badWash : (P.dark ? "#242b24" : "#ffffff"),
-                          border: "2px solid " + (donePair ? toneGood : flash ? toneBad : P.line), borderRadius: 14,
+                          background: donePair ? CREAM_GOLD : CREAM,
+                          border: "2px solid " + (donePair ? toneGood : flash ? toneBad : CREAM_LINE), borderRadius: RADIUS.xl,
                           padding: "13px 14px", fontSize: FONT_SIZES.body, lineHeight: 1.5, textAlign: "left",
-                          color: P.ink, cursor: donePair || checked ? "default" : "pointer",
+                          color: CREAM_INK, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
                         <RichText text={card.pairs[pairIdx].right} />
@@ -7262,15 +7439,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                         display: "flex", gap: 12, alignItems: "center", textAlign: "left",
-                        background: rightHere ? goodWash : wrongHere ? badWash : withAlphaSafe(accent, P.dark ? 0.2 : 0.12),
-                        border: "2px solid " + (rightHere ? toneGood : wrongHere ? toneBad : accent), borderRadius: 14,
+                        background: wrongHere ? CREAM : CREAM_GOLD,
+                        border: "2px solid " + (rightHere ? toneGood : wrongHere ? toneBad : accent), borderRadius: RADIUS.xl,
                         padding: "12px 15px", fontSize: FONT_SIZES.body, lineHeight: 1.45,
-                        color: P.ink,
+                        color: CREAM_INK,
                         cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 52,
                       }}>
                       <span aria-hidden="true" style={{
                         flexShrink: 0, width: 26, height: 26, borderRadius: "50%",
-                        background: rightHere ? toneGood : wrongHere ? toneBad : accent, color: rightHere ? accentText(toneGood) : "#fff",
+                        background: rightHere ? toneGood : wrongHere ? toneBad : accent, color: wrongHere ? "#fff" : accentText(toneGood),
                         display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 800,
                       }}>{i + 1}</span>
                       <span style={{ minWidth: 0 }}><RichText text={item} /></span>
@@ -7287,9 +7464,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         className="lv-opt"
                         style={{
                           appearance: "none", WebkitAppearance: "none", boxSizing: "border-box",
-                          background: P.dark ? "#242b24" : "#ffffff", border: "2px solid " + P.line, borderRadius: RADIUS.pill,
+                          background: CREAM, border: "2px solid " + CREAM_LINE, borderRadius: RADIUS.pill,
                           padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.4,
-                          color: P.ink, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 46,
+                          color: CREAM_INK, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 46,
                         }}>
                         <RichText text={item} />
                       </button>
@@ -7870,6 +8047,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [progressMsg, setProgressMsg] = useState("");
   const [questCheer, setQuestCheer] = useState([]);
   const [sparksMsg, setSparksMsg] = useState("");
+  const [lastGapDays, setLastGapDays] = useState(0);
 
   const migrateStoredLearning = () => {
     const rawCourses = loadJSON(COURSES_KEY, []);
@@ -7941,6 +8119,26 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     refresh();
     setProfile(touchStreak(loadProfile()));
   }, []);
+
+  /* The return greeting (wave 3): read the last visit stamp,
+     keep the gap in whole days, then stamp this visit. The stamp
+     is the only state the greeting needs, and it lives in its own
+     key (see LAST_VISIT_KEY) so the profile and the export
+     document never hear about it. */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_VISIT_KEY);
+      const last = raw ? Number(raw) : 0;
+      setLastGapDays(visitGapDays(last, Date.now()));
+      localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
+    } catch { /* private mode: no greeting, no harm */ }
+  }, []);
+
+  const toggleSound = () => {
+    const v = !soundOn;
+    setSoundOn(v);
+    saveJSON(SOUND_KEY, v);
+  };
 
   const cortexApi = async (action, body) => {
     try {
@@ -8319,18 +8517,6 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     }
   }
 
-  const pill = (icon, value, label) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 14px", fontSize: FONT_SIZES.label, color: P.ink }}>
-      {icon}
-      <strong style={{ fontWeight: 700 }}>{value}</strong>
-      <span style={{ color: P.ink2, fontSize: FONT_SIZES.label }}>{label}</span>
-    </span>
-  );
-  const flame = (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3 C12 3 5.5 9.6 5.5 14.2 C5.5 18 8.4 21 12 21 C15.6 21 18.5 18 18.5 14.2 C18.5 11.8 17.2 9.7 15.8 8.2 C15.4 10 14.4 11.2 13.2 11.6 C13.8 8.8 13.2 5.4 12 3 Z" fill={accent} />
-    </svg>
-  );
   const nextCourse = courses.find((c) => (c.doneLessons || []).length < c.lessons.length) || courses[0];
 
   /* Continue: the last built in lesson touched wins, then an
@@ -8357,6 +8543,40 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const repairOffer = profile ? streakRepairOffer(profile, new Date()) : null;
   const reminder = profile ? reminderFor({ profile, quests: todayQuests, loop: todayLoop, now: new Date() }) : null;
 
+  /* Wave 3 home derivations. The rank for the status row, the
+     shelf objects for the rail, and the journey band's subject:
+     the last path touched, else an unfinished search course,
+     else the first path as an invitation. All three read state
+     the home already holds; nothing new is stored. */
+  const shelf = shelfObjects(allBuiltinSets, builtinProgress);
+  const bandPath = lastPath || null;
+  const bandCourse = !bandPath ? nextCourse : null;
+  const bandList = bandPath ? flattenPathLessons(bandPath)
+    : bandCourse ? bandCourse.lessons
+    : flattenPathLessons(LEARNING_PATHS[0]);
+  const bandNodes = bandList.map((l, idx) => {
+    if (bandPath) {
+      const rec = progressStore[l.id];
+      const isDone = !!(rec && rec.done);
+      return {
+        id: l.id, title: l.title,
+        state: isDone ? (isLessonFading(rec) ? "fading" : "done")
+          : isLessonUnlocked(bandPath, l.id, builtinProgress) ? "current" : "locked",
+      };
+    }
+    const doneSet = new Set(bandCourse ? bandCourse.doneLessons || [] : []);
+    const isDone = doneSet.has(l.id);
+    const firstOpen = bandList.findIndex((x) => !doneSet.has(x.id));
+    return { id: l.id, title: l.title, state: isDone ? "done" : idx === firstOpen ? "current" : "locked" };
+  });
+  const bandTitle = bandPath ? bandPath.title : bandCourse ? bandCourse.title : LEARNING_PATHS[0].title;
+  const bandGo = bandPath
+    ? () => setScreen({ name: "bpath", pathId: bandPath.id })
+    : bandCourse
+      ? () => setScreen({ name: "path", courseId: bandCourse.id })
+      : () => setScreen({ name: "bpath", pathId: LEARNING_PATHS[0].id });
+  const showReturnGreeting = !!profile && lastGapDays >= 2;
+
   /* The bundle payoff: rank progress, the streak, mastery so far,
      and one hook for tomorrow. Shown only at the end of a full
      daily session bundle, never for a stage left early. */
@@ -8377,7 +8597,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <style>{CSS}</style>
         <div className="lv-rise">
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
-            <CharacterPose pose="celebrate" size={72} />
+            <CharacterPose pose="celebrate" size={128} live />
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
           <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
@@ -8416,6 +8636,77 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     );
   }
 
+  /* Nova settings (wave 3, 2026-10-14): the reminders picker and
+     the progress export and import moved off the home to here,
+     behind the Settings button in the home header, per the
+     organization ruling. The global Cerebrum Settings page is a
+     different surface owned by the app shell; these controls are
+     the learning record's own, so they live with it. Nothing here
+     changes what the controls do, only where they sit. */
+  if (screen.name === "settings") {
+    return (
+      <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink }}>
+        <style>{CSS}</style>
+        <button onClick={() => setScreen({ name: "home" })} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
+          ← Nova home
+        </button>
+        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 26px", lineHeight: 1.2 }}>Nova settings</h2>
+
+        <div style={{ marginBottom: 30 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REMINDERS</div>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
+            Reminders live here for now: pick an hour and Nova will have your streak and your open quest waiting at the top of this page when you come back.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[{ label: "None", value: null }, { label: "7 AM", value: 7 }, { label: "9 AM", value: 9 }, { label: "1 PM", value: 13 }, { label: "6 PM", value: 18 }, { label: "9 PM", value: 21 }].map((opt) => {
+              const active = profile ? (profile.reminderHour == null ? null : profile.reminderHour) === opt.value : opt.value === null;
+              return (
+                <button key={opt.label} className="lv-chip" aria-pressed={active} onClick={() => updateProfile({ reminderHour: opt.value })}
+                  style={{ borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44, background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink, border: "1px solid " + (active ? accent : P.line) }}>
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 30 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>SOUND</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <button onClick={toggleSound} aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"} aria-pressed={soundOn}
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon name={soundOn ? "volumeOn" : "volumeOff"} size={19} />
+            </button>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
+              Lesson sounds are {soundOn ? "on" : "off"}. Off is the default, and it stays off until you turn it on.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>YOUR PROGRESS</div>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
+            Your progress is stored in this browser only. Export saves a file you keep, not a cloud copy. Import replaces the progress in this browser with the file you pick.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={exportProgress}
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, fontFamily: "var(--cb-font)", minHeight: 44 }}>
+              Export progress
+            </button>
+            <label
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", minHeight: 44, boxSizing: "border-box" }}>
+              Import progress
+              <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importProgressFile(f); }} />
+            </label>
+          </div>
+          {progressMsg && (
+            <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "12px 0 0" }}>{progressMsg}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   /* First run: a learner with no progress and no answers yet gets
      the three question onboarding instead of the home, once. */
   const freshLearner = !!profile && !profile.onboarded && (profile.xp || 0) === 0 && totalPathDone === 0 && courses.length === 0;
@@ -8427,356 +8718,363 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   return (
-    <div className="lv-home" style={{ maxWidth: 880, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)" }}>
+    <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink }}>
       <style>{CSS}</style>
       {tourOpen && <CortexTour P={P} accent={accent} at={at} onClose={closeTour} />}
-      <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: accent, display: "inline-flex", flexShrink: 0 }}><Icon name="cortex" size={36} /></span>
-            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Nova</h1>
+
+      {/* Zone 1, the header strip (wave 3, 2026-10-14): Nova's
+          mark beside the serif wordmark, the tagline in gold sans
+          under it, and the quiet controls on the right. The sound
+          control is an icon only and reflects the muted default;
+          it never turns sound on by itself. */}
+      <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, minHeight: 56 }}>
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
+          <span aria-hidden="true" style={{ width: 48, height: 48, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "1px solid " + P.line, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <CharacterPose pose="greeting" size={48} live />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <h1 className="lv-wordmark" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
+            <p style={{ fontSize: FONT_SIZES.body, color: accent, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
           </div>
-          <p className="lv-tagline" style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: FONT_SIZES.title, color: P.ink, margin: "0 0 8px" }}>{CORTEX_TAGLINE}</p>
-          <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
-            Lessons that teach you a subject in small steps, with quizzes on what you just learned. Follow a path, pick a catalog topic, or build a course from any question. What you answer comes back later, right before you forget, so it stays.
-          </p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <button onClick={() => setTourOpen(true)}
-            style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "8px 0 0", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}>
             How Nova works <Icon name="arrowRight" size={13} />
           </button>
-        </div>
-        <button onClick={() => { const v = !soundOn; setSoundOn(v); saveJSON(SOUND_KEY, v); }}
-          aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"}
-          style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink2, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
-          Sound {soundOn ? "on" : "off"}
-        </button>
-      </div>
-
-      <div className="lv-pills" style={{ display: "flex", gap: 9, flexWrap: "wrap", margin: "20px 0 26px" }}>
-        {pill(flame, profile ? profile.streak || 0 : 0, "day streak" + (profile && profile.freezes ? " · " + profile.freezes + " freeze" + (profile.freezes === 1 ? "" : "s") : ""))}
-        {pill(null, profile ? profile.xp : 0, "XP")}
-        {pill(null, profile ? profile.sparks || 0 : 0, "Sparks")}
-        {pill(null, due.length, "due for review")}
-        {pill(null, courses.length, "courses")}
-      </div>
-
-      {reminder && (
-        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", background: P.raised, border: "1px solid " + accent, borderRadius: 20, padding: "16px 20px", margin: "0 0 26px" }}>
-          <CharacterPose pose={reminder.kind === "atrisk" ? "worried" : "wave"} size={52} />
-          <span style={{ flex: "1 1 260px", minWidth: 0 }}>
-            <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, display: "block" }}>{reminder.title}</span>
-            <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 3, lineHeight: 1.5 }}>{reminder.body}</span>
-          </span>
-          <button className="lv-btn lv-btn-primary" onClick={startBundle}
-            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 48 }}>
-            Start today's session
+          <button onClick={() => setScreen({ name: "settings" })}
+            style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}>
+            Settings
           </button>
+          <button onClick={toggleSound}
+            aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"}
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name={soundOn ? "volumeOn" : "volumeOff"} size={19} />
+          </button>
+        </div>
+      </div>
+      <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "14px 0 0", maxWidth: 620 }}>
+        Lessons that teach you a subject in small steps, with quizzes on what you just learned. Follow a path, pick a catalog topic, or build a course from any question. What you answer comes back later, right before you forget, so it stays.
+      </p>
+
+      {/* The return greeting: Nova notices an absence of two days
+          or more, once, in its own voice. */}
+      {showReturnGreeting && (
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 22 }}>
+          <CharacterPose pose="greeting" size={40} live />
+          <p style={{ fontSize: FONT_SIZES.body, color: P.ink, margin: 0, lineHeight: 1.5 }}>
+            {reviewDueCount > 0 ? "There you are. Your reviews waited." : "There you are. All quiet, and everything held."}
+          </p>
         </div>
       )}
 
-      {/* your rank: the XP ladder made visible, frame and kit line
-          changing with the rung */}
-      {profile && (() => {
-        const rank = rankForXp(profile.xp);
-        return (
-          <div style={{
-            display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
-            background: P.raised, border: (2 + Math.min(2, rank.index)) + "px solid " + accent,
-            borderRadius: 20, padding: "16px 20px", margin: "0 0 26px",
-          }}>
-            <span aria-hidden="true" style={{
-              width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
-              border: (2 + Math.min(3, rank.index)) + "px solid " + accent,
-              display: "flex", alignItems: "center", justifyContent: "center", color: accent,
-              background: withAlphaSafe(accent, 0.1 + rank.index * 0.05),
-            }}>
-              <Icon name="cortex" size={24} />
+      {/* Zone 2, the journey band: the current path as a strip of
+          nodes, and the page's one primary action at the right.
+          The reminder, when Nova has one, speaks from the top of
+          the band; it gets no button of its own, because the band's
+          button is the action it is pointing at. */}
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, margin: "26px 0 24px" }}>
+        {reminder && (
+          <div style={{ display: "flex", gap: 14, alignItems: "center", paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
+            <CharacterPose pose={reminder.kind === "atrisk" ? "worried" : "wave"} size={44} live />
+            <span style={{ minWidth: 0 }}>
+              <span style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, display: "block" }}>{reminder.title}</span>
+              <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
             </span>
-            <span style={{ flex: "1 1 260px", minWidth: 0 }}>
-              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, display: "block", marginBottom: 3 }}>
-                YOUR RANK · RUNG {rank.index + 1} OF {RANK_LADDER.length}
-              </span>
-              <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, display: "block" }}>{rank.name}</span>
-              <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 3, lineHeight: 1.5 }}>{rank.kit}</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-                <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block", maxWidth: 300 }}>
-                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: rank.pctToNext + "%" }} />
-                </span>
-                <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>
-                  {rank.atTop ? "Top rung reached" : rank.xpToNext + " XP to " + rank.nextName}
-                </span>
-              </span>
-              <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 8 }}>
-                {profile.sparks || 0} Sparks
-              </span>
-              <span style={{ display: "block", marginTop: 10 }}>
-                <ShareCardButton P={P} accent={accent} model={shareCardModel("rank", { rankName: rank.name, kit: rank.kit, xp: profile.xp })} />
-              </span>
-            </span>
-            <CharacterPose pose="wave" size={52} />
           </div>
-        );
-      })()}
-
-      {/* progress backup: the record lives in this browser only, so
-          it can leave as a file the learner keeps, and return as one */}
-      <div style={{ margin: "0 0 26px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>
-            Your progress is stored in this browser only.
-          </span>
-          <button onClick={exportProgress}
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink2, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
-            Export progress
-          </button>
-          <label
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink2, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
-            Import progress
-            <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importProgressFile(f); }} />
-          </label>
-        </div>
-        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0", maxWidth: 520 }}>
-          Export saves a file you keep, not a cloud copy. Import replaces the progress in this browser with the file you pick.
-        </p>
-        {progressMsg && (
-          <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "8px 0 0" }}>{progressMsg}</p>
         )}
-      </div>
-
-      {/* reminders: in app only, shown on return at the chosen hour */}
-      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REMINDERS</div>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-          Reminders live here for now: pick an hour and Nova will have your streak and your open quest waiting at the top of this page when you come back.
-        </p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {[{ label: "None", value: null }, { label: "7 AM", value: 7 }, { label: "9 AM", value: 9 }, { label: "1 PM", value: 13 }, { label: "6 PM", value: 18 }, { label: "9 PM", value: 21 }].map((opt) => {
-            const active = profile ? (profile.reminderHour == null ? null : profile.reminderHour) === opt.value : opt.value === null;
-            return (
-              <button key={opt.label} className="lv-chip" aria-pressed={active} onClick={() => updateProfile({ reminderHour: opt.value })}
-                style={{ borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44, background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink, border: "1px solid " + (active ? accent : P.line) }}>
-                {opt.label}
-              </button>
-            );
-          })}
+        <div className="lv-band">
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DAILY PRACTICE</div>
+            <button onClick={bandGo}
+              style={{ display: "block", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 4 }}>
+              <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.subhead, fontWeight: 600, lineHeight: 1.3 }}>{bandTitle}</span>
+            </button>
+            <div className="lv-nodes" role="list" aria-label={"Lessons on " + bandTitle}>
+              {bandNodes.map((n, i) => (
+                <span key={n.id} role="listitem" style={{ display: "inline-flex", alignItems: "flex-start", flexShrink: 0 }}>
+                  {i > 0 && <span aria-hidden="true" style={{ display: "block", width: 16, height: 2, background: P.line, marginTop: 21 }} />}
+                  <button onClick={bandGo} title={n.title} aria-label={n.title + (n.state === "done" ? ", done" : n.state === "fading" ? ", fading, review due" : n.state === "current" ? ", next stop" : ", locked")}
+                    className={n.state === "current" ? "lv-pulse" : ""}
+                    style={{
+                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0, cursor: "pointer", padding: 0,
+                      background: n.state === "done" ? accent : "transparent",
+                      border: (n.state === "fading" ? "2px dashed " : "2px solid ") + (n.state === "done" || n.state === "current" || n.state === "fading" ? accent : P.line),
+                      color: n.state === "done" ? (at || "#101408") : accent,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.label,
+                      opacity: n.state === "fading" ? 0.7 : n.state === "locked" ? 0.55 : 1,
+                    }}>
+                    {n.state === "done" || n.state === "fading" ? (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    ) : i + 1}
+                  </button>
+                </span>
+              ))}
+            </div>
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 0" }}>
+              {due.length > 0
+                ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
+                : "Nothing is due, so the warmup rests and the session starts at your next stop."}
+              {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished; the session is a review round."}
+            </p>
+          </div>
+          <div className="lv-band-primary" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button className="lv-btn" onClick={startBundle} disabled={!bundleReady}
+              style={{
+                background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, width: "100%",
+                minHeight: 52, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700,
+                cursor: bundleReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
+                opacity: bundleReady ? 1 : 0.5,
+              }}>
+              Start daily practice{reviewDueCount > 0 ? " · " + reviewDueCount + " due" : ""}
+            </button>
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
+              One session, in a fixed order: a short review warmup, one new lesson, then the payoff. {totalPathDone} of {totalPathLessons} path lessons done so far.
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* continue hero: last built in lesson, else an unfinished
-          search course, else the first path as an invitation */}
-      {(() => {
-        const hero = lastPath && lastLesson ? {
-          kicker: "CONTINUE · " + lastPath.title.toUpperCase(),
-          title: lastLesson.title,
-          sub: lastLesson.unitTitle + " · " + lastPath.title,
-          pct: lastPathProg.pct,
-          count: lastPathProg.done + " of " + lastPathProg.total + " lessons",
-          coverTitle: lastPath.title,
-          cat: CATALOG.find((c) => c.name === lastPath.category) || null,
-          img: null,
-          go: () => setScreen({ name: "bpath", pathId: lastPath.id }),
-        } : nextCourse ? {
-          kicker: (nextCourse.doneLessons || []).length > 0 ? "CONTINUE" : "START HERE",
-          title: nextCourse.title,
-          sub: "",
-          pct: nextCourse.lessons.length ? Math.round(((nextCourse.doneLessons || []).length / nextCourse.lessons.length) * 100) : 0,
-          count: (nextCourse.doneLessons || []).length + " of " + nextCourse.lessons.length + " lessons",
-          coverTitle: nextCourse.title,
-          cat: CATALOG.find((c) => c.name === nextCourse.category) || null,
-          img: nextCourse.img,
-          go: () => setScreen({ name: "path", courseId: nextCourse.id }),
-        } : {
-          kicker: "START A PATH",
-          title: LEARNING_PATHS[0].title,
-          sub: LEARNING_PATHS[0].blurb,
-          pct: 0,
-          count: flattenPathLessons(LEARNING_PATHS[0]).length + " lessons · no papers needed",
-          coverTitle: LEARNING_PATHS[0].title,
-          cat: CATALOG.find((c) => c.name === LEARNING_PATHS[0].category) || null,
-          img: null,
-          go: () => setScreen({ name: "bpath", pathId: LEARNING_PATHS[0].id }),
-        };
-        return (
-          <button onClick={hero.go}
-            style={{
-              display: "block", width: "100%", textAlign: "left", cursor: "pointer", padding: 0,
-              background: P.raised, border: "1px solid " + P.line, borderRadius: 22, overflow: "hidden",
-              fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 24,
-            }}>
-            <Cover title={hero.coverTitle} height={128} radius={0} cat={hero.cat} img={hero.img} />
-            <span style={{ display: "block", padding: "18px 22px 20px" }}>
-              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, display: "block", marginBottom: 7 }}>
-                {hero.kicker}
-              </span>
-              <span className="lv-hero-title" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{hero.title}</span>
-              {hero.sub && <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 5 }}>{hero.sub}</span>}
-              <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
-                <span style={{ flex: 1, height: 8, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
-                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: hero.pct + "%" }} />
+      {/* Zone 3, the status row: three cream cards, status only.
+          Nothing in this row is a button; the eye reads streak,
+          Sparks, and rank, in that order, and moves on. The freeze
+          count is quiet text inside the streak card, per the
+          reconciliation: freezes are real, they just get no card
+          of their own. */}
+      <div className="lv-status" style={{ marginBottom: 32 }}>
+        <div style={{ background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: FONT_SIZES.section, fontWeight: 500 }}>{profile ? profile.streak || 0 : 0}</span>
+            <span style={{ fontSize: FONT_SIZES.label }}>day streak</span>
+          </div>
+          <p style={{ fontSize: FONT_SIZES.caption, color: CREAM_FAINT, margin: "8px 0 0", lineHeight: 1.45 }}>
+            {profile && profile.freezes ? profile.freezes + " freeze" + (profile.freezes === 1 ? "" : "s") + " held for a missed day" : "No freezes held"}
+          </p>
+        </div>
+        <div style={{ background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: FONT_SIZES.section, fontWeight: 500 }}>{profile ? profile.sparks || 0 : 0}</span>
+            <span style={{ fontSize: FONT_SIZES.label }}>Sparks</span>
+          </div>
+          <p style={{ fontSize: FONT_SIZES.caption, color: CREAM_FAINT, margin: "8px 0 0", lineHeight: 1.45 }}>For streak protection, and nothing else</p>
+        </div>
+        <div style={{ background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: 16 }}>
+          {(() => {
+            const rank = profile ? rankForXp(profile.xp) : rankForXp(0);
+            return (
+              <>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: CREAM_FAINT, marginBottom: 4 }}>YOUR RANK</div>
+                <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500 }}>{rank.name}</div>
+                <span style={{ display: "block", height: 4, background: "rgba(26, 26, 26, 0.14)", overflow: "hidden", marginTop: 10 }}>
+                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: rank.pctToNext + "%" }} />
                 </span>
-                <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>{hero.count}</span>
-              </span>
-            </span>
-          </button>
-        );
-      })()}
-
-      {/* the daily session bundle: warmup, one new lesson, payoff */}
-      <div style={{ border: "1px solid " + (bundleReady ? accent : P.line), borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DAILY PRACTICE</div>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-          One session, in a fixed order: a short review warmup from what is due, then one new lesson at your next stop, then a payoff screen with your rank, your streak, and tomorrow's hook.
-        </p>
-        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-          {due.length > 0
-            ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
-            : "Nothing is due, so the warmup rests and the session starts at your next stop."}
-          {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished; the session is a review round."}
-          {" "}{totalPathDone} of {totalPathLessons} path lessons done so far.
-        </p>
-        <button className="lv-btn lv-btn-primary" onClick={startBundle} disabled={!bundleReady}
-          style={{
-            background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
-            padding: "13px 24px", fontSize: FONT_SIZES.body, fontWeight: 700,
-            cursor: bundleReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
-            opacity: bundleReady ? 1 : 0.5,
-          }}>
-          Start daily practice
-        </button>
-      </div>
-
-      {/* today's quests: the daily loop made visible */}
-      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>TODAY'S QUESTS</div>
-        {questCheer.length > 0 && questCheer.map((slot) => {
-          const cheerQuest = todayQuests.find((q) => q.slot === slot);
-          return (
-            <div key={slot} style={{ display: "flex", alignItems: "center", gap: 12, background: P.bg, border: "1px solid " + accent, borderRadius: 14, padding: "12px 14px", marginBottom: 12 }}>
-              <CharacterPose pose="celebrate" size={44} />
-              <span style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
-                {"+5 Sparks · " + (cheerQuest ? cheerQuest.title : "Quest done")}
-              </span>
-            </div>
-          );
-        })}
-        {todayQuests.map((quest) => {
-          const state = questState(quest, { loop: todayLoop, dueCount: due.length, progress: builtinProgress });
-          const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : (state.done ? 100 : 0);
-          return (
-            <div key={quest.slot} style={{ padding: "12px 0", borderTop: "1px solid " + P.line, opacity: state.done ? 0.75 : 1 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, lineHeight: 1.35 }}>{quest.title}</span>
-                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: state.done ? accent : P.ink2, flexShrink: 0 }}>{state.done ? "Done" : state.current + " of " + state.total}</span>
-              </div>
-              <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 8px" }}>{quest.detail}</p>
-              <span style={{ display: "block", height: 6, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
-                <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pct + "%" }} />
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* sparks: streak protection only, earned by the loop */}
-      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>SPARKS</div>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-          You hold {profile ? profile.sparks || 0 : 0} Sparks.
-        </p>
-        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-          Sparks come from finishing sessions and quests, passing checkpoints and perfect lessons, and climbing ranks. They pay for streak protection, and nothing else.
-        </p>
-        {(() => {
-          const freezesNow = profile ? profile.freezes || 0 : 0;
-          const balance = profile ? profile.sparks || 0 : 0;
-          const atCap = freezesNow >= SPARKS_RATES.freezeCap;
-          const short = balance < SPARKS_RATES.freezeCost;
-          return (
-            <div style={{ marginBottom: 14 }}>
-              <button className="lv-btn lv-btn-primary" disabled={atCap || short}
-                onClick={() => {
-                  if (!profile) return;
-                  const bought = buyStreakFreeze(profile);
-                  if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It will bridge one missed day."); }
-                }}
-                style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1 }}>
-                Buy a streak freeze · 50 Sparks
-              </button>
-              {(atCap || short) && (
-                <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
-                  {atCap ? "You already hold the most freezes you can carry." : "You need 50 Sparks for a freeze."}
+                <p style={{ fontSize: FONT_SIZES.caption, color: CREAM_FAINT, margin: "8px 0 0", lineHeight: 1.45 }}>
+                  {rank.atTop ? "Top rung · " + (profile ? profile.xp : 0) + " XP in all" : rank.xpToNext + " XP to " + rank.nextName}
                 </p>
-              )}
+              </>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* Zone 4, the two column body: review and quests in the
+          main column, Nova's shelf and the loop panels in the
+          rail. On mobile the rail simply follows the column. */}
+      <div className="lv-cols" style={{ marginBottom: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          {/* the review bench: review as a place, with its due
+              count on the door. Due items are cream rows; each row
+              starts the bench, and so does the button under them. */}
+          <div style={{ marginBottom: 32 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent }}>REVIEW BENCH</span>
+              {reviewDueCount > 0 && <CharacterPose pose="fading" size={40} live />}
             </div>
-          );
-        })()}
-        {repairOffer && (
-          <div style={{ border: "1px solid " + accent, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
-            <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 10px" }}>
-              You missed a day and a streak of {repairOffer.lostStreak} {repairOffer.lostStreak === 1 ? "day" : "days"} ended. This offer lasts today only, and repairing it puts the missed day back.
+            <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
+              {reviewDueCount > 0
+                ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
+                : "Nothing is due right now. Finished lessons land here as they start to fade, and scheduled questions arrive on their own timing."}
             </p>
-            <button className="lv-btn lv-btn-primary" disabled={(profile ? profile.sparks || 0 : 0) < repairOffer.cost}
-              onClick={() => {
-                if (!profile) return;
-                const repaired = applyStreakRepair(profile);
-                if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired. Your streak reads restored."); }
-              }}
-              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1 }}>
-              Repair the missed day · 100 Sparks
+            {reviewDueCount > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+                {due.length > 0 && (
+                  <button onClick={startReview}
+                    style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 64, boxSizing: "border-box", textAlign: "left", background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: "12px 16px", cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500 }}>{due.length} scheduled question{due.length === 1 ? "" : "s"}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: CREAM_FAINT, marginTop: 2 }}>From the courses you built</span>
+                    </span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: CREAM_INK, flexShrink: 0 }}>Review</span>
+                  </button>
+                )}
+                {fadingAll.slice(0, 3).map((f) => (
+                  <button key={f.path.id + ":" + f.lesson.id} onClick={startReview}
+                    style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 64, boxSizing: "border-box", textAlign: "left", background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: "12px 16px", cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500 }}>{f.lesson.title}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: CREAM_FAINT, marginTop: 2 }}>{"Finished lesson on " + f.path.title + ", fading"}</span>
+                    </span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: CREAM_INK, flexShrink: 0 }}>Review</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+              Review is what makes lessons stay. It pays at the usual rates, and finishing a fading lesson's review brings it back to full strength on the map.
+            </p>
+            <button className="lv-btn" onClick={startReview} disabled={reviewDueCount === 0}
+              style={{
+                background: "transparent", color: accent, border: "1px solid " + accent, borderRadius: RADIUS.lg,
+                padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 700,
+                cursor: reviewDueCount > 0 ? "pointer" : "default", fontFamily: "var(--cb-font)",
+                opacity: reviewDueCount > 0 ? 1 : 0.5,
+              }}>
+              Start review{reviewDueCount > 0 ? " (" + reviewDueCount + " due)" : ""}
             </button>
-            {(profile ? profile.sparks || 0 : 0) < repairOffer.cost && (
-              <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>You need 100 Sparks to repair the missed day.</p>
+          </div>
+
+          {/* today's quests: the daily loop, flat rows under a
+              hairline each, no card chrome competing with the
+              bench above it */}
+          <div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>TODAY'S QUESTS</div>
+            {questCheer.length > 0 && questCheer.map((slot) => {
+              const cheerQuest = todayQuests.find((q) => q.slot === slot);
+              return (
+                <div key={slot} style={{ display: "flex", alignItems: "center", gap: 12, border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "12px 14px", marginBottom: 12 }}>
+                  <CharacterPose pose="celebrate" size={44} />
+                  <span style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
+                    {"+5 Sparks · " + (cheerQuest ? cheerQuest.title : "Quest done")}
+                  </span>
+                </div>
+              );
+            })}
+            {todayQuests.map((quest) => {
+              const state = questState(quest, { loop: todayLoop, dueCount: due.length, progress: builtinProgress });
+              const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : (state.done ? 100 : 0);
+              return (
+                <div key={quest.slot} style={{ padding: "12px 0", borderTop: "1px solid " + P.line, opacity: state.done ? 0.75 : 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                    <span style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.35 }}>{quest.title}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: state.done ? accent : P.ink2, flexShrink: 0 }}>{state.done ? "Done" : state.current + " of " + state.total}</span>
+                  </div>
+                  <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 8px" }}>{quest.detail}</p>
+                  <span style={{ display: "block", height: 4, background: P.line, overflow: "hidden" }}>
+                    <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: pct + "%" }} />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ minWidth: 0 }}>
+          {/* Nova's shelf: one object per finished path, and the
+              objects stay. It is the learner's history at a
+              glance, kept where Nova sits. */}
+          <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, marginBottom: 16, background: P.raised }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12 }}>NOVA'S SHELF</div>
+            {shelf.length === 0 ? (
+              <div>
+                <div style={{ marginBottom: 10 }}>
+                  <CharacterPose pose="asleep" size={56} />
+                </div>
+                <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
+                  Nothing on the shelf yet. Finish a path and its object lands here, and stays.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+                {shelf.map((o) => (
+                  <div key={o.pathId} style={{ width: 64, textAlign: "center" }}>
+                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 64, height: 64, background: CREAM, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl }}>
+                      <ShelfObjectMark glyph={o.glyph} />
+                    </span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.35, marginTop: 6 }}>{o.title}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        )}
-        {sparksMsg && <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "0 0 10px" }}>{sparksMsg}</p>}
-        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
-          {"Sparks never buy " + SPARKS_NEVER_BUYS.join(", ") + "."}
-        </p>
-      </div>
 
-      {/* leagues: not open yet, joining is a saved choice only */}
-      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEAGUES</div>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-          Leagues open once enough learners are active each week. Groups of 30, ranked on league points earned from first time lessons and review accuracy, capped each day. Replays earn nothing, and joining is always your choice.
-        </p>
-        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-          Leagues are not open yet.
-        </p>
-        <button className="lv-btn" aria-pressed={!!(profile && profile.leaguesOptIn)} onClick={() => updateProfile({ leaguesOptIn: !(profile && profile.leaguesOptIn) })}
-          style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
-          {profile && profile.leaguesOptIn ? "You are in" : "Join when leagues open"}
-        </button>
-        {profile && profile.leaguesOptIn && (
-          <p style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "10px 0 0" }}>You are in for opening day. Your place is saved.</p>
-        )}
-      </div>
+          {/* sparks: streak protection only, earned by the loop */}
+          <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, marginBottom: 16, background: P.raised }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>SPARKS</div>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
+              You hold {profile ? profile.sparks || 0 : 0} Sparks.
+            </p>
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+              Sparks come from finishing sessions and quests, passing checkpoints and perfect lessons, and climbing ranks. They pay for streak protection, and nothing else.
+            </p>
+            {(() => {
+              const freezesNow = profile ? profile.freezes || 0 : 0;
+              const balance = profile ? profile.sparks || 0 : 0;
+              const atCap = freezesNow >= SPARKS_RATES.freezeCap;
+              const short = balance < SPARKS_RATES.freezeCost;
+              return (
+                <div style={{ marginBottom: 14 }}>
+                  <button className="lv-btn" disabled={atCap || short}
+                    onClick={() => {
+                      if (!profile) return;
+                      const bought = buyStreakFreeze(profile);
+                      if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It will bridge one missed day."); }
+                    }}
+                    style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1, width: "100%" }}>
+                    Buy a streak freeze · 50 Sparks
+                  </button>
+                  {(atCap || short) && (
+                    <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
+                      {atCap ? "You already hold the most freezes you can carry." : "You need 50 Sparks for a freeze."}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+            {repairOffer && (
+              <div style={{ border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "14px 16px", marginBottom: 14 }}>
+                <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 10px" }}>
+                  You missed a day and a streak of {repairOffer.lostStreak} {repairOffer.lostStreak === 1 ? "day" : "days"} ended. This offer lasts today only, and repairing it puts the missed day back.
+                </p>
+                <button className="lv-btn" disabled={(profile ? profile.sparks || 0 : 0) < repairOffer.cost}
+                  onClick={() => {
+                    if (!profile) return;
+                    const repaired = applyStreakRepair(profile);
+                    if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired. Your streak reads restored."); }
+                  }}
+                  style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1, width: "100%" }}>
+                  Repair the missed day · 100 Sparks
+                </button>
+                {(profile ? profile.sparks || 0 : 0) < repairOffer.cost && (
+                  <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>You need 100 Sparks to repair the missed day.</p>
+                )}
+              </div>
+            )}
+            {sparksMsg && <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "0 0 10px" }}>{sparksMsg}</p>}
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
+              {"Sparks never buy " + SPARKS_NEVER_BUYS.join(", ") + "."}
+            </p>
+          </div>
 
-      {/* the review bench: review as a place, with its due count
-          on the door */}
-      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent }}>REVIEW BENCH</span>
-          {reviewDueCount > 0 && <CharacterPose pose="fading" size={40} />}
+          {/* leagues: not open yet, joining is a saved choice only */}
+          <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, background: P.raised }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEAGUES</div>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
+              Leagues open once enough learners are active each week. Groups of 30, ranked on league points earned from first time lessons and review accuracy, capped each day. Replays earn nothing, and joining is always your choice.
+            </p>
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+              Leagues are not open yet.
+            </p>
+            <button className="lv-btn" aria-pressed={!!(profile && profile.leaguesOptIn)} onClick={() => updateProfile({ leaguesOptIn: !(profile && profile.leaguesOptIn) })}
+              style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+              {profile && profile.leaguesOptIn ? "You are in" : "Join when leagues open"}
+            </button>
+            {profile && profile.leaguesOptIn && (
+              <p style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "10px 0 0" }}>You are in for opening day. Your place is saved.</p>
+            )}
+          </div>
         </div>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-          {reviewDueCount > 0
-            ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due for review: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
-            : "Nothing is due right now. Finished lessons land here as they start to fade, and scheduled questions arrive on their own timing."}
-        </p>
-        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-          Review is what makes lessons stay. It pays at the usual rates, and finishing a fading lesson's review brings it back to full strength on the map.
-        </p>
-        <button className="lv-btn lv-btn-primary" onClick={startReview} disabled={reviewDueCount === 0}
-          style={{
-            background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
-            padding: "13px 24px", fontSize: FONT_SIZES.body, fontWeight: 700,
-            cursor: reviewDueCount > 0 ? "pointer" : "default", fontFamily: "var(--cb-font)",
-            opacity: reviewDueCount > 0 ? 1 : 0.5,
-          }}>
-          Start review{reviewDueCount > 0 ? " (" + reviewDueCount + " due)" : ""}
-        </button>
       </div>
 
       {/* the journey: paths as places, units as regions, lessons
@@ -8785,7 +9083,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           has come due, so review due shows on the map itself. */}
       <div style={{ marginBottom: 30 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEARNING PATHS</div>
-        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, color: P.ink, margin: "0 0 8px", lineHeight: 1.25 }}>Your journey</h2>
+        <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 10px" }}>
           Whole subjects, taught step by step, laid out as places to travel. Every lesson teaches first, then checks what stuck, and nothing here needs a search to start.
         </p>
@@ -8797,7 +9095,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           const flat = flattenPathLessons(path);
           let stopNo = -1;
           return (
-            <div key={path.id} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 22, padding: "20px 20px 10px", marginBottom: 18 }}>
+            <div key={path.id} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "20px 20px 10px", marginBottom: 18 }}>
               <button onClick={() => setScreen({ name: "bpath", pathId: path.id })}
                 style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--cb-font)", color: P.ink }}>
                 <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
@@ -8815,7 +9113,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 const unitOwned = unit.lessons.every((l) => progressStore[l.id] && progressStore[l.id].done);
                 return (
                   <div key={unit.id} style={{
-                    marginTop: 16, borderRadius: 16, padding: "12px 12px 2px",
+                    marginTop: 16, borderRadius: RADIUS.xl, padding: "12px 12px 2px",
                     background: unitOwned ? withAlphaSafe(accent, P.dark ? 0.13 : 0.08) : "transparent",
                     border: "1px solid " + (unitOwned ? accent : "transparent"),
                   }}>
@@ -8856,7 +9154,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                             onClick={() => { if (unlocked) startBuiltinLesson(path, myStop); else setScreen({ name: "bpath", pathId: path.id }); }}
                             style={{
                               flex: 1, minWidth: 0, display: "block", textAlign: "left", cursor: "pointer",
-                              background: P.bg, border: "1px solid " + (isCurrent ? accent : P.line), borderRadius: 14,
+                              background: P.bg, border: "1px solid " + (isCurrent ? accent : P.line), borderRadius: RADIUS.xl,
                               padding: "11px 14px", fontFamily: "var(--cb-font)", color: P.ink,
                               opacity: unlocked ? 1 : 0.6,
                             }}>
@@ -8914,7 +9212,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 onClick={() => { if (topicPath) setScreen({ name: "bpath", pathId: topicPath.id }); }}
                 style={{
                   textAlign: "left", cursor: "pointer", padding: 0, overflow: "hidden",
-                  background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                  background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl,
                   fontFamily: "var(--cb-font)", color: P.ink,
                 }}>
                 <Cover title={t.t} height={104} radius={0} cat={cat} img={t.img} />
@@ -8943,7 +9241,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 onClick={() => { if (existing) setScreen({ name: "path", courseId: existing.id }); else buildCourseFrom(e.query, e.title, e.category); }}
                 style={{
                   textAlign: "left", cursor: building ? "wait" : "pointer", padding: 0, overflow: "hidden",
-                  background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                  background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl,
                   fontFamily: "var(--cb-font)", color: P.ink, opacity: building && !isBuilding ? 0.55 : 1,
                 }}>
                 {cat ? <CategoryArt motif={cat.motif} pair={cat.pair} height={104} radius={0} /> : <Cover title={e.title} height={104} radius={0} />}
@@ -8978,7 +9276,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       </div>
 
       {/* topic builder */}
-      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>BUILD A COURSE</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum searches for what is known and turns the answer's ideas into taught lessons with quizzes, on the spot.
@@ -8991,13 +9289,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             placeholder="e.g. black soldier fly larvae gut microbiome"
             aria-label="Course topic"
             style={{
-              flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: 14,
+              flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg,
               padding: "14px 16px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
             }}
           />
           <button className="lv-btn lv-btn-primary" onClick={buildCourse} disabled={building || !topic.trim()}
             style={{
-              background: accent, color: at || "#101408", border: "none", borderRadius: 14,
+              background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
               padding: "14px 26px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: building ? "wait" : "pointer",
               fontFamily: "var(--cb-font)", minHeight: 54, opacity: building || !topic.trim() ? 0.55 : 1,
             }}>
@@ -9009,10 +9307,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* library */}
       {courses.length === 0 ? (
-        <div style={{ border: "1px dashed " + P.line, borderRadius: 20, padding: "38px 28px", textAlign: "center" }}>
+        <div style={{ border: "1px dashed " + P.line, borderRadius: RADIUS.xl, padding: "38px 28px", textAlign: "center" }}>
+          {/* The asleep pose's first surface (wave 3): an empty
+              state is a Nova moment, and nothing here needs Nova
+              awake. */}
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+            <CharacterPose pose="asleep" size={96} />
+          </div>
           <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
-            Build one above, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
+            Quiet in here. Build one above, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
           </p>
           <button onClick={() => onNavigate && onNavigate("search")}
             style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -9030,7 +9334,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <button key={course.id} onClick={() => setScreen({ name: "path", courseId: course.id })}
                   style={{
                     textAlign: "left", cursor: "pointer", padding: 0, overflow: "hidden",
-                    background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                    background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl,
                     fontFamily: "var(--cb-font)", color: P.ink,
                   }}>
                   <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
@@ -9055,7 +9359,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* contributor studio */}
       {access.isCreator && (
-        <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
+        <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Nova builds the course on the spot, same as every course here.
@@ -9103,7 +9407,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* owner: creator access */}
       {access.isFounder && (
-        <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
+        <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CREATORS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             Type an email and that account can create for Nova: publishing catalog courses from the studio above. Creators also receive the Nova Contributor badge on their profile.
@@ -9135,6 +9439,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           )}
         </div>
       )}
+
+      {/* Zone 5, the footer line (wave 3): one quiet line, and the
+          controls it names live in Nova settings now. */}
+      <p style={{ fontSize: FONT_SIZES.label, color: P.faint, margin: "26px 0 0" }}>
+        Progress stays in this browser. Export to keep a copy.
+      </p>
 
     </div>
   );
