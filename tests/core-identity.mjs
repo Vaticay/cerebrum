@@ -258,13 +258,15 @@ group("Home stage: sidebar restored, one column, one navigation");
   // 2026-10-13, Dusty's directive: "bring back the side bar but make
   // it better." The plate pass made the empty search home a
   // sidebarless stage with its own hairline top bar carrying a second
-  // navigation. The restoration keeps the plate pass's single centred
-  // 720 column (the scatter fix: one width, one left edge, no repeated
-  // padding) and puts the standard shell back around it. The older
-  // stage pins live in tests/intro-title-card.mjs; this group pins the
-  // restored contract.
+  // navigation. The restoration kept the plate pass's single centred
+  // column (the scatter fix: one width, one left edge, no repeated
+  // padding) and put the standard shell back around it. Dusty's
+  // evening revision the same day superseded the column's narrow
+  // measure: the stage runs wide at 1160 under a plain wordmark
+  // masthead, with quiet human labels. The older stage pins live in
+  // tests/intro-title-card.mjs; this group pins the shell contract.
   const stage = appSrc.slice(
-    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   await test("the sidebar renders on the stage with the standard offset", () => {
@@ -277,10 +279,14 @@ group("Home stage: sidebar restored, one column, one navigation");
     assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
   });
   await test("the stage column keeps one width and one left edge", () => {
-    assert.ok(stage.includes('width: "100%", maxWidth: 720'), "stage column is not the single 720 column");
+    /* Corrected contract (2026-10-13 evening): the single column
+       survives, but at the wide measure Dusty ordered from his
+       photo of the live stage, and the Continue row carries its
+       plain label, not the plate one. */
+    assert.ok(stage.includes('width: "100%", maxWidth: 1160'), "stage column is not the single wide column");
     assert.ok(!stage.includes("paddingLeft"), "a second left padding crept into the stage column");
     assert.ok(stage.includes("<HomeDeck"), "deck missing from the stage column");
-    assert.ok(stage.includes("Continue investigation"), "continue row missing from the column");
+    assert.ok(stage.includes(">Continue<"), "continue row missing from the column");
   });
   await test("navigation exists exactly once: no stage top bar", () => {
     assert.ok(!stage.includes("<nav"), "stage still renders its own nav");

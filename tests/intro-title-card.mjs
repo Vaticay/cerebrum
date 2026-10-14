@@ -38,7 +38,7 @@
  *   intro.jsx: the search stage and the consent gate still use the
  *   frame (pinned below and in core-identity).
  *
- * The app shell groups at the end (Plate II stage, consent trigger,
+ * The app shell groups at the end (home stage, consent trigger,
  * Continue heading, recents engagement, deck) pin CerebrumApp.jsx
  * behaviour that this restoration did not change.
  *
@@ -398,7 +398,7 @@ await test("the field is capped, pausable, and faint", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Plate II, the consent trigger, and the Continue heading");
+group("The home stage, the consent trigger, and the Continue heading");
 
 await test("the consent gate renders exactly once, in the app shell", () => {
   const n = (appSrc.match(/<ConsentGate/g) || []).length;
@@ -413,30 +413,47 @@ await test("the stage keeps one centred column inside the standard shell", () =>
      the side bar but make it better"), superseding the plate pass
      contract this test originally pinned: the desktop sidebar renders
      on the stage exactly as it does over a thread, and the main
-     offset is the standard sidebar offset. What survives from the
-     plate pass is the single centred 720 column, so the scatter
-     cannot return. The fuller pin set for the restored stage lives
-     in tests/core-identity.mjs ("Home stage: sidebar restored"). */
+     offset is the standard sidebar offset. What survived from the
+     plate pass was the single centred column, so the scatter cannot
+     return; Dusty's evening revision the same day then widened that
+     column (see the next test). The fuller pin set for the restored
+     stage lives in tests/core-identity.mjs ("Home stage: sidebar
+     restored"). */
   assert.ok(appSrc.includes('const homeStage = view === "search" && !started'), "homeStage not derived from the empty state");
   assert.ok(!appSrc.includes("(!homeStage || isMobile)"), "sidebar is still conditional on the stage");
   assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216)"), "main offset is not the standard sidebar offset");
   assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
 });
 
-await test("the stage carries the plate order and no corpus number", () => {
+await test("the stage carries the plain order and no corpus number", () => {
+  /* Corrected contract (2026-10-13 evening, Dusty's photo verdict):
+     the plate order this test used to pin (the eyebrow, the serif
+     manifesto headline, the marketing paragraph under the composer,
+     the letterspaced labels, the numbered examples) read as AI
+     generated to him and is gone. The stage now opens with a plain
+     Cerebrum masthead, one plain line, and the composer; the labels
+     are "Continue" and "Try asking" in normal case; the footer
+     claim strip survives without its label. The column is 1160,
+     not the narrower measure the plate pass set. */
   const stage = appSrc.slice(
-    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   assert.ok(stage.length > 1000, "stage block not found");
-  assert.ok(stage.includes("maxWidth: 720"), "stage column is not 720px");
-  assert.ok(stage.includes("Plate II · Inquiry"), "plate label missing from the stage");
+  assert.ok(stage.includes("maxWidth: 1160"), "stage column is not the wide 1160 measure");
+  assert.ok(stage.includes("cb-stage-wordmark"), "masthead wordmark missing from the stage");
+  assert.ok(stage.includes(">Cerebrum<"), "masthead does not carry the name");
   assert.ok(stage.includes('variant="stage"'), "composer not in its stage variant");
-  assert.ok(stage.includes("coverage disclosure"), "method line does not name the coverage disclosure");
-  assert.ok(stage.includes("Search record"), "method line does not name the Search record");
-  assert.ok(stage.includes("Continue investigation"), "continue row missing");
-  assert.ok(stage.includes("Specimen inquiries"), "inquiries list missing");
-  assert.ok(stage.includes("Traced claim"), "footer claim strip missing");
+  assert.ok(!stage.includes("Plate II · Inquiry"), "the plate eyebrow survives on the stage");
+  assert.ok(!stage.includes("Every answer is written from the papers"), "the manifesto headline survives on the stage");
+  assert.ok(!stage.includes("Each answer opens with"), "the marketing paragraph survives under the composer");
+  assert.ok(stage.includes(">Continue<"), "continue row missing its plain label");
+  assert.ok(!stage.includes("Continue investigation"), "the plate continue label survives");
+  assert.ok(stage.includes(">Try asking<"), "example questions missing their plain label");
+  assert.ok(!stage.includes("Specimen inquiries"), "the specimen label survives");
+  assert.ok(!stage.includes("0{i + 1}"), "the examples are still numbered");
+  assert.ok(stage.includes("stageSpecimen.claim"), "footer claim strip missing");
+  assert.ok(!stage.includes("Traced claim"), "the plate footer label survives");
   assert.ok(!stage.includes("scholarly indexes"), "a corpus number sits on the stage");
   assert.ok(!stage.includes("SCHOLARLY_SOURCES.length"), "a corpus count sits on the stage");
 });
@@ -472,16 +489,17 @@ await test("deck and stage share the one Continue data walk", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Plate II browser fixes (2026-10-13, live verification findings)");
+group("Home stage browser fixes (2026-10-13, live verification findings)");
 
 await test("the stage bar carries no centre running head to truncate", () => {
   /* Live finding: the stage's six nav links squeezed the centred
      running head into "SCIENTIFIC LITERAT…". The stage bar now drops
-     its centre entirely (the Plate II eyebrow below the bar carries
-     the identity), while the intro keeps its full centre text: its
-     right side is one short plate label and the text fits. */
+     its centre entirely (the masthead at the top of the stage
+     carries the identity), while the intro keeps its full centre
+     text: its right side is one short plate label and the text
+     fits. */
   const stage = appSrc.slice(
-    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   assert.ok(!stage.includes("Scientific literature, traced"), "stage bar still renders the truncating centre text");
@@ -534,7 +552,7 @@ await test("the stage renders exactly one Continue affordance", () => {
   assert.ok(appSrc.includes("suppressContinue = false"), "deck prop missing or no longer defaults off");
   assert.ok(appSrc.includes("lastQ && !suppressContinue"), "the left off card is not gated on the prop");
   const stage = appSrc.slice(
-    appSrc.indexOf("Plate II (2026-10-13): the empty search home"),
+    appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   const deckUse = stage.slice(stage.indexOf("<HomeDeck"));

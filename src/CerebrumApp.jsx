@@ -1716,11 +1716,12 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
   return (
     <div ref={deckRef} style={{
-      /* Same measure as the composer above it. They used to be 700 and
-         880: two column widths stacked on one screen, close enough that
-         the eye reads it as a mistake rather than a decision, which is
-         most of why this page felt loose. */
-      width: "100%", maxWidth: 820, textAlign: "left",
+      /* Same measure as the composer above it: the deck takes the
+         stage column's full width, whatever that width is. They used
+         to be 700 and 880: two column widths stacked on one screen,
+         close enough that the eye reads it as a mistake rather than
+         a decision, which is most of why this page felt loose. */
+      width: "100%", maxWidth: "none", textAlign: "left",
       // The mobile menu button is a fixed circle in the top-left corner. As
       // the deck scrolls up under it, it landed squarely on top of the
       // first stat's number — the value was unreadable behind the button.
@@ -23161,52 +23162,65 @@ function App() {
         <div style={view === "search" ? { ...S.container, maxWidth: 1760 } : S.container}>
           {!started ? (
             /* ══════════════════════════════════════════════════════
-               Plate II (2026-10-13): the empty search home as one
-               centered stage, now inside the standard shell. A single
-               column at 720px carries the eyebrow, the method
-               statement, the composer, the method and proof line,
-               the Continue row, the specimen inquiries, and the deck,
-               all at one width with text left aligned inside it, so
-               one vertical line at the composer's left edge aligns
-               everything beneath it. The column is centered in the
-               space beside the sidebar, which renders here as it does
-               over a thread (see homeStage): navigation lives in the
-               sidebar alone, and the stage's old hairline top bar,
-               with its duplicate nav links and second wordmark, is
-               gone, so no destination or brand mark appears twice.
-               This keeps the old scatter dead at its root: the bench
-               band aligned to flex start with large left padding,
-               the deck wrapper added the same padding again and
-               shifted right, and the two had different widths. The
-               first submit yields to the existing thread layout.
+               The home stage: the empty search home as one wide
+               stage inside the standard shell. Dusty's evening
+               revision (2026-10-13) supersedes the plate stage and
+               its narrow column: the stage runs wide (1160), a
+               plain Cerebrum masthead sits at the top like the pre
+               plate layout had, and the copy goes quiet and human.
+               No eyebrow, no manifesto headline, no marketing
+               paragraph, no letterspaced labels, no numbered
+               examples. One column still carries everything (the
+               masthead, the composer, the Continue row, the
+               example questions, and the deck) at one width with
+               text left aligned inside it, so one vertical line at
+               the composer's left edge aligns everything beneath
+               it and the old scatter stays dead at its root: the
+               bench band aligned to flex start with large left
+               padding, the deck wrapper added the same padding
+               again and shifted right, and the two had different
+               widths. The column is centered in the space beside
+               the sidebar, which renders here as it does over a
+               thread (see homeStage): navigation lives in the
+               sidebar alone, and the masthead is a name at the
+               top, not a second nav. The first submit yields to
+               the existing thread layout.
                ══════════════════════════════════════════════════════ */
             <Reveal style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div style={{
-                width: "100%", maxWidth: 720, padding: isMobile ? "0 20px" : "0 24px",
+                width: "100%", maxWidth: 1160, padding: isMobile ? "0 20px" : "0 24px",
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
-                {/* No top bar on the stage: navigation lives in the
-                    sidebar alone, and nothing up here duplicates its
-                    destinations or its brand mark. The plate label
-                    sits once, as the eyebrow over the method
-                    statement below. */}
-                  {/* The method statement: about the method, not a
-                      greeting. */}
-                  <div style={{ paddingTop: isMobile ? 30 : 40 }}>
-                    <div style={plateHead(P.faint)}>Plate II · Inquiry</div>
-                    <p style={{
-                      fontFamily: "var(--cb-serif)", fontWeight: 550,
-                      fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.hero, lineHeight: 1.28,
-                      color: P.ink, margin: "14px 0 0", maxWidth: "34ch",
-                    }}>
-                      Every answer is written from the papers it found first, and every claim in it can be traced back to its source.
-                    </p>
-                  </div>
+                {/* The masthead: the wordmark at the top of the
+                    stage, the way the pre plate layout carried it.
+                    The mark and the name in the app's own treatment
+                    (the sidebar brand is the same pairing), nothing
+                    under it, and no links: navigation lives in the
+                    sidebar alone, so this is a name, not a nav. */}
+                <header style={{
+                  display: "flex", alignItems: "center", gap: 11,
+                  paddingBottom: 16, borderBottom: `1px solid ${P.line}`,
+                }}>
+                  <Mark size={22} accent={accent} glow={P.dark} />
+                  <span className="cb-stage-wordmark" style={{
+                    fontFamily: "var(--cb-font)", fontWeight: 700,
+                    fontSize: FONT_SIZES.display, color: P.ink, lineHeight: 1,
+                  }}>Cerebrum</span>
+                </header>
+
+                {/* One plain line about what this is, then the
+                    composer. A tool people use, not a manifesto. */}
+                <p style={{
+                  margin: "20px 0 0", fontSize: FONT_SIZES.body, lineHeight: 1.55,
+                  color: P.ink2, maxWidth: "62ch",
+                }}>
+                  Ask a question and get an answer from the research papers, with the sources attached.
+                </p>
 
                   {/* The composer as an instrument. */}
-                  <div style={{ marginTop: isMobile ? 26 : 34 }}>
+                  <div style={{ marginTop: isMobile ? 22 : 26 }}>
                     {attachedImage && (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
                         <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
@@ -23228,34 +23242,31 @@ function App() {
                     />
                   </div>
 
-                  {/* The method and proof line: the coverage
-                      disclosure and the Search record, named in
-                      plain words. No corpus number lives here; the
-                      source list itself stays one click away in
-                      the intro's Research sources and the About
-                      page. */}
-                  <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16 }}>
-                    <p style={{ margin: 0, fontSize: FONT_SIZES.small, lineHeight: 1.6, color: P.ink2, maxWidth: "58ch" }}>
-                      Each answer opens with a coverage disclosure: how many papers were found, screened, and cited. Its Search record keeps the question, the exact searches run, and every source, so any answer can be checked against the papers it rests on.
-                    </p>
-                    {askMode !== "explain" && (
+                  {/* The detected mode reset is the only thing left
+                      under the composer: the marketing paragraph
+                      that used to sit here went with the plate
+                      voice. The coverage line and the record live
+                      on the answer itself and on the About page,
+                      where they belong. */}
+                  {askMode !== "explain" && (
+                    <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
                       <button type="button" onClick={() => setAskMode("explain")}
                         style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: P.faint, fontSize: FONT_SIZES.small, flexShrink: 0 }}
                         title="Detected mode. Click to reset to Explain.">
                         {(ASK_MODES.find((m) => m.key === askMode) || {}).label || askMode} · reset
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  {/* Continue investigation: the deck's own data and
-                      actions, as a ruled row. The question is quoted
-                      untouched; a heading is never manufactured by
-                      cutting words out of it. */}
+                  {/* Continue: the deck's own data and actions, as
+                      a ruled row under a plain label. The question
+                      is quoted untouched; a heading is never
+                      manufactured by cutting words out of it. */}
                   {stageLastQ && (
                     <div style={{ marginTop: 30, borderTop: `1px solid ${P.line}`, paddingTop: 16 }}>
-                      <div style={plateHead(P.faint)}>Continue investigation</div>
+                      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.faint }}>Continue</div>
                       <div style={{
-                        fontFamily: "var(--cb-serif)", fontSize: isMobile ? FONT_SIZES.title : 20,
+                        fontFamily: "var(--cb-font)", fontWeight: 600, fontSize: FONT_SIZES.title,
                         lineHeight: 1.4, color: P.ink, marginTop: 8,
                         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
                       }}>{stageLastQ}</div>
@@ -23266,16 +23277,17 @@ function App() {
                     </div>
                   )}
 
-                  {/* Specimen inquiries: three full sentence
-                      questions as a numbered, ruled list. First
-                      timers run the search at a tap, as before;
-                      returning visitors fill the composer to edit
-                      first, as before. Hidden while typing. */}
+                  {/* Example questions: three full sentence
+                      questions as a plain ruled list under a plain
+                      label. First timers run the search at a tap,
+                      as before; returning visitors fill the
+                      composer to edit first, as before. Hidden
+                      while typing. */}
                   {!input.trim() && stageInquiries.length > 0 && (
                     <div style={{ marginTop: 34 }}>
-                      <div style={plateHead(P.faint)}>Specimen inquiries</div>
+                      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.faint }}>Try asking</div>
                       <div style={{ marginTop: 6 }}>
-                        {stageInquiries.map((ex, i) => (
+                        {stageInquiries.map((ex) => (
                           <button key={ex.q} type="button" className="cb-stage-inq"
                             onClick={() => {
                               if (!deckHasContent) { ask(ex.q); }
@@ -23289,9 +23301,8 @@ function App() {
                               padding: "13px 0", cursor: "pointer",
                             }}
                           >
-                            <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: accent }}>0{i + 1}</span>
                             <span className="cb-stage-inq-q" style={{
-                              fontFamily: "var(--cb-serif)", flex: 1,
+                              fontFamily: "var(--cb-font)", flex: 1,
                               fontSize: isMobile ? 16.5 : FONT_SIZES.title, lineHeight: 1.4, color: P.ink2,
                             }}>{ex.q}</span>
                             <span className="cb-stage-inq-arrow" aria-hidden="true" style={{ color: accent, fontSize: 16 }}>&#8594;</span>
@@ -23323,13 +23334,12 @@ function App() {
                     />
                   </div>
 
-                  {/* The footer strip carries the traced claim motif
-                      back onto the home: one claim, its paper, the
-                      way through to it. */}
+                  {/* The footer strip: one claim, its paper, and
+                      the way through to it. It needs no label; the
+                      quote and the paper say what it is. */}
                   <div style={{ marginTop: 44, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
-                    <div style={plateHead(P.faint)}>Traced claim</div>
                     <p style={{
-                      margin: "8px 0 0", fontFamily: "var(--cb-serif)",
+                      margin: "0", fontFamily: "var(--cb-serif)",
                       fontStyle: "italic", fontSize: 15.5, lineHeight: 1.5, color: P.ink2,
                     }}>&ldquo;{stageSpecimen.claim}&rdquo;</p>
                     <p style={{ margin: "6px 0 0", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.faint }}>
