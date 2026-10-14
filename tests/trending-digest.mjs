@@ -358,6 +358,95 @@ await test("TeX remnants repair mechanically: subscripts join, comparators resto
     "snake_case words were fused by the subscript rule");
 });
 
+await test("a comparator glued to its operand survives cleaning (the live arXiv variant)", async () => {
+  // Seventh panel, live item 30 (Curie Weiss cell fluid model,
+  // arXiv 2610.18411): the served summary read "For f 1" AGAIN,
+  // although the wave seven fixture above passes. The variant is
+  // the raw form the arXiv Atom summary actually carries: the
+  // command glued straight to its operand with no space,
+  // "For $f\\geq1$" and "$Z_c\\approx0.382-0.386$". A TeX command
+  // name is a letter run, so a digit ends it; the restore rule's
+  // old word boundary terminator saw letter and digit as one word
+  // and never fired, and the generic command strip then ate the
+  // command whole. This fixture is built from the variant's raw
+  // form, not from the spaced form the older fixture uses.
+  const { cleanTrendingText } = await import(join(root, "functions/lib/trendingSource.js"));
+  const out = cleanTrendingText("For $f\\geq1$, the model's critical compressibility factor lays within a narrow range $Z_c\\approx0.382-0.386$, remaining close to the mean field value.");
+  assert.ok(out.includes("For f >= 1"), "the glued \\geq comparator was not restored: " + out);
+  assert.ok(out.includes("Zc ≈ 0.382 to 0.386"), "the glued \\approx was not restored: " + out);
+  assert.ok(!/For f 1/.test(out), "the comparator hole shipped again: " + out);
+  // The sibling relations take the same variant path: glued forms
+  // of each restore, and a letter continuation is still not a
+  // command (\get is not \ge).
+  const sib = cleanTrendingText("For $f\\gg1$ and $x\\ll2$ and $y\\leq0$ and $z\\le 3$.");
+  assert.ok(sib.includes("For f >> 1"), "the glued \\gg was not restored: " + sib);
+  assert.ok(sib.includes("x << 2"), "the glued \\ll was not restored: " + sib);
+  assert.ok(sib.includes("y <= 0"), "the glued \\leq was not restored: " + sib);
+  assert.ok(sib.includes("z <= 3"), "the spaced \\le changed behaviour: " + sib);
+});
+
+await test("micro signs in unit contexts survive cleaning in every delivery form", async () => {
+  // Seventh panel, live item 29 (oyster acidification): the served
+  // summary read "(~2800 atm pCO2)", which reads as 2,800
+  // atmospheres where the treatment is 2,800 MICROatmospheres —
+  // Europe PMC's record for the same paper carries "(~2800 μatm
+  // pCO2)". The micro sign must come through cleaning as the
+  // character, in each form a source delivers it: literal micro
+  // sign, literal Greek mu, the &micro; entity (previously not
+  // decoded at all, so it printed raw), and the numeric entity.
+  const { cleanTrendingText } = await import(join(root, "functions/lib/trendingSource.js"));
+  assert.equal(cleanTrendingText("larvae to control, CA (~2800 µatm pCO2), and 5 µm mesh"),
+    "larvae to control, CA (~2800 µatm pCO2), and 5 µm mesh",
+    "a literal micro sign was dropped or altered");
+  assert.equal(cleanTrendingText("larvae to control, CA (~2800 &micro;atm pCO2), and 5 &micro;m mesh"),
+    "larvae to control, CA (~2800 µatm pCO2), and 5 µm mesh",
+    "the &micro; entity did not decode to the micro sign");
+  assert.equal(cleanTrendingText("dose &#181;atm and &#x3bc;atm forms"),
+    "dose µatm and μatm forms",
+    "a numeric micro entity did not decode");
+});
+
+await test("species italics are ensured on summaries, not just preserved", async () => {
+  // Seventh panel, live item 29 again: the summary shipped
+  // "Crassostrea virginica" bare (bioRxiv prints it unmarked),
+  // while a neighbour item's source marked name rendered italic.
+  // buildTrendingItem now ensures the marking on summaries: a
+  // binomial shaped pair the source left bare ships wrapped in the
+  // markdown pair, an already marked name is never double wrapped,
+  // and marked non species spans (a statistical *p*) plus ordinary
+  // prose pairs pass through unwrapped.
+  const { buildTrendingItem, ensureSpeciesItalics } = await import(join(root, "functions/lib/trendingSource.js"));
+  const bare = buildTrendingItem(
+    { title: "Oyster selection under coastal acidification",
+      summary: "Here, we exposed eastern oyster (Crassostrea virginica) larvae to control and acidified water for 24 h across independent spawns, and measured survival.",
+      url: "https://doi.org/10.9/oy", source: "bioRxiv" },
+    "Preprints"
+  );
+  assert.ok(bare.summary.includes("(*Crassostrea virginica*)"),
+    "an unmarked binomial shipped unmarked: " + bare.summary);
+  const marked = buildTrendingItem(
+    { title: "Oyster selection under coastal acidification",
+      summary: "Here, we exposed eastern oyster (<i>Crassostrea virginica</i>) larvae to control and acidified water for 24 h across independent spawns.",
+      url: "https://doi.org/10.9/oy", source: "bioRxiv" },
+    "Preprints"
+  );
+  assert.equal(marked.summary.split("*Crassostrea virginica*").length - 1, 1,
+    "a source marked binomial was double wrapped or lost: " + marked.summary);
+  assert.ok(!marked.summary.includes("**"), "a double marker shipped: " + marked.summary);
+  // A marked statistical span is the source's own markup and is
+  // never rewritten, and prose pairs are not binomials.
+  assert.equal(ensureSpeciesItalics("Effects were significant (*p* < 0.05) in the trial."),
+    "Effects were significant (*p* < 0.05) in the trial.",
+    "a marked non species span was rewritten");
+  assert.equal(ensureSpeciesItalics("Bayesian inference and Logistic regression were used. The results showed promise."),
+    "Bayesian inference and Logistic regression were used. The results showed promise.",
+    "an ordinary prose pair was wrapped as a species");
+  // The abbreviated genus form ensures under the same discipline.
+  assert.equal(ensureSpeciesItalics("Larvae of C. elegans were exposed."),
+    "Larvae of *C. elegans* were exposed.",
+    "an abbreviated binomial was not ensured");
+});
+
 await test("a topically coherent long summary survives the coherence check", async () => {
   const { buildTrendingItem } = await import(join(root, "functions/lib/trendingSource.js"));
   const item = buildTrendingItem(

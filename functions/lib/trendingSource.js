@@ -204,6 +204,16 @@ const TEX_SYMBOL_TEXT = {
 
 const NAMED_ENTITIES = {
   lt: "<", gt: ">", amp: "&", quot: '"', apos: "'", nbsp: " ",
+  // The micro sign, under its entity name: a dose or a length
+  // spelled "&micro;atm" or "&micro;m" must come through as the
+  // sign it names (µ, the same character the numeric form &#181;
+  // decodes to), not print the entity raw and not lose the prefix
+  // — 2,800 microatmospheres misread as 2,800 atmospheres is a
+  // six order of magnitude error wearing a unit's clothes. The
+  // payload spells Greek letters as characters (see the Greek
+  // entries below and TEX_SYMBOL_TEXT), so the sign ships as the
+  // character too, never as the word "micro".
+  micro: "µ",
   // Greek letters: a source that spells a name with an entity
   // ("&epsilon;psilon", ESA's stylized name for Sophie Adenot's
   // mission) must decode to the letter it names, not print the
@@ -328,7 +338,19 @@ export function cleanTrendingText(s, opts) {
   // in the sentence — a live summary shipped "For f 1" where the
   // abstract said $f\gg 1$, its comparator silently deleted. These
   // restore to the symbol they name before the strip can eat them.
-  t = t.replace(/\\(gg|ll|geq|ge|leq|le|approx|sim|times|pm|cdot|alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|omicron|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega)\b/g,
+  // The terminator is "not a letter", NOT a word boundary: TeX
+  // command names are letter runs, so a command glued straight to
+  // its operand is still the command — $f\geq1$ is \geq followed by
+  // 1. The word boundary form missed exactly that spelling (a
+  // letter and a digit are both word characters, so no boundary
+  // sits between them), and the generic strip below then ate the
+  // command whole: the live arXiv abstract for the Curie Weiss cell
+  // fluid model (arXiv 2610.18411) ships "For $f\geq1$" and
+  // "$Z_c\approx0.382-0.386$", and both relations vanished from the
+  // served summary ("For f 1", "Zc 0.382 to 0.386"). A lookahead for
+  // a letter keeps non commands safe: \get is not \ge, because the
+  // letter run continues.
+  t = t.replace(/\\(gg|ll|geq|ge|leq|le|approx|sim|times|pm|cdot|alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|omicron|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega)(?![a-zA-Z])/g,
     (m, name) => TEX_SYMBOL_TEXT[name] || " ");
   t = t.replace(/\\[a-zA-Z]+\{([^{}]*)\}/g, "$1");
   t = t.replace(/\\[a-zA-Z]+/g, " ");
@@ -555,6 +577,90 @@ export function summaryCoheresWithTitle(title, summary) {
   return false;
 }
 
+// ── Species italics: ensured, not just preserved ─────────────────
+// The sentinel path above preserves the italics a SOURCE marked,
+// but sources mark binomials inconsistently: Europe PMC ships them
+// in <i> spans, a bioRxiv abstract prints the same name bare. The
+// seventh panel's live edition carried *Helicobacter pylori*
+// correctly marked in one summary and "Crassostrea virginica" bare
+// in another, so the bare one rendered in roman while its
+// neighbour italicized. buildTrendingItem therefore ENSURES the
+// marking on summaries: a binomial shaped pair the source left bare
+// is wrapped in the same markdown pair the sentinel path produces.
+//
+// The detector is deliberately conservative, in the family of the
+// client query parse (CerebrumApp.jsx, parseQueryEntities): a
+// capitalized genus of three or more letters, a lowercase epithet
+// of four or more, and a common word skip on BOTH tokens. Shape
+// alone is NOT enough, and the live edition proves it: ordinary
+// prose is full of capitalized word plus lowercase word pairs
+// ("Bayesian inference", "Our pipeline", "Tuesday aboard",
+// "Coastal organisms"), and a shape only pass wrapped junk in 31
+// of the edition's 40 summaries. The further gate is the epithet's
+// FORM: a Latin epithet ends in a Latin termination (virginica,
+// pylori, elegans, aureus, cerevisiae, thaliana), while the
+// English words that fill the epithet slot in prose pairs
+// (inference, approaches, second, whole, free, aboard) do not. A
+// small blocklist names the English exceptions that do end in a
+// Latin termination (helium, sigma, biomarker, criteria, media).
+// Two further restraints: text already inside a *pair* is passed
+// through byte for byte (a marked span is the source's own
+// assertion, species or not — statistical pairs like *p* are never
+// rewritten, and an already marked binomial is never double
+// wrapped), and the abbreviated genus form ("C. elegans") requires
+// the same epithet discipline. False negatives are acceptable (a
+// missed name stays roman, as before); false positives are not (a
+// wrapped prose pair would print italics the source never meant).
+const SPECIES_GENUS_STOPWORDS = new Set(
+  ("the,a,an,this,that,these,those,there,their,which,when,while,after,before,during,using,used,based," +
+   "results,methods,method,background,conclusion,conclusions,introduction,patients,cells,treatment,data," +
+   "analysis,however,although,because,through,between,among,within,without,across,under,over,into,from," +
+   "with,have,been,were,will,would,should,could,first,second,third,total,overall,present,current,study," +
+   "complete,significant,sustained,early,late,median,minor,major,effective,classical,conventional," +
+   "traditional,synthetic,engineered,adequate,several,logistic,endoscopic,living,despite,beyond,rare," +
+   "future,joint,neural,chemical,genomic,somatic,deep," +
+   "group,groups,effect,effects,model,models,value,values,level,levels,point,points,range,for,all,any," +
+   "each,per,via,new,our,its,his,her,who,how,why,not,but,and").split(",")
+);
+const SPECIES_EPITHET_STOPWORDS = new Set(
+  ("the,a,an,and,or,of,to,in,on,for,with,from,that,this,were,was,are,has,have,had,been,being,show,shows," +
+   "showed,show,found,using,used,uses,use,study,studies,result,results,effect,effects,group,groups,cell," +
+   "cells,level,levels,value,values,range,ranges,model,models,water,pressure,temperature,point,points," +
+   "growth,change,changes,control,treatment,patients,human,significantly,significant,increased,decreased," +
+   "higher,lower,between,among,within,under,over,after,before,during,about,other,more,most,than,then," +
+   // English words whose endings are Latin shaped: the form gate
+   // alone would pass these, so they are named.
+   "helium,hydrogen,oxygen,nitrogen,carbon,sigma,alpha,beta,gamma,delta,epsilon,theta,lambda,omega," +
+   "biomarker,criteria,media,data,area,idea,agenda,lens,opens,hemostasis").split(",")
+);
+// Latin terminations of a species epithet: single letter genitives
+// and nominatives (a, i), the common declensions (is, us, um, er,
+// ae), and the compound suffixes (-ensis, -ica, -osus, -alis,
+// -oides, -ella, -ium, -orum, -escens, -ans, -ens...). Tested with
+// endsWith semantics via a $-anchored alternation.
+const SPECIES_EPITHET_LATIN_RE = /(?:a|i|is|us|um|er|ae|ans|ens|ex|ix|ax|ox|ensis|ica|icus|icum|osa|osus|osum|alis|aris|elis|ilis|oides|ella|ellum|ium|iae|ii|ei|orum|arum|cola|escens)$/;
+const BINOMIAL_PAIR_RE = /\b([A-Z][a-z]{2,})\s([a-z]{4,})\b|\b([A-Z])\.\s([a-z]{4,})\b/g;
+export function ensureSpeciesItalics(summary) {
+  const s = String(summary || "");
+  if (!s) return s;
+  // Segments alternate unmarked, marked, unmarked... on the "*"
+  // boundaries the sentinel path left. Only unmarked segments are
+  // candidates; marked segments are returned exactly as they came.
+  const segments = s.split("*");
+  if (segments.length % 2 === 0) return s; // an unpaired marker: leave the text to rebalance, never guess
+  for (let i = 0; i < segments.length; i += 2) {
+    segments[i] = segments[i].replace(BINOMIAL_PAIR_RE, (m, genus, epithet, abbrGenus, abbrEpithet) => {
+      const g = (genus || abbrGenus || "");
+      const e = (epithet || abbrEpithet || "");
+      if (SPECIES_GENUS_STOPWORDS.has(g.toLowerCase())) return m;
+      if (SPECIES_EPITHET_STOPWORDS.has(e.toLowerCase())) return m;
+      if (!SPECIES_EPITHET_LATIN_RE.test(e)) return m;
+      return "*" + m + "*";
+    });
+  }
+  return segments.join("*");
+}
+
 export function buildTrendingItem(a, category) {
   // Decode entities/strip tags BEFORE anything else: a title that is
   // nothing but markup is not a title. Titles keep their italic spans
@@ -570,7 +676,7 @@ export function buildTrendingItem(a, category) {
   // source provided; the old 900 char cap cut abstracts mid sentence.
   // The finish pass below then makes sure what survives ends at a
   // sentence boundary, or admits with an ellipsis that it was cut.
-  let summary = rebalanceTrendingItalics(finishTrendingSummary(cleanTrendingText(a.summary, { italics: "markdown" }).slice(0, 3000)));
+  let summary = ensureSpeciesItalics(rebalanceTrendingItalics(finishTrendingSummary(cleanTrendingText(a.summary, { italics: "markdown" }).slice(0, 3000))));
   // An empty summary IS a missing summary, whatever the source
   // claimed: the Space chrome fallback now yields "" rather than a
   // placeholder sentence, and a record whose text cleaned away to
