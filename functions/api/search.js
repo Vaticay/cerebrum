@@ -804,6 +804,60 @@ export function planWaveLegs(descriptors, fetchAllowance) {
   return { selected, skipped };
 }
 
+/* publicLedgerSnapshot(ledger): the response facing view of the
+ * subrequest ledger, shipped on every search response as `_ledger`
+ * and carried on the search record as `ledger` (2026-10-14,
+ * observability). Numbers only, exactly as the ledger recorded
+ * them: the invocation total against the limit, the per stage
+ * totals exactly as spend() and spendBinding() labeled them, the
+ * phase spends for the two hard capped phases (retrieval and
+ * validation, present once their phase has spent or refused
+ * anything, mirroring snapshot()), the phase allowances, and the
+ * total refusal count — the sum of the two phases' refusals,
+ * which are the only refusals the ledger records (a refused grant
+ * happens BEFORE the platform call, so it is not in `used`).
+ * The named budget constants ride along so a reader can check the
+ * snapshot's arithmetic against the derivation above (retrieval
+ * allowance 27 + validation allowance 5 + authorize 6 + synthesis
+ * race 5 + tail reserve 7 = limit 50): budget incidents are
+ * provable from one response instead of inferred from which
+ * stage stamped what. The caller takes the snapshot at response
+ * assembly; spends that structurally cannot appear in any
+ * response (the record store's own writes, the finally block's
+ * slot release and per key accounting) land after it and remain
+ * visible only in the operator diag snapshot taken alongside.
+ * Returns null for no ledger, so a path without one omits the
+ * field rather than fabricating zeros. */
+export function publicLedgerSnapshot(ledger) {
+  if (!ledger || typeof ledger.snapshot !== "function") return null;
+  const snap = ledger.snapshot();
+  const view = {
+    used: snap.used,
+    limit: snap.limit,
+    remaining: snap.remaining,
+    byStage: { ...(snap.byStage || {}) },
+    refused: (snap.retrievalRefused || 0) + (snap.validationRefused || 0),
+  };
+  if (typeof snap.retrievalSpent === "number") {
+    view.retrievalSpent = snap.retrievalSpent;
+    view.retrievalAllowance = snap.retrievalAllowance;
+    view.retrievalRefused = snap.retrievalRefused;
+  }
+  if (typeof snap.validationSpent === "number") {
+    view.validationSpent = snap.validationSpent;
+    view.validationAllowance = snap.validationAllowance;
+    view.validationRefused = snap.validationRefused;
+  }
+  view.constants = {
+    limit: SUBREQUEST_LIMIT,
+    retrievalAllowance: SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    validationAllowance: SUBREQUEST_VALIDATION_ALLOWANCE,
+    answerReserve: SUBREQUEST_ANSWER_RESERVE,
+    tailReserve: SUBREQUEST_TAIL_RESERVE,
+  };
+  return view;
+}
+
 function stripTags(s) {
   return decodeEntities((s || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 }
@@ -10734,6 +10788,7 @@ export function applyRecordStoreOutcome(record, stored) {
  *   llmExpansion     model proposed groups (or diag.llmExpanded)
  *   databases        outcome list (or diag.sourceOutcomes)
  *   funnel           the public _funnel object (or diag.funnel)
+ *   ledger           the run's publicLedgerSnapshot object (or null)
  *   synthesisModel   the model that wrote the answer (or modelUsed)
  *   sources          the frozen final source list
  *   answer           the final answer text (derives cited flags)
@@ -10837,6 +10892,59 @@ export function buildSearchRecord(input) {
     const answerLength = input.answerLength === "short" || input.answerLength === "medium" || input.answerLength === "long"
       ? input.answerLength : null;
 
+    // The run's subrequest ledger snapshot (2026-10-14,
+    // observability): the same object the response ships as
+    // _ledger, built by the caller (publicLedgerSnapshot) and
+    // passed in as input.ledger, so the record a reader exports
+    // carries what the invocation actually spent. Read
+    // defensively like every other field: only the known numeric
+    // fields, the stage map (finite values only), and the named
+    // constants pass; anything malformed is null rather than a
+    // partial invention. A cache serve passes none — its original
+    // run's spend left with that request — so its record is
+    // honestly null here. Additive under record version 2, the
+    // same treatment structuredQueryProvenance and answerLength
+    // got: consumers read fields defensively and none gates on
+    // the version number, so no bump.
+    const ledgerRaw = input.ledger;
+    const ledger = ledgerRaw && typeof ledgerRaw === "object"
+      && Number.isFinite(ledgerRaw.used) && Number.isFinite(ledgerRaw.limit)
+      ? {
+          used: ledgerRaw.used,
+          limit: ledgerRaw.limit,
+          remaining: Number.isFinite(ledgerRaw.remaining) ? ledgerRaw.remaining : null,
+          byStage: ledgerRaw.byStage && typeof ledgerRaw.byStage === "object"
+            ? Object.fromEntries(Object.entries(ledgerRaw.byStage)
+                .filter(([, v]) => Number.isFinite(v))
+                .map(([k, v]) => [String(k).slice(0, 60), v]))
+            : {},
+          refused: Number.isFinite(ledgerRaw.refused) ? ledgerRaw.refused : 0,
+          ...(Number.isFinite(ledgerRaw.retrievalSpent)
+            ? {
+                retrievalSpent: ledgerRaw.retrievalSpent,
+                retrievalAllowance: Number.isFinite(ledgerRaw.retrievalAllowance) ? ledgerRaw.retrievalAllowance : null,
+                retrievalRefused: Number.isFinite(ledgerRaw.retrievalRefused) ? ledgerRaw.retrievalRefused : null,
+              }
+            : {}),
+          ...(Number.isFinite(ledgerRaw.validationSpent)
+            ? {
+                validationSpent: ledgerRaw.validationSpent,
+                validationAllowance: Number.isFinite(ledgerRaw.validationAllowance) ? ledgerRaw.validationAllowance : null,
+                validationRefused: Number.isFinite(ledgerRaw.validationRefused) ? ledgerRaw.validationRefused : null,
+              }
+            : {}),
+          constants: ledgerRaw.constants && typeof ledgerRaw.constants === "object"
+            ? {
+                limit: Number.isFinite(ledgerRaw.constants.limit) ? ledgerRaw.constants.limit : null,
+                retrievalAllowance: Number.isFinite(ledgerRaw.constants.retrievalAllowance) ? ledgerRaw.constants.retrievalAllowance : null,
+                validationAllowance: Number.isFinite(ledgerRaw.constants.validationAllowance) ? ledgerRaw.constants.validationAllowance : null,
+                answerReserve: Number.isFinite(ledgerRaw.constants.answerReserve) ? ledgerRaw.constants.answerReserve : null,
+                tailReserve: Number.isFinite(ledgerRaw.constants.tailReserve) ? ledgerRaw.constants.tailReserve : null,
+              }
+            : null,
+        }
+      : null;
+
     const flags = recordCitedFlags(sources || [], input.answer);
     // One definition of cited everywhere: when a source list exists,
     // the funnel count is the number of entries whose cited flag is
@@ -10889,6 +10997,7 @@ export function buildSearchRecord(input) {
       funnel: recordFunnel,
       synthesisModel,
       answerLength,
+      ledger,
       sources: recordSources,
     };
   } catch {
@@ -16453,6 +16562,12 @@ async function runSearchPipeline(pctx) {
               answerLength,
               _cached: true,
               _funnel: earlyTrust.funnel,
+              /* This request's own ledger at serve time (the rate
+               * limit, entitlement, and cache read spends above) .
+               * the original run's spend left with its request, so
+               * the record from buildCachedServeTrust carries none;
+               * this field is the serve's, and _cached says so. */
+              _ledger: publicLedgerSnapshot(ledger),
               _coverage: earlyTrust.coverage,
               _record: earlyTrust.record,
               confidence: earlyTrust.confidence,
@@ -18632,6 +18747,12 @@ async function runSearchPipeline(pctx) {
           ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag }, ledger)),
           _cached: true,
           _funnel: laterTrust.funnel,
+          /* This request's ledger at serve time: retrieval DID
+           * run for this response, so the phase spends are this
+           * run's real values, same as the funnel above. The
+           * record carries none (a cache serve's original spend
+           * is unknowable here). */
+          _ledger: publicLedgerSnapshot(ledger),
           _coverage: laterTrust.coverage,
           _record: laterTrust.record,
           confidence: laterTrust.confidence,
@@ -21033,6 +21154,16 @@ async function runSearchPipeline(pctx) {
      * true keeps the permalink, stored false withdraws it, so no
      * surface presents a link that is not there. The record's data
      * ships in this response either way. */
+    /* The invocation's subrequest spend, snapshotted ONCE here at
+     * response assembly (synthesis has resolved; every stage that
+     * will ever report has reported) and shared by the response
+     * (_ledger) and the stored record (ledger), so both surfaces
+     * ever after show the same numbers for this run. It precedes
+     * the record store below on purpose: the store's own writes
+     * and the finally block's accounting land after any response
+     * can be assembled, and stay visible in the operator diag
+     * snapshot taken alongside the return. */
+    const ledgerView = publicLedgerSnapshot(ledger);
     const searchRecordId = mintSearchRecordId();
     const searchRecord = buildSearchRecord({
       question: query,
@@ -21043,6 +21174,7 @@ async function runSearchPipeline(pctx) {
       // The depth this answer was produced at (v31), so the record
       // can be checked against the reader's setting.
       answerLength,
+      ledger: ledgerView,
       sources: labeledSources,
       answer,
       recordId: searchRecordId,
@@ -21238,6 +21370,14 @@ async function runSearchPipeline(pctx) {
          * Computed once above as publicFunnel so the search record and
          * the coverage disclosure ship the identical numbers. */
         _funnel: publicFunnel,
+        /* Subrequest ledger (2026-10-14, observability): what this
+         * invocation actually spent against the platform allowance,
+         * by stage and by capped phase, with the budget constants
+         * for scale . the same object the record above carries.
+         * Numbers only, like _funnel; a budget incident (a starved
+         * synthesis, a capped phase) is provable from this field
+         * alone instead of inferred from skip reasons. */
+        _ledger: ledgerView,
         _resolver: resolverResult ? {
           intent: resolverResult.intent,
           topic: resolverResult.topic,

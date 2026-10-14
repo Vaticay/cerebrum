@@ -76,6 +76,14 @@
  *      first fallback round fires anyway under a one round yield,
  *      because zero sources is worse than a spent budget. The
  *      greedy and empty shelf scenarios below pin both halves.
+ *   8. OBSERVABILITY (2026-10-14): three budget waves passed
+ *      their fixtures while live probes still starved synthesis,
+ *      and the public response exposed no ledger data at all —
+ *      the live per stage spend had never been seen. The response
+ *      now ships the snapshot as _ledger (and the record carries
+ *      the identical object as `ledger`); the rich scenario below
+ *      pins its reconciliation against the stubbed platform
+ *      total.
  *
  * Run with: node tests/subrequest-budget.mjs
  */
@@ -105,6 +113,7 @@ function group(name) {
 const {
   onRequest,
   createSubrequestLedger,
+  publicLedgerSnapshot,
   planWaveLegs,
   SUBREQUEST_LIMIT,
   SUBREQUEST_ANSWER_RESERVE,
@@ -615,6 +624,35 @@ await test("the delayed rescue planner refuses a budget failure set", () => {
   resetLegHealth();
 });
 
+await test("publicLedgerSnapshot: null without a ledger, phases only once they spend", () => {
+  // No ledger, no field: a path without one omits _ledger rather
+  // than fabricating zeros.
+  assert.equal(publicLedgerSnapshot(null), null);
+  assert.equal(publicLedgerSnapshot(undefined), null);
+  const l = createSubrequestLedger();
+  const fresh = publicLedgerSnapshot(l);
+  assert.equal(fresh.used, 0);
+  assert.equal(fresh.limit, SUBREQUEST_LIMIT);
+  assert.equal(fresh.refused, 0);
+  assert.equal(fresh.retrievalSpent, undefined, "an untouched retrieval phase ships no phase fields");
+  assert.equal(fresh.validationSpent, undefined, "an untouched validation phase ships no phase fields");
+  assert.deepEqual(fresh.constants, {
+    limit: SUBREQUEST_LIMIT,
+    retrievalAllowance: SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    validationAllowance: SUBREQUEST_VALIDATION_ALLOWANCE,
+    answerReserve: SUBREQUEST_ANSWER_RESERVE,
+    tailReserve: SUBREQUEST_TAIL_RESERVE,
+  });
+  l.beginRetrievalPhase();
+  l.spend();
+  l.endRetrievalPhase();
+  const after = publicLedgerSnapshot(l);
+  assert.equal(after.used, 1);
+  assert.equal(after.retrievalSpent, 1);
+  assert.equal(after.retrievalAllowance, SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.equal(after.retrievalRefused, 0);
+});
+
 // ═══════════════════════════════════════════════════════════════
 group("handler level — the ledger's total is the platform's total");
 
@@ -855,11 +893,56 @@ await test("cold isolate: every cold DDL execution counts, and the draw degrades
   }
 });
 
+function assertLedgerShips(data, counts, ledger) {
+  // The shipped _ledger (2026-10-14, observability): the response
+  // carries the invocation's spend snapshot taken at assembly and
+  // the record carries the identical object. Its total reconciles
+  // with the stubbed platform total exactly, minus the one spender
+  // that structurally cannot precede the snapshot — the record
+  // store's own writes, which land after the record is built. The
+  // post assembly spend is read off the final snapshot's "record"
+  // stage rather than assumed, and no other stage may differ.
+  const view = data._ledger;
+  assert.ok(view && typeof view === "object", "the response carries no _ledger");
+  const finalSnap = ledger.snapshot();
+  const postAssembly = (finalSnap.byStage.record || 0) - (view.byStage.record || 0);
+  assert.equal(view.used + postAssembly, counts.attempts + counts.cache,
+    `shipped _ledger.used ${view.used} + post assembly record store ${postAssembly} ` +
+    `!= stubbed platform attempts ${counts.attempts + counts.cache}`);
+  const laterStages = Object.keys(finalSnap.byStage)
+    .filter((k) => (finalSnap.byStage[k] || 0) !== (view.byStage[k] || 0));
+  assert.deepEqual(laterStages, postAssembly > 0 ? ["record"] : [],
+    "a stage other than the record store spent after the _ledger snapshot");
+  // Internal consistency: the total is the sum of its stage map,
+  // and the record's copy is the identical object.
+  assert.equal(Object.values(view.byStage).reduce((a, b) => a + b, 0), view.used,
+    "_ledger.used is not the sum of its byStage totals");
+  assert.deepEqual(data._record && data._record.ledger, view,
+    "the record does not carry the same _ledger object as the response");
+  // The arithmetic a reader checks from one response: the shipped
+  // constants are the exported ones, and the phase fields obey
+  // them.
+  assert.deepEqual(view.constants, {
+    limit: SUBREQUEST_LIMIT,
+    retrievalAllowance: SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    validationAllowance: SUBREQUEST_VALIDATION_ALLOWANCE,
+    answerReserve: SUBREQUEST_ANSWER_RESERVE,
+    tailReserve: SUBREQUEST_TAIL_RESERVE,
+  });
+  assert.equal(view.limit, SUBREQUEST_LIMIT);
+  assert.equal(view.remaining, Math.max(0, view.limit - view.used));
+  assert.ok(view.retrievalSpent <= view.retrievalAllowance,
+    "retrieval spent past its hard allowance in the shipped snapshot");
+  assert.equal(view.refused, (view.retrievalRefused || 0) + (view.validationRefused || 0),
+    "_ledger.refused is not the sum of the phase refusals");
+}
+
 await test("rich retrieval (warm): expansion and validation fire, synthesis wins, ledger equals platform", async () => {
   const { data, counts, ledger } = await runScenario("rich");
   assertLedgerEqualsPlatform(counts, ledger);
   assertAnswerStagesFunded(data, counts);
   assert.ok((data.sources || []).length >= 8, "the rich scenario should ship its papers");
+  assertLedgerShips(data, counts, ledger);
 });
 
 await test("lean retrieval (warm): rungs and fallbacks trim, synthesis still gets funded legs", async () => {
