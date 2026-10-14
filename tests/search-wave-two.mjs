@@ -636,7 +636,11 @@ await test("the cache schema carries the wave two bump", () => {
   // search record carries the foundational fate diagnostic,
   // and the LLM validation pass can no longer remove a gate
   // cleared foundational primary.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v49"'), "CACHE_SCHEMA_VERSION must be v49");
+  // PIN UPDATED (2026-10-14, wave fifteen): v50 — the
+  // foundational lane gains founding form legs over the
+  // unexpanded system name, and the record gains the
+  // foundational near miss section.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50"'), "CACHE_SCHEMA_VERSION must be v50");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

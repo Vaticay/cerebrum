@@ -591,8 +591,12 @@ await test("CACHE_SCHEMA_VERSION is v43 with the wave nine entry in its chain", 
   // (the search record carries the foundational fate
   // diagnostic, and the LLM validation pass can no longer
   // remove a gate cleared foundational primary).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v49";'),
-    "the cache schema version was not bumped to v49");
+  // Updated 2026-10-14 (wave fifteen): bumped to v50
+  // (the foundational lane gains founding form legs over
+  // the unexpanded system name, and the record gains the
+  // foundational near miss section).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
+    "the cache schema version was not bumped to v50");
   assert.ok(/v44 \(2026-10-14, wave ten\)/.test(src),
     "the v44 chain entry is missing its dated reason");
   assert.ok(/v43 \(2026-10-14, wave nine\)/.test(src),

@@ -744,6 +744,17 @@ export const SUBREQUEST_RELAXED_NET_COST = 7;
 // gate price is carried at 5 rather than the bare 3 its fetcher
 // count suggests. Transient retry attempts beyond that are the
 // reserve derivation's slack, as with SUBREQUEST_RUNG_COST.
+// Wave fifteen (2026-10-14): the lane fires its Europe PMC and
+// OpenAlex legs a second time over the founding form (the
+// unexpanded system name alone), because the expanded primary
+// query demonstrably never returns the first descriptions (see
+// the v50 cache entry). The price does not change: the founding
+// legs bring the lane's typical composition to exactly five
+// single calls (Europe PMC twice, OpenAlex twice, Semantic
+// Scholar once), the number the gate has charged since wave
+// nine, and Europe PMC's internal multiplication on an empty
+// formulation remains bounded by the retrieval phase's
+// absolute ceiling like every other round's overrun.
 export const SUBREQUEST_FOUNDATIONAL_LANE_COST = 5;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
@@ -2224,7 +2235,8 @@ export function isNonLiterature(p) {
 // under this wave, so payloads cached under v47 predate the
 // shipped contract.
 // v49 (2026-10-14, wave fourteen): the search record now carries a bounded foundational fate diagnostic — for each paper the foundational lane admits as a primary (capped at five), the named pipeline step its path ended at (dedupe, language screen, quality floor, shelf cut, rerank, retraction screen, filters, programmatic passes, citation gate, evidence slice, LLM validation, final gate) or the list it presented in — so a founding paper's burial is provable from the record instead of inferred. The LLM validation pass can no longer remove a foundational primary that clears the citation gate standard: the gate's abstract aware topicality judgment is the standard for the lane's primaries, the same substitution wave thirteen made at the presented tail, because a strict validator judging direct address by title language is the category error that buries first descriptions whose titles name neither the product nor the protein. At the presented layer, a title announcing a device or apparatus class now earns placement only when its abstract engages the question's subject, the citation gate's own subject standard. Presented lists and search records change under this wave, so payloads cached under v48 predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v49";
+// v50 (2026-10-14, wave fifteen): the foundational lane gains a founding form leg — the same citation sorted Europe PMC and OpenAlex legs fired a second time over the question's unexpanded system name alone (the subject concept in the asker's own words, plus its adjacent name word), because the lane's expanded, vocabulary loaded query demonstrably never returns the first descriptions it exists to find: probed live on "how does crispr cas9 cut dna", the nine term lane query's Europe PMC match set (95 hits) excludes the 2012 founding paper outright (its abstract says "cleave", never the expansion "Deoxyribonucleic acid", "mechanism", or "cut"), and OpenAlex's match set excludes it the same way, while the system name alone returns it second on both engines with its abstract and citation count intact. The search record's funnel also gains a bounded foundational near miss section: lane returned papers at or above the capture's citation median (or in the lane's top citation ranks) that fail the primary test, each with its failing properties named from a closed set, so a primary that never forms is diagnosable from the record the way a formed primary's fate now is. Presented lists and search records change under this wave, so payloads cached under v49 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v50";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -6364,6 +6376,144 @@ export function paperIsFoundationalPrimary(paper, stats) {
   const citations = typeof p.citations === "number" && Number.isFinite(p.citations) ? p.citations : 0;
   if (!(citations > 0)) return false;
   return citations >= Math.max(1, s.medianCitations);
+}
+
+// THE FOUNDING FORM (2026-10-14, wave fifteen): the lane's
+// primary query is built for breadth — the expanded organism
+// term, the top ranked terms, and the shape's vocabulary — and
+// that breadth is exactly what the first descriptions cannot
+// survive. Probed live on the lane's own legs for "how does
+// crispr cas9 cut dna": the nine term query's Europe PMC match
+// set holds 95 papers and the 2012 founding paper is not among
+// them (its abstract says "cleave" and "guide"; it never says
+// the expansion "Deoxyribonucleic acid", "mechanism", or
+// "cut", and the engines match the loaded query against title
+// and abstract), and OpenAlex's match set excludes it the same
+// way. The paper is indexed under the system's own name, in
+// the words the field itself used first. The founding form is
+// that name as the asker wrote it, unexpanded: the question's
+// subject concept (questionCentralConcepts' own subject
+// judgment, the same one the gates trust), plus the surface
+// token that follows it when that token is a content word and
+// not a process verb — the system's name often runs to two
+// words ("crispr cas9", "manganese peroxidase"), while the
+// verb that follows it ("cut") is one of the words that
+// excludes the first description. Both engines return the
+// founding paper second under this form, citation sorted.
+export function foundationalFormQuery(rawQuery, dynLookup) {
+  try {
+    const concepts = questionCentralConcepts(rawQuery, dynLookup);
+    if (!Array.isArray(concepts) || concepts.length === 0) return null;
+    const subject = concepts.find((c) => c && c.subject && c.term)
+      || concepts.find((c) => c && c.term);
+    if (!subject) return null;
+    const term = String(subject.term || "").replace(/"/g, "").trim().toLowerCase();
+    if (!term) return null;
+    let form = term;
+    // The adjacency scan reads the asker's own surface words,
+    // not the preprocessed query: preprocessing rewrites and
+    // compounds terms (it can fuse the system's name into a
+    // hyphenated compound), which is expansion by another name.
+    const tokens = cleanSurfaceQuery(rawQuery).split(/\s+/).filter(Boolean);
+    const idx = tokens.indexOf(term);
+    if (idx >= 0 && idx + 1 < tokens.length) {
+      const next = tokens[idx + 1];
+      if (next && next !== term && next.length > 2
+        && !isGateFunctionWord(next)
+        && !new RegExp("^(?:" + MECHANISM_PROCESS_VERB_RE + ")$").test(next)
+        && !/^(?:measure|measured|measures|measuring|assay|assays|assayed|determine|determined|determines|quantify|quantified|activity)$/.test(next)) {
+        form = term + " " + next;
+      }
+    }
+    return form;
+  } catch { return null; }
+}
+
+// The closed set of reasons a lane returned paper fails the
+// foundational primary test (2026-10-14, wave fifteen). The
+// first three mirror paperIsFoundationalPrimary property by
+// property — the two must never drift, and the wave fifteen
+// suite pins their agreement: a paper is a primary exactly
+// when none of the first three reasons applies to it. The
+// fourth names a property the test itself does not judge (a
+// title alone can earn engagement) but the pipeline
+// downstream does: the shelf rescues and the citation
+// standard both read abstracts, so an abstractless record is
+// a near miss the record should be able to name even when it
+// is not the property that failed the test.
+export const FOUNDATIONAL_NEAR_MISS_REASONS = [
+  "no-engagement", "not-early", "citations-below-median", "no-usable-abstract",
+];
+
+export function foundationalPrimaryFailureReasons(paper, stats) {
+  const p = paper || {};
+  const s = stats || { medianCitations: 0, earlyYearCutoff: 2016 };
+  const reasons = [];
+  if (paperMechanismTier(p) === 0 && paperMethodTier(p) === 0) reasons.push("no-engagement");
+  const yearMatch = String(p.year || "").match(/(?:19|20)\d{2}/);
+  const year = yearMatch ? parseInt(yearMatch[0], 10) : NaN;
+  if (!Number.isFinite(year) || !(year <= 2016 || year <= s.earlyYearCutoff)) reasons.push("not-early");
+  const citations = typeof p.citations === "number" && Number.isFinite(p.citations) ? p.citations : 0;
+  if (!(citations > 0) || citations < Math.max(1, s.medianCitations)) reasons.push("citations-below-median");
+  if (!String(usableAbstract(p) || "").trim()) reasons.push("no-usable-abstract");
+  return reasons;
+}
+
+// The near miss companion to gatherFoundationalFates (wave
+// fifteen): the fates can only track a paper AFTER it passes
+// the primary test, so a founding paper that never forms a
+// primary was invisible to the record — the exact blind spot
+// that let three waves of fixes pass their fixtures while
+// the burial sat upstream of every tracked step. A near miss
+// is a paper the lane's legs returned (lane tagged at
+// gather, judged on its merged record the way the fates
+// judge theirs) whose citation count is at or above the
+// capture's median, or which stands in the lane's own top
+// five by citations, but which fails the primary test. Each
+// carries its failing properties from the closed set above.
+// Bounded like the fates: cap five, highest cited first.
+export function gatherFoundationalNearMisses(input) {
+  const inp = input || {};
+  const preDedupe = Array.isArray(inp.preDedupe) ? inp.preDedupe : [];
+  const merged = Array.isArray(inp.merged) ? inp.merged : [];
+  const scoredAllCapture = Array.isArray(inp.scoredAllCapture) ? inp.scoredAllCapture : [];
+  const stats = foundationalPoolStats(scoredAllCapture);
+  const median = Math.max(1, stats.medianCitations);
+  const claimed = new Set();
+  const judgedList = [];
+  for (const cand of preDedupe) {
+    if (!cand || !cand._foundationalLane) continue;
+    const keys = paperDedupeKeys(cand);
+    if (keys.some((k) => claimed.has(k))) continue;
+    for (const k of keys) claimed.add(k);
+    const judged = merged.find((p) => p && paperDedupeKeys(p).some((k) => keys.includes(k))) || cand;
+    judgedList.push(judged);
+  }
+  const byCitations = [...judgedList].sort(
+    (a, b) => (Number(b && b.citations) || 0) - (Number(a && a.citations) || 0));
+  const topRankKeys = new Set();
+  for (const p of byCitations.slice(0, 5)) {
+    for (const k of paperDedupeKeys(p || {})) topRankKeys.add(k);
+  }
+  const out = [];
+  for (const judged of judgedList) {
+    if (paperIsFoundationalPrimary(judged, stats)) continue;
+    const citations = typeof judged.citations === "number" && Number.isFinite(judged.citations)
+      ? judged.citations : 0;
+    const inTopRanks = paperDedupeKeys(judged).some((k) => topRankKeys.has(k));
+    if (!(citations >= median || inTopRanks)) continue;
+    const failing = foundationalPrimaryFailureReasons(judged, stats);
+    if (failing.length === 0) continue;
+    out.push({
+      title: judged.title || "",
+      year: judged.year || "",
+      citations: typeof judged.citations === "number" && Number.isFinite(judged.citations)
+        ? judged.citations : null,
+      failing,
+    });
+  }
+  out.sort((a, b) => (Number(b.citations) || 0) - (Number(a.citations) || 0));
+  return out.slice(0, 5);
 }
 
 // WAVE FOURTEEN (2026-10-14, brief item 1): the gather level
@@ -15471,6 +15621,12 @@ function recordFunnelOf(raw, diag, sourceCount) {
     ? {
         fired: true,
         query: typeof diag.foundationalLane.query === "string" ? diag.foundationalLane.query.slice(0, 200) : null,
+        // Wave fifteen: the founding form the lane's second
+        // pair of legs searched, recorded so a live check can
+        // see both query forms the lane ran.
+        ...(typeof diag.foundationalLane.foundingQuery === "string" && diag.foundationalLane.foundingQuery
+          ? { foundingQuery: diag.foundationalLane.foundingQuery.slice(0, 200) }
+          : {}),
         shape: typeof diag.foundationalLane.shape === "string" ? diag.foundationalLane.shape : null,
         admitted: typeof diag.foundationalLane.count === "number" ? n(diag.foundationalLane.count) : null,
       }
@@ -15509,6 +15665,30 @@ function recordFunnelOf(raw, diag, sourceCount) {
     }
     return out.length ? out : null;
   })();
+  // WAVE FIFTEEN (2026-10-14): the foundational near misses
+  // ride the funnel beside the fates, bounded the same way:
+  // at most five entries, titles capped, and the failing
+  // properties filtered to the closed set the gather helper
+  // names them from, so the record can only ever carry a
+  // named, known reason — never a free text invention.
+  const foundationalNearMisses = (() => {
+    if (!diag || !Array.isArray(diag.foundationalNearMisses)) return null;
+    const out = [];
+    for (const m of diag.foundationalNearMisses.slice(0, 5)) {
+      if (!m || typeof m !== "object") continue;
+      const title = String(m.title || "").slice(0, 120);
+      if (!title) continue;
+      out.push({
+        title,
+        year: String(m.year || "").slice(0, 12),
+        citations: typeof m.citations === "number" && Number.isFinite(m.citations) ? m.citations : null,
+        failing: Array.isArray(m.failing)
+          ? m.failing.filter((r) => FOUNDATIONAL_NEAR_MISS_REASONS.includes(r)).slice(0, 4)
+          : [],
+      });
+    }
+    return out.length ? out : null;
+  })();
   const titleRescued = diag && diag.titleRescued && typeof diag.titleRescued.admitted === "number"
     ? n(diag.titleRescued.admitted) : null;
   return {
@@ -15516,6 +15696,7 @@ function recordFunnelOf(raw, diag, sourceCount) {
     excludedRetracted: n(f.excludedRetracted), cited,
     ...(foundationalLane ? { foundationalLane } : {}),
     ...(foundationalFates ? { foundationalFates } : {}),
+    ...(foundationalNearMisses ? { foundationalNearMisses } : {}),
     ...(titleRescued ? { titleRescued } : {}),
   };
 }
@@ -20184,11 +20365,35 @@ async function gatherPapersBody(rawQuery, opts) {
         // likewise ranked recent reviews above it. The general
         // fanout keeps its relevance order untouched — only the
         // lane asks for citation order.
-        const laneResults = await Promise.allSettled([
+        // Wave fifteen (2026-10-14): the founding form legs.
+        // The primary query above demonstrably never returns
+        // the papers the lane exists for (see the v50 cache
+        // entry and foundationalFormQuery): its expansion and
+        // its shape vocabulary are words the first descriptions
+        // never used, and both engines match the loaded query
+        // against title and abstract. The same two citation
+        // sorted legs therefore fire again over the unexpanded
+        // system name alone, where the founding paper is
+        // indexed; probed live, it returns second on both
+        // engines under that form, with abstract and citation
+        // count intact, so no enrichment is needed downstream.
+        // The lane's gate price does not change (see the price
+        // comment at SUBREQUEST_FOUNDATIONAL_LANE_COST): the
+        // founding legs bring the typical composition to the
+        // five single calls the price has always carried.
+        const foundingForm = foundationalFormQuery(rawQuery, dynLookup);
+        const laneCalls = [
           europePMC(laneQuery, 12, ledger, { sort: "CITED desc" }),
           openAlex(laneQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
           semanticScholar(laneQuery, 10, s2Key, ledger, { sort: "citationCount:desc" }),
-        ]);
+        ];
+        if (foundingForm) {
+          laneCalls.push(
+            europePMC(foundingForm, 12, ledger, { sort: "CITED desc" }),
+            openAlex(foundingForm, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
+          );
+        }
+        const laneResults = await Promise.allSettled(laneCalls);
         // Tag the lane's papers: the record of which papers the
         // foundational search brought in rides the record
         // copies the way the NL net's tag does (_nlNet above).
@@ -20204,6 +20409,7 @@ async function gatherPapersBody(rawQuery, opts) {
         results = results.concat(laneResults);
         diag.foundationalLane = {
           query: laneQuery,
+          foundingQuery: foundingForm || null,
           shape: mechanismShape ? "mechanism" : healthShape ? "health" : "method",
           count: laneResults.reduce(
             (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0),
@@ -21648,6 +21854,15 @@ async function gatherPapersBody(rawQuery, opts) {
       diag.foundationalFates = gatherFoundationalFates({
         preDedupe, merged, scoredAllCapture, scoredPostFloor: scoredFiltered,
         finalScored, returnedShelf: rerankedFinal,
+      });
+    } catch { /* the diagnostic must never break retrieval */ }
+    // Wave fifteen: the near misses ride beside the fates —
+    // the lane returned papers that never formed a primary,
+    // with the properties that failed named. Computed in its
+    // own try so each diagnostic survives the other's failure.
+    try {
+      diag.foundationalNearMisses = gatherFoundationalNearMisses({
+        preDedupe, merged, scoredAllCapture,
       });
     } catch { /* the diagnostic must never break retrieval */ }
   }

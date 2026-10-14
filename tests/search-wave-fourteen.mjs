@@ -468,7 +468,7 @@ await test("complete sets presentedVia evidence, then tail, and not-presented fo
 // ═══════════════════════════════════════════════════════════════
 group("Item 1 — source wiring pins");
 
-await test("the six handler checkpoints, the restore, the record normalization, and v49 are wired in source", () => {
+await test("the six handler checkpoints, the restore, the record normalization, and the cache version are wired in source", () => {
   assert.ok(src.includes('advanceFoundationalFates(foundationalFates, "filters", papers)'),
     "the filters checkpoint is missing");
   assert.ok(src.includes('advanceFoundationalFates(foundationalFates, "passes", programmaticShelf)'),
@@ -496,8 +496,13 @@ await test("the six handler checkpoints, the restore, the record normalization, 
   assert.ok(funnelStart >= 0 && funnelEnd > funnelStart, "recordFunnelOf was not located");
   assert.ok(src.slice(funnelStart, funnelEnd).includes("diag.foundationalFates"),
     "recordFunnelOf does not read diag.foundationalFates");
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v49";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v49");
+  // PIN UPDATED (2026-10-14, wave fifteen): v50 — the
+  // foundational lane gains founding form legs over the
+  // unexpanded system name, and the record gains the
+  // foundational near miss section. The v49 entry stays as
+  // history below.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v50");
   assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src),
     "the v49 chain entry is missing its dated reason");
 });

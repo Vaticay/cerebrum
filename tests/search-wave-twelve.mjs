@@ -767,8 +767,14 @@ await test("CACHE_SCHEMA_VERSION is v49 with the wave fourteen chain entry, v47 
   // search record carries the foundational fate diagnostic,
   // and the LLM validation pass can no longer remove a gate
   // cleared foundational primary.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v49";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v49");
+  // PIN UPDATED (2026-10-14, wave fifteen): v50 — the
+  // foundational lane gains founding form legs over the
+  // unexpanded system name, and the record gains the
+  // foundational near miss section.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v50");
+  assert.ok(/\/\/ v50 \(2026-10-14, wave fifteen\)/.test(src),
+    "the v50 chain entry is missing its dated reason");
   assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src),
     "the v49 chain entry is missing its dated reason");
   assert.ok(/\/\/ v48 \(2026-10-14, wave thirteen\)/.test(src),

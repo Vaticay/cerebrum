@@ -232,7 +232,7 @@ await test("the widening does not swallow the standing negatives", () => {
 // ═══════════════════════════════════════════════════════════════
 group("Items 1 and addendum — the cache version pin");
 
-await test("CACHE_SCHEMA_VERSION is v49 with both wave eleven chain entries, v44 kept as history", () => {
+await test("CACHE_SCHEMA_VERSION is v50 with both wave eleven chain entries, v44 kept as history", () => {
   // PIN UPDATED (2026-10-14, wave twelve): v47 — the claim
   // check counts only checked claims, dedupe folds richer
   // duplicate fields, the foundational lane sorts by
@@ -249,8 +249,14 @@ await test("CACHE_SCHEMA_VERSION is v49 with both wave eleven chain entries, v44
   // search record carries the foundational fate diagnostic,
   // and the LLM validation pass can no longer remove a gate
   // cleared foundational primary.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v49";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v49");
+  // PIN UPDATED (2026-10-14, wave fifteen): v50 — the
+  // foundational lane gains founding form legs over the
+  // unexpanded system name, and the record gains the
+  // foundational near miss section.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v50");
+  assert.ok(/\/\/ v50 \(2026-10-14, wave fifteen\)/.test(src),
+    "the v50 chain entry is missing its dated reason");
   assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src),
     "the v49 chain entry is missing its dated reason");
   assert.ok(/\/\/ v48 \(2026-10-14, wave thirteen\)/.test(src),

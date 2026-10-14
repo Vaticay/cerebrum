@@ -669,9 +669,13 @@ await test("CACHE_SCHEMA_VERSION is v43 with a dated wave nine chain entry", () 
   // search record carries the foundational fate diagnostic,
   // and the LLM validation pass can no longer remove a gate
   // cleared foundational primary.
+  // PIN UPDATED (2026-10-14, wave fifteen): v50 — the
+  // foundational lane gains founding form legs over the
+  // unexpanded system name, and the record gains the
+  // foundational near miss section.
   const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
-  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v49\""),
-    "CACHE_SCHEMA_VERSION is not pinned to v49");
+  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v50\""),
+    "CACHE_SCHEMA_VERSION is not pinned to v50");
   const start = src.search(/\/\/ v43 \(/);
   assert.ok(start >= 0, "no dated v43 chain entry above the version constant");
   const entry = src.slice(start, start + 2500);
