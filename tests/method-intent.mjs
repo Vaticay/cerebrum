@@ -33,6 +33,25 @@
  *       for...", "how do researchers quantify...") land on the
  *       same recorded intent.
  *
+ * Second pass (2026-10-14): the first fixture's method abstracts
+ * used the textbook register (determined, spectrophotometrically,
+ * absorbance), which the builder's procedure vocabulary already
+ * named — so the lede test passed while the LIVE answer, whose
+ * method papers phrase the procedure in the plain readout
+ * register (read, followed, recorded, wavelength, cuvette,
+ * blank), still led with value sentences: claim selection
+ * inside a paper ranked by finding density alone, so a method
+ * paper's own digit dense value sentence filled its findings
+ * slots and the tier first lede order had nothing procedure
+ * shaped to promote. Scenario (a) now carries that harder
+ * shape: procedure sentences in the readout register only, a
+ * tempting recovery value sentence inside one method paper,
+ * and the tier 1 indicator paper from the live specimen in
+ * the pool. The pinned behavior: the builder partitions a
+ * method paper's findings procedure first (procedure scores
+ * floored at zero), and the shipped lede and findings are the
+ * procedure.
+ *
  * Unit tests against the real exports (no server, no network).
  * Run with: node tests/method-intent.mjs
  */
@@ -75,22 +94,42 @@ function group(name) {
 // production abstracts are dense with digits and value
 // sentences — exactly what the old finding density ranking
 // preferred — and contain no measurement procedure at all.
+// The method abstracts are written in the plain readout
+// register on purpose (second pass): the procedure is what was
+// read, followed, or recorded, at a wavelength, in a cuvette,
+// against a blank — none of the textbook verbs (determined,
+// spectrophotometrically, absorbance) the first vocabulary
+// named. METHOD_A also carries the temptation the live answer
+// fell for: a digit dense recovery sentence (98 percent, two
+// finding hint words) that outscores every procedure sentence
+// on raw finding density.
 const METHOD_A = {
   title: "Improvements in the determination of manganese peroxidase activity",
   abstract:
-    "Manganese peroxidase activity was determined spectrophotometrically by following the oxidation of Mn2+ to Mn3+ in sodium malonate buffer at 270 nm. " +
-    "The reaction mixture contained 0.5 mM manganese sulfate in 50 mM malonate at pH 4.5 and was initiated by adding hydrogen peroxide to 0.1 mM, and the increase in absorbance was recorded over the first minute. " +
-    "One unit of activity was defined as the amount of enzyme oxidizing one micromole of Mn2+ per minute under the stated conditions. " +
-    "The revised procedure removes the interference from culture pigments that inflated earlier readings.",
+    "Manganese peroxidase activity was read from the rise of the Mn3+ malonate complex at 270 nm, followed in a quartz cuvette against a water blank. " +
+    "The sample sat in 50 mM malonate buffer at pH 4.5, and 10 millilitres were drawn into the cuvette once the trace settled at the working wavelength. " +
+    "The first reading was taken 30 seconds after the peroxide went in, and the slope of the trace over the next minute gave the initial rate. " +
+    "Recoveries of manganese peroxidase activity came back higher with the new broth, with 98 percent of the added enzyme found again after one hour.",
   year: 2019,
 };
 const METHOD_B = {
   title: "Criteria for Estimation of Laccase, Lignin Peroxidase, and Manganese Peroxidase Activity in Crude Fungal Broth Cultures",
   abstract:
-    "Reliable estimation of manganese peroxidase activity in crude broth requires correction for background absorbance from culture pigments. " +
-    "Activity is estimated from the initial rate of Mn3+ malonate complex formation, measured at 270 nm against a reagent blank lacking hydrogen peroxide. " +
-    "The criteria under which the three ligninolytic activities can be distinguished by their substrate preferences are compared, and conditions that keep the initial rate linear for at least 60 seconds are specified.",
+    "Crude broth carries pigments that lift the reading at 270 nm, so every sample was read against a blank of the same broth with the enzyme heat killed. " +
+    "Manganese peroxidase activity was followed at a wavelength of 270 nm in a 1 cm quartz cuvette, and the extinction was recorded every 30 seconds for three minutes. " +
+    "The three activities are told apart by what each one acts on first, and the trace stays straight for at least 60 seconds under the stated conditions.",
   year: 2008,
+};
+// The live specimen's source 3: a soil paper whose abstract
+// mentions the activity "measured as an indicator" — tier 1,
+// in the pool, never the lede of a measurement answer while
+// method papers exist.
+const INDICATOR = {
+  title: "Soil microbial activity after rewetting of dry grassland soils",
+  abstract:
+    "Microbial activity was measured as an indicator of recovery in grassland soils brought back from drought. " +
+    "Respiration climbed 2.1 fold over the dry control within the first day of rewetting, then settled back toward baseline within a week.",
+  year: 2017,
 };
 const PROD_A = {
   title: "Enhanced production of manganese peroxidase by white rot fungi in submerged fermentation",
@@ -177,6 +216,9 @@ await test("paperMethodTier: title method papers are strong, value papers are no
   assert.equal(paperMethodTier(PROD_B), 0);
   assert.equal(paperMethodTier(PROD_C), 0);
   assert.equal(paperMethodTier(PROD_D), 0);
+  // The indicator paper: no method title, but its abstract
+  // states the activity was measured (as an indicator) — tier 1.
+  assert.equal(paperMethodTier(INDICATOR), 1);
   // Abstract level only: the headline is production, but the
   // abstract's own procedure statement describes measuring.
   const abstractLevel = {
@@ -207,23 +249,47 @@ await test("the cited shelf leads with the method papers, pulling them in from t
 });
 
 await test("the extractive lede describes a measurement procedure from a method paper", () => {
-  const gated = [PROD_A, PROD_B, METHOD_B, PROD_C, METHOD_A, PROD_D];
-  const shelf = orderShelfForMeasurement(gated.slice(0, 4), gated);
+  // Second pass shape: the ranked pool holds the method papers
+  // at ranks 3 and 5, the tier 1 indicator paper at rank 2,
+  // and production papers around them; the cited slice is 6,
+  // so the indicator and production papers sit in the
+  // builder's pool alongside the method papers.
+  const gated = [PROD_A, INDICATOR, METHOD_B, PROD_C, METHOD_A, PROD_D];
+  const shelf = orderShelfForMeasurement(gated.slice(0, 6), gated);
+  assert.equal(shelf[0], METHOD_B, "citation [1] is not a method paper");
+  assert.equal(shelf[1], METHOD_A, "citation [2] is not a method paper");
   const md = buildExtractiveSynthesis(shelf, null, {
     query: MNP_QUESTION,
     queryAnalysis: analyzeQuery(MNP_QUESTION),
   });
   assert.ok(md, "no extractive answer was built");
   const summary = md.split("## What the research shows")[0];
-  // The lede's citations are the method papers, in shelf order
-  // [1] and [2], and the lede text is a procedure: what is
-  // reacted, what is observed.
+  // The lede's citations are the method papers [1] and [2],
+  // and the lede text is the procedure in the readout
+  // register: what was read or followed, at what wavelength,
+  // in a cuvette, against a blank.
   assert.ok(summary.includes("[1]") && summary.includes("[2]"),
     `the lede does not cite both method papers:\n${summary}`);
-  assert.ok(/270 nm|oxidation|absorbance|malonate/i.test(summary),
+  assert.ok(/270 nm/.test(summary) && /malonate/i.test(summary),
     `the lede does not describe the measurement procedure:\n${summary}`);
-  assert.ok(!/1840|87 percent|2400 clones/.test(summary),
-    `a production value sentence leads the answer:\n${summary}`);
+  assert.ok(/cuvette|blank/i.test(summary) && /\b(read|followed|recorded)\b/i.test(summary),
+    `the lede is not in the procedure register:\n${summary}`);
+  // No value sentence leads: not the production values, and
+  // not the recovery value sentence hiding inside the method
+  // paper itself (the first pass's blind spot).
+  assert.ok(!/1840|640 units|98 percent/.test(summary),
+    `a value sentence leads the answer:\n${summary}`);
+  // The method papers' findings in the body are their
+  // procedure sentences too — claim selection inside the
+  // paper follows the shelf's tier order, so the recovery
+  // sentence never becomes the paper's finding at all.
+  const body = md.split("## What the research shows")[1] || "";
+  // (The papers' other procedure sentences sit in the lede;
+  // the body carries the ones the lede did not take.)
+  assert.ok(/cuvette/.test(body) && /blank|wavelength/.test(body),
+    `the method papers' findings are not their procedure sentences:\n${body.slice(0, 900)}`);
+  assert.ok(!/98 percent/.test(md),
+    `the method paper's recovery value sentence entered the answer:\n${md.slice(0, 1200)}`);
 });
 
 await test("(b) without the intent, the same pool's lede is the value sentence it always was", () => {

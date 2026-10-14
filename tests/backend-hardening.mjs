@@ -255,6 +255,23 @@ await test("budget check allows under cap, denies over cap, spend is atomic", as
               const r = rows.get(args[0] + "|" + args[1]);
               return r ? { used_tokens: r.used } : null;
             }
+            // The folded statements (2026-10-14, overhead audit):
+            // the budget read is one upsert with RETURNING (create
+            // at the fallback cap when missing, stored row either
+            // way), and a spend is an UPDATE ... RETURNING that
+            // yields the new total only when its guard admits it.
+            if (q.includes("RETURNING token_cap, used_tokens")) {
+              const k = args[0] + "|" + args[1];
+              if (!rows.has(k)) rows.set(k, { cap: args[2], used: 0 });
+              const r = rows.get(k);
+              return { token_cap: r.cap, used_tokens: r.used };
+            }
+            if (q.includes("RETURNING used_tokens")) {
+              const k = args[2] + "|" + args[3];
+              const r = rows.get(k);
+              if (r && r.used + args[4] <= r.cap) { r.used += args[0]; return { used_tokens: r.used }; }
+              return null;
+            }
             throw new Error("budgetDb.first: unhandled: " + q.slice(0, 80));
           };
           const run = async () => {
@@ -335,6 +352,14 @@ await test("authorizeLlmCall bundles budget + routing; denial degrades to non-LL
             if (q.startsWith("SELECT token_cap, used_tokens FROM tenant_budgets")) {
               const r = rows.get(args[0] + "|" + args[1]);
               return r ? { token_cap: r.cap, used_tokens: r.used } : null;
+            }
+            // The folded budget read (2026-10-14): one upsert
+            // with RETURNING — see costControl.readBudgetRow.
+            if (q.includes("RETURNING token_cap, used_tokens")) {
+              const k = args[0] + "|" + args[1];
+              if (!rows.has(k)) rows.set(k, { cap: args[2], used: 0 });
+              const r = rows.get(k);
+              return { token_cap: r.cap, used_tokens: r.used };
             }
             return null;
           };
@@ -425,6 +450,22 @@ function makeBudgetDb() {
             if (q.startsWith("SELECT used_tokens FROM tenant_budgets")) {
               const r = rows.get(args[0] + "|" + args[1]);
               return r ? { used_tokens: r.used } : null;
+            }
+            // The folded statements (2026-10-14, overhead audit):
+            // the budget read upsert with RETURNING, and the
+            // spend's UPDATE ... RETURNING — see the first budget
+            // fake above for the shapes.
+            if (q.includes("RETURNING token_cap, used_tokens")) {
+              const k = args[0] + "|" + args[1];
+              if (!rows.has(k)) rows.set(k, { cap: args[2], used: 0 });
+              const r = rows.get(k);
+              return { token_cap: r.cap, used_tokens: r.used };
+            }
+            if (q.includes("RETURNING used_tokens")) {
+              const k = args[2] + "|" + args[3];
+              const r = rows.get(k);
+              if (r && r.used + args[4] <= r.cap) { r.used += args[0]; return { used_tokens: r.used }; }
+              return null;
             }
             throw new Error("budgetDb.first: unhandled: " + q.slice(0, 80));
           };
@@ -1159,9 +1200,16 @@ group("#25 — rate limits: burst windows, vault/E2EE caps, Retry-After");
 
 await test("search.js has sustained + burst windows, both with Retry-After", async () => {
   const src = await readSrc("functions/api/search.js");
-  assert.match(src, /checkRateLimit\(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS, ledger\)/, "sustained window");
+  // Contract change (2026-10-14, overhead audit): the two windows
+  // are enforced by ONE batched check (checkRateLimitBatch) in
+  // enforcement order — sustained first, burst second — instead of
+  // two sequential checkRateLimit calls. The decisions and the
+  // two 429 bodies are unchanged; only the D1 call shape moved.
+  assert.match(src, /checkRateLimitBatch\(env, \[/, "one batched rate limit check");
+  assert.match(src, /key: rlKey, limit: RATE_LIMIT, windowMs: RATE_WINDOW_MS/, "sustained window");
   assert.match(src, /rlKey \+ ":burst"/, "burst window");
-  const burstIdx = src.indexOf('rlKey + ":burst"');
+  const burstIdx = src.indexOf("rlFailed === 1");
+  assert.ok(burstIdx !== -1, "burst denial branch present");
   const burstBlock = src.slice(burstIdx, burstIdx + 400);
   assert.match(burstBlock, /Retry-After/, "burst 429 carries Retry-After");
 });

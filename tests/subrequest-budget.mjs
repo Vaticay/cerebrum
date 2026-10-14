@@ -84,6 +84,47 @@
  *      the identical object as `ledger`); the rich scenario below
  *      pins its reconciliation against the stubbed platform
  *      total.
+ *   9. THE OVERHEAD AUDIT (2026-10-14): the first _ledger probe
+ *      (build e69b53d, Dusty's black soldier fly question) showed
+ *      WHY the phase local ceiling starved synthesis anyway:
+ *      byStage ratelimit 5, entitlement 6, queue 4, cache 4,
+ *      pre 3, preflight 1 (fixed overhead 23) before and around
+ *      a retrieval phase that spent 21 of its 27 phase local
+ *      allowance — used reached 50 during authorization and
+ *      synthesis spent zero. Two corrections land together:
+ *      the fixed overhead is cut to its honest minimum (the two
+ *      rate limit checks ride one batched read and one batched
+ *      write; the entitlement ensure answers from a one SELECT
+ *      schema probe when the schema is complete; the slot
+ *      acquire folds its stale reset, increment, and count read
+ *      into one INSERT ... RETURNING; the early cache read and
+ *      the query intelligence read ride one batch; the budget
+ *      module's read and spend pairs fold into single upserts
+ *      and UPDATE ... RETURNING statements; the embedding cache
+ *      ensure is one exec and its prune rides the store batch),
+ *      and the retrieval ceiling is ABSOLUTE — it binds the
+ *      invocation total (usedCount), so overhead is inside the
+ *      arithmetic instead of outside it. The constants re close:
+ *      retrieval 23 + post retrieval 5 + validation 5 +
+ *      authorize 5 + race 5 + tail 7 = 50. Several pins below
+ *      were updated to this corrected contract (the phase local
+ *      retrievalRoom numbers, the greedy draws' phase tallies,
+ *      the shelf sizes the capped draws land); each carries a
+ *      dated note where it changed. Stub limits, stated plainly:
+ *      the counting env carries no OpenRouter key in the rich
+ *      and lean scenarios, so the three pre gather LLM passes
+ *      (resolver, self reasoning, generated search queries —
+ *      live "pre 3") never fire there and the harness's pre
+ *      gather overhead understates production by those 3; the
+ *      heavy scenario carries the key and pays them. The stub's
+ *      batch returns no result rows, so the batched rate limit
+ *      reads count as zero (both checks pass) — its DECISIONS
+ *      are pinned against the real fake D1 in
+ *      tests/shared-libs.mjs instead. The stub answers the
+ *      entitlement schema probe with the complete production
+ *      schema and the folded slot acquire with a quiet counter,
+ *      because production D1 does both; answering otherwise
+ *      would exercise fallback paths and overstate the stages.
  *
  * Run with: node tests/subrequest-budget.mjs
  */
@@ -125,6 +166,7 @@ const {
   SUBREQUEST_NL_NET_COST,
   SUBREQUEST_RELAXED_NET_COST,
   SUBREQUEST_RETRIEVAL_ALLOWANCE,
+  SUBREQUEST_POST_RETRIEVAL_COST,
   SUBREQUEST_VALIDATION_ALLOWANCE,
   SUBREQUEST_AUTHORIZE_COST,
   SUBREQUEST_SYNTHESIS_RACE_COST,
@@ -271,44 +313,49 @@ group("the retrieval phase allowance — a hard cap on the phase (2026-10-14)");
 // platform call is made, so the refused grant is never counted
 // and the ledger's total stays equal to the platform's attempts.
 await test("the allowance is derived in one place from the budget constants", () => {
-  assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE, 27,
-    "allowance = 50 limit − 16 answer reserve − 7 tail reserve");
+  assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE, 23,
+    "allowance = 50 limit − 5 post retrieval − 15 answer reserve − 7 tail reserve");
   assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE,
-    SUBREQUEST_LIMIT - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
+    SUBREQUEST_LIMIT - SUBREQUEST_POST_RETRIEVAL_COST - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
   const ledger = createSubrequestLedger();
   assert.equal(ledger.retrievalAllowance(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
   // A custom limit derives its ceiling by the same formula.
   assert.equal(createSubrequestLedger(120).retrievalAllowance(),
-    120 - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
+    120 - SUBREQUEST_POST_RETRIEVAL_COST - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
 });
 
-// CORRECTED CONTRACT (2026-10-14, stage allowances): the reserve
-// keeps its total (16) and retrieval keeps its allowance (27),
-// but the reserve is no longer a lump estimate — it is the sum
-// of the named stage shares it must fund, the largest of them
-// enforced as a hard phase allowance, and the whole budget
-// closes line by line: retrieval allowance + validation
-// allowance + authorize + synthesis race + tail reserve = the
-// limit exactly, so no stage can spend another stage's share.
-// The lump derivation priced validation at 4 and padded the
-// rest with shares the tail also carried; the live probe on the
-// hard capped build showed synthesis still starving behind a
-// real validation draw, which is the defect this fixes.
+// CORRECTED CONTRACT (2026-10-14, overhead audit — supersedes the
+// stage allowances derivation below it in this file's history):
+// the retrieval ceiling is ABSOLUTE (it binds the invocation
+// total, not the phase's own tally), the reserve is exactly the
+// answer stage shares it funds (15), the post retrieval spend is
+// its own term (5), and authorize is re measured at 5 — the old
+// 6 double counted the cache read and the routing read, which
+// now have their own terms. The budget closes line by line:
+// retrieval allowance + post retrieval + validation + authorize
+// + synthesis race + tail reserve = the limit exactly, so no
+// stage can spend another stage's share. The earlier stage
+// allowances contract (reserve 16, allowance 27, phase local
+// ceiling) is what the live _ledger probe falsified: retrieval
+// spent 21 of 27, the caps held, and synthesis starved on the
+// 23 subrequests of fixed overhead nobody's arithmetic counted.
 await test("the budget arithmetic closes: every stage's share is a named constant", () => {
   assert.equal(SUBREQUEST_VALIDATION_ALLOWANCE, 5,
     "validation phase: two model legs + three first attempt Crossref checks");
-  assert.equal(SUBREQUEST_AUTHORIZE_COST, 6,
-    "authorize block: budget select + first insert + cold ensure + cache read + cache telemetry + routing read");
+  assert.equal(SUBREQUEST_AUTHORIZE_COST, 5,
+    "authorize block: folded tenant read + cold ensure + embedding budget read + neuron spend (measured 4, carried at 5)");
   assert.equal(SUBREQUEST_SYNTHESIS_RACE_COST, 5,
     "a synthesis race worth firing: one leg per live provider bucket, breadth first");
+  assert.equal(SUBREQUEST_POST_RETRIEVAL_COST, 5,
+    "post retrieval: divergence family 2 + late cache read 1 + learning read 1 + routing 1");
   assert.equal(SUBREQUEST_ANSWER_RESERVE,
     SUBREQUEST_VALIDATION_ALLOWANCE + SUBREQUEST_AUTHORIZE_COST + SUBREQUEST_SYNTHESIS_RACE_COST,
-    "the reserve is exactly the shares it must fund after retrieval");
+    "the reserve is exactly the answer stage shares it must fund");
   assert.equal(
-    SUBREQUEST_RETRIEVAL_ALLOWANCE + SUBREQUEST_VALIDATION_ALLOWANCE +
+    SUBREQUEST_RETRIEVAL_ALLOWANCE + SUBREQUEST_POST_RETRIEVAL_COST + SUBREQUEST_VALIDATION_ALLOWANCE +
     SUBREQUEST_AUTHORIZE_COST + SUBREQUEST_SYNTHESIS_RACE_COST + SUBREQUEST_TAIL_RESERVE,
     SUBREQUEST_LIMIT,
-    "retrieval + validation + authorize + synthesis + tail = the limit");
+    "retrieval + post retrieval + validation + authorize + synthesis + tail = the limit");
 });
 
 await test("outside the retrieval phase, grants are never refused by the ceiling", () => {
@@ -366,14 +413,43 @@ await test("the phase count is cumulative across gathers; the answer phase is no
     "answer phase spends are not retrieval phase spends");
 });
 
-await test("retrievalRoom binds the phase allowance while the phase is active", () => {
+await test("the ceiling counts what was spent before the phase opened", () => {
+  // The live starvation shape in miniature (2026-10-14, overhead
+  // audit): fixed overhead spends first, THEN the phase opens.
+  // Under the phase local ceiling this ledger would have honored
+  // a full allowance of phase grants on top of the overhead —
+  // the arithmetic that starved synthesis live. Under the
+  // absolute ceiling only the grants that fit under it land,
+  // however small the phase's own tally is.
+  const ledger = createSubrequestLedger();
+  spendN(ledger, 10); // fixed overhead, outside any phase
+  ledger.beginRetrievalPhase();
+  spendN(ledger, SUBREQUEST_RETRIEVAL_ALLOWANCE - 10);
+  assert.equal(ledger.used(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.equal(ledger.retrievalSpent(), SUBREQUEST_RETRIEVAL_ALLOWANCE - 10,
+    "the phase tally stays the phase's own spend, not the ceiling's measure");
+  assert.throws(() => ledger.spend(), /too many subrequests/i,
+    "a grant that would push the invocation total past the ceiling was honored");
+  assert.equal(ledger.retrievalRefusals(), 1);
+  assert.equal(ledger.retrievalCapHit(0), false, "at the ceiling exactly, a zero margin check still fits");
+  assert.equal(ledger.retrievalCapHit(1), true, "at the ceiling, any real grant reads as cap hit");
+  ledger.endRetrievalPhase();
+  // Answer phase spends are not the ceiling's business.
+  ledger.spend();
+  assert.equal(ledger.used(), SUBREQUEST_RETRIEVAL_ALLOWANCE + 1);
+});
+
+await test("retrievalRoom binds the absolute ceiling while the phase is active", () => {
   const ledger = createSubrequestLedger();
   ledger.beginRetrievalPhase();
-  spendN(ledger, 20);
-  // Reserve rule alone: remaining 30 > 16 + 8, the round may start.
-  // Phase rule: 20 + 8 crosses the allowance of 27, it may not.
-  assert.equal(ledger.retrievalRoom(8), false, "the phase ceiling must trim the round by name");
-  assert.equal(ledger.retrievalRoom(5), true, "a round that fits the allowance still starts");
+  spendN(ledger, 16);
+  // Reserve rule alone: remaining 34 > 15 + 8, the round may start.
+  // Ceiling rule: 16 + 8 crosses the absolute ceiling of 23, it
+  // may not. (Corrected contract, 2026-10-14: this test used to
+  // spend 20 and cite a phase local allowance of 27 — the shape
+  // the live probe falsified.)
+  assert.equal(ledger.retrievalRoom(8), false, "the ceiling must trim the round by name");
+  assert.equal(ledger.retrievalRoom(5), true, "a round that fits the ceiling still starts");
   assert.equal(ledger.retrievalRoom(0), true);
   ledger.endRetrievalPhase();
   // Phase closed: the same totals answer by the reserve rule only.
@@ -639,6 +715,7 @@ await test("publicLedgerSnapshot: null without a ledger, phases only once they s
   assert.deepEqual(fresh.constants, {
     limit: SUBREQUEST_LIMIT,
     retrievalAllowance: SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    postRetrievalCost: SUBREQUEST_POST_RETRIEVAL_COST,
     validationAllowance: SUBREQUEST_VALIDATION_ALLOWANCE,
     answerReserve: SUBREQUEST_ANSWER_RESERVE,
     tailReserve: SUBREQUEST_TAIL_RESERVE,
@@ -715,17 +792,44 @@ function attempt(counts, kind) {
   }
 }
 function countingDb(counts) {
-  const st = () => {
+  const st = (sql) => {
     const s = {
       bind: () => s,
-      first: async () => { attempt(counts, "d1"); return null; },
-      all: async () => { attempt(counts, "d1"); return { results: [] }; },
+      first: async () => {
+        attempt(counts, "d1");
+        // The folded slot acquire (INSERT ... RETURNING): real D1
+        // returns the new counter; emulate a quiet queue (n = 1,
+        // always admitted). Without this the stub would force the
+        // legacy three statement fallback and overstate the queue
+        // stage by 3 against what production pays.
+        if (/CASE WHEN search_slots\.expires_at/.test(sql || "")) return { n: 1 };
+        return null;
+      },
+      all: async () => {
+        attempt(counts, "d1");
+        // The entitlement schema probe: production's schema is
+        // complete (schema.sql plus months of self healing
+        // ensures), so the faithful stub answer is the complete
+        // schema — all three tables, with pro_usage's stored
+        // CREATE text carrying the two healed columns. Answering
+        // "incomplete" here would exercise the legacy five exec
+        // path instead and overstate the cold entitlement stage
+        // by 5 against production.
+        if (/sqlite_master/.test(sql || "")) {
+          return { results: [
+            { name: "pro_usage", sql: "CREATE TABLE pro_usage (user_id TEXT NOT NULL, month TEXT NOT NULL, ai_answers INTEGER NOT NULL DEFAULT 0, doc_reads INTEGER NOT NULL DEFAULT 0, flowcharts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, month))" },
+            { name: "stripe_events", sql: "CREATE TABLE stripe_events (event_id TEXT PRIMARY KEY, received_at INTEGER NOT NULL)" },
+            { name: "student_verifications", sql: "CREATE TABLE student_verifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)" },
+          ] };
+        }
+        return { results: [] };
+      },
       run: async () => { attempt(counts, "d1"); return { success: true, meta: { changes: 1 } }; },
     };
     return s;
   };
   return {
-    prepare: () => st(),
+    prepare: (sql) => st(sql),
     batch: async (arr) => { attempt(counts, "d1"); return (arr || []).map(() => ({ success: true })); },
     exec: async () => { attempt(counts, "d1"); return { results: [] }; },
   };
@@ -897,22 +1001,30 @@ function assertLedgerShips(data, counts, ledger) {
   // The shipped _ledger (2026-10-14, observability): the response
   // carries the invocation's spend snapshot taken at assembly and
   // the record carries the identical object. Its total reconciles
-  // with the stubbed platform total exactly, minus the one spender
+  // with the stubbed platform total exactly, minus the spenders
   // that structurally cannot precede the snapshot — the record
-  // store's own writes, which land after the record is built. The
-  // post assembly spend is read off the final snapshot's "record"
-  // stage rather than assumed, and no other stage may differ.
+  // store's own writes (they land after the record is built) and
+  // the priority slot release in the handler's finally, both of
+  // which the snapshot's own documentation names as post
+  // assembly. The post assembly spend is read off the final
+  // snapshot's stage deltas rather than assumed, and no stage
+  // outside those two may differ. (The release joined the
+  // reconciliation in the overhead audit: on the tighter draw
+  // the rich scenario's release is the third post assembly
+  // subrequest, where the looser draw's totals had coincidentally
+  // reconciled without naming it.)
   const view = data._ledger;
   assert.ok(view && typeof view === "object", "the response carries no _ledger");
   const finalSnap = ledger.snapshot();
-  const postAssembly = (finalSnap.byStage.record || 0) - (view.byStage.record || 0);
+  const postAssembly = ["record", "queue"]
+    .reduce((sum, k) => sum + ((finalSnap.byStage[k] || 0) - (view.byStage[k] || 0)), 0);
   assert.equal(view.used + postAssembly, counts.attempts + counts.cache,
-    `shipped _ledger.used ${view.used} + post assembly record store ${postAssembly} ` +
+    `shipped _ledger.used ${view.used} + post assembly spend ${postAssembly} ` +
     `!= stubbed platform attempts ${counts.attempts + counts.cache}`);
   const laterStages = Object.keys(finalSnap.byStage)
     .filter((k) => (finalSnap.byStage[k] || 0) !== (view.byStage[k] || 0));
-  assert.deepEqual(laterStages, postAssembly > 0 ? ["record"] : [],
-    "a stage other than the record store spent after the _ledger snapshot");
+  assert.ok(laterStages.every((k) => k === "record" || k === "queue"),
+    `a stage other than the record store or the slot release spent after the _ledger snapshot: ${laterStages}`);
   // Internal consistency: the total is the sum of its stage map,
   // and the record's copy is the identical object.
   assert.equal(Object.values(view.byStage).reduce((a, b) => a + b, 0), view.used,
@@ -925,6 +1037,7 @@ function assertLedgerShips(data, counts, ledger) {
   assert.deepEqual(view.constants, {
     limit: SUBREQUEST_LIMIT,
     retrievalAllowance: SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    postRetrievalCost: SUBREQUEST_POST_RETRIEVAL_COST,
     validationAllowance: SUBREQUEST_VALIDATION_ALLOWANCE,
     answerReserve: SUBREQUEST_ANSWER_RESERVE,
     tailReserve: SUBREQUEST_TAIL_RESERVE,
@@ -941,15 +1054,45 @@ await test("rich retrieval (warm): expansion and validation fire, synthesis wins
   const { data, counts, ledger } = await runScenario("rich");
   assertLedgerEqualsPlatform(counts, ledger);
   assertAnswerStagesFunded(data, counts);
-  assert.ok((data.sources || []).length >= 8, "the rich scenario should ship its papers");
+  // Shelf size under the corrected contract (2026-10-14,
+  // overhead audit): the absolute ceiling funds a smaller draw
+  // than the phase local one did — the fallback nets no longer
+  // fire on a shelf the ladder already landed, which is the
+  // trim order the budget exists to enforce. The stub returns
+  // two papers per productive call, so six shipped sources is
+  // the ladder's own catch here (this asserted 8 under the
+  // phase local ceiling, whose arithmetic starved synthesis
+  // live; the funded stages above are the contract).
+  assert.ok((data.sources || []).length >= 6, "the rich scenario should ship its papers");
   assertLedgerShips(data, counts, ledger);
+  // Per stage ceilings for the fixed overhead, at their audited
+  // minima for this harness's shape (assembly snapshot; the
+  // queue's release lands after it): the two rate limit checks
+  // ride two batched calls, the warm entitlement gate is its
+  // single usage read, the slot acquire is one folded statement,
+  // and the query intelligence read no longer spends under its
+  // own label at all — it rides the cache read's batch, so
+  // "preflight" is absent. "pre" is likewise absent here: the
+  // harness carries no OpenRouter key, so the three pre gather
+  // LLM passes never fire (live they cost 3; see the header).
+  const stages = (data._ledger && data._ledger.byStage) || {};
+  assert.ok((stages.ratelimit || 0) <= 2, `ratelimit spent ${stages.ratelimit}, over its audited minimum of 2`);
+  assert.ok((stages.entitlement || 0) <= 1, `entitlement spent ${stages.entitlement}, over its audited minimum of 1`);
+  assert.ok((stages.queue || 0) <= 1, `queue spent ${stages.queue} by assembly, over its audited minimum of 1`);
+  assert.ok((stages.cache || 0) <= 4, `cache spent ${stages.cache}, over its audited shape of 4`);
+  assert.equal(stages.preflight || 0, 0, "the intelligence read spent outside the cache batch");
 });
 
 await test("lean retrieval (warm): rungs and fallbacks trim, synthesis still gets funded legs", async () => {
   const { data, counts, ledger } = await runScenario("lean");
   assertLedgerEqualsPlatform(counts, ledger);
   assertAnswerStagesFunded(data, counts);
-  assert.ok((data.sources || []).length >= 3, "the lean scenario should still ship its papers");
+  // Two sources is this stub's capped catch (one paper per
+  // Europe PMC call, PubMed yielding none by design) under the
+  // absolute ceiling — the scenario's contract is the funded
+  // synthesis above, not the shelf size (was 3 under the phase
+  // local ceiling; see the rich scenario's note).
+  assert.ok((data.sources || []).length >= 2, "the lean scenario should still ship its papers");
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1231,8 +1374,14 @@ async function runHeavyScenario() {
 await test("heavy draw, full rerank: validation runs and the synthesis race fires its legs", async () => {
   const { data, counts, ledger, marks } = await runHeavyScenario();
   assertLedgerEqualsPlatform(counts, ledger);
-  // The draw really was heavy: a full shelf shipped.
-  assert.ok((data.sources || []).length >= 8,
+  // The draw really was heavy: a real shelf shipped. Four is one
+  // productive stub call's worth (the stub answers four papers
+  // per Europe PMC retry); under the absolute ceiling the second
+  // call site's retry lands past it on this draw, where the
+  // phase local ceiling let both land (this asserted 8 before
+  // the overhead audit — the funded validation and race below
+  // are the scenario's contract, as in the rich scenario).
+  assert.ok((data.sources || []).length >= 4,
     `heavy scenario shipped only ${(data.sources || []).length} sources`);
   // Validation ran on a real leg.
   const validation = (data.stageHealth || []).find((s) => s.name === "validation");
@@ -1589,12 +1738,18 @@ async function runGreedyScenario() {
 await test("greedy draw: the phase ends at or under its allowance, the answer stages run funded", async () => {
   const { data, counts, ledger, marks } = await runGreedyScenario();
   assertLedgerEqualsPlatform(counts, ledger);
-  // The draw really was greedy: the phase spent most of its
-  // allowance (the ladder's fanout plus the full rerank)…
-  assert.ok(ledger.retrievalSpent() >= 20,
+  // The draw really was greedy: the phase spent most of what the
+  // ceiling left it (the ladder's fanout plus the full rerank)…
+  assert.ok(ledger.retrievalSpent() >= 12,
     `the greedy draw spent only ${ledger.retrievalSpent()} in the retrieval phase`);
-  // …but never past it, and the ceiling actually refused grants
-  // (the rerank's tail spend is where a deep shelf bleeds first).
+  // …but never past the ceiling, and the ceiling actually
+  // refused grants (the rerank's tail spend is where a deep
+  // shelf bleeds first). Corrected contract (2026-10-14,
+  // overhead audit): the ceiling binds the invocation total, so
+  // the phase tally's bound is the ceiling minus whatever the
+  // fixed overhead spent before the phase opened — the phase
+  // local version of this test asserted a tally of 20+, which
+  // is exactly the arithmetic that starved synthesis live.
   assert.ok(ledger.retrievalSpent() <= SUBREQUEST_RETRIEVAL_ALLOWANCE,
     `retrieval phase spent ${ledger.retrievalSpent()} past its allowance ${SUBREQUEST_RETRIEVAL_ALLOWANCE}`);
   assert.ok(ledger.retrievalRefusals() >= 1,
@@ -1613,29 +1768,30 @@ await test("greedy draw: the phase ends at or under its allowance, the answer st
     `greedy scenario shipped only ${(data.sources || []).length} sources`);
 });
 
-// GREEDY VALIDATION (2026-10-14, stage allowances): a deep draw
-// in the greedy family (multi formulation payments, the full
-// rerank against a 30 paper shelf) with the validation block
-// itself ALSO greedy: the production shape on the night
+// GREEDY VALIDATION (2026-10-14, stage allowances; binding
+// order corrected the same day by the overhead audit): a deep
+// draw in the greedy family (multi formulation payments, the
+// full rerank against a 30 paper shelf) with the validation
+// block itself ALSO greedy: the production shape on the night
 // synthesis starved. The OpenRouter key is present so BOTH
 // validation legs fire (the first leg fails, the Groq leg
 // answers), and every one of the top 8 cited papers carries a
 // DOI URL, so the retraction round is offered a check per paper
 // and each check would fail its first attempt with a 503 the
 // fetcher retries once: the block is offered 2 legs + 8 papers
-// × 2 attempts = 18 subrequests against an allowance of 5 (and
-// against the old lump reserve's 4 priced for the whole block).
-// On this draw the block's tighter price (the answer reserve)
-// cuts the retraction round to zero before the phase ceiling
-// is reached — the sacrifice order the block has always had —
-// and the phase ceiling is the cap that binds on roomier draws
-// (pinned at unit level in the phase group above and the
-// llmValidatePapers phase tests below). What this scenario
-// pins end to end: the block stays inside its allowance, its
-// core leg still answers, the cut round is recorded as a trim
-// on the stage record instead of passing as fully run, and
-// synthesis still wins an AI answer, funded from what the
-// capped block left behind.
+// × 2 attempts = 18 subrequests against an allowance of 5.
+// Under the corrected arithmetic the absolute retrieval
+// ceiling leaves the invocation low enough at the block that
+// the round runs some checks and the PHASE ceiling is the cap
+// that binds it — the reserve price cutting the round to zero
+// first was the old derivation's order, not a law. (The phase
+// ceiling's refusal behavior is also pinned at unit level in
+// the phase group above and the llmValidatePapers phase tests
+// below.) What this scenario pins end to end: the block stays
+// inside its allowance, its core leg still answers, the cut
+// round is recorded as a trim on the stage record instead of
+// passing as fully run, and synthesis still wins an AI answer,
+// funded from what the capped block left behind.
 async function runGreedyValidationScenario() {
   const counts = makeCounts();
   const marks = [];
@@ -1762,23 +1918,30 @@ await test("greedy validation: the block stays inside its allowance, the trim is
   assertLedgerEqualsPlatform(counts, ledger);
   // The block was offered far more than its allowance (two
   // validation legs plus eight per paper retraction checks with
-  // retries, 18 in all). Both of its caps held it inside the
-  // allowance: the phase tally counts exactly the two model
-  // legs, and the retraction round — offered eight DOI papers —
-  // was cut to none by the tighter of its two prices on this
-  // draw. (The phase ceiling's own refusal behavior is pinned
-  // at unit level in the validation phase group above and in
-  // the llmValidatePapers phase tests below: on this full
-  // pipeline draw the reserve price binds first, which is the
-  // sacrifice order the block has always had.)
-  assert.equal(ledger.validationSpent(), 2,
-    `validation phase spent ${ledger.validationSpent()}, not just its two model legs`);
+  // retries, 18 in all), and its caps held it inside the
+  // allowance: both model legs ran, and the retraction round —
+  // offered eight DOI papers — was cut short inside the phase
+  // allowance (some checks ran; the phase ceiling refused the
+  // rest mid round, which is the binding order the corrected
+  // arithmetic produces on this draw: the absolute retrieval
+  // ceiling leaves the invocation low enough that the reserve
+  // price no longer cuts the round to zero first). Corrected
+  // contract (2026-10-14, overhead audit): this asserted the
+  // tally was exactly the two legs under the reserve 16 /
+  // phase local derivation; what is pinned now is the block
+  // staying inside its allowance with its core job done and
+  // the trim recorded. (The phase ceiling's own refusal
+  // behavior is also pinned at unit level in the validation
+  // phase group above and in the llmValidatePapers tests
+  // below.)
+  assert.ok(ledger.validationSpent() >= 2,
+    `validation phase spent ${ledger.validationSpent()}, less than its two model legs`);
   assert.ok(ledger.validationSpent() <= SUBREQUEST_VALIDATION_ALLOWANCE,
     "the validation block spent past its phase allowance");
   // The phase tally shows in the snapshot once the phase has
   // spent, like retrieval's.
   const snap = ledger.snapshot();
-  assert.equal(snap.validationSpent, 2);
+  assert.equal(snap.validationSpent, ledger.validationSpent());
   assert.equal(snap.validationAllowance, SUBREQUEST_VALIDATION_ALLOWANCE);
   // The block still did its core job: the first leg failed, the
   // Groq leg answered, and the stage record names the leg AND
@@ -1871,13 +2034,13 @@ await test("in phase, the allowance running out mid loop refuses the second leg 
 // EMPTY SHELF: every engine answers nothing to the ladder —
 // Europe PMC pays its formulation chain per call, PubMed pays
 // its five call worst case, and nine engines each pay a 503
-// retry — so the ladder's rungs burn the phase to its ceiling
-// (the second rung's tail is refused mid flight) with the shelf
-// still empty, and the raw net's price no longer fits. The one
-// thing worse than a spent budget is zero sources: the cascade
-// yield must let the raw net fire anyway (Europe PMC answers
-// its call with the scenario's only two papers), spending
-// counted grants past the allowance to do it.
+// retry — so the ladder's rungs burn the invocation total to
+// the ceiling (the second rung's tail is refused mid flight)
+// with the shelf still empty, and the raw net's price no longer
+// fits. The one thing worse than a spent budget is zero
+// sources: the cascade yield must let the raw net fire anyway
+// (Europe PMC answers its call with the scenario's only two
+// papers), spending counted grants past the ceiling to do it.
 async function runEmptyShelfScenario() {
   const counts = makeCounts();
   let epmcFetches = 0;
@@ -2003,12 +2166,19 @@ async function runEmptyShelfScenario() {
 await test("empty shelf: the cascade yield fires the first net past the ceiling", async () => {
   const { data, counts, ledger } = await runEmptyShelfScenario();
   assertLedgerEqualsPlatform(counts, ledger);
-  // The phase spent PAST its allowance, which only yield grants
-  // can do (every other grant refuses at the ceiling): proof the
-  // yielded net ran, and ran on budget the cap alone would have
-  // refused mid flight.
-  assert.ok(ledger.retrievalSpent() > SUBREQUEST_RETRIEVAL_ALLOWANCE,
-    `phase spent ${ledger.retrievalSpent()}, at or under the allowance ${SUBREQUEST_RETRIEVAL_ALLOWANCE}: no yield overshoot recorded`);
+  // The ceiling refused ladder grants before the cascade's
+  // first net was priced (refusals on the ledger), and the net
+  // still ran and shipped its papers — which only the yield
+  // allows, since every non yield grant at that point refuses.
+  // Corrected contract (2026-10-14, overhead audit): this used
+  // to assert the PHASE TALLY passed the allowance, which was
+  // the phase local ceiling's shape; under the absolute ceiling
+  // the overshoot is in the invocation total, and the yield's
+  // proof is refusals recorded + the net's papers shipped.
+  assert.ok(ledger.retrievalRefusals() >= 1,
+    "the ladder never hit the ceiling, so the net needed no yield to fire");
+  assert.ok(ledger.retrievalSpent() >= 15,
+    `phase spent only ${ledger.retrievalSpent()}: the draw was not the heavy shape this scenario models`);
   // And the papers only that net could find actually shipped:
   // every other engine and round in this stub answers nothing,
   // so a non-empty shelf is the net's own catch.

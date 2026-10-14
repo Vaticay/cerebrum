@@ -41,6 +41,16 @@ function mockDB() {
       // statement (no .bind() needed when there are no parameters).
       const stmt = (...args) => {
         const first = async () => {
+          // The folded acquire (2026-10-14): one INSERT ... RETURNING
+          // whose conflict branch resets a stale row to zero before
+          // the increment — binds are (now, now - STALE_SLOT_MS).
+          // Emulated exactly: stale expiry counts from 0, live row
+          // from its count, either way +1 and a fresh expiry.
+          if (q.includes("CASE WHEN search_slots.expires_at < ?")) {
+            n = (expires < args[1] ? 0 : n) + 1;
+            expires = args[0];
+            return { n };
+          }
           if (q.startsWith("SELECT n FROM search_slots WHERE k = 'active'")) {
             return { n };
           }

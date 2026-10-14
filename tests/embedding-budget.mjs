@@ -43,6 +43,25 @@ function mockDB() {
               const n = rows.get(args[0]);
               return n == null ? null : { used_neurons: n };
             }
+            // The folded read (2026-10-14): one upsert with
+            // RETURNING — create at zero when missing, hand back
+            // the stored count either way.
+            if (q.startsWith("INSERT INTO embedding_neuron_usage") && q.includes("RETURNING used_neurons")) {
+              if (!rows.has(args[0])) rows.set(args[0], 0);
+              return { used_neurons: rows.get(args[0]) };
+            }
+            // The folded spend (2026-10-14): UPDATE ... RETURNING
+            // yields the new total when the guard admits the
+            // spend, and no row when it refuses.
+            if (q.startsWith("UPDATE embedding_neuron_usage SET used_neurons = used_neurons + ?") && q.includes("RETURNING used_neurons")) {
+              const [cost, , day, cost2] = args;
+              const cur = rows.get(day) || 0;
+              if (cur + cost2 <= EMBEDDING_DAILY_CAP) {
+                rows.set(day, cur + cost);
+                return { used_neurons: cur + cost };
+              }
+              return null;
+            }
             throw new Error("mockD1 first() unhandled: " + q);
           };
           const run = async () => {

@@ -151,3 +151,90 @@ export async function checkRateLimit(env, key, limit, windowMs, ledger = null) {
   }
   return checkMemory(key, limit, windowMs);
 }
+
+/**
+ * Run SEVERAL limit checks for one request as two batched D1 calls
+ * (2026-10-14, overhead audit). The search handler gates every
+ * request on a sustained AND a burst check back to back; run
+ * sequentially through checkD1 that was five platform subrequests
+ * on a cold isolate (table ensure + a SELECT and an upsert per
+ * check) — the live _ledger probe on build e69b53d showed
+ * "ratelimit 5" in a request whose synthesis then starved. A
+ * db.batch is ONE platform call however many statements it
+ * carries, so the batched shape is: ensure (cold only, as before)
+ * + one batch carrying every check's count SELECT + one batch
+ * carrying the increments for the checks that passed.
+ *
+ * `checks` is [{ key, limit, windowMs }] in enforcement order.
+ * Returns the index of the first failed check, or -1 when every
+ * check passed. Decisions are IDENTICAL to running checkRateLimit
+ * sequentially in the same order:
+ *   - a check fails iff its stored bucket count has reached its
+ *     limit, and a failed check is never written (the pinned
+ *     contract: limited traffic does not grow the counter);
+ *   - checks short circuit as the sequential calls did — once a
+ *     check fails, later checks are never WRITTEN, so their counts
+ *     do not move. Their counts were read in the same read batch;
+ *     a read cannot change any decision;
+ *   - the 1% expired bucket prune rides the write batch, rolled
+ *     per written check exactly where the sequential path rolls
+ *     it (after that check's increment, on allowed traffic only —
+ *     a request whose checks all fail prunes nothing, as before).
+ * If the batched path errors anywhere, it falls back to the
+ * sequential per check calls, which carry their own charges and
+ * their own memory fallback — same fail open shape as today.
+ */
+export async function checkRateLimitBatch(env, checks, ledger = null) {
+  const list = Array.isArray(checks) ? checks : [];
+  if (!list.length) return -1;
+  const sequential = async () => {
+    for (let i = 0; i < list.length; i++) {
+      const ok = await checkRateLimit(env, list[i].key, list[i].limit, list[i].windowMs, ledger);
+      if (!ok) return i;
+    }
+    return -1;
+  };
+  if (!env || !env.DB || typeof env.DB.prepare !== "function" || typeof env.DB.batch !== "function") {
+    return sequential();
+  }
+  const db = env.DB;
+  const now = Date.now();
+  const items = list.map(({ key, limit, windowMs }) => {
+    const bucket = Math.floor(now / windowMs);
+    return {
+      dbKey: `rl:${key}:${bucket}`,
+      limit,
+      expiresAt: now + windowMs + 30000,
+    };
+  });
+  try {
+    await ensureTable(db, ledger);
+    if (ledger) ledger.spendBinding("ratelimit", 1);
+    const readResults = await db.batch(items.map((it) =>
+      db.prepare("SELECT count FROM rate_limits WHERE k = ?").bind(it.dbKey)));
+    let firstFailure = -1;
+    const writes = [];
+    for (let i = 0; i < items.length; i++) {
+      const rows = readResults && readResults[i] && readResults[i].results;
+      const count = rows && rows[0] ? rows[0].count | 0 : 0;
+      if (count >= items[i].limit) { firstFailure = i; break; }
+      writes.push(db.prepare(
+        "INSERT INTO rate_limits(k, count, expires_at) VALUES (?, 1, ?) " +
+          "ON CONFLICT(k) DO UPDATE SET count = rate_limits.count + 1, " +
+          "expires_at = excluded.expires_at"
+      ).bind(items[i].dbKey, items[i].expiresAt));
+      if (Math.random() < 0.01) {
+        writes.push(db.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(now));
+      }
+    }
+    if (writes.length) {
+      if (ledger) ledger.spendBinding("ratelimit", 1);
+      await db.batch(writes);
+    }
+    return firstFailure;
+  } catch (e) {
+    // Batched path unavailable — the sequential checks decide.
+    console.error("Cerebrum rateLimit: batch failed, falling back to sequential checks", e);
+    return sequential();
+  }
+}

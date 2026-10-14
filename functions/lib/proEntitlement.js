@@ -228,12 +228,38 @@ export async function consumeStudentVerification(env, verificationId) {
 let _proTablesEnsured = false;
 export async function ensureProTables(env, ledger = null) {
   if (_proTablesEnsured || !env || !env.DB) return;
-  // Five execs on the cold request that triggers them (CREATE
-  // pro_usage, two self healing ALTERs, CREATE stripe_events,
-  // CREATE student_verifications); zero in steady state. `ledger` is
-  // the search handler's subrequest ledger, optional elsewhere:
-  // D1 executions are bound service calls and are charged at their
-  // sites throughout this module.
+  // Schema probe first (2026-10-14, overhead audit): the legacy
+  // sequence below is five execs on the cold request that triggers
+  // them (CREATE pro_usage, two self healing ALTERs, CREATE
+  // stripe_events, CREATE student_verifications), and the live
+  // _ledger probe showed "entitlement 6" (those five plus the
+  // usage read) in the request whose synthesis starved. Production
+  // schema has been complete for months, so one SELECT against
+  // sqlite_master proves it: all three tables present, and
+  // pro_usage's stored CREATE text carrying the two self healed
+  // columns (SQLite rewrites the stored sql on ALTER ADD COLUMN,
+  // so their names in the text prove the ALTERs landed). Complete
+  // → ensured after ONE call. Incomplete, or any probe error →
+  // the exact legacy sequence runs, each statement charged as
+  // before (a legacy schema isolate pays the probe plus the five,
+  // once per isolate). `ledger` is the search handler's subrequest
+  // ledger, optional elsewhere: D1 executions are bound service
+  // calls and are charged at their sites throughout this module.
+  try {
+    if (ledger) ledger.spendBinding("entitlement", 1);
+    const probe = await env.DB.prepare(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'table' " +
+      "AND name IN ('pro_usage', 'stripe_events', 'student_verifications')"
+    ).all();
+    const rows = (probe && probe.results) || [];
+    const byName = new Map(rows.map((r) => [r && r.name, String((r && r.sql) || "")]));
+    const proSql = byName.get("pro_usage") || "";
+    if (byName.has("pro_usage") && byName.has("stripe_events") && byName.has("student_verifications") &&
+        proSql.includes("doc_reads") && proSql.includes("flowcharts")) {
+      _proTablesEnsured = true;
+      return;
+    }
+  } catch { /* probe unavailable — the legacy sequence below decides */ }
   if (ledger) ledger.spendBinding("entitlement", 1);
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS pro_usage (" +

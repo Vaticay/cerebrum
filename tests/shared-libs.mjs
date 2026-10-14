@@ -274,10 +274,29 @@ function fakeD1() {
   const db = {
     _rows: rows,
     _writes: 0,
+    _batches: 0,
     async exec() { return undefined; },
+    // One call however many statements it carries, matching the
+    // platform convention the ledger counts by: SELECTs answer
+    // from the map, writes apply through the statement's own run.
+    async batch(stmts) {
+      db._batches++;
+      const out = [];
+      for (const s of stmts) {
+        if (/SELECT count FROM rate_limits/i.test(s._sql)) {
+          const r = rows.get(s._params[0]);
+          out.push({ results: r ? [{ count: r.count }] : [] });
+        } else {
+          await s.run();
+          out.push({ success: true });
+        }
+      }
+      return out;
+    },
     prepare(sql) {
       const stmt = {
         _params: [],
+        _sql: sql,
         bind(...params) { stmt._params = params; return stmt; },
         async first() {
           if (/SELECT count FROM rate_limits/i.test(sql)) {
@@ -342,6 +361,66 @@ await test("D1 path: no KV binding is consulted", async () => {
   const src = await import("node:fs/promises").then((fs) =>
     fs.readFile(join(root, "functions/lib/rateLimit.js"), "utf8"));
   assert.ok(!/RATE_LIMIT_KV/.test(src), "rateLimit.js still references the removed KV binding");
+});
+
+// ── checkRateLimitBatch (2026-10-14, overhead audit) ───────────────────
+// The search handler's two checks (sustained + burst) in one batched
+// read and one batched write. Decisions must equal the sequential
+// checkRateLimit calls exactly, including the short circuit: once a
+// check fails, later checks are never written.
+const { checkRateLimitBatch } = await import(join(root, "functions/lib/rateLimit.js"));
+
+await test("batch: same decisions as sequential, first failure index reported", async () => {
+  const dbA = fakeD1();
+  const dbB = fakeD1();
+  const key = "test:d1:batch:" + Math.random();
+  const checks = [
+    { key, limit: 3, windowMs: 60000 },
+    { key: key + ":burst", limit: 2, windowMs: 10000 },
+  ];
+  // Burst (limit 2) binds first: calls 1-2 pass both, call 3 fails
+  // the burst check (index 1), call 4 fails the sustained (index 0).
+  const expected = [-1, -1, 1, 0, 0];
+  for (let i = 0; i < expected.length; i++) {
+    const viaBatch = await checkRateLimitBatch({ DB: dbA }, checks);
+    let viaSeq = -1;
+    if (!(await checkRateLimit({ DB: dbB }, checks[0].key, checks[0].limit, checks[0].windowMs))) viaSeq = 0;
+    else if (!(await checkRateLimit({ DB: dbB }, checks[1].key, checks[1].limit, checks[1].windowMs))) viaSeq = 1;
+    assert.equal(viaBatch, expected[i], `call ${i + 1}: batch returned ${viaBatch}`);
+    assert.equal(viaSeq, expected[i], `call ${i + 1}: sequential returned ${viaSeq}`);
+  }
+  // Final counters identical on both paths — including the short
+  // circuit: the burst counter stopped at 2 (never written after
+  // its first failure), the sustained at 3.
+  const counts = (db) => [...db._rows.entries()].map(([k, r]) => [k.split(":").slice(-2).join(":"), r.count]).sort();
+  assert.deepEqual(counts(dbA), counts(dbB), "batched and sequential counters diverged");
+  const burst = [...dbA._rows.values()];
+  assert.ok(burst.every((r) => r.count <= 3), "a counter grew past its limit");
+});
+
+await test("batch: two platform calls per request once ensured", async () => {
+  const db = fakeD1();
+  const key = "test:d1:batchcost:" + Math.random();
+  const checks = [
+    { key, limit: 30, windowMs: 60000 },
+    { key: key + ":burst", limit: 6, windowMs: 10000 },
+  ];
+  await checkRateLimitBatch({ DB: db }, checks);
+  await checkRateLimitBatch({ DB: db }, checks);
+  assert.equal(db._batches, 4, "expected a read batch and a write batch per request");
+});
+
+await test("batch: no batch on the binding falls back to sequential decisions", async () => {
+  const db = fakeD1();
+  delete db.batch;
+  const key = "test:d1:batchfallback:" + Math.random();
+  const checks = [
+    { key, limit: 2, windowMs: 60000 },
+    { key: key + ":burst", limit: 6, windowMs: 10000 },
+  ];
+  assert.equal(await checkRateLimitBatch({ DB: db }, checks), -1);
+  assert.equal(await checkRateLimitBatch({ DB: db }, checks), -1);
+  assert.equal(await checkRateLimitBatch({ DB: db }, checks), 0, "sequential fallback did not enforce");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

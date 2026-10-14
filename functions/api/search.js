@@ -28,7 +28,7 @@ import {
   rankByEvidenceStrength,
   buildContradictionQueries,
 } from "../lib/knowledge.js";
-import { checkRateLimit } from "../lib/rateLimit.js";
+import { checkRateLimit, checkRateLimitBatch } from "../lib/rateLimit.js";
 import { maybeSweep } from "../lib/retention.js";
 import { classifyQuery, cacheKey as derivedCacheKey, CACHE_TTL_MS } from "../lib/queryPrivacy.js";
 import { wantsStream, createSseStream, parseLastEventId, sseHeaders } from "../lib/searchSse.js";
@@ -433,33 +433,35 @@ export function planDelayedRescue(attempts, opts = {}) {
 //
 // The constants are derived from the handler's own stage costs
 // under the corrected accounting:
-//   SUBREQUEST_ANSWER_RESERVE (16) — what must still be free after
-//     retrieval, composed of NAMED stage shares (2026-10-14, stage
-//     allowances) instead of the old lump estimate. The old
-//     derivation priced validation at 4 ("attempts in the
-//     realistic worst case") and padded the rest with the fact
-//     check and the post answer writes — which the tail reserve
-//     ALSO carries, so the mid stage shares were thinner than
-//     the lump claimed. The live black soldier fly probe on the
-//     hard capped build (829397a) showed the cost: validation
-//     answered for the first time that evening while synthesis
-//     STILL skipped "subrequest budget exhausted" — validation's
-//     real draw over a 21 paper shelf (its model legs plus the
-//     retraction round's per paper Crossref checks, retries
-//     included) and the authorize stage's bindings ate the lump
-//     16 before the waves fired. The reserve is now exactly the
-//     sum of the shares it must fund, each a named constant
-//     below, and the largest of them (validation) is enforced as
-//     a hard phase allowance at the grant points:
+//   SUBREQUEST_ANSWER_RESERVE (15) — what must still be free after
+//     retrieval for the ANSWER stages, composed of NAMED stage
+//     shares (2026-10-14, stage allowances) instead of the old
+//     lump estimate. The old derivation priced validation at 4
+//     ("attempts in the realistic worst case") and padded the
+//     rest with the fact check and the post answer writes —
+//     which the tail reserve ALSO carries, so the mid stage
+//     shares were thinner than the lump claimed. The reserve is
+//     exactly the sum of the shares it must fund, each a named
+//     constant below, and the largest of them (validation) is
+//     enforced as a hard phase allowance at the grant points:
 //       SUBREQUEST_VALIDATION_ALLOWANCE (5) — the validation
 //         phase's hard allowance, enforced at the grant points;
-//       SUBREQUEST_AUTHORIZE_COST (6) — the pre wave
+//       SUBREQUEST_AUTHORIZE_COST (5) — the pre wave
 //         authorization block's measured worst case (below);
 //       SUBREQUEST_SYNTHESIS_RACE_COST (5) — a synthesis race
 //         worth firing (below).
 //     The fact check and the writes that ride a served answer
-//     are NOT in the reserve any more: they are the tail
-//     reserve's shares, counted once there.
+//     are NOT in the reserve: they are the tail reserve's
+//     shares, counted once there. Neither is the spend between
+//     the last gather and synthesis (the semantic divergence
+//     read, the late answer cache read, the learned papers
+//     read, the wave routing reads): that is its own named
+//     term, SUBREQUEST_POST_RETRIEVAL_COST below, and it comes
+//     out of the retrieval ceiling's derivation, not the
+//     reserve, because retrievalRoom's "reserve intact" test
+//     must keep meaning "the answer stages are funded" — the
+//     retraction round prices itself against the same reserve
+//     AFTER the post retrieval spend has already happened.
 //   SUBREQUEST_RUNG_COST (25) — one primary rung's worst case
 //     TOTAL platform cost: the fan out observed before (17
 //     fetches: Europe PMC in several formulations, PubMed esearch
@@ -471,13 +473,36 @@ export function planDelayedRescue(attempts, opts = {}) {
 //     neuron spend 2, rerank telemetry 2, topic recall 1).
 //   SUBREQUEST_TAIL_RESERVE (7) — what wave planning holds back
 //     for after the wave: the fact check (1), quota metering (2),
-//     the token spend write (2), the usage record (1), and the
-//     record store (1). The priority slot release is deliberately
-//     not reserved: the queue's stale slot sweep reclaims a leaked
-//     slot on its own.
+//     the token spend write (1 — an UPDATE ... RETURNING since
+//     the 2026-10-14 overhead audit folded its confirming
+//     SELECT), the usage record (1), the record store (1), and
+//     one of slack, which in practice absorbs whichever of the
+//     record store's cold isolate table ensure and the priority
+//     slot release lands in the tail — the release is still not
+//     reserved by name, since the queue's stale slot sweep
+//     reclaims a leaked slot on its own when its write is the
+//     one call a spent invocation cannot make.
 export const SUBREQUEST_LIMIT = 50;
 export const SUBREQUEST_RUNG_COST = 25;
 export const SUBREQUEST_TAIL_RESERVE = 7;
+// The spend between the last gather's return and the synthesis
+// waves that is neither an answer stage share nor tail
+// (2026-10-14, overhead audit). Measured on the live probe (the
+// full byStage evidence is in the retrieval allowance comment
+// below): the semantic divergence read family (its cold table
+// ensure, one exec since the audit folded the CREATE pair, plus
+// the chunked vector SELECT — 2), the late answer cache read at
+// its lower score bar (1), the learned papers read that force
+// includes confirmed papers (1), and the wave machinery's
+// routing reads (1) — worst case 5, carried at the measured 5:
+// the divergence read chunks at 50 papers, and a shelf deeper
+// than that has already spent its second chunk inside the
+// retrieval phase's own grants, not here. It is a
+// separate term in the retrieval ceiling's derivation because
+// these calls happen after retrieval closes: the ceiling must
+// leave room for them, but the answer reserve must not be
+// charged for them twice.
+export const SUBREQUEST_POST_RETRIEVAL_COST = 5;
 // The validation phase's HARD allowance (2026-10-14, stage
 // allowances — the retrieval cap's shape applied to the stage
 // that starved synthesis next). The validation block (the
@@ -493,21 +518,32 @@ export const SUBREQUEST_TAIL_RESERVE = 7;
 // ranked of the cited shelf. When the allowance is spent the
 // block stops and the trim is recorded on the validation stage
 // record.
-//   SUBREQUEST_AUTHORIZE_COST (6) — the pre wave authorization
+//   SUBREQUEST_AUTHORIZE_COST (5) — the pre wave authorization
 //     block's measured worst case, counted in the reserve
-//     derivation above: the tenant budget row select (1), its
-//     first of period insert (1), the cold isolate budget table
-//     ensure (1), the answer cache read (1), its telemetry
-//     write (1), and the model routing read (1). Steady state
-//     is 3 to 4; the derivation carries the worst case, and the
-//     block's code path cannot exceed it.
+//     derivation above (2026-10-14, re measured in the overhead
+//     audit): authorizeLlmCall's tenant read is one statement
+//     since its SELECT and first of period INSERT folded into a
+//     single upsert with RETURNING (1), behind the cold isolate
+//     budget table ensure (1); the ambiguity pass's embedding
+//     budget read (1); and the neuron spend after a successful
+//     embedding pass (1, likewise folded to an UPDATE ...
+//     RETURNING). Measured worst case 4. The earlier derivation
+//     carried 6 because it ALSO priced the answer cache read
+//     and the routing read here — both are spent elsewhere and
+//     now have their own terms (the cache read rides the
+//     pre retrieval overhead inside the absolute retrieval
+//     ceiling; the routing read is in
+//     SUBREQUEST_POST_RETRIEVAL_COST), so pricing them here too
+//     double counted them against the answer. Carried at 5:
+//     the measured 4 plus one for the first of period tenant
+//     row an operator cap change can race.
 //   SUBREQUEST_SYNTHESIS_RACE_COST (5) — the synthesis race's
 //     share of the reserve: a first wave worth firing (one leg
 //     per live provider bucket, breadth first — the wave
 //     planner fires more whenever more remains, and the later
 //     waves spend what the first leaves).
 export const SUBREQUEST_VALIDATION_ALLOWANCE = 5;
-export const SUBREQUEST_AUTHORIZE_COST = 6;
+export const SUBREQUEST_AUTHORIZE_COST = 5;
 export const SUBREQUEST_SYNTHESIS_RACE_COST = 5;
 export const SUBREQUEST_ANSWER_RESERVE =
   SUBREQUEST_VALIDATION_ALLOWANCE + SUBREQUEST_AUTHORIZE_COST + SUBREQUEST_SYNTHESIS_RACE_COST;
@@ -515,9 +551,12 @@ export const SUBREQUEST_ANSWER_RESERVE =
 // answer stages, priced so ladder rungs beyond the first must
 // clear it on top of the reserve (otherwise the block itself eats
 // the reserve the rung gate just protected): embedding budget
-// check 2, vector cache read 1, the batched embedding call 1,
-// neuron spend 2, the divergence read 1, slack 1.
-export const SUBREQUEST_RERANK_COST = 8;
+// check 2 (its cold table ensure plus the read, one statement
+// since the read folded its first of day insert), vector cache
+// read 1, the batched embedding call 1, neuron spend 1 (an
+// UPDATE ... RETURNING since the 2026-10-14 overhead audit),
+// the divergence read 1, slack 1.
+export const SUBREQUEST_RERANK_COST = 7;
 // The final fallback nets, priced at their REAL ledger cost
 // (2026-10-14). The first ledger treated the last three rounds —
 // the raw query net, the natural language net, and the relaxed
@@ -555,17 +594,55 @@ export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 // exceed, enforced at the ledger's grant points (spend and
 // spendBinding throw the budget error when a grant would cross
 // it; every fetcher already degrades to an empty result on a
-// failed call, and the rungs run under Promise.allSettled). The
-// allowance is derived in this ONE place from the constants: the
-// total limit minus what the answer stages must still hold when
-// retrieval is done (SUBREQUEST_ANSWER_RESERVE) minus what the
-// post answer tail needs (SUBREQUEST_TAIL_RESERVE) — 50 − 16 − 7
-// = 27. A ledger created with a custom limit derives its ceiling
-// from its own cap by the same formula. The budget arithmetic
-// now closes line by line, every term a named constant:
-// retrieval allowance 27 + validation allowance 5 + authorize 6
-// + synthesis race 5 + tail reserve 7 = 50 = SUBREQUEST_LIMIT,
-// so no stage's allowance can spend another stage's share. The phase runs for the
+// failed call, and the rungs run under Promise.allSettled).
+//
+// THE CEILING IS ABSOLUTE (2026-10-14, overhead audit). The first
+// version measured the phase against its own tally — retrieval's
+// grants stopped when RETRIEVAL had spent 27 — which silently
+// assumed the handler's fixed overhead around the pipeline was
+// inside nobody's arithmetic. The _ledger probe on build
+// e69b53d (Dusty's black soldier fly question, the response that
+// motivated the audit) measured that overhead live:
+//   byStage: ratelimit 5, entitlement 6, queue 4, cache 4,
+//   pre 3, preflight 1, expansion 2, retrieval 19, rerank 4,
+//   learning 1, validation 2, routing 1, budget 3 — total used
+//   55 against the limit of 50, synthesis skipped "subrequest
+//   budget exhausted" having spent ZERO (the count reached 50
+//   during authorization). retrievalSpent was 21 of 27: the
+//   caps held and synthesis starved anyway, because the 23
+//   subrequests of fixed overhead (ratelimit + entitlement +
+//   queue + cache + pre + preflight) spent OUTSIDE the phase
+//   tally the ceiling watched. The ceiling therefore binds the
+//   INVOCATION TOTAL at the moment a retrieval grant is made:
+//   a retrieval phase grant is refused when usedCount would
+//   cross the ceiling, so overhead is inside the arithmetic by
+//   construction. retrievalSpent() still reports the phase's own
+//   tally (that is what the phases mean in the shipped _ledger);
+//   what changed is what the ceiling compares against.
+// The allowance is derived in this ONE place from the
+// constants: the total limit minus the post retrieval spend
+// (SUBREQUEST_POST_RETRIEVAL_COST) minus what the answer
+// stages must still hold when retrieval is done
+// (SUBREQUEST_ANSWER_RESERVE) minus what the post answer tail
+// needs (SUBREQUEST_TAIL_RESERVE) — 50 − 5 − 15 − 7 = 23. A
+// ledger created with a custom limit derives its ceiling from
+// its own cap by the same formula. The budget arithmetic now
+// closes line by line, every term a named constant:
+// retrieval allowance 23 + post retrieval 5 + validation
+// allowance 5 + authorize 5 + synthesis race 5 + tail reserve
+// 7 = 50 = SUBREQUEST_LIMIT, so no stage's allowance can spend
+// another stage's share. The overhead audit's cuts (the same
+// wave) are what make the tighter ceiling livable: with them,
+// a cold isolate's pre retrieval overhead is 13 (ratelimit 3,
+// entitlement 2, queue 2, the three pre gather passes 3, the
+// batched cache and intelligence read 1, cache telemetry 2),
+// leaving 10 of phase funded draw on the coldest request and
+// about 14 warm — and the phases after retrieval close the
+// count at exactly 50 (23 + 5 + 5 + 5 + 5 + 7). The trade is
+// named, not hidden: on cold isolates the primary rung trims
+// mid round where it used to run long, and the shelf lands its
+// early sources; the empty shelf yield below protects the one
+// outcome worse than a trimmed draw. The phase runs for the
 // body of gatherPapers (the ladder, the fallback rounds, the
 // in-gather expansion call, the rerank) and the count is
 // cumulative across every gather in the request, so a repeated
@@ -579,12 +656,18 @@ export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 // even past the ceiling — an empty shelf is the one outcome
 // worse than a spent budget.
 export const SUBREQUEST_RETRIEVAL_ALLOWANCE =
-  SUBREQUEST_LIMIT - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE;
+  SUBREQUEST_LIMIT - SUBREQUEST_POST_RETRIEVAL_COST - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE;
 
 export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
   const cap = Math.max(1, Math.floor(Number(limit) || SUBREQUEST_LIMIT));
+  /* The retrieval ceiling is an ABSOLUTE point in the invocation
+   * total (see SUBREQUEST_RETRIEVAL_ALLOWANCE): the post
+   * retrieval spend and the answer and tail shares are reserved
+   * out of the cap first, and whatever is left is where the
+   * invocation total must stop while a retrieval phase is
+   * granting. */
   const retrievalCeiling = Math.max(0,
-    cap - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
+    cap - SUBREQUEST_POST_RETRIEVAL_COST - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
   /* The validation phase's ceiling is the stage's own allowance,
    * not a share of the cap: the block's real cost (two model legs
    * plus per paper Crossref checks) does not grow with the plan
@@ -598,9 +681,14 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
   /* Retrieval phase state (see SUBREQUEST_RETRIEVAL_ALLOWANCE):
    * phaseDepth > 0 while a gatherPapers body is executing;
    * retrievalUsed counts every grant made while the phase was
-   * active, cumulatively for the life of this ledger;
-   * retrievalRefused counts grants the ceiling turned away;
-   * yieldOn is the cascade's one round pass through the ceiling. */
+   * active, cumulatively for the life of this ledger — it is
+   * the phase's own tally, reported as retrievalSpent, NOT what
+   * the ceiling binds: since the overhead audit the ceiling
+   * binds usedCount (the invocation total), so the handler's
+   * fixed overhead spends against the same ceiling retrieval
+   * does; retrievalRefused counts grants the ceiling turned
+   * away; yieldOn is the cascade's one round pass through the
+   * ceiling. */
   let phaseDepth = 0;
   let retrievalUsed = 0;
   let retrievalRefused = 0;
@@ -625,7 +713,7 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
    * refused grant is NOT counted: no platform attempt happened,
    * which keeps the ledger's total equal to the platform's. */
   const grant = (n) => {
-    if (inRetrievalPhase() && !yieldOn && retrievalUsed + n > retrievalCeiling) {
+    if (inRetrievalPhase() && !yieldOn && usedCount + n > retrievalCeiling) {
       retrievalRefused++;
       throw new Error("Too many subrequests by single Worker invocation (retrieval phase budget)");
     }
@@ -677,17 +765,18 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     beginRetrievalPhase() { phaseDepth++; },
     endRetrievalPhase() { if (phaseDepth > 0) phaseDepth--; },
     inRetrievalPhase,
-    /* The phase's hard allowance for this ledger's limit, what
-     * the phase has spent against it, and how many grants the
-     * ceiling has refused so far. */
+    /* The phase's hard allowance for this ledger's limit — the
+     * absolute ceiling on the invocation total while the phase
+     * grants — what the phase itself has spent, and how many
+     * grants the ceiling has refused so far. */
     retrievalAllowance() { return retrievalCeiling; },
     retrievalSpent() { return retrievalUsed; },
     retrievalRefusals() { return retrievalRefused; },
-    /* True when a grant of `margin` more would cross the phase
-     * allowance right now (gatherPapers reads this to arm the
+    /* True when a grant of `margin` more would cross the
+     * ceiling right now (gatherPapers reads this to arm the
      * cascade yield for an empty shelf). */
     retrievalCapHit(margin = 0) {
-      return inRetrievalPhase() && retrievalUsed + Math.max(0, margin) > retrievalCeiling;
+      return inRetrievalPhase() && usedCount + Math.max(0, margin) > retrievalCeiling;
     },
     /* Validation phase brackets, mirroring retrieval's: the
      * handler opens the phase around the validation block (the
@@ -719,12 +808,13 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
      * remains exceeds the answer reserve plus `margin` extra
      * fetches (the speculative rounds pass one rung's cost, so they
      * are cut before the rungs themselves are). While the retrieval
-     * phase is active the phase allowance binds too: a round whose
-     * priced cost would cross the ceiling does not start, so the
-     * trim is recorded by name instead of discovered mid round. */
+     * phase is active the absolute ceiling binds too: a round whose
+     * priced cost would push the invocation total across the
+     * ceiling does not start, so the trim is recorded by name
+     * instead of discovered mid round. */
     retrievalRoom(margin = 0) {
       const m = Math.max(0, margin);
-      if (inRetrievalPhase() && !yieldOn && retrievalUsed + m > retrievalCeiling) return false;
+      if (inRetrievalPhase() && !yieldOn && usedCount + m > retrievalCeiling) return false;
       return cap - usedCount > SUBREQUEST_ANSWER_RESERVE + m;
     },
     /* Numbers only snapshot for the diag record: how much of the
@@ -818,8 +908,9 @@ export function planWaveLegs(descriptors, fetchAllowance) {
  * happens BEFORE the platform call, so it is not in `used`).
  * The named budget constants ride along so a reader can check the
  * snapshot's arithmetic against the derivation above (retrieval
- * allowance 27 + validation allowance 5 + authorize 6 + synthesis
- * race 5 + tail reserve 7 = limit 50): budget incidents are
+ * allowance 23 + post retrieval 5 + validation allowance 5 +
+ * authorize 5 + synthesis race 5 + tail reserve 7 = limit 50):
+ * budget incidents are
  * provable from one response instead of inferred from which
  * stage stamped what. The caller takes the snapshot at response
  * assembly; spends that structurally cannot appear in any
@@ -851,6 +942,7 @@ export function publicLedgerSnapshot(ledger) {
   view.constants = {
     limit: SUBREQUEST_LIMIT,
     retrievalAllowance: SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    postRetrievalCost: SUBREQUEST_POST_RETRIEVAL_COST,
     validationAllowance: SUBREQUEST_VALIDATION_ALLOWANCE,
     answerReserve: SUBREQUEST_ANSWER_RESERVE,
     tailReserve: SUBREQUEST_TAIL_RESERVE,
@@ -1367,7 +1459,26 @@ export function isNonLiterature(p) {
 // question's cited set, source order, and answer all change,
 // so payloads cached under v33 must not be served as though
 // produced with the intent known.
-const CACHE_SCHEMA_VERSION = "v34";
+// v35 (2026-10-14, overhead closure and method intent body):
+// two changes land together. The fixed per request overhead
+// was cut to its audited minimum (batched rate limit checks,
+// probed entitlement ensures, folded queue acquire, one
+// batched cache and query intelligence preflight, folded
+// budget reads and spends) and the retrieval allowance is now
+// an absolute ceiling on the invocation count (23 at the
+// production limit, derived in the constants below from the
+// live byStage spend), so for the same stored inputs the
+// gathered draw, the funded answer stages, and whether an
+// answer is AI synthesized all change. And on measurement
+// questions the extractive builder's claim selection now
+// follows the shelf's tier order inside each paper (procedure
+// sentences partitioned first, their scores floored at zero,
+// the readout vocabulary named), so a measurement answer's
+// lede and findings are the method papers' procedure where
+// v34 could still lead with their value sentences. Payloads
+// cached under v34 must not be served as though produced
+// under either change.
+const CACHE_SCHEMA_VERSION = "v35";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -8281,14 +8392,27 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
        sentence matching several distinct query terms beats several
        sentences matching one. Per paper cap and near duplicate
        suppression keep one paper from flooding the answer. */
+    // Method intent (2026-10-14, second pass): this tier ranks
+    // sentences globally by query term rarity with no tier
+    // awareness, so on a measurement question a value paper's
+    // rare term sentence could lead a fallback answer whose
+    // shelf correctly led with the method papers. The ranked
+    // sort below puts the method tier first, then the rarity
+    // score, exactly as the research tier's lede does.
+    const bgMeasurementIntent = !!(
+      (ctx && ctx.queryAnalysis && ctx.queryAnalysis.intent === "measurement") ||
+      (ctx && ctx.intent === "measurement") ||
+      detectMeasurementIntent(q)
+    );
     const candidates = [];
     for (const it of paperItems) {
+      const tier = bgMeasurementIntent ? paperMethodTier(it.p) : 0;
       for (const raw of extractSentences(usableAbstract(it.p))) {
         const s = String(raw || "").trim();
         if (s.length < 30 || s.length > 420) continue;
         const matched = qTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null));
         if (matched.length === 0) continue;
-        candidates.push({ s, idx: it.idx, matched });
+        candidates.push({ s, idx: it.idx, matched, tier });
       }
     }
     const df = {};
@@ -8304,7 +8428,7 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
     const wordSet = (s) => new Set(s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2));
     const ranked = candidates
       .map((c) => ({ ...c, score: scoreCandidate(c) }))
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => (bgMeasurementIntent ? (b.tier - a.tier) : 0) || (b.score - a.score));
     const picked = [];
     const perPaper = {};
     // Depth scales this tier too (v31): the same ranked, deduplicated
@@ -8678,21 +8802,55 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // cannot tell them from the paper's value sentences. They
     // get a boost, only inside method papers and only for a
     // measurement question, so the excerpt a method paper
-    // contributes is its procedure.
-    const PROCEDURE_SENTENCE_RE = /\b(measured|assayed|determined|quantified|spectrophotometr\w*|absorbance|incubat\w+|oxidi[sz]\w+|substrate|reaction mixture|monitored|calibrat\w+|reagent)\b/i;
+    // contributes is its procedure. The vocabulary includes the
+    // readout register (2026-10-14, second pass): real method
+    // abstracts phrase the procedure as what was read, followed,
+    // or recorded, at a wavelength, in a cuvette, against a
+    // blank — none of which the first vocabulary named, so a
+    // plainly worded procedure earned no boost at all.
+    const PROCEDURE_SENTENCE_RE = /\b(measured|assayed|determined|quantified|spectrophotometr\w*|absorbance|incubat\w+|oxidi[sz]\w+|substrate|reaction mixture|monitored|calibrat\w+|reagent|read|followed|recorded|wavelength|cuvette|blank|extinction|nm|slope|initial rate)\b/i;
     for (const it of items) {
       it.methodTier = measurementIntent ? paperMethodTier(it.p) : 0;
       const abs = usableAbstract(it.p);
       const sents = extractSentences(abs).map((s) => s.trim()).filter((s) => s.length > 20);
       const ranked = sents
-        .map((s) => ({
-          s,
-          score: scoreFindingSentence(s) +
-            (it.methodTier > 0 && PROCEDURE_SENTENCE_RE.test(s) ? 3 : 0),
-        }))
+        .map((s) => {
+          const proc = it.methodTier > 0 && PROCEDURE_SENTENCE_RE.test(s);
+          return {
+            s,
+            proc,
+            score: scoreFindingSentence(s) + (proc ? 3 : 0),
+          };
+        })
         .filter(({ s, score }) => score > 0 ||
           findingsQTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null)).length >= 2)
         .sort((a, b) => b.score - a.score);
+      // Method intent (2026-10-14, second pass): the density
+      // ranking alone still lets a method paper's own value
+      // sentences fill its findings slots — the sort picks each
+      // paper's best sentences, and a digit dense value sentence
+      // outscores a plainly worded procedure sentence even with
+      // the boost, so the tier first lede order had nothing
+      // procedure shaped to promote (the live manganese
+      // peroxidase answer led with the method papers' recovery
+      // and dose values). Ranking is not selection: inside a
+      // method paper on a measurement question, partition the
+      // admitted candidates procedure first (each group keeps
+      // its density order) BEFORE the per paper slice, and
+      // floor a procedure finding's score at zero so the
+      // lede's below zero skip cannot veto the sentences the
+      // tier order leads with.
+      if (measurementIntent && it.methodTier > 0 && ranked.length > 1) {
+        const procFirst = ranked.filter((r) => r.proc);
+        if (procFirst.length > 0 && procFirst.length < ranked.length) {
+          for (const r of procFirst) if (r.score < 0) r.score = 0;
+          const rest = ranked.filter((r) => !r.proc);
+          ranked.length = 0;
+          ranked.push(...procFirst, ...rest);
+        } else if (procFirst.length > 0) {
+          for (const r of procFirst) if (r.score < 0) r.score = 0;
+        }
+      }
       const top = ranked.slice(0, findingsPerPaper);
       // Extraction tags ("[Results] …") are stripped here so they can never
       // reach a citation or the printed summary. The integrity gate runs on
@@ -8714,8 +8872,25 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         .filter((t) => t && isWellFormedClaim(t))
         .slice(0, findingsPerPaper);
       if (fromBrief.length) {
-        it.findings = fromBrief.map((t) => boldExtractQuantities(t));
-        it.findingScores = fromBrief.map((t) => scoreFindingSentence(t));
+        // Method intent (2026-10-14, second pass): brief claims
+        // replacing a method paper's findings get the same
+        // procedure first order and score floor as the regex
+        // sentences above — a brief that leads with the paper's
+        // value claim would otherwise reintroduce the value
+        // lede through the replacement path.
+        let briefOrder = fromBrief.map((t, i) => i);
+        if (measurementIntent && it.methodTier > 0 && fromBrief.length > 1) {
+          briefOrder = briefOrder
+            .map((i) => ({ i, proc: PROCEDURE_SENTENCE_RE.test(fromBrief[i]) }))
+            .sort((a, b) => ((b.proc ? 1 : 0) - (a.proc ? 1 : 0)) || (a.i - b.i))
+            .map((o) => o.i);
+        }
+        it.findings = briefOrder.map((i) => boldExtractQuantities(fromBrief[i]));
+        it.findingScores = briefOrder.map((i) => {
+          const sc = scoreFindingSentence(fromBrief[i]);
+          return measurementIntent && it.methodTier > 0 &&
+            PROCEDURE_SENTENCE_RE.test(fromBrief[i]) && sc < 0 ? 0 : sc;
+        });
       }
       it.titleClaim = extractTitleClaim(it.p.title);
       it.hasFindings = it.findings.length > 0;
@@ -10937,6 +11112,7 @@ export function buildSearchRecord(input) {
             ? {
                 limit: Number.isFinite(ledgerRaw.constants.limit) ? ledgerRaw.constants.limit : null,
                 retrievalAllowance: Number.isFinite(ledgerRaw.constants.retrievalAllowance) ? ledgerRaw.constants.retrievalAllowance : null,
+                postRetrievalCost: Number.isFinite(ledgerRaw.constants.postRetrievalCost) ? ledgerRaw.constants.postRetrievalCost : null,
                 validationAllowance: Number.isFinite(ledgerRaw.constants.validationAllowance) ? ledgerRaw.constants.validationAllowance : null,
                 answerReserve: Number.isFinite(ledgerRaw.constants.answerReserve) ? ledgerRaw.constants.answerReserve : null,
                 tailReserve: Number.isFinite(ledgerRaw.constants.tailReserve) ? ledgerRaw.constants.tailReserve : null,
@@ -13091,6 +13267,23 @@ async function describeImage(dataUrl, question, token, ledger = null) {
   return null;
 }
 
+/* Map one query_intelligence row to the resolver facing shape,
+ * shared by the single read below and the batched preflight read
+ * in runSearchPipeline (which reads this table in the same batch
+ * as the early answer cache read — see there). */
+function qiResultFromRow(row) {
+  if (row && row.resolved_query) {
+    return {
+      resolved_query: row.resolved_query,
+      intent: row.intent,
+      topic: row.topic,
+      entities: row.entities ? JSON.parse(row.entities) : [],
+      confidence: Math.min(row.success_count / 3, 1), // 3+ successes = full confidence
+    };
+  }
+  return null;
+}
+
 // D1-backed query intelligence: check if we've seen a similar query before
 // and know its resolved form. This makes the system faster over time . cached
 // resolutions are instant and don't need an LLM call.
@@ -13105,15 +13298,7 @@ async function checkQueryIntelligence(queryKey, db, ledger = null) {
       )
       .bind(queryKey)
       .first();
-    if (row && row.resolved_query) {
-      return {
-        resolved_query: row.resolved_query,
-        intent: row.intent,
-        topic: row.topic,
-        entities: row.entities ? JSON.parse(row.entities) : [],
-        confidence: Math.min(row.success_count / 3, 1), // 3+ successes = full confidence
-      };
-    }
+    return qiResultFromRow(row);
   } catch (cbErr) { console.error("[Cerebrum] search.js if: const row = await db:", cbErr); }
   return null;
 }
@@ -15857,16 +16042,26 @@ export async function onRequest(context) {
    * long-lived rows do not become a log of who searched when. */
   const { clientIp: _clientIp, privacyKey: _privacyKey } = await import("../lib/http.js");
   const rlKey = await _privacyKey("search", _clientIp(request), env);
-  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS, ledger))) {
+  // Both limit checks ride one batched read and one batched write
+  // (2026-10-14, overhead audit): sequentially these were five
+  // subrequests on a cold isolate; batched they are three cold and
+  // two warm, with identical decisions and short circuit order —
+  // the sustained check is reported (and the burst never written)
+  // when the sustained count is already at its limit.
+  // Nuance #25 . burst window on top of the sustained 20/min: search is the
+  // most LLM-costly route, and a scripted burst of parallel searches burns
+  // provider quota far faster than the per-minute cap alone suggests.
+  const rlFailed = await checkRateLimitBatch(env, [
+    { key: rlKey, limit: RATE_LIMIT, windowMs: RATE_WINDOW_MS },
+    { key: rlKey + ":burst", limit: 6, windowMs: 10000 },
+  ], ledger);
+  if (rlFailed === 0) {
     return new Response(
       JSON.stringify({ error: "Too many requests. Wait a moment and try again." }),
       { status: 429, headers: { ...secureCors, "Retry-After": "30" } }
     );
   }
-  // Nuance #25 . burst window on top of the sustained 20/min: search is the
-  // most LLM-costly route, and a scripted burst of parallel searches burns
-  // provider quota far faster than the per-minute cap alone suggests.
-  if (!(await checkRateLimit(env, rlKey + ":burst", 6, 10000, ledger))) {
+  if (rlFailed === 1) {
     return new Response(
       JSON.stringify({ error: "Too many searches at once. Give it a few seconds and try again." }),
       { status: 429, headers: { ...secureCors, "Retry-After": "10" } }
@@ -16508,13 +16703,62 @@ async function runSearchPipeline(pctx) {
      * it and not to write to it. Reading looks harmless, but a cache HIT is
      * observable in response time, which turns the cache into an oracle for
      * whether a given question has been asked before. */
+    /* When the batched preflight below runs, it carries the query
+     * intelligence read in the same platform call as this cache
+     * read; the row (or its absence) is stashed here for the
+     * resolver stage that consumes it later. Undefined means the
+     * batch did not run and the later stage reads for itself. */
+    let preloadedQi;
     if (env.DB && privacy.cacheable) {
       try {
         const earlyCacheKey = await derivedCacheKey(query, env, answerKeyVersion);
-        ledger.spendBinding("cache", 1);
-        const earlyHit = await env.DB.prepare(
-          "SELECT answer, sources, created_at FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
-        ).bind(earlyCacheKey, Date.now() - CACHE_TTL_MS).first();
+        let earlyHit = null;
+        let batched = false;
+        // One batch for the two independent pre gather reads
+        // (2026-10-14, overhead audit): the early answer cache
+        // read (score >= 2 bar) and the query intelligence read
+        // are both read only, both privacy gated (cacheable for
+        // the cache, persist for the intelligence table — the
+        // same pair of gates each read has always had), and a
+        // db.batch is one platform call, so together they cost
+        // 1 subrequest instead of 2. Any failure — no batch on
+        // the binding, a thrown batch — falls back to the single
+        // cache read here and the intelligence read at its own
+        // site below, exactly as before.
+        if (privacy.persist && typeof env.DB.batch === "function") {
+          try {
+            const qiKeyEarly = await derivedCacheKey(query, env, "qi1");
+            ledger.spendBinding("cache", 1);
+            const batchResults = await env.DB.batch([
+              env.DB.prepare(
+                "SELECT answer, sources, created_at FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
+              ).bind(earlyCacheKey, Date.now() - CACHE_TTL_MS),
+              env.DB.prepare(
+                "SELECT resolved_query, intent, topic, entities, success_count " +
+                "FROM query_intelligence WHERE query_hash = ? AND success_count >= 1 LIMIT 1"
+              ).bind(qiKeyEarly),
+            ]);
+            // The batch contract is one result object per
+            // statement; anything else (a stub binding that
+            // answers with an empty or short array) is a failed
+            // batch, and the single reads below decide instead.
+            if (!Array.isArray(batchResults) || batchResults.length < 2 ||
+                !batchResults[0] || !batchResults[1]) {
+              throw new Error("batched preflight returned no per statement results");
+            }
+            const cacheRows = batchResults && batchResults[0] && batchResults[0].results;
+            earlyHit = cacheRows && cacheRows[0] ? cacheRows[0] : null;
+            const qiRows = batchResults && batchResults[1] && batchResults[1].results;
+            preloadedQi = { key: qiKeyEarly, row: qiRows && qiRows[0] ? qiRows[0] : null };
+            batched = true;
+          } catch (cbErr) { console.error("[Cerebrum] search.js early cache/QI batch:", cbErr); }
+        }
+        if (!batched) {
+          ledger.spendBinding("cache", 1);
+          earlyHit = await env.DB.prepare(
+            "SELECT answer, sources, created_at FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
+          ).bind(earlyCacheKey, Date.now() - CACHE_TTL_MS).first();
+        }
         // Nuance #29: hit-rate telemetry for the D1 answer cache . a lookup
         // hit is "a row with an answer existed", regardless of whether the
         // entitlement gate below serves it. The stats write is telemetry
@@ -16617,9 +16861,13 @@ async function runSearchPipeline(pctx) {
      * users, so a hit tells the request something about what other people have
      * asked, and the write side must not be the only place the rule is
      * applied. A private question resolves from scratch. */
-    const queryKey = privacy.persist ? await derivedCacheKey(query, env, "qi1") : null;
+    const queryKey = privacy.persist
+      ? (preloadedQi ? preloadedQi.key : await derivedCacheKey(query, env, "qi1"))
+      : null;
     const cachedIntelligence = queryKey
-      ? await checkQueryIntelligence(queryKey, env.DB, ledger).catch(() => null)
+      ? (preloadedQi
+          ? qiResultFromRow(preloadedQi.row)
+          : await checkQueryIntelligence(queryKey, env.DB, ledger).catch(() => null))
       : null;
 
     // Pronoun / continuation follow-up detection: "he has papers from...",
@@ -21146,10 +21394,18 @@ async function runSearchPipeline(pctx) {
      * unread: its result was never checked, so any storage failure
      * shipped a permalink that 404'd, indistinguishable from a live
      * one (the third rescore followed issued record links and found
-     * them dead). The store is now awaited: it never rejects, the
-     * database writes are not fetch subrequests so they spend none
-     * of the subrequest ledger, and on a false return the handler
-     * makes one fresh retry, never a loop. The outcome is stamped
+     * them dead). The store is now awaited: it never rejects,
+     * and on a false return the handler makes one fresh retry,
+     * never a loop. Its writes DO spend
+     * from the subrequest ledger (corrected 2026-10-14: an earlier
+     * version of this comment claimed database writes spend none
+     * of it, which was wrong — D1 executions are bound service
+     * calls drawn from the same platform allowance as fetches, so
+     * storeSearchRecord charges the ledger per attempt: the
+     * memoized table ensure on a cold isolate, plus one insert
+     * spend, times the attempts the handler makes). Those spends
+     * land after the _ledger snapshot taken below, by design, and
+     * remain visible in the operator diag snapshot. The outcome is stamped
      * onto the shipped record (applyRecordStoreOutcome): stored
      * true keeps the permalink, stored false withdraws it, so no
      * surface presents a link that is not there. The record's data

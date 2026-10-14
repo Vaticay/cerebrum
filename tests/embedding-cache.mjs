@@ -32,6 +32,9 @@ async function okAsync(name, fn) {
 function mockDb() {
   const tables = new Map(); // key -> { vector_json, created_at }
   return {
+    // The cache table ensure is a single multi statement exec
+    // since the 2026-10-14 overhead audit folded its CREATE pair.
+    async exec() { return { results: [] }; },
     prepare(sql) {
       const q = {
         bind(...params) { q.params = params; return q; },

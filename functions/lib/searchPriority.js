@@ -53,20 +53,47 @@ export async function acquireSearchSlot(env, isPro, ledger = null) {
     if (!env || !env.DB) return fallback;
     await ensureSlotTable(env, ledger);
     const now = Date.now();
-    // Self-heal: no acquire in STALE_SLOT_MS means every holder crashed.
+    // One statement instead of three (2026-10-14, overhead audit:
+    // the acquire was a stale reset UPDATE, an increment upsert,
+    // and a count SELECT — three of the probe's four "queue"
+    // subrequests, the fourth being the release). The stale reset
+    // folds into the upsert's conflict branch: a row whose
+    // expires_at is older than the stale threshold counts from
+    // zero before the increment, which is exactly what the reset
+    // plus increment produced (expired row: 0 + 1 = 1 with a fresh
+    // expiry; live row: n + 1; no row: the plain insert's 1), and
+    // RETURNING reads the new count back in the same call. Any
+    // failure of the folded statement falls back to the legacy
+    // three statement sequence below, so the acquire's behavior
+    // never depends on the fold being available.
+    let active = null;
     try {
       if (ledger) ledger.spendBinding("queue", 1);
-      await env.DB.prepare("UPDATE search_slots SET n = 0 WHERE k = 'active' AND expires_at < ?")
-        .bind(now - STALE_SLOT_MS).run();
-    } catch (cbErr) { console.error("[Cerebrum] searchPriority.js acquireSearchSlot: stale reset:", cbErr); }
-    if (ledger) ledger.spendBinding("queue", 1);
-    await env.DB.prepare(
-      "INSERT INTO search_slots (k, n, expires_at) VALUES ('active', 1, ?) " +
-      "ON CONFLICT(k) DO UPDATE SET n = n + 1, expires_at = ?"
-    ).bind(now, now).run();
-    if (ledger) ledger.spendBinding("queue", 1);
-    const row = await env.DB.prepare("SELECT n FROM search_slots WHERE k = 'active'").first();
-    const active = (row && row.n) || 1;
+      const folded = await env.DB.prepare(
+        "INSERT INTO search_slots (k, n, expires_at) VALUES ('active', 1, ?) " +
+        "ON CONFLICT(k) DO UPDATE SET " +
+        "n = (CASE WHEN search_slots.expires_at < ? THEN 0 ELSE search_slots.n END) + 1, " +
+        "expires_at = excluded.expires_at " +
+        "RETURNING n"
+      ).bind(now, now - STALE_SLOT_MS).first();
+      if (folded && typeof folded.n === "number") active = folded.n;
+    } catch (cbErr) { console.error("[Cerebrum] searchPriority.js acquireSearchSlot: folded acquire:", cbErr); }
+    if (active === null) {
+      // Self-heal: no acquire in STALE_SLOT_MS means every holder crashed.
+      try {
+        if (ledger) ledger.spendBinding("queue", 1);
+        await env.DB.prepare("UPDATE search_slots SET n = 0 WHERE k = 'active' AND expires_at < ?")
+          .bind(now - STALE_SLOT_MS).run();
+      } catch (cbErr) { console.error("[Cerebrum] searchPriority.js acquireSearchSlot: stale reset:", cbErr); }
+      if (ledger) ledger.spendBinding("queue", 1);
+      await env.DB.prepare(
+        "INSERT INTO search_slots (k, n, expires_at) VALUES ('active', 1, ?) " +
+        "ON CONFLICT(k) DO UPDATE SET n = n + 1, expires_at = ?"
+      ).bind(now, now).run();
+      if (ledger) ledger.spendBinding("queue", 1);
+      const row = await env.DB.prepare("SELECT n FROM search_slots WHERE k = 'active'").first();
+      active = (row && row.n) || 1;
+    }
     const cap = isPro ? MAX_CONCURRENT_SEARCHES : MAX_CONCURRENT_SEARCHES - PRO_RESERVED_SLOTS;
     if (active > cap) {
       // Over capacity for this tier — give the slot back.

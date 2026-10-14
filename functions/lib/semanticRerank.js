@@ -81,16 +81,18 @@ function ensureEmbeddingCacheTable(db, ledger = null) {
   // are charged once, to the request that triggers them; a failure
   // resets the memo so the next call retries.
   if (!embeddingCacheTableReady) {
-    if (ledger) ledger.spendBinding("rerank", 2);
-    embeddingCacheTableReady = (async () => {
-      await db.prepare(
-        "CREATE TABLE IF NOT EXISTS embedding_cache (" +
-        "key TEXT PRIMARY KEY, vector_json TEXT NOT NULL, created_at INTEGER NOT NULL)"
-      ).run();
-      await db.prepare(
-        "CREATE INDEX IF NOT EXISTS idx_embedding_cache_created ON embedding_cache(created_at)"
-      ).run();
-    })().then(
+    // One exec carries both statements (2026-10-14, overhead
+    // audit): db.exec runs a multi statement string as a single
+    // bound service call, so the cold ensure costs 1 subrequest
+    // instead of 2. Both statements stay IF NOT EXISTS, so the
+    // failure contract is unchanged: a failure resets the memo
+    // and the next call retries the pair.
+    if (ledger) ledger.spendBinding("rerank", 1);
+    embeddingCacheTableReady = db.exec(
+      "CREATE TABLE IF NOT EXISTS embedding_cache (" +
+      "key TEXT PRIMARY KEY, vector_json TEXT NOT NULL, created_at INTEGER NOT NULL); " +
+      "CREATE INDEX IF NOT EXISTS idx_embedding_cache_created ON embedding_cache(created_at)"
+    ).then(
       () => true,
       (e) => { embeddingCacheTableReady = null; throw e; }
     );
@@ -143,17 +145,22 @@ export async function setCachedPaperVectors(env, entries, ledger = null) {
       .map((e) => db.prepare(
         "INSERT OR REPLACE INTO embedding_cache (key, vector_json, created_at) VALUES (?, ?, ?)"
       ).bind(e.key, JSON.stringify(e.vector), now));
+    // The lazy prune rides the same batches (2026-10-14, overhead
+    // audit): the expired rows DELETE is independent of the
+    // inserts (it removes rows older than the TTL; the rows just
+    // written carry `now`), and a batch is one bound service call
+    // however many statements it carries — so the prune costs no
+    // extra subrequest. With no valid entries to store, the prune
+    // still runs on its own, exactly as before.
+    stmts.push(db.prepare(
+      "DELETE FROM embedding_cache WHERE created_at < ?"
+    ).bind(now - EMBEDDING_CACHE_TTL_MS));
     // Chunked batches: D1 batch() handles arrays fine, but keep it modest.
     // Each batch() call is ONE bound service call (single round trip).
     for (let i = 0; i < stmts.length; i += 50) {
       if (ledger) ledger.spendBinding("rerank", 1);
       await db.batch(stmts.slice(i, i + 50));
     }
-    // Lazy prune: one DELETE of expired rows per store call.
-    if (ledger) ledger.spendBinding("rerank", 1);
-    await db.prepare(
-      "DELETE FROM embedding_cache WHERE created_at < ?"
-    ).bind(now - EMBEDDING_CACHE_TTL_MS).run().catch(() => {});
   } catch { /* best-effort */ }
 }
 

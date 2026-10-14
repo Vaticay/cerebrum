@@ -82,15 +82,20 @@ export function defaultCapForTier(tier) {
 async function readBudgetRow(db, userId, period, fallbackCap, ledger = null) {
   if (!d1(db)) return { token_cap: fallbackCap, used_tokens: 0, ephemeral: true };
   await ensureBudgetTable(db, ledger);
+  // One statement instead of SELECT-then-maybe-INSERT (2026-10-14,
+  // overhead audit): the upsert creates the row at the fallback
+  // cap when missing and returns the stored row either way; the
+  // conflict branch assigns the column to itself (a no-op that
+  // still yields the row to RETURNING), so an operator set cap is
+  // never overwritten by the fallback. A null row back (a stubbed
+  // binding) reads as the fresh row the old insert path reported.
   if (ledger) ledger.spendBinding("budget", 1);
   const row = await db.prepare(
-    "SELECT token_cap, used_tokens FROM tenant_budgets WHERE user_id = ? AND period_key = ?"
-  ).bind(userId, period).first();
+    "INSERT INTO tenant_budgets (user_id, period_key, token_cap, used_tokens, updated_at) VALUES (?, ?, ?, 0, ?) " +
+      "ON CONFLICT(user_id, period_key) DO UPDATE SET token_cap = tenant_budgets.token_cap " +
+      "RETURNING token_cap, used_tokens"
+  ).bind(userId, period, fallbackCap, Date.now()).first();
   if (row) return { token_cap: row.token_cap | 0, used_tokens: row.used_tokens | 0, ephemeral: false };
-  if (ledger) ledger.spendBinding("budget", 1);
-  await db.prepare(
-    "INSERT OR IGNORE INTO tenant_budgets (user_id, period_key, token_cap, used_tokens, updated_at) VALUES (?, ?, ?, 0, ?)"
-  ).bind(userId, period, fallbackCap, Date.now()).run();
   return { token_cap: fallbackCap, used_tokens: 0, ephemeral: false };
 }
 
@@ -142,16 +147,25 @@ export async function spendTokens(env, userId, tokens, ledger = null) {
     if (!db) return 0;
     const period = monthKey();
     await ensureBudgetTable(db, ledger);
-    if (ledger) ledger.spendBinding("budget", 1);
-    await db.prepare(
-      "UPDATE tenant_budgets SET used_tokens = used_tokens + ?, updated_at = ? " +
-        "WHERE user_id = ? AND period_key = ? AND used_tokens + ? <= token_cap"
-    ).bind(n, Date.now(), uid, period, n).run();
+    // UPDATE ... RETURNING reads the new total back in the same
+    // statement (2026-10-14, overhead audit: this pair cost the
+    // tail two subrequests per served answer). When the guarded
+    // update matches no row — the spend was refused at the cap,
+    // or the row does not exist — RETURNING yields nothing and
+    // the old confirming SELECT runs, so the returned total is
+    // exactly what the two statement version reported.
     if (ledger) ledger.spendBinding("budget", 1);
     const row = await db.prepare(
+      "UPDATE tenant_budgets SET used_tokens = used_tokens + ?, updated_at = ? " +
+        "WHERE user_id = ? AND period_key = ? AND used_tokens + ? <= token_cap " +
+        "RETURNING used_tokens"
+    ).bind(n, Date.now(), uid, period, n).first();
+    if (row) return row.used_tokens | 0;
+    if (ledger) ledger.spendBinding("budget", 1);
+    const confirm = await db.prepare(
       "SELECT used_tokens FROM tenant_budgets WHERE user_id = ? AND period_key = ?"
     ).bind(uid, period).first();
-    return row ? row.used_tokens | 0 : 0;
+    return confirm ? confirm.used_tokens | 0 : 0;
   } catch (e) {
     jsonLog("warn", "budget_spend_failed", { userId: uid, error: String((e && e.message) || e).slice(0, 160) });
     return 0;
@@ -205,16 +219,15 @@ function embeddingDayKey(nowMs) {
 
 async function readEmbedRow(db, day, ledger = null) {
   await ensureEmbedTable(db, ledger);
+  // Same one statement fold as readBudgetRow: create at zero when
+  // missing, return the stored count either way (2026-10-14).
   if (ledger) ledger.spendBinding("budget", 1);
   const row = await db.prepare(
-    "SELECT used_neurons FROM embedding_neuron_usage WHERE day_key = ?"
-  ).bind(day).first();
-  if (row) return row.used_neurons | 0;
-  if (ledger) ledger.spendBinding("budget", 1);
-  await db.prepare(
-    "INSERT OR IGNORE INTO embedding_neuron_usage (day_key, used_neurons, updated_at) VALUES (?, 0, ?)"
-  ).bind(day, Date.now()).run();
-  return 0;
+    "INSERT INTO embedding_neuron_usage (day_key, used_neurons, updated_at) VALUES (?, 0, ?) " +
+      "ON CONFLICT(day_key) DO UPDATE SET used_neurons = embedding_neuron_usage.used_neurons " +
+      "RETURNING used_neurons"
+  ).bind(day, Date.now()).first();
+  return row ? row.used_neurons | 0 : 0;
 }
 
 /**
@@ -252,16 +265,21 @@ export async function spendEmbeddingNeurons(env, n, ledger = null) {
     if (!db) return 0;
     const day = embeddingDayKey();
     await ensureEmbedTable(db, ledger);
-    if (ledger) ledger.spendBinding("budget", 1);
-    await db.prepare(
-      "UPDATE embedding_neuron_usage SET used_neurons = used_neurons + ?, updated_at = ? " +
-        "WHERE day_key = ? AND used_neurons + ? <= " + EMBEDDING_DAILY_CAP
-    ).bind(cost, Date.now(), day, cost).run();
+    // UPDATE ... RETURNING, with the confirming SELECT only when
+    // the guarded update matched no row — same fold as
+    // spendTokens above (2026-10-14).
     if (ledger) ledger.spendBinding("budget", 1);
     const row = await db.prepare(
+      "UPDATE embedding_neuron_usage SET used_neurons = used_neurons + ?, updated_at = ? " +
+        "WHERE day_key = ? AND used_neurons + ? <= " + EMBEDDING_DAILY_CAP + " " +
+        "RETURNING used_neurons"
+    ).bind(cost, Date.now(), day, cost).first();
+    if (row) return row.used_neurons | 0;
+    if (ledger) ledger.spendBinding("budget", 1);
+    const confirm = await db.prepare(
       "SELECT used_neurons FROM embedding_neuron_usage WHERE day_key = ?"
     ).bind(day).first();
-    return row ? row.used_neurons | 0 : 0;
+    return confirm ? confirm.used_neurons | 0 : 0;
   } catch (e) {
     jsonLog("warn", "embedding_spend_failed", { error: String((e && e.message) || e).slice(0, 160) });
     return 0;
