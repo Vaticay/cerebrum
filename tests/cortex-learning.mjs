@@ -65,11 +65,13 @@ const WANTED = [
   "cortexCourseProblem", "cortexClaimProblem", "cortexProgressRecordProblem",
   "buildCortexExport", "parseCortexImport", "applyCortexImport",
   "normKey", "protectPeriods", "looksLikeFragment", "extractClaims",
-  "NUMBER_RE", "numbersIn", "formatYearValue", "shortCite", "claimSeq",
+  "NUMBER_RE", "numbersIn", "hasAttributionShape", "claimSeq",
   "FLIP_WORDS", "flipDirection", "scaleNumberIn", "mutatedVariants", "nearestClaims",
   "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",
   "moveFrontClause", "rotateMidClause", "restateClaim", "withinOptionBand",
   "quizCard", "clozeCard",
+  "VOCAB_STOP", "extractVocab", "vocabCard",
+  "loadJSON", "saveJSON", "loadClaims", "saveClaims", "createCourseFromResults",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -91,7 +93,17 @@ for (const name of WANTED) {
 }
 const epilogue = `\n;globalThis.__x = { ${WANTED.join(", ")} };`;
 const js = transformSync(chunks.join("\n") + epilogue, { loader: "jsx" }).code;
-const context = vm.createContext({});
+// A localStorage shaped stub so the course builder's storage calls
+// (loadClaims/saveClaims under createCourseFromResults) round trip
+// in the VM the way they do in the browser.
+const memStore = new Map();
+const context = vm.createContext({
+  localStorage: {
+    getItem: (k) => (memStore.has(k) ? memStore.get(k) : null),
+    setItem: (k, v) => { memStore.set(k, String(v)); },
+    removeItem: (k) => { memStore.delete(k); },
+  },
+});
 vm.runInContext(js, context);
 const {
   LEARNING_PATHS, CATALOG, TOPIC_COURSES, topicPathFor, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
@@ -103,6 +115,7 @@ const {
   COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, SOUND_KEY, BUILTIN_PROGRESS_KEY,
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
   applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf, normKey,
+  hasAttributionShape, createCourseFromResults, looksLikeFragment,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -1137,6 +1150,108 @@ await test("extracted claims flow into restated quizzes while feedback stays ver
     "the correct option opens with the extracted finding's words");
 });
 
+group("Search built courses: the attribution screen and honest card drops");
+
+/* The panel's leak (2026-10-14): a cited sentence wearing its
+   citation on its face ("Smith et al. (2023) found...") passed the
+   fragment guard, which only rejected stacked attributions, and
+   became taught text, options, and verbatim feedback. The screen
+   below rejects the shape outright; these fixtures prove the
+   fragment guard alone would have let every leaky sentence
+   through, so the screen is what does the work. */
+const LEAK_MD = `## Summary
+
+Smith et al. (2023) found that adults who slept under six hours caught colds far more often over the following winter months. [1]
+Jones and Lee (2021) reported that short sleep raised next day sleepiness scores by 41% in resident physicians on overnight wards. [2]
+Volunteers taking the supplement reacted 12% faster after eight weeks of daily use in the laboratory (Garcia, 2020). [1]
+Adults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more. [1]
+Sleep loss raised next day sleepiness scores by 41% in a crossover trial of medical residents working overnight shifts in a teaching hospital. [2]
+Compared with a placebo group, volunteers taking the supplement showed reaction times that were 12% faster after eight weeks of daily use. [1]
+Dream reports gathered after awakenings from rapid eye movement sleep carried more emotional content than reports from deep sleep in the same night. [2]
+`;
+const LEAK_SOURCES = [
+  { title: "Sleep duration and infection risk in adults", authors: "Prather AA", journal: "Sleep", year: 2015 },
+  { title: "Sleepiness in resident physicians on night wards", authors: "Lockley SW", journal: "BMJ", year: 2019 },
+];
+const CLEAN_CLAIMS = [
+  "Adults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more.",
+  "Sleep loss raised next day sleepiness scores by 41% in a crossover trial of medical residents working overnight shifts in a teaching hospital.",
+  "Compared with a placebo group, volunteers taking the supplement showed reaction times that were 12% faster after eight weeks of daily use.",
+  "Dream reports gathered after awakenings from rapid eye movement sleep carried more emotional content than reports from deep sleep in the same night.",
+];
+
+await test("the attribution screen catches each citation shape and passes plain statements", () => {
+  assert.equal(hasAttributionShape("Smith et al. (2023) found that short sleep doubled infection rates."), true);
+  assert.equal(hasAttributionShape("Jones and Lee (2021) reported that short sleep raised sleepiness scores."), true);
+  assert.equal(hasAttributionShape("Volunteers reacted faster after eight weeks of daily use (Garcia, 2020)."), true);
+  assert.equal(hasAttributionShape("Adults who slept under six hours showed a higher rate of infection."), false);
+  // The fragment guard alone admits every leaky shape above; only
+  // the attribution screen keeps them out of the claim pool.
+  assert.equal(looksLikeFragment("Smith et al. (2023) found that adults who slept under six hours caught colds far more often over the following winter months."), false);
+  assert.equal(looksLikeFragment("Jones and Lee (2021) reported that short sleep raised next day sleepiness scores by 41% in resident physicians on overnight wards."), false);
+});
+
+await test("extractClaims keeps only the plain statements from a mixed answer", () => {
+  const claims = extractClaims(LEAK_MD);
+  // Spread into a local array: the VM realm's arrays fail
+  // deepStrictEqual's prototype check against this realm's.
+  assert.deepEqual([...claims.map((c) => c.text)], CLEAN_CLAIMS,
+    "a leaky sentence reached the claim pool, or a clean one was lost");
+});
+
+await test("a course built from a mixed answer carries no attribution anywhere", () => {
+  const course = createCourseFromResults("how sleep affects health", LEAK_SOURCES, LEAK_MD);
+  assert.ok(course, "the clean claims should still build a course");
+  // The learner facing content only: the record's own timestamps
+  // (createdAt) legitimately carry the current year.
+  const blob = JSON.stringify({ title: course.title, lessons: course.lessons, vocab: course.vocab });
+  assert.ok(!/Smith|Jones|Lee|Garcia/.test(blob), "an author name reached the built course");
+  assert.ok(!/\bet al\b/i.test(blob), "an et al reached the built course");
+  assert.ok(!/\b(19|20)\d{2}\b/.test(blob), "a year reached the built course");
+  const basicsNote = course.lessons[0].cards[0];
+  assert.equal(basicsNote.kind, "note", "the first lesson does not open with teaching");
+  for (const t of CLEAN_CLAIMS.slice(0, 3)) {
+    assert.ok(basicsNote.text.includes(t), `a clean claim is not taught: ${t.slice(0, 40)}`);
+  }
+});
+
+const LONE_CLAIM = { text: "Exposure to bright morning light helps older adults fall asleep quickly at night and wake refreshed, with steadier energy through the day and a body clock that keeps its rhythm across the seasons, while dim indoor light leaves sleep shallow and broken.", sourceIdx: 1 };
+
+await test("quizCard drops the card when no in band option set exists", () => {
+  // No number and no flippable word means no mutations; alone in
+  // its pool it has no siblings either. The old code relaxed the
+  // band and shipped anyway; the card must now be dropped.
+  assert.equal(quizCard(LONE_CLAIM, [LONE_CLAIM], QUIZ_SOURCES), null,
+    "a card with no in band distractors shipped instead of dropping");
+});
+
+await test("a dropped check is recorded on the course and its statement is still taught", () => {
+  const md = `## Summary
+
+${LONE_CLAIM.text} [1]
+Adults who slept under six hours showed a 23% higher rate of infection over the following winter. [1]
+Sleep loss raised next day sleepiness scores by 41% among residents working overnight shifts. [2]
+Volunteers taking the supplement showed reaction times that were 12% faster with daily use. [1]
+`;
+  const course = createCourseFromResults("light and sleep", LEAK_SOURCES, md);
+  assert.ok(course, "the course should build from the remaining claims");
+  // The long statement is checked twice in the build (its lesson
+  // and the review lesson) and dropped both times: its only
+  // candidate distractors are its far shorter siblings, all out
+  // of band. The drop count on the record says so.
+  assert.equal(course.droppedChecks, 2, `expected 2 recorded drops, found ${course.droppedChecks}`);
+  const basicsNote = course.lessons[0].cards[0];
+  assert.ok(basicsNote.text.includes(LONE_CLAIM.text), "the dropped statement is not taught in the reading passage");
+  for (const lesson of course.lessons) {
+    for (const card of lesson.cards) {
+      assert.notEqual(card.why, LONE_CLAIM.text, "a quiz card shipped for the statement that should have been dropped");
+      if (card.options) for (const opt of card.options) {
+        assert.ok(opt.length <= LONE_CLAIM.text.length * 0.75, "an out of band option shipped on some card");
+      }
+    }
+  }
+});
+
 await test("cloze keeps its shape: the value is the question, the quote stays in feedback", () => {
   // Audited for the same gaming: cloze options are bare values,
   // so there is no opening to match; the verbatim sentence is
@@ -1258,6 +1373,38 @@ await test("no topic course string references papers, findings, citations, years
   }
 });
 
+const lpCardText = (c) => [c.title, c.kicker, c.text, c.question, c.statement, c.prompt, c.why, ...(c.options || []), ...(c.items || []), ...(c.pairs || []).flatMap((p) => [p.left, p.right])].filter(Boolean).join(" ");
+const lpDisplayStrings = [];
+for (const p of LEARNING_PATHS) {
+  lpDisplayStrings.push(p.title, p.blurb);
+  for (const u of p.units) {
+    lpDisplayStrings.push(u.title, u.subtitle);
+    for (const l of u.lessons) {
+      lpDisplayStrings.push(l.title, l.subtitle);
+      for (const c of l.cards) lpDisplayStrings.push(lpCardText(c));
+    }
+  }
+}
+
+await test("no learning path string references papers, findings, citations, years, or dashes", () => {
+  // The same ban the topic courses live under, extended to the
+  // builtin paths (2026-10-14): their deepen cards used to send
+  // learners off to papers and findings, against the standing
+  // ruling that the learning flow references no papers at all.
+  for (const s of lpDisplayStrings) {
+    assert.ok(!/\bet al\b/i.test(s), `citation pattern in path text: ${s.slice(0, 60)}`);
+    assert.ok(!/\[(\d+)\]/.test(s), `bracket citation in path text: ${s.slice(0, 60)}`);
+    assert.ok(!/\b(19|20)\d{2}\b/.test(s), `a year in path text: ${s.slice(0, 60)}`);
+    assert.ok(!/\bpaper(s)?\b/i.test(s), `paper talk in path text: ${s.slice(0, 60)}`);
+    assert.ok(!/\bfinding(s)?\b/i.test(s), `finding talk in path text: ${s.slice(0, 60)}`);
+    assert.ok(!/\bliterature\b/i.test(s), `literature talk in path text: ${s.slice(0, 60)}`);
+    assert.ok(!s.includes("-") && !s.includes("\u2014") && !s.includes("\u2013"), `a dash in path text: ${s.slice(0, 60)}`);
+    assert.ok(!/build a course/i.test(s) && !/search for/i.test(s), `a deepen card still sends learners to a search: ${s.slice(0, 60)}`);
+  }
+  const deepens = allCards.filter((c) => c.kind === "deepen");
+  assert.equal(deepens.length, 24, `expected 24 deepen cards under the ban, found ${deepens.length}`);
+});
+
 await test("topic quizzes are real quizzes: four fresh options, in band, none opening with a digit", () => {
   for (const { path, card } of topicCardsFlat) {
     if (!card.options || card.kind === "truefalse") continue;
@@ -1287,6 +1434,13 @@ await test("the learning flow carries no paper machinery at all", () => {
   assert.ok(!learnSrc.includes("THE FINDING"), "the feedback sheet still has a finding label");
   assert.ok(!learnSrc.includes("FROM THE LITERATURE"), "a reading card label survived");
   assert.ok(!learnSrc.includes("papers in this course"), "a paper count survived in course stats");
+  // Citation era helpers with no call site left in the module
+  // (2026-10-14): shortCite dressed claims in author and year
+  // dress, formatYearValue existed only to serve it, and
+  // citeCountOf read a citation count nothing displays.
+  assert.ok(!learnSrc.includes("function shortCite"), "the dead citation formatter survived");
+  assert.ok(!learnSrc.includes("function formatYearValue"), "the dead year formatter survived");
+  assert.ok(!learnSrc.includes("function citeCountOf"), "the dead citation counter survived");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

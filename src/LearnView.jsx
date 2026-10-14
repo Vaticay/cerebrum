@@ -368,56 +368,6 @@ function cleanText(s) {
     .replace(/\s+([.,!?;:])/g, "$1")
     .trim();
 }
-function formatYearValue(y) {
-  if (y == null || y === "") return "";
-  if (typeof y === "number" && Number.isFinite(y)) return String(Math.trunc(y));
-  const s = String(y).trim();
-  const m = s.match(/\b(?:19|20)\d{2}\b/);
-  if (m) return m[0];
-  const n = Number(s);
-  return Number.isFinite(n) ? String(Math.trunc(n)) : s;
-}
-function citeCountOf(source) {
-  if (!source) return null;
-  const raw = source.citations ?? source.citationCount ?? source.citedByCount ?? source.cited_by_count;
-  if (raw == null || raw === "") return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
-function shortCite(source) {
-  if (!source) return "the paper";
-  const a = String(source.authors || "").trim();
-  let name = "";
-  if (a) {
-    const first = a.includes(",") ? a.split(",")[0].trim() : a.replace(/\s*et al\.?.*$/, "").trim();
-    const words = first.split(/\s+/).filter(Boolean);
-    // A token is initials, not a surname, when it is one letter, or a
-    // short all caps run ("Q", "AR") in a string whose first word is
-    // a real mixed case surname.
-    const looksInitial = (tok) => {
-      const clean = String(tok || "").replace(/[^A-Za-z]/g, "");
-      if (clean.length <= 1) return true;
-      return clean.length <= 3 && /^[A-Z]+$/.test(clean);
-    };
-    if (words.length === 0) name = "";
-    else if (words.length === 1) name = looksInitial(words[0]) ? "" : words[0];
-    else {
-      // Author strings come in two shapes: "Firstname Surname" and
-      // "Surname F" (surname followed by initials). Taking the last
-      // word of the second shape yields the initials, which read as
-      // nonsense in a question ("What did Q et al. report?", "What
-      // did AR. report?"). When the last word is initials and the
-      // first word is a plausible surname, the surname is word one.
-      const last = words[words.length - 1];
-      name = looksInitial(last) && /[a-z]/.test(words[0]) ? words[0] : last;
-    }
-    if (name && a.includes(",") || /et al/.test(a)) name += " et al.";
-    if (name && name.replace(/[^A-Za-z]/g, "").length < 2) name = "";
-  }
-  const y = formatYearValue(source.year);
-  const yr = y ? " (" + y + ")" : "";
-  return (name || "This paper") + yr;
-}
 function hashStr(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
@@ -486,6 +436,28 @@ function looksLikeFragment(text) {
   return false;
 }
 
+/* A sentence can be a clean, complete finding and still carry its
+   citation on its face: "Smith et al. (2023) found...", "Jones and
+   Lee (2021) reported...", "(Garcia, 2020)". Taught text states
+   ideas in plain words; it never names who reported them, so any
+   sentence wearing an author citation shape is screened out of the
+   claim pool entirely, not trimmed. Taught text also carries no
+   years at all, the same rule the authored courses follow, so a
+   bare year token screens a sentence out as well. The claim then
+   either stands as a plain statement without attribution, in some
+   other sentence of the answer, or it is not taught. */
+function hasAttributionShape(text) {
+  if (/\bet al\.?\b/i.test(text)) return true;
+  // Name directly before a parenthesised year: "Smith (2023)",
+  // "Smith and Jones (2023)", "Smith, Jones (2023)".
+  if (/\b[A-Z][A-Za-z'’-]+(?:\s*(?:,|and|&)\s*[A-Z][A-Za-z'’-]+)*\s*\(\s*(?:19|20)\d{2}/.test(text)) return true;
+  // Parenthetical citation: "(Smith, 2023)", "(Smith et al., 2023)".
+  if (/\(\s*[A-Z][A-Za-z .&'’-]*,?\s*(?:19|20)\d{2}[a-z]?\s*\)/.test(text)) return true;
+  // Any remaining year token: taught text states no years.
+  if (/\b(?:19|20)\d{2}\b/.test(text)) return true;
+  return false;
+}
+
 function extractClaims(answerMd) {
   const claims = [];
   if (!answerMd) return claims;
@@ -535,6 +507,7 @@ function extractClaims(answerMd) {
       // is never a finding, so it never becomes a claim.
       if (/oxford academic|all rights reserved|copyright|sign in|privacy policy|terms of use|cookie/i.test(text)) continue;
       if (looksLikeFragment(text)) continue;
+      if (hasAttributionShape(text)) continue;
       claims.push({ text, sourceIdx: useCites[0] });
     }
   }
@@ -711,23 +684,24 @@ function quizCard(claim, allClaims, sources, opts = {}) {
   /* Distractor candidates: fact mutations of the claim itself
      first (same claim, one fact wrong), then the course's other
      claims. Every candidate is restated and held to the answer's
-     length band; the band relaxes only when the pool runs dry,
-     so a card never ships short of options. */
+     length band, with no relaxed second pass: an out of band
+     option is a length tell that names the answer, so when the
+     pool cannot fill the card inside the band the card is dropped
+     (null) rather than shipped gameable. Callers count the drop
+     on the course they are building. */
   const pool = [...mutatedVariants(claim, allClaims), ...nearestClaims(claim, allClaims, 6)];
   const seenOpt = new Set([normKey(answer)]);
   const distract = [];
-  for (const strict of [true, false]) {
-    for (const cand of pool) {
-      if (distract.length >= 3) break;
-      const r = restateClaim(cand);
-      const k = normKey(r);
-      if (!r || seenOpt.has(k)) continue;
-      if (strict && !withinOptionBand(r.length, answer.length)) continue;
-      seenOpt.add(k);
-      distract.push(r);
-    }
+  for (const cand of pool) {
     if (distract.length >= 3) break;
+    const r = restateClaim(cand);
+    const k = normKey(r);
+    if (!r || seenOpt.has(k)) continue;
+    if (!withinOptionBand(r.length, answer.length)) continue;
+    seenOpt.add(k);
+    distract.push(r);
   }
+  if (distract.length < 3) return null;
   const options = seededShuffle([answer, ...distract], salt + 7);
   return {
     kind: "quiz",
@@ -915,12 +889,20 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
   const vocab = extractVocab(claims);
   const lessons = [];
   const clozed = new Set();
+  /* Checks quizCard dropped because no in band option set could
+     be built for the statement. The statement is still taught in
+     the lesson's reading passage; it simply gets no check. The
+     count rides on the course record (droppedChecks below) so a
+     drop is visible, never silent. */
+  let droppedChecks = 0;
   /* One check per taught statement: a cloze when the statement
      carries a value worth predicting, a quiz otherwise. */
   const checkFor = (c) => {
     const cz = !clozed.has(c.text) ? clozeCard(c, claims, srcs) : null;
     if (cz) { clozed.add(c.text); return cz; }
-    return quizCard(c, claims, srcs);
+    const q = quizCard(c, claims, srcs);
+    if (!q) droppedChecks++;
+    return q;
   };
   /* A teaching lesson: one reading passage that states the ideas
      in plain words, then one check per idea, in the same order. */
@@ -928,7 +910,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     id, title, subtitle,
     cards: [
       { kind: "note", kicker, title: heading, text: chunk.map((c) => c.text).join(" ") },
-      ...chunk.map(checkFor),
+      ...chunk.map(checkFor).filter(Boolean),
     ],
   });
 
@@ -956,7 +938,11 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
   {
     const taught = [...first, ...second];
     const picks = seededShuffle(taught, hashStr(query || "") + 31).slice(0, 4);
-    const cards = picks.map((c) => quizCard(c, claims, srcs));
+    const cards = [];
+    for (const c of picks) {
+      const q = quizCard(c, claims, srcs);
+      if (q) cards.push(q); else droppedChecks++;
+    }
     cards.push({
       kind: "summary",
       title: "Course complete",
@@ -976,6 +962,9 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
        stored; no surface displays it any more. Course stats are
        lessons and terms now. */
     sourceCount: srcs.length,
+    /* How many checks were dropped at build time because no in
+       band option set could be built for their statement. */
+    droppedChecks,
     lessons,
     doneLessons: [],
     xpEarned: 0,
@@ -1230,10 +1219,12 @@ function CategoryArt({ motif, pair, height, radius = 16 }) {
 /* ── built in curriculum ───────────────────────────────────────────
    Paths a visitor can learn from with no search and no papers: the
    concepts are taught directly, in small steps, with activities.
-   Papers become optional depth at the end of a lesson, never a gate.
-   Content is standard textbook knowledge, written for a curious
-   twelve year old, in plain words. Card factories keep the data
-   compact; the validators below keep it honest. */
+   A lesson may end with a deepen card that opens the topic itself
+   wider, in plain words. Nothing in a path references a paper, a
+   finding, or a search. Content is standard textbook knowledge,
+   written for a curious twelve year old, in plain words. Card
+   factories keep the data compact; the validators below keep it
+   honest. */
 
 const BUILTIN_PROGRESS_KEY = "cerebrum-learn2-progress";
 
@@ -1286,7 +1277,7 @@ export const LEARNING_PATHS = [
                 ["everyone already agrees with it", "an observation could show it is wrong", "it sounds impressive", "it has been believed for a long time"],
                 1,
                 "If nothing you could observe would ever count against a claim, there is no way to test it. Testable claims stick their neck out."),
-              mkDeepen("Go deeper: the findings in Cortex courses come from real papers, and the pretesting effect is one of them. Guessing before you study makes the answer stick. Build a course from a search to see the evidence yourself."),
+              mkDeepen("Go deeper: guessing before you study is not wasted effort. A committed guess primes your brain to notice the real answer when it arrives, and the correction sticks far better than a fact you only read. Try it on the next thing you learn: say your guess out loud first, then check how close you came."),
             ],
           },
           {
@@ -1308,7 +1299,7 @@ export const LEARNING_PATHS = [
                 ["To make the report longer", "So the prediction cannot be quietly changed after the results arrive", "Because journals like long documents", "To impress other scientists"],
                 1,
                 "Writing it first keeps everyone honest. A prediction invented after seeing the results is not a prediction at all."),
-              mkDeepen("Go deeper: real papers state their hypotheses up front, in the introduction, before a single result appears. Build a course from a search and watch for that pattern in the findings."),
+              mkDeepen("Go deeper: a strong hypothesis is written down before the test begins, in words sharp enough to be proven wrong. A guess that can survive every possible result predicts nothing at all. The sharper the prediction, the more a passing test actually teaches you."),
             ],
           },
         ],
@@ -1335,7 +1326,7 @@ export const LEARNING_PATHS = [
                 ["Whoever argues loudest", "Rainfall records for both years", "Whoever is older", "A coin toss"],
                 1,
                 "Records beat memories. Measurements written down at the time do not depend on who remembers best."),
-              mkDeepen("Go deeper: Cortex courses are built from study findings, and each finding is a small piece of evidence with its paper attached. Build one and judge the strength of each piece yourself."),
+              mkDeepen("Go deeper: evidence comes in strengths. One person noticing one thing once is a whisper. The same result showing up again and again, measured in different ways by different people, is a shout. Learning to hear the difference is most of what thinking like a scientist means."),
             ],
           },
           {
@@ -1346,7 +1337,7 @@ export const LEARNING_PATHS = [
               mkQuiz("A study finds a surprising result. What should happen next?",
                 ["It becomes fact forever", "Other scientists try to repeat it and check the result", "It is kept secret", "The scientists celebrate and stop"],
                 1,
-                "Surprising results get the most checking, not the least. Repetition by other teams is how a finding earns trust."),
+                "Surprising results get the most checking, not the least. Repetition by other teams is how a result earns trust."),
               mkTrueFalse("Before a study is published in a good journal, other scientists usually read it and look for problems.",
                 true,
                 "That checking is called peer review. It does not catch everything, but it removes many errors before the work reaches the public."),
@@ -1357,7 +1348,7 @@ export const LEARNING_PATHS = [
                 ["less trustworthy", "more trustworthy", "a coincidence", "forbidden"],
                 1,
                 "Every successful repetition makes luck a weaker explanation. Repeated results are the closest science gets to settled."),
-              mkDeepen("Go deeper: some famous findings failed when teams tried to repeat them, and the papers about those failures are some of the most useful reading in science. Search for replication studies and build a course from what you find."),
+              mkDeepen("Go deeper: even famous results sometimes fail when careful people try to repeat them, and those failures are not embarrassments. They are the system working. A result you can trust is one that survives being checked by someone who would be happy to prove it wrong."),
             ],
           },
         ],
@@ -1384,7 +1375,7 @@ export const LEARNING_PATHS = [
                 ["To use up extra materials", "To see what happens when the one change is missing", "To make the test take longer", "To impress the reviewers"],
                 1,
                 "The control group is the comparison. Without it, there is nothing to measure the changed group against, and any result could have happened anyway."),
-              mkDeepen("Go deeper: methods sections in real papers describe their control groups in detail, because that is where fair tests are won or lost. Build a course from a search and look for how each study set up its comparison."),
+              mkDeepen("Go deeper: the control group is where fair tests are won or lost. Change one thing, keep everything else the same, and any difference in the outcome points at your one change. Let two things change at once and you will never know which one did the work."),
             ],
           },
           {
@@ -1406,7 +1397,7 @@ export const LEARNING_PATHS = [
                 ["To save money on medicine", "To separate what the medicine does from what expecting does", "To make the study more confusing", "To give everyone something to swallow"],
                 1,
                 "If the real medicine beats the dummy pill, the medicine itself is doing something beyond expectation. If both groups improve equally, expectation was the active ingredient."),
-              mkDeepen("Go deeper: the placebo effect is one of the best studied surprises in medicine, and papers argue about how strong it really is. Search for it and build a course to weigh the evidence yourself."),
+              mkDeepen("Go deeper: the placebo effect shows how much expectation alone can do. People can feel genuinely better after a treatment with nothing active in it, simply because they believed it would help. That is why good tests hide who got the real thing, sometimes from the testers as well as the tested."),
             ],
           },
         ],
@@ -1441,7 +1432,7 @@ export const LEARNING_PATHS = [
                 ["it is frightened", "your muscles need more oxygen, faster", "running shakes it loose", "your blood gets thinner"],
                 1,
                 "Working muscles burn oxygen faster. The heart speeds up to deliver more blood per minute and keep up."),
-              mkDeepen("Go deeper: papers on exercise and the heart measure exactly how much fitter hearts can do. Build a course from a search on exercise and longevity to read the findings."),
+              mkDeepen("Go deeper: a trained heart is a stronger pump. It moves more blood with every beat, so it can beat more slowly at rest and still deliver everything the body needs. That slower resting beat is one of the clearest signs fitness leaves on a person."),
             ],
           },
           {
@@ -1463,7 +1454,7 @@ export const LEARNING_PATHS = [
                 ["Food dyes it red", "Red cells hold an iron rich protein that turns bright red when it carries oxygen", "It reflects the color of skin", "It is always hot"],
                 1,
                 "The protein is called hemoglobin. The iron at its center binds oxygen, and hemoglobin loaded with oxygen is bright red."),
-              mkDeepen("Go deeper: blood is one of the most studied tissues in medicine. Search for a blood topic that interests you and Cortex will build a course from the real findings."),
+              mkDeepen("Go deeper: blood looks like one red liquid, but it is a fleet of specialists. Some cells carry oxygen, some fight invaders, some patch leaks, and the watery part hauls food, warmth, and messages. One small tube of it can tell a doctor an astonishing amount about the whole body."),
             ],
           },
         ],
@@ -1490,7 +1481,7 @@ export const LEARNING_PATHS = [
                 ["the signal takes a shortcut through the spinal cord", "your hand is brave", "hot things glow", "the brain works slowly on purpose"],
                 0,
                 "Many reflex signals loop through the spinal cord and straight back to the muscle, without waiting for the brain to decide."),
-              mkDeepen("Go deeper: reaction time is a favorite measurement in sports science papers. Search for it and build a course to see what actually makes people faster."),
+              mkDeepen("Go deeper: reaction time is not one speed but a chain: sensing, deciding, and moving, and each link can be trained on its own. That is why a sprinter practices the start, a goalkeeper practices reading the kick, and you get faster at a game the more you play it."),
             ],
           },
           {
@@ -1499,7 +1490,7 @@ export const LEARNING_PATHS = [
               mkNote("The big idea", "Your senses report, your brain decides",
                 "Your eyes and ears gather raw signals, but your brain builds what you actually experience. That is why optical illusions work. The brain uses shortcuts to make sense of the signals, and shortcuts can be fooled."),
               mkQuiz("In an optical illusion, the mistake happens mostly in...",
-                ["the paper", "the brain, as it interprets the signals", "the light", "your hands"],
+                ["the page", "the brain, as it interprets the signals", "the light", "your hands"],
                 1,
                 "The eyes report honestly. The brain guesses what the signals mean, and an illusion is a case where the guess is wrong."),
               mkTrueFalse("Two people can taste the same food differently.",
@@ -1512,7 +1503,7 @@ export const LEARNING_PATHS = [
                 ["the tongue alone", "smell, working with the tongue", "the teeth", "memory"],
                 1,
                 "Hold your nose and an apple and an onion start to taste alike. Smell does most of the work we credit to taste."),
-              mkDeepen("Go deeper: studies of *Homo sapiens* show taste and smell acting as one system, and super tasters carrying extra taste buds. Search for either topic and build a course from the findings."),
+              mkDeepen("Go deeper: taste and smell are really one system wearing two hats, all through our species, *Homo sapiens*. Most of what you call flavor is actually smell, which is why food turns dull when your nose is blocked. A lucky few people carry far more taste buds than average and taste bitterness the rest of us never notice."),
             ],
           },
         ],
@@ -1539,7 +1530,7 @@ export const LEARNING_PATHS = [
                 ["your lungs get bored", "your muscles need more oxygen and produce more carbon dioxide to clear", "the air gets thinner near the ground", "your heart asks the lungs for entertainment"],
                 1,
                 "Hard working muscles burn oxygen faster and make carbon dioxide faster. Faster breathing speeds up both sides of the trade to keep pace."),
-              mkDeepen("Go deeper: papers on athletes measure how much air lungs can move and how training changes it. Search for lung capacity and exercise and Cortex will build a course from the findings."),
+              mkDeepen("Go deeper: lungs are not balloons you can stretch much bigger, yet trained swimmers and singers move air with remarkable control. The gains come from stronger breathing muscles and better technique, squeezing more from the same space. What changes most is how well the air you take in gets used."),
             ],
           },
           {
@@ -1561,7 +1552,7 @@ export const LEARNING_PATHS = [
                 ["it makes food quieter", "smaller pieces give digestive juices far more surface to work on", "it warms the food up", "it removes the calories"],
                 1,
                 "Juices can only attack the surface they touch. Chopping food into small pieces multiplies that surface, so the chemistry runs faster and more completely."),
-              mkDeepen("Go deeper: your gut is home to trillions of bacteria that help finish digestion, and papers on the gut microbiome are pouring in. Search for gut bacteria and build a course from the findings."),
+              mkDeepen("Go deeper: you are never digesting alone. Trillions of bacteria in your gut finish jobs your own enzymes cannot, breaking down tough plant fibers and even making some vitamins for you. Feed them varied plants and they return the favor."),
             ],
           },
         ],
@@ -1595,7 +1586,7 @@ export const LEARNING_PATHS = [
               mkTrueFalse("The Sun is a star.",
                 true,
                 "The Sun is a medium sized star. It only looks huge and bright because it is so much closer than every other star."),
-              mkDeepen("Go deeper: the first photograph of a black hole and the newest exoplanet papers all start from this neighborhood. Search for a space topic and Cortex will build a course from the real research."),
+              mkDeepen("Go deeper: everything in this lesson is our local neighborhood, and it is only the beginning. Far beyond it sit planets around other stars, and at the center of our galaxy a black hole so heavy its gravity bends the orbits of stars around it. The neighborhood turns out to be one street in a vast city."),
             ],
           },
           {
@@ -1617,7 +1608,7 @@ export const LEARNING_PATHS = [
               mkOrder("Put these in order from shortest to longest.",
                 ["One spin of Earth, a day", "One trip of the Moon around Earth, about a month", "One trip of Earth around the Sun, a year"],
                 "A day is one spin, a month is roughly one lap of the Moon, and a year is one full lap around the Sun."),
-              mkDeepen("Go deeper: papers on other planets track days that last longer than their years. Venus is the famous case. Search for it and build a course from what you find."),
+              mkDeepen("Go deeper: Venus plays by strange rules. It spins so slowly that one full day on Venus lasts longer than its whole year around the Sun, and it spins backwards compared with most planets. A sunrise there would be a rare and leisurely event."),
             ],
           },
         ],
@@ -1644,7 +1635,7 @@ export const LEARNING_PATHS = [
                 ["stop moving at once", "fly off in a straight line", "fall into the Moon", "spin twice as fast"],
                 1,
                 "Earth keeps the speed it already has. With nothing pulling it into a curve, it would travel straight, like a ball leaving a swinging string when the string is cut."),
-              mkDeepen("Go deeper: gravity waves were predicted a century before detectors finally heard them. Search for gravitational waves and Cortex will build a course from the papers."),
+              mkDeepen("Go deeper: gravity can ripple. When two black holes crash together far away, the collision sends waves through space itself, and detectors on Earth can feel the squeeze as a wave passes. The wildest part: those ripples were predicted about a hundred years before anyone could build a machine sensitive enough to catch one."),
             ],
           },
           {
@@ -1666,7 +1657,7 @@ export const LEARNING_PATHS = [
                 ["as it will be in eight minutes", "as it was eight minutes ago", "instantly, with no delay", "only at night"],
                 1,
                 "Light is fast, but space is big. Everything we see is the past, and the farther away it is, the older the light that reaches us."),
-              mkDeepen("Go deeper: astronomers read a star's whole life story from its light. Search for how stars are classified and build a course from the research."),
+              mkDeepen("Go deeper: starlight is a biography. Its color tells a star's temperature, its brightness hints at its size, and faint lines in its spectrum name the gases it is made of. Sort stars by those clues and a pattern appears: most live quiet middle lives, and the biggest burn out fastest."),
             ],
           },
         ],
@@ -1693,7 +1684,7 @@ export const LEARNING_PATHS = [
                 ["the Moon spins like a top", "we see different amounts of its sunlit half as it orbits Earth", "clouds cover parts of the Moon", "the Moon changes shape"],
                 1,
                 "The Moon itself never changes shape. Our viewing angle changes as it orbits, so the lit half turns toward us, then away, in a steady monthly rhythm."),
-              mkDeepen("Go deeper: astronomers still time eclipses from tables built centuries ago, and new papers refine the orbit of the Moon to the centimeter. Search for lunar eclipses and build a course from the research."),
+              mkDeepen("Go deeper: eclipses are clockwork you can set your watch by. People predicted them with careful tables long before telescopes, and the same patient timing now tracks the Moon's orbit so precisely that we know it drifts a few centimeters farther from Earth every year."),
             ],
           },
           {
@@ -1715,7 +1706,7 @@ export const LEARNING_PATHS = [
                 ["as it is right now", "as it was 100 years ago", "as it will be in 100 years", "only in photographs"],
                 1,
                 "The light arriving tonight left that star a century ago. Looking far into space is always looking back in time, and telescopes are time machines of a sort."),
-              mkDeepen("Go deeper: counting galaxies got harder as telescopes improved, because better instruments kept finding more of them. Search for how many galaxies exist and build a course from the estimates and the arguments."),
+              mkDeepen("Go deeper: counting galaxies is a problem that grows as you get better at it. Point a telescope at the darkest patch of sky you can find, wait, and the black fills with thousands of galaxies nobody knew were there. Every deeper look raises the total instead of settling it."),
             ],
           },
         ],
@@ -1749,7 +1740,7 @@ export const LEARNING_PATHS = [
               mkTrueFalse("Rain over land is a brand new supply of water made by clouds.",
                 false,
                 "Clouds move water around; they do not create it. Rain is ocean and lake water that evaporated, traveled on the wind, and fell again."),
-              mkDeepen("Go deeper: scientists trace water through whole landscapes in papers on the water cycle and climate. Search for a river or ocean topic and build a course from the findings."),
+              mkDeepen("Go deeper: the water in your glass has been on a long journey. It has been ocean, cloud, rain, river, and root, over and over, and the same endless loop connects a puddle on your street to ice at the poles. Trace any drop and you end up touring the whole planet."),
             ],
           },
           {
@@ -1771,7 +1762,7 @@ export const LEARNING_PATHS = [
               mkMatch("Match each cloud to its description.",
                 [["Cumulus", "Puffy clouds with flat bottoms"], ["Cirrus", "Thin wispy clouds high in the sky"], ["Stratus", "Gray sheets of cloud that cover the sky"], ["Fog", "A cloud resting on the ground"]],
                 "Sailors and farmers read the sky with these four shapes long before satellites existed."),
-              mkDeepen("Go deeper: cloud research decides big questions about how fast the planet warms. Search for clouds and climate and Cortex will build a course from the real papers."),
+              mkDeepen("Go deeper: clouds are double agents in the warming story. Low bright clouds bounce sunlight back to space and cool the ground, while high thin clouds trap heat like a blanket. Which kind wins, and where, is one of the biggest open questions in understanding how fast the planet warms."),
             ],
           },
         ],
@@ -1797,7 +1788,7 @@ export const LEARNING_PATHS = [
               mkOrder("Put the life of a thunderstorm in order.",
                 ["Warm wet air rises quickly", "A tall storm cloud builds", "Lightning and thunder arrive as the storm peaks", "Heavy rain falls and the storm weakens"],
                 "Rising warm air builds the tower, the storm spends itself in lightning and rain, and then it runs out of energy."),
-              mkDeepen("Go deeper: forecasters test their predictions against what actually happened, and the scorekeeping papers are fascinating. Search for weather forecast accuracy and build a course."),
+              mkDeepen("Go deeper: forecasts earn trust the slow way, by being scored. Every prediction gets compared with what actually happened, and the scores have climbed decade after decade. A five day forecast today is about as trustworthy as a three day forecast was a generation ago."),
             ],
           },
           {
@@ -1819,7 +1810,7 @@ export const LEARNING_PATHS = [
               mkMatch("Match each word to what it means.",
                 [["Weather", "What the air is doing this week"], ["Climate", "The usual pattern over decades"], ["Forecast", "A prediction of weather ahead"], ["Season", "A yearly period with its own typical weather"]],
                 "Weather is the day, climate is the habit, and a forecast is our best guess at tomorrow."),
-              mkDeepen("Go deeper: the papers behind climate averages are public and readable. Search for a climate question of your own and Cortex will build a course from the evidence."),
+              mkDeepen("Go deeper: a climate average is built from patience: the same measurements, taken the same way, in the same places, for thirty years or more. That long view is what lets one cold winter sit inside a warming century without contradicting it. Short records shout. Long records speak."),
             ],
           },
         ],
@@ -1846,7 +1837,7 @@ export const LEARNING_PATHS = [
                 ["Sedimentary", "Metamorphic", "Igneous", "Fossil"],
                 2,
                 "Any rock born from melted rock is igneous, whether it cooled fast at the surface, like lava rock, or slowly underground, like granite."),
-              mkDeepen("Go deeper: scientists date rocks by measuring slow atomic decay inside them, which is how we know Earth is about 4.5 billion years old. Search for how rocks are dated and build a course from the methods."),
+              mkDeepen("Go deeper: rocks carry clocks inside them. Some atoms decay at a perfectly steady rate, so measuring how much has changed tells you how long the rock has existed. Stack those clocks across many rocks and a timeline emerges, one that puts the age of Earth at about 4.5 billion years."),
             ],
           },
           {
@@ -1868,7 +1859,7 @@ export const LEARNING_PATHS = [
                 ["They can feel the ground drifting", "Satellites measure the distances between continents changing year by year", "Sailors reported it long ago", "Maps from different centuries disagree"],
                 1,
                 "Modern instruments measure plate motion directly, a few centimeters a year. The drift the theory predicted is now a number anyone can watch changing."),
-              mkDeepen("Go deeper: papers on plate tectonics argue about when the drift began and what started it. Search for continental drift and build a course to see how the idea went from ridiculed to measured."),
+              mkDeepen("Go deeper: the drift of the continents was once laughed at, mostly because nobody could say what force could move whole continents. The idea won when the ocean floor itself turned out to be spreading, carrying the continents like luggage on a slow conveyor. Being right early is not enough. An idea also needs its mechanism."),
             ],
           },
         ],
