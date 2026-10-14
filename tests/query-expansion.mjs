@@ -41,6 +41,12 @@ const {
   clampStageLegTimeout,
   publicStageHealth,
   stageHealthDegraded,
+  screenStructuredQuery,
+  screenKeyPhrase,
+  queryTermContentWords,
+  rebuildStructuredQueryFromGroups,
+  dropFailedRungs,
+  buildSearchRecord,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -1248,6 +1254,146 @@ await test("fact check stage records skips with reasons and real elapsed time", 
   assert.ok(!src.includes('stageHealth.push({ name: "disagreement", ok: true, ms: 0 })'),
     "the disagreement stage still hardcodes ms 0");
   assert.ok(src.includes("ms: Date.now() - disagreementT0"), "the disagreement stage does not record real elapsed ms");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("structured query hygiene — filler never becomes a requirement (2026-10-14)");
+
+// The live trace, reproduced from its pieces. Production question:
+// "does not sleeping enough make it easier to catch a cold". The
+// pipeline's cleaned form of it (STOPWORDS stripped, lemmatized)
+// and the one expansion group that draw validated. The shipped
+// structured query required the quantity word "enough" as a
+// mandatory AND term, the primary retrieval starved on it, and
+// the fallback nets spent the answer reserve behind it.
+const SLEEP_CLEANED = "not sleep enough easier catch cold";
+const SLEEP_RAW = "does not sleeping enough make it easier to catch a cold";
+const COLD_GROUP = [{
+  term: "easier catch cold",
+  alternates: ["increased susceptibility to colds", "elevated cold incidence"],
+}];
+const SLEEP_GROUP = [{
+  term: "sleep",
+  alternates: ["sleeping", "sleep deprivation", "insufficient sleep", "sleep loss", "sleep deficit"],
+}];
+const TRACE_QUERY =
+  "(\"easier catch cold\" OR \"increased susceptibility to colds\" OR \"elevated cold incidence\") AND sleep AND enough";
+
+await test("the trace's authored query is reproduced exactly from its pieces", () => {
+  const authored = buildStructuredQuery(SLEEP_CLEANED, buildDynLookup(COLD_GROUP));
+  assert.equal(authored, TRACE_QUERY);
+});
+
+await test("the screen fails the trace query on exactly the filler rung", () => {
+  const screen = screenStructuredQuery(TRACE_QUERY);
+  assert.equal(screen.ok, false);
+  assert.deepEqual(screen.failedRungs, ["enough"],
+    "only the quantity word rung may fail: the phrase group carries content (cold), sleep is content");
+  assert.deepEqual(queryTermContentWords("enough"), []);
+  assert.deepEqual(queryTermContentWords("sleep"), ["sleep"]);
+  assert.deepEqual(queryTermContentWords("easier catch cold"), ["cold"],
+    "the degree comparative and the light verb are filler; the topic word is the content");
+});
+
+await test("a failed authored query is rebuilt from the resolved concept groups", () => {
+  const dyn = buildDynLookup(COLD_GROUP);
+  const rebuilt = rebuildStructuredQueryFromGroups(SLEEP_CLEANED, dyn);
+  assert.equal(rebuilt,
+    "(\"easier catch cold\" OR \"increased susceptibility to colds\" OR \"elevated cold incidence\")");
+  assert.equal(screenStructuredQuery(rebuilt).ok, true, "the rebuilt query must pass its own screen");
+  // The shipped form (rebuild when possible) contains no filler rung.
+  const shipped = rebuilt || dropFailedRungs(TRACE_QUERY, screenStructuredQuery(TRACE_QUERY).failedRungs);
+  assert.ok(!/ AND enough$/.test(shipped) && !shipped.split(" AND ").includes("enough"),
+    "the shipped query still requires enough: " + shipped);
+});
+
+await test("with the sleep group resolved too, the rebuild carries both concepts and no filler", () => {
+  const dyn = buildDynLookup([...SLEEP_GROUP, ...COLD_GROUP]);
+  const authored = buildStructuredQuery(SLEEP_CLEANED, dyn);
+  assert.equal(screenStructuredQuery(authored).ok, false, "the sleep draw also ships the enough rung");
+  const rebuilt = rebuildStructuredQueryFromGroups(SLEEP_CLEANED, dyn);
+  assert.ok(rebuilt.includes("\"sleep deprivation\""), "the sleep group is missing from the rebuild: " + rebuilt);
+  assert.ok(rebuilt.includes("\"elevated cold incidence\""), "the cold group is missing from the rebuild: " + rebuilt);
+  assert.equal(screenStructuredQuery(rebuilt).ok, true);
+});
+
+await test("when no group resolves, the failed rungs drop and the survivors ship", () => {
+  // No expansion at all: the deterministic build itself anchors the
+  // light verb, the comparative, and the quantity word.
+  const authored = buildStructuredQuery(SLEEP_CLEANED, null);
+  assert.equal(authored, "sleep AND catch AND easier AND enough");
+  const screen = screenStructuredQuery(authored);
+  assert.deepEqual(screen.failedRungs, ["catch", "easier", "enough"]);
+  assert.equal(rebuildStructuredQueryFromGroups(SLEEP_CLEANED, null), null,
+    "no hand group resolves sleep or cold, so there is nothing to rebuild from");
+  assert.equal(dropFailedRungs(authored, screen.failedRungs), "sleep");
+});
+
+await test("the analysis key phrases are screened: filler out, genuine constraints untouched", () => {
+  assert.deepEqual(analyzeQuery(SLEEP_RAW).keyPhrases, ["sleeping", "cold"],
+    "the trace's glued phrases must not survive as constraints");
+  // The panel's other named failure: "leftover" as a required word.
+  const leftover = analyzeQuery("is there leftover food waste that can feed black soldier fly larvae");
+  assert.ok(leftover.keyPhrases.includes("food waste"), "the real constraint survives: " + JSON.stringify(leftover.keyPhrases));
+  assert.ok(!leftover.keyPhrases.some((p) => p.includes("leftover")), "leftover survived screening: " + JSON.stringify(leftover.keyPhrases));
+  // Genuine content phrases pass word for word.
+  assert.deepEqual(analyzeQuery("how does creatine affect hair loss").keyPhrases, ["creatine hair loss"]);
+  assert.deepEqual(analyzeQuery("Studies involving BSFL waste oil substrates").keyPhrases, ["waste oil"]);
+  assert.deepEqual(analyzeQuery("Do the germs in a baby belly change how well the baby grows").keyPhrases,
+    ["germs baby belly", "baby"]);
+  // The screen itself, word level.
+  assert.equal(screenKeyPhrase("not sleeping enough"), "sleeping");
+  assert.equal(screenKeyPhrase("easier catch cold"), "cold");
+  assert.equal(screenKeyPhrase("enough"), "");
+  assert.equal(screenKeyPhrase("whole gut preparations"), "whole gut preparations");
+  assert.equal(screenKeyPhrase("sleep deprivation"), "sleep deprivation");
+});
+
+await test("clean authored queries ship unchanged (the screen is not a rewrite)", () => {
+  const clean = [
+    "has anyone assayed digestive enzymes in whole gut preparations from insects without isolating the enzymes",
+    "do the germs in a baby belly change how well the baby grows",
+    "how does creatine affect hair loss",
+    "studies involving bsfl waste oil substrates",
+  ];
+  for (const q of clean) {
+    const authored = buildStructuredQuery(q, null);
+    const screen = screenStructuredQuery(authored);
+    assert.equal(screen.ok, true, `a clean query failed the screen: ${q} -> ${authored} [${screen.failedRungs}]`);
+  }
+});
+
+await test("the record carries the rebuild provenance, and stays null for clean queries", () => {
+  const base = {
+    question: SLEEP_RAW,
+    askedAt: 0,
+    sources: [{ title: "Sleep duration and cold susceptibility", url: "https://example.com/s" }],
+    funnel: { gathered: 3, deduped: 2, cited: 0 },
+    databases: [{ source: "europePMC", ok: true, count: 2 }],
+  };
+  const rebuiltRec = buildSearchRecord({
+    ...base,
+    structuredQuery: "(\"easier catch cold\" OR \"increased susceptibility to colds\")",
+    diag: {
+      structuredQueryProvenance: {
+        screenFailed: true,
+        failedRungs: ["enough"],
+        rebuilt: true,
+        source: "concept-groups",
+        rejected: TRACE_QUERY,
+      },
+    },
+  });
+  assert.deepEqual(rebuiltRec.structuredQueryProvenance, {
+    screenFailed: true,
+    failedRungs: ["enough"],
+    rebuilt: true,
+    source: "concept-groups",
+    rejected: TRACE_QUERY,
+  });
+  const cleanRec = buildSearchRecord({ ...base, structuredQuery: "creatine AND hair" });
+  assert.equal(cleanRec.structuredQueryProvenance, null,
+    "a clean query's record must not claim a degradation that never happened");
 });
 
 // ═══════════════════════════════════════════════════════════════════

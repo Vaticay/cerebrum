@@ -100,6 +100,9 @@ const {
   SUBREQUEST_TAIL_RESERVE,
   SUBREQUEST_RESERVE_REASON,
   SUBREQUEST_EXHAUSTED_REASON,
+  SUBREQUEST_RAW_NET_COST,
+  SUBREQUEST_NL_NET_COST,
+  SUBREQUEST_RELAXED_NET_COST,
   classifyLegFailure,
   isSubrequestBudgetError,
   recordLegOutcome,
@@ -602,6 +605,529 @@ await test("lean retrieval (warm): rungs and fallbacks trim, synthesis still get
   assertLedgerEqualsPlatform(counts, ledger);
   assertAnswerStagesFunded(data, counts);
   assert.ok((data.sources || []).length >= 3, "the lean scenario should still ship its papers");
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("fallback net pricing — the final nets pay their real cost (2026-10-14)");
+
+// The first ledger gated the last three retrieval rounds (the raw
+// query net, the natural language net, the relaxed boolean net) at
+// margin 0: each could start whenever anything sat above the answer
+// reserve and then spend INTO it, because each net's fetchers
+// multiply internally on exactly the starved queries the nets exist
+// for. Live trace (the sleep and colds question, corrected ledger
+// build): the primary starved, every fallback round fired, the
+// nets spent the reserve, and validation and synthesis both skipped
+// as budget exhausted. The nets are now gated at their real cost:
+// a net fires only when the remaining budget covers the net AND
+// leaves the answer reserve intact afterward.
+await test("the net prices are the fetchers' real internal fanout", () => {
+  // europePMC fires up to 3 sequential formulations on an empty
+  // result (given query, structured rebuild, organism form);
+  // PubMed up to 5 calls (3 esearch formulations, efetch, esummary);
+  // Semantic Scholar and OpenAlex cost 1 each.
+  assert.equal(SUBREQUEST_RAW_NET_COST, 5, "raw net = europePMC 3 + semanticScholar 1 + openAlex 1");
+  assert.equal(SUBREQUEST_NL_NET_COST, 5, "NL net = semanticScholar 1 + europePMC 3 + openAlex 1");
+  assert.equal(SUBREQUEST_RELAXED_NET_COST, 8, "relaxed net = europePMC 3 + pubmed 5");
+});
+
+await test("a net may start only when the reserve survives it", () => {
+  const ledger = createSubrequestLedger();
+  // Spend down so exactly reserve + raw cost + 1 remains: the raw
+  // net may start (after it, more than the reserve is left).
+  spendN(ledger, SUBREQUEST_LIMIT - (SUBREQUEST_ANSWER_RESERVE + SUBREQUEST_RAW_NET_COST) - 1);
+  assert.equal(ledger.retrievalRoom(SUBREQUEST_RAW_NET_COST), true);
+  // The net spends its price: the reserve is intact, but a second
+  // net no longer fits above it.
+  spendN(ledger, SUBREQUEST_RAW_NET_COST);
+  assert.equal(ledger.remaining(), SUBREQUEST_ANSWER_RESERVE + 1);
+  assert.equal(ledger.retrievalRoom(SUBREQUEST_NL_NET_COST), false,
+    "a second net would now spend into the reserve");
+  assert.equal(ledger.retrievalRoom(SUBREQUEST_RELAXED_NET_COST), false);
+  // At exactly reserve + cost, the strict inequality still refuses:
+  // the reserve must remain intact AFTER the net, not just covered.
+  const edge = createSubrequestLedger();
+  spendN(edge, SUBREQUEST_LIMIT - (SUBREQUEST_ANSWER_RESERVE + SUBREQUEST_RAW_NET_COST));
+  assert.equal(edge.remaining(), SUBREQUEST_ANSWER_RESERVE + SUBREQUEST_RAW_NET_COST);
+  assert.equal(edge.retrievalRoom(SUBREQUEST_RAW_NET_COST), false);
+});
+
+// Starved primary: the ladder's engines answer a paper at a time
+// (Europe PMC one per call, PubMed the lean three fetch no paper
+// shape), totals stay under the nets' count thresholds, and every
+// fallback round's count condition is met — so if a net does not
+// fire, the budget gate is what stopped it. Before the pricing fix
+// the nets fired here and spent the reserve; now they are priced
+// out and the answer stages keep their funding.
+async function runStarvedScenario() {
+  const counts = makeCounts();
+  counts.epmcVerbatim = 0;
+  counts.s2Verbatim = 0;
+  let epmcCalls = 0;
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => { counts.cache++; return undefined; },
+      put: async () => { counts.cache++; },
+      delete: async () => { counts.cache++; return false; },
+    },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = async (url, opts = {}) => {
+    attempt(counts, "fetch");
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
+        u.includes("api.mistral.ai") || u.includes("integrate.api.nvidia.com")) {
+      if (body.includes("literature search specialist")) {
+        return chatRes(JSON.stringify([{ term: "germ", alternates: ["gut microbes", "microbiota", "microbial community"] }]));
+      }
+      if (body.includes("relevance validator")) {
+        return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      }
+      return chatRes(SYNTH_ANSWER);
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      const qs = new URL(u).searchParams.get("query") || "";
+      if (qs.includes(QUERY)) { counts.epmcVerbatim++; return jsonRes({ resultList: { result: [] } }); }
+      epmcCalls++;
+      return jsonRes({ resultList: { result: [{
+        title: "Gut germs and infant growth patterns study " + epmcCalls,
+        doi: "10.1000/starve" + epmcCalls,
+        pubYear: "2024",
+        citedByCount: 7,
+        authorString: "Doe J, Roe K",
+        journalTitle: "Journal of Infant Studies",
+        abstractText: richAbstract(epmcCalls),
+      }] } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) return jsonRes({ esearchresult: { idlist: ["101", "102", "103"] } });
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    if (u.includes("api.semanticscholar.org")) {
+      const q = new URL(u).searchParams.get("query") || "";
+      if (q === QUERY) counts.s2Verbatim++;
+      return jsonRes({ data: [] });
+    }
+    if (u.includes("export.arxiv.org")) return new Response("", { status: 200 });
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const env = {
+      DB: countingDb(counts),
+      AI: countingAi(counts),
+      GROQ_KEY: "ledger-test-groq-key-123456",
+      GEMINI_KEY: "ledger-test-gemini-key-123456",
+      MISTRAL_KEY: "ledger-test-mistral-key-123456",
+      NVIDIA_KEY: "ledger-test-nvidia-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: QUERY }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("starved primary: the nets are priced out and the answer stages keep their funding", async () => {
+  const { data, counts, ledger } = await runStarvedScenario();
+  assertLedgerEqualsPlatform(counts, ledger);
+  // Neither the raw net nor the natural language net ever fired:
+  // no engine was ever called with the verbatim question. Their
+  // count conditions were met (the ladder returned a paper at a
+  // time), so the budget gate is the only thing that stopped them.
+  assert.equal(counts.epmcVerbatim, 0, "a fallback net fired Europe PMC on the verbatim question");
+  assert.equal(counts.s2Verbatim, 0, "a fallback net fired Semantic Scholar on the verbatim question");
+  // And the stages the reserve exists for ran anyway.
+  assertAnswerStagesFunded(data, counts);
+  assert.ok((data.sources || []).length >= 3, "the starved scenario should still ship its papers");
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("the reserve funds what it protects — heavy draw (2026-10-14)");
+
+// Dusty's own question on the corrected ledger build (7dfe2c8):
+// "how does changing diets impact microbial community assembly in
+// the black soldier fly larval gut" gathered about 74 papers across
+// 15 databases with the full rerank block, returned extractive with
+// validation skipped "subrequest budget exhausted" and EVERY
+// synthesis leg refused with "subrequest budget reserved for
+// synthesis" — the ledger's own guard refusing the stage the
+// reserve exists for. The reserve was a gate time estimate, not a
+// reservation: rung costs overshoot their estimate when every
+// engine answers and the multi call fetchers multiply, the rerank
+// block spent after the last trim check with no ledger gate at
+// all, and fireWaveLegs then subtracted the tail reserve a second
+// time from the synthesis race's own allowance, selecting zero
+// legs whenever what remained was at or under the tail.
+// This scenario reproduces the shape: Europe PMC answers only on
+// its second formulation (two fetches per call site) with four
+// papers a call, PubMed pays the lean three fetches per call, and
+// the shelf is big enough for the full rerank block. On the
+// unfixed code the synthesis stage is refused by the reserve
+// reason; on the fixed code validation runs and the race fires.
+const HEAVY_Q = "how does changing diets impact microbial community assembly in the black soldier fly larval gut";
+const heavyAbstract = (n) =>
+  ("Study " + n + " on diet and the gut microbial community of black soldier fly larvae, Hermetia illucens. " +
+   "Larvae were reared on different diets and the larval gut microbiota and microbial community assembly were measured. " +
+   "Diet strongly shaped the gut microbial community of the larvae across treatments. ").repeat(2);
+
+async function runHeavyScenario() {
+  const counts = makeCounts();
+  // Stage boundary marks on the scenario's own ledger: the used
+  // count and the provider call counts (fetches + AI runs) at the
+  // moment each pipeline stage starts. The synthesis stage's leg
+  // breadth is not shipped in the response, but it is exactly the
+  // provider calls made between the synthesis mark and the fact
+  // check mark — which is what the heavy test asserts on.
+  const marks = [];
+  let epmcCalls = 0;
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => { counts.cache++; return undefined; },
+      put: async () => { counts.cache++; },
+      delete: async () => { counts.cache++; return false; },
+    },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = async (url, opts = {}) => {
+    attempt(counts, "fetch");
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
+        u.includes("api.mistral.ai") || u.includes("integrate.api.nvidia.com") ||
+        u.includes("openrouter.ai")) {
+      if (body.includes("literature search specialist")) {
+        return chatRes(JSON.stringify([{ term: "microbial", alternates: ["microbiota", "microbiome", "gut microbes"] }]));
+      }
+      if (body.includes("relevance validator")) {
+        return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      }
+      return chatRes(SYNTH_ANSWER);
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      epmcCalls++;
+      // Odd calls are a call site's first formulation (empty, so the
+      // fetcher pays its internal structured retry); even calls are
+      // the retry answering with four papers.
+      if (epmcCalls % 2 === 1) return jsonRes({ resultList: { result: [] } });
+      const mk = (n) => ({
+        title: "Diet and gut microbial community assembly in black soldier fly larvae study " + n,
+        doi: "10.1000/heavy" + n,
+        pubYear: "2024",
+        citedByCount: 7,
+        authorString: "Doe J, Roe K",
+        journalTitle: "Journal of Insect Studies",
+        abstractText: heavyAbstract(n),
+      });
+      return jsonRes({ resultList: { result: [mk(epmcCalls * 10 + 1), mk(epmcCalls * 10 + 2), mk(epmcCalls * 10 + 3), mk(epmcCalls * 10 + 4)] } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) return jsonRes({ esearchresult: { idlist: ["101", "102", "103", "104", "105"] } });
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    if (u.includes("export.arxiv.org")) return new Response("", { status: 200 });
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const origSetStage = ledger.setStage.bind(ledger);
+    ledger.setStage = (name) => {
+      marks.push({ name, used: ledger.used(), providerCalls: counts.fetch + counts.ai });
+      origSetStage(name);
+    };
+    const env = {
+      DB: countingDb(counts),
+      AI: countingAi(counts),
+      GROQ_KEY: "ledger-test-groq-key-123456",
+      GEMINI_KEY: "ledger-test-gemini-key-123456",
+      MISTRAL_KEY: "ledger-test-mistral-key-123456",
+      NVIDIA_KEY: "ledger-test-nvidia-key-123456",
+      // Production carries an OpenRouter key: the expansion,
+      // validation and synthesis stages all try that leg first,
+      // which is part of the live draw's spend.
+      OPENROUTER_KEY: "ledger-test-openrouter-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: HEAVY_Q }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger, marks };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("heavy draw, full rerank: validation runs and the synthesis race fires its legs", async () => {
+  const { data, counts, ledger, marks } = await runHeavyScenario();
+  assertLedgerEqualsPlatform(counts, ledger);
+  // The draw really was heavy: a full shelf shipped.
+  assert.ok((data.sources || []).length >= 8,
+    `heavy scenario shipped only ${(data.sources || []).length} sources`);
+  // Validation ran on a real leg.
+  const validation = (data.stageHealth || []).find((s) => s.name === "validation");
+  assert.ok(validation, "no validation stage record shipped");
+  assert.equal(validation.ok, true, "validation did not run on the heavy draw");
+  assert.ok(typeof validation.via === "string" && validation.via.length > 0,
+    "validation answered on no leg");
+  // The synthesis race fired real legs from the primary waves.
+  // Measured on the scenario ledger's stage marks: the provider
+  // calls (fetches + AI runs) between the synthesis stage's start
+  // and the post stage's start are the waves' legs (plus the
+  // rescue's, when the waves never fired). On the unfixed code
+  // this draw reached synthesis with 5 subrequests left: the wave
+  // planner's allowance (what remains minus the tail reserve,
+  // again) was zero, waves 1 to 3 selected no legs at all, every
+  // leg was stamped with the reserve reason, and only the spend
+  // to zero rescue fired — 2 provider calls in the window and an
+  // extractive answer. With the floor, the primary race fires:
+  // the fastpath leg plus its wave companions, bounded by the 6
+  // subrequests this draw has left and by early victory (a wave 1
+  // winner ends the race by design). 3 separates the two shapes
+  // with room on both sides: the broken draw shows exactly 2
+  // (rescue only), the fixed draw shows 4.
+  const synthMark = marks.find((m) => m.name === "synthesis");
+  const afterMark = marks.find((m) => (m.name === "fact-check" || m.name === "post") && synthMark && m.used >= synthMark.used);
+  assert.ok(synthMark && afterMark, "stage marks missing: " + JSON.stringify(marks.map((m) => m.name)));
+  const waveProviderCalls = afterMark.providerCalls - synthMark.providerCalls;
+  assert.ok(waveProviderCalls >= 3,
+    `the synthesis race fired only ${waveProviderCalls} provider calls on the heavy draw ` +
+    "(the unfixed planner selected zero wave legs; only the rescue's 2 fired)");
+  const synthesis = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synthesis, "no synthesis stage record shipped");
+  assert.equal(synthesis.ok, true, "synthesis did not fire on the heavy draw");
+  assert.ok(synthesis.winner, "synthesis record has no winner");
+  assert.equal(data.synthesisMode, "ai", "the extractive tier served instead of a synthesis win");
+  assert.ok(counts.refused <= 5,
+    `${counts.refused} attempts were refused past the cap; only a small post answer tail may overflow`);
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("natural language net ranking — concept coverage before term frequency (2026-10-14)");
+
+// The NL net answers with the engines' own matching over the raw
+// question, filler words included, so its shelf can be topped by a
+// paper that matches surface words heavily while engaging fewer
+// of the question's concepts than another paper on the same
+// shelf. The net's papers now rank by concept group coverage
+// (paperConceptGroupHits over the merged retrieval groups) ahead
+// of raw score. Fixture: the short yogurt question. The curated
+// table resolves two groups (microbe via germs, gut via belly)
+// and the expansion stub adds a third (yogurt) — the ranking
+// resolution merges all three, while the handler's topic filter
+// (gateConceptGroups) judges on the two curated groups alone and
+// requires two touches to ship at all, so a zero coverage paper
+// is filtered as off topic by design (the shelf staying honest,
+// not a ranking failure). The competition is therefore between
+// the NL net's own papers: a surface heavy paper covering the two
+// curated groups with a large raw score (citation bait, phrase
+// repetition) but NOT the expansion group, and a full coverage
+// paper covering all three groups with a modest raw score. The
+// full coverage paper must ship ahead of the surface paper.
+// The scenario runs on a larger ledger limit on purpose: the
+// ranking machinery is what is under test, and at the production
+// limit this harness's fresh database pre stages (~25 spends)
+// plus three ladder rungs and the concept round (~55 more) leave
+// the NL gate no room on any question — the nets sit last in the
+// gather order by design (the budget behavior itself is pinned at
+// the real limit by the scenarios above). The counting stub
+// enforces the same limit the ledger carries, so the equality
+// assertion still holds.
+const NL_Q = "does eating yogurt change belly germs";
+const NL_LIMIT = 120;
+const NL_LADDER = {
+  title: "The infant belly and its germs in the first year of life",
+  doi: "10.1000/nlladder", pubYear: "2023", citedByCount: 9,
+  authorString: "Eee F", journalTitle: "Journal of Infant Studies",
+  abstractText: "The belly of infants was examined across the first year. Belly size, belly growth, and the germs present were recorded for each infant in the cohort while eating patterns were logged, and the germs in the belly were counted again at six months.",
+};
+const NL_SURFACE = {
+  title: "Belly germs in daily life: the germs and belly health you carry",
+  doi: "10.1000/nlsurface", pubYear: "2024", citedByCount: 80,
+  authorString: "Aaa B", journalTitle: "Journal of Daily Studies",
+  abstractText: "Belly germs are part of daily life. The germs in your belly and the belly germs you carry were counted again and again. Germs and belly, belly and germs: a survey of germs, belly health, and the daily germs of the belly.",
+};
+const NL_FULLCOV = {
+  title: "Yogurt, gut germs and the infant belly",
+  doi: "10.1000/nlfull", pubYear: "2024", citedByCount: 5,
+  authorString: "Ccc D", journalTitle: "Journal of Gut Studies",
+  abstractText: "Infants fed yogurt were sampled over six weeks. The germs in the belly and the gut germs were counted, and yogurt intake was tracked daily.",
+};
+
+async function runNlRankScenario() {
+  const counts = { fetch: 0, d1: 0, ai: 0, attempts: 0, refused: 0, epmcVerbatim: 0, s2Verbatim: 0 };
+  const attemptNl = (kind) => {
+    counts[kind]++;
+    counts.attempts++;
+    if (counts.attempts > NL_LIMIT) {
+      counts.refused++;
+      throw new Error("Too many subrequests by single Worker invocation");
+    }
+  };
+  const countingDbNl = () => {
+    const st = () => {
+      const s = {
+        bind: () => s,
+        first: async () => { attemptNl("d1"); return null; },
+        all: async () => { attemptNl("d1"); return { results: [] }; },
+        run: async () => { attemptNl("d1"); return { success: true, meta: { changes: 1 } }; },
+      };
+      return s;
+    };
+    return {
+      prepare: () => st(),
+      batch: async (arr) => { attemptNl("d1"); return (arr || []).map(() => ({ success: true })); },
+      exec: async () => { attemptNl("d1"); return { results: [] }; },
+    };
+  };
+  const aiStub = {
+    run: async (model, input) => {
+      attemptNl("ai");
+      if (model === "@cf/baai/bge-small-en-v1.5") {
+        const texts = (input && input.text) || [];
+        return { data: texts.map((_, i) => [1, 0.01 * (i + 1), 0.5, 0.25]) };
+      }
+      const msgs = (input && input.messages) || [];
+      const joined = msgs.map((m) => String(m.content || "")).join("\n");
+      if (joined.includes("ANSWER TO FACT-CHECK:")) return { response: "not json" };
+      return { response: SYNTH_ANSWER };
+    },
+  };
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => undefined,
+      put: async () => {},
+      delete: async () => false,
+    },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = async (url, opts = {}) => {
+    attemptNl("fetch");
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
+        u.includes("api.mistral.ai") || u.includes("integrate.api.nvidia.com")) {
+      if (body.includes("literature search specialist")) {
+        // The expansion group the ranking resolution merges in:
+        // the gate resolution (two curated groups already) does
+        // not use it, which is the wedge this fixture stands on.
+        return chatRes(JSON.stringify([{ term: "yogurt", alternates: ["yogurt drink", "yogurt culture", "greek yogurt"] }]));
+      }
+      if (body.includes("relevance validator")) {
+        return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      }
+      return chatRes(SYNTH_ANSWER);
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      const qs = new URL(u).searchParams.get("query") || "";
+      if (qs.includes(NL_Q)) {
+        counts.epmcVerbatim++;
+        // The natural language net is the verbatim caller (the raw
+        // net asks with the cleaned query, not the question): its
+        // call returns the surface paper ahead of the full coverage
+        // paper. Later verbatim callers (a retry gather, the
+        // evidence cascade) get nothing, so the competition exists
+        // exactly once, inside the NL net's own shelf.
+        if (counts.epmcVerbatim === 1) return jsonRes({ resultList: { result: [NL_SURFACE, NL_FULLCOV] } });
+        return jsonRes({ resultList: { result: [] } });
+      }
+      // Only the ladder's boolean answers, with the one ladder
+      // paper, and only the first time it is asked: the nets judge
+      // the draw by gathered counts, and every retrieval round
+      // re-issues the boolean, so a stub that answers it every
+      // time inflates the count past the nets' thresholds and they
+      // are never reached. The shipped boolean for this question
+      // opens with the gut group's rung.
+      if (qs.startsWith("((belly OR gut") && !counts.boolAnswered) {
+        counts.boolAnswered = 1;
+        return jsonRes({ resultList: { result: [NL_LADDER] } });
+      }
+      return jsonRes({ resultList: { result: [] } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) return jsonRes({ esearchresult: { idlist: [] } });
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    if (u.includes("api.semanticscholar.org")) {
+      const q = new URL(u).searchParams.get("query") || "";
+      if (q === NL_Q) counts.s2Verbatim++;
+      return jsonRes({ data: [] });
+    }
+    if (u.includes("export.arxiv.org")) return new Response("", { status: 200 });
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger(NL_LIMIT);
+    const env = {
+      DB: countingDbNl(),
+      AI: aiStub,
+      GROQ_KEY: "ledger-test-groq-key-123456",
+      GEMINI_KEY: "ledger-test-gemini-key-123456",
+      MISTRAL_KEY: "ledger-test-mistral-key-123456",
+      NVIDIA_KEY: "ledger-test-nvidia-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: NL_Q }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("NL net: full concept coverage ranks ahead of the surface match", async () => {
+  const { data, counts, ledger } = await runNlRankScenario();
+  assert.equal(ledger.used(), counts.attempts,
+    `ledger counted ${ledger.used()} but the stubs recorded ${counts.attempts} platform attempts`);
+  // The natural language net demonstrably fired: Europe PMC saw
+  // the verbatim question (only the NL net asks it verbatim; the
+  // raw net asks with the cleaned query).
+  assert.ok(counts.epmcVerbatim >= 1,
+    `the NL net never fired (verbatim Europe PMC calls: ${counts.epmcVerbatim})`);
+  const titles = (data.sources || []).map((s) => s.title || "");
+  const surfaceIdx = titles.findIndex((t) => t.includes("Belly germs in daily life"));
+  const fullIdx = titles.findIndex((t) => t.includes("Yogurt, gut germs and the infant belly"));
+  assert.ok(surfaceIdx >= 0, "the surface paper did not ship at all: " + JSON.stringify(titles));
+  assert.ok(fullIdx >= 0, "the full coverage paper did not ship at all: " + JSON.stringify(titles));
+  assert.ok(fullIdx < surfaceIdx,
+    `the full coverage paper must rank ahead of the surface match (full coverage at ${fullIdx}, surface at ${surfaceIdx})`);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

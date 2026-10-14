@@ -512,7 +512,7 @@ await test("the cache schema carries the wave two bump", () => {
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v29"'), "CACHE_SCHEMA_VERSION must be v29");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v30"'), "CACHE_SCHEMA_VERSION must be v30");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -586,7 +586,14 @@ const ccPassesHandlerFilter = (paper, q) => {
 
 await test("the baby belly question still glues into window constraints (the shape under test)", () => {
   const phrases = analyzeQuery(CC_QUESTION).constraints.map((c) => c.phrase);
-  assert.deepEqual(phrases, ["germs baby belly", "change well baby"]);
+  // CORRECTED CONTRACT (2026-10-14, structured query hygiene): this
+  // pin used to expect ["germs baby belly", "change well baby"] —
+  // the raw glued windows. Key phrases now pass the filler screen
+  // before they become constraints (see screenKeyPhrase in
+  // search.js): "change" is a stopword and "well" a degree word, so
+  // the second window's only content word is "baby". The verdict
+  // tests below run on these screened phrases and are unchanged.
+  assert.deepEqual(phrases, ["germs baby belly", "baby"]);
 });
 
 await test("on point infant gut papers earn partial through the concept bridge, never off-topic", () => {

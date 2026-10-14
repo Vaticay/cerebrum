@@ -465,6 +465,29 @@ export const SUBREQUEST_TAIL_RESERVE = 7;
 // check 2, vector cache read 1, the batched embedding call 1,
 // neuron spend 2, the divergence read 1, slack 1.
 export const SUBREQUEST_RERANK_COST = 8;
+// The final fallback nets, priced at their REAL ledger cost
+// (2026-10-14). The first ledger treated the last three rounds —
+// the raw query net, the natural language net, and the relaxed
+// boolean net — as cheap and gated them at margin 0: they could
+// start whenever anything sat above the answer reserve, and then
+// spend INTO it. They are not cheap. Each net's fetchers multiply
+// internally on exactly the starved queries the nets exist for:
+// europePMC fires up to 3 sequential formulations (the given
+// query, its structured rebuild, the organism form) and PubMed up
+// to 5 calls (3 esearch formulations, then efetch and esummary
+// together), while Semantic Scholar and OpenAlex cost 1 each. So:
+//   raw net        europePMC 3 + semanticScholar 1 + openAlex 1 = 5
+//   NL net         semanticScholar 1 + europePMC 3 + openAlex 1 = 5
+//   relaxed net    europePMC 3 + pubmed 5                       = 8
+// A net now fires only when the remaining budget covers the net
+// AND leaves the answer reserve intact afterward (the gate passes
+// the net's cost as the retrievalRoom margin) — the same rule the
+// speculative rounds already lived under at one rung's cost.
+// Transient retry attempts beyond the first formulation are the
+// reserve derivation's slack, as with SUBREQUEST_RUNG_COST.
+export const SUBREQUEST_RAW_NET_COST = 5;
+export const SUBREQUEST_NL_NET_COST = 5;
+export const SUBREQUEST_RELAXED_NET_COST = 8;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 
@@ -1025,7 +1048,16 @@ export function isNonLiterature(p) {
 // inputs the corrected pipeline trims earlier and funds the answer
 // stages the v28 count starved, so payloads cached under v28's
 // undercount must not be served as though produced under it.
-const CACHE_SCHEMA_VERSION = "v29";
+// v30 (2026-10-14, structured query hygiene + net pricing): the
+// authored boolean and the analysis key phrases now pass a filler
+// screen (a failed boolean is rebuilt from the concept groups),
+// the three final fallback nets are gated at their real ledger
+// cost instead of margin 0, and the natural language net's papers
+// rank by concept group coverage. For the same stored inputs each
+// of those changes which papers are gathered and in what order,
+// so payloads cached under v29 must not be served as though
+// produced under them.
+const CACHE_SCHEMA_VERSION = "v30";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -3052,6 +3084,222 @@ function splitOrganismTopic(query) {
   };
 }
 
+// ════════════════════════════════════════════════════════════════════
+// STRUCTURED QUERY HYGIENE SCREEN (2026-10-14)
+//
+// The boolean this pipeline ships is authored from pieces a model
+// or a tokenizer proposed: expansion groups keyed by glued lay
+// phrases, anchors chosen by a specificity race over the cleaned
+// question's surviving words. Neither author can tell a topic word
+// from the question's own scaffolding, so filler kept becoming
+// REQUIRED terms. Live trace (production, corrected ledger build):
+// the question "does not sleeping enough make it easier to catch
+// a cold" shipped the structured query
+//   ("easier catch cold" OR "increased susceptibility to colds" OR
+//    "elevated cold incidence") AND sleep AND enough
+// — "enough", a quantity word, as a mandatory AND term. The
+// primary retrieval starved on it, every fallback round fired,
+// the fallback nets spent the answer reserve, validation and
+// synthesis both skipped as budget exhausted, and the extractive
+// tier cited collision papers about the words catch and easier.
+// The third panel rescore had already named the class: literal
+// AND queries built from lay words (its probe required the word
+// "leftover").
+//
+// The screen is deterministic and runs where the authored query
+// is assembled (gatherPapers) and where the analysis key phrases
+// are minted (analyzeQuery), before either drives retrieval:
+//   . A required term or phrase is admissible only if it CARRIES
+//     CONTENT: at least one word that is not filler, not a
+//     stopword, and not question framing. A phrase whose words are
+//     all filler fails; a bare single word that is filler fails.
+//   . When the authored boolean fails, it is not shipped. The
+//     boolean is rebuilt from the resolved concept groups — the
+//     gate's own resolution (questionConceptGroups over
+//     gateDynLookup), so the rebuilt query and the gates that
+//     judge its results are looking at the same concepts. When no
+//     group resolves, the failed rungs are dropped and the
+//     surviving rungs ship; when nothing survives, the authored
+//     query ships after all, because a flawed boolean beats none.
+//   . Either way the failure is RECORDED (the record's
+//     structuredQueryProvenance): a degraded query is visible in
+//     the search record, never silent.
+// Verbs get suspicion, not a blanket ban: the light verbs of the
+// asking (make, get, take, catch in its verb sense) are filler,
+// but a content verb (degrade, survive, crack) is a topic word
+// and passes — one that resolves to a concept group renders as an
+// OR group in the first place, so the bare verb rung the screen
+// judges is the exception, not the rule.
+// ════════════════════════════════════════════════════════════════════
+
+// Filler for requirement purposes: quantity and degree words,
+// remainder words, degree comparatives, the light verbs, pronouns
+// and person words, negation, and question scaffolding. A word is
+// ALSO filler when a set the file already trusts for "this word
+// frames the question" claims it (STOPWORDS, QUERY_FRAMING_WORDS,
+// EXPANSION_FRAMING_WORDS) — those are module level consts defined
+// later in the file and only read here at call time, the same
+// arrangement buildStructuredQuery's own STOPWORDS use documents.
+export const QUERY_FILLER_WORDS = new Set([
+  // Quantity and degree: how much or how strong, never the topic.
+  "enough", "much", "many", "more", "most", "less", "fewer", "very",
+  "really", "quite", "rather", "too", "almost", "nearly", "mostly",
+  "mainly", "fully", "partly", "well",
+  "sufficient", "sufficiently", "insufficient", "insufficiently",
+  // Remainder words: what is left over is a circumstance of the
+  // asking, not a literature concept (the panel's "leftover" rung).
+  "leftover", "leftovers", "remaining",
+  // Degree comparatives: they grade the property the question asks
+  // about; no paper is required to phrase the comparison.
+  "easier", "harder", "better", "worse", "greater", "higher",
+  "lower", "stronger", "weaker", "faster", "slower", "bigger",
+  "smaller", "larger",
+  // Light verbs: the asking's own verbs of doing. "catch" is the
+  // proven trap (catch a cold); in its verb sense it names the
+  // asking, not a topic. Content verbs are deliberately absent.
+  "make", "makes", "making", "made", "get", "gets", "getting",
+  "got", "take", "takes", "taking", "took", "catch", "catches",
+  "catching", "caught", "keep", "keeps", "keeping", "kept", "let",
+  "lets", "letting", "allow", "allows", "allowing", "help",
+  "helps", "helping", "helped", "give", "gives", "giving", "put",
+  "puts", "putting", "come", "comes", "coming", "came", "become",
+  "becomes", "becoming", "became", "tend", "tends", "tended",
+  "seem", "seems", "seemed",
+  // Pronouns and person words: who is asking is never a concept.
+  "anyone", "someone", "everyone", "anybody", "somebody",
+  "everybody", "nobody", "whoever", "people", "person",
+  // Negation and scaffolding.
+  "not", "no", "never", "without", "whether",
+]);
+
+function isQueryFillerWord(w) {
+  return QUERY_FILLER_WORDS.has(w)
+    || STOPWORDS.has(w)
+    || QUERY_FRAMING_WORDS.has(w)
+    || EXPANSION_FRAMING_WORDS.has(w);
+}
+
+// The content words of a term or phrase: what would remain if the
+// question's scaffolding were stripped out of it. Empty means the
+// term carries nothing a paper could be required to say.
+export function queryTermContentWords(term) {
+  return String(term || "")
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter((w) => w && !isQueryFillerWord(w));
+}
+
+// Screen one analysis key phrase: the phrase with its filler words
+// removed, or "" when nothing content bearing remains (the caller
+// drops it). A phrase that survives keeps its content words in
+// order, so "not sleeping enough" screens to "sleeping" and
+// "easier catch cold" to "cold", while a real constraint phrase
+// ("waste oil", "whole gut preparations") passes through word for
+// word unchanged.
+export function screenKeyPhrase(phrase) {
+  const words = normalizeConstraintText(phrase).split(" ").filter(Boolean);
+  if (!words.length) return "";
+  const content = words.filter((w) => !isQueryFillerWord(w));
+  return content.join(" ");
+}
+
+// Split a shipped boolean on its TOP LEVEL operator, respecting
+// parentheses and quoted phrases. The grammar buildStructuredQuery
+// produces is small: rungs joined by " AND ", each rung a quoted
+// phrase, a parenthesized OR group, or a bare word; the loose
+// fallback is a flat OR of words.
+function splitTopLevelBoolean(q, op) {
+  const parts = [];
+  let depth = 0;
+  let inQuote = false;
+  let cur = "";
+  const needle = " " + op + " ";
+  for (let i = 0; i < q.length; i++) {
+    const ch = q[i];
+    if (ch === '"') inQuote = !inQuote;
+    if (!inQuote) {
+      if (ch === "(") depth++;
+      else if (ch === ")") depth = Math.max(0, depth - 1);
+      else if (depth === 0 && q.startsWith(needle, i)) {
+        parts.push(cur);
+        cur = "";
+        i += needle.length - 1;
+        continue;
+      }
+    }
+    cur += ch;
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts.map((s) => s.trim()).filter(Boolean);
+}
+
+// The members of one rung: the quoted phrases and bare words of an
+// OR group, the phrase of a quoted rung, or the word itself.
+function booleanRungMembers(rung) {
+  let r = String(rung || "").trim();
+  if (r.startsWith("(") && r.endsWith(")")) r = r.slice(1, -1);
+  return splitTopLevelBoolean(r, "OR")
+    .map((m) => m.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
+}
+
+// Screen the authored structured query. Returns { ok, failedRungs }
+// where failedRungs names each top level AND rung whose every
+// member is filler only — a requirement no paper can be asked to
+// satisfy. An OR rung (the organism branch's topic group, or the
+// loose all-OR fallback shape) is judged as one rung: it fails
+// only when every alternate is filler, because an OR asks for any
+// one of them, not for the head alone.
+export function screenStructuredQuery(structuredQuery) {
+  const q = String(structuredQuery || "").trim();
+  if (!q) return { ok: true, failedRungs: [] };
+  const rungs = splitTopLevelBoolean(q, "AND");
+  const failedRungs = [];
+  for (const rung of rungs) {
+    const members = booleanRungMembers(rung);
+    if (!members.length) continue;
+    const carries = members.some((m) => queryTermContentWords(m).length > 0);
+    if (!carries) failedRungs.push(rung);
+  }
+  return { ok: failedRungs.length === 0, failedRungs };
+}
+
+// The screened boolean with its failed rungs removed, or null when
+// no rung survives. Rungs are rejoined verbatim, so a query whose
+// only defect is one filler rung loses exactly that rung.
+export function dropFailedRungs(structuredQuery, failedRungs) {
+  const failed = new Set(failedRungs || []);
+  if (!failed.size) return String(structuredQuery || "");
+  const kept = splitTopLevelBoolean(String(structuredQuery || ""), "AND")
+    .filter((r) => !failed.has(r));
+  return kept.length ? kept.join(" AND ") : null;
+}
+
+// Rebuild the boolean from the resolved concept groups — the
+// gate's own resolution, gateDynLookup merged groups, so the
+// rebuilt query and the concept gates are looking at the same
+// concepts by construction. Each group renders the way
+// buildStructuredQuery renders an anchored group (the member the
+// question actually used first, phrases quoted, capped at 7
+// members), and at most four groups are ANDed, the same anchor
+// budget the builder uses. Returns null when no group resolves.
+export function rebuildStructuredQueryFromGroups(query, dynLookup) {
+  const groups = questionConceptGroups(query, gateDynLookup(query, dynLookup));
+  if (!groups.length) return null;
+  const qLower = String(query || "").toLowerCase();
+  const rungs = groups.slice(0, 4).map((set) => {
+    const members = [...set];
+    const head = members.find((m) => qLower.includes(m)) || members[0];
+    const ordered = [head, ...members.filter((m) => m !== head)].slice(0, 7);
+    if (ordered.length === 1) {
+      return ordered[0].includes(" ") ? '"' + ordered[0] + '"' : ordered[0];
+    }
+    return "(" + ordered.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
+  });
+  return rungs.length ? rungs.join(" AND ") : null;
+}
+
 export function buildStructuredQuery(query, dynLookup) {
   // If the query names a scientific binomial, wrap it in quotes so search engines
   // treat it as a required phrase. This is what prevents "Populus deltoides"
@@ -4312,6 +4560,18 @@ export function analyzeQuery(rawQuery) {
       keyPhrases.push(rule.constraint);
     }
   }
+
+  // Structured query hygiene (2026-10-14): extractKeyPhrases glues
+  // adjacent surviving tokens into phrases, and the survivors
+  // include the question's own scaffolding — the live sleep and
+  // colds trace minted the "constraints" "not sleeping enough" and
+  // "easier catch cold", phrases no paper contains, which then
+  // drove the fanout topic string, the constraint gate terms, and
+  // the shipped analysis. Every phrase passes the screen (see
+  // screenKeyPhrase): filler words are stripped, a phrase left
+  // with no content word is dropped, and a real constraint phrase
+  // passes word for word unchanged.
+  keyPhrases = [...new Set(keyPhrases.map((p) => screenKeyPhrase(p)).filter(Boolean))];
 
   const constraints = keyPhrases.map((phrase) => ({
     phrase,
@@ -9897,6 +10157,9 @@ export function applyRecordStoreOutcome(record, stored) {
  *   question         the question as asked
  *   askedAt          Date, epoch ms, or ISO string (defaults to now)
  *   structuredQuery  the boolean query string, if one was built
+ *   structuredQueryProvenance  the hygiene screen's verdict when it
+ *                    rejected the authored boolean (or
+ *                    diag.structuredQueryProvenance); null otherwise
  *   conceptQueries   the concept expanded queries (or diag.conceptExpanded)
  *   executedQueries  the queries retrieval actually ran ({kind, query}
  *                    entries, or recovered from the diag rung, recall,
@@ -9947,6 +10210,29 @@ export function buildSearchRecord(input) {
     const structuredRaw = input.structuredQuery != null ? input.structuredQuery
       : diag ? (diag.structuredQuery != null ? diag.structuredQuery : diag.booleanQuery) : null;
     const structuredQuery = typeof structuredRaw === "string" && structuredRaw.trim() ? structuredRaw : null;
+
+    // Structured query provenance (2026-10-14): when the hygiene
+    // screen rejected the authored boolean (a required rung whose
+    // every word was filler — "enough" as a mandatory term in the
+    // live sleep and colds trace), the record says so: what was
+    // rejected, which rungs failed, and whether the shipped query
+    // was rebuilt from the concept groups or screened down to its
+    // surviving rungs. Null when the authored query shipped as
+    // built, so a clean record stays exactly the shape it was.
+    const provRaw = input.structuredQueryProvenance != null ? input.structuredQueryProvenance
+      : diag ? diag.structuredQueryProvenance : null;
+    const structuredQueryProvenance = provRaw && typeof provRaw === "object" && provRaw.screenFailed
+      ? {
+          screenFailed: true,
+          failedRungs: Array.isArray(provRaw.failedRungs)
+            ? provRaw.failedRungs.map((r) => String(r == null ? "" : r)).filter(Boolean).slice(0, 6)
+            : [],
+          rebuilt: !!provRaw.rebuilt,
+          source: typeof provRaw.source === "string" && provRaw.source ? provRaw.source : null,
+          rejected: typeof provRaw.rejected === "string" && provRaw.rejected.trim()
+            ? provRaw.rejected.slice(0, 500) : null,
+        }
+      : null;
 
     const conceptRaw = input.conceptQueries != null ? input.conceptQueries
       : diag ? diag.conceptExpanded : null;
@@ -10016,6 +10302,7 @@ export function buildSearchRecord(input) {
       askedAt,
       question: String(input.question != null ? input.question : input.query != null ? input.query : "").trim().slice(0, 1000),
       structuredQuery,
+      structuredQueryProvenance,
       conceptQueries,
       executedQueries: recordExecutedQueries(input, diag),
       llmExpansion,
@@ -12605,7 +12892,34 @@ async function gatherPapers(rawQuery, opts) {
   const primaryOrganismName = organismTerm ? organismTerm.replace(/"/g, "") : null;
   const secondaryOrganisms = allOrganismSciNames.filter((n) => n !== primaryOrganismName).slice(0, 2);
 
-  const booleanQuery = buildStructuredQuery(query, dynLookup);
+  let booleanQuery = buildStructuredQuery(query, dynLookup);
+  // Structured query hygiene (2026-10-14): the authored boolean is
+  // screened before it drives a single engine (see the screen's
+  // own comment block above buildStructuredQuery). The live sleep
+  // and colds trace shipped "... AND sleep AND enough" — a quantity
+  // word as a mandatory term — because buildStructuredQuery's
+  // anchor race cannot tell a topic word from scaffolding. On a
+  // screen failure the boolean is rebuilt from the resolved
+  // concept groups; if no group resolves, the failed rungs are
+  // dropped; only when nothing survives does the authored query
+  // ship, and the provenance records which of the three happened.
+  let structuredQueryProvenance = null;
+  {
+    const screen = screenStructuredQuery(booleanQuery);
+    if (!screen.ok) {
+      const rebuilt = rebuildStructuredQueryFromGroups(query, dynLookup);
+      const dropped = rebuilt ? null : dropFailedRungs(booleanQuery, screen.failedRungs);
+      structuredQueryProvenance = {
+        screenFailed: true,
+        failedRungs: screen.failedRungs,
+        rebuilt: !!(rebuilt || dropped),
+        source: rebuilt ? "concept-groups" : dropped ? "screened-rungs" : null,
+        rejected: booleanQuery,
+      };
+      if (rebuilt) booleanQuery = rebuilt;
+      else if (dropped) booleanQuery = dropped;
+    }
+  }
   const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
 
   // Progressive rungs, most-precise first.
@@ -12781,6 +13095,11 @@ async function gatherPapers(rawQuery, opts) {
   // string a reader would re run. Recorded, not recomputed later: the
   // dynLookup that shaped it is request scoped and gone by assembly.
   diag.structuredQuery = booleanQuery;
+  // A degraded query is visible, never silent: when the hygiene
+  // screen rejected the authored boolean, the record carries what
+  // was rejected and what shipped instead (buildSearchRecord reads
+  // this into structuredQueryProvenance).
+  if (structuredQueryProvenance) diag.structuredQueryProvenance = structuredQueryProvenance;
   if (dynGroups.length > 0) {
     diag.llmExpanded = dynGroups;
     diag.llmExpandedVia = dynGroups.via || null;
@@ -12896,7 +13215,10 @@ async function gatherPapers(rawQuery, opts) {
   const totalSoFar = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalSoFar < 8 && _budgetLeft() && roomOrTrim("raw-fallback", 0)) {
+  // Priced at its real cost (2026-10-14): the net fires only when
+  // the remaining budget covers its fetchers' internal fanout AND
+  // leaves the answer reserve intact (see SUBREQUEST_RAW_NET_COST).
+  if (totalSoFar < 8 && _budgetLeft() && roomOrTrim("raw-fallback", SUBREQUEST_RAW_NET_COST)) {
     // Include organism name in the raw fallback so we find species-specific papers
     const rawQ = organismTerm
       ? organismTerm.replace(/"/g, "") + " " + query
@@ -13061,12 +13383,33 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterExpand = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterExpand < 5 && _budgetLeft() && roomOrTrim("natural-language-fallback", 0)) {
+  // Priced at its real cost (2026-10-14), same rule as the raw net
+  // above (see SUBREQUEST_NL_NET_COST): under the old margin 0 this
+  // net and the relaxed boolean net below could spend the answer
+  // reserve between them on exactly the starved draws that fire
+  // every net, and validation and synthesis skipped as budget
+  // exhausted (the live sleep and colds trace).
+  if (totalAfterExpand < 5 && _budgetLeft() && roomOrTrim("natural-language-fallback", SUBREQUEST_NL_NET_COST)) {
     const nlFallback = await Promise.allSettled([
       semanticScholar(rawQuery.slice(0, 200), 15, s2Key, ledger),
       europePMC(rawQuery.slice(0, 200), 12, ledger),
       openAlex(rawQuery.slice(0, 200), 10, openAlexKey, ledger),
     ]);
+    // Tag the net's papers: the relevance scorer below ranks THIS
+    // net's results by concept group coverage ahead of raw term
+    // frequency (see nlGroupHits in the scorer). The net answers
+    // with the engines' own NLP over the raw question, so its hits
+    // include single filler word matches (a fishing paper for
+    // "catch rates" on a sleep question); coverage is what tells
+    // those apart from papers that engage the question's concepts.
+    // The tag rides the record copies through dedupe into scoring.
+    for (const r of nlFallback) {
+      if (r.status === "fulfilled" && Array.isArray(r.value)) {
+        for (const p of r.value) {
+          if (p && typeof p === "object") p._nlNet = true;
+        }
+      }
+    }
     results = results.concat(nlFallback);
     diag.nlFallback = nlFallback.reduce(
       (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
@@ -13086,7 +13429,10 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterNL = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterNL < 5 && _budgetLeft() && roomOrTrim("relaxed-boolean-fallback", 0)) {
+  // Priced at its real cost (2026-10-14): europePMC's internal
+  // formulations plus PubMed's five call worst case (see
+  // SUBREQUEST_RELAXED_NET_COST).
+  if (totalAfterNL < 5 && _budgetLeft() && roomOrTrim("relaxed-boolean-fallback", SUBREQUEST_RELAXED_NET_COST)) {
     const orgNames = [...new Set([
       organismTerm ? organismTerm.replace(/"/g, "") : null,
       ...(orgInfo.orgPhrases || []),
@@ -13470,6 +13816,13 @@ async function gatherPapers(rawQuery, opts) {
     }
   }
 
+  // Concept groups for the natural language net's ranking (2026
+  // 10-14): the merged retrieval resolution, the same groups the
+  // boolean was built and rebuilt from. Only the NL net's papers
+  // (tagged _nlNet at the net) are ranked by them; every other
+  // paper's group hit count stays 0 and its order is untouched.
+  const nlShelfGroups = questionConceptGroups(query, dynLookup);
+
   const scoredMapped = merged
     .map((p) => {
       const title = p.title || "";
@@ -13706,6 +14059,20 @@ async function gatherPapers(rawQuery, opts) {
 
       const score = match + quality;
 
+      // Natural language net ranking (2026-10-14): how many of the
+      // question's concept groups this paper actually engages. The
+      // NL net's engines match the raw question's words, filler
+      // included, so a paper matching one filler word ("catch" in
+      // a fishing title) can outscore a paper covering both of the
+      // question's concepts on term frequency alone. For the net's
+      // papers the sort below puts this count ahead of the score,
+      // so a two group paper tops the net's contingent and a zero
+      // group paper is never promoted by its filler match — when
+      // no paper covers the groups the counts are all 0, the sort
+      // is the score order it always was, and the downstream gates
+      // decide what ships, exactly as before.
+      const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
+
       return {
         ...p,
         score,
@@ -13724,6 +14091,7 @@ async function gatherPapers(rawQuery, opts) {
         organismPresent,
         gateCoreHits,             // used by the downstream .filter()
         gateCoreTitleHits,
+        nlGroupHits,              // NL net papers only; 0 for the rest
       };
     })
     /* ── LANGUAGE FILTER, split out of the quality filter below so the
@@ -13818,7 +14186,10 @@ async function gatherPapers(rawQuery, opts) {
       }
       return true;
     })
-    .sort((a, b) => b.score - a.score)
+    // NL net papers rank by concept group coverage ahead of raw
+    // score (2026-10-14, see nlGroupHits above); every other paper
+    // carries 0, so the rest of the shelf keeps its score order.
+    .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
     .slice(0, limit);
   // The ranked set the quality floor kept. Emergency relaxation below may add
   // some back from `merged`; funnel.ranked is set after that, on finalScored.
@@ -13861,14 +14232,23 @@ async function gatherPapers(rawQuery, opts) {
           for (const w of ORGANISM_WORDS) { if (hay.indexOf(w) !== -1) { orgPresent = true; break; } }
         }
         const orgBonus = orgPresent ? 15 : 0;
-        return { ...p, score: coreCoverage * 40 + orgBonus, contentHits: coreHits, contentCoverage: coreCoverage, organismPresent: orgPresent, relevance: null };
+        // NL net papers keep their coverage count through the
+        // relaxation (2026-10-14): the merge sorts below rank by
+        // it ahead of score, exactly like the shelf sort, or a
+        // thin shelf would hand the net's ranking back to raw
+        // term frequency in precisely the draws the net exists
+        // for.
+        const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
+        return { ...p, score: coreCoverage * 40 + orgBonus, contentHits: coreHits, contentCoverage: coreCoverage, organismPresent: orgPresent, relevance: null, nlGroupHits };
       })
       .filter((p) => p.contentHits > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
     if (relaxed1.length >= 3) {
-      finalScored = [...scored, ...relaxed1].sort((a, b) => b.score - a.score).slice(0, limit);
+      finalScored = [...scored, ...relaxed1]
+        .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
+        .slice(0, limit);
     } else {
       // Tier 2: accept anything with a real abstract and at least 1 matching word
       const relaxed2 = merged
@@ -13876,7 +14256,8 @@ async function gatherPapers(rawQuery, opts) {
         .map((p) => {
           const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
           const anyHit = [...contentTerms, ...gateTerms, ...[...neutralWords]].some((t) => hay.indexOf(t) !== -1);
-          return { ...p, score: anyHit ? 20 : 5, contentHits: anyHit ? 1 : 0, contentCoverage: anyHit ? 0.3 : 0, organismPresent: false, relevance: null };
+          const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
+          return { ...p, score: anyHit ? 20 : 5, contentHits: anyHit ? 1 : 0, contentCoverage: anyHit ? 0.3 : 0, organismPresent: false, relevance: null, nlGroupHits };
         })
         .filter((p) => p.score > 5)
         .sort((a, b) => {
@@ -13885,7 +14266,9 @@ async function gatherPapers(rawQuery, opts) {
           return cb - ca;
         })
         .slice(0, limit);
-      finalScored = [...scored, ...relaxed1, ...relaxed2].sort((a, b) => b.score - a.score).slice(0, limit);
+      finalScored = [...scored, ...relaxed1, ...relaxed2]
+        .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
+        .slice(0, limit);
     }
   }
   const scoredFinal = finalScored;
@@ -13957,7 +14340,17 @@ async function gatherPapers(rawQuery, opts) {
   // for . derived from the score distribution itself, no training data needed.
   let rerankedFinal = scoredFinal;
   const msLeft = GATHER_PAPERS_BUDGET_MS - (Date.now() - _searchStart);
-  if (!isNameQuery && scoredFinal.length >= 2 && opts && opts.env && msLeft > 4000) {
+  // Subrequest budget (2026-10-14, Defect 3): the rerank's roughly
+  // SUBREQUEST_RERANK_COST bindings (embedding runs, the budget
+  // check's statements, the neuron metering) were the one large
+  // retrieval spend with NO ledger gate: retrieval's trims
+  // protected the answer reserve on paper, then this block spent
+  // into it after the last check, and validation's funded share
+  // was gone before validation ran. The block now yields when the
+  // reserve is no longer intact; the keyword score order stands,
+  // exactly this block's own failure contract. The check runs
+  // before checkEmbeddingBudget spends anything of its own.
+  if (!isNameQuery && scoredFinal.length >= 2 && opts && opts.env && msLeft > 4000 && (!ledger || ledger.retrievalRoom(0))) {
     // Adaptive alpha from keyword score variance (coefficient of variation).
     let rerankAlpha = 0.5;
     try {
@@ -14028,6 +14421,22 @@ async function gatherPapers(rawQuery, opts) {
     }
   } else if (isNameQuery) {
     diag.semanticRerank = { applied: false, reason: "name_query" };
+  } else if (!isNameQuery && scoredFinal.length >= 2 && opts && opts.env && msLeft > 4000 && ledger && !ledger.retrievalRoom(0)) {
+    diag.semanticRerank = { applied: false, reason: "subrequest-budget" };
+  }
+
+  // NL net coverage order survives the rerank (2026-10-14): the
+  // rerank blends keyword and semantic scores, and its keyword
+  // share is exactly the raw term frequency the net's ranking
+  // demotes, so a blended sort alone would hand the shelf back to
+  // surface matches. A stable coverage first sort restores the
+  // net's papers to coverage order; every untagged paper carries
+  // 0 hits, so their reranked positions are untouched, and
+  // within a coverage tier the rerank's own order stands.
+  if (rerankedFinal.some((p) => (p.nlGroupHits || 0) > 0)) {
+    rerankedFinal = [...rerankedFinal].sort(
+      (a, b) => (b.nlGroupHits || 0) - (a.nlGroupHits || 0)
+    );
   }
 
   // QUERY INTELLIGENCE — constraint cap (2026-10-09): the scorer-level
@@ -16059,8 +16468,9 @@ async function runSearchPipeline(pctx) {
       } catch (cbErr) { console.error("[Cerebrum] search.js semantic divergence:", cbErr); }
       // Priority queue denial observability: how many standard searches the
       // queue turned away today + last 7d. Best-effort . a stats hiccup
-      // must not touch the response.
-      if (gResult._diag) {
+      // must not touch the response. Diag only spend, so it yields
+      // when the answer reserve is no longer intact (2026-10-14).
+      if (gResult._diag && (!ledger || ledger.retrievalRoom(0))) {
         try {
           const { getDenialStats } = await import("../lib/searchPriority.js");
           gResult._diag.queueDenials = await getDenialStats(env, ledger);
@@ -18067,18 +18477,47 @@ async function runSearchPipeline(pctx) {
     // through here. planWaveLegs picks which legs the remaining
     // allowance can pay for . breadth first across provider buckets,
     // every leg costing 1 (fetch or Workers AI run alike) . and the legs it cannot pay
-    // for are recorded in aiAttempts as budget skips carrying the
-    // reserve reason, so the synthesis stage health can say plainly
-    // that our own budget, not the fleet, is what shrank the wave.
+    // for are recorded in aiAttempts as budget skips, so the
+    // synthesis stage health can say plainly that our own budget,
+    // not the fleet, is what shrank the wave.
     // keepTailReserve holds back SUBREQUEST_TAIL_RESERVE subrequests
     // for the post synthesis stages (fact check, evidence structure);
     // the rescue waves run when those stages are already lost, so
     // they may spend to zero.
+    //
+    // THE RESERVE FUNDS WHAT IT PROTECTS (2026-10-14, Defect 3).
+    // The allowance above was the whole rule, and it misfired on
+    // the heaviest draws: retrieval's real spends land after its
+    // last trim check and overshoot the estimates the trims
+    // protected, so synthesis could be reached with the tail's
+    // worth of budget or less remaining (the live black soldier
+    // fly draw arrived with 5). remaining minus tail was then 0 or
+    // negative, the planner selected NO legs, and every leg was
+    // stamped "reserved for synthesis" . the guard refusing the
+    // very stage the answer reserve exists to fund, with the tail
+    // charged a second time against the race (it is already one
+    // of the shares the reserve's derivation counts). The floor
+    // below ends that by construction: while anything remains, a
+    // wave's allowance never drops below the wave's own planned
+    // cost bounded by what remains, so the race can always spend
+    // down toward the tail and its first wave fires its planned
+    // breadth whenever the request reaches synthesis with budget
+    // left. A leg skipped after the floor is genuine scarcity,
+    // and is stamped with the exhausted reason like the rescue
+    // planners stamp theirs, never the reserve reason.
     const fireWaveLegs = (descriptors, { keepTailReserve = true } = {}) => {
-      const allowance = Math.max(0, ledger.remaining() - (keepTailReserve ? SUBREQUEST_TAIL_RESERVE : 0));
+      const remaining = ledger.remaining();
+      const legCost = (d) => Math.max(0, Math.floor(Number(d && d.fetchCost) || 0));
+      const waveCost = descriptors.reduce((n, d) => n + legCost(d), 0);
+      const allowance = remaining > 0
+        ? Math.max(
+            remaining - (keepTailReserve ? SUBREQUEST_TAIL_RESERVE : 0),
+            Math.min(waveCost, remaining)
+          )
+        : 0;
       const { selected, skipped } = planWaveLegs(descriptors, allowance);
       for (const d of skipped) {
-        aiAttempts.push({ wave: d.wave, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_RESERVE_REASON });
+        aiAttempts.push({ wave: d.wave, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_EXHAUSTED_REASON });
       }
       return selected
         .map((d) => guardedRaceEntry(d.wave, d.label, d.fire))
