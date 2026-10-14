@@ -621,7 +621,13 @@ await test("the cache schema carries the wave two bump", () => {
   // above the constant for the wave eleven reasons.
   // PIN UPDATED (2026-10-14, wave eleven addendum): v46 — the
   // mechanism detector hears plain copying words.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v46"'), "CACHE_SCHEMA_VERSION must be v46");
+  // PIN UPDATED (2026-10-14, wave twelve): v47 — the claim
+  // check counts only checked claims, dedupe folds richer
+  // duplicate fields, the foundational lane sorts by
+  // citations, the compound clause confirmation requires
+  // topical company, the single source retry extends to
+  // every clean answer.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v47"'), "CACHE_SCHEMA_VERSION must be v47");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

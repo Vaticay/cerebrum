@@ -1482,7 +1482,7 @@ export function dedupePapers(list) {
   const seenTitles = new Map();  // normalized title -> hasStrongId
   const seenCores = new Map();   // core key -> [{ doi, surname }] of kept records
   const seenTwins = new Map();   // main title core -> [{ surname, year, abstractWords }] of kept records
-  return (list || []).filter((p) => {
+  const kept = (list || []).filter((p) => {
     const keys = paperDedupeKeys(p);
     if (keys.length === 0) return true;
     // Check strong identifiers first
@@ -1585,6 +1585,92 @@ export function dedupePapers(list) {
     }
     return true;
   });
+  mergeDroppedDuplicates(list, kept);
+  return kept;
+}
+
+/* Field merge for dropped duplicates (2026-10-14, wave twelve,
+ * item 2). Dedupe used to keep the FIRST copy of a work exactly
+ * as it arrived and discard every later copy whole. The copies
+ * are not equal: one source returns the work with no abstract
+ * and no citation count, another (often the foundational lane,
+ * which fetched it on purpose) returns the full abstract and a
+ * five figure citation count. First copy wins meant the thin
+ * copy won: the work then failed the citation gate for want of
+ * an abstract and the foundational test for want of citations,
+ * and the lane's rich copy sat in the discarded pile — the
+ * binding failure behind the founding papers that never
+ * surfaced live however well the lane fetched them. A dropped
+ * duplicate now folds its fields into the kept record of the
+ * same work: the longer abstract, the highest citation count,
+ * and any identifying field the kept copy lacks. Identity for
+ * the fold is the dedupe filter's own conservative arms — a
+ * shared strong identifier, or the core identity with neither
+ * veto, or a shared title key when the pair is not two
+ * separately identified works — so the fold never merges
+ * records the filter itself kept apart (outlet twins with
+ * different DOIs stay unmerged). Only upgrades land: a field
+ * the kept copy carries is never replaced by a weaker one. */
+function mergeDroppedDuplicates(list, kept) {
+  if (!Array.isArray(list) || !Array.isArray(kept) || kept.length === 0) return;
+  const keptSet = new Set(kept);
+  const keptIndex = kept.map((p) => {
+    const keys = paperDedupeKeys(p || {});
+    return {
+      strong: new Set(keys.filter((k) => !k.startsWith("title:"))),
+      titles: new Set(keys.filter((k) => k.startsWith("title:"))),
+      core: paperCoreIdentity(p || {}),
+    };
+  });
+  const sameWork = (idx, dKeys, dCore) => {
+    const k = keptIndex[idx];
+    for (const key of dKeys) {
+      if (!key.startsWith("title:") && k.strong.has(key)) return true;
+    }
+    if (dCore && k.core && dCore.key === k.core.key &&
+        !((k.core.doi && dCore.doi && k.core.doi !== dCore.doi) ||
+          (k.core.surname && dCore.surname && k.core.surname !== dCore.surname))) return true;
+    const dStrong = dKeys.some((key) => !key.startsWith("title:"));
+    if (!dStrong || k.strong.size === 0) {
+      for (const key of dKeys) {
+        if (key.startsWith("title:") && k.titles.has(key)) return true;
+      }
+    }
+    return false;
+  };
+  const citationValue = (p) => {
+    for (const f of ["citations", "citedByCount", "citationCount"]) {
+      if (typeof (p && p[f]) === "number" && Number.isFinite(p[f])) return p[f];
+    }
+    return null;
+  };
+  for (const dropped of list) {
+    if (!dropped || keptSet.has(dropped)) continue;
+    const dKeys = paperDedupeKeys(dropped);
+    if (dKeys.length === 0) continue;
+    const dCore = paperCoreIdentity(dropped);
+    let target = null;
+    for (let i = 0; i < kept.length; i++) {
+      if (sameWork(i, dKeys, dCore)) { target = kept[i]; break; }
+    }
+    if (!target) continue;
+    const dAbs = String(dropped.abstract || "");
+    if (dAbs.trim().length > String(target.abstract || "").trim().length) target.abstract = dropped.abstract;
+    if (!String(target.snippet || "").trim() && dropped.snippet) target.snippet = dropped.snippet;
+    if (!String(target.tldr || "").trim() && dropped.tldr) target.tldr = dropped.tldr;
+    const tc = citationValue(target);
+    const dc = citationValue(dropped);
+    if (dc !== null && (tc === null || dc > tc)) {
+      target.citations = dc;
+      target.citedByCount = dc;
+      target.citationCount = dc;
+    }
+    if (!/(?:19|20)\d{2}/.test(String(target.year || "")) && /(?:19|20)\d{2}/.test(String(dropped.year || ""))) target.year = dropped.year;
+    for (const f of ["authors", "_allAuthors", "journal", "doi", "url", "pmcid"]) {
+      if (!String(target[f] || "").trim() && dropped[f]) target[f] = dropped[f];
+    }
+    if (dropped._foundationalLane && !target._foundationalLane) target._foundationalLane = true;
+  }
 }
 
 /* RELEVANCE FLOOR . the citation gate.
@@ -2089,7 +2175,33 @@ export function isNonLiterature(p) {
 // Retrieval composition and answer openings change for the
 // newly firing questions, so payloads cached under v45
 // predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v46";
+// v47 (2026-10-14, wave twelve): the claim check counts only
+// the claims it actually checked — mechanical integrity flags
+// (alignment, stripped, demoted) and deep claims attributed
+// to a source outside the set the checker was given leave the
+// support denominator everywhere (panel summary, confidence,
+// the zero support serve), so a correct answer no longer
+// reports claim check 0 of 5 on the strength of flags alone,
+// and the deep check's OpenRouter tier actually delivers its
+// verdicts (its abort timer sat inside the try whose finally
+// cleared it, so the finally's ReferenceError silently
+// replaced every parsed result with null and the tier never
+// landed);
+// dedupe folds a dropped duplicate's richer fields (the
+// longer abstract, the highest citation count) into the kept
+// record instead of discarding them, and the foundational
+// lane's three legs sort by citations, so founding papers
+// whose titles carry none of the query words can surface on
+// abstract engagement and citation weight; the presented
+// list's compound clause requires topical company for an
+// abstract confirmation, so a device paper's lone free
+// standing concept word no longer confirms a fused title hit;
+// and the minimum cited support retry extends from mechanism
+// and measurement shapes to every clean single source answer
+// over a healthy pool. Support counts, presented lists, cited
+// sets, and answer composition all change under this wave,
+// so payloads cached under v46 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v47";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -5390,7 +5502,7 @@ function cleanQuery(raw) {
 // ============ SCHOLARLY DATABASE SOURCES ============
 // Each source returns [] on any failure, never throws. Timeouts keep them fast.
 
-async function europePMC(query, limit = 8, ledger = null) {
+async function europePMC(query, limit = 8, ledger = null, opts = {}) {
   // Trust the query we were given. The retrieval ladder passes progressively
   // simpler forms . if this function silently rebuilds them, the ladder can't
   // work. Only fall back to the structured/organism forms if the given query
@@ -5399,20 +5511,29 @@ async function europePMC(query, limit = 8, ledger = null) {
     // 2026-10-05: prefer English. Europe PMC's LANG field filters to
     // English-language records server-side.
     const langQs = qs.includes("LANG:") ? qs : `(${qs}) AND LANG:eng`;
+    const params = {
+      query: langQs,
+      resultType: "core",
+      pageSize: String(limit),
+      format: "json",
+      // Commit 94 . the `sort` parameter was removed here. Europe PMC
+      // documents CITED / P_PDATE_D / AUTH_FIRST as sort values; "relevance"
+      // is not one of them, and relevance IS the default when sort is
+      // omitted. Passing an undocumented value risked a 400 that this
+      // function's bare catch would have turned into an empty result set .
+      // i.e. a whole source silently contributing nothing.
+    };
+    // Wave twelve (item 2): a caller may still ask for one of the
+    // DOCUMENTED sort values by name. The foundational lane does:
+    // its whole job is the field's most cited first descriptions,
+    // and the default order demonstrably does not return them
+    // (probed live 2026-10-14: the lane query's default first page
+    // was 2026 papers with zero citations, while sort=CITED desc
+    // returned the 2012 founding paper first with 11,954).
+    if (opts && typeof opts.sort === "string" && opts.sort) params.sort = opts.sort;
     const url =
       "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
-      new URLSearchParams({
-        query: langQs,
-        resultType: "core",
-        pageSize: String(limit),
-        format: "json",
-        // Commit 94 . the `sort` parameter was removed here. Europe PMC
-        // documents CITED / P_PDATE_D / AUTH_FIRST as sort values; "relevance"
-        // is not one of them, and relevance IS the default when sort is
-        // omitted. Passing an undocumented value risked a 400 that this
-        // function's bare catch would have turned into an empty result set .
-        // i.e. a whole source silently contributing nothing.
-      });
+      new URLSearchParams(params);
     const data = await getJSON(url, {}, 4000, 1, ledger);
     return data && data.resultList && data.resultList.result ? data.resultList.result : [];
   };
@@ -7278,7 +7399,7 @@ async function genericWebSearch(query, ledger = null) {
   }
 }
 
-async function openAlex(query, limit = 10, key = "", ledger = null) {
+async function openAlex(query, limit = 10, key = "", ledger = null, opts = {}) {
   try {
 
 
@@ -7301,7 +7422,11 @@ async function openAlex(query, limit = 10, key = "", ledger = null) {
 // paper on "waste oil substrates" for BSFL was excluded despite being
 // exactly on-topic). The English query itself biases relevance toward
 // English papers; null-language papers are not non-English, just unindexed.
-      sort: "relevance_score:desc",
+      // Wave twelve (item 2): the foundational lane overrides
+      // this with cited_by_count:desc . it is hunting the
+      // field's most cited first descriptions, and relevance
+      // order demonstrably ranks recent reviews above them.
+      sort: (opts && typeof opts.sort === "string" && opts.sort) || "relevance_score:desc",
       per_page: String(limit),
       select:
         "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids,type",
@@ -7473,7 +7598,7 @@ const S2_LITERATURE_TYPES = [
   "BookSection",
 ].join(",");
 
-export async function semanticScholar(query, limit = 8, apiKey = "", ledger = null) {
+export async function semanticScholar(query, limit = 8, apiKey = "", ledger = null, opts = {}) {
   try {
     const url =
       "https://api.semanticscholar.org/graph/v1/paper/search?" +
@@ -7481,6 +7606,11 @@ export async function semanticScholar(query, limit = 8, apiKey = "", ledger = nu
         query,
         limit: String(limit),
         publicationTypes: S2_LITERATURE_TYPES,
+        // Wave twelve (item 2): the foundational lane passes
+        // sort=citationCount:desc for the same reason the other
+        // two lane legs sort by citations — first descriptions
+        // are the most cited matches, not the most recent.
+        ...(opts && typeof opts.sort === "string" && opts.sort ? { sort: opts.sort } : {}),
         fields:
           "title,abstract,tldr,year,citationCount,authors,venue,externalIds,openAccessPdf,url,publicationTypes",
       });
@@ -9079,9 +9209,20 @@ async function deepFactCheck(answer, papers, env, ledger = null) {
   // spent it is skipped, not fired to die at the runtime . the
   // caller falls back to the zero network heuristic either way.
   if (openRouterKey(env) && !(ledger && ledger.remaining() <= 0)) {
+    const c = new AbortController();
+    // Wave twelve (item 1): the timer is declared OUTSIDE the try.
+    // It used to be a const inside the try block, out of scope in
+    // the finally that clears it — so the finally threw a
+    // ReferenceError on every tier two execution, the throw
+    // replaced the parsed claims on their way out, and the
+    // caller's catch quietly turned a successful verdict into
+    // null. This tier has therefore never landed a verdict: the
+    // panel only ever came from tier one, the terms fallback, or
+    // the mechanical flags — the binding failure underneath the
+    // live "claim check supports 0 of 5" on a correct answer.
+    let t = null;
     try {
-      const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 4000);
+      t = setTimeout(() => c.abort(), 4000);
       if (ledger) ledger.spend();
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -9101,7 +9242,7 @@ async function deepFactCheck(answer, papers, env, ledger = null) {
     } catch {
       // Both tiers failed . caller falls back to verifyAnswerAgainstSources.
     } finally {
-      clearTimeout(t);
+      if (t) clearTimeout(t);
     }
   }
   return null;
@@ -14344,6 +14485,28 @@ export function factCheckProvenance(factCheck) {
   return { traced, checked: claims.length };
 }
 
+/* The claim kinds that ride in the panel but were never a check
+ * of a claim against a cited source (wave twelve, item 1). The
+ * mechanical integrity flags judge traceability and citation
+ * choice, not truth: an alignment flag fires on ordinary
+ * paraphrase, a stripped flag marks a citation already removed
+ * before any check could run, a demoted flag marks a paper moved
+ * out of the cited set the check reads. An unattributed deep
+ * claim names a source index outside the set the checker was
+ * given, so no source text ever stood behind its verdict. None
+ * of the four can be counted as a checked claim: counting them
+ * is how a clean, correct answer shipped with "the claim check
+ * supports 0 of 5" on the live sky probe (c2597fa) — five
+ * mechanical flags, zero claims the check ever judged. The flags
+ * stay in the panel, visible with their notes; they leave the
+ * support denominator, and a claim that cannot be checked is
+ * excluded rather than counted as failed. */
+export const FACT_CHECK_UNCHECKABLE_KINDS = new Set(["alignment", "stripped", "demoted", "unattributed"]);
+
+export function factCheckClaimCountable(claim) {
+  return !(claim && typeof claim.kind === "string" && FACT_CHECK_UNCHECKABLE_KINDS.has(claim.kind));
+}
+
 export function factCheckSupport(factCheck) {
   // Provenance is not support (Job 1): a wording trace's marks are
   // excluded from every support total, so a run whose only check
@@ -14352,8 +14515,10 @@ export function factCheckSupport(factCheck) {
   if (factCheckKind(factCheck) === "provenance") return null;
   const claims = factCheck && Array.isArray(factCheck.claims) ? factCheck.claims : null;
   if (!claims || claims.length === 0) return null;
-  const supported = claims.filter((c) => c && c.status === "supported").length;
-  return { supported, checked: claims.length };
+  const countable = claims.filter((c) => c && factCheckClaimCountable(c));
+  if (countable.length === 0) return null;
+  const supported = countable.filter((c) => c.status === "supported").length;
+  return { supported, checked: countable.length };
 }
 
 /* dedupeFactCheckClaims(factCheck): the same claim text checked
@@ -14393,17 +14558,28 @@ export function dedupeFactCheckClaims(factCheck) {
     // word — a folded trace whose failures all folded away is
     // "traced", never promoted to "supported" by the recount.
     const isTrace = factCheck.mode === "extractive";
-    const nSup = claims.filter((c) => c && c.status === (isTrace ? "traced" : "supported")).length;
-    const nThin = claims.filter((c) => c && c.status === "thin").length;
-    const nUns = claims.filter((c) => c && c.status === "unsupported").length;
-    out.overall = nUns === 0
-      ? (isTrace ? "traced" : "supported")
-      : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+    // Wave twelve (item 1): a verification recount counts the
+    // claims the check actually judged. Mechanical flags and
+    // unattributed claims ride in the folded list for the panel
+    // but were never checked against a cited source, so they
+    // enter neither the counts nor the checked total here —
+    // the same exclusion factCheckSupport applies. The trace
+    // never carries them and recounts as before.
+    const counted = isTrace ? claims : claims.filter((c) => factCheckClaimCountable(c));
+    const nSup = counted.filter((c) => c && c.status === (isTrace ? "traced" : "supported")).length;
+    const nThin = counted.filter((c) => c && c.status === "thin").length;
+    const nUns = counted.filter((c) => c && c.status === "unsupported").length;
     if (isTrace) {
+      out.overall = nUns === 0
+        ? "traced"
+        : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
       out.summary = extractiveTraceSummary(claims);
       out.checked = claims.length > 0;
-    } else {
-      out.summary = "Checked " + claims.length + " claim" + (claims.length === 1 ? "" : "s") +
+    } else if (counted.length > 0) {
+      out.overall = nUns === 0
+        ? "supported"
+        : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+      out.summary = "Checked " + counted.length + " claim" + (counted.length === 1 ? "" : "s") +
         " against the cited sources: " +
         nSup + " supported, " + nThin + " thin, " + nUns + " unsupported.";
     }
@@ -15428,9 +15604,12 @@ export function buildSearchRecord(input) {
 
     // Wave ten (item 10): the minimum cited support outcome,
     // normalized additively like every other late field. When
-    // the handler ran no retry (the answer cited 2 or more, or
-    // the shape was out of scope), a derived label still marks
-    // a single source outcome, so the record never hides one.
+    // the handler ran no retry (the answer cited 2 or more), a
+    // derived label still marks a single source outcome, so the
+    // record never hides one. (Wave twelve removed the shape
+    // restriction on the retry itself; "not-eligible" now names
+    // only the outcomes this builder can still derive on paths
+    // the handler block does not cover, such as cache serves.)
     let recordMinSupport = null;
     try {
       const ms = input.minSupport;
@@ -16504,18 +16683,40 @@ function conceptOccurrencesInText(lowText, concepts) {
  * engagement under the compound clause: a free title
  * occurrence counts outright; a concept sighted only fused
  * in the title counts only when the concept also stands
- * uncompounded in the abstract; a raw title hit the
- * classifier cannot sight keeps the wave ten verdict and
- * counts, so the clause never bars on a guess. */
-function conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci) {
+ * uncompounded in the abstract, in topical company (below);
+ * a raw title hit the classifier cannot sight keeps the
+ * wave ten verdict and counts, so the clause never bars on
+ * a guess. */
+function conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci, abstractOcc) {
   const t = titleOcc[ci];
   if (!t.rawHit) return false;
   if (t.hasFree || !t.seen) return true;
-  const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
-  if (!absLow) return false;
-  const a = conceptOccurrencesInText(absLow, concepts)[ci];
-  if (!a.rawHit) return false;
-  return a.hasFree || !a.seen;
+  const a = abstractOcc && abstractOcc[ci];
+  if (!a || !a.rawHit) return false;
+  if (!(a.hasFree || !a.seen)) return false;
+  // Topical company (2026-10-14, wave twelve): the wave eleven
+  // confirmation accepted ANY uncompounded sighting of the
+  // concept in the abstract. The live sky probe on the wave
+  // eleven build (a269429) showed the boundary: device papers
+  // whose titles engage only through "Sky-Blue" still
+  // presented, because their abstracts stand the word "blue"
+  // alone in emission region language ("blue emission",
+  // "emission in the blue region") — a literal sighting of one
+  // concept, with no engagement with what the question means
+  // by it. Confirmation now requires the sighting to be
+  // topical: another central concept of the question must
+  // also stand uncompounded in the same abstract (through its
+  // own term or its concept group — the sky concept standing
+  // as "atmosphere" is the question's topic field arriving in
+  // its family vocabulary, which is what topical means here).
+  // An abstract that engages the question's field engages
+  // more than one of its concepts; an abstract that frees
+  // exactly one concept in isolation is a device label, not
+  // engagement. Single concept questions have no company to
+  // give and keep the wave eleven rule.
+  if (concepts.length < 2) return true;
+  return concepts.some((_, cj) => cj !== ci &&
+    abstractOcc[cj].rawHit && (abstractOcc[cj].hasFree || !abstractOcc[cj].seen));
 }
 
 export function paperTitleEngagesConcepts(paper, query, dynLookup) {
@@ -16524,8 +16725,14 @@ export function paperTitleEngagesConcepts(paper, query, dynLookup) {
     if (!Array.isArray(concepts) || concepts.length === 0) return true;
     const titleLow = String((paper && paper.title) || "").toLowerCase();
     const titleOcc = conceptOccurrencesInText(titleLow, concepts);
+    let abstractOcc = null;
     for (let ci = 0; ci < concepts.length; ci++) {
-      if (conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci)) return true;
+      const t = titleOcc[ci];
+      if (t && t.rawHit && !t.hasFree && t.seen && abstractOcc === null) {
+        const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
+        abstractOcc = absLow ? conceptOccurrencesInText(absLow, concepts) : [];
+      }
+      if (conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci, abstractOcc)) return true;
     }
     return false;
   } catch {
@@ -19453,10 +19660,22 @@ async function gatherPapersBody(rawQuery, opts) {
         yieldLane = true;
       }
       if (_budgetLeft() && (yieldLane || roomOrTrim("foundational-lane", SUBREQUEST_FOUNDATIONAL_LANE_COST))) {
+        // Wave twelve (item 2): every lane leg sorts by citations.
+        // The lane exists to find the field's first descriptions,
+        // and first descriptions are the most cited matches for
+        // the lane's vocabulary, not the most recent or the most
+        // keyword dense. Probed live on 2026-10-14 with the
+        // CRISPR lane query: Europe PMC's default order returned
+        // a first page of 2026 papers with zero citations and the
+        // 2012 founding paper nowhere in it, while CITED desc
+        // returned that paper first; OpenAlex relevance order
+        // likewise ranked recent reviews above it. The general
+        // fanout keeps its relevance order untouched — only the
+        // lane asks for citation order.
         const laneResults = await Promise.allSettled([
-          europePMC(laneQuery, 12, ledger),
-          openAlex(laneQuery, 12, openAlexKey, ledger),
-          semanticScholar(laneQuery, 10, s2Key, ledger),
+          europePMC(laneQuery, 12, ledger, { sort: "CITED desc" }),
+          openAlex(laneQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
+          semanticScholar(laneQuery, 10, s2Key, ledger, { sort: "citationCount:desc" }),
         ]);
         // Tag the lane's papers: the record of which papers the
         // foundational search brought in rides the record
@@ -21595,10 +21814,11 @@ async function runSearchPipeline(pctx) {
     // is resolved HERE, before any provider-backed call, because several
     // early-return paths below burn inference or serve AI answers:
     //   pro       → unlimited AI synthesis
-    //   free      → FREE_AI_ANSWERS_PER_MONTH AI answers per UTC month, across
-    //               EVERY AI surface (search waves, cached answers, follow-up
-    //               transforms, persona chat) . the cache is an optimization,
-    //               not an entitlement bypass
+    //   free      → FREE_AI_ANSWERS_PER_QUOTA_PERIOD AI answers per quota
+    //               period (a fixed FREE_QUOTA_PERIOD_DAYS day grid, 5 days),
+    //               across EVERY AI surface (search waves, cached answers,
+    //               follow-up transforms, persona chat) . the cache is an
+    //               optimization, not an entitlement bypass
     //   anonymous → provider-backed AI metered on the hashed-IP identity
     //               (the rate limiter's privacyKey, recomputed below), same
     //               free cap as a signed-in free account. Past the cap the
@@ -21647,7 +21867,7 @@ async function runSearchPipeline(pctx) {
     if (!aiGate) {
       // Fail closed on AI spend: an unresolvable gate keeps the anonymous
       // default, so the extractive fallback answers instead of inference.
-      // aiCap mirrors FREE_AI_ANSWERS_PER_MONTH (functions/lib/proEntitlement.js)
+      // aiCap mirrors FREE_AI_ANSWERS_PER_QUOTA_PERIOD (functions/lib/proEntitlement.js)
       // so the quota payload reports a truthful cap; anonymous synthesis
       // without a metered identity stays disallowed via aiSynthesisAllowed.
       aiGate = { kind: "anonymous", userId: null, aiUsed: 0, aiCap: 50, proSource: null };
@@ -26518,8 +26738,17 @@ async function runSearchPipeline(pctx) {
     // hidden. Budget: exactly one extra leg when it fires,
     // gated on more than the tail reserve remaining; the
     // closure identity is untouched.
-    if (aiOK && useEvidence && evidencePapers.length >= 2 && !isFollowupMode &&
-        (mechanismShape || measurementIntent)) {
+    // WAVE TWELVE (item 4): the shape restriction is gone. The
+    // wave ten build's clean sky run presented 11 sources and
+    // cited exactly 1 — the same single source outcome on a
+    // plain question no shape detector fires for. The rule was
+    // never about mechanisms; it is about a clean answer resting
+    // on one source while a healthy pool stands behind it. Every
+    // clean AI answer with at least two evidence papers now gets
+    // the same one retry under the same guards (not degraded,
+    // more than the tail reserve remaining, followup mode still
+    // exempt because its citations rest on the previous turn).
+    if (aiOK && useEvidence && evidencePapers.length >= 2 && !isFollowupMode) {
       const citedBefore = distinctCitedCount(answer, evidencePapers.length);
       if (citedBefore === 1) {
         minSupportOutcome = { citedBefore, retried: false, retryModel: null, citedAfter: citedBefore, singleSource: true, reason: null };
@@ -26991,17 +27220,37 @@ async function runSearchPipeline(pctx) {
       // copy ("relevance/fact-check") always implied it was doing.
       const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger).catch(() => null);
       if (deepClaims) {
-        const unsupportedCount = deepClaims.filter((c) => c.status === "unsupported").length;
-        const supportedCount = deepClaims.filter((c) => c.status === "supported").length;
-        const thinCount = deepClaims.filter((c) => c.status === "thin").length;
-        const overall = unsupportedCount === 0
+        // Wave twelve (item 1): a verdict is a check only when it
+        // is bound to a source in the set the checker was given.
+        // A claim whose source index falls outside that set was
+        // attributed to a source that does not exist in it — the
+        // checker invented the binding, so nothing ever stood
+        // behind the verdict. Such claims stay in the panel,
+        // tagged unattributed, and leave every count the panel
+        // feeds: the summary, the overall, the support totals,
+        // and the removal list below. A claim that cannot be
+        // checked is excluded from the denominator rather than
+        // counted as failed.
+        const attributed = deepClaims.map((c) => ({
+          ...c,
+          unattributed: typeof c.sourceIndex === "number" &&
+            (c.sourceIndex < 1 || c.sourceIndex > evidencePapers.length),
+        }));
+        const checkedClaims = attributed.filter((c) => !c.unattributed);
+        const unsupportedCount = checkedClaims.filter((c) => c.status === "unsupported").length;
+        const supportedCount = checkedClaims.filter((c) => c.status === "supported").length;
+        const thinCount = checkedClaims.filter((c) => c.status === "thin").length;
+        const overall = checkedClaims.length === 0
+          ? "partly"
+          : unsupportedCount === 0
           ? "supported"
           : (supportedCount > 0 || thinCount > 0)
           ? "partly"
           : "unsupported";
-        const claims = deepClaims.map((c) => ({
+        const claims = attributed.map((c) => ({
           claim: c.claim,
           status: c.status,
+          ...(c.unattributed ? { kind: "unattributed" } : {}),
           // Same shape the frontend has always rendered . {claim, status,
           // note} . so this richer backend needed zero FactCheck component
           // changes. The quote-plus-reasoning combination is what makes each
@@ -27010,7 +27259,7 @@ async function runSearchPipeline(pctx) {
             ? `"${c.quote}"${c.sourceIndex ? ` [${c.sourceIndex}]` : ""} . ${c.justification}`
             : c.justification,
         }));
-        const summary = `Checked ${claims.length} claim${claims.length === 1 ? "" : "s"} against the cited sources: ` +
+        const summary = `Checked ${checkedClaims.length} claim${checkedClaims.length === 1 ? "" : "s"} against the cited sources: ` +
           `${supportedCount} supported, ${thinCount} thin, ${unsupportedCount} unsupported.`;
         // Commit 99 . `mode` tells the UI which of the two very different
         // checks produced this panel. They are not comparable and must not
@@ -27022,7 +27271,10 @@ async function runSearchPipeline(pctx) {
         // percentage, which let a name-spelling check present itself as a
         // verified answer. Reported by a reader: "this doesn't make sense."
         factCheckResult = { overall, summary, claims, mode: "claims" };
-        factCheckUnsupportedClaims = deepClaims
+        // Removal keys on the check's own verdicts against real
+        // sources (wave twelve, item 1): an unattributed verdict
+        // names no source in the set, so it removes nothing.
+        factCheckUnsupportedClaims = checkedClaims
           .filter((c) => c.status === "unsupported")
           .map((c) => ({ claim: c.claim, sourceIndex: c.sourceIndex }));
       } else {
@@ -27130,9 +27382,15 @@ async function runSearchPipeline(pctx) {
         const have = new Set(factCheckResult.claims.map((c) => String(c.claim || "").slice(0, 80)));
         for (const iss of integrityFlags) {
           if (have.has(String(iss.claim).slice(0, 80))) continue;
+          // The kind rides into the panel object (wave twelve,
+          // item 1): the support counters must be able to tell a
+          // mechanical flag from a checked claim downstream,
+          // where the three instruments are no longer
+          // distinguishable by construction.
           factCheckResult.claims.push({
             claim: iss.claim,
             status: "unsupported",
+            kind: iss.kind,
             note: iss.note,
           });
         }
@@ -27155,7 +27413,7 @@ async function runSearchPipeline(pctx) {
                 ? " rested on papers touching only one of the question's concept groups, so those citations were moved to further reading."
                 : " share almost no vocabulary with the paper cited."),
             claims: integrityFlags.map((iss) => ({
-              claim: iss.claim, status: "unsupported",
+              claim: iss.claim, status: "unsupported", kind: iss.kind,
               note: iss.note,
             })),
             mode: "claims",
@@ -27259,8 +27517,13 @@ async function runSearchPipeline(pctx) {
       try {
         const zeroSupport = factCheckSupport(factCheckResult);
         if (zeroSupport && zeroSupport.checked >= 1 && zeroSupport.supported === 0) {
+          // Only the stage's own verdicts strip here (wave
+          // twelve, item 1): mechanical flags and unattributed
+          // claims ride in the same claims list, and the removal
+          // point's contract above already refuses to remove on
+          // them — this serve follows the same contract.
           const unsupportedClaims = (factCheckResult.claims || [])
-            .filter((c) => c && c.status === "unsupported" && typeof c.claim === "string" && c.claim.trim().length > 0);
+            .filter((c) => c && c.status === "unsupported" && factCheckClaimCountable(c) && typeof c.claim === "string" && c.claim.trim().length > 0);
           const centralClaim = shortAnswerCentralClaim(answer);
           const centralRefused = !!(centralClaim && unsupportedClaims.some((u) =>
             claimNamesSentence(u.claim, centralClaim, u.sourceIndex != null ? u.sourceIndex : u.source_index)));

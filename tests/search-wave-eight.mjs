@@ -576,8 +576,14 @@ await test("CACHE_SCHEMA_VERSION is v43 with the wave nine entry in its chain", 
   // v46 by the same wave's live probe addendum (the mechanism
   // detector hears plain copying words). The v44 entry stays
   // in the chain as history.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v46";'),
-    "the cache schema version was not bumped to v46");
+  // Updated 2026-10-14 (wave twelve): bumped to v47 (the
+  // claim check counts only checked claims, dedupe folds
+  // richer duplicate fields, the foundational lane sorts by
+  // citations, the compound clause confirmation requires
+  // topical company, the single source retry extends to
+  // every clean answer).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v47";'),
+    "the cache schema version was not bumped to v47");
   assert.ok(/v44 \(2026-10-14, wave ten\)/.test(src),
     "the v44 chain entry is missing its dated reason");
   assert.ok(/v43 \(2026-10-14, wave nine\)/.test(src),
