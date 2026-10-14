@@ -110,11 +110,25 @@ export async function acquireSearchSlot(env, isPro, ledger = null) {
   }
 }
 
-/** Release a held slot. Never throws. */
+/** Release a held slot. Never throws. The release is post
+ * assembly bookkeeping, so its charge rides the ledger's
+ * bookkeeping lane when one is provided (2026-10-14, fifth panel,
+ * Job 1: counted in the invocation total, never refused) — under
+ * the wave five hard total cap the plain binding charge threw at
+ * exactly the cap inside this function's own catch, before the
+ * UPDATE ran, and the handler's finally block had already gated
+ * the call itself on budget remaining, so capped runs leaked
+ * their queue slot. Ledger shaped objects carrying only
+ * spendBinding (test fakes) keep the old charge. The acquire
+ * side charges above stay on the plain binding path: they are
+ * mid pipeline spends the caps exist to bind. */
 export async function releaseSearchSlot(env, ledger = null) {
   try {
     if (!env || !env.DB) return;
-    if (ledger) ledger.spendBinding("queue", 1);
+    if (ledger) {
+      if (typeof ledger.spendBookkeeping === "function") ledger.spendBookkeeping("queue", 1);
+      else if (typeof ledger.spendBinding === "function") ledger.spendBinding("queue", 1);
+    }
     await env.DB.prepare("UPDATE search_slots SET n = MAX(n - 1, 0) WHERE k = 'active'").run();
   } catch (cbErr) {
     console.error("[Cerebrum] searchPriority.js releaseSearchSlot:", cbErr);

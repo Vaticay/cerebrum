@@ -49,6 +49,12 @@ const {
   removeUnsupportedClaimsFromAnswer,
   buildConfidenceLine,
   calibrateConfidenceScore,
+  bindProseConfidenceToLevel,
+  confidenceAssertionRank,
+  claimsNearDuplicates,
+  extractLiteratureConflicts,
+  detectSourceConflicts,
+  reconcileDisagreementVerdict,
   onRequest,
   createSubrequestLedger,
 } = await import(join(root, "functions/api/search.js"));
@@ -464,6 +470,128 @@ await test("a check supporting none of its claims ships thin confidence that agr
   assert.ok(!data.answer.includes("protect heart muscle"), "the heart claim shipped");
   assert.ok(!data.answer.includes("did not increase hair shedding"), "the shedding claim shipped");
   assert.ok(data.answer.includes("## Limits"), "the limits section was harmed");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("(d) prose confidence bound to the shipped level (Job 3a)");
+
+const THIN_LINE = "Low confidence: this answer rests on only 1 cited source. Treat this answer as provisional.";
+const MODERATE_LINE = "Moderate confidence: this answer rests on 4 cited sources. No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim.";
+
+const ABSOLUTE_ANSWER =
+  "## Summary\n\n" +
+  "Creatine did not increase hair shedding in the trial that measured it [1].\n\n" +
+  "## How solid is this?\n\n" +
+  "Confidence is absolute. The trials settle the question completely, and no reasonable doubt remains about the direction of the effect [1].";
+
+await test("absolute prose beside level thin is replaced by the computed line", () => {
+  const out = bindProseConfidenceToLevel(ABSOLUTE_ANSWER, "thin", THIN_LINE);
+  assert.ok(!out.includes("Confidence is absolute"), "the absolute assertion shipped beside thin");
+  assert.ok(out.includes(THIN_LINE), "the computed line did not replace the section's assertion");
+  assert.ok(out.includes("## How solid is this?"), "the section heading was lost");
+  assert.ok(out.includes("did not increase hair shedding"), "the answer body was harmed");
+});
+
+await test("exceptionally high prose beside level thin is replaced by the computed line", () => {
+  const answer =
+    "## Summary\n\n" +
+    "Creatine did not increase hair shedding in the trial that measured it [1].\n\n" +
+    "## How solid is this?\n\n" +
+    "Confidence here is exceptionally high, well beyond what the small samples would usually support [1].";
+  const out = bindProseConfidenceToLevel(answer, "thin", THIN_LINE);
+  assert.ok(!out.includes("exceptionally high"), "the exceptionally high assertion shipped beside thin");
+  assert.ok(out.includes(THIN_LINE), "the computed line did not replace the assertion");
+});
+
+await test("a moderate assertion beside moderate ships verbatim", () => {
+  const answer =
+    "## Summary\n\n" +
+    "Creatine did not increase hair shedding in the trial that measured it [1].\n\n" +
+    "## How solid is this?\n\n" +
+    "Confidence is moderate: the trials agree, but the samples are small and the follow up short [1].";
+  const out = bindProseConfidenceToLevel(answer, "moderate", MODERATE_LINE);
+  assert.equal(out, answer, "a within level assertion was rewritten");
+});
+
+await test("a high assertion beside strong ships verbatim; strength words about other things are untouched", () => {
+  const answer =
+    "## Summary\n\n" +
+    "The high dose group shed no more hair than the low dose group [1]. Confidence is high that the effect is absent at these doses [1].";
+  const out = bindProseConfidenceToLevel(answer, "strong", "Strong confidence: this answer rests on 6 cited sources.");
+  assert.equal(out, answer, "a strong level answer was rewritten");
+  // Beside thin, only the confidence sentence is bound; the
+  // dose sentence is about dosing, not confidence, and stands.
+  const outThin = bindProseConfidenceToLevel(answer, "thin", THIN_LINE);
+  assert.ok(outThin.includes("high dose group shed no more hair"), "a non confidence sentence was rewritten");
+  assert.ok(outThin.includes(THIN_LINE), "the standalone assertion was not replaced in place");
+  assert.ok(!outThin.includes("Confidence is high"), "the overclaiming sentence shipped beside thin");
+});
+
+await test("an answer with no confidence assertion is unchanged at any level", () => {
+  const answer =
+    "## Summary\n\n" +
+    "Creatine did not increase hair shedding in the trial that measured it [1]. " +
+    "Dosing was five grams a day for twelve weeks [1].";
+  assert.equal(bindProseConfidenceToLevel(answer, "thin", THIN_LINE), answer);
+  assert.equal(confidenceAssertionRank("The dose was high and the effect strong."), -1,
+    "strength words without confidence are not assertions");
+  assert.equal(confidenceAssertionRank("Confidence is absolute."), 3);
+  assert.equal(confidenceAssertionRank("Confidence is moderate."), 1);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("(e) duplicate claims are not a dispute (Job 3b)");
+
+// The panel's specimen: the ten percent brain myth stated twice,
+// both sources calling it a misconception, shipped as status
+// divided with conflictCount 1. The two claims are near copies of
+// one assertion; opposition cannot rest on the same words.
+const MYTH_A = "Humans use only ten percent of their brains, a claim with no scientific support";
+const MYTH_B = "Humans use only ten percent of their brains, a claim scientists call a misconception";
+
+await test("the specimen pair is a near duplicate, not an opposition", () => {
+  assert.equal(claimsNearDuplicates(MYTH_A, MYTH_B), true,
+    "the two statements of the myth were not recognized as near duplicates");
+  // A genuine opposing pair is worded differently and stands.
+  assert.equal(claimsNearDuplicates(
+    "Caffeine raised systolic blood pressure by eight points in the trial group",
+    "Across the cohort, habitual coffee intake was associated with lower systolic readings"
+  ), false, "a genuine opposing pair was misread as a duplicate");
+});
+
+await test("the specimen pair yields zero conflicts and a non divided verdict", () => {
+  const papers = [
+    { title: "The ten percent myth in textbooks", abstract: MYTH_A + ". Textbooks repeat the claim without evidence." },
+    { title: "Brain myths in popular culture", abstract: MYTH_B + ". Surveys show the belief is widespread." },
+  ];
+  const detected = detectSourceConflicts(papers, null);
+  assert.equal(detected.conflicts.length, 0,
+    "the source level pass built a conflict from two copies of one claim: " + JSON.stringify(detected.conflicts));
+  const { verdict } = reconcileDisagreementVerdict(detected, []);
+  assert.equal(verdict.conflictCount, 0);
+  assert.notEqual(verdict.status, "divided", "the verdict shipped divided on duplicate claims");
+});
+
+await test("a genuine opposing pair still conflicts", () => {
+  const papers = [
+    { title: "Caffeine and blood pressure trial", abstract: "In the trial, caffeine increased systolic blood pressure by eight points in healthy adults within an hour of dosing." },
+    { title: "Coffee intake cohort study", abstract: "Across the cohort, habitual coffee intake decreased systolic blood pressure in healthy adults over the follow up year." },
+  ];
+  const detected = detectSourceConflicts(papers, null);
+  assert.ok(detected.conflicts.length >= 1,
+    "a genuine opposing pair no longer conflicts: " + JSON.stringify(detected));
+  const { verdict } = reconcileDisagreementVerdict(detected, []);
+  assert.equal(verdict.status, "divided");
+});
+
+await test("extractLiteratureConflicts drops a mined pair built from near duplicate sentences", () => {
+  const answer =
+    "One source reports that humans use only ten percent of their brains, a claim with no scientific support [1]. " +
+    "However, another reports that humans use only ten percent of their brains, a claim scientists call a misconception [2].";
+  const sources = [{ title: "Textbook myths" }, { title: "Popular brain myths" }];
+  const conflicts = extractLiteratureConflicts(answer, sources);
+  assert.equal(conflicts.length, 0,
+    "the text mining pass shipped a dispute from two copies of one claim: " + JSON.stringify(conflicts));
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

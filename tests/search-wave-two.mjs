@@ -544,10 +544,23 @@ await test("the cache schema carries the wave two bump", () => {
   // unsupported claims removed from the text, and the support
   // bound confidence caps — so stored cited sets, answer text,
   // and confidence lines all predate the shipped contract).
+  // then to v38 by the subject touch wave (2026-10-14: when a
+  // question's subject group is identified, a paper clears the
+  // citation gate and every surface mirroring it only by touching
+  // the subject group or at least two groups in total — the
+  // production creatine draw cited a hair sociology paper that
+  // never mentions creatine — so stored cited sets and source
+  // orders predate the corrected standard).
+  // then to v39 by the fifth panel wave six (2026-10-14: the
+  // bookkeeping funding lane, the shelf floor relaxation and the
+  // broad terms rung, the serve gate, the title twin dedupe,
+  // prose bound to the shipped confidence level, and the
+  // Detailed acceptance floor — cited sets, shelf composition,
+  // serve shapes, and answer text all predate the contract).
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v37"'), "CACHE_SCHEMA_VERSION must be v37");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v39"'), "CACHE_SCHEMA_VERSION must be v39");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

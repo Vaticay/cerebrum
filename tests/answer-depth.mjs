@@ -176,10 +176,28 @@ const BRIEF_ANSWER = [
   "**Gut microbes** influence how nutrients are absorbed and how weight is gained over the first year [1][2].",
 ].join("\n");
 
-const MEDIUM_ANSWER =
-  "The microbes living in an infant gut **shape growth** from the first weeks of life [1]. " +
-  "Studies show that **gut microbes** influence how nutrients are absorbed and how weight is gained over time [2]. " +
-  "When the microbial community is disturbed early, growth can slow until the community recovers [1].";
+// The Standard serve, sized the way Standard serves actually
+// run (the fifth panel measured 2,590 chars live): the same
+// section shape as Detailed, worked at standard depth. Until
+// wave six this stub was three sentences (298 chars), which made
+// every Standard to Detailed ratio in this suite meaningless —
+// the panel's +32 percent failure (2,590 vs 3,415) could not
+// even be expressed against it.
+const MEDIUM_ANSWER = [
+  "The microbes living in an infant gut **shape growth** from the first weeks of life [1]. The community helps the baby draw energy from food and trains the immune system, and when it is disturbed early, weight gain can slow until the community recovers [2]. The mix of germs present in the first weeks tracks how the baby grows across the rest of the first year [1].",
+  "",
+  "## What the research shows",
+  "",
+  "**The first colonists arrive at birth.** The gut is seeded during and just after birth, and the early community is dominated by organisms that thrive on milk [1]. These first colonists set the conditions every later microbe lives with, so the order of arrival shapes the community that follows and the growth that comes with it [2].",
+  "",
+  "**Microbes help the baby use food.** Gut microbes break down parts of the diet the baby cannot digest alone, releasing energy the gut lining can absorb [1]. Studies show that **gut microbes** influence how nutrients are absorbed and how weight is gained over time [2]. A community with the right fermenters extracts more from the same feed, and babies whose communities lack them gain weight more slowly on identical diets [1].",
+  "",
+  "**Disturbance has a cost.** Antibiotics and early illness thin the community and slow weight gain in the weeks that follow [1]. As the community rebuilds, growth usually resumes its earlier trajectory, which is why the timing of a disturbance matters as much as its size [2].",
+  "",
+  "## How solid is this?",
+  "",
+  "The evidence here is consistent across the gathered studies, and the mechanisms reinforce each other [1]. Most of it is observational, so the exact share of growth the microbes cause, rather than merely accompany, is still not settled [2].",
+].join("\n");
 
 const DEEP_ANSWER = [
   "## The short answer",
@@ -198,17 +216,63 @@ const DEEP_ANSWER = [
   "",
   "**Feeding mode leaves a fingerprint.** Babies fed differently carry measurably different communities from the first weeks, and those differences track with different growth patterns across the first year of life [1]. The community is one of the paths by which feeding reaches growth, alongside the nutrients themselves [2].",
   "",
+  "**Delivery mode seeds the starting community.** Babies born by caesarean section start with a community that resembles skin and the birth environment more than the gut, and the difference from vaginally born babies is measurable for months [1]. The starting mix matters because later colonists can only establish where conditions suit them, so an early difference in seeding echoes through the succession that follows [2]. By the end of the first year the two groups look much more alike, but the months in between are exactly the months when growth is fastest and most easily knocked off course [1].",
+  "",
+  "**Diversity climbs month by month.** The early community is a handful of kinds; across the first year it steadily gains kinds as the diet widens and the gut matures [2]. The pace of that climb, not just the starting point, tracks with growth: babies whose communities diversify on schedule gain steadily, while a stalled climb often follows illness, antibiotics, or a restricted diet [1]. Researchers read the climb itself as a maturity marker, a clock for gut development that can run fast or slow for the same chronological age [2].",
+  "",
+  "**The starting community echoes into later months.** Which organisms arrive first changes which can establish later, a priority effect the studies see in how two babies on the same feed end up with different communities [1]. Early colonists alter the gut lining, the local acidity, and the immune tone, and those changes select for some later arrivals and against others [2]. This is why the same disturbance can cost one baby weeks of growth and barely register in another: the communities they started from were never the same [1].",
+  "",
+  "## What this means day to day",
+  "",
+  "For a parent or clinician reading these studies, the actionable reading is narrow: the first year community is built from feeding, delivery, and illness, and each of those is a lever with evidence behind it [1]. Nothing in this evidence supports sterilizing a baby's environment or chasing a particular product; the studies track whole communities and ordinary care, not interventions sold for the purpose [2]. Where the evidence does speak plainly is on timing: disturbances land hardest earliest, and recovery is the rule when the disturbance itself ends [1].",
+  "",
   "## Where researchers disagree",
   "",
   "The sources agree that the community matters, but they differ on how much of growth it explains once diet, birth weight, and illness are accounted for [1][2]. They also differ on whether specific organisms drive the effect, or whether the community’s overall diversity is what counts [2].",
   "",
   "## How solid is this?",
   "",
-  "The evidence here is consistent across the gathered studies, and the mechanisms are plausible and reinforce each other [1]. Most of it is observational, so the exact share of growth the microbes cause, rather than merely accompany, is still not settled [2].",
+  "The evidence here is consistent across the gathered studies, and the mechanisms are plausible and reinforce each other [1]. Most of it is observational, so the exact share of growth the microbes cause, rather than merely accompany, is still not settled [2]. The samples are also drawn from a small number of cohorts in similar settings, so how far the numbers travel to other populations is an open question the studies themselves flag [1].",
   "",
   "## What would change this",
   "",
   "A large trial that changed the early gut community directly and tracked growth for a full year would settle how much of the effect is causal [1]. Evidence that growth differences vanish once diet is fully controlled would weaken the claim considerably [2].",
+].join("\n");
+
+// The lazy Detailed draft (Job 2f): Detailed in shape — the
+// same headings, bold lead passages, citations — but worked at
+// barely past Standard depth, the fifth panel's measured
+// failure exactly (3,415 chars live against Standard's 2,590).
+// It clears the OLD acceptance floor (2,500) outright, so under
+// the old contract this is what shipped. Under the wave six
+// floor (4,200) every leg must reject it, and the run fails
+// over to a leg that writes the real thing (DEEP_ANSWER).
+const LAZY_DEEP_ANSWER = [
+  "## The short answer",
+  "",
+  "The microbes living in a baby’s gut **shape growth** from the first weeks of life [1]. The community helps the baby draw energy from food and steadies how weight is gained across the first year [2]. When it is disturbed early, growth can slow until it recovers [1].",
+  "",
+  "## What the research shows",
+  "",
+  "**Colonization comes first.** The gut is seeded during and just after birth, and the early community is dominated by organisms that thrive on milk [1]. These first colonists set the conditions every later microbe has to live with [2].",
+  "",
+  "**Microbes help the baby use food.** Gut microbes break down parts of the diet the baby cannot digest alone, releasing energy the gut lining can absorb [1]. A community with the right fermenters extracts more from the same feed, and babies whose communities lack them gain weight more slowly [2].",
+  "",
+  "**The community trains the immune system.** Microbial signals teach the gut immune tissue to tolerate food and harmless organisms while still reacting to pathogens [2]. Babies whose early communities are disrupted show more gut inflammation, and an inflamed gut absorbs nutrients poorly [1].",
+  "",
+  "**Disturbance has a cost.** Antibiotics and early illness thin the community and slow weight gain in the weeks that follow [1]. As the community rebuilds, growth usually resumes its earlier trajectory [2].",
+  "",
+  "## Where researchers disagree",
+  "",
+  "The sources agree that the community matters, but they differ on how much of growth it explains once diet, birth weight, and illness are accounted for [1][2].",
+  "",
+  "## How solid is this?",
+  "",
+  "The evidence here is consistent across the gathered studies [1]. This draft stops early, before the evidence is worked through, so treat it as a sketch of the fuller answer rather than the answer itself [2].",
+  "",
+  "## What would change this",
+  "",
+  "A large trial that changed the early gut community directly and tracked growth for a full year would settle how much of the effect is causal [1].",
 ].join("\n");
 
 function jsonRes(obj, status = 200) {
@@ -293,7 +357,7 @@ function cacheAwareDb(counts, rows) {
     exec: generic.exec,
   };
 }
-function depthAwareAi(counts, seen) {
+function depthAwareAi(counts, seen, synthState = null) {
   return {
     run: async (model, input) => {
       attempt(counts, "ai");
@@ -306,6 +370,14 @@ function depthAwareAi(counts, seen) {
       if (joined.includes("ANSWER TO FACT-CHECK:")) return { response: "not json" };
       const depth = depthOfPrompt(joined);
       seen.aiDepths.add(depth);
+      // The lazy scenario (Job 2f): the first lazyFirst Detailed
+      // synthesis calls across BOTH stub transports answer with
+      // the lazy draft, so wave 1 fails on the floor as a whole
+      // and the failover, not a lucky leg, produces the deep win.
+      if (depth === "long" && synthState && synthState.lazyFirst > 0) {
+        synthState.calls++;
+        if (synthState.calls <= synthState.lazyFirst) return { response: LAZY_DEEP_ANSWER };
+      }
       return { response: answerForDepth(depth) };
     },
   };
@@ -326,9 +398,10 @@ function depthAwareAi(counts, seen) {
 // in this harness, so 160 leaves the tail genuinely intact. The
 // mechanism under test there is the key, not the budget, the same
 // reason that suite's NL ranking scenario runs at a larger limit.
-async function runDepthScenario({ answerLength, db, lean = false, limit = 50 }) {
+async function runDepthScenario({ answerLength, db, lean = false, limit = 50, lazyFirst = 0 }) {
   const counts = makeCounts(limit);
   const seen = { budgets: [], aiDepths: new Set() };
+  const synthState = { calls: 0, lazyFirst };
   let epmcCalls = 0;
   const realFetch = globalThis.fetch;
   const realCaches = globalThis.caches;
@@ -358,6 +431,10 @@ async function runDepthScenario({ answerLength, db, lean = false, limit = 50 }) 
       const joined = ((parsed.messages || []).map((m) => String(m.content || ""))).join("\n");
       const depth = depthOfPrompt(joined);
       if (parsed.max_tokens) seen.budgets.push({ depth, maxTokens: parsed.max_tokens });
+      if (depth === "long" && synthState.lazyFirst > 0) {
+        synthState.calls++;
+        if (synthState.calls <= synthState.lazyFirst) return chatRes(LAZY_DEEP_ANSWER);
+      }
       return chatRes(answerForDepth(depth));
     }
     if (u.includes("ebi.ac.uk/europepmc")) {
@@ -388,7 +465,7 @@ async function runDepthScenario({ answerLength, db, lean = false, limit = 50 }) 
       // stub counts through the same counters); otherwise the
       // generic counting stub, whose reads never hit.
       DB: db ? cacheAwareDb(counts, db) : countingDb(counts),
-      AI: depthAwareAi(counts, seen),
+      AI: depthAwareAi(counts, seen, synthState),
       GROQ_KEY: "depth-test-groq-key-123456",
       GEMINI_KEY: "depth-test-gemini-key-123456",
       MISTRAL_KEY: "depth-test-mistral-key-123456",
@@ -403,7 +480,7 @@ async function runDepthScenario({ answerLength, db, lean = false, limit = 50 }) 
     assert.equal(res.status, 200);
     const data = await res.json();
     await new Promise((r) => setTimeout(r, 150));
-    return { data, counts, seen };
+    return { data, counts, seen, synthState };
   } finally {
     globalThis.fetch = realFetch;
     globalThis.caches = realCaches;
@@ -432,11 +509,15 @@ await runDepthScenario({ answerLength: "medium" });
 
 let briefRun;
 let detailedRun;
+let standardRun;
 await test("Brief and Detailed ship visibly different answers to the same question", async () => {
   briefRun = await runDepthScenario({ answerLength: "short" });
   detailedRun = await runDepthScenario({ answerLength: "long" });
+  standardRun = await runDepthScenario({ answerLength: "medium" });
   const brief = briefRun.data;
   const detailed = detailedRun.data;
+  const standard = standardRun.data;
+  assert.equal(standard.synthesisMode, "ai", "Standard run did not synthesize");
   assert.equal(brief.synthesisMode, "ai", "Brief run did not synthesize");
   assert.equal(detailed.synthesisMode, "ai", "Detailed run did not synthesize");
   // The handler SENT different budgets: Detailed legs carried the
@@ -450,6 +531,15 @@ await test("Brief and Detailed ship visibly different answers to the same questi
   // And the shipped answers differ the way the setting promises.
   assert.ok(detailed.answer.length >= brief.answer.length * 2,
     `Detailed answer (${detailed.answer.length} chars) is not at least twice Brief (${brief.answer.length})`);
+  // The fifth panel's ratio, pinned (Job 2f): Detailed must run
+  // at least roughly 1.8x the Standard serve on the same
+  // question. Live it measured +32 percent (3,415 vs 2,590)
+  // because the acceptance floor sat below a Standard serve's
+  // own length; the stub lengths here are the panel's shapes
+  // (Standard ~2.5k chars, Detailed ~5k) so the ratio is a real
+  // measurement, not a formality.
+  assert.ok(detailed.answer.length >= standard.answer.length * 1.8,
+    `Detailed answer (${detailed.answer.length} chars) is not at least 1.8x Standard (${standard.answer.length})`);
   assert.ok(sectionCount(detailed.answer) > sectionCount(brief.answer),
     `Detailed sections (${sectionCount(detailed.answer)}) should exceed Brief (${sectionCount(brief.answer)})`);
   assert.ok(boldLeadPassages(detailed.answer) >= 4,
@@ -459,6 +549,25 @@ await test("Brief and Detailed ship visibly different answers to the same questi
   assert.equal(detailed.answerLength, "long");
   assert.equal(brief._record && brief._record.answerLength, "short");
   assert.equal(detailed._record && detailed._record.answerLength, "long");
+});
+
+await test("Detailed rejects the lazy draft and fails over to a deep one (Job 2f)", async () => {
+  // The first six Detailed synthesis calls (all of wave 1 on
+  // both transports, plus wave 2's first) answer with the lazy
+  // draft: Detailed in shape, Standard in substance at ~3.4k
+  // chars — over the old 2,500 floor, under the wave six 4,200
+  // floor. Every one of those legs must fail on length, and the
+  // shipped answer must be the deep draft a later leg wrote.
+  const lazy = await runDepthScenario({ answerLength: "long", lazyFirst: 6 });
+  assert.equal(lazy.data.synthesisMode, "ai", "the Detailed run did not synthesize after the failover");
+  assert.ok(lazy.synthState.calls > 6,
+    `only ${lazy.synthState.calls} Detailed synthesis calls were made; the lazy wave was never outlasted`);
+  assert.ok(lazy.data.answer.includes("Colonization comes first"),
+    "the shipped answer is not the deep draft");
+  assert.ok(!lazy.data.answer.includes("stops early"),
+    "the lazy draft shipped as the Detailed answer");
+  assert.ok(lazy.data.answer.length >= standardRun.data.answer.length * 1.8,
+    `post failover Detailed (${lazy.data.answer.length} chars) is not at least 1.8x Standard (${standardRun.data.answer.length})`);
 });
 
 // ═══════════════════════════════════════════════════════════════

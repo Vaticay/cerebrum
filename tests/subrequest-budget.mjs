@@ -140,10 +140,28 @@
  *      assertLedgerShips — were updated to the corrected
  *      contract and say so where they stand. The live shaped
  *      replay below drives the heavy draw and asserts the
- *      shipped total is at most the limit, the final total
- *      (tail included) is at most the limit, the platform never
+ *      shipped total is at most the limit, the platform never
  *      refuses an attempt, and synthesis still ships an AI
- *      answer.
+ *      answer. (Wave six, Job 1: its final total assertion moved
+ *      to the bookkeeping contract — final equals shipped plus
+ *      exactly the bookkeeping stages' spend, which the lane
+ *      tallies past the limit by design; see item 11.)
+ *  11. THE BOOKKEEPING LANE (2026-10-14, fifth panel): the total
+ *      cap's first regression — fresh Search records stopped
+ *      being stored, because the record store's counted writes
+ *      are charged against the same capped ledger and a run
+ *      closing at exactly 50 had nothing left to spend on its
+ *      own permalink; the stage health aggregate's write and the
+ *      queue slot release died the same death (the release was
+ *      also gated on budget remaining in the handler's finally).
+ *      Post assembly bookkeeping now spends through
+ *      spendBookkeeping: tallied into usedCount and byStage and
+ *      the phase tallies, never refused, never counted in any
+ *      refusal tally. The shipped snapshot (taken before
+ *      bookkeeping) stays at or under the limit; the diag total
+ *      honestly exceeds it by the bookkeeping spend. The group
+ *      below pins the lane at the ledger, at each consumer, and
+ *      end to end at a ledger filled to exactly the cap.
  *
  * Run with: node tests/subrequest-budget.mjs
  */
@@ -175,6 +193,7 @@ const {
   createSubrequestLedger,
   publicLedgerSnapshot,
   planWaveLegs,
+  publicStageHealth,
   SUBREQUEST_LIMIT,
   SUBREQUEST_ANSWER_RESERVE,
   SUBREQUEST_RUNG_COST,
@@ -191,6 +210,8 @@ const {
   SUBREQUEST_SYNTHESIS_RACE_COST,
   classifyLegFailure,
   isSubrequestBudgetError,
+  storeSearchRecord,
+  chargeBookkeeping,
   recordLegOutcome,
   legParkInfo,
   resetLegHealth,
@@ -697,6 +718,278 @@ await test("publicLedgerSnapshot counts total refusals in the refused sum", () =
 });
 
 // ═══════════════════════════════════════════════════════════════
+group("the bookkeeping lane — counted, never refused (2026-10-14, fifth panel, Job 1)");
+
+// The regression this group pins: wave five's hard total cap
+// charged the post assembly bookkeeping (the record store's
+// counted binding and insert, the stage health aggregate, the
+// queue slot release) against the same cap the answer phases
+// refuse at. The throw path, named: storeSearchRecord ->
+// ledger.spendBinding("record", 1) -> grant()'s total cap check
+// throws "Too many subrequests by single Worker invocation
+// (invocation budget)" -> the store's own catch logs it and
+// returns false -> the handler's one fresh retry throws
+// identically -> applyRecordStoreOutcome(record, false) deletes
+// record.id and record.url, and a successful search ships
+// _record.stored false with no permalink. The aggregate's writer
+// swallowed the same throw in its catch and wrote no bucket; the
+// slot release never fired at all (the handler's finally gated
+// it on ledger.remaining() > 0) and would have thrown inside
+// releaseSearchSlot's catch before its UPDATE anyway. Live
+// evidence: two of two successful panel searches returned
+// stored false. The fixtures below fill a ledger to exactly the
+// cap and prove every consumer still lands its write.
+
+function spendNLocal(ledger, n) {
+  for (let i = 0; i < n; i++) ledger.spend();
+}
+
+function recordingDb(log) {
+  const st = (sql) => {
+    const s = {
+      sql,
+      bind: () => s,
+      first: async () => null,
+      all: async () => ({ results: [] }),
+      run: async () => { log.push(sql); return { success: true, meta: { changes: 1 } }; },
+    };
+    return s;
+  };
+  return {
+    prepare: (sql) => st(sql),
+    batch: async (arr) => {
+      log.push("BATCH: " + (arr || []).map((x) => x.sql || "?").join(" | "));
+      return (arr || []).map(() => ({ success: true }));
+    },
+    exec: async (sql) => { log.push(String(sql)); return { results: [] }; },
+  };
+}
+
+await test("spendBookkeeping tallies past the cap without throwing and moves no refusal tally", () => {
+  const ledger = createSubrequestLedger();
+  spendNLocal(ledger, SUBREQUEST_LIMIT);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT);
+  // The lane tallies: usedCount rises past the cap, byStage
+  // carries the label, and no refusal tally of any kind moves.
+  ledger.spendBookkeeping("record", 2);
+  ledger.spendBookkeeping("health", 1);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT + 3);
+  const snap = ledger.snapshot();
+  assert.equal(snap.byStage.record, 2);
+  assert.equal(snap.byStage.health, 1);
+  assert.equal(ledger.totalRefusals(), 0, "bookkeeping moved the total refusal tally");
+  assert.equal(snap.totalRefused || 0, 0);
+  // The answer phase guarantee is untouched: a normal grant at
+  // this total still refuses, and its refusal is the only one.
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  assert.equal(ledger.totalRefusals(), 1);
+  // publicLedgerSnapshot's refused sum counts no bookkeeping.
+  assert.equal(publicLedgerSnapshot(ledger).refused, 1);
+});
+
+await test("chargeBookkeeping falls back to spendBinding for a lane less ledger", () => {
+  let charged = null;
+  const fake = { spendBinding: (label, n) => { charged = [label, n]; } };
+  chargeBookkeeping(fake, "record", 1);
+  assert.deepEqual(charged, ["record", 1]);
+  chargeBookkeeping(null, "record", 1); // a missing ledger charges nothing, never throws
+});
+
+await test("the record store stores at a ledger filled to exactly the cap", async () => {
+  const log = [];
+  const env = { DB: recordingDb(log) };
+  const ledger = createSubrequestLedger();
+  spendNLocal(ledger, SUBREQUEST_LIMIT);
+  const ok = await storeSearchRecord(env, {
+    id: "r_job1fixture", question: "does the store land at the cap", askedAt: "2026-10-14",
+  }, ledger);
+  assert.equal(ok, true, "the store refused at the cap (the Job 1 regression)");
+  assert.ok(log.some((s) => s.includes("INSERT OR IGNORE INTO search_records")),
+    "the recording DB never received the record insert: " + JSON.stringify(log));
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT + 2,
+    "cold ensure plus insert should tally 2 past the cap");
+  assert.equal(ledger.totalRefusals(), 0, "the store's writes were refused by the ledger");
+});
+
+await test("the stage health aggregate writes at a ledger filled to exactly the cap", async () => {
+  const { recordStageHealthAggregate } = await import(join(root, "functions/lib/stageHealthAggregate.js"));
+  const log = [];
+  const env = { DB: recordingDb(log) };
+  const ledger = createSubrequestLedger();
+  spendNLocal(ledger, SUBREQUEST_LIMIT);
+  const ok = await recordStageHealthAggregate(env, [{ name: "synthesis", ok: true, ms: 5 }], Date.now(), ledger);
+  assert.equal(ok, true, "the aggregate write failed at the cap (the Job 1 regression)");
+  assert.ok(log.some((s) => s.includes("stage_health_buckets")),
+    "the recording DB never received the health write: " + JSON.stringify(log));
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT + 2,
+    "cold ensure plus batch should tally 2 past the cap");
+  assert.equal(ledger.totalRefusals(), 0);
+});
+
+await test("the queue slot release fires its UPDATE at a ledger filled to exactly the cap", async () => {
+  const { releaseSearchSlot } = await import(join(root, "functions/lib/searchPriority.js"));
+  const log = [];
+  const env = { DB: recordingDb(log) };
+  const ledger = createSubrequestLedger();
+  spendNLocal(ledger, SUBREQUEST_LIMIT);
+  await releaseSearchSlot(env, ledger);
+  assert.ok(log.some((s) => s.includes("UPDATE search_slots SET n = MAX(n - 1, 0)")),
+    "the slot release UPDATE never ran at the cap: " + JSON.stringify(log));
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT + 1);
+  assert.equal(ledger.snapshot().byStage.queue, 1);
+  assert.equal(ledger.totalRefusals(), 0);
+});
+
+// Handler level: the baby belly control draw, which lands its
+// shipped snapshot at exactly the cap (the probe shape that
+// reproduced the regression live: shipped 50 of 50, the store
+// attempted into a spent ledger). The recording DB never refuses
+// (the ledger is the budget model under test, not the stub), and
+// every write it receives is logged, so the fixture can assert
+// the store, the aggregate, and the release all LANDED — not
+// merely that no error surfaced.
+async function runCappedRecordScenario() {
+  const log = [];
+  const db = (() => {
+    const st = (sql) => {
+      const s = {
+        sql,
+        bind: () => s,
+        first: async () => {
+          if (/CASE WHEN search_slots\.expires_at/.test(sql || "")) return { n: 1 };
+          return null;
+        },
+        all: async () => {
+          if (/sqlite_master/.test(sql || "")) {
+            return { results: [
+              { name: "pro_usage", sql: "CREATE TABLE pro_usage (user_id TEXT NOT NULL, month TEXT NOT NULL, ai_answers INTEGER NOT NULL DEFAULT 0, doc_reads INTEGER NOT NULL DEFAULT 0, flowcharts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, month))" },
+              { name: "stripe_events", sql: "CREATE TABLE stripe_events (event_id TEXT PRIMARY KEY, received_at INTEGER NOT NULL)" },
+              { name: "student_verifications", sql: "CREATE TABLE student_verifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)" },
+            ] };
+          }
+          return { results: [] };
+        },
+        run: async () => { log.push(sql); return { success: true, meta: { changes: 1 } }; },
+      };
+      return s;
+    };
+    return {
+      prepare: (sql) => st(sql),
+      batch: async (arr) => {
+        log.push("BATCH: " + (arr || []).map((x) => x.sql || "?").join(" | "));
+        return (arr || []).map(() => ({ success: true }));
+      },
+      exec: async (sql) => { log.push(String(sql)); return { results: [] }; },
+    };
+  })();
+  const bellyAbstract =
+    "The germs in a baby belly change across the first year of life, and the microbes living in the infant gut influence how nutrients are absorbed and how weight is gained over time. " +
+    "When the microbial community is disturbed early, growth can slow until the community recovers, and how well the baby grows tracks the germs in the belly month by month.";
+  const papers = [1, 2, 3, 4].map((n) => ({
+    title: "Gut germs and infant growth patterns study " + n,
+    doi: "10.1000/job1" + n, pubYear: "2024", citedByCount: 7,
+    authorString: "Doe J, Roe K", journalTitle: "Journal of Infant Studies",
+    abstractText: bellyAbstract,
+  }));
+  const answerText =
+    "The **gut microbes** living in an infant gut influence how nutrients are absorbed and how weight is gained over time [1]. " +
+    "When the microbial community is disturbed early, growth can slow until the community recovers [2]. " +
+    "The germs in the belly change month by month across the first year [1].";
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: { match: async () => undefined, put: async () => {}, delete: async () => false },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("generativelanguage.googleapis.com") || u.includes("api.mistral.ai") ||
+        u.includes("integrate.api.nvidia.com") || u.includes("openrouter.ai") || u.includes("api.groq.com")) {
+      if (body.includes("literature search specialist")) return chatRes("I cannot group those terms today.");
+      if (body.includes("relevance validator")) return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      return chatRes(answerText);
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      if (u.includes("BODY")) return jsonRes({ resultList: { result: [] } });
+      return jsonRes({ resultList: { result: papers } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) return jsonRes({ esearchresult: { idlist: [] } });
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    if (u.includes("export.arxiv.org")) return new Response("", { status: 200 });
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const env = {
+      DB: db,
+      OPENROUTER_KEY: "job1-test-openrouter-key-123456",
+      GROQ_KEY: "job1-test-groq-key-123456",
+      GEMINI_KEY: "job1-test-gemini-key-123456",
+      MISTRAL_KEY: "job1-test-mistral-key-123456",
+      NVIDIA_KEY: "job1-test-nvidia-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "Do the germs in a baby belly change how well the baby grows" }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 200));
+    return { data, ledger, log };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("handler level: a run closing at exactly the cap still stores its record (Job 1)", async () => {
+  const { data, ledger, log } = await runCappedRecordScenario();
+  // The draw closes at exactly the cap in the SHIPPED snapshot —
+  // the state that starved the store before the lane existed.
+  assert.equal(data._ledger.used, SUBREQUEST_LIMIT,
+    `the scenario should close at exactly the cap, shipped ${data._ledger && data._ledger.used}`);
+  // The record stored: the response carries the id, the URL,
+  // and stored true (before the fix: stored false, id and url
+  // deleted by applyRecordStoreOutcome).
+  assert.ok(data._record, "no record on the response");
+  assert.equal(data._record.stored, true, "the record did not store at the cap");
+  assert.ok(typeof data._record.id === "string" && data._record.id.startsWith("r_"),
+    "the record carries no id");
+  assert.ok(typeof data._record.url === "string" && data._record.url.includes(data._record.id),
+    "the record carries no permalink URL");
+  // The writes actually landed in the recording DB: the record
+  // insert, the stage health batch, and the slot release UPDATE
+  // (the release fires from the handler's finally, which no
+  // longer gates on budget remaining).
+  assert.ok(log.some((s) => s.includes("INSERT OR IGNORE INTO search_records")),
+    "the record insert never reached the DB");
+  assert.ok(log.some((s) => s.includes("stage_health_buckets")),
+    "the stage health write never reached the DB");
+  assert.ok(log.some((s) => s.includes("UPDATE search_slots SET n = MAX(n - 1, 0)")),
+    "the slot release UPDATE never reached the DB");
+  // The diag total is honest: shipped 50 plus exactly the
+  // bookkeeping delta (record 2: cold ensure + insert; health 2:
+  // cold ensure + batch; queue 1: the release) = 55. The deltas
+  // are read against the shipped snapshot's own stage map, so
+  // the acquire side's queue charges (inside the shipped 50) do
+  // not pollute the measurement.
+  const snap = ledger.snapshot();
+  assert.equal(snap.used, 55, `final ledger total ${snap.used} is not shipped 50 + bookkeeping 5`);
+  const delta = (k) => (snap.byStage[k] || 0) - (data._ledger.byStage[k] || 0);
+  assert.equal(delta("record"), 2, "the record store's post snapshot spend is not ensure + insert");
+  assert.equal(delta("health"), 2, "the aggregate's post snapshot spend is not ensure + batch");
+  assert.equal(delta("queue"), 1, "the slot release's post snapshot spend is not exactly its UPDATE");
+});
+
+// ═══════════════════════════════════════════════════════════════
 group("planWaveLegs — breadth first across buckets, allowance bound");
 
 const leg = (label, bucket, fetchCost, wave = 1) => ({ label, bucket, fetchCost, wave, fire: () => label });
@@ -766,6 +1059,54 @@ await test("an unaffordable leg does not block a cheaper leg behind it in the sa
   const { selected, skipped } = planWaveLegs(descriptors, 2);
   assert.deepEqual(selected.map((d) => d.label), ["free-1"]);
   assert.deepEqual(skipped.map((d) => d.label), ["big-1", "big-2"]);
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("planned skips are not failures — the Job 4 record contract (2026-10-14, fifth panel)");
+
+// The panel's capped probes each showed exactly 4 legs refused
+// at 0 ms as "subrequest budget exhausted": planner stamps for
+// legs admitted by a wave plan the remaining budget could never
+// fund (the wave planner, the rescue planner, and the delayed
+// rescue planner each stamp their trims). Those legs never
+// raced. The contract: every stamp carries plannedSkip, the
+// synthesis record's failedLegs excludes them, and the trim
+// count ships as budgetSkippedLegs. Pinned at the source level
+// (the three stamping loops and the record builder are inline
+// in the handler) and at the public record level; the handler
+// level all fail run in tests/relevance-gate.mjs pins that
+// failedLegs on a real run contains only raced legs.
+await test("all three planner stamp sites mark their trims plannedSkip, and the record separates them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
+  const stamps = src.match(/budgetSkipped: true, plannedSkip: true/g) || [];
+  assert.equal(stamps.length, 3,
+    `expected exactly 3 plannedSkip stamp sites (wave, rescue, delayed rescue), found ${stamps.length}`);
+  assert.ok(src.includes("a.plannedSkip !== true"),
+    "the synthesis record's failedLegs does not exclude planner stamps");
+  assert.ok(src.includes("budgetSkippedLegs: synthLegs.filter((a) => a.plannedSkip === true).length"),
+    "the synthesis record does not count the trims as budgetSkippedLegs");
+  // The delayed rescue's inner wave plan must not shadow the
+  // rescue plan's name: the same named const put the wait branch
+  // in its temporal dead zone and the branch threw on every run
+  // that reached it (latent until the wave six fixtures drove a
+  // capped failing run end to end).
+  assert.ok(!src.includes("const delayedPlan = planWaveLegs"),
+    "the delayed rescue's wave plan shadows the rescue plan again");
+  assert.ok(src.includes("const delayedWavePlan = planWaveLegs"),
+    "the delayed rescue's wave plan lost its distinct name");
+});
+
+await test("publicStageHealth ships budgetSkippedLegs and leaves failedLegs as built", () => {
+  const shipped = publicStageHealth([
+    {
+      name: "synthesis", ok: false, ms: 9000, skipReason: "all legs failed", winner: null, winnerMs: null,
+      legs: 6, budgetSkippedLegs: 4,
+      failedLegs: [{ model: "groq:openai/gpt-oss-120b", ms: 1200, error: "HTTP 500" }],
+    },
+  ]);
+  assert.equal(shipped[0].budgetSkippedLegs, 4, "the trim count did not ship");
+  assert.deepEqual(shipped[0].failedLegs, [{ model: "groq:openai/gpt-oss-120b", ms: 1200, error: "HTTP 500" }]);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1561,19 +1902,51 @@ await test("heavy draw, full rerank: validation runs and the synthesis race fire
 // anyway, because no grant point enforced the total. Under the
 // total cap the overshoot is refused by the ledger BEFORE the
 // platform is asked, so on this replay the shipped snapshot is
-// at most the limit, the final ledger total (tail included) is
 // at most the limit, the stub records no platform refusal at
 // all — and the stages the budget exists for still ran.
+// Wave six (Job 1) note: the final ledger total on this replay
+// now EXCEEDS the limit by exactly the post assembly bookkeeping
+// (record store, health aggregate, slot release), which spends
+// through the never refused bookkeeping lane — the fifth panel
+// showed the wave five refusal of those writes costing capped
+// runs their permalink. The test below pins the corrected
+// arithmetic (final = shipped + bookkeeping delta).
 await test("live shaped replay: the shipped total never exceeds the limit, synthesis ships an AI answer", async () => {
   const { data, counts, ledger } = await runHeavyScenario();
   assertLedgerEqualsPlatform(counts, ledger);
   assert.ok(data._ledger && typeof data._ledger.used === "number", "the replay shipped no _ledger");
   assert.ok(data._ledger.used <= SUBREQUEST_LIMIT,
     `shipped _ledger.used ${data._ledger.used} exceeds the limit ${SUBREQUEST_LIMIT}`);
-  assert.ok(ledger.used() <= SUBREQUEST_LIMIT,
-    `final ledger total ${ledger.used()} exceeds the limit ${SUBREQUEST_LIMIT}`);
-  assert.equal(counts.refused, 0,
-    "the platform had to refuse an attempt the ledger should have refused first");
+  // CORRECTED CONTRACT (2026-10-14, fifth panel, Job 1): the
+  // final total is no longer bounded by the limit. Post assembly
+  // bookkeeping (the record store, the stage health aggregate,
+  // the slot release) spends through the bookkeeping lane —
+  // tallied, never refused — because the wave five cap refused
+  // those writes and capped runs lost their permalink, their
+  // health bucket, and their slot release. What is pinned now:
+  // the final total equals the shipped snapshot plus exactly
+  // the bookkeeping stages' post snapshot deltas (the same
+  // reconciliation assertLedgerShips performs), the SHIPPED
+  // total stays at or under the limit, and the answer phases'
+  // grants still refuse at the cap (pinned in the ledger group
+  // above). The old assertion (final total at most the limit)
+  // encoded the defective contract and is superseded.
+  const finalSnap = ledger.snapshot();
+  const bookkeepingDelta = ["record", "queue", "health"]
+    .reduce((sum, k) => sum + ((finalSnap.byStage[k] || 0) - (data._ledger.byStage[k] || 0)), 0);
+  assert.equal(ledger.used(), data._ledger.used + bookkeepingDelta,
+    `final ledger total ${ledger.used()} is not the shipped total ${data._ledger.used} ` +
+    `plus the bookkeeping delta ${bookkeepingDelta}`);
+  // The counting stub models the platform as refusing attempts
+  // past the cap. Under the bookkeeping lane the only attempts
+  // that can land past the cap are the post assembly bookkeeping
+  // writes themselves (the delta above reconciles them exactly):
+  // the stub's refusals may number no more than the attempts
+  // past the limit, and every pre snapshot (answer phase)
+  // attempt was granted — the ledger still refuses those first.
+  assert.equal(counts.refused, Math.max(0, counts.attempts - SUBREQUEST_LIMIT),
+    `${counts.refused} platform refusals, but only ${Math.max(0, counts.attempts - SUBREQUEST_LIMIT)} ` +
+    `attempts landed past the limit, and all of those must be post assembly bookkeeping`);
   const synthesis = (data.stageHealth || []).find((s) => s.name === "synthesis");
   assert.ok(synthesis && synthesis.ok, "synthesis did not run on the live shaped replay");
   assert.ok(synthesis.winner, "synthesis record has no winner on the replay");
@@ -1612,7 +1985,16 @@ group("natural language net ranking — concept coverage before term frequency (
 // enforces the same limit the ledger carries, so the equality
 // assertion still holds.
 const NL_Q = "does eating yogurt change belly germs";
-const NL_LIMIT = 120;
+// The limit is headroom for the ranking machinery, not a budget
+// assertion (the budget behavior is pinned at the real limit by
+// the scenarios above). 120 when the fixture was written; 130
+// since wave six: the synonym bridges (yogurt -> probiotic class
+// terms) changed the ladder boolean's shape, and the fanout's
+// query dependent calls cost 3 more subrequests on this draw
+// (86 -> 89 at the NL gate), which ate the old limit's slack at
+// the retrievalRoom threshold and trimmed the very net this
+// fixture exists to exercise.
+const NL_LIMIT = 130;
 const NL_LADDER = {
   title: "The infant belly and its germs in the first year of life",
   doi: "10.1000/nlladder", pubYear: "2023", citedByCount: 9,
@@ -1717,9 +2099,14 @@ async function runNlRankScenario() {
       // the draw by gathered counts, and every retrieval round
       // re-issues the boolean, so a stub that answers it every
       // time inflates the count past the nets' thresholds and they
-      // are never reached. The shipped boolean for this question
-      // opens with the gut group's rung.
-      if (qs.startsWith("((belly OR gut") && !counts.boolAnswered) {
+      // are never reached. The stub keys on the boolean carrying
+      // the question's own concepts (belly, germ), not on which
+      // group leads it: until wave six the gut group led, and the
+      // wave six synonym bridges (yogurt -> probiotic class terms)
+      // put the yogurt group first in the same boolean — the
+      // rung order is the query builder's business, not this
+      // fixture's.
+      if (qs.includes("belly") && qs.includes("germ") && !counts.boolAnswered) {
         counts.boolAnswered = 1;
         return jsonRes({ resultList: { result: [NL_LADDER] } });
       }

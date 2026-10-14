@@ -210,6 +210,14 @@ await test("search.js wraps every synthesis leg in guardedLlmCall (no naked fetc
   const guardBody = src.slice(guardStart, src.indexOf("\n}\n", guardStart));
   assert.match(guardBody, /isTransientError\(e\)/, "breaker must only count transient failures");
   assert.match(guardBody, /CircuitOpenError/, "open circuit must fail the leg fast");
+  // An open circuit fails the leg as a rejected promise, never a
+  // synchronous throw (2026-10-14): the throw escaped leg
+  // construction (fireWaveLegs builds calls before the racing try)
+  // and killed whole requests at the handler's top level catch.
+  // The handler level behavior is pinned in tests/relevance-gate.mjs
+  // ("breaker escape" group).
+  assert.match(guardBody, /return Promise\.reject\(new CircuitOpenError/, "open circuit must reject the leg promise");
+  assert.doesNotMatch(guardBody, /throw new CircuitOpenError/, "open circuit must not throw synchronously");
 });
 
 await test("postChatCompletion clamps prompts and retries transient via the breaker", async () => {
@@ -502,10 +510,14 @@ await test("search: budget authorized once before wave 1; every wave gated on de
   // One authorization per search — never inside a per-leg function.
   const authCount = (src.match(/authorizeLlmCall\(env,/g) || []).length;
   assert.equal(authCount, 1, `authorize once per search, found ${authCount}`);
+  // 2026-10-14 (wave six, Job 2c): the guards read wavesAllowed —
+  // aiSynthesisAllowed ANDed with the serve gate — so the Pro gate
+  // still binds every wave through the lever (its definition is
+  // pinned in tests/pro.mjs).
   for (const gate of [
-    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {",
-    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {",
-    "if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {",
+    "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {",
+    "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {",
+    "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {",
   ]) {
     assert.ok(src.includes(gate), `wave gate present: ${gate.slice(0, 60)}…`);
   }
@@ -527,7 +539,13 @@ await test("search: token spend + usage recorded once after the waves", async ()
   const spendAt = src.indexOf("await spendTokens(");
   const usageAt = src.indexOf("await recordLlmUsage(env,");
   assert.ok(meterAt !== -1 && spendAt > meterAt && usageAt > meterAt, "accounting sits with the per-search metering");
-  assert.match(src, /if \(aiOK && llmBudget && llmBudget\.ok && ledger\.remaining\(\) > 1\)/, "accounting only on authorized wins");
+  // 2026-10-14 (wave six): the room threshold rose from 1 to 5 —
+  // the block charges 4, and the wave six roster cut freed exactly
+  // enough room for it to start firing on draws where it used to
+  // yield, eating the last subrequest the citation retry needs.
+  // Accounting yields to correctness; the contract here (only on
+  // authorized wins, once, after the waves) is unchanged.
+  assert.match(src, /if \(aiOK && llmBudget && llmBudget\.ok && ledger\.remaining\(\) > 5\)/, "accounting only on authorized wins");
 });
 
 await test("document: exhausted budget degrades to honest extractive, never a 500", async () => {

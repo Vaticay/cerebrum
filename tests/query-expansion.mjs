@@ -52,6 +52,7 @@ const {
   centralContentTerms,
   citationGateStandard,
   paperClearsCitationGate,
+  subjectConceptGroup,
   applyConceptCoverageGate,
   orderCitedSliceByCoverage,
   paperConceptGroupHits,
@@ -1518,6 +1519,127 @@ await test("creatine shape: with fallback groups, hair only and neither papers l
     "the hair only sociology paper and the neither paper are demoted to further reading");
 });
 
+// ═══════════════════════════════════════════════════════════════════
+group("subject touch standard (2026-10-14)");
+
+// The production failure this wave answers (build 75dd771): the
+// creatine question shipped citing exactly one paper, a sociology
+// paper about Black hair in English schools that never mentions
+// creatine. It cleared because a lexical touch of the EFFECT group
+// counted as answering a question whose SUBJECT it never touches.
+// The corrected standard: with a subject group identified, a paper
+// clears by touching the subject group or by touching at least
+// two groups in total; a lone non subject touch no longer clears.
+// Identification is deterministic, off machinery the codebase
+// already computes (see subjectConceptGroup): the organism route,
+// the causative frame's subject slot, the lead key phrase. The
+// fixtures below are worded in everyday language against
+// paper written language, per the standing rule.
+
+const CREATINE_FALLBACK_DYN = () =>
+  buildDynLookup(buildDeterministicFallbackGroups(CREATINE_Q, ["creatine", "hair", "fall"]));
+const CREATINE_SUBJECT_ONLY = () => ({
+  title: "Creatine supplementation and kidney function in healthy adults",
+  abstract: "Adults taking creatine monohydrate daily for two years showed no change in kidney function. Creatine was well tolerated, and blood markers stayed in the normal range in both arms of the study.",
+  url: "https://example.com/creatine-kidney",
+});
+const CREATINE_HAIR_FALL = () => ({
+  title: "Hair loss after childbirth: shedding and regrowth",
+  abstract: "Postpartum hair loss peaks as strands fall out in the months after delivery, and most hair regrows within a year.",
+  url: "https://example.com/postpartum-hair",
+});
+
+await test("the subject group is the creatine group, under fallback and under model groups", () => {
+  const dyn = CREATINE_FALLBACK_DYN();
+  const groups = gateConceptGroups(CREATINE_Q, dyn);
+  const subject = subjectConceptGroup(CREATINE_Q, groups, dyn);
+  assert.ok(subject && subject.has("creatine"),
+    "the causative frame names creatine as the subject: " + JSON.stringify(groups.map((g) => [...g][0])));
+  assert.equal(citationGateStandard(CREATINE_Q, dyn).subjectGroup, subject,
+    "the standard itself must carry the identified subject group");
+  const modelDyn = buildDynLookup([
+    { term: "creatine", alternates: ["creatine monohydrate", "creatine supplementation"] },
+    { term: "hair fall out", alternates: ["hair loss", "alopecia", "telogen effluvium", "hair shedding"] },
+  ]);
+  const modelSubject = subjectConceptGroup(CREATINE_Q, gateConceptGroups(CREATINE_Q, modelDyn), modelDyn);
+  assert.ok(modelSubject && modelSubject.has("creatine"),
+    "with the production model groups the subject is still the creatine group");
+});
+
+await test("a subject only paper clears; an effect only paper does not; two non subject groups clear", () => {
+  const standard = citationGateStandard(CREATINE_Q, CREATINE_FALLBACK_DYN());
+  assert.equal(paperConceptGroupHits(CREATINE_SUBJECT_ONLY(), standard.groups), 1,
+    "control: the safety paper touches exactly one group");
+  assert.ok(paperClearsCitationGate(CREATINE_SUBJECT_ONLY(), standard),
+    "a paper touching only the subject group must clear the standard");
+  assert.ok(!paperClearsCitationGate(CREATINE_PAPERS()[1], standard),
+    "the hair only sociology paper must not clear the standard");
+  assert.ok(paperClearsCitationGate(CREATINE_HAIR_FALL(), standard),
+    "a paper touching two non subject groups still clears on the two group limb");
+  const papers = [CREATINE_PAPERS()[1], CREATINE_SUBJECT_ONLY(), CREATINE_PAPERS()[0]];
+  const answer = "Hair rules shape belonging [1]. Creatine was well tolerated for two years [2]. Creatine did not change shedding [3].";
+  const out = applyConceptCoverageGate(answer, papers, CREATINE_Q, CREATINE_FALLBACK_DYN());
+  assert.deepEqual(out.demoted.map((d) => d.idx), [1],
+    "the gate demotes the effect only paper alone; the subject only paper keeps its marker");
+  assert.ok(out.text.includes("[2]") && out.text.includes("[3]"), "both creatine papers keep their markers");
+});
+
+await test("the topic filter holds the same subject standard, one layer earlier", () => {
+  const dyn = CREATINE_FALLBACK_DYN();
+  const out = topicOverlapFilter(CREATINE_Q,
+    [CREATINE_SUBJECT_ONLY(), CREATINE_PAPERS()[1], CREATINE_HAIR_FALL()].map((p) => ({ ...p })), dyn);
+  const urls = out.map((p) => p.url);
+  assert.ok(urls.includes("https://example.com/creatine-kidney"),
+    "the subject only paper must survive retrieval, or the gate's standard could never admit it");
+  assert.ok(!urls.includes("https://example.com/hair-sociology"),
+    "the effect only paper must die in the filter, as it may not be cited");
+});
+
+await test("subject identification: the organism route, the lead phrase route, and the crop tiebreak", () => {
+  const bsflQ = "Does Hermetia illucens gut bacteria help it digest waste oil?";
+  const bsflSubject = subjectConceptGroup(bsflQ, gateConceptGroups(bsflQ, null), null);
+  assert.ok(bsflSubject && bsflSubject.has("black soldier fly"),
+    "the named organism's group is the subject");
+  const bellyQ = "Do the germs in a baby belly change how well the baby grows";
+  const bellyGroups = gateConceptGroups(bellyQ, null);
+  const bellySubject = subjectConceptGroup(bellyQ, bellyGroups, null);
+  assert.ok(bellySubject && bellySubject.has("microbiome") && !bellySubject.has("gut"),
+    "the belly question's subject is the microbe group, not the gut group the collisions touch");
+  const gutQ = "what happens to a baby's gut germs in the first year";
+  const gutDyn = buildDynLookup(buildDeterministicFallbackGroups(gutQ, ["baby"]));
+  const gutSubject = subjectConceptGroup(gutQ, gateConceptGroups(gutQ, gutDyn), gutDyn);
+  assert.ok(gutSubject && gutSubject.has("gut"),
+    "the baby gut question's subject is the gut group (the infant gut concept)");
+  // The gut group also carries the single word "crop" (a bird's
+  // stomach organ); the phrase "crop rotation" must still name
+  // the rotation group — longest member wins a tie at one spot.
+  const rotQ = "does crop rotation improve soil fertility over time";
+  const rotSubject = subjectConceptGroup(rotQ, gateConceptGroups(rotQ, null), null);
+  assert.ok(rotSubject && rotSubject.has("crop rotation"),
+    "the rotation question's subject is the crop rotation group, not the gut group");
+});
+
+await test("no subject group for the two concept sleep question: the founding standard is untouched", () => {
+  // The wave two founding shape: "does not getting enough sleep
+  // make you more likely to catch a cold" puts a CLAUSE in the
+  // causative frame's subject slot, not an entity, so no subject
+  // group is identified and the both concepts standard applies
+  // exactly as before — a sleep only paper and a cold only paper
+  // are both still demoted (pinned end to end in
+  // tests/search-wave-two.mjs).
+  const sleepQ = "does not getting enough sleep make you more likely to catch a cold";
+  const sleepDyn = buildDynLookup([
+    { term: "sleep", alternates: ["insomnia", "sleep deprivation", "sleep loss"] },
+    { term: "cold", alternates: ["common cold", "upper respiratory infection", "rhinovirus"] },
+  ]);
+  const groups = gateConceptGroups(sleepQ, sleepDyn);
+  assert.equal(groups.length, 2, "control: the sleep question resolves its two groups");
+  assert.equal(subjectConceptGroup(sleepQ, groups, sleepDyn), null,
+    "a clause in the subject slot identifies no subject group");
+  assert.equal(citationGateStandard(sleepQ, sleepDyn).subjectGroup, null,
+    "the standard carries no subject for this question");
+});
+
 await test("one resolved group: a group touch or a shared central term cites, a collision does not", () => {
   const q = "why do some plants fold their leaves when you touch them";
   const standard = citationGateStandard(q, null);
@@ -1625,6 +1747,44 @@ await test("duplicate records rank after distinct papers, whatever their coverag
   assert.equal(ordered[0], original, "the covering original leads");
   assert.equal(ordered[1], distinct, "the distinct paper outranks the duplicate");
   assert.equal(ordered[2], duplicate, "the duplicate ranks last despite sharing the top coverage");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("fallback vocabulary — inflections and bridges (2026-10-14, fifth panel, Job 2a)");
+
+await test("the inflection generator emits no non words", () => {
+  // The panel's specimen: fix -> [fixs, fixes]. A sibilant final
+  // word takes ONLY the es plural. (inflectionVariants returns a
+  // Set.)
+  const fix = inflectionVariants("fix");
+  assert.ok(fix.has("fixes"), "fix should yield fixes: " + JSON.stringify([...fix]));
+  assert.ok(!fix.has("fixs"), "fix yielded the non word fixs: " + JSON.stringify([...fix]));
+  const box = inflectionVariants("box");
+  assert.ok(box.has("boxes") && !box.has("boxs"), "box variants wrong: " + JSON.stringify([...box]));
+  // Words ending in us, is, or ss have no stripped singular.
+  assert.ok(!inflectionVariants("analysis").has("analysi"),
+    "analysis yielded analysi: " + JSON.stringify([...inflectionVariants("analysis")]));
+  assert.ok(!inflectionVariants("class").has("clas"),
+    "class yielded clas: " + JSON.stringify([...inflectionVariants("class")]));
+  // A plain plural is still generated where it is real.
+  assert.ok(inflectionVariants("blood").has("bloods"), "blood lost its plural");
+});
+
+await test("the everyday to scientific bridges are in the fallback vocabulary", () => {
+  // The panel's specimens: the antibiotic stomach question needs
+  // the probiotic class; the caffeine question needs the blood
+  // pressure class. The bridges are term class vocabulary in
+  // buildDeterministicFallbackGroups, not question hacks.
+  const yogurt = buildDeterministicFallbackGroups("can eating yogurt help", ["yogurt"]);
+  const yogurtAlts = (yogurt[0] && yogurt[0].alternates) || [];
+  assert.ok(yogurtAlts.includes("probiotic"), "yogurt does not bridge to probiotic: " + JSON.stringify(yogurt));
+  assert.ok(yogurtAlts.includes("lactobacillus"), "yogurt does not bridge to lactobacillus: " + JSON.stringify(yogurt));
+  const bp = buildDeterministicFallbackGroups("does caffeine raise blood pressure", ["blood pressure"]);
+  const bpAlts = (bp[0] && bp[0].alternates) || [];
+  assert.ok(bpAlts.includes("hypertension"), "blood pressure does not bridge to hypertension: " + JSON.stringify(bp));
+  const caf = buildDeterministicFallbackGroups("does caffeine raise blood pressure", ["caffeine"]);
+  const cafAlts = (caf[0] && caf[0].alternates) || [];
+  assert.ok(cafAlts.includes("coffee"), "caffeine does not bridge to coffee: " + JSON.stringify(caf));
 });
 
 // ═══════════════════════════════════════════════════════════════════

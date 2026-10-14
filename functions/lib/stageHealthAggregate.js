@@ -69,6 +69,23 @@ export function buildStageHealthIncrements(stageHealth, nowMs = Date.now()) {
   return [...byStage.values()];
 }
 
+/* The bookkeeping funding lane (2026-10-14, fifth panel, Job 1):
+ * this writer is post assembly bookkeeping, so its charges tally
+ * into the invocation total through the ledger's bookkeeping lane
+ * (spendBookkeeping: counted, never refused) when the ledger
+ * provides it — under the wave five hard total cap the plain
+ * binding charge threw at exactly the cap inside this writer's
+ * own catch, and capped runs silently wrote no health bucket.
+ * Ledger shaped objects carrying only spendBinding (test fakes)
+ * keep the old charge. Mirrors chargeBookkeeping in
+ * functions/api/search.js; duplicated here rather than imported
+ * to keep the lib free of a cycle back into the API module. */
+function chargeHealth(ledger, n = 1) {
+  if (!ledger) return;
+  if (typeof ledger.spendBookkeeping === "function") ledger.spendBookkeeping("health", n);
+  else if (typeof ledger.spendBinding === "function") ledger.spendBinding("health", n);
+}
+
 // Lazily created once per DB binding (the search record store's
 // ensureSearchRecordsTable pattern): memoized in a WeakMap, a
 // failed create clears its own memo entry so the next write
@@ -78,7 +95,7 @@ const tableReadyByDb = new WeakMap();
 function ensureTable(db, ledger = null) {
   let ready = tableReadyByDb.get(db);
   if (!ready) {
-    if (ledger) ledger.spendBinding("health", 1);
+    chargeHealth(ledger, 1);
     ready = (async () => {
       await db.prepare(
         "CREATE TABLE IF NOT EXISTS stage_health_buckets (" +
@@ -103,9 +120,11 @@ function ensureTable(db, ledger = null) {
  * never returns a rejected promise: false means "not recorded" and
  * the caller does not care. One batched write however many stages
  * reported (a batch is one bound service call). When a ledger is
- * passed it is charged per platform attempt BEFORE the attempt,
- * spendBinding style — the cold ensure and the batch — so the
- * invocation's ledger total still equals the platform's.
+ * passed it is charged per platform attempt BEFORE the attempt —
+ * the cold ensure and the batch — through the bookkeeping lane
+ * (see chargeHealth above), so the invocation's ledger total
+ * still equals the platform's and the charge itself can never be
+ * the reason the write fails.
  */
 export async function recordStageHealthAggregate(env, stageHealth, nowMs = Date.now(), ledger = null) {
   try {
@@ -134,11 +153,11 @@ export async function recordStageHealthAggregate(env, stageHealth, nowMs = Date.
       );
     }
     if (typeof db.batch === "function") {
-      if (ledger) ledger.spendBinding("health", 1);
+      chargeHealth(ledger, 1);
       await db.batch(stmts);
     } else {
       for (const s of stmts) {
-        if (ledger) ledger.spendBinding("health", 1);
+        chargeHealth(ledger, 1);
         await s.run();
       }
     }

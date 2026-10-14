@@ -235,7 +235,9 @@ await test("source: key threaded from env through gatherPapers to every S2 call"
   assert.ok(src.includes("const s2Key = (opts && opts.s2Key) ||"), "gatherPapers reads opts.s2Key");
   // line-based scan: the paren regex chokes on rawQuery.slice(0, 200)'s nested paren
   const callLines = src.split("\n").filter((l) => l.includes("semanticScholar(") && !l.includes("async function"));
-  assert.equal(callLines.length, 10, `expected 10 call sites, found ${callLines.length}`);
+  // 2026-10-14 (wave six, Job 2a): the broad terms rung is the
+  // eleventh call site, keyed identically (s2Key, like every other).
+  assert.equal(callLines.length, 11, `expected 11 call sites, found ${callLines.length}`);
   for (const l of callLines) {
     assert.ok(
       l.includes("s2Key") || l.includes("SEMANTIC_SCHOLAR_KEY"),

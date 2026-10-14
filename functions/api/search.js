@@ -107,7 +107,20 @@ const OR_VISION_MODELS = ["inclusionai/ling-3.0-flash-vl:free"];
 // (postChatCompletion) where there is no race to absorb the failure.
 function guardedLlmCall(providerId, fn) {
   const b = getBreaker("llm:" + providerId, { failureThreshold: 5, openTimeoutMs: 60000 });
-  if (!b.allowRequest()) throw new CircuitOpenError(b.name, b.msUntilRetry());
+  // An open circuit fails the leg as a REJECTED PROMISE, never a
+  // synchronous throw (2026-10-14, fifth panel weather). Every other
+  // failure these adapters produce is a rejected promise, and every
+  // consumer (raceEntry, raceBest, Promise.any) is built to record
+  // those as ordinary failed legs. The synchronous throw escaped
+  // that handling entirely: fireWaveLegs builds a wave's calls
+  // BEFORE the try that races them, so one open breaker threw out
+  // of the .map, past every wave, and landed in the handler's top
+  // level catch — the request shipped the internal error payload
+  // (synthesisMode "none", zero sources) although its shelf could
+  // have served the extractive tier. As a rejection the refusal
+  // carries the same CircuitOpenError (classifyLegFailure reads it
+  // as "circuit-open") into the leg's recorded error text.
+  if (!b.allowRequest()) return Promise.reject(new CircuitOpenError(b.name, b.msUntilRetry()));
   let p;
   try {
     p = fn();
@@ -258,10 +271,18 @@ export function resetLegHealth() {
  * legs answer in ~2s: these two are flaky-slow, not dead, so they keep
  * their wave seats but with a cap their real latency can meet, and
  * the per-leg breaker above parks them after repeated timeouts so
- * most requests never pay for their bad moments at all. */
+ * most requests never pay for their bad moments at all.
+ * Wave six (2026-10-14, fifth panel, Job 4): the fifth panel's
+ * probes timed both out at exactly their 6,000 ms override in
+ * every probe and neither ever won — the capped wave seat was
+ * still the largest weather independent latency chunk in the
+ * run. Both are demoted out of the early waves into the final
+ * wave (see CF_WAVE1 and the wave 3 roster) and their overrides
+ * are cut to 3,000 ms: a last resort leg that needs longer than
+ * that is not rescuing anything. */
 export const CF_LEG_TIMEOUT_OVERRIDES = {
-  "@cf/meta/llama-4-scout-17b-16e-instruct": 6000,
-  "@cf/mistralai/mistral-small-3.1-24b-instruct": 6000,
+  "@cf/meta/llama-4-scout-17b-16e-instruct": 3000,
+  "@cf/mistralai/mistral-small-3.1-24b-instruct": 3000,
 };
 export function cfLegTimeoutMs(model, waveTimeoutMs) {
   const o = CF_LEG_TIMEOUT_OVERRIDES[model];
@@ -750,12 +771,14 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
      * platform's own limit. A refusal here is the same budget
      * error every consumer already degrades on: fetchers return
      * empty, legs record as budget trims, the fact check falls
-     * back to its zero network heuristic, and the post assembly
+     * back to its zero network heuristic. Post assembly
      * bookkeeping (the record store, the slot release, the stage
-     * health aggregate — charged after the response snapshot by
-     * design) swallows the refusal exactly as it swallowed the
-     * platform's, so a spent cap costs the record its store and
-     * never the user their answer. */
+     * health aggregate) does NOT pass through this grant at all:
+     * it spends through spendBookkeeping below, which tallies
+     * without refusing, because the fifth panel proved what this
+     * refusal cost — a capped run could no longer afford its own
+     * permalink, its health record, or its slot release, so fresh
+     * Search records silently stopped being stored. */
     if (usedCount + n > cap) {
       totalRefused++;
       throw new Error("Too many subrequests by single Worker invocation (invocation budget)");
@@ -795,6 +818,37 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
       const count = Math.max(0, Math.floor(Number(n) || 0));
       if (count === 0) return usedCount;
       grant(count);
+      countSpend(count);
+      usedCount += count;
+      const s = label || stage;
+      byStage[s] = (byStage[s] || 0) + count;
+      return usedCount;
+    },
+    /* The bookkeeping funding lane (2026-10-14, fifth panel,
+     * Job 1): post assembly writes that must ALWAYS happen — the
+     * search record store, the stage health aggregate, the queue
+     * slot release — tally into the invocation total exactly like
+     * spendBinding (usedCount, byStage, phase tallies), but the
+     * tally is never refused: no grant() call, no throw, and no
+     * refusal tally of any kind moves. The wave five total cap
+     * charged these writes against the same hard cap the answer
+     * phases refuse at, so a run closing at exactly the cap (the
+     * routine capped outcome the cap itself made normal) left the
+     * store nothing to spend: storeSearchRecord's insert charge
+     * threw inside its own try, the handler's retry threw
+     * identically, and applyRecordStoreOutcome withdrew the
+     * permalink from a successful search's response. The answer
+     * phase guarantee is untouched: this lane only ever RAISES
+     * usedCount, so a later answer phase grant refuses MORE
+     * readily, never less, and the response's shipped _ledger
+     * snapshot is taken before bookkeeping runs, so it stays at
+     * or under the limit while the diag total honestly exceeds
+     * it by exactly the bookkeeping spend. Only the three named
+     * bookkeeping consumers may use this lane; everything that
+     * shapes the answer keeps paying through grant(). */
+    spendBookkeeping(label, n = 1) {
+      const count = Math.max(0, Math.floor(Number(n) || 0));
+      if (count === 0) return usedCount;
       countSpend(count);
       usedCount += count;
       const s = label || stage;
@@ -889,6 +943,24 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
       return snap;
     },
   };
+}
+
+/* chargeBookkeeping(ledger, label, n): the one door the post
+ * assembly bookkeeping consumers (the record store, the stage
+ * health aggregate, the queue slot release) charge through. It
+ * prefers the ledger's bookkeeping lane (spendBookkeeping: tallied
+ * in the invocation total, never refused) and falls back to the
+ * plain binding charge for ledger shaped objects that predate the
+ * lane (test fakes carrying only spendBinding), so those consumers
+ * keep working against either shape. A missing ledger charges
+ * nothing, exactly as the consumers' existing null checks did. */
+export function chargeBookkeeping(ledger, label, n = 1) {
+  if (!ledger) return;
+  if (typeof ledger.spendBookkeeping === "function") {
+    ledger.spendBookkeeping(label, n);
+  } else if (typeof ledger.spendBinding === "function") {
+    ledger.spendBinding(label, n);
+  }
 }
 
 /* Breadth-first wave trimming. `descriptors` is a wave's legs as
@@ -1170,11 +1242,21 @@ function paperDedupeKey(p) {
  * title (at least 12 normalized characters, so "Editorial" and
  * "Introduction" can never collide) and a plausible year; without
  * either, the record simply has no core and the older keys decide. */
-function paperCoreIdentity(p) {
+/* The work's normalized main title (before the subtitle colon),
+ * or null when the title is too short to identify a work (the
+ * same 12 character floor paperCoreIdentity states). Shared by
+ * the core identity and the title twin rule in dedupePapers. */
+function paperMainTitleCore(p) {
   const rawTitle = String((p && p.title) || "");
   const mainTitle = rawTitle.split(":")[0];
   const core = normalizePaperTitle(mainTitle);
   if (!core || core.length < 12) return null;
+  return core;
+}
+
+function paperCoreIdentity(p) {
+  const core = paperMainTitleCore(p);
+  if (!core) return null;
   const yearMatch = String((p && p.year) || "").match(/(?:19|20)\d{2}/);
   if (!yearMatch) return null;
   const doiKeys = paperDedupeKeys(p).filter((k) => k.startsWith("doi:"));
@@ -1229,6 +1311,7 @@ export function dedupePapers(list) {
   const seenStrong = new Set();  // DOIs, PMIDs, etc.
   const seenTitles = new Map();  // normalized title -> hasStrongId
   const seenCores = new Map();   // core key -> [{ doi, surname }] of kept records
+  const seenTwins = new Map();   // main title core -> [{ surname, year, abstractWords }] of kept records
   return (list || []).filter((p) => {
     const keys = paperDedupeKeys(p);
     if (keys.length === 0) return true;
@@ -1247,6 +1330,55 @@ export function dedupePapers(list) {
         !((k.doi && core.doi && k.doi !== core.doi) ||
           (k.surname && core.surname && k.surname !== core.surname)));
       if (sameWork) return false;
+    }
+    // TITLE TWIN RULE (2026-10-14, fifth panel, Job 2d): the same
+    // story carried by two outlets under the identical main title
+    // ("Stomach Upset", Scientific American 2017; "Stomach upset",
+    // New Scientist 2007) escapes the core rule because its years
+    // differ, and escapes the title key rule because both records
+    // carry DOIs and the DOIs differ — outlet copies of one wire
+    // story mint their own DOIs. A record is a twin of a kept one
+    // when the normalized main titles are exactly equal, the first
+    // author surnames do not conflict (either side missing, or
+    // equal), AND the abstracts are compatible. Compatibility is
+    // graded by the DOI evidence: when both records carry DOIs
+    // and they differ, only strong textual evidence proves one
+    // work in two outlets (both abstracts present with content
+    // token Jaccard at least 0.5); a missing abstract there leaves
+    // the DOI veto standing, the answer package suite's pinned
+    // contract that two different DOIs on one core are two
+    // papers. When the DOIs do not conflict, compatibility is
+    // looser: either side carries no abstract, or the years are
+    // equal, or the same overlap test passes.
+    const twinCore = paperMainTitleCore(p);
+    if (twinCore) {
+      const keptTwins = seenTwins.get(twinCore) || [];
+      if (keptTwins.length > 0) {
+        const mySurname = firstAuthorSurname(p);
+        const myYearMatch = String(p.year || "").match(/(?:19|20)\d{2}/);
+        const myYear = myYearMatch ? myYearMatch[0] : null;
+        const myAbstract = String(p.abstract || "").trim();
+        const myWords = myAbstract ? claimWordSet(myAbstract) : null;
+        const myDoi = core ? core.doi : null;
+        const abstractOverlap = (k) => {
+          let shared = 0;
+          for (const w of myWords) if (k.abstractWords.has(w)) shared++;
+          const union = myWords.size + k.abstractWords.size - shared;
+          return union > 0 && shared / union >= 0.5;
+        };
+        const isTwin = keptTwins.some((k) => {
+          if (k.surname && mySurname && k.surname !== mySurname) return false;
+          if (k.doi && myDoi && k.doi !== myDoi) {
+            // Differing DOIs on both sides: abstracts must prove it.
+            if (!k.abstractWords || !myWords) return false;
+            return abstractOverlap(k);
+          }
+          if (!k.abstractWords || !myWords) return true; // a side lacks an abstract
+          if (myYear && k.year && myYear === k.year) return true;
+          return abstractOverlap(k);
+        });
+        if (isTwin) return false;
+      }
     }
     // For title keys: only dedupe if neither has strong IDs
     const titleKeys = keys.filter(k => k.startsWith('title:'));
@@ -1269,6 +1401,18 @@ export function dedupePapers(list) {
       kept.push({ doi: core.doi, surname: core.surname });
       seenCores.set(core.key, kept);
     }
+    if (twinCore) {
+      const keptTwins = seenTwins.get(twinCore) || [];
+      const yMatch = String(p.year || "").match(/(?:19|20)\d{2}/);
+      const abs = String(p.abstract || "").trim();
+      keptTwins.push({
+        surname: firstAuthorSurname(p),
+        year: yMatch ? yMatch[0] : null,
+        abstractWords: abs ? claimWordSet(abs) : null,
+        doi: core ? core.doi : null,
+      });
+      seenTwins.set(twinCore, keptTwins);
+    }
     return true;
   });
 }
@@ -1276,7 +1420,9 @@ export function dedupePapers(list) {
 /* RELEVANCE FLOOR . the citation gate.
  *
  * Relevance is scored 0-100 absolute (70 topical match + 30 quality); the UI
- * labels >=65 "strong", 45-64 "partial", <45 "weak". The floor sits at 60:
+ * labels >=65 "strong", 45-64 "partial", <45 "weak". The floor sits at 50
+ * (RELEVANCE_FLOOR below; the header said 60 long after the constant
+ * moved — comment drift corrected 2026-10-14, fifth panel, Job 2e):
  * "strong" and the top of "partial" survive; below it a paper's score is
  * typically carried by passing keyword mentions rather than topical study .
  * the real incident was an ophthalmology abstract that once says "soil
@@ -1298,6 +1444,19 @@ export function dedupePapers(list) {
  * zero papers matched at all . those records carry no relevance scores, and
  * inventing a floor for them would delete the last-resort path). */
 export const RELEVANCE_FLOOR = 50; // 2026-10-11: lowered from 60 to test multi-concept queries
+/* The smallest shelf the answer pipeline can work with (2026
+ * 10-14, fifth panel, Job 2b): when the quality floor leaves
+ * fewer papers than this, the shelf floor relaxation in
+ * gatherPapers re admits the highest scoring excluded papers up
+ * to it. Six, because the handler's normal path needs at least
+ * 3 papers over RELEVANCE_FLOOR to cite from and the citation
+ * gate needs a genuine choice beyond them (cited plus further
+ * reading) — a smaller shelf starves one or the other, and a
+ * larger one floods a thin pool with the weak papers the floor
+ * excluded on purpose. Re admission changes the SHELF only:
+ * citation is still governed downstream by RELEVANCE_FLOOR and
+ * the citation gate, exactly as for any other shelf paper. */
+export const SHELF_FLOOR_MINIMUM = 6;
 export function paperRelevance(p) {
   const r = p ? p.relevance : undefined;
   return typeof r === "number" && Number.isFinite(r) ? r : -1;
@@ -1647,7 +1806,27 @@ export function isNonLiterature(p) {
 // three defects in its text and its confidence line. Payloads
 // cached under v36 must not be served as though produced under
 // any of this.
-const CACHE_SCHEMA_VERSION = "v37";
+// v38 (2026-10-14, subject touch wave): the citation standard
+// changed again. When a question's subject group is identified, a
+// paper now clears the citation gate, the extractive pool
+// predicate, the evidence prune, and the grouped topic filter
+// only by touching the subject group or at least two groups in
+// total; a paper touching only the effect or outcome group no
+// longer cites (the production creatine draw under v37 cited a
+// hair sociology paper that never mentions creatine). Stored
+// cited sets and source orders predate the corrected standard.
+// Payloads cached under v37 must not be served as though produced
+// under it.
+// v39 (2026-10-14, fifth panel wave six): the bookkeeping
+// funding lane (records store again on capped runs), the shelf
+// floor relaxation and the broad terms rung (shelf composition
+// changes), the serve gate (a nothing citable shelf now ships
+// the no results shape instead of an answer), the title twin
+// dedupe, prose bound to the shipped confidence level, and the
+// Detailed acceptance floor — cited sets, shelf composition,
+// serve shapes, and answer text all change under this wave, so
+// payloads cached under v38 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v39";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -3134,12 +3313,22 @@ export function inflectionVariants(term) {
   if (!t || /\s/.test(t)) return out;
   if (t.endsWith("ies") && t.length > 3) out.add(t.slice(0, -3) + "y");
   else if (t.endsWith("es") && t.length > 3) out.add(t.slice(0, -2));
-  else if (t.endsWith("s") && !t.endsWith("ss")) out.add(t.slice(0, -1));
+  // Singular strip, with a plausibility guard (2026-10-14, fifth
+  // panel, Job 2a): words ending in "us", "is", or "ss" are not
+  // plurals, and stripping their final s mints non words
+  // ("analysis" -> "analysi", "status" -> "statu"). A real plural
+  // strip also needs a stem worth keeping (length above 3).
+  else if (t.endsWith("s") && t.length > 3 && !/(us|is|ss)$/.test(t)) out.add(t.slice(0, -1));
   if (!t.endsWith("s")) {
     const consonantY = t.endsWith("y") && !/[aeiou]y$/.test(t);
-    if (!consonantY) out.add(t + "s");
-    if (/(x|z|ch|sh)$/.test(t)) out.add(t + "es");
+    // Plural formation, same guard: a sibilant final (s, x, z, ch,
+    // sh) takes ONLY the "es" plural. The old code added the bare
+    // +"s" form as well, which is how "fix" grew the non word
+    // "fixs" beside the real "fixes" — and a fallback group
+    // carrying a non word bridges nothing.
     if (consonantY) out.add(t.slice(0, -1) + "ies");
+    else if (/(s|x|z|ch|sh)$/.test(t)) out.add(t + "es");
+    else out.add(t + "s");
   }
   // Verb forms: "sleeping" and "slept" questions against a table
   // that carries "sleep". The stripped base is the variant (plus
@@ -3200,6 +3389,12 @@ export function buildDeterministicFallbackGroups(query, uncoveredTerms) {
     // keys the question itself speaks that contain the term.
     for (const [key, values] of Object.entries(SYNONYMS)) {
       if (!Array.isArray(values)) continue;
+      // Forward: the term IS a key (the wave six bridges land
+      // here: yogurt, caffeine, blood pressure). The handler's
+      // uncovered computation normally keeps keyed terms out of
+      // this builder, but the table's promise is both directions
+      // and other consumers ask the builder directly.
+      if (key === term) for (const v of values) addAlt(v);
       const keyNamesTerm = values.some((v) => {
         const vl = cleanPiece(v);
         return vl === term || (vl.indexOf(" ") === -1 && sameInflection(vl, term));
@@ -3440,6 +3635,20 @@ const SYNONYMS = {
   // query expansion also picks up both terms.
   microbiome: ["microbiota"],
   microbiota: ["microbiome"],
+  // Everyday to scientific bridges (2026-10-14, fifth panel, Job
+  // 2a): the panel's common questions used kitchen words the
+  // literature does not index under. These are term CLASS bridges
+  // (a food to the intervention class its studies test, a symptom
+  // site to its anatomical adjective, a condition to its clinical
+  // name), written for any question that speaks the everyday
+  // word, not for one specimen question.
+  yogurt: ["probiotic", "lactobacillus", "fermented milk"],
+  yoghurt: ["probiotic", "lactobacillus", "fermented milk"],
+  probiotics: ["lactobacillus", "probiotic"],
+  stomach: ["gastric"],
+  "blood pressure": ["hypertension", "arterial pressure"],
+  hypertension: ["blood pressure", "arterial hypertension"],
+  caffeine: ["coffee", "methylxanthine"],
   crispr: ["clustered regularly interspaced short palindromic repeats", "cas9", "gene editing"],
   pcr: ["polymerase chain reaction"],
   qpcr: ["quantitative pcr", "real-time pcr", "rt-pcr", "quantitative polymerase chain reaction"],
@@ -7071,7 +7280,10 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
   // the both concepts gate uses), the
   // requirement is defined over those groups alone: a paper passes
   // by touching at least two of them, counted by
-  // paperConceptGroupHits, the gate's own counter. Ungrouped
+  // paperConceptGroupHits, the gate's own counter — or, since the
+  // subject touch standard (2026-10-14), by touching the question's
+  // subject group alone, the same rule the citation gate applies.
+  // Ungrouped
   // singleton words from the question (baby, grows) no longer count
   // toward the requirement in that case. The defect this closes:
   // the accept set accounting below mixes real groups with
@@ -7090,14 +7302,24 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
   // byte, so they retrieve exactly as before.
   const resolvedGroups = gateConceptGroups(rawQuery, dynLookup);
   if (resolvedGroups.length >= 2) {
+    // Subject touch standard (2026-10-14): this grouped accounting
+    // mirrors the citation gate's standard (see the header above
+    // and subjectConceptGroup), so it inherits the subject rule in
+    // lockstep — a paper touching the question's subject group
+    // survives on that touch alone, exactly as it may be cited on
+    // it; a paper touching only a non subject group still dies
+    // here, exactly as it may not be cited. Without this a subject
+    // only paper would be filtered out of the pool before the
+    // gate's corrected standard could ever admit it.
+    const subjectGroup = subjectConceptGroup(rawQuery, resolvedGroups, dynLookup);
     const survivors = papers.filter((p) => {
       const hits = paperConceptGroupHits(p, resolvedGroups);
       if (hits === 0) {
         p._filteredReason = "Paper touches none of the query's resolved concept groups . likely a different research field entirely";
         return false;
       }
-      if (hits < 2) {
-        p._filteredReason = `Paper touches only ${hits} of the query's ${resolvedGroups.length} resolved concept groups (needs 2) . one concept in common is a phrase collision, not the question's subject`;
+      if (hits < 2 && !(subjectGroup && paperConceptGroupHits(p, [subjectGroup]) >= 1)) {
+        p._filteredReason = `Paper touches only ${hits} of the query's ${resolvedGroups.length} resolved concept groups (needs 2, or a touch of the question's subject group) . one concept in common is a phrase collision, not the question's subject`;
         return false;
       }
       return true;
@@ -9790,6 +10012,9 @@ export function publicStageHealth(stageHealth) {
       o.winnerMs = s.winnerMs != null ? s.winnerMs : null;
       o.legs = s.legs || 0;
       o.failedLegs = s.failedLegs || [];
+      // Planner trimmed legs ride under their own count (Job 4),
+      // present only when the planners actually trimmed any.
+      if (s.budgetSkippedLegs) o.budgetSkippedLegs = s.budgetSkippedLegs;
     }
     return o;
   });
@@ -9858,6 +10083,64 @@ const DIRECTION_OPPOSITES = [
 ];
 
 const NEGATION_RE = /\b(no|not|n't|never|failed to|did not|does not|do not|lack of|lacks|absence of|no significant|no measurable)\b/;
+
+/* Near duplicates are not a dispute (2026-10-14, fifth panel,
+ * Job 3b): two claims carrying the same words cannot oppose each
+ * other — opposition needs two different assertions, and a pair
+ * built from near copies of ONE claim manufactures a dispute out
+ * of agreement. The panel's specimen: the ten percent brain myth
+ * stated twice, both sources calling it a misconception, shipped
+ * as status divided with conflictCount 1 while the answer's own
+ * prose said there is no scientific disagreement. Judged on
+ * content tokens (claimWordSet, with a light trailing s strip so
+ * "brains" and "brain" are the same word): near duplicate when
+ * the Jaccard overlap reaches 0.5, or when the smaller claim's
+ * words are at least 75 percent contained in the larger (a short
+ * claim restated inside a longer one). Below four content words
+ * there is not enough text to judge, and the pair stands. */
+export function claimsNearDuplicates(ca, cb) {
+  const norm = (text) => new Set(
+    [...claimWordSet(text)].map((w) => (w.length > 4 && w.endsWith("s") ? w.slice(0, -1) : w))
+  );
+  const a = norm(ca);
+  const b = norm(cb);
+  if (a.size < 4 || b.size < 4) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  const union = a.size + b.size - shared;
+  const near = (union > 0 && shared / union >= 0.5) ||
+    shared / Math.min(a.size, b.size) >= 0.75;
+  if (!near) return false;
+  // The opposition rescue: opposition about one measurement is
+  // templated by nature ("fertilizer X increased wheat yield by
+  // 34%" against "fertilizer X decreased wheat yield by 21%"
+  // shares nearly every content word), so a high overlap pair is
+  // not a duplicate when the claims actually oppose: a direction
+  // word flipped across the pair, or a negation flipping a
+  // direction word both claims share (improved against did not
+  // improve). The panel's specimen carries neither: both
+  // statements assert the myth and deny it in the same breath, no
+  // direction word flips, and its one negation ("no scientific
+  // support") attaches to a word the other claim never uses.
+  const dirWords = (t) => {
+    const low = " " + String(t || "").toLowerCase() + " ";
+    const found = new Set();
+    for (const [x, y] of DIRECTION_OPPOSITES) {
+      if (low.includes(x)) found.add(x);
+      if (low.includes(y)) found.add(y);
+    }
+    return found;
+  };
+  const da = dirWords(ca);
+  const db = dirWords(cb);
+  for (const [x, y] of DIRECTION_OPPOSITES) {
+    if ((da.has(x) && db.has(y)) || (da.has(y) && db.has(x))) return false;
+  }
+  if (NEGATION_RE.test(String(ca || "")) !== NEGATION_RE.test(String(cb || ""))) {
+    for (const w of da) if (db.has(w)) return false;
+  }
+  return true;
+}
 
 // True when two same-topic claims push in opposite directions: an
 // opposite-direction word pair, or an explicit negation on one side only
@@ -10153,6 +10436,9 @@ export function detectSourceConflicts(papers, briefClaims = null) {
       for (const ca of ia.claims) {
         for (const cb of ib.claims) {
           if (!claimsShareTopic(ca, cb) || !claimsOppose(ca, cb)) continue;
+          // Near copies of one claim are agreement restated, not
+          // a dispute (Job 3b): the pair never forms.
+          if (claimsNearDuplicates(ca, cb)) continue;
           const topic = sharedTopicLabel(ca, cb) || "this finding";
           const key = ia.idx + ":" + ib.idx + ":" + topic;
           if (seenPairs.has(key)) continue;
@@ -10617,6 +10903,111 @@ export function stripInventedDisagreementSections(answer) {
   return joined + tail;
 }
 
+/* JOB 3(a) (2026-10-14, fifth panel): the synthesis writes its
+ * own confidence prose (the structure asks for a "How solid is
+ * this?" section), and that prose is not bound by the computed
+ * confidence level the response ships — the panel read "Confidence
+ * is absolute", "moderate to high", and "exceptionally high"
+ * beside level thin on 4 of 5 AI answers, once beside a claim
+ * check supporting 0 of 5. The cap inside buildConfidenceLine
+ * never touched the answer text itself. This pass binds the
+ * prose to the level at the ship gate, in the style of the
+ * disagreement strip above: the asserted strength is scored on a
+ * stated vocabulary ladder, and when it exceeds the shipped
+ * level the assertion is replaced by the computed confidence
+ * line. Assertions at or below the level ship untouched, and an
+ * answer with no confidence assertion is returned unchanged.
+ *
+ * The ladder, weakest to strongest: thin/low/limited/weak (0),
+ * moderate/medium (1), high/strong/very high (2), and the
+ * absolute family (3: absolute, exceptionally high, definitive,
+ * conclusive, certain) — a rung ABOVE every shippable level, so
+ * absolute prose is replaced at any level: no computed line this
+ * pipeline ships ever claims absoluteness. The shipped levels
+ * rank thin 0, moderate 1, strong 2.
+ *
+ * Two shapes are bound: a confidence section (a heading naming
+ * solidity or confidence) whose body asserts above the level —
+ * the section's body becomes the computed line under its own
+ * heading — and a standalone confidence assertion sentence
+ * anywhere in the body, replaced in place by the computed line.
+ * An assertion is a sentence where confidence (or certainty) is
+ * the thing being graded: "confidence is X", "X confidence",
+ * "certainty is absolute". Strength words about anything else
+ * (a high dose, a strong effect) are not assertions and are
+ * never touched. */
+const CONFIDENCE_LEVEL_RANK = { thin: 0, moderate: 1, strong: 2 };
+const CONFIDENCE_HEADING_RE = /how solid|confidence|how sure|certainty/i;
+
+function confidenceWordRank(word) {
+  const w = String(word || "").toLowerCase();
+  if (w === "absolute" || w === "exceptionally high" || w === "definitive" ||
+      w === "conclusive" || w === "certain") return 3;
+  if (w === "very high" || w === "high" || w === "strong") return 2;
+  if (w === "moderate" || w === "medium") return 1;
+  return 0; // low, thin, limited, weak
+}
+
+const CONFIDENCE_ASSERTION_RES = [
+  /\bconfidence\b[^.!?\n]{0,60}?\b(?:is|was|remains|sits at|stands at|runs|rates?)\b[^.!?\n]{0,40}?\b(absolute|exceptionally high|very high|high|strong|moderate|medium|low|thin|limited|weak)\b/i,
+  /\b(absolute|exceptionally high|very high|high|moderate|medium|low)\s+confidence\b/i,
+  /\bcertainty\b[^.!?\n]{0,40}?\b(absolute|total|complete)\b/i,
+];
+
+/* The strongest confidence assertion a sentence makes, as a
+ * ladder rank, or -1 when the sentence asserts nothing about
+ * confidence. Exported for the fixtures. */
+export function confidenceAssertionRank(sentence) {
+  const s = String(sentence || "");
+  let best = -1;
+  for (const re of CONFIDENCE_ASSERTION_RES) {
+    const m = s.match(re);
+    if (m) best = Math.max(best, confidenceWordRank(m[1]));
+  }
+  return best;
+}
+
+export function bindProseConfidenceToLevel(answer, level, line) {
+  const text = String(answer || "");
+  const levelRank = CONFIDENCE_LEVEL_RANK[level];
+  if (!text || !line || typeof levelRank !== "number") return text;
+  const boundary = answerBodyBeforeBibliography(text);
+  const tail = text.slice(boundary.length);
+  const blocks = sectionizeAnswer(boundary);
+  let changed = false;
+  const out = [];
+  for (const block of blocks) {
+    if (block.heading && CONFIDENCE_HEADING_RE.test(block.headingText || "")) {
+      const body = block.lines.join("\n");
+      const sentences = splitBodySentences(body.replace(/\n/g, " "));
+      const overclaims = sentences.some((s) => confidenceAssertionRank(s) > levelRank);
+      if (overclaims) {
+        out.push({ heading: block.heading, lines: [line] });
+        changed = true;
+        continue;
+      }
+      out.push(block);
+      continue;
+    }
+    const newLines = [];
+    for (const ln of block.lines) {
+      const sentences = splitBodySentences(ln);
+      let lineChanged = false;
+      const kept = sentences.map((s) => {
+        if (confidenceAssertionRank(s) > levelRank) { lineChanged = true; return line; }
+        return s;
+      });
+      if (lineChanged) { changed = true; newLines.push(kept.join(" ")); }
+      else newLines.push(ln);
+    }
+    out.push({ heading: block.heading, lines: newLines });
+  }
+  if (!changed) return text;
+  const joined = joinAnswerSections(out);
+  if (!joined) return text; // the floor: never empty the answer
+  return joined + tail;
+}
+
 // ── Both concepts gate (2026-10-13, wave two) ────────────────────
 // The sleep and colds failure: expansion resolved the question
 // perfectly (a sleep deprivation group and a common cold group), and
@@ -10831,25 +11222,197 @@ export function paperSharesCentralTerm(paper, terms) {
   return terms.some((t) => tokens.has(t));
 }
 
+// ── Subject touch standard (2026-10-14) ────────────────────────
+// The production failure (build 75dd771): "does creatine make your
+// hair fall out" shipped an answer citing exactly one paper, a
+// sociology paper about Black hair in English schools. It cleared
+// the both concepts gate's world because the pool's accounting let
+// a lexical touch of the EFFECT group (hair) stand in for the
+// question — the paper never mentions creatine, the question's
+// subject, so it cannot answer the question no matter how many
+// effect words it shares. The corrected contract: when the
+// question's subject group is identified, a paper clears the
+// citation standard only by touching the subject group (the gate's
+// existing touch definition) or by touching at least two groups in
+// total. A paper touching only a non subject group — the effect,
+// the outcome, a modifier — does not clear. When no subject group
+// is identified the standard is exactly what it was, and the floor
+// rule is untouched either way: if nothing clears, the honest thin
+// state ships rather than an off subject citation.
+//
+// SUBJECT IDENTIFICATION. The subject group is a gating group, so
+// identification runs over the groups the gate itself resolved
+// (gateConceptGroups: curated first, expansion groups only on a
+// thin table) and uses only machinery the codebase already
+// computes — analyzeQuery's own report of the question. Three
+// routes, in order, each deliberately conservative (a missed
+// subject leaves today's standard in place; a wrong one would
+// loosen the both concepts gate, so identification only fires on
+// a bare entity, never on a clause):
+//   1. Organism. analyzeQuery's organism / organism phrases, the
+//      binomial extractor, or a QUERY_ORGANISM_IDENTIFIERS name
+//      the question carries: the group containing that name (or
+//      one of its words) is the subject. This is the anchor the
+//      gate already exempts on, one level up.
+//   2. Causative frame. "does X make / cause / change / ..." —
+//      the span between the leading auxiliary and the causative
+//      verb is the question's subject slot. It identifies a
+//      subject only when the span is a bare entity phrase: short,
+//      no leading negation, no gerund head. "does creatine make
+//      your hair fall out" names creatine; "does not getting
+//      enough sleep make you catch cold" names a clause, not an
+//      entity, so that question — a genuine two concept relation —
+//      gets NO subject group and keeps the both concepts standard
+//      exactly as the founding wave two pin demands.
+//   3. Lead key phrase. For non causative shapes ("what happens
+//      to a baby's gut germs in the first year"), analyzeQuery's
+//      first key phrase is the question's lead concept phrase;
+//      the group whose member appears earliest in it is the
+//      subject (gut, there — the infant gut concept). Comparison
+//      questions are excluded: they have two subjects by
+//      construction, and naming one would bar the other.
+
+// The best member match of `group` in `text`, read the gate's way
+// (multi word members as substrings, single words as whole
+// tokens): the earliest character position, with the longest
+// member winning a tie at the same position (the phrase "crop
+// rotation" names the rotation group, even though the gut group
+// also carries the single word "crop" — a bird's stomach organ).
+// Returns { pos, len } or null.
+function groupMemberMatchInText(group, text) {
+  const hay = String(text || "").toLowerCase();
+  if (!hay.trim()) return null;
+  const tokenPos = [];
+  const re = /[a-z0-9]+/g;
+  let m;
+  while ((m = re.exec(hay)) !== null) tokenPos.push({ tok: m[0], at: m.index });
+  let best = null;
+  for (const raw of group || []) {
+    const member = String(raw || "").toLowerCase().trim();
+    if (!member) continue;
+    let pos = -1;
+    if (member.includes(" ")) {
+      const at = hay.indexOf(member);
+      if (at >= 0) pos = at;
+    } else {
+      const hit = tokenPos.find((t) => t.tok === member);
+      if (hit) pos = hit.at;
+    }
+    if (pos >= 0 && (!best || pos < best.pos || (pos === best.pos && member.length > best.len))) {
+      best = { pos, len: member.length };
+    }
+  }
+  return best;
+}
+
+// The gating group whose member matches earliest in `text`
+// (longest member breaks a tie at one position), or null when no
+// group's member appears at all.
+function earliestGroupInText(text, groups) {
+  let bestGroup = null;
+  let best = null;
+  for (const g of groups || []) {
+    const match = groupMemberMatchInText(g, text);
+    if (match && (!best || match.pos < best.pos || (match.pos === best.pos && match.len > best.len))) {
+      best = match;
+      bestGroup = g;
+    }
+  }
+  return bestGroup;
+}
+
+const SUBJECT_CAUSATIVE_FRAME =
+  /^(?:does|do|did|can|could|is|are|was|were)\s+(.+?)\s+(?:make|makes|made|cause|causes|caused|lead|leads|led|change|changes|changed|affect|affects|affected|increase|increases|increased|decrease|decreases|decreased|reduce|reduces|reduced|prevent|prevents|prevented|improve|improves|improved|trigger|triggers|triggered|help|helps|helped)\b/;
+
+// The question's subject concept group (one of `groups`), or null
+// when the question names no identifiable subject entity. See the
+// header above for the routes and why they are conservative.
+export function subjectConceptGroup(query, groups, dynLookup) {
+  if (!Array.isArray(groups) || groups.length === 0) return null;
+  const q = String(query || "");
+  const qLower = q.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!qLower) return null;
+  let analysis = null;
+  try { analysis = analyzeQuery(q); } catch { analysis = null; }
+
+  // Route 1: the organism the question names.
+  const names = [];
+  if (analysis) {
+    if (analysis.organism) names.push(String(analysis.organism).toLowerCase());
+    for (const p of analysis.organismPhrases || []) names.push(String(p).toLowerCase());
+  }
+  const binomial = extractBinomial(q);
+  if (binomial && binomial.full) names.push(binomial.full.toLowerCase());
+  for (const name of Object.keys(QUERY_ORGANISM_IDENTIFIERS)) {
+    if (qLower.includes(name)) names.push(name);
+  }
+  for (const name of names) {
+    if (!name) continue;
+    for (const g of groups) if (g.has(name)) return g;
+    for (const w of name.split(/[^a-z0-9]+/).filter(Boolean)) {
+      const set = conceptSetFor(w, dynLookup);
+      if (set && groups.includes(set)) return set;
+    }
+  }
+
+  // Route 2: the causative frame's subject slot. A frame that
+  // matched but names a clause yields NO subject — the question
+  // is a two concept relation and route 3 must not second guess
+  // it into a one concept standard.
+  const frame = qLower.match(SUBJECT_CAUSATIVE_FRAME);
+  if (frame) {
+    const span = frame[1].trim();
+    const spanTokens = span.split(/[^a-z0-9]+/).filter(Boolean);
+    const head = spanTokens.find((t) => t !== "the" && t !== "a" && t !== "an");
+    const bareEntity = spanTokens.length >= 1 && spanTokens.length <= 8
+      && spanTokens[0] !== "not" && spanTokens[0] !== "never" && spanTokens[0] !== "no"
+      && !(head && /ing$/.test(head));
+    if (!bareEntity) return null;
+    return earliestGroupInText(span, groups);
+  }
+
+  // Route 3: the lead key phrase of a non causative question.
+  if (analysis && analysis.questionType !== "comparison") {
+    const kp = (analysis.keyPhrases || [])[0];
+    if (kp) {
+      const terms = String(kp).toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+      if (terms.length >= 2) return earliestGroupInText(String(kp).toLowerCase(), groups);
+    }
+  }
+  return null;
+}
+
 // The citation standard for one question: its gating groups, the
-// central terms that stand in when groups run thin, and the group
-// touches a cited paper needs while groups carry the standard.
+// central terms that stand in when groups run thin, the group
+// touches a cited paper needs while groups carry the standard,
+// and the question's subject group (subject touch standard,
+// 2026-10-14) when one is identified.
 export function citationGateStandard(query, dynLookup) {
   const groups = gateConceptGroups(query, dynLookup);
   return {
     groups,
     centralTerms: groups.length >= 2 ? [] : centralContentTerms(query),
     minHits: groups.length >= 2 ? 2 : 1,
+    subjectGroup: subjectConceptGroup(query, groups, dynLookup),
   };
 }
 
 // Whether one paper clears the standard (exemptions — cascade,
 // anchor, existence — are the callers', applied before this).
+// Subject identified: the paper must touch the subject group or
+// touch at least two groups in total — a lone touch of a non
+// subject group, or a bare central term, no longer clears. No
+// subject identified: the standard is unchanged.
 export function paperClearsCitationGate(paper, standard) {
   const std = standard || { groups: [], centralTerms: [], minHits: 1 };
   const groups = std.groups || [];
-  if (groups.length >= 2) return paperConceptGroupHits(paper, groups) >= 2;
-  if (groups.length === 1 && paperConceptGroupHits(paper, groups) >= 1) return true;
+  const hits = paperConceptGroupHits(paper, groups);
+  if (std.subjectGroup) {
+    if (paperConceptGroupHits(paper, [std.subjectGroup]) >= 1) return true;
+    return hits >= 2;
+  }
+  if (groups.length >= 2) return hits >= 2;
+  if (groups.length === 1 && hits >= 1) return true;
   return paperSharesCentralTerm(paper, std.centralTerms || []);
 }
 
@@ -10943,8 +11506,9 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
 // the existence path's carried paper. The keep predicate mirrors
 // the gate's exemptions exactly: cascade papers (thinEvidence),
 // anchor carried papers, and the existence paper are kept; any
-// other paper must clear the standard (two group touches while
-// groups carry it, the degraded standard below two groups).
+// other paper must clear the standard (subject touch or two
+// group touches while a subject is identified, two group touches
+// while groups carry it, the degraded standard below two groups).
 export function conceptGateContext(papers, query, dynLookup) {
   const list = Array.isArray(papers) ? papers : [];
   const standard = citationGateStandard(query, dynLookup);
@@ -10968,7 +11532,7 @@ export function conceptGateContext(papers, query, dynLookup) {
       if (support && support.idx) existenceIdx = support.idx;
     } catch { /* best effort, mirroring the gate */ }
   }
-  return { groups, centralTerms: standard.centralTerms, anchorNeedles, existenceIdx };
+  return { groups, centralTerms: standard.centralTerms, subjectGroup: standard.subjectGroup || null, anchorNeedles, existenceIdx };
 }
 
 export function conceptGateKeeps(paper, idx, gateCtx) {
@@ -10980,7 +11544,7 @@ export function conceptGateKeeps(paper, idx, gateCtx) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
     if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
   }
-  return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [] });
+  return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [], subjectGroup: ctx.subjectGroup || null });
 }
 
 // The extractive evidence prune: the papers an extractive answer
@@ -11857,7 +12421,9 @@ function ensureSearchRecordsTable(db, ledger = null) {
   if (!ready) {
     // The CREATE executes once per DB binding (cold isolate): one
     // bound service call, charged to the request that triggers it.
-    if (ledger) ledger.spendBinding("record", 1);
+    // Bookkeeping lane (Job 1): the store must not be refusable by
+    // the answer phase caps, or a capped run loses its permalink.
+    chargeBookkeeping(ledger, "record", 1);
     ready = (async () => {
       await db.prepare(
         "CREATE TABLE IF NOT EXISTS search_records (" +
@@ -11893,7 +12459,7 @@ export async function storeSearchRecord(env, record, ledger = null) {
     if (!env || !env.DB || !record || typeof record !== "object") return false;
     if (typeof record.id !== "string" || !record.id) return false;
     await ensureSearchRecordsTable(env.DB, ledger);
-    if (ledger) ledger.spendBinding("record", 1);
+    chargeBookkeeping(ledger, "record", 1);
     await env.DB.prepare(
       "INSERT OR IGNORE INTO search_records " +
       "(id, question, asked_at, record, created_at) " +
@@ -12338,6 +12904,7 @@ export function retrievalStrategiesTried(diag) {
     out.push("exact-term matching (" + diag.rungs.length + " narrowing rungs)");
   }
   if (diag.rawFallback) out.push("unfiltered raw retrieval");
+  if (diag.broadTermsRung) out.push("broad terms retrieval (" + diag.broadTermsRung.terms.length + " uncovered terms)");
   if (Array.isArray(diag.conceptExpanded) && diag.conceptExpanded.length > 0) {
     out.push("synonym + MeSH expansion (" + diag.conceptExpanded.length + " queries)");
   }
@@ -13316,8 +13883,14 @@ export function extractLiteratureConflicts(answer, sources) {
     }
   }
 
+  // Near duplicate pairs are dropped before the cap (Job 3b):
+  // whatever pattern mined them, two near copies of one claim
+  // are the same assertion twice, and opposition cannot rest on
+  // the same words.
   // Cap at 5 to keep the response lean
-  return conflicts.slice(0, 5);
+  return conflicts
+    .filter((c) => !claimsNearDuplicates(c.claimA, c.claimB))
+    .slice(0, 5);
 }
 
 // Score the overall quality of an answer (0-100, higher = better)
@@ -14778,6 +15351,35 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     } catch { /* the fallback must never break the gather */ }
   }
+  // STILL UNCOVERED (2026-10-14, fifth panel, Job 2a): a group
+  // whose alternates are only the term's own inflections
+  // (blood -> bloods, fix -> fixes) adds no vocabulary the
+  // databases can bridge with, so the term it names counts as
+  // still uncovered even though a group exists for it; a term no
+  // source grouped at all is uncovered outright. Terms in that
+  // state are collected here, and after the ladder and the
+  // fallback nets have had their rounds one broad rung fires on
+  // the raw terms themselves (the BROAD TERMS RUNG below), so
+  // the question's own words reach the databases in combination
+  // before the quality floor judges a thin pool.
+  let stillUncoveredTerms = [];
+  try {
+    const groupByTerm = new Map();
+    for (const g of dynGroups || []) {
+      if (g && g.term) groupByTerm.set(String(g.term).toLowerCase(), g);
+    }
+    stillUncoveredTerms = dynUncovered.filter((t) => {
+      const term = String(t).toLowerCase();
+      const g = groupByTerm.get(term);
+      if (!g || !Array.isArray(g.alternates)) return true;
+      return !g.alternates.some((a) => {
+        const alt = String(a || "").toLowerCase().trim();
+        if (!alt || alt === term) return false;
+        if (alt.indexOf(" ") !== -1) return true; // a phrase is new vocabulary
+        return !sameInflection(term, alt);
+      });
+    }).slice(0, 5);
+  } catch { stillUncoveredTerms = []; }
 
   let organismTerm = null;
   if (binomial) {
@@ -15328,6 +15930,42 @@ async function gatherPapersBody(rawQuery, opts) {
   endCascadeYield(yieldConcept);
 
   // ═══════════════════════════════════════════════════════════════
+  // BROAD TERMS RUNG (2026-10-14, fifth panel, Job 2a): when
+  // central terms remain uncovered after every expansion source
+  // (stillUncoveredTerms, computed where the groups are built:
+  // no group at all, or a group whose alternates are only the
+  // term's own inflections), the databases have never seen the
+  // question's own words in combination — every round so far
+  // asked in vocabulary the question does not speak. One broad
+  // rung asks with the raw central terms, OR joined, through the
+  // same three fetchers and the same pricing as the raw fallback
+  // net, so a paper that speaks the question's plain words can
+  // still land on the shelf before the quality floor judges it.
+  // ═══════════════════════════════════════════════════════════════
+  const totalBeforeBroad = results.reduce(
+    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  );
+  const yieldBroad = beginCascadeYield(totalBeforeBroad, SUBREQUEST_RAW_NET_COST);
+  if (stillUncoveredTerms.length > 0 && totalBeforeBroad < 8 && _budgetLeft() && (yieldBroad || roomOrTrim("broad-terms-rung", SUBREQUEST_RAW_NET_COST))) {
+    if (yieldBroad) diag.cascadeYield = "broad-terms-rung";
+    const broadQuery = stillUncoveredTerms.join(" OR ");
+    const broadResults = await Promise.allSettled([
+      europePMC(broadQuery, 12, ledger),
+      semanticScholar(broadQuery, 10, s2Key, ledger),
+      openAlex(broadQuery, 10, openAlexKey, ledger),
+    ]);
+    results = results.concat(broadResults);
+    diag.broadTermsRung = {
+      terms: stillUncoveredTerms.slice(),
+      query: broadQuery,
+      count: broadResults.reduce(
+        (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+      ),
+    };
+  }
+  endCascadeYield(yieldBroad);
+
+  // ═══════════════════════════════════════════════════════════════
   // TOPIC MEMORY RECALL: if concept expansion didn't help enough, check
   // if we've seen this topic before and have previously successful search
   // terms cached in D1. This is the READ side of topic_memory . previously
@@ -15822,6 +16460,30 @@ async function gatherPapersBody(rawQuery, opts) {
   // paper's group hit count stays 0 and its order is untouched.
   const nlShelfGroups = questionConceptGroups(query, dynLookup);
 
+  // The language screen's title test, shared verbatim between the
+  // chain's language filter and the shelf floor relaxation (Job
+  // 2b): a re admitted paper must pass exactly the screen the
+  // chain applied, judged by the same function so the two can
+  // never drift. The filter keeps its funnel counting; the helper
+  // is the pure test.
+  const titlePassesLanguageScreen = (rawTitle) => {
+    const title = String(rawTitle || "").trim();
+    if (!title) return true;
+    // Check for non-Latin scripts (Chinese, Japanese, Korean, Arabic, Cyrillic, etc.)
+    const nonLatinRatio = (title.match(/[^\u0000-\u024F\u1E00-\u1EFF\s\d\-.,;:()[\]{}'"!?@#$%^&*+=/<>]/g) || []).length / title.length;
+    if (nonLatinRatio > 0.3) return false;
+    // Check for French/German/Spanish academic markers (common false positives)
+    const lowerTitle = title.toLowerCase();
+    if (/^(les |une |des |étude |analyse |recherche |l'|la |le |du |de la )/.test(lowerTitle)) return false;
+    if (/^(die |das |ein |eine |zur |über )/.test(lowerTitle)) return false;
+    return true;
+  };
+
+  // Every scored object the chain produces, captured before the
+  // filters drop any of them (2026-10-14, fifth panel, Job 2b):
+  // the shelf floor relaxation below re admits from this capture,
+  // judging by the scorer's own scores, not by a second scoring.
+  const scoredAllCapture = [];
   const scoredMapped = merged
     .map((p) => {
       const title = p.title || "";
@@ -16072,7 +16734,7 @@ async function gatherPapersBody(rawQuery, opts) {
       // decide what ships, exactly as before.
       const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
 
-      return {
+      const scoredObj = {
         ...p,
         score,
         matchScore: match,       // 0-70, pure topical relevance
@@ -16092,21 +16754,14 @@ async function gatherPapersBody(rawQuery, opts) {
         gateCoreTitleHits,
         nlGroupHits,              // NL net papers only; 0 for the rest
       };
+      scoredAllCapture.push(scoredObj);
+      return scoredObj;
     })
     /* ── LANGUAGE FILTER, split out of the quality filter below so the
        retrieval funnel can count non-English exclusions honestly. Same
        checks, same order . only the counting is new. */
     .filter((p) => {
-      const title = (p.title || "").trim();
-      if (title) {
-        // Check for non-Latin scripts (Chinese, Japanese, Korean, Arabic, Cyrillic, etc.)
-        const nonLatinRatio = (title.match(/[^\u0000-\u024F\u1E00-\u1EFF\s\d\-.,;:()[\]{}'"!?@#$%^&*+=/<>]/g) || []).length / title.length;
-        if (nonLatinRatio > 0.3) { funnel.nonEnglishInner++; return false; }
-        // Check for French/German/Spanish academic markers (common false positives)
-        const lowerTitle = title.toLowerCase();
-        if (/^(les |une |des |étude |analyse |recherche |l'|la |le |du |de la )/.test(lowerTitle)) { funnel.nonEnglishInner++; return false; }
-        if (/^(die |das |ein |eine |zur |über )/.test(lowerTitle)) { funnel.nonEnglishInner++; return false; }
-      }
+      if (!titlePassesLanguageScreen(p.title || "")) { funnel.nonEnglishInner++; return false; }
       return true;
     })
     .filter((p) => {
@@ -16268,6 +16923,50 @@ async function gatherPapersBody(rawQuery, opts) {
       finalScored = [...scored, ...relaxed1, ...relaxed2]
         .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
         .slice(0, limit);
+    }
+  }
+  // SHELF FLOOR RELAXATION (2026-10-14, fifth panel, Job 2b):
+  // the quality floor is a precision instrument, and on a common
+  // question with a thin, noisy pool it can starve the shelf it
+  // exists to protect — the panel measured excludedWeak killing
+  // 23 of 34 gathered papers on a food question and leaving 2
+  // tangential citations, real trials among the excluded. When
+  // the post floor shelf (emergency relaxation included) falls
+  // below SHELF_FLOOR_MINIMUM, re admit the highest scoring
+  // excluded papers until the minimum is met. The candidates are
+  // the scorer's own objects (scoredAllCapture), so the order is
+  // the pipeline's own judgment; each must pass the identical
+  // language screen the chain applied and carry a real abstract.
+  // Two exclusions are never relaxed: the binomial screen (a
+  // wrong species paper is worse than a thin shelf — the whole
+  // relaxation stands down on a binomial question) and the
+  // organism gate (when the question names an organism, a re
+  // admitted paper must still carry organismPresent). Re admitted
+  // papers are flagged floorRelaxed so the record can tell them
+  // from floor survivors; citation downstream is unchanged —
+  // RELEVANCE_FLOOR and the citation gate still decide what may
+  // be cited, so a re admitted paper the gates reject ships as
+  // further reading, never as a citation.
+  if (finalScored.length < SHELF_FLOOR_MINIMUM && !binomial && scoredAllCapture.length > 0) {
+    const organismGateInPlay = neutralWords && neutralWords.size > 0;
+    const inShelf = new Set(finalScored);
+    const inShelfKeys = new Set(finalScored.map((p) => paperDedupeKey(p)));
+    const candidates = scoredAllCapture
+      .filter((p) => p && !inShelf.has(p) && !inShelfKeys.has(paperDedupeKey(p)))
+      .filter((p) => titlePassesLanguageScreen(p.title || ""))
+      .filter((p) => String(p.abstract || "").trim().length > 0)
+      .filter((p) => !organismGateInPlay || p.organismPresent)
+      .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score));
+    const admitted = [];
+    for (const c of candidates) {
+      if (finalScored.length + admitted.length >= SHELF_FLOOR_MINIMUM) break;
+      admitted.push({ ...c, floorRelaxed: true });
+    }
+    if (admitted.length > 0) {
+      finalScored = [...finalScored, ...admitted]
+        .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
+        .slice(0, limit);
+      diag.floorRelaxed = { admitted: admitted.length, minimum: SHELF_FLOOR_MINIMUM };
     }
   }
   const scoredFinal = finalScored;
@@ -16443,7 +17142,7 @@ async function gatherPapersBody(rawQuery, opts) {
   // what the query actually demands (e.g. "waste oil" as one concept);
   // verifyPaperConstraints checks each paper's title+abstract against it.
   // A paper that misses a key phrase (never mentions "oil") is capped
-  // below RELEVANCE_FLOOR (60) on every score field, so the citation gate
+  // below RELEVANCE_FLOOR (50) on every score field, so the citation gate
   // can never cite it as evidence and the semantic rerank cannot rescue
   // it. The paper stays in the set — the honest weak-evidence answer
   // lists capped papers as "closest papers to read directly", never as
@@ -19001,7 +19700,7 @@ async function runSearchPipeline(pctx) {
     const measurementIntent = !isNameSearch && !isFollowupMode && detectMeasurementIntent(query);
 
     // The citation gate. Every paper that reaches the answer must clear
-    // RELEVANCE_FLOOR (60) . below it a score is carried by passing keyword
+    // RELEVANCE_FLOOR (50) . below it a score is carried by passing keyword
     // mentions rather than topical study, and the real incident was an
     // ophthalmology abstract that once says "soil desiccation cracks" being
     // cited as a soil-mechanics source. Name search and follow-up modes are
@@ -19012,8 +19711,32 @@ async function runSearchPipeline(pctx) {
     // Dusty's contract: zero sources is unacceptable. If the relevance gate
     // drops everything, keep the top 3 with a thin-evidence flag.
     // The synthesis renders this honestly instead of claiming "no literature".
+    // SERVE GATE (2026-10-14, fifth panel, Job 2c): when the
+    // citation gate clears NOTHING on the whole shelf — every
+    // paper fails it, the pool's best included — there is no
+    // evidence to synthesize or extract FROM, and serving an
+    // answer over the irrelevant pool is the failure the panel
+    // measured (a galaxy survey abstract pasted as the answer to
+    // a sugar question; fibre excerpts served for mold on bread).
+    // The run takes the honest no evidence state instead: the
+    // evidence set empties, synthesis is blocked for this run
+    // (wavesAllowed below), and the pipeline lands in the
+    // existing no results shape with its reformulations. The
+    // honest thin state is untouched: a single paper clearing
+    // the gate keeps the guaranteed evidence cascade exactly as
+    // it was. Name search and follow up mode are exempt, as they
+    // are from both gates themselves.
+    let serveGateNoEvidence = false;
+    if (!isNameSearch && !isFollowupMode && papers.length > 0) {
+      try {
+        const gateStd = citationGateStandard(query, _dynForValidation);
+        serveGateNoEvidence = !papers.some((p) => paperClearsCitationGate(p, gateStd));
+      } catch { serveGateNoEvidence = false; }
+    }
     let evidencePapers;
-    if (isNameSearch || isFollowupMode) {
+    if (serveGateNoEvidence) {
+      evidencePapers = [];
+    } else if (isNameSearch || isFollowupMode) {
       evidencePapers = papers.slice(0, maxEvidence);
     } else {
       const gated = applyRelevanceGate(papers);
@@ -19049,13 +19772,18 @@ async function runSearchPipeline(pctx) {
     // reorder above is the shelf after the programmatic passes: it is
     // the gate's own drops only, so a paper the passes already removed
     // is not counted here even if it would also have failed the floor.
-    let relevanceGatedOut = (isNameSearch || isFollowupMode)
-      ? 0
-      : Math.max(0, papers.length - applyRelevanceGate(papers).length);
+    let relevanceGatedOut = serveGateNoEvidence
+      ? papers.length
+      : (isNameSearch || isFollowupMode)
+        ? 0
+        : Math.max(0, papers.length - applyRelevanceGate(papers).length);
     // NEXT-GEN: keep the closest withheld titles . the no-results answer
     // names them so "nothing citable" is checkable, not a black box.
     let gatedOutTitles = [];
-    if (!isNameSearch && !isFollowupMode && relevanceGatedOut > 0) {
+    if (serveGateNoEvidence) {
+      gatedOutTitles = papers.map((p) => p.title).filter(Boolean).slice(0, 3);
+    }
+    if (!isNameSearch && !isFollowupMode && relevanceGatedOut > 0 && gatedOutTitles.length === 0) {
       try {
         const keptTitles = new Set(applyRelevanceGate(papers).map((p) => String(p.title || "").toLowerCase().trim()));
         gatedOutTitles = papers
@@ -19066,7 +19794,7 @@ async function runSearchPipeline(pctx) {
     }
     // Whether what survived is actually good enough to answer FROM. "Thin"
     // now means fewer than two STRONG (>=65) papers cleared the floor .
-    // everything below 60 never reaches the model at all, so the old
+    // everything below 50 never reaches the model at all, so the old
     // weak-evidence branch (which handed junk to the model and told it to
     // answer from knowledge) no longer has anything to describe. When the
     // evidence is thin, the model is told so explicitly below rather than
@@ -20126,13 +20854,26 @@ async function runSearchPipeline(pctx) {
     // reject a genuinely solid 550-600 word answer just as readily as the
     // "two lazy sentences" this exists to catch, buying a wave-2 fallback
     // more often . trading the depth problem for the latency complaint
-    // sitting right next to it. 2500 chars (~380-400 words) still rejects
-    // the specific failure mode reported (a ~250-word answer to a Detailed
-    // request) without turning "not quite 800" into a retry trigger.
+    // sitting right next to it.
+    // CORRECTED (2026-10-14, fifth panel, Job 2f): the v36 floor
+    // (2500) sat BELOW what a Standard serve already runs — the
+    // panel measured Standard at 2,590 chars and Detailed at
+    // 3,415 on the same question, plus 32 percent with identical
+    // structure, because a Detailed draft only had to clear a bar
+    // a Standard answer clears by accident. The floor is the only
+    // length enforcement the race has (the prompt's word target
+    // is guidance models may ignore; the token budget is a ceiling,
+    // not a floor), so it now sits where the setting's promise
+    // starts: Standard serves run about 2,600 chars, Detailed
+    // promises roughly double, and 4,200 chars is just under that
+    // ratio line — a draft at the measured failure shape (3,415)
+    // fails over to the next leg, and a genuinely deep draft is
+    // not rejected for landing at 4,300 instead of 4,700.
     // Pro depth: "long" answers are held to a higher floor for Pro members .
     // a lazy short response gets retried against the next model instead of
-    // being served. Depth over latency is the Pro trade.
-    const minAnswerLen = answerLength === "long" ? (isProSearch ? 3200 : 2500) : answerLength === "short" ? 30 : 150;
+    // being served. Depth over latency is the Pro trade. Pro's 5,000
+    // sits just under the prompt's own 900 word floor (~5,400 chars).
+    const minAnswerLen = answerLength === "long" ? (isProSearch ? 5000 : 4200) : answerLength === "short" ? 30 : 150;
 
     // The enforcer prompt tells every model its **bold** term count is
     // "mechanically checked" and a low count gets it swapped for another
@@ -20671,7 +21412,26 @@ async function runSearchPipeline(pctx) {
         aiAttempts.push({ wave, model: label, ok: false, ms: 0, parked: true, error: "parked (" + park.reason + ")" });
         return null;
       }
-      return raceEntry(wave, label, makeCall());
+      // A leg factory that throws SYNCHRONOUSLY (an adapter whose
+      // circuit breaker refuses before its async body can run, a
+      // label that fails to resolve) becomes an ordinary failed leg:
+      // the rejected promise flows through raceEntry, which records
+      // it in aiAttempts with its reason, and the wave races on
+      // without it. Letting the throw propagate out of the caller's
+      // .map would bypass the stage's failure handling entirely —
+      // the wave blocks build their calls before the try that races
+      // them, so the throw used to land in the handler's top level
+      // catch and ship the internal error payload on a run whose
+      // shelf could have answered (2026-10-14, fifth panel weather).
+      // raceEntry attaches its handlers immediately, so the
+      // rejection is never unhandled.
+      let p;
+      try {
+        p = makeCall();
+      } catch (e) {
+        p = Promise.reject(e);
+      }
+      return raceEntry(wave, label, p);
     };
 
     // Subrequest budget (2026-10-13): waves are built as leg
@@ -20719,7 +21479,13 @@ async function runSearchPipeline(pctx) {
         : 0;
       const { selected, skipped } = planWaveLegs(descriptors, allowance);
       for (const d of skipped) {
-        aiAttempts.push({ wave: d.wave, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_EXHAUSTED_REASON });
+        // plannedSkip marks the stamp as a PLANNER record (the
+        // leg never fired), distinct from a fired leg whose grant
+        // the ledger refused at race time (the raceEntry catch
+        // stamps those with real elapsed ms). The synthesis stage
+        // record keeps the two apart (Job 4): failedLegs lists
+        // legs that actually raced.
+        aiAttempts.push({ wave: d.wave, model: d.label, ok: false, ms: 0, budgetSkipped: true, plannedSkip: true, error: SUBREQUEST_EXHAUSTED_REASON });
       }
       return selected
         .map((d) => guardedRaceEntry(d.wave, d.label, d.fire))
@@ -20858,10 +21624,14 @@ async function runSearchPipeline(pctx) {
     // now leads with the fast models on the compact prompt; the 120B and
     // 70B legs move to wave 2, and the wave 2 bench is cut from six to
     // three to protect the shared subrequest budget.
+    // Wave six (2026-10-14, fifth panel, Job 4): llama-4-scout and
+    // mistral-small-3.1 leave wave 1 entirely — both timed out at
+    // exactly their override in every panel probe and never won,
+    // so their seats cost a serial timeout without ever producing
+    // an answer. They race in the final wave instead (see the
+    // wave 3 roster below), at the cut 3,000 ms override.
     const CF_WAVE1 = [
-      "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/openai/gpt-oss-20b",
-      "@cf/mistralai/mistral-small-3.1-24b-instruct",
     ];
     const CF_WAVE2 = [
       "@cf/openai/gpt-oss-120b",
@@ -20971,10 +21741,17 @@ async function runSearchPipeline(pctx) {
     let llmBudget = null;
     let budgetDenied = false;
     let routedModel = null;
+    // Serve gate (Job 2c): a run whose shelf cleared nothing at
+    // the citation gate has no evidence to synthesize from, so
+    // the waves never fire for it — the pipeline falls through to
+    // the wave 4 no results shape instead of an answer composed
+    // over an irrelevant pool. Every wave condition below reads
+    // this lever; the entitlement verdict itself is untouched.
+    const wavesAllowed = aiSynthesisAllowed && !serveGateNoEvidence;
     // Skipped entirely when the answer-count gate already said no . the
     // waves below won't run, so there's nothing to authorize. Also skipped
     // when the definition fast path already served an answer.
-    if (aiSynthesisAllowed && !skipWavesForDefinition) {
+    if (wavesAllowed && !skipWavesForDefinition) {
       try {
         llmBudget = await authorizeLlmCall(env, {
           userId: (aiGate && aiGate.userId) || "anonymous",
@@ -21009,7 +21786,7 @@ async function runSearchPipeline(pctx) {
     // against the synthesis deadline: even if a leg's abort misbehaves,
     // the wave cannot outlive the budget. Skipped when the definition fast
     // path already served (skipWavesForDefinition).
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
       // 2026-09-14 scale fix: ONE AbortController for the whole wave. The
       // moment the race is decided the losers' in-flight HTTP is aborted .
       // without this every search burns ~15 AI legs of quota for one
@@ -21089,7 +21866,7 @@ async function runSearchPipeline(pctx) {
     // 2026-09-12: the old gate (Date.now() < 90s synthesisDeadline) let
     // wave 2 start with seconds left and 12s legs, blowing the 20s ceiling.
     // Skipped when the definition fast path already served.
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {
       // Bounded wait for the speculative brief: the brief starts HERE (not
       // alongside wave 1 . see startBrief above), and the small wave-2
       // models do far better composing from pre-digested claims than from
@@ -21196,7 +21973,7 @@ async function runSearchPipeline(pctx) {
     // clamped to it, and raced against the synthesis deadline like waves
     // 1-2. A last resort that can't fit in the budget is skipped, not run.
     // Skipped when the definition fast path already served.
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {
       const bulletproofSystem =
         ID +
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass . be direct and skip elaboration. Teach plainly: findings stated as facts about the world with citations attached as support, never as reports about the papers; paper framing only where provenance matters.\n\n" +
@@ -21265,7 +22042,13 @@ async function runSearchPipeline(pctx) {
         // configured it does: each one below is a quota that had nothing to
         // do with whatever just failed.
         ...compatLegDescriptors(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
-        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
+        // Wave six (Job 4): the two demoted legs (llama-4-scout,
+        // mistral-small-3.1) race HERE, in the final wave, at
+        // their cut 3,000 ms override — cfLegTimeoutMs applies
+        // the override map to every leg in this list, and the
+        // small models, absent from the map, keep bpTimeout
+        // exactly as before.
+        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/mistralai/mistral-small-3.1-24b-instruct"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, cfLegTimeoutMs(m, bpTimeout)) })) : []),
         // Pro depth: wave 3 only fires after total failure, so a stronger
         // model here is cheap . one extra leg, only on the rarest path.
         // Pro races a 70B Workers AI model alongside the small ones; a
@@ -21314,7 +22097,7 @@ async function runSearchPipeline(pctx) {
     // tier; live legs confirmed it (HTTP 404 on 2026-10-12), leaving
     // the rescue with one working leg. gpt-oss-20b is a current
     // production model with its own bucket.
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
       const groqProvider = activeProviders.find((p) => p.id === "groq");
       if (groqProvider) {
         const rescueCall = callCompat(groqProvider);
@@ -21330,7 +22113,7 @@ async function runSearchPipeline(pctx) {
         ];
         const rescuePlan = planWaveLegs(rescueDescriptors, ledger.remaining());
         for (const d of rescuePlan.skipped) {
-          aiAttempts.push({ wave: 5, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_EXHAUSTED_REASON });
+          aiAttempts.push({ wave: 5, model: d.label, ok: false, ms: 0, budgetSkipped: true, plannedSkip: true, error: SUBREQUEST_EXHAUSTED_REASON });
         }
         const rescueLegs = rescuePlan.selected
           .map((d) => guardedRaceEntry(5, d.label, d.fire))
@@ -21375,7 +22158,7 @@ async function runSearchPipeline(pctx) {
     //     phase's hard bound (requestDeadline + the named overrun).
     //     If even DELAYED_RESCUE_MIN_WAIT_MS does not fit, the wait
     //     is skipped and stage health says so.
-    if (!aiOK && aiSynthesisAllowed && !budgetDenied && !skipWavesForDefinition) {
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
       const rosterLabels = [];
       if (token) for (const m of OR_FREE_MODELS) rosterLabels.push(m);
       for (const p of activeProviders) {
@@ -21409,11 +22192,20 @@ async function runSearchPipeline(pctx) {
           wave: 6,
           fire: () => callForLegLabel(label, compactMessages || messages, maxTokens, DELAYED_RESCUE_RETRY_MS),
         }));
-        const delayedPlan = planWaveLegs(delayedDescriptors, ledger.remaining());
-        for (const d of delayedPlan.skipped) {
-          aiAttempts.push({ wave: 6, model: d.label, ok: false, ms: 0, budgetSkipped: true, error: SUBREQUEST_EXHAUSTED_REASON });
+        // Named delayedWavePlan, not delayedPlan: the outer
+        // delayedPlan (planDelayedRescue's verdict) is read above
+        // in this same block, and a same named const here put the
+        // whole block in its temporal dead zone — the wait branch
+        // threw "Cannot access 'delayedPlan' before initialization"
+        // on every run that reached it, so the delayed rescue's
+        // retry could never fire at all (latent since the block was
+        // written; the wave six capped failure fixtures are the
+        // first to drive this path end to end).
+        const delayedWavePlan = planWaveLegs(delayedDescriptors, ledger.remaining());
+        for (const d of delayedWavePlan.skipped) {
+          aiAttempts.push({ wave: 6, model: d.label, ok: false, ms: 0, budgetSkipped: true, plannedSkip: true, error: SUBREQUEST_EXHAUSTED_REASON });
         }
-        const delayedLegs = delayedPlan.selected
+        const delayedLegs = delayedWavePlan.selected
           .map((d) => guardedRaceEntry(6, d.label, d.fire))
           .filter(Boolean);
         if (delayedLegs.length === 0) {
@@ -21453,7 +22245,16 @@ async function runSearchPipeline(pctx) {
     // platform allowance is gone they are not fired at all — a call
     // the runtime will refuse spends goodwill, not budget — and the
     // room that remains is left for the record store.
-    if (aiOK && llmBudget && llmBudget.ok && ledger.remaining() > 1) {
+    // 2026-10-14 (wave six): the room is also left for the CITATION
+    // RETRY in the ship gate below. This block charges 4 (two from
+    // spendTokens, two from recordLlmUsage); the wave six roster
+    // cut freed exactly enough synthesis room for it to start
+    // firing on draws where it used to yield, and its 4 charges
+    // then ate the last subrequest the retry needed, silently
+    // restoring the uncited winner the retry exists to fix (the
+    // answer package suite caught it). Accounting yields to
+    // correctness: fire only when at least 2 survive the block.
+    if (aiOK && llmBudget && llmBudget.ok && ledger.remaining() > 5) {
       try {
         const winLeg = aiAttempts.find((a) => a && typeof a.wave === "number" && a.ok === true && typeof a.model === "string");
         const completionChars = typeof answer === "string" ? answer.length : 0;
@@ -21682,11 +22483,19 @@ async function runSearchPipeline(pctx) {
     // the winner, every losing leg, and each leg's short failure reason.
     // No keys or request internals, just model labels, timings, errors.)
     const synthLegs = aiAttempts.filter((a) => a && typeof a.wave === "number" && typeof a.model === "string");
-    // An uncited answer fallback (defect 2) discards the winning
-    // draft: no model may be named as the shipped answer's author
-    // when the shipped answer is the extractive build, so the
-    // winner reads null exactly as it does when every leg failed.
-    const synthWinner = uncitedAnswerFallback ? null : synthLegs.find((a) => a.ok === true);
+    // The winner is named only when its draft actually SHIPPED
+    // (2026-10-14, fifth panel, Job 3c). The old rule named the
+    // first ok leg whenever the fallback was not the uncited one,
+    // so a run whose drafts were all rejected downstream (the
+    // race's quality bar, the synthesis deadline) shipped an
+    // extractive answer whose stage record named a winning model
+    // beside skipReason "all legs failed" — a record contradicting
+    // itself. An uncited answer fallback (defect 2) discards the
+    // winning draft the same way: no model may be named as the
+    // shipped answer's author when the shipped answer is the
+    // extractive build, so the winner reads null exactly as it
+    // does when every leg failed.
+    const synthWinner = aiOK ? (synthLegs.find((a) => a.ok === true) || null) : null;
     // Subrequest budget (2026-10-13): when every leg that actually
     // failed did so because the invocation's own subrequest budget
     // ran out . legs the planner never fired (budgetSkipped) or legs
@@ -21700,10 +22509,16 @@ async function runSearchPipeline(pctx) {
       synthRealFailures.every((a) => a.budgetSkipped === true || isSubrequestBudgetError(a.error));
     const synthSkipReason = aiOK ? null
       : uncitedAnswerFallback ? "answer had no citations"
+      : serveGateNoEvidence ? "no citable evidence"
       : !aiSynthesisAllowed ? "gate"
       : skipWavesForDefinition ? "definition"
       : budgetDenied ? "budget"
       : synthLegs.length === 0 ? "no legs recorded"
+      // A leg answered and the run still ships no AI answer: the
+      // draft was rejected downstream (Job 3c). That is the reason
+      // the record shows — not "all legs failed", which the same
+      // record's leg list disproves.
+      : synthLegs.some((a) => a.ok === true) ? "drafts rejected downstream"
       : synthBudgetOnly ? SUBREQUEST_EXHAUSTED_REASON
       : "all legs failed";
     stageHealth.push({
@@ -21715,14 +22530,24 @@ async function runSearchPipeline(pctx) {
       winner: synthWinner ? String(synthWinner.model) : null,
       winnerMs: synthWinner && synthWinner.ms != null ? synthWinner.ms : null,
       legs: synthLegs.length,
+      // failedLegs lists legs that actually RACED and failed
+      // (2026-10-14, fifth panel, Job 4): planner stamps for legs
+      // the budget could not fund (plannedSkip) never raced, and
+      // listing them here at 0 ms read as four legs failing
+      // instantly on every capped probe — motion without
+      // progress. Their count rides as budgetSkippedLegs instead,
+      // so the trim stays on the record under its own name. A
+      // fired leg whose grant the ledger refused at race time is
+      // NOT a planned skip: it raced, and it stays listed.
       failedLegs: synthLegs
-        .filter((a) => a.ok === false)
+        .filter((a) => a.ok === false && a.plannedSkip !== true)
         .slice(0, 12)
         .map((a) => ({
           model: String(a.model),
           ms: a.ms != null ? a.ms : null,
           error: String(a.error || "").slice(0, 120),
         })),
+      budgetSkippedLegs: synthLegs.filter((a) => a.plannedSkip === true).length,
     });
     if (!aiOK && !skipWavesForDefinition) {
       aiAttempts.push({ diagnostics: {
@@ -22525,6 +23350,35 @@ async function runSearchPipeline(pctx) {
         }
       } catch (cbErr) { console.error("[Cerebrum] search.js confidence calibration:", cbErr); }
     }
+    // PROSE BOUND TO THE CONFIDENCE LEVEL (2026-10-14, fifth
+    // panel, Job 3a): the computed level above binds the shipped
+    // confidence FIELDS; this binds the answer's own prose, which
+    // the synthesis wrote for itself ("Confidence is absolute"
+    // beside level thin, on the panel's probes). Runs here
+    // because it needs the calibrated level and line; AI answers
+    // only, like the disagreement strip — the extractive tiers
+    // compose their confidence prose from the computed values
+    // themselves. When the binding replaces text, the cited sets
+    // are re derived exactly as the disagreement strip re
+    // derives them, so a paper cited only inside a replaced
+    // section is not counted as cited downstream. (The gaps and
+    // the level itself were computed from the pre binding cited
+    // set; the line the binding inserts IS the shipped line, so
+    // what the reader sees stays consistent.)
+    if (aiOK && confidence && confidence.level && confidence.line) {
+      try {
+        const boundProse = bindProseConfidenceToLevel(answer, confidence.level, confidence.line);
+        if (boundProse !== answer) {
+          answer = boundProse;
+          const relabeled = labelUncitedSources(sourceList, answer);
+          citedIndices.length = 0;
+          relabeled.forEach((s, i) => { if (!s.uncited) citedIndices.push(i); });
+          citedEvidencePapers = useEvidence
+            ? citedIndices.map((i) => conflictPool[i]).filter(Boolean)
+            : [];
+        }
+      } catch { /* the binding must never break the answer */ }
+    }
     const coverageNote = buildCoverageNote(publicSourcesQueried());
 
     /* Computed, not generated. Runs only when there is enough to compare and
@@ -23044,11 +23898,14 @@ async function runSearchPipeline(pctx) {
   } finally {
     // Release the priority-queue slot on every exit path (returns inside
     // the try still run finally). A null slot means we never acquired one.
-    // Subrequest budget: when the allowance is spent the release call
-    // cannot succeed (the platform would refuse it), so it is not
-    // fired; the queue's stale slot sweep reclaims the slot, which is
-    // what the sweep exists for.
-    if (searchSlot && ledger.remaining() > 0) {
+    // Bookkeeping lane (2026-10-14, fifth panel, Job 1): the release
+    // fires whenever a slot is held, at any budget state — its charge
+    // rides the bookkeeping lane (counted, never refused), so a run
+    // closing at exactly the cap releases its slot like any other.
+    // The old gate (fire only while budget remained) plus the plain
+    // binding charge inside the release meant capped runs leaked
+    // their slot to the stale slot sweep on every capped search.
+    if (searchSlot) {
       try {
         const { releaseSearchSlot } = await import("../lib/searchPriority.js");
         await releaseSearchSlot(env, ledger);

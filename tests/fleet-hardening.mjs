@@ -283,11 +283,32 @@ await test("no wave or rescue roster references the removed list position", () =
 // ═══════════════════════════════════════════════════════════════════
 group("Workers AI tail — timeout caps and the reasoning completion budget");
 
-await test("the two flaky-slow wave 1 legs get a 6s cap, others keep the wave timeout", () => {
-  assert.equal(cfLegTimeoutMs("@cf/meta/llama-4-scout-17b-16e-instruct", 10000), 6000);
-  assert.equal(cfLegTimeoutMs("@cf/mistralai/mistral-small-3.1-24b-instruct", 10000), 6000);
-  assert.equal(cfLegTimeoutMs("@cf/meta/llama-4-scout-17b-16e-instruct", 4000), 4000, "never raises a smaller wave timeout");
+await test("the two flaky-slow legs get a 3s cap, others keep the wave timeout", () => {
+  // CORRECTED CONTRACT (2026-10-14, fifth panel, Job 4): the cap
+  // was 6s when the pair held wave 1 seats; the fifth panel's
+  // probes timed both out at exactly that 6,000 ms in every probe
+  // and neither ever won, so wave six demoted them out of the
+  // early waves into the final wave and cut the override to
+  // 3,000 ms. The pin moves with the roster.
+  assert.equal(cfLegTimeoutMs("@cf/meta/llama-4-scout-17b-16e-instruct", 10000), 3000);
+  assert.equal(cfLegTimeoutMs("@cf/mistralai/mistral-small-3.1-24b-instruct", 10000), 3000);
+  assert.equal(cfLegTimeoutMs("@cf/meta/llama-4-scout-17b-16e-instruct", 2000), 2000, "never raises a smaller wave timeout");
   assert.equal(cfLegTimeoutMs("@cf/openai/gpt-oss-20b", 10000), 10000, "unlisted legs keep the wave timeout");
+});
+
+await test("the demoted pair races in the final wave, not the early waves (Job 4)", () => {
+  const wave1Block = src.match(/const CF_WAVE1 = \[([\s\S]*?)\];/);
+  assert.ok(wave1Block, "CF_WAVE1 roster not found in source");
+  assert.ok(!wave1Block[1].includes("llama-4-scout"), "llama-4-scout still holds a wave 1 seat");
+  assert.ok(!wave1Block[1].includes("mistral-small"), "mistral-small still holds a wave 1 seat");
+  assert.ok(wave1Block[1].includes("@cf/openai/gpt-oss-20b"), "wave 1 lost its fast Workers AI leg");
+  // The final wave's Workers AI list carries both demoted legs,
+  // raced through cfLegTimeoutMs so the 3s override binds there.
+  assert.ok(
+    src.includes('"@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/mistralai/mistral-small-3.1-24b-instruct"'),
+    "the wave 3 Workers AI roster does not carry the demoted pair");
+  assert.ok(src.includes("cfLegTimeoutMs(m, bpTimeout)"),
+    "the final wave does not apply the per leg timeout overrides");
 });
 
 await test("gpt-oss legs get double the completion budget for reasoning", () => {

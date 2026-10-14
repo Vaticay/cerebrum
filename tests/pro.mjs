@@ -860,12 +860,19 @@ await test("grant fails cleanly for unknown email; revoke refuses subscription P
 
 await test("search.js gates all four AI waves on the Pro gate", async () => {
   const src = await readFile(join(root, "functions/api/search.js"), "utf8");
-  const waveGuards = src.match(/if \(!aiOK && aiSynthesisAllowed[^\n]*\)/g) || [];
+  const waveGuards = src.match(/if \(!aiOK && wavesAllowed[^\n]*\)/g) || [];
   // 2026-10-13 (fleet hardening): the delayed rescue is a fifth gated
   // AI stage (waves 1-3, the rescue, the delayed rescue). It burns
   // inference like every other wave, so it sits behind the same gate;
   // the pin now counts five and every one of them must stay gated.
+  // 2026-10-14 (wave six, Job 2c): the guards read the wavesAllowed
+  // lever, which is the Pro gate's aiSynthesisAllowed ANDed with the
+  // serve gate (nothing citable means no synthesis at all). The Pro
+  // gate still binds — the lever's definition is pinned below so the
+  // rename cannot quietly unchain the waves from the authorization.
   assert.equal(waveGuards.length, 5, `expected 5 gated wave guards, found ${waveGuards.length}`);
+  assert.ok(src.includes("const wavesAllowed = aiSynthesisAllowed && !serveGateNoEvidence;"),
+    "the wave lever no longer derives from the Pro gate authorization");
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");
   assert.match(src, /consumeAiAnswer\(env, aiGate\.userId, aiGate\.aiCap, ledger\)/, "AI answers not metered atomically");
   // Wave 4 (deterministic fallback) must stay ungated — everyone gets it.

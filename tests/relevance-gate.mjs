@@ -35,6 +35,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { onRequest, createSubrequestLedger } = await import(join(root, "functions/api/search.js"));
+const { getBreaker, resetBreakers } = await import(join(root, "functions/lib/llmCircuit.js"));
 
 let passed = 0;
 const failures = [];
@@ -88,7 +89,9 @@ function rgDb() {
 }
 let scenPapers = [];
 let scenAnswer = "";
-async function runScenario(query) {
+let scenPapersFn = null;
+let scenQueryLog = [];
+async function runScenario(query, opts = {}) {
   const realFetch = globalThis.fetch;
   const realCaches = globalThis.caches;
   const realRandom = Math.random;
@@ -114,6 +117,10 @@ async function runScenario(query) {
     }
     if (u.includes("ebi.ac.uk/europepmc")) {
       if (u.includes("BODY")) return jsonRes({ resultList: { result: [] } });
+      let qParam = "";
+      try { qParam = new URL(u).searchParams.get("query") || ""; } catch { qParam = ""; }
+      scenQueryLog.push(qParam);
+      if (scenPapersFn) return jsonRes({ resultList: { result: scenPapersFn(qParam) } });
       return jsonRes({ resultList: { result: scenPapers } });
     }
     if (u.includes("eutils.ncbi.nlm.nih.gov")) {
@@ -125,7 +132,7 @@ async function runScenario(query) {
     return jsonRes({});
   };
   try {
-    const ledger = createSubrequestLedger();
+    const ledger = createSubrequestLedger(opts.limit || undefined);
     const env = {
       DB: rgDb(),
       OPENROUTER_KEY: "rg-test-openrouter-key-123456",
@@ -145,6 +152,12 @@ async function runScenario(query) {
     globalThis.caches = realCaches;
     Math.random = realRandom;
   }
+}
+
+async function runScenarioLogged(query, opts = {}) {
+  scenQueryLog = [];
+  const data = await runScenario(query, opts);
+  return { data, queries: scenQueryLog.slice() };
 }
 
 const epmc = (n, title, abstractText, citedByCount) => ({
@@ -297,6 +310,515 @@ await test("the control question's cited set and order are what they were", asyn
   assert.ok(data.sources.every((s) => !s.uncited), "the control's papers must both stay cited");
   assert.ok(data.answer.includes("[1]") && data.answer.includes("[2]"), "the control's markers changed");
 });
+
+// ═══════════════════════════════════════════════════════════════════
+group("subject touch standard (2026-10-14) — the creatine shape, one layer deeper");
+
+// The live failure (production, build 75dd771): the creatine
+// question shipped citing a sociology paper about hair in schools
+// that never mentions creatine. The scenario above pins the hair
+// only papers out of the cited set; this one pins the corrected
+// standard's two new edges at handler level: an effect only paper
+// never cites even when it is the pool's TOP SCORER, and a subject
+// only paper — a creatine safety study that never mentions hair —
+// DOES cite. Under the old any group standard the subject only
+// paper was barred (one group touch), and the effect only paper
+// was the kind of citation that shipped.
+await test("an effect only top scorer never cites; a subject only paper cites", async () => {
+  scenPapers = [
+    epmc(11, "Hair in the schoolyard: hair policies and belonging in English schools",
+      "This sociology paper examines how school hair rules shape pupils' sense of identity and belonging. Hair is treated as culture and self expression throughout, and hair length rules are traced through school policy documents and pupil interviews about hair.", 900),
+    epmc(12, "Creatine supplementation and renal function in healthy adults: a two year safety study",
+      "Healthy adults took creatine monohydrate daily for two years. Renal function, liver enzymes, and blood markers stayed in the normal range on creatine, and no serious adverse events were attributed to creatine supplementation in either arm of the study.", 120),
+    epmc(13, "Creatine monohydrate supplementation and hair shedding: a randomized controlled trial",
+      "Adults taking creatine monohydrate at five grams daily were followed for twelve weeks against placebo. Hair shedding counts and scalp hair density did not increase on creatine, and dihydrotestosterone remained within the normal range in both groups throughout the trial.", 300),
+  ];
+  scenAnswer =
+    "## Summary\n\n" +
+    "**Creatine** did not increase hair shedding or hair density loss in the randomized trial that measured both [1]. " +
+    "Two years of daily creatine also left renal function and blood markers in the normal range, with no serious adverse events attributed to it [2]. " +
+    "School hair policies shape how pupils feel they belong, a separate literature about hair as culture [3].\n\n" +
+    "## Limits\n\n" +
+    "The trials are short, their samples are small, and few followed anyone past twelve weeks.";
+  const data = await runScenario("does creatine make your hair fall out");
+  assert.equal(data.synthesisMode, "ai", "the scenario must ship the AI answer, got: " + data.synthesisMode);
+  assert.equal(data._expansion && data._expansion.via, "fallback",
+    "the expansion via must name the fallback: " + JSON.stringify(data._expansion));
+  const citedTitles = (data.sources || []).filter((s) => !s.uncited).map((s) => s.title);
+  assert.deepEqual(citedTitles, [
+    "Creatine monohydrate supplementation and hair shedding: a randomized controlled trial",
+    "Creatine supplementation and renal function in healthy adults: a two year safety study",
+  ], "the cited set must be the subject covering trial and the subject only safety study, in that order: " + JSON.stringify(citedTitles));
+  assert.ok(data.answer.includes("[1]") && data.answer.includes("[2]"),
+    "both creatine markers must survive in the shipped answer");
+  (data.sources || []).forEach((s, i) => {
+    if (s.title.startsWith("Hair in the schoolyard")) {
+      assert.equal(s.uncited, true, "the effect only top scorer shipped as cited: " + s.title);
+      assert.ok(!data.answer.includes("[" + (i + 1) + "]"),
+        "the effect only top scorer's marker survived in the answer: " + s.title);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("subject touch standard — baby gut control (subject group: infant gut)");
+
+// The control: the baby gut question's subject group is the gut
+// group (the infant gut concept). Its on topic papers must still
+// cite, in the same order the coverage selection produced before
+// this wave, and the germ free animal papers — which speak about
+// the gut in animals raised sterile, not about a baby's first
+// year — must stay uncited, exactly as they were.
+await test("on topic papers cite in the same order; germ free papers stay uncited", async () => {
+  scenPapers = [
+    epmc(21, "Germ free mice develop an immature gut and delayed immune maturation",
+      "Pups raised germ free in sterile isolators developed an immature gut. Gut barrier function lagged, gut motility was altered, and immune maturation in the gut trailed conventionally raised pups on every measure taken.", 500),
+    epmc(22, "The intestinal barrier in germ free rats",
+      "Germ free rats were compared with colonized controls. The intestinal barrier of germ free animals stayed permeable, gut tissue growth slowed, and the gut of germ free rats differed across the small intestine.", 400),
+    epmc(23, "How the infant gut changes across the first year",
+      "We followed each baby through the first year of life. Gut germs changed month by month as the baby gut matured, and the germs of the baby gut in the first weeks predicted later gut health in every infant in the cohort.", 90),
+    epmc(24, "Feeding and the baby gut in the first year of life",
+      "Stool samples from each baby were collected monthly through the first year. The baby gut germs shifted with feeding, gut colonization steadied by twelve months, and early gut germs differed between breastfed and formula fed babies.", 80),
+    epmc(25, "Early gut germs and growth across the first year",
+      "Each baby in the cohort was weighed monthly while gut germs were profiled. Baby gut germs in the first month tracked growth across the first year, and the infant gut community differed by delivery mode in the early weeks.", 70),
+  ];
+  scenAnswer =
+    "## Summary\n\n" +
+    "The **gut germs** in a baby gut change month by month through the first year as the gut matures [1]. " +
+    "What a baby eats shifts those gut germs, and the mix steadies by about twelve months [2]. " +
+    "The earliest gut germs also track how the baby grows across the first year [3].\n\n" +
+    "## Limits\n\n" +
+    "Most cohorts are small, and feeding is hard to separate from everything else that changes in the first year.";
+  const data = await runScenario("what happens to a baby's gut germs in the first year");
+  assert.equal(data.synthesisMode, "ai", "the control must ship the AI answer, got: " + data.synthesisMode);
+  const titles = (data.sources || []).map((s) => s.title);
+  // The order below is the order this exact draw produced under
+  // the pre wave standard as well (verified against the old code):
+  // the coverage and relevance ordering is untouched by the
+  // subject rule, so the control pins it verbatim.
+  assert.deepEqual(titles.slice(0, 3), [
+    "Early gut germs and growth across the first year",
+    "Feeding and the baby gut in the first year of life",
+    "How the infant gut changes across the first year",
+  ], "the on topic papers must lead the shipped list in the same order as before: " + JSON.stringify(titles));
+  const citedTitles = (data.sources || []).filter((s) => !s.uncited).map((s) => s.title);
+  assert.deepEqual(citedTitles, titles.slice(0, 3),
+    "exactly the three on topic papers are cited: " + JSON.stringify(citedTitles));
+  for (const s of data.sources || []) {
+    if (s.title.startsWith("Germ free") || s.title.startsWith("The intestinal barrier")) {
+      assert.equal(s.uncited, true, "a germ free animal paper shipped as cited: " + s.title);
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("subject touch standard — a question with no identifiable subject group");
+
+// The sleep and colds question puts a clause ("not getting enough
+// sleep") in the subject slot, so no subject group is identified
+// and the standard is the founding both concepts standard,
+// unchanged: the paper covering both concepts cites, the one
+// concept papers do not, whichever side of the relation they sit
+// on. If identification ever named sleep (or cold) the subject
+// here, one of the one concept papers would start citing and
+// this scenario's cited set would change — that is the regression
+// it stands against.
+await test("the sleep and colds cited set is unchanged: both concepts or nothing", async () => {
+  // The groups the handler really builds for this question (the
+  // expansion record names them): sleep, likely, catch, enough —
+  // "cold" is a generic science word in this codebase, so no group
+  // ever carries it, and the concept coverage lives in the sleep
+  // and catch groups. The covering paper below touches three of
+  // the resolved groups; each one concept paper touches exactly
+  // one (sleep alone; catch alone), on opposite sides of the
+  // relation, so a subject named on either side would show.
+  scenPapers = [
+    epmc(31, "Sleep duration and next day alertness in night shift workers",
+      "Night shift workers who slept fewer than six hours reported lower alertness the next day. Sleep was recorded by actigraphy across two work weeks, and short sleep predicted slower reaction times on morning tests.", 300),
+    epmc(32, "Catching a cold in the office: air handling and infection",
+      "We followed office workers through one winter and recorded who did catch a cold each month. Workers in rooms with recirculated air were infected more often, and symptoms lasted longer in poorly ventilated rooms.", 200),
+    epmc(33, "Sleep duration and susceptibility to the common cold",
+      "Adults kept sleep diaries for two weeks, then were exposed to a cold virus in a clinic. Those who slept less were more likely to catch a cold, and short sleep tracked higher infection rates after exposure.", 100),
+  ];
+  scenAnswer =
+    "## Summary\n\n" +
+    "Adults who slept less in the two weeks before exposure were more likely to **catch a cold** when exposed to a cold virus [1]. " +
+    "Workers who slept fewer than six hours reported lower alertness the next day [2]. " +
+    "Workers in rooms with recirculated air were infected more often through the winter [3].\n\n" +
+    "## Limits\n\n" +
+    "Exposure studies are small, and sleep was recorded over two weeks only.";
+  const data = await runScenario("does not getting enough sleep make you more likely to catch a cold");
+  assert.equal(data.synthesisMode, "ai", "the scenario must ship the AI answer, got: " + data.synthesisMode);
+  const citedTitles = (data.sources || []).filter((s) => !s.uncited).map((s) => s.title);
+  assert.deepEqual(citedTitles, ["Sleep duration and susceptibility to the common cold"],
+    "only the both concepts paper may be cited: " + JSON.stringify(citedTitles));
+  assert.ok(data.answer.includes("[1]"), "the both concepts marker must survive");
+  (data.sources || []).forEach((s, i) => {
+    if (s.title.startsWith("Sleep duration and next day") || s.title.startsWith("Catching a cold")) {
+      assert.equal(s.uncited, true, "a one concept paper shipped as cited: " + s.title);
+      assert.ok(!data.answer.includes("[" + (i + 1) + "]"),
+        "a one concept paper's marker survived in the answer: " + s.title);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("shelf floor relaxation — a thin pool is not starved (Job 2b)");
+
+const YOGURT_Q = "can eating yogurt fix an upset stomach after taking antibiotics";
+const FILLER_TITLES = [
+  "Composting kitchen scraps in small gardens",
+  "Office chair ergonomics and posture at work",
+  "Railway expansion in nineteenth century Britain",
+  "Knitting patterns for winter garments",
+  "Municipal bonds and local infrastructure funding",
+  "Aquarium lighting for planted freshwater tanks",
+  "Chess openings for club players",
+  "Roofing materials for coastal homes",
+  "Typeface design and reading on screens",
+];
+function yogurtPool() {
+  return [
+    epmc(41, "Probiotic yogurt for antibiotic associated stomach upset: a randomized trial",
+      "Patients taking antibiotics who ate probiotic yogurt daily reported less stomach upset and fewer loose stools than the control group. The yogurt carried Lactobacillus cultures, and symptoms settled faster in the yogurt arm of the trial.", 40),
+    epmc(42, "Lactobacillus rhamnosus GG for antibiotic associated diarrhoea",
+      "In a randomized double blind trial, Lactobacillus rhamnosus GG or placebo was given during antibiotic therapy. The incidence of diarrhoea and gastrointestinal adverse events was recorded over the treatment period and follow up.", 85),
+    epmc(43, "Fermented milk with Lactobacillus after antibiotic therapy",
+      "Participants received fermented milk containing Lactobacillus or a control product after antibiotic therapy. Gastric symptom scores, bowel habit, and how upset participants felt after meals were assessed by questionnaire at baseline and weekly thereafter.", 60),
+    epmc(44, "Yogurt and stomach comfort during antibiotics: a patient survey",
+      "People taking antibiotics often get an upset stomach. In this survey, patients who ate yogurt every day during their antibiotics reported less stomach upset and returned to normal eating sooner than patients who ate no yogurt.", 5),
+    epmc(45, "Eating yogurt while taking antibiotics: guidance for patients",
+      "Antibiotics can upset the stomach and loosen stools. This guidance reviews eating yogurt during a course of antibiotics, which yogurts carry live cultures, and when an upset stomach on antibiotics needs a doctor instead.", 5),
+    epmc(46, FILLER_TITLES[0],
+      "Compost bins turn kitchen scraps into soil food. This guide covers layering greens and browns, moisture, turning the pile, and when the finished compost is ready for the beds.", 3),
+    epmc(47, FILLER_TITLES[1],
+      "A badly adjusted chair strains the back during long sitting. This review covers seat height, lumbar support, and desk layout for office workers who sit all day.", 2),
+    epmc(48, FILLER_TITLES[2],
+      "Rail lines reshaped trade and travel across Britain. This history follows the railway companies, the navvies who built the lines, and the towns the trains connected.", 4),
+    epmc(49, FILLER_TITLES[3],
+      "This pattern collection includes scarves, hats, and mittens. Gauge, yarn weight, and stitch counts are given for each garment, with notes on sizing for children and adults.", 1),
+    epmc(50, FILLER_TITLES[4],
+      "Cities issue bonds to pay for bridges and water systems. This explainer covers bond ratings, repayment schedules, and how investors judge a municipality's finances.", 6),
+    epmc(51, FILLER_TITLES[5],
+      "Plants in a freshwater aquarium need the right light spectrum and photoperiod. This guide compares LED fixtures and covers algae control in planted tanks.", 5),
+    epmc(52, FILLER_TITLES[6],
+      "This survey of chess openings covers the Italian game and the French defence, with model games annotated for club players looking to widen their repertoire.", 2),
+    epmc(53, FILLER_TITLES[7],
+      "Salt air corrodes roofs near the coast. This comparison covers metal panels, treated shingles, and tile, with costs and expected lifetimes for each material.", 3),
+    epmc(54, FILLER_TITLES[8],
+      "Typefaces shape how text reads on a screen. This study compares serif and sans designs at small sizes and measures reading speed across devices.", 2),
+  ];
+}
+
+await test("a yogurt shaped pool: the trials below the floor are re admitted and cite", async () => {
+  // The panel's specimen shape: of the whole pool only the lay
+  // worded papers pass the ranker's core term floor (the two
+  // scientific register trials touch too few of the question's
+  // core terms literally), so the post floor pool sits under the
+  // citable minimum of 6 and the relaxation must re admit the
+  // highest scoring excluded papers — the trials — before any
+  // filler. Without the relaxation the Lactobacillus trial can
+  // never reach the shelf at all (the chain's own emergency
+  // tiers do not fire at three scored papers).
+  scenPapersFn = null;
+  scenPapers = yogurtPool();
+  // The claims follow the shelf's score order (the probiotic
+  // trial, the fermented milk trial, the guidance, the survey,
+  // the Lactobacillus trial), the way this suite's other answers
+  // cite the head of the evidence list.
+  scenAnswer =
+    "In the randomized trial, patients taking antibiotics who ate probiotic yogurt daily reported less stomach upset and fewer loose stools [1]. " +
+    "Fermented milk containing Lactobacillus also eased gastric symptoms after antibiotic therapy [2]. " +
+    "Guidance for patients on antibiotics recommends yogurt with live cultures when the stomach is upset [3]. " +
+    "Patients surveyed while taking antibiotics reported less stomach upset when they ate yogurt every day [4]. " +
+    "Lactobacillus rhamnosus GG given during antibiotic therapy reduced diarrhoea in a double blind trial [5].";
+  const data = await runScenario(YOGURT_Q);
+  const titles = (data.sources || []).map((s) => s.title);
+  const trial = (data.sources || []).find((s) => s.title.startsWith("Lactobacillus rhamnosus"));
+  assert.ok(trial, "the below floor trial never reached the shipped sources: " + JSON.stringify(titles));
+  assert.ok(!trial.uncited, "the re admitted trial shipped uncited: " + JSON.stringify(data.sources.map((s) => [s.title, s.uncited])));
+  assert.ok(titles.some((t) => t.startsWith("Fermented milk")),
+    "the fermented milk trial is missing from the sources: " + JSON.stringify(titles));
+  assert.ok(titles.some((t) => t.startsWith("Probiotic yogurt")),
+    "the above floor trial is missing: " + JSON.stringify(titles));
+});
+
+await test("the same pool with a healthy above floor set is unchanged by the relaxation", async () => {
+  // Eight lay worded on topic papers pass the floor outright:
+  // the post floor pool is healthy, the relaxation never runs,
+  // and no filler is admitted to fill a shelf that is not thin.
+  scenPapersFn = null;
+  const healthy = yogurtPool().filter((p) => !FILLER_TITLES.includes(p.title));
+  healthy[1] = epmc(42, "Lactobacillus yogurt trial for stomach upset on antibiotics",
+    "Patients taking antibiotics ate yogurt carrying Lactobacillus every day. Their stomach upset and diarrhoea were milder than the control group's, and the yogurt was well tolerated throughout the antibiotic course.", 85);
+  healthy[2] = epmc(43, "Fermented milk and yogurt after antibiotics ease stomach upset",
+    "After antibiotics, participants who ate fermented milk and yogurt reported less stomach upset and fewer loose stools. The yogurt carried Lactobacillus, and symptoms settled days sooner than in the control group.", 60);
+  healthy.push(
+    epmc(55, "Yogurt cultures and the stomach during antibiotic treatment",
+      "Antibiotics disturb the stomach. This study followed patients eating yogurt with live cultures during antibiotics and recorded stomach upset, appetite, and recovery of normal eating.", 30),
+    epmc(56, "Live culture yogurt for antibiotic stomach complaints",
+      "A trial of live culture yogurt in patients on antibiotics found less stomach upset and fewer missed doses. Yogurt was eaten twice daily for the whole antibiotic course.", 25),
+    epmc(57, "Probiotic yogurt drinks and stomach upset in antibiotic users",
+      "Antibiotic users drinking probiotic yogurt daily reported less stomach upset than those drinking a plain drink. The yogurt drinks carried Lactobacillus cultures.", 20),
+  );
+  scenPapers = [...healthy, ...yogurtPool().filter((p) => FILLER_TITLES.includes(p.title))];
+  scenAnswer =
+    "Eating yogurt with live cultures can ease an upset stomach while taking antibiotics [1]. " +
+    "Trial evidence on Lactobacillus in yogurt found less antibiotic associated diarrhoea and stomach discomfort [2]. " +
+    "Fermented milk carrying Lactobacillus also helped after antibiotics [3].";
+  const data = await runScenario(YOGURT_Q);
+  const titles = (data.sources || []).map((s) => s.title);
+  assert.ok(titles.length >= 6, "the healthy pool shipped a thin shelf: " + JSON.stringify(titles));
+  for (const f of FILLER_TITLES) {
+    assert.ok(!titles.includes(f), "a filler was admitted into a healthy pool: " + f);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("the serve gate — nothing citable ships the honest no evidence state (Job 2c)");
+
+await test("a sugar shaped run over a galaxy and fibre pool ships no results, not an answer", async () => {
+  scenPapersFn = null;
+  scenPapers = [
+    epmc(61, "A survey of galaxies in the nearby universe",
+      "We present a catalogue of galaxies observed with a wide field telescope. Star formation rates, stellar masses, and morphologies are tabulated for each galaxy, and the survey volume is complete to a stated magnitude limit.", 300),
+    epmc(62, "Roll fibre content in commercial breads",
+      "Rolls and loaves were sampled from bakeries across the region and their fibre content measured by standard assay. White rolls carried the least fibre and seeded loaves the most, with wide variation between bakeries.", 150),
+  ];
+  scenAnswer =
+    "Sugar clearly makes children hyperactive [1]. Behaviour worsens within the hour after sugar [2].";
+  const data = await runScenario("does eating sugar make children hyperactive");
+  assert.equal(data.responseKind, "no-results",
+    "the run synthesized over an irrelevant pool instead of shipping the no evidence state: " + data.responseKind);
+  assert.ok(data.noResults, "the no results flag is missing");
+  assert.ok(!data.answer.includes("galaxies observed"),
+    "galaxy abstract text was pasted into the answer: " + data.answer.slice(0, 300));
+  assert.ok(!data.answer.includes("fibre content measured"),
+    "fibre abstract text was pasted into the answer: " + data.answer.slice(0, 300));
+  assert.ok(!data.answer.includes("Sugar clearly makes children hyperactive"),
+    "the fabricated answer over irrelevant papers shipped");
+  assert.ok(!(data.sources || []).some((s) => !s.uncited),
+    "an irrelevant paper shipped as cited: " + JSON.stringify(data.sources));
+});
+
+await test("a thin but gated in pool still ships its thin answer (the serve gate stands down)", async () => {
+  scenPapersFn = null;
+  scenPapers = [
+    epmc(63, "Creatine and kidney safety in healthy adults: a controlled trial",
+      "Healthy adults took creatine daily for twelve weeks while kidney markers were tracked. Creatine did not change kidney filtration markers, and no adverse renal events occurred in the creatine group compared with placebo.", 120),
+    epmc(64, "Hair in the schoolyard: hair policies and belonging in English schools",
+      "This sociology paper examines how school hair rules shape pupils' sense of identity and belonging. Hair is treated as culture and self expression throughout, and hair length rules are traced through school policy documents.", 200),
+  ];
+  scenAnswer =
+    "Creatine did not change kidney filtration markers in healthy adults over twelve weeks [1]. " +
+    "No adverse renal events occurred in the creatine group [1].";
+  const data = await runScenario("does creatine make your hair fall out");
+  assert.notEqual(data.responseKind, "no-results",
+    "a pool with one citable paper was served as no evidence");
+  assert.ok(!data.noResults, "the thin answer shipped with a no results flag");
+  const cited = (data.sources || []).filter((s) => !s.uncited);
+  assert.ok(cited.some((s) => s.title.startsWith("Creatine and kidney")),
+    "the gated in paper did not cite: " + JSON.stringify(data.sources));
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("the broad terms rung — the question's own words, combined (Job 2a)");
+
+await test("an uncovered term fires one broad rung of raw central terms", async () => {
+  // "Quokka" is in no table: the model leg fails (the harness's
+  // weather), the fallback group for it is inflections only
+  // (quokkas), which covers nothing, so after every other
+  // fallback the broad rung must fire the raw uncovered term
+  // itself. Its query signature is the bare term: the ladder's
+  // booleans always carry the question's other words (diet,
+  // pressure), the concept nets carry the inflection (quokkas),
+  // and the NL net carries the whole question — so a query of
+  // "quokka" alone can only be the broad rung.
+  const isBroadQuery = (q) =>
+    q.includes("quokka") && !q.includes("quokkas") && !q.includes("diet") &&
+    !q.includes("pressure") && !q.includes("hypertension");
+  scenPapersFn = (q) => {
+    if (isBroadQuery(q)) {
+      return [
+        epmc(71, "Diet and blood pressure in the quokka: a field study",
+          "The quokka's diet on the island is mostly leaves. Quokkas on leaf diets showed lower blood pressure than quokkas on other forage, and diet composition tracked blood pressure across the island population through the dry season.", 25),
+        epmc(72, "Blood pressure regulation in the quokka",
+          "The quokka's blood pressure varies with diet and water access. This study measured blood pressure in quokkas across seasons and related it to what the animals ate.", 15),
+        epmc(73, "What quokkas eat: diet composition across the island",
+          "The quokka's diet is mostly leaves, stems, and bark. Diet composition shifted with rainfall, and the quokka diet in the dry season carried far less water than in the wet season.", 10),
+        epmc(74, "Seasonal diet change and blood pressure in quokkas",
+          "When the quokka's diet changed with the seasons, its blood pressure changed with it. Quokkas eating the dry season diet ran higher blood pressure than quokkas on the wet season diet.", 8),
+      ];
+    }
+    return [];
+  };
+  scenPapers = [];
+  scenAnswer =
+    "A quokka's diet tracks its blood pressure: leaf diets were linked to lower blood pressure [1]. " +
+    "Blood pressure in the quokka also varies with water access across seasons [2].";
+  // A larger ledger limit on purpose (the budget suite's NL
+  // scenario makes the same choice): a fully starved pool fires
+  // every rung of the ladder and every fallback net, and that
+  // fanout costs more subrequests than a production draw where
+  // an early rung answers. The rung's existence and its papers
+  // are what is under test here, not the budget.
+  const { data, queries } = await runScenarioLogged("can a quokka's diet change its blood pressure", { limit: 130 });
+  scenPapersFn = null;
+  assert.ok(queries.some(isBroadQuery),
+    "no broad terms rung fired (queries seen: " + JSON.stringify(queries.slice(0, 8)) + ")");
+  const titles = (data.sources || []).map((s) => s.title);
+  assert.ok(titles.some((t) => t.includes("quokka")),
+    "the broad rung's papers never shipped: " + JSON.stringify(titles));
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("synthesis record honesty — the winner is named only when its draft shipped (Job 3c)");
+
+await test("an all fail run ships the extractive tier with an honest synthesis record", async () => {
+  // Every synthesis leg answers with a malformed draft (no
+  // formatting, far too short), so all waves fail on content.
+  // The run must still complete honestly: extractive ship, the
+  // record naming no winner and "all legs failed", and every
+  // failedLegs entry a leg that actually raced (a real error,
+  // never a planner's budget stamp — the Job 4 separation; the
+  // planner side of that contract is pinned in
+  // tests/subrequest-budget.mjs, whose harnesses can drive the
+  // funded size trims this one's small rosters cannot).
+  scenPapersFn = null;
+  scenPapers = [
+    epmc(81, "Creatine monohydrate supplementation and hair shedding: a randomized controlled trial",
+      "Adults taking creatine monohydrate at five grams daily were followed for twelve weeks against placebo. Hair shedding counts and scalp hair density did not increase on creatine, and dihydrotestosterone remained within the normal range in both groups throughout the trial.", 500),
+    epmc(82, "Creatine supplementation in athletes: a systematic review of safety outcomes",
+      "Across forty one trials of creatine supplementation in athletes, adverse events were uncommon and mild. Hair outcomes were reported in three trials, none of which found increased hair shedding or hair loss on creatine compared with placebo at standard doses.", 400),
+  ];
+  scenAnswer = "creatine is fine and does not affect hair at all";
+  const data = await runScenario("does creatine make your hair fall out");
+  assert.equal(data.synthesisMode, "extractive", "the all fail run should fall to the extractive tier");
+  const synth = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synth, "the synthesis stage record is missing");
+  assert.equal(synth.winner, null, "a winner was named on an all fail run");
+  assert.equal(synth.skipReason, "all legs failed");
+  assert.ok((synth.failedLegs || []).length >= 1, "the raced failures are missing from the record");
+  for (const leg of synth.failedLegs || []) {
+    assert.ok(!/subrequest budget exhausted/i.test(leg.error || ""),
+      "a planner stamp leaked into failedLegs: " + JSON.stringify(leg));
+  }
+});
+
+await test("legs record ok, the draft is discarded uncited: the record names no winner", async () => {
+  scenPapersFn = null;
+  scenPapers = [
+    epmc(81, "Creatine monohydrate supplementation and hair shedding: a randomized controlled trial",
+      "Adults taking creatine monohydrate at five grams daily were followed for twelve weeks against placebo. Hair shedding counts and scalp hair density did not increase on creatine, and dihydrotestosterone remained within the normal range in both groups throughout the trial.", 500),
+    epmc(82, "Creatine supplementation in athletes: a systematic review of safety outcomes",
+      "Across forty one trials of creatine supplementation in athletes, adverse events were uncommon and mild. Hair outcomes were reported in three trials, none of which found increased hair shedding or hair loss on creatine compared with placebo at standard doses.", 400),
+  ];
+  // Every leg answers with fluent prose carrying no citations at
+  // all: the waves record ok legs, the citation retry cannot fix
+  // it (the stub returns the same draft), and the extractive tier
+  // ships. Before the fix the synthesis record named the first ok
+  // leg as winner beside the skip reason.
+  scenAnswer =
+    "Creatine is among the most studied sports supplements in the world, and the weight of the evidence says it does not make hair fall out. " +
+    "Trials followed adults taking five grams a day for twelve weeks and measured shedding directly, and reviews of dozens of trials in athletes reached the same conclusion about safety at standard doses. " +
+    "Anyone worried about hair loss on creatine is, on this evidence, worrying about the wrong thing.";
+  const data = await runScenario("does creatine make your hair fall out");
+  assert.equal(data.synthesisMode, "extractive", "the uncited draft should have fallen to the extractive tier");
+  const synth = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synth, "the synthesis stage record is missing");
+  assert.equal(synth.winner, null,
+    "the record names a winner whose draft never shipped: " + JSON.stringify(synth));
+  assert.equal(synth.skipReason, "answer had no citations",
+    "the record does not name the discard reason: " + JSON.stringify(synth));
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("breaker escape — an open circuit degrades the stage, never the request");
+
+await test("an open synthesis breaker ships the extractive tier, not the internal error payload", async () => {
+  // The fifth panel's weather, one isolate later: a previous
+  // request's transient failures opened the OpenRouter breaker.
+  // Every synthesis adapter call is then refused by the breaker
+  // before any network call. Before the fix the refusal was a
+  // SYNCHRONOUS throw out of guardedLlmCall: it escaped through
+  // guardedRaceEntry's makeCall() argument and fireWaveLegs' .map
+  // (a wave's calls are built before the try that races them) into
+  // the handler's top level catch, which shipped synthesisMode
+  // "none", zero sources, and the internal error answer although
+  // the shelf held citable papers. Now the refusal is an ordinary
+  // failed leg and the run degrades like any all fail run.
+  scenPapersFn = null;
+  scenPapers = [
+    epmc(81, "Creatine monohydrate supplementation and hair shedding: a randomized controlled trial",
+      "Adults taking creatine monohydrate at five grams daily were followed for twelve weeks against placebo. Hair shedding counts and scalp hair density did not increase on creatine, and dihydrotestosterone remained within the normal range in both groups throughout the trial.", 500),
+    epmc(82, "Creatine supplementation in athletes: a systematic review of safety outcomes",
+      "Across forty one trials of creatine supplementation in athletes, adverse events were uncommon and mild. Hair outcomes were reported in three trials, none of which found increased hair shedding or hair loss on creatine compared with placebo at standard doses.", 400),
+  ];
+  scenAnswer =
+    "**Creatine** did not increase hair shedding or hair density loss in the randomized trial that measured both [1]. " +
+    "A systematic review of creatine in athletes likewise found no increase in hair shedding or hair loss across forty one trials [2].";
+  resetBreakers();
+  // A ten minute window: the registry hands this same instance to
+  // search.js's own getBreaker calls, and no half open probe may
+  // lapse mid scenario.
+  getBreaker("llm:openrouter", { failureThreshold: 5, openTimeoutMs: 600000 }).open();
+  let data;
+  try {
+    data = await runScenario("does creatine make your hair fall out");
+  } finally {
+    resetBreakers();
+  }
+  assert.equal(data.synthesisMode, "extractive",
+    "the breaker open run should fall to the extractive tier, got: " + data.synthesisMode);
+  assert.equal(data.degraded, true, "the breaker open run must ship degraded");
+  assert.ok((data.sources || []).length >= 1,
+    "the shelf's papers never shipped: " + JSON.stringify(data.sources));
+  assert.ok(!/internal error/i.test(String(data.answer || "")),
+    "the internal error answer shipped although the shelf could answer");
+  assert.ok(!(data.stageHealth || []).some((s) => s.name === "request"),
+    "the top level catch's synthetic request record shipped: " + JSON.stringify(data.stageHealth));
+  const synth = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synth, "the synthesis stage record is missing");
+  assert.equal(synth.ok, false, "the synthesis stage must record failure");
+  assert.equal(synth.winner, null, "a winner was named on a breaker refused run");
+  assert.equal(synth.skipReason, "all legs failed");
+  assert.ok((synth.failedLegs || []).length >= 1, "the breaker refusals are missing from failedLegs");
+  for (const leg of synth.failedLegs || []) {
+    assert.match(leg.error || "", /circuit open/i,
+      "a failed leg does not name the breaker refusal: " + JSON.stringify(leg));
+  }
+});
+
+await test("an open synthesis breaker over an empty shelf ships the honest no evidence state", async () => {
+  // Same open breaker, nothing retrieved: the pipeline's own no
+  // results shape is the honest serve. The defect's shape is
+  // distinguishable from it and must not appear: the internal
+  // error answer text, and a stageHealth consisting of only the
+  // top level catch's synthetic "request" record.
+  scenPapersFn = null;
+  scenPapers = [];
+  scenAnswer =
+    "**Creatine** did not increase hair shedding or hair density loss in the randomized trial that measured both [1].";
+  resetBreakers();
+  getBreaker("llm:openrouter", { failureThreshold: 5, openTimeoutMs: 600000 }).open();
+  let data;
+  try {
+    data = await runScenario("does creatine make your hair fall out");
+  } finally {
+    resetBreakers();
+  }
+  assert.equal(data.responseKind, "no-results",
+    "an empty shelf should ship the no results shape, got: " + data.responseKind);
+  assert.ok(!/internal error/i.test(String(data.answer || "")),
+    "the internal error answer shipped on an empty shelf");
+  assert.ok(!(data.stageHealth || []).some((s) => s.name === "request"),
+    "the top level catch's synthetic request record shipped: " + JSON.stringify(data.stageHealth));
+  const synth = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synth, "the synthesis stage record is missing");
+  assert.ok((synth.failedLegs || []).some((l) => /circuit open/i.test(l.error || "")),
+    "the synthesis record does not name the breaker refusals: " + JSON.stringify(synth));
+});
+
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

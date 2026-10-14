@@ -151,6 +151,82 @@ test("records with no identifiers at all are kept, never dropped blindly", () =>
   assert.equal(dedupePapers([a]).length, 1);
 });
 
+// ── Title twins (2026-10-14, fifth panel, Job 2d) ──────────────
+// The panel shipped "Stomach Upset" (Scientific American, 2017)
+// and "Stomach upset" (New Scientist, 2007) side by side: same
+// story, two outlets, different years and different DOIs, so the
+// year based core rule and the title key rule both let the pair
+// through — outlet copies of one wire story mint their own DOIs.
+// The twin rule merges on the normalized main title when the
+// surnames do not conflict and the abstracts are compatible.
+// The DOI evidence grades compatibility: differing DOIs on both
+// sides demand abstract proof, while a non conflicting DOI lets
+// a missing abstract or an equal year carry the merge; the core
+// rule above keeps its own DOI veto untouched.
+const WIRE_ABSTRACT =
+  "A stomach upset after a rich meal is usually harmless and settles within a day. " +
+  "Doctors advise small sips of water, rest, and bland food until the stomach calms, " +
+  "and warn that vomiting with fever or blood needs urgent care from a clinician.";
+
+test("title twins: same title, different outlets, years and DOIs collapse to one", () => {
+  const a = {
+    title: "Stomach Upset", doi: "10.1000/sa2017", year: 2017,
+    journal: "Scientific American", authors: "Smith J", abstract: WIRE_ABSTRACT,
+  };
+  const b = {
+    title: "Stomach upset", doi: "10.1000/ns2007", year: 2007,
+    journal: "New Scientist", authors: "Smith, John",
+    abstract: WIRE_ABSTRACT.replace("usually harmless", "generally harmless"),
+  };
+  const out = dedupePapers([a, b]);
+  assert.equal(out.length, 1, "the wire copy pair shipped twice");
+  assert.equal(out[0].journal, "Scientific American", "the first record must win");
+});
+
+test("title twins: a conflicting first author surname keeps both records", () => {
+  const a = {
+    title: "Stomach Upset", doi: "10.1000/sa2017", year: 2017,
+    authors: "Smith J", abstract: WIRE_ABSTRACT,
+  };
+  const b = {
+    title: "Stomach upset", doi: "10.1000/ns2007", year: 2007,
+    authors: "Jones A", abstract: WIRE_ABSTRACT,
+  };
+  assert.equal(dedupePapers([a, b]).length, 2,
+    "same title with different authors is two works, not a twin");
+});
+
+test("title twins: disjoint abstracts keep both records", () => {
+  const a = {
+    title: "Stomach Upset", doi: "10.1000/sa2017", year: 2017,
+    authors: "Smith J", abstract: WIRE_ABSTRACT,
+  };
+  const b = {
+    title: "Stomach upset", doi: "10.1000/qc2007", year: 2007,
+    authors: "Smith J",
+    abstract: "Quantum error correction thresholds for surface codes under realistic noise models, with simulations of logical qubit lifetimes across lattice sizes.",
+  };
+  assert.equal(dedupePapers([a, b]).length, 2,
+    "same title and author with unrelated abstracts is not one work");
+});
+
+test("title twins: a missing abstract merges only when the DOIs do not conflict", () => {
+  const a = {
+    title: "Stomach Upset", doi: "10.1000/sa2017", year: 2017,
+    authors: "Smith J", abstract: WIRE_ABSTRACT,
+  };
+  // No DOI on the abstract less record: nothing vetoes, and a
+  // missing abstract cannot disprove the twin.
+  const b = { title: "Stomach upset", year: 2007, authors: "Smith J", url: "https://www.newscientist.com/article/stomach-upset" };
+  assert.equal(dedupePapers([a, b]).length, 1);
+  // The same shape with a DIFFERENT DOI on the abstract less
+  // record stays two: two different DOIs on one title are two
+  // papers unless the abstracts prove otherwise (the answer
+  // package suite's pinned contract).
+  const c = { title: "Stomach upset", doi: "10.1000/ns2007", year: 2007, authors: "Smith J" };
+  assert.equal(dedupePapers([a, c]).length, 2);
+});
+
 test("normalizePaperTitle is case/punctuation/whitespace insensitive", () => {
   assert.equal(
     normalizePaperTitle("Soil Cracking: Patterns, Mechanisms!"),
