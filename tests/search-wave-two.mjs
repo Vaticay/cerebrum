@@ -627,7 +627,12 @@ await test("the cache schema carries the wave two bump", () => {
   // citations, the compound clause confirmation requires
   // topical company, the single source retry extends to
   // every clean answer.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v47"'), "CACHE_SCHEMA_VERSION must be v47");
+  // PIN UPDATED (2026-10-14, wave thirteen): v48 —
+  // foundational primaries get presentation priority, the
+  // title rule requires topical company for every sighting,
+  // and the claim check records a named tier trace with a
+  // fallback model attempt and literature claim selection.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v48"'), "CACHE_SCHEMA_VERSION must be v48");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -1060,8 +1065,14 @@ await test("the handler snapshots the post passes shelf and joins the tail only 
   // before entries are built; the entries are still built from
   // that list beside the evidence list and labeled at the same
   // final step.
+  // PIN UPDATED (2026-10-14, wave thirteen): the call gained a
+  // third argument — the foundational primary test that gives
+  // admitted first descriptions presentation priority in the
+  // tail (brief item 1). The contract this pin protects is
+  // unchanged: the tail is still built from the post passes
+  // snapshot against the final evidence set.
   assert.ok(
-    src.includes("buildFurtherReadingTail(programmaticShelf, evidencePapers)"),
+    src.includes("buildFurtherReadingTail(programmaticShelf, evidencePapers, tailPrimaryTest || undefined)"),
     "the tail must be built from the snapshot against the final evidence set"
   );
   assert.ok(

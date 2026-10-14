@@ -755,13 +755,20 @@ await test("at the production limit a spent tail refuses the retry and the recor
 // ═══════════════════════════════════════════════════════════════
 group("Wave twelve — the cache version pin");
 
-await test("CACHE_SCHEMA_VERSION is v47 with the wave twelve chain entry, v46 kept as history", () => {
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v47";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v47");
+await test("CACHE_SCHEMA_VERSION is v48 with the wave thirteen chain entry, v47 kept as history", () => {
+  // PIN UPDATED (2026-10-14, wave thirteen): v48 —
+  // foundational primaries get presentation priority, the
+  // title rule requires topical company for every sighting,
+  // and the claim check records a named tier trace with a
+  // fallback model attempt and literature claim selection.
+  // The wave twelve entry stays as history; this pin follows
+  // the constant.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v48";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v48");
+  assert.ok(/\/\/ v48 \(2026-10-14, wave thirteen\)/.test(src),
+    "the v48 chain entry is missing its dated reason");
   assert.ok(/\/\/ v47 \(2026-10-14, wave twelve\)/.test(src),
-    "the v47 chain entry is missing its dated reason");
-  assert.ok(/\/\/ v46 \(2026-10-14, wave eleven, live probe addendum\)/.test(src),
-    "the v46 chain entry was removed — the chain is history and stays");
+    "the v47 chain entry was removed — the chain is history and stays");
 });
 
 console.log(`\nsearch-wave-twelve: ${passed} passed, ${failures.length} failed`);

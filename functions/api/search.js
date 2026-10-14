@@ -2201,7 +2201,29 @@ export function isNonLiterature(p) {
 // over a healthy pool. Support counts, presented lists, cited
 // sets, and answer composition all change under this wave,
 // so payloads cached under v46 predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v47";
+// v48 (2026-10-14, wave thirteen): foundational primaries get
+// presentation priority — a shelf rescue in retrieval admits
+// a primary the score sort stranded below the shelf cut, and
+// in the further reading tail primaries are ordered first and
+// judged by the citation gate standard itself (abstract aware)
+// instead of the title only rule their titles cannot pass, so
+// an admitted first description actually reaches the presented
+// list; the presented list's title rule now requires topical
+// company for every sighting, fused or free standing — a paper
+// whose single concept engagement stands alone (a device paper
+// whose only concept is a free standing color word) no longer
+// presents on that sighting; the claim check records a named
+// trace of every tier it attempts (and why the stage did not
+// run, when it does not), gains one fallback model attempt on
+// the OpenRouter tier's rate limit outcome, and its checker
+// prompt now selects claims that characterize the sources
+// themselves, judged against fuller source text for the first
+// eight sources, so an answer denying an explanation its own
+// cited source contains can be caught and removed. Presented
+// lists, claim check panels, and search records all change
+// under this wave, so payloads cached under v47 predate the
+// shipped contract.
+const CACHE_SCHEMA_VERSION = "v48";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -9115,13 +9137,44 @@ const DEEP_FACT_CHECK_SYSTEM_PROMPT =
   "Be genuinely critical. A claim that overgeneralizes a single small study, cites a mechanism the abstract only " +
   "speculates about, or states a number the source doesn't contain should be marked thin or unsupported, not waved " +
   "through as supported.\n\n" +
+  // WAVE THIRTEEN (2026-10-14, brief item 4): a claim ABOUT the
+  // sources is a checkable claim. The measured failure (wave
+  // twelve, item 6): an answer whose short answer said the
+  // literature does not explain the physical cause, citing the
+  // very paper whose abstract states the explanation — the
+  // claim least likely to be selected by a prompt asking for
+  // claims about the topic, and judged, when selected at all,
+  // against a 600 character slice that could cut the stating
+  // sentence. Literature characterizations are now a named
+  // selection class, judged against what the cited sources
+  // actually contain.
+  "Also treat as checkable, and select whenever the answer contains one, any claim that " +
+  "characterizes the sources or the literature themselves: a claim about what the literature " +
+  "does or does not show, explain, contain, or establish (for example, that the sources do not " +
+  "explain a cause, or that no source addresses a point). Judge it against what the cited " +
+  "sources actually contain: when a cited source DOES state the very thing such a claim " +
+  "denies, the claim is \"unsupported\" and the quote must be the sentence from that source " +
+  "that states it.\n\n" +
   "Output ONLY this JSON shape . no markdown fences, no commentary before or after:\n" +
   '{"claims": [{"claim": "...", "source_index": 1, "quote": "...", "status": "supported", "justification": "..."}]}';
 
 function buildFactCheckSourceBlock(papers) {
+  // WAVE THIRTEEN (2026-10-14, brief item 4): fuller source text
+  // for the sources the check actually judges. Every abstract
+  // used to be sliced at 600 characters, which can cut the very
+  // sentence that states what a literature denying claim denies
+  // (an explanation often sits mid abstract, after the setup).
+  // The papers handed to the checker are the cited evidence
+  // set; its first eight entries are the sources an answer's
+  // claims rest on in practice, and they now carry up to 1000
+  // characters, with 600 beyond them to bound the prompt. The
+  // cost is prompt tokens on a call that already exists — no
+  // new spend — and if the larger prompt ever pushes a tier
+  // into its timeout, the wave thirteen trace names that
+  // outcome instead of hiding it.
   return papers
     .slice(0, 20)
-    .map((p, i) => `[${i + 1}] ${p.title || "Untitled"}\nAbstract: ${(p.abstract || "(no abstract available)").slice(0, 600)}`)
+    .map((p, i) => `[${i + 1}] ${p.title || "Untitled"}\nAbstract: ${(p.abstract || "(no abstract available)").slice(0, i < 8 ? 1000 : 600)}`)
     .join("\n\n");
 }
 
@@ -9159,8 +9212,64 @@ function parseDeepFactCheckJSON(raw) {
   return claims;
 }
 
-async function deepFactCheck(answer, papers, env, ledger = null) {
+// WAVE THIRTEEN (2026-10-14, brief items 3 and 4) header —
+// the claim check's failure modes become named facts.
+//
+// The brief's item 3 diagnosis, from the shipped record of the
+// live sky run on the wave twelve build: the fact check stage
+// recorded ok null, ms 0, skipReason "fact check did not run",
+// on a run that was not degraded and answered correctly — the
+// stage never attempted, because that probe's request carried
+// no factCheck setting and the handler's gate treats an absent
+// flag as off. Nothing in the record could say that: the same
+// bare reason covered a missing toggle, a spent time budget,
+// and (one branch over) two dead tiers. And when the stage DID
+// attempt on a saturated fleet, both tiers swallowed their own
+// errors in bare catches, so "the check did not run" was the
+// only sentence the system could ever say about its own
+// failure. This wave gives the stage a trace: every attempt is
+// recorded with its tier and its outcome from a closed set
+// (ok, no-binding, no-key, budget, timeout, http-<status>,
+// error, unparseable), the trace rides the search record, and
+// the stage's skip reason is BUILT from it. The check also
+// gains the degradation the brief orders — cheapest reliable
+// tier rather than nothing: when the OpenRouter tier's outcome
+// is the fleet saturation signature (HTTP 429, that model's
+// free quota spent), one more attempt fires on a second
+// validate class free model whose quota is separate. The
+// funding, named as the budget rule requires: the attempt
+// replaces the failed tier two fetch one for one on exactly
+// the runs where that fetch bought nothing, it is gated on
+// the same ledger room tier two itself requires (the ledger's
+// hard cap refuses ahead of the call, so the invocation total
+// can never pass 50), and the stages that run after this one
+// spend through the ledger's bookkeeping path, which tallies
+// without refusing — so the fetch cannot starve the search
+// record or the telemetry the tail reserve nominally protects.
+// A run that pays it is a run that today ships no check at all.
+const OR_VALIDATE_FALLBACK = "google/gemma-4-26b-a4b-it:free";
+
+/* factCheckTraceSummary(trace): the one line form of a trace,
+ * for the stage health skip reason — "workers-ai timeout;
+ * openrouter http-429". Bounded and built only from the
+ * trace's own named outcomes. */
+export function factCheckTraceSummary(trace) {
+  if (!Array.isArray(trace) || trace.length === 0) return "";
+  return trace
+    .filter((t) => t && t.tier && t.tier !== "stage")
+    .map((t) => String(t.tier) + " " + String(t.outcome || ""))
+    .join("; ")
+    .slice(0, 160);
+}
+
+async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
   if (!answer || !papers || papers.length === 0) return null;
+  const note = (tier, outcome, detail) => {
+    if (!Array.isArray(trace)) return;
+    const entry = { tier, outcome };
+    if (detail) entry.detail = String(detail).slice(0, 160);
+    trace.push(entry);
+  };
   const sourceBlock = buildFactCheckSourceBlock(papers);
   const userContent =
     "ANSWER TO FACT-CHECK:\n" + answer.slice(0, 4000) +
@@ -9194,10 +9303,18 @@ async function deepFactCheck(answer, papers, env, ledger = null) {
         new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 3500)),
       ]);
       const claims = parseDeepFactCheckJSON((out && out.response) || "");
-      if (claims) return claims;
-    } catch {
+      if (claims) { note("workers-ai", "ok"); return claims; }
+      note("workers-ai", "unparseable", "the response did not yield two or more usable claims");
+    } catch (tierErr) {
+      // WAVE THIRTEEN: the failure is named in the trace instead
+      // of swallowed — a timeout under fleet saturation and a
+      // hard error are different diagnoses with different fixes.
+      const msg = String((tierErr && tierErr.message) || tierErr || "");
+      note("workers-ai", /timed out/i.test(msg) ? "timeout" : "error", msg);
       // Fall through to tier 2.
     }
+  } else {
+    note("workers-ai", "no-binding", "the Workers AI binding is not available in this environment");
   }
 
   // Tier 2: OpenRouter . only reached if Workers AI is unavailable, timed
@@ -9208,7 +9325,14 @@ async function deepFactCheck(answer, papers, env, ledger = null) {
   // Subrequest budget: tier 2 is a fetch. When the allowance is
   // spent it is skipped, not fired to die at the runtime . the
   // caller falls back to the zero network heuristic either way.
-  if (openRouterKey(env) && !(ledger && ledger.remaining() <= 0)) {
+  let tier2Outcome = null;
+  if (!openRouterKey(env)) {
+    note("openrouter", "no-key", "no OpenRouter key is configured");
+    tier2Outcome = "no-key";
+  } else if (ledger && ledger.remaining() <= 0) {
+    note("openrouter", "budget", "the subrequest ledger was spent before this tier");
+    tier2Outcome = "budget";
+  } else {
     const c = new AbortController();
     // Wave twelve (item 1): the timer is declared OUTSIDE the try.
     // It used to be a const inside the try block, out of scope in
@@ -9235,14 +9359,74 @@ async function deepFactCheck(answer, papers, env, ledger = null) {
       if (r.ok) {
         const j = await r.json();
         const claims = parseDeepFactCheckJSON(j?.choices?.[0]?.message?.content || "");
-        if (claims) return claims;
+        if (claims) { note("openrouter", "ok"); return claims; }
+        note("openrouter", "unparseable", "the response did not yield two or more usable claims");
+        tier2Outcome = "unparseable";
       } else {
+        // WAVE THIRTEEN: the status is the diagnosis. It used to
+        // be drained and discarded, so a quota wall (429) and a
+        // dead key (401) were indistinguishable from success's
+        // absence. The 429 outcome is also the tier three trigger
+        // below.
+        tier2Outcome = "http-" + r.status;
+        note("openrouter", tier2Outcome, "the validate model answered HTTP " + r.status);
         await r.text().catch(() => {});
       }
-    } catch {
-      // Both tiers failed . caller falls back to verifyAnswerAgainstSources.
+    } catch (tierErr) {
+      const aborted = tierErr && (tierErr.name === "AbortError" || /abort/i.test(String(tierErr.message || "")));
+      tier2Outcome = aborted ? "timeout" : "error";
+      note("openrouter", tier2Outcome, String((tierErr && tierErr.message) || tierErr || ""));
+      // Both tiers failed . tier three may still fire below;
+      // otherwise the caller falls back to verifyAnswerAgainstSources.
     } finally {
       if (t) clearTimeout(t);
+    }
+  }
+
+  // Tier 3 (wave thirteen, brief item 3): the cheapest reliable
+  // tier instead of nothing. Fires ONLY on the fleet saturation
+  // signature — tier two answered HTTP 429, that model's free
+  // quota spent — and only while the ledger has room, under the
+  // same gate tier two itself uses: the spend below is refused
+  // by the ledger ahead of the call if the invocation total
+  // would pass its cap, and this point in the handler is past
+  // every grant path stage but the bookkeeping tail, which
+  // tallies without refusing and so cannot be starved by one
+  // fetch. The model is the fleet's second validate class free
+  // model (already in OR_FREE_MODELS for the synthesis waves);
+  // its OpenRouter quota is per model, so a 429 on the primary
+  // validate model says nothing about this one's room. One
+  // attempt, same prompt, same parse, same verdict contract —
+  // a partial check (two or more usable claims of the three to
+  // five asked) is labeled by its actual counts downstream, and
+  // anything under two usable claims is no check, as before.
+  if (tier2Outcome === "http-429" && openRouterKey(env) &&
+      !(ledger && ledger.remaining() <= 0)) {
+    const c3 = new AbortController();
+    let t3 = null;
+    try {
+      t3 = setTimeout(() => c3.abort(), 4000);
+      if (ledger) ledger.spend();
+      const r3 = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + openRouterKey(env), "HTTP-Referer": "https://askcerebrum.org", "X-Title": "Cerebrum" },
+        body: JSON.stringify({ model: OR_VALIDATE_FALLBACK, temperature: 0, max_tokens: 1900, messages }),
+        signal: c3.signal,
+      });
+      if (r3.ok) {
+        const j3 = await r3.json();
+        const claims3 = parseDeepFactCheckJSON(j3?.choices?.[0]?.message?.content || "");
+        if (claims3) { note("openrouter-fallback", "ok"); return claims3; }
+        note("openrouter-fallback", "unparseable", "the response did not yield two or more usable claims");
+      } else {
+        note("openrouter-fallback", "http-" + r3.status, "the fallback validate model answered HTTP " + r3.status);
+        await r3.text().catch(() => {});
+      }
+    } catch (tierErr) {
+      const aborted = tierErr && (tierErr.name === "AbortError" || /abort/i.test(String(tierErr.message || "")));
+      note("openrouter-fallback", aborted ? "timeout" : "error", String((tierErr && tierErr.message) || tierErr || ""));
+    } finally {
+      if (t3) clearTimeout(t3);
     }
   }
   return null;
@@ -15652,6 +15836,26 @@ export function buildSearchRecord(input) {
       }
     } catch { recordGateAudit = null; }
 
+    // Wave thirteen (brief item 3): the claim check's trace —
+    // every tier the deep check attempted with its named
+    // outcome, or the named cause when the stage never ran.
+    // Present only when the handler produced one, normalized
+    // and bounded like every other late field, so a stored
+    // record can answer "why is there no claim check on this
+    // answer" in named terms instead of silence.
+    let recordFactCheckTrace = null;
+    try {
+      const ft = input.factCheckTrace;
+      if (Array.isArray(ft) && ft.length > 0) {
+        recordFactCheckTrace = ft.slice(0, 6).map((t) => ({
+          tier: String((t && t.tier) || "").slice(0, 40),
+          outcome: String((t && t.outcome) || "").slice(0, 40),
+          ...(t && t.detail ? { detail: String(t.detail).slice(0, 160) } : {}),
+        })).filter((t) => t.tier && t.outcome);
+        if (recordFactCheckTrace.length === 0) recordFactCheckTrace = null;
+      }
+    } catch { recordFactCheckTrace = null; }
+
     return {
       // Version 2 (2026-10-13): sources carry authors and journal,
       // and the record carries the executed query set. Consumers read
@@ -15677,6 +15881,7 @@ export function buildSearchRecord(input) {
       sources: recordSources,
       ...(recordMinSupport ? { minSupport: recordMinSupport } : {}),
       ...(recordGateAudit ? { gateAudit: recordGateAudit } : {}),
+      ...(recordFactCheckTrace ? { factCheckTrace: recordFactCheckTrace } : {}),
     };
   } catch {
     return null;
@@ -16726,21 +16931,53 @@ export function paperTitleEngagesConcepts(paper, query, dynLookup) {
     const titleLow = String((paper && paper.title) || "").toLowerCase();
     const titleOcc = conceptOccurrencesInText(titleLow, concepts);
     let abstractOcc = null;
+    let engaged = false;
     for (let ci = 0; ci < concepts.length; ci++) {
       const t = titleOcc[ci];
       if (t && t.rawHit && !t.hasFree && t.seen && abstractOcc === null) {
         const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
         abstractOcc = absLow ? conceptOccurrencesInText(absLow, concepts) : [];
       }
-      if (conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci, abstractOcc)) return true;
+      if (conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci, abstractOcc)) { engaged = true; break; }
     }
-    return false;
+    if (!engaged) return false;
+    // TOPICAL COMPANY FOR EVERY SIGHTING (2026-10-14, wave
+    // thirteen, brief item 2): wave twelve required company
+    // only for an abstract CONFIRMATION of a fused title hit.
+    // A free standing title hit needed none — and that is the
+    // shape that kept presenting on live runs: the eccDNA drug
+    // resistance paper whose title stands the word DNA alone
+    // (one of the CRISPR question's concepts, engaged by a
+    // paper about a different DNA phenomenon, engaging no
+    // other concept of the question anywhere), and the quantum
+    // dot LED paper still standing in the sky list on the wave
+    // twelve build (its title's free standing "Blue", its
+    // abstract engaging blue and nothing else the question
+    // asks about). A sighting that stands alone is a label,
+    // not engagement, whether it arrived fused or free: on a
+    // question with two or more central concepts, title
+    // engagement now counts only when the paper engages the
+    // question more broadly — at least two of its central
+    // concepts anywhere in title or abstract, or the
+    // question's subject concept in the abstract body (the
+    // first description shape: a paper about the subject
+    // whose title names one facet of it). Single concept
+    // questions have no company to give and keep the rule as
+    // it stood, exactly as the wave twelve confirmation did.
+    if (concepts.length >= 2) {
+      const hits = centralConceptHits(paper, concepts);
+      if (hits.total >= 2) return true;
+      const abstractHits = centralConceptHits({ ...(paper || {}), title: "" }, concepts);
+      if (abstractHits.subjectHit) return true;
+      return false;
+    }
+    return true;
   } catch {
     return true;
   }
 }
 
-export function buildFurtherReadingTail(shelf, evidence) {
+export function buildFurtherReadingTail(shelf, evidence, primaryTest) {
   if (!Array.isArray(shelf) || shelf.length === 0) return [];
   const evidenceKeys = new Set();
   for (const p of evidence || []) {
@@ -16748,7 +16985,30 @@ export function buildFurtherReadingTail(shelf, evidence) {
   }
   const tailKeys = new Set();
   const tail = [];
-  for (const p of shelf) {
+  // FOUNDATIONAL PRIMARY PRIORITY (2026-10-14, wave thirteen,
+  // brief item 1): when the caller supplies a primary test (the
+  // foundational lane's own property test, judged by the
+  // handler over the shelf), primaries are considered FIRST,
+  // in shelf order, ahead of ordinary ranked items — a first
+  // description the score order buried at the shelf's tail end
+  // is not stranded below the cap by ordinary papers. For a
+  // primary, the caller's citation gate judgment (applied at
+  // the caller's filter, where the standard lives) replaces
+  // this helper's relevance floor: the floor is a score, and
+  // the score is the title led instrument that buried the
+  // paper; the gate standard is the stricter, abstract aware
+  // topicality judgment, and it is applied to every primary
+  // the tail ships. Every other membership rule is unchanged
+  // for primaries and non primaries alike: retraction screen,
+  // pass verdicts, and the same work dedupe all still bind.
+  const isPrimary = typeof primaryTest === "function"
+    ? (p) => { try { return !!primaryTest(p); } catch { return false; } }
+    : () => false;
+  const ordered = [
+    ...shelf.filter((p) => p && isPrimary(p)),
+    ...shelf.filter((p) => !(p && isPrimary(p))),
+  ];
+  for (const p of ordered) {
     if (tail.length >= FURTHER_READING_TAIL_CAP) break;
     if (!p || !p.title) continue;
     if (hasRetractedTitleMarker(p.title)) continue;
@@ -16760,7 +17020,7 @@ export function buildFurtherReadingTail(shelf, evidence) {
     if (p._filteredReason && !p.thinEvidence) continue;
     const keys = paperDedupeKeys(p);
     if (keys.some((k) => evidenceKeys.has(k) || tailKeys.has(k))) continue;
-    if (applyRelevanceGate([p]).length === 0) continue;
+    if (!isPrimary(p) && applyRelevanceGate([p]).length === 0) continue;
     for (const k of keys) tailKeys.add(k);
     tail.push(p);
   }
@@ -20772,6 +21032,68 @@ async function gatherPapersBody(rawQuery, opts) {
       if (rescued > 0) diag.titleRescued = { admitted: rescued };
     }
   } catch { /* the rescue must never break retrieval */ }
+  // FOUNDATIONAL PRIMARY SHELF RESCUE (2026-10-14, wave
+  // thirteen, brief item 1): the same burial the title rescue
+  // answers, one layer deeper. The foundational lane (wave
+  // nine) retrieves the first description papers and wave
+  // twelve taught dedupe and the lane's legs to surface them,
+  // but the shelf is a score sort capped at the limit, and the
+  // score is title led: a first description whose title shares
+  // no word with the question (the 2012 CRISPR paper is the
+  // measured case — admitted by the lane on a live run of
+  // "how does crispr cas9 cut dna", presented nowhere) can rank
+  // below the cut on a crowded draw while recent reviews ride
+  // their title match and recency onto the shelf. A lane whose
+  // admitted primaries never reach the shelf fails at the last
+  // step before the handler even sees the pool. The rescue
+  // mirrors the title rescue's discipline exactly: a gathered
+  // paper that IS a foundational primary under the lane's own
+  // property test (mechanism or method engaged, early, cited
+  // at or above the pool's own median — paperIsFoundational
+  // Primary over the whole capture's stats, the standard wave
+  // nine set) displaces the shelf's lowest scored paper that
+  // is not itself a primary, up to two rescues. The shelf
+  // never grows past its limit, no gate downstream changes:
+  // the relevance floor, the topic filter, and the citation
+  // standard judge the rescued paper exactly like any other
+  // shelf member, and a high citation paper with no mechanism
+  // or method engagement (the wave twelve resistance burden
+  // guard) is not a primary and is never rescued.
+  try {
+    if (scoredAllCapture.length > finalScored.length) {
+      const rescueStats = foundationalPoolStats(scoredAllCapture);
+      const shelfKeysP = new Set();
+      for (const p of finalScored) for (const k of paperDedupeKeys(p)) shelfKeysP.add(k);
+      const strandedPrimaries = scoredAllCapture
+        .filter((p) => p && p.title && !paperDedupeKeys(p).some((k) => shelfKeysP.has(k)))
+        .filter((p) => titlePassesLanguageScreen(p.title || ""))
+        .filter((p) => String(p.abstract || "").trim().length > 0)
+        .filter((p) => paperIsFoundationalPrimary(p, rescueStats))
+        .sort((a, b) => ((b.citations || 0) - (a.citations || 0)))
+        .slice(0, 2);
+      let rescuedPrimaries = 0;
+      for (const p of strandedPrimaries) {
+        let worstIdx = -1;
+        let worstScore = Infinity;
+        finalScored.forEach((s, i) => {
+          try {
+            if (!paperIsFoundationalPrimary(s, rescueStats) && (s.score || 0) < worstScore) {
+              worstScore = s.score || 0;
+              worstIdx = i;
+            }
+          } catch { /* one bad shelf entry never blocks the rescue */ }
+        });
+        if (worstIdx >= 0) {
+          finalScored[worstIdx] = { ...p, foundationalRescued: true };
+          rescuedPrimaries++;
+        } else if (finalScored.length < limit) {
+          finalScored.push({ ...p, foundationalRescued: true });
+          rescuedPrimaries++;
+        }
+      }
+      if (rescuedPrimaries > 0) diag.foundationalRescued = { admitted: rescuedPrimaries };
+    }
+  } catch { /* the rescue must never break retrieval */ }
   const scoredFinal = finalScored;
   funnel.ranked = scoredFinal.length;
   // AUDITABILITY (2026-10-14, sixth panel, wave seven, Job 3):
@@ -24138,9 +24460,34 @@ async function runSearchPipeline(pctx) {
     // further reading. Applied here, at construction, so both
     // the AI path and the extractive path (which applies its
     // own additional full text standard below) inherit it.
+    // WAVE THIRTEEN (2026-10-14, brief item 1): the tail's
+    // membership for foundational primaries. A primary is
+    // judged by the citation gate standard itself — the
+    // abstract aware topicality judgment — INSTEAD of the
+    // title only rule: the founding papers are exactly the
+    // papers whose titles may carry none of the question's
+    // words (the 2012 CRISPR first description's title names
+    // neither crispr nor cas9), so the title rule barred at
+    // the presented list the very papers the lane admitted
+    // and the citation standard itself clears. The standard
+    // substituted is stricter than the rule it replaces, not
+    // looser: every non primary keeps the title rule, and a
+    // primary that fails the gate standard is barred here
+    // exactly as it is barred from citation.
+    const tailPrimaryStats = (useEvidence && !isNameSearch && !isFollowupMode && programmaticShelf)
+      ? foundationalPoolStats(programmaticShelf) : null;
+    const tailPrimaryTest = tailPrimaryStats
+      ? (p) => paperIsFoundationalPrimary(p, tailPrimaryStats) : null;
+    const tailGateStandard = citationGateStandard(query, _dynForValidation);
     const furtherReadingTailPapers = (useEvidence && !isNameSearch && !isFollowupMode && programmaticShelf)
-      ? buildFurtherReadingTail(programmaticShelf, evidencePapers)
-          .filter((p) => paperTitleEngagesConcepts(p, query, _dynForValidation))
+      ? buildFurtherReadingTail(programmaticShelf, evidencePapers, tailPrimaryTest || undefined)
+          .filter((p) => {
+            if (tailPrimaryTest && tailPrimaryTest(p)) {
+              try { return paperClearsCitationGate(p, tailGateStandard); }
+              catch { return paperTitleEngagesConcepts(p, query, _dynForValidation); }
+            }
+            return paperTitleEngagesConcepts(p, query, _dynForValidation);
+          })
       : [];
     let furtherReadingTail = furtherReadingTailPapers.map(toSourceEntry);
 
@@ -27184,6 +27531,25 @@ async function runSearchPipeline(pctx) {
     const factCheckT0 = Date.now();
     let factCheckAttempted = false;
     let factCheckBudgetSkipped = false;
+    // WAVE THIRTEEN (2026-10-14, brief item 3): the claim
+    // check's trace and its named non attempt causes. The trace
+    // collects every tier attempt deepFactCheck makes (and,
+    // below, why the stage did not run when it does not), rides
+    // the search record, and builds the stage's skip reason —
+    // so a record can say "workers-ai timeout; openrouter
+    // http-429" or "the factCheck setting was off on this
+    // request" instead of the one bare sentence that used to
+    // cover every cause. The causes are computed from the
+    // gate's own conditions, in the gate's own order.
+    const factCheckTrace = [];
+    let factCheckSkipCause = null;
+    if (!settings.factCheck) {
+      factCheckSkipCause = "fact check off for this request";
+      factCheckTrace.push({ tier: "stage", outcome: "off", detail: "the request carried no factCheck setting (or set it false); the stage never attempted" });
+    } else if (useEvidence && evidencePapers.length > 0 && aiOK && !(msLeft() > 4000)) {
+      factCheckSkipCause = "fact check skipped: under 4 seconds left in the request";
+      factCheckTrace.push({ tier: "stage", outcome: "no-time", detail: "the stage needs more than 4 seconds of request budget and less remained" });
+    }
     // Commit 51 . `&& aiOK` added. Without it, the moment every model is
     // rate-limited (!aiOK), `answer` above gets overwritten with the "Unable
     // To Synthesize . Showing Source Papers Directly" fallback: a formatted
@@ -27207,6 +27573,7 @@ async function runSearchPipeline(pctx) {
     // names the budget as the reason (factCheckBudgetSkipped below).
     if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000 && ledger.remaining() <= 0) {
       factCheckBudgetSkipped = true;
+      factCheckTrace.push({ tier: "stage", outcome: "budget", detail: "the subrequest ledger was spent before the stage could fire" });
     }
     if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000 && !factCheckBudgetSkipped) {
       factCheckAttempted = true;
@@ -27218,7 +27585,7 @@ async function runSearchPipeline(pctx) {
       // from the specific source it's supposed to come from and a real
       // methodological justification, which is what the FactCheck panel's
       // copy ("relevance/fact-check") always implied it was doing.
-      const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger).catch(() => null);
+      const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace).catch(() => null);
       if (deepClaims) {
         // Wave twelve (item 1): a verdict is a check only when it
         // is bound to a source in the set the checker was given.
@@ -27469,12 +27836,30 @@ async function runSearchPipeline(pctx) {
       if (fcChecked) {
         stageHealth.push({ name: "fact-check", ok: true, ms: Date.now() - factCheckT0 });
       } else {
+        // WAVE THIRTEEN (2026-10-14, brief item 3): the skip
+        // reason names the cause in the trace's own terms. An
+        // attempt whose tiers all failed says so, tier by tier
+        // ("nothing to verify — deep tiers: workers-ai timeout;
+        // openrouter http-429"), which is a different diagnosis
+        // from a checker that answered and found nothing, and
+        // both differ from a stage that never attempted, whose
+        // cause (toggle off, no time, budget) is named by
+        // factCheckSkipCause and the budget constant as before.
+        // The attempted / not attempted distinction the older
+        // pins protected survives: attempted runs still lead
+        // with "nothing to verify", non attempts still say the
+        // check did not run — now with the reason attached.
+        const fcTierSummary = factCheckAttempted ? factCheckTraceSummary(factCheckTrace) : "";
         stageHealth.push({
           name: "fact-check",
           ok: null,
           skipReason: factCheckBudgetSkipped
             ? SUBREQUEST_EXHAUSTED_REASON
-            : factCheckAttempted ? "nothing to verify" : "fact check did not run",
+            : factCheckAttempted
+              ? (fcTierSummary
+                  ? "nothing to verify — deep tiers: " + fcTierSummary
+                  : "nothing to verify")
+              : (factCheckSkipCause || "fact check did not run"),
           ms: Date.now() - factCheckT0,
         });
       }
@@ -28233,6 +28618,10 @@ async function runSearchPipeline(pctx) {
       // emptied a gathered pool; see the serve gate block).
       minSupport: minSupportOutcome,
       gateAudit,
+      // Wave thirteen: the claim check's tier trace (or its
+      // named non attempt cause), so the stored record answers
+      // for a missing or failed check in named terms.
+      factCheckTrace,
     });
     if (searchRecord) {
       let recordStored = await storeSearchRecord(env, searchRecord, ledger);

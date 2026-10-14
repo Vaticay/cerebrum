@@ -1322,7 +1322,18 @@ await test("fact check stage records skips with reasons and real elapsed time", 
   // invocation subrequest allowance was spent) takes precedence over
   // the two pre existing reasons, which are unchanged.
   assert.ok(src.includes('"nothing to verify"'), "the nothing to verify skip is not recorded");
-  assert.ok(src.includes('factCheckAttempted ? "nothing to verify" : "fact check did not run"'),
+  // PIN UPDATED (2026-10-14, wave thirteen): the skip reason is
+  // built from the claim check's tier trace and its named non
+  // attempt causes. The distinction this pin protected survives
+  // — an attempted run's skip still leads with "nothing to
+  // verify" (now with the tier outcomes attached when the tiers
+  // failed) and a non attempt still says the check did not run
+  // (now with its cause: toggle off, no time, or budget) — but
+  // the old literal ternary is gone, replaced by the trace
+  // driven computation.
+  assert.ok(src.includes('"nothing to verify — deep tiers: " + fcTierSummary'),
+    "an attempted run's skip does not name the failed deep tiers");
+  assert.ok(src.includes('factCheckSkipCause || "fact check did not run"'),
     "the did not run skip is not distinguished from nothing to verify");
   assert.ok(src.includes("factCheckBudgetSkipped") && src.includes("SUBREQUEST_EXHAUSTED_REASON"),
     "the budget skip reason is not recorded for the fact check stage");

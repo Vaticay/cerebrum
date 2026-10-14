@@ -660,9 +660,14 @@ await test("CACHE_SCHEMA_VERSION is v43 with a dated wave nine chain entry", () 
   // citations, the compound clause confirmation requires
   // topical company, and the single source retry extends to
   // every clean answer.
+  // PIN UPDATED (2026-10-14, wave thirteen): v48 —
+  // foundational primaries get presentation priority, the
+  // title rule requires topical company for every sighting,
+  // and the claim check records a named tier trace with a
+  // fallback model attempt and literature claim selection.
   const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
-  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v47\""),
-    "CACHE_SCHEMA_VERSION is not pinned to v47");
+  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v48\""),
+    "CACHE_SCHEMA_VERSION is not pinned to v48");
   const start = src.search(/\/\/ v43 \(/);
   assert.ok(start >= 0, "no dated v43 chain entry above the version constant");
   const entry = src.slice(start, start + 2500);
@@ -671,6 +676,7 @@ await test("CACHE_SCHEMA_VERSION is v43 with a dated wave nine chain entry", () 
   assert.ok(/\/\/ v45 \(2026-10-14, wave eleven\)/.test(src), "the v45 chain entry is missing");
   assert.ok(/\/\/ v46 \(2026-10-14, wave eleven, live probe addendum\)/.test(src), "the v46 chain entry is missing");
   assert.ok(/\/\/ v47 \(2026-10-14, wave twelve\)/.test(src), "the v47 chain entry is missing");
+  assert.ok(/\/\/ v48 \(2026-10-14, wave thirteen\)/.test(src), "the v48 chain entry is missing");
   assert.ok(src.includes("const answerKeyVersion = CACHE_SCHEMA_VERSION + \"-\" + answerLength;"),
     "the answer cache key must derive from CACHE_SCHEMA_VERSION (wave ten)");
 });
