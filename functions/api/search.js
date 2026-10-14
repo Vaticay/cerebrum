@@ -434,11 +434,32 @@ export function planDelayedRescue(attempts, opts = {}) {
 // The constants are derived from the handler's own stage costs
 // under the corrected accounting:
 //   SUBREQUEST_ANSWER_RESERVE (16) — what must still be free after
-//     retrieval: validation attempts in the realistic worst case
-//     (4), a synthesis race worth firing (8: at least two legs per
-//     live bucket), the fact check's Workers AI call (1), and the
-//     writes that ride a served answer and must not be the calls
-//     that discover the wall (quota metering 2, record store 1).
+//     retrieval, composed of NAMED stage shares (2026-10-14, stage
+//     allowances) instead of the old lump estimate. The old
+//     derivation priced validation at 4 ("attempts in the
+//     realistic worst case") and padded the rest with the fact
+//     check and the post answer writes — which the tail reserve
+//     ALSO carries, so the mid stage shares were thinner than
+//     the lump claimed. The live black soldier fly probe on the
+//     hard capped build (829397a) showed the cost: validation
+//     answered for the first time that evening while synthesis
+//     STILL skipped "subrequest budget exhausted" — validation's
+//     real draw over a 21 paper shelf (its model legs plus the
+//     retraction round's per paper Crossref checks, retries
+//     included) and the authorize stage's bindings ate the lump
+//     16 before the waves fired. The reserve is now exactly the
+//     sum of the shares it must fund, each a named constant
+//     below, and the largest of them (validation) is enforced as
+//     a hard phase allowance at the grant points:
+//       SUBREQUEST_VALIDATION_ALLOWANCE (5) — the validation
+//         phase's hard allowance, enforced at the grant points;
+//       SUBREQUEST_AUTHORIZE_COST (6) — the pre wave
+//         authorization block's measured worst case (below);
+//       SUBREQUEST_SYNTHESIS_RACE_COST (5) — a synthesis race
+//         worth firing (below).
+//     The fact check and the writes that ride a served answer
+//     are NOT in the reserve any more: they are the tail
+//     reserve's shares, counted once there.
 //   SUBREQUEST_RUNG_COST (25) — one primary rung's worst case
 //     TOTAL platform cost: the fan out observed before (17
 //     fetches: Europe PMC in several formulations, PubMed esearch
@@ -455,9 +476,41 @@ export function planDelayedRescue(attempts, opts = {}) {
 //     not reserved: the queue's stale slot sweep reclaims a leaked
 //     slot on its own.
 export const SUBREQUEST_LIMIT = 50;
-export const SUBREQUEST_ANSWER_RESERVE = 16;
 export const SUBREQUEST_RUNG_COST = 25;
 export const SUBREQUEST_TAIL_RESERVE = 7;
+// The validation phase's HARD allowance (2026-10-14, stage
+// allowances — the retrieval cap's shape applied to the stage
+// that starved synthesis next). The validation block (the
+// llmValidatePapers model pass plus the flagRetractions Crossref
+// round) is advisory: papers ship without it, so it gets a phase
+// allowance enforced at the ledger's grant points, exactly like
+// retrieval's. Sized from its real draw: the model pass's two
+// legs (OpenRouter, then Groq — one batched call each, 2) plus
+// first attempt Crossref checks on the three highest ranked
+// cited papers (3). Retries draw from the same allowance, so a
+// failing Crossref stops the round instead of multiplying into
+// the reserve, and the papers it never reached are the lowest
+// ranked of the cited shelf. When the allowance is spent the
+// block stops and the trim is recorded on the validation stage
+// record.
+//   SUBREQUEST_AUTHORIZE_COST (6) — the pre wave authorization
+//     block's measured worst case, counted in the reserve
+//     derivation above: the tenant budget row select (1), its
+//     first of period insert (1), the cold isolate budget table
+//     ensure (1), the answer cache read (1), its telemetry
+//     write (1), and the model routing read (1). Steady state
+//     is 3 to 4; the derivation carries the worst case, and the
+//     block's code path cannot exceed it.
+//   SUBREQUEST_SYNTHESIS_RACE_COST (5) — the synthesis race's
+//     share of the reserve: a first wave worth firing (one leg
+//     per live provider bucket, breadth first — the wave
+//     planner fires more whenever more remains, and the later
+//     waves spend what the first leaves).
+export const SUBREQUEST_VALIDATION_ALLOWANCE = 5;
+export const SUBREQUEST_AUTHORIZE_COST = 6;
+export const SUBREQUEST_SYNTHESIS_RACE_COST = 5;
+export const SUBREQUEST_ANSWER_RESERVE =
+  SUBREQUEST_VALIDATION_ALLOWANCE + SUBREQUEST_AUTHORIZE_COST + SUBREQUEST_SYNTHESIS_RACE_COST;
 // The rerank block that runs between the retrieval ladder and the
 // answer stages, priced so ladder rungs beyond the first must
 // clear it on top of the reserve (otherwise the block itself eats
@@ -508,7 +561,11 @@ export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 // retrieval is done (SUBREQUEST_ANSWER_RESERVE) minus what the
 // post answer tail needs (SUBREQUEST_TAIL_RESERVE) — 50 − 16 − 7
 // = 27. A ledger created with a custom limit derives its ceiling
-// from its own cap by the same formula. The phase runs for the
+// from its own cap by the same formula. The budget arithmetic
+// now closes line by line, every term a named constant:
+// retrieval allowance 27 + validation allowance 5 + authorize 6
+// + synthesis race 5 + tail reserve 7 = 50 = SUBREQUEST_LIMIT,
+// so no stage's allowance can spend another stage's share. The phase runs for the
 // body of gatherPapers (the ladder, the fallback rounds, the
 // in-gather expansion call, the rerank) and the count is
 // cumulative across every gather in the request, so a repeated
@@ -528,6 +585,13 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
   const cap = Math.max(1, Math.floor(Number(limit) || SUBREQUEST_LIMIT));
   const retrievalCeiling = Math.max(0,
     cap - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
+  /* The validation phase's ceiling is the stage's own allowance,
+   * not a share of the cap: the block's real cost (two model legs
+   * plus per paper Crossref checks) does not grow with the plan
+   * limit. A cap smaller than the allowance shrinks it to the
+   * cap, so a small test ledger still bounds the phase. */
+  const validationCeiling = Math.max(0,
+    Math.min(SUBREQUEST_VALIDATION_ALLOWANCE, cap));
   let usedCount = 0;
   let stage = "other";
   const byStage = {};
@@ -542,11 +606,22 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
   let retrievalRefused = 0;
   let yieldOn = false;
   const inRetrievalPhase = () => phaseDepth > 0;
-  /* The grant point every consumer inherits: while the retrieval
-   * phase is active, a grant that would push the phase past its
-   * allowance is refused BEFORE the platform call is made, with
-   * the budget error the failure classifier already reads as our
-   * own exhaustion (never a provider failure, never a park). The
+  /* Validation phase state (see SUBREQUEST_VALIDATION_ALLOWANCE):
+   * validationDepth > 0 while the handler's validation block
+   * (the model pass and the retraction round) is executing;
+   * validationUsed counts every grant made while the phase was
+   * active; validationRefused counts grants its ceiling turned
+   * away. The two phases never overlap in the handler: the
+   * validation block runs after the last gather returns. */
+  let validationDepth = 0;
+  let validationUsed = 0;
+  let validationRefused = 0;
+  const inValidationPhase = () => validationDepth > 0;
+  /* The grant point every consumer inherits: while a phase is
+   * active, a grant that would push the phase past its allowance
+   * is refused BEFORE the platform call is made, with the budget
+   * error the failure classifier already reads as our own
+   * exhaustion (never a provider failure, never a park). The
    * refused grant is NOT counted: no platform attempt happened,
    * which keeps the ledger's total equal to the platform's. */
   const grant = (n) => {
@@ -554,8 +629,15 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
       retrievalRefused++;
       throw new Error("Too many subrequests by single Worker invocation (retrieval phase budget)");
     }
+    if (inValidationPhase() && validationUsed + n > validationCeiling) {
+      validationRefused++;
+      throw new Error("Too many subrequests by single Worker invocation (validation phase budget)");
+    }
   };
-  const countSpend = (n) => { if (inRetrievalPhase()) retrievalUsed += n; };
+  const countSpend = (n) => {
+    if (inRetrievalPhase()) retrievalUsed += n;
+    if (inValidationPhase()) validationUsed += n;
+  };
   return {
     limit: cap,
     /* Record one outbound fetch under the current stage label. */
@@ -607,6 +689,27 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     retrievalCapHit(margin = 0) {
       return inRetrievalPhase() && retrievalUsed + Math.max(0, margin) > retrievalCeiling;
     },
+    /* Validation phase brackets, mirroring retrieval's: the
+     * handler opens the phase around the validation block (the
+     * model pass and the retraction round) and closes it when
+     * the block is done; the tally is cumulative for the life of
+     * the ledger and never resets mid request. */
+    beginValidationPhase() { validationDepth++; },
+    endValidationPhase() { if (validationDepth > 0) validationDepth--; },
+    inValidationPhase,
+    /* The phase's hard allowance, what it has spent against it,
+     * and how many grants its ceiling has refused so far. */
+    validationAllowance() { return validationCeiling; },
+    validationSpent() { return validationUsed; },
+    validationRefusals() { return validationRefused; },
+    /* True when a grant of `margin` more would cross the phase
+     * allowance right now. The block's legs and rounds consult
+     * it before firing, so a spent allowance stops the block at
+     * its own check instead of mid fetch. Outside the phase it
+     * never binds. */
+    validationCapHit(margin = 0) {
+      return inValidationPhase() && validationUsed + Math.max(0, margin) > validationCeiling;
+    },
     /* The cascade yield: while on, retrieval phase grants are
      * honored (and still counted) past the ceiling. gatherPapers
      * turns it on for exactly one fallback round on an empty
@@ -626,15 +729,20 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     },
     /* Numbers only snapshot for the diag record: how much of the
      * invocation allowance this request spent, and where. The
-     * retrieval phase fields ride along once the phase has spent
-     * or refused anything (a ledger that never gathered keeps the
-     * original four field shape). */
+     * phase fields ride along once their phase has spent or
+     * refused anything (a ledger that never gathered or validated
+     * keeps the original four field shape). */
     snapshot() {
       const snap = { used: usedCount, limit: cap, remaining: Math.max(0, cap - usedCount), byStage: { ...byStage } };
       if (retrievalUsed > 0 || retrievalRefused > 0) {
         snap.retrievalSpent = retrievalUsed;
         snap.retrievalAllowance = retrievalCeiling;
         snap.retrievalRefused = retrievalRefused;
+      }
+      if (validationUsed > 0 || validationRefused > 0) {
+        snap.validationSpent = validationUsed;
+        snap.validationAllowance = validationCeiling;
+        snap.validationRefused = validationRefused;
       }
       return snap;
     },
@@ -1180,7 +1288,32 @@ export function isNonLiterature(p) {
 // multiply internally. For the same stored inputs the gathered
 // set and its order can change, so payloads cached under v31 must
 // not be served as though produced under the cap.
-const CACHE_SCHEMA_VERSION = "v32";
+// v33 (2026-10-14, stage allowances): the stages between gather
+// and synthesis now hold hard phase allowances of their own —
+// the validation block (model pass plus retraction round) stops
+// at SUBREQUEST_VALIDATION_ALLOWANCE, the contradiction
+// adjudication gathers draw from the retrieval allowance's
+// remainder instead of the answer reserve, and the reserve is
+// re derived from named stage shares (validation 5 + authorize
+// 6 + synthesis race 5 = 16) instead of a lump estimate that
+// priced validation at 4. For the same stored inputs the
+// validated shelf, the retraction flags, and which answers are
+// AI synthesized rather than budget skipped all change, so
+// payloads cached under v32 must not be served as though
+// produced under the stage allowances.
+// v34 (2026-10-14, method intent): measurement questions are
+// now detected deterministically and recorded on the query
+// analysis; for them the cited shelf leads with the method
+// papers (pulled ahead of the shelf's non method tail from the
+// gate's own cleared list), the extractive builder draws its
+// lede and findings from method papers' procedure sentences
+// first, the limits name the missing method paper when the
+// pool holds none, and the synthesis prompt frames the ask as
+// a methods question. For the same stored inputs a measurement
+// question's cited set, source order, and answer all change,
+// so payloads cached under v33 must not be served as though
+// produced with the intent known.
+const CACHE_SCHEMA_VERSION = "v34";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1335,16 +1468,35 @@ async function flagRetractions(papers, topN = 8, ledger = null) {
   });
   // Subrequest budget: each check is a fetch. This runs BEFORE the
   // synthesis waves (on the validated evidence list, so the flags
-  // can inform the answer), which prices its cap against the full
-  // answer reserve, not just the tail: check only what fits above
-  // the reserve . the title marker screen upstream already caught
-  // the declared retractions; this Crossref round is the second
-  // net, and it must not eat the synthesis race's or the fact
-  // check's budget. (The first version of the ledger capped this
-  // at the tail reserve, which let it spend the race's room on
-  // exactly the tight draws the reserve exists for.)
+  // can inform the answer), and it must not eat the synthesis
+  // race's or the fact check's budget. The title marker screen
+  // upstream already caught the declared retractions; this
+  // Crossref round is the second net.
+  // Stage allowance (2026-10-14): inside the handler's validation
+  // phase the round ALSO draws against the phase allowance — the
+  // target list is the cited shelf in rank order (highest ranked
+  // first), the slice keeps at most the checks the phase has
+  // left after the model legs, and each check's retry draws from
+  // the phase at the grant point (a refused grant ends that
+  // check quietly, like a failed lookup). Both caps apply and
+  // the tighter wins: the phase ceiling bounds the whole block
+  // on roomy draws (where the reserve price alone once let a
+  // retrying Crossref round eat the synthesis race), and the
+  // reserve price keeps this opportunistic second net yielding
+  // first on tight draws, exactly as it always has — the model
+  // legs are the stage's core work and hold the phase's
+  // guarantee; this round is not entitled to it.
+  // The return reports the trim ({ offered, checked }) so the
+  // caller can record it on the validation stage record: a
+  // round that was offered papers it never checked must not
+  // read as fully run.
+  const offered = targets.length;
   if (ledger) {
-    const fits = Math.max(0, ledger.remaining() - SUBREQUEST_ANSWER_RESERVE);
+    const reserveFits = Math.max(0, ledger.remaining() - SUBREQUEST_ANSWER_RESERVE);
+    const phaseFits = (typeof ledger.inValidationPhase === "function" && ledger.inValidationPhase())
+      ? Math.max(0, ledger.validationAllowance() - ledger.validationSpent())
+      : Infinity;
+    const fits = Math.min(reserveFits, phaseFits);
     if (fits < targets.length) targets = targets.slice(0, fits);
   }
   await Promise.allSettled(targets.map(async (p) => {
@@ -1354,6 +1506,7 @@ async function flagRetractions(papers, topN = 8, ledger = null) {
     if (flag.concern) p.concern = true;
     if (flag.updateType) p.updateType = flag.updateType;
   }));
+  return { offered, checked: targets.length };
 }
 
 function extractDoi(url) {
@@ -4320,6 +4473,128 @@ function classifyIntent(query, history) {
 // and feeds the definition fast path + smart follow-up suggestions.
 // Returns { type, term } where term is the defined/compared entity when the
 // type has one (definition, comparison).
+// ═══════════════════════════════════════════════════════════════
+// METHOD INTENT (2026-10-14): a measurement question asks HOW a
+// quantity is measured . the operative verb is a measurement
+// verb (measured, assayed, determined, quantified, estimated,
+// detected, assessed), or the question names the method itself
+// ("what is the assay for X"). Dusty's live manganese
+// peroxidase answer was "completely wrong" because nothing in
+// the pipeline knew this: the question "How can the activity of
+// manganese peroxidase be measured?" classified as "general",
+// the cited shelf filled with production and optimization
+// papers that merely REPORT activity values, and the papers
+// that actually answer it ("Improvements in the determination
+// of manganese peroxidase activity", "Criteria for Estimation
+// of ...") sat uncited in further reading or were cited
+// without their content ever being used. A paper that reports
+// a value of the quantity is not an answer to how the quantity
+// is measured. The machinery below makes the intent a recorded
+// fact (analyzeQuery's intent field), gives the method
+// vocabulary a first class concept group of its own, and lets
+// the shelf selection, the extractive builder, the limits, and
+// the synthesis prompt all key off it.
+// ═══════════════════════════════════════════════════════════════
+
+// The method concept group: the vocabulary of ABOUTNESS for
+// measurement. In CONCEPT_GROUPS style (a flat set of terms),
+// but judged by paperMethodTier below rather than by raw
+// membership: a production paper's abstract can mention an
+// "assay" in passing, so membership alone is not aboutness —
+// the strong sense is a title or abstract that is ABOUT
+// measuring the quantity (determination of, estimation of,
+// assay for, method for measuring).
+export const METHOD_CONCEPT_GROUP = new Set([
+  "assay", "assays", "determination", "estimation", "quantification",
+  "measurement", "measuring", "spectrophotometric", "spectrophotometry",
+  "colorimetric", "calibration", "absorbance", "protocol", "method",
+]);
+
+const MEASUREMENT_VERB_RE =
+  "measured|measure|assayed|assay|determined|determine|quantified|quantify|estimated|estimate|detected|detect|assessed|assess|evaluated|evaluate|monitored|monitor";
+
+// Deterministic measurement intent: the measurement verb is
+// the question's operative verb. Patterns, in order:
+//   "how is/are/can X measured ..." (any how question carrying
+//     a measurement verb: "how do researchers quantify X" is
+//     the same shape with the verb in base form);
+//   "how to measure X";
+//   "what/which method/assay/technique/protocol ...";
+//   a bare methods topic ("measurement of X", "determination
+//     of X", "quantification of X").
+export function detectMeasurementIntent(query) {
+  const lc = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!lc) return false;
+  if (new RegExp("\\bhow\\b[^?]*\\b(?:" + MEASUREMENT_VERB_RE + ")\\b").test(lc)) return true;
+  if (/\bhow\s+to\s+(?:measure|assay|determine|quantify|estimate|detect|assess)\b/.test(lc)) return true;
+  if (/^(?:what|which)\s+(?:is\s+the\s+|are\s+the\s+)?(?:method|methods|technique|techniques|assay|assays|protocol|protocols|procedure|procedures)\b/.test(lc)) return true;
+  if (/\b(?:measurement|quantification|determination)\s+of\b/.test(lc)) return true;
+  return false;
+}
+
+// Title level aboutness (tier 2): the paper IS a method paper .
+// its title announces the determination, the estimation, the
+// assay, or a method for measuring. Abstract level (tier 1):
+// the method markers or an explicit "activity was measured /
+// determined / assayed" procedure statement appear in the
+// abstract . the paper describes measuring even when its
+// headline is something else. Tier 0: no method signal . the
+// paper may report the quantity's values, which for a
+// measurement question makes it supporting at best.
+const METHOD_TITLE_RE = new RegExp(
+  "\\b(?:determination|estimation|quantification|measurement)\\s+of\\b" +
+  "|\\bassays?\\b" +
+  "|\\bmethods?\\s+(?:for|of|to)\\s+(?:measur|determin|estimat|quantif|assay)" +
+  "|\\b(?:improvements?|advances?|criteria|comparison|evaluation|validation)\\s+(?:in|of|for)\\s+(?:the\\s+)?(?:determination|estimation|quantification|measurement|assays?)\\b" +
+  "|\\b(?:measuring|determining|quantifying|assaying)\\b[^.]*\\b(?:activity|concentration|levels?)\\b",
+  "i");
+const METHOD_ABSTRACT_RE = new RegExp(
+  "\\bactivity\\s+(?:was|were|is|has been)\\s+(?:measured|determined|assayed|estimated|quantified)\\b" +
+  "|\\b(?:measured|determined|assayed|estimated|quantified)\\s+(?:by|using|via)\\b[^.]*\\b(?:spectrophotometr|absorbance|colorimetr)" +
+  "|\\bassays?\\s+(?:was|were|is)\\s+(?:performed|carried out|based)\\b",
+  "i");
+
+export function paperMethodTier(paper) {
+  const p = paper || {};
+  if (METHOD_TITLE_RE.test(String(p.title || ""))) return 2;
+  const abs = usableAbstract(p) || "";
+  if (abs && (METHOD_TITLE_RE.test(abs) || METHOD_ABSTRACT_RE.test(abs))) return 1;
+  return 0;
+}
+
+// The cited shelf for a measurement question: method papers
+// lead. Papers the relevance gate already cleared but the
+// maxEvidence slice left out are pulled in ahead of the
+// shelf's non method tail (the shelf size does not grow, and
+// nothing that failed the gate is ever pulled), then the
+// whole shelf is stably ordered title method papers first,
+// abstract method papers next, the rest in their ranked
+// order . so citation [1] is a method paper whenever the
+// pool holds one.
+export function orderShelfForMeasurement(shelf, gatedPool) {
+  const list = Array.isArray(shelf) ? shelf.slice() : [];
+  if (list.length === 0) return list;
+  if (Array.isArray(gatedPool)) {
+    const inShelf = new Set(list);
+    const extras = gatedPool.filter((p) => p && !inShelf.has(p) && paperMethodTier(p) > 0);
+    // Title level pulls before abstract level; pool order
+    // (the gate's ranked order) inside each level.
+    extras.sort((a, b) => paperMethodTier(b) - paperMethodTier(a));
+    for (const extra of extras) {
+      let idx = -1;
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (paperMethodTier(list[i]) === 0) { idx = i; break; }
+      }
+      if (idx < 0) break;
+      list.splice(idx, 1);
+      list.push(extra);
+    }
+  }
+  const tiered = list.map((p, i) => ({ p, i, t: paperMethodTier(p) }));
+  tiered.sort((a, b) => (b.t - a.t) || (a.i - b.i));
+  return tiered.map((x) => x.p);
+}
+
 export function classifyQuestionType(query) {
   const q = String(query || "").trim();
   const lc = q.toLowerCase().replace(/\s+/g, " ");
@@ -4338,7 +4613,14 @@ export function classifyQuestionType(query) {
       .replace(/^(the|a|an)\s+/i, "")
       .replace(/[?.!]+$/, "").trim();
     // Guard: "what is the best treatment for X" is not a definition.
-    if (term && !/^(best|most|latest|newest|first|main|primary)\b/.test(term) && term.split(/\s+/).length <= 8) {
+    // Guard (2026-10-14, method intent): "what is the assay for X"
+    // is not a definition either . the term IS a method noun, and
+    // the question asks for the method, so it falls through to
+    // the methods branch below instead of being answered as if
+    // "assay for X" were a thing to define.
+    if (term && !/^(best|most|latest|newest|first|main|primary)\b/.test(term)
+      && !/^(method|methods|technique|techniques|assay|assays|protocol|protocols|procedure|procedures)\b/.test(term)
+      && term.split(/\s+/).length <= 8) {
       return { type: "definition", term };
     }
   }
@@ -4349,13 +4631,29 @@ export function classifyQuestionType(query) {
   if (m) {
     return { type: "comparison", term: (m[1] || "").trim(), termB: (m[2] || "").trim() };
   }
+  // Method intent (2026-10-14) outranks the mechanism shape:
+  // "how do researchers quantify X" opens like a mechanism
+  // question ("how do ...") but its operative verb is the
+  // measurement, so it is a methods question. The definition
+  // and comparison branches above are untouched: a measurement
+  // phrasing reaches here only when it is neither.
+  if (detectMeasurementIntent(lc)) {
+    return { type: "methods", term: null };
+  }
   // Mechanism: "how does X work", "mechanism of X", "why does X cause Y"
   if (/^(how\s+does|how\s+do|mechanism\s+of|what(?:'s| is) the mechanism)/.test(lc)
     || /\bmechanism\b/.test(lc) && /^(how|what|why)/.test(lc)) {
     return { type: "mechanism", term: null };
   }
-  // Methods: "how to X", "protocol for X", "method to X"
-  if (/^how\s+to\b/.test(lc) || /\bprotocol\b/.test(lc) || /^(what|which)\s+(method|methods|technique|assay)/.test(lc)) {
+  // Methods: "how to X", "protocol for X", "method to X", and
+  // measurement questions (2026-10-14, method intent): "how can
+  // the activity of X be measured" is a methods question whose
+  // operative verb is the measurement . it matched nothing here
+  // before and fell through to "general", which is how a
+  // measurement question ended up answered by value reporting
+  // papers. detectMeasurementIntent carries the patterns.
+  if (/^how\s+to\b/.test(lc) || /\bprotocol\b/.test(lc) || /^(what|which)\s+(method|methods|technique|assay)/.test(lc)
+    || detectMeasurementIntent(lc)) {
     return { type: "methods", term: null };
   }
   // Yes/no: "is X ...?", "does X ...?", "can X ...?", "are X ...?"
@@ -4644,6 +4942,7 @@ const LEARNED_CONSTRAINT_RULES = [
  * Returns:
  * {
  *   originalQuery, questionType, questionTerm, isNameSearch,
+ *   intent: "measurement" | null,     // method intent (2026-10-14)
  *   organism: "Hermetia illucens" | null,
  *   organismPhrases: [...],
  *   keyPhrases: ["waste oil"],        // load-bearing multi-word concepts
@@ -4661,6 +4960,12 @@ export function analyzeQuery(rawQuery) {
   const raw = String(rawQuery || "").trim();
   const query = correctQuerySpelling(raw).trim();
   const qType = classifyQuestionType(query);
+  // Method intent (2026-10-14): recorded on the analysis so the
+  // shipped record shows it and every downstream consumer (the
+  // shelf order, the extractive builder, the limits, the
+  // synthesis prompt) reads the same fact. Null for every other
+  // question shape.
+  const intent = detectMeasurementIntent(query) ? "measurement" : null;
   // Name detection needs the user's original capitalization ("Reese Saho"
   // vs "reese saho"), so it runs on the raw query, not the lowercased one.
   const isNameSearch = looksLikePersonName(raw);
@@ -4707,7 +5012,9 @@ export function analyzeQuery(rawQuery) {
   let plainEnglish = "";
   try {
     const parts = [];
-    if (qType.type === "definition" && qType.term) {
+    if (intent === "measurement") {
+      parts.push("how the quantity in \"" + query.slice(0, 80) + "\" is measured (a methods question: papers about measuring it answer it; papers that merely report its values do not)");
+    } else if (qType.type === "definition" && qType.term) {
       parts.push("a definition of \"" + qType.term + "\"");
     } else if (qType.type === "yesno") {
       parts.push("a yes/no answer to \"" + query.slice(0, 80) + "\"");
@@ -4732,6 +5039,7 @@ export function analyzeQuery(rawQuery) {
     originalQuery: raw,
     questionType: qType.type,
     questionTerm: qType.term || null,
+    intent,
     isNameSearch: !!isNameSearch,
     organism,
     organismPhrases,
@@ -6479,6 +6787,11 @@ export async function defaultValidationCall(messages, token, env, timing, ledger
     // Subrequest budget: see defaultConceptGroupCall . an unaffordable
     // leg is not fired; the stage fails open and names the budget.
     if (ledger && ledger.remaining() <= 0) return null;
+    // Stage allowance (2026-10-14): the same refusal applies when
+    // the validation phase's own allowance is spent, even with
+    // global budget left — the phase, not the reserve, is what a
+    // validation leg may spend.
+    if (ledger && ledger.validationCapHit && ledger.validationCapHit(1)) return null;
     const c = new AbortController();
     // 4000ms per leg, the sizing the single leg call always had
     // (OR_VALIDATE returns 400 JSON tokens in ~2s; see the 2026-09-12
@@ -6547,6 +6860,13 @@ export function finalizeValidationHealth(rec, validationDiag) {
       ? SUBREQUEST_EXHAUSTED_REASON
       : "no leg answered";
   }
+  // Stage allowance trim (2026-10-14): when the validation phase
+  // spent its allowance — PASS 2 skipped at the phase check, a leg
+  // refused at the grant point, or retraction checks left unfired
+  // — the record carries trimmed, so the stage reads as capped,
+  // not as fully run. The block is advisory and the papers ship
+  // regardless; the record just refuses to pretend it ran whole.
+  if (validationDiag && validationDiag.validationTrimmed) rec.trimmed = true;
   return rec;
 }
 
@@ -6619,8 +6939,17 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
   // used, exactly the fail open shape, but the diag names the budget
   // (not a silent "no leg answered") so the stage record can tell a
   // budget skip from a provider failure.
-  if (ledger && ledger.remaining() <= 0) {
-    if (diagOut) diagOut.llmBudgetSkipped = true;
+  // Stage allowance (2026-10-14): the phase's own allowance binds
+  // the same way — when it is spent the pass does not fire even
+  // with global budget left, and the diag ALSO names the trim so
+  // the stage record can show the validation block stopped at its
+  // allowance rather than eating synthesis's share.
+  const phaseSpent = !!(ledger && ledger.validationCapHit && ledger.validationCapHit(1));
+  if (ledger && (ledger.remaining() <= 0 || phaseSpent)) {
+    if (diagOut) {
+      diagOut.llmBudgetSkipped = true;
+      if (phaseSpent) diagOut.validationTrimmed = true;
+    }
     return survivors;
   }
 
@@ -6669,7 +6998,20 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
     // old single leg behavior.
     const doCall = typeof callImpl === "function" ? callImpl : defaultValidationCall;
     const legResult = await doCall(messages, token, env, undefined, ledger);
-    if (!legResult) return survivors;
+    if (!legResult) {
+      // Stage allowance (2026-10-14): a null here can mean the
+      // phase's allowance ran out mid loop (the first leg spent
+      // what was left, the second was refused at its own check)
+      // rather than every provider failing. When the phase is
+      // spent, the diag names the budget so the stage record
+      // tells a cap from an outage, the same honesty the pre
+      // pass budget check above already has.
+      if (diagOut && ledger && ledger.validationCapHit && ledger.validationCapHit(1)) {
+        diagOut.llmBudgetSkipped = true;
+        diagOut.validationTrimmed = true;
+      }
+      return survivors;
+    }
     // The default call reports which leg answered as { text, via };
     // injected calls may return raw text instead.
     const isLegResult = legResult && typeof legResult === "object" && typeof legResult.text === "string";
@@ -8150,6 +8492,17 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // has (the medium column).
     const depth = ctx && (ctx.answerLength === "long" || ctx.answerLength === "short")
       ? ctx.answerLength : "medium";
+    // Method intent (2026-10-14): read from the query analysis
+    // the handler threads through ctx, with the deterministic
+    // detector as the fallback for callers that pass only the
+    // query. A measurement question's excerpts come from the
+    // method papers first (the procedure), not from whichever
+    // paper's value sentences carry the most digits.
+    const measurementIntent = !!(
+      (ctx && ctx.queryAnalysis && ctx.queryAnalysis.intent === "measurement") ||
+      (ctx && ctx.intent === "measurement") ||
+      (ctx && ctx.query && detectMeasurementIntent(ctx.query))
+    );
     const poolCap = depth === "long" ? 12 : depth === "short" ? 6 : 8;
     const findingsPerPaper = depth === "long" ? 3 : depth === "short" ? 1 : 2;
     const ledeClaimCap = depth === "long" ? 3 : depth === "short" ? 1 : 2;
@@ -8231,6 +8584,18 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       }
       if (offTopic.length > 0 && onTopic.length > 0) pool = [...onTopic, ...offTopic];
     }
+    // Method intent (2026-10-14): the cited pool leads with the
+    // method papers (stable: the pool's ranked order is preserved
+    // inside a tier), so the pool cap keeps them in and their
+    // procedure sentences are the excerpt candidates the lede
+    // draws from first. Citation indices ride on the items
+    // themselves, so the bibliography's numbering is untouched.
+    if (measurementIntent && pool.length > 1) {
+      pool = pool
+        .map((it, i) => ({ it, i, t: paperMethodTier(it.p) }))
+        .sort((a, b) => (b.t - a.t) || (a.i - b.i))
+        .map((x) => x.it);
+    }
     const items = pool.slice(0, poolCap);
     // Every count below derives from the CITED pool . the papers whose
     // claims were actually examined . never from the pre-cap papers array.
@@ -8252,11 +8617,25 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // findings slot only when density alone leaves one open.
     const findingsQTerms = significantQueryTerms(ctx && ctx.query);
     const termSets = [];
+    // Method intent (2026-10-14): inside a method paper, the
+    // sentences that carry the answer are the procedure
+    // sentences (what is reacted, what is observed, how the
+    // number is read), and the plain finding density score
+    // cannot tell them from the paper's value sentences. They
+    // get a boost, only inside method papers and only for a
+    // measurement question, so the excerpt a method paper
+    // contributes is its procedure.
+    const PROCEDURE_SENTENCE_RE = /\b(measured|assayed|determined|quantified|spectrophotometr\w*|absorbance|incubat\w+|oxidi[sz]\w+|substrate|reaction mixture|monitored|calibrat\w+|reagent)\b/i;
     for (const it of items) {
+      it.methodTier = measurementIntent ? paperMethodTier(it.p) : 0;
       const abs = usableAbstract(it.p);
       const sents = extractSentences(abs).map((s) => s.trim()).filter((s) => s.length > 20);
       const ranked = sents
-        .map((s) => ({ s, score: scoreFindingSentence(s) }))
+        .map((s) => ({
+          s,
+          score: scoreFindingSentence(s) +
+            (it.methodTier > 0 && PROCEDURE_SENTENCE_RE.test(s) ? 3 : 0),
+        }))
         .filter(({ s, score }) => score > 0 ||
           findingsQTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null)).length >= 2)
         .sort((a, b) => b.score - a.score);
@@ -8352,8 +8731,8 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // they are fallbacks, never lede material when real findings exist.
     const candidates = [];
     for (const it of items) {
-      it.findings.forEach((f, fi) => candidates.push({ text: f, idx: it.idx, score: it.findingScores[fi], drifted: !!it.drifted }));
-      if (it.titleClaim) candidates.push({ text: it.titleClaim, idx: it.idx, score: -1, drifted: !!it.drifted });
+      it.findings.forEach((f, fi) => candidates.push({ text: f, idx: it.idx, score: it.findingScores[fi], drifted: !!it.drifted, methodTier: it.methodTier || 0 }));
+      if (it.titleClaim) candidates.push({ text: it.titleClaim, idx: it.idx, score: -1, drifted: !!it.drifted, methodTier: it.methodTier || 0 });
     }
     candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
@@ -8404,6 +8783,12 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // must not open it either. Skipped claims keep their fingerprint
     // unconsumed, so they can still appear in the theme sections below.
     const ledeOrder = [...candidates].sort((a, b) =>
+      // Method intent (2026-10-14): a method paper's procedure
+      // sentence outranks every value sentence, whatever the
+      // value sentence's query overlap or digit density . the
+      // lede of a measurement answer is the procedure. Inert
+      // (0) for every other question shape.
+      (measurementIntent ? (b.methodTier - a.methodTier) : 0) ||
       ((a.drifted ? 1 : 0) - (b.drifted ? 1 : 0)) ||
       (ledeQHits(b.text) - ledeQHits(a.text)) ||
       ((claimWords(a.text) > 45 ? 1 : 0) - (claimWords(b.text) > 45 ? 1 : 0)) ||
@@ -8565,6 +8950,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       papers: citedPapers,
       sourcesQueried: ctx.sourcesQueried || null,
       relevanceGatedOut: ctx.relevanceGatedOut || 0,
+      intent: (ctx.queryAnalysis && ctx.queryAnalysis.intent) || null,
     });
     const conf = buildConfidenceLine(citedPapers, dVerdict, { extractive: true, tier: "research", factCheckChecked: false });
     md += "\n## How solid is this?\n\n" + conf.line + "\n";
@@ -8705,6 +9091,11 @@ export function publicStageHealth(stageHealth) {
     if (s.skipReason) o.skipReason = String(s.skipReason);
     if (s.name === "validation") {
       o.via = s.via || null;
+      // Stage allowance trim (2026-10-14): shipped only when the
+      // validation phase stopped the block at its allowance, so
+      // the record can show the cap honestly instead of implying
+      // the whole block ran.
+      if (s.trimmed) o.trimmed = true;
     }
     if (s.name === "synthesis") {
       o.winner = s.winner || null;
@@ -9667,11 +10058,20 @@ export function reattachAuthorCitations(answer, papers) {
 }
 
 // ── Evidence gaps (computed, not generated) ─────────────────────
-export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut }) {
+export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut, intent }) {
   const gaps = [];
   const list = papers || [];
   const n = list.length;
   if (n === 0) return gaps;
+  // Method intent (2026-10-14): a measurement question with no
+  // method paper in the pool has a specific, nameable limit —
+  // the sources report the quantity's values, not how it is
+  // measured — and the package must say so instead of letting
+  // value papers dress up as a method answer. Method papers
+  // are judged by paperMethodTier: any tier above 0 counts.
+  if (intent === "measurement" && !list.some((p) => paperMethodTier(p) > 0)) {
+    gaps.push("No measurement method paper was found among the sources: the papers here report values of the quantity rather than describing how it is measured.");
+  }
   if (n <= 2) {
     gaps.push("Only " + n + " source" + (n === 1 ? "" : "s") + " cleared the relevance bar . treat this as a starting point, not a settled answer.");
   }
@@ -17165,6 +17565,13 @@ async function runSearchPipeline(pctx) {
       programmaticShelf = papers.slice();
     }
 
+    // METHOD INTENT (2026-10-14): detected once here, where the
+    // shelf is chosen, and read again by the synthesis prompt and
+    // the limits below. A measurement question's cited shelf must
+    // lead with the method papers (see orderShelfForMeasurement);
+    // value reporting papers are supporting at best.
+    const measurementIntent = !isNameSearch && !isFollowupMode && detectMeasurementIntent(query);
+
     // The citation gate. Every paper that reaches the answer must clear
     // RELEVANCE_FLOOR (60) . below it a score is carried by passing keyword
     // mentions rather than topical study, and the real incident was an
@@ -17184,11 +17591,17 @@ async function runSearchPipeline(pctx) {
       const gated = applyRelevanceGate(papers);
       if (gated.length >= 3) {
         evidencePapers = gated.slice(0, maxEvidence);
+        if (measurementIntent) {
+          evidencePapers = orderShelfForMeasurement(evidencePapers, gated);
+        }
       } else if (papers.length > 0) {
         // CASCADE: gate failed, fall back to best-available
         const ranked = [...papers].sort((a, b) => (paperRelevance(b) - paperRelevance(a)));
         evidencePapers = ranked.slice(0, 3);
         evidencePapers.forEach(p => { p.thinEvidence = true; });
+        if (measurementIntent) {
+          evidencePapers = orderShelfForMeasurement(evidencePapers, null);
+        }
       } else {
         evidencePapers = [];
       }
@@ -17236,6 +17649,18 @@ async function runSearchPipeline(pctx) {
     // in followup mode to prevent wrong-organism contamination in deep searches.
     // The programmatic pre-filter inside llmValidatePapers is free and instant,
     // so even without an API key, organism filtering still works.
+    // STAGE ALLOWANCE (2026-10-14): the whole validation block —
+    // the model pass below AND the retraction round after it —
+    // runs inside the ledger's validation phase, so its combined
+    // draw stops at SUBREQUEST_VALIDATION_ALLOWANCE instead of
+    // eating the answer reserve the synthesis waves are funded
+    // from. The trim is finalized onto the stage record after the
+    // block closes (below), from the phase's refusal tally and
+    // the diag the validator writes.
+    const validationDiag = { llmValidatedVia: null };
+    let validationHealthIdx = -1;
+    const validationRefusalsBefore = ledger.validationRefusals();
+    ledger.beginValidationPhase();
     if (!isNameSearch && evidencePapers.length > 0) {
       // NEXT-GEN: validation is a named stage . hard timeout, fallback to
       // the unvalidated list, health record. llmValidatePapers has a 4s
@@ -17250,17 +17675,13 @@ async function runSearchPipeline(pctx) {
       // validator writes it through this out object; it is copied onto
       // the stage's health record below so the shipped stageHealth can
       // prove the gate actually ran, and on which provider.
-      const validationDiag = { llmValidatedVia: null };
-      const validationHealthIdx = stageHealth.length;
+      validationHealthIdx = stageHealth.length;
       ledger.setStage("validation");
       const validationStage = await runStage(
         "validation",
         () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag, undefined, ledger),
         { timeoutMs: 6000, fallback: evidencePapers, health: stageHealth }
       );
-      if (stageHealth[validationHealthIdx]) {
-        finalizeValidationHealth(stageHealth[validationHealthIdx], validationDiag);
-      }
       evidencePapers = validationStage.value || evidencePapers;
     }
 
@@ -17277,8 +17698,27 @@ async function runSearchPipeline(pctx) {
     if (evidencePapers.length > 0) {
       try {
         ledger.setStage("retraction");
-        await flagRetractions(evidencePapers, 8, ledger);
+        const retractionRound = await flagRetractions(evidencePapers, 8, ledger);
+        // A round the budget cut (either cap) is a trim of the
+        // validation block, recorded on its stage record below.
+        if (retractionRound && retractionRound.checked < retractionRound.offered) {
+          validationDiag.validationTrimmed = true;
+        }
       } catch (cbErr) { console.error("[Cerebrum] search.js if: await flagRetractions(evidencePapers, 8);:", cbErr); }
+    }
+    ledger.endValidationPhase();
+    // The honest trim: any grant the phase ceiling refused during
+    // the block (a validation leg cut short, retraction checks
+    // left unfired) marks the diag, and the stage record is
+    // finalized only now, so the trim from the retraction round
+    // lands on it too. Validation is advisory — the papers ship
+    // either way — but the record says the block stopped at its
+    // allowance instead of implying it ran whole.
+    if (ledger.validationRefusals() > validationRefusalsBefore) {
+      validationDiag.validationTrimmed = true;
+    }
+    if (validationHealthIdx >= 0 && stageHealth[validationHealthIdx]) {
+      finalizeValidationHealth(stageHealth[validationHealthIdx], validationDiag);
     }
 
     // v6.3: FINAL DEDUPE + GATE . the last word before numbering.
@@ -17315,6 +17755,14 @@ async function runSearchPipeline(pctx) {
     // disputed topic. The adjudicating papers get merged into the evidence
     // set so synthesis can resolve the dispute instead of hedging.
     if (useEvidence && evidencePapers.length >= 2 && !isNameSearch && !isFollowupMode) {
+      // Stage allowance (2026-10-14): these fetches ARE retrieval —
+      // a second, speculative gather between validation and
+      // synthesis — so they run inside the retrieval phase and
+      // draw from whatever of its allowance the main gather left,
+      // never from the answer reserve. On a draw that spent the
+      // allowance the grants refuse and the loop ends with the
+      // evidence it has; the phase tally stays cumulative.
+      ledger.beginRetrievalPhase();
       try {
         const earlyConflicts = detectSourceConflicts(evidencePapers, null).conflicts || [];
         if (earlyConflicts.length > 0) {
@@ -17350,6 +17798,7 @@ async function runSearchPipeline(pctx) {
           }
         }
       } catch (cbErr) { console.error("[Cerebrum] search.js contradiction-first retrieval:", cbErr); }
+      ledger.endRetrievalPhase();
     }
 
     // 2026-10-13 (wave two): title marked retractions leave the
@@ -17607,6 +18056,15 @@ async function runSearchPipeline(pctx) {
       systemPrompt = ID + PERSONALITY + "User searched for a PERSON: \"" + query + "\". Describe their research from the papers. [author-matched: YES] = they wrote it. [NOT author-matched] = someone else wrote it, name real author. If none matched, say so.\n\n" + VOICE + CONTEXT + lengthHint + "\n" + ACTIVE_STRUCTURE + CITE_RULES;
     } else if (useEvidence) {
       systemPrompt = ID + PERSONALITY +
+        (measurementIntent
+          ? "METHODS QUESTION . READ THIS FIRST. The user is asking how the quantity in their question is MEASURED " +
+            "(a methods question), not what values it takes in some organism, reactor, or condition. Answer with the " +
+            "measurement procedure the cited method papers describe: what sample or substrate is reacted, what change " +
+            "is observed (for example a color change tracked as absorbance), and how the activity number is computed " +
+            "from that observation. Use only what the cited method papers support for the procedure itself. Papers " +
+            "that merely report values of the quantity (production yields, stability, optimization results) are " +
+            "background at most: never present a reported value as the answer to how the quantity is measured.\n\n"
+          : "") +
         (evidenceIsThin
           ? "THIN EVIDENCE \u2014 READ THIS FIRST. Only a few of the papers below genuinely address this question; " +
             "the rest of the search results scored too low to trust and were withheld, not cited. Say that in your " +
@@ -19702,6 +20160,7 @@ async function runSearchPipeline(pctx) {
             constraints: (queryAnalysis.constraints || []).map((c) => c.phrase),
             organism: queryAnalysis.organism,
             questionType: queryAnalysis.questionType,
+            intent: queryAnalysis.intent || null,
             isNameSearch: queryAnalysis.isNameSearch,
           };
         }
@@ -20399,7 +20858,7 @@ async function runSearchPipeline(pctx) {
 
     // NEXT-GEN computed answer instruments: gaps, confidence, coverage.
     const evidenceGaps = (useEvidence && evidencePapers.length > 0)
-      ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut })
+      ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut, intent: measurementIntent ? "measurement" : null })
       : [];
     // CALIBRATED CONFIDENCE (2026-10-07): the heuristic score is adjusted
     // for what actually happened to the answer . stripped citations and

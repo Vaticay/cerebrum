@@ -116,12 +116,17 @@ const {
   SUBREQUEST_NL_NET_COST,
   SUBREQUEST_RELAXED_NET_COST,
   SUBREQUEST_RETRIEVAL_ALLOWANCE,
+  SUBREQUEST_VALIDATION_ALLOWANCE,
+  SUBREQUEST_AUTHORIZE_COST,
+  SUBREQUEST_SYNTHESIS_RACE_COST,
   classifyLegFailure,
   isSubrequestBudgetError,
   recordLegOutcome,
   legParkInfo,
   resetLegHealth,
   planDelayedRescue,
+  llmValidatePapers,
+  finalizeValidationHealth,
 } = await import(join(root, "functions/api/search.js"));
 
 // ═══════════════════════════════════════════════════════════════
@@ -264,7 +269,37 @@ await test("the allowance is derived in one place from the budget constants", ()
   const ledger = createSubrequestLedger();
   assert.equal(ledger.retrievalAllowance(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
   // A custom limit derives its ceiling by the same formula.
-  assert.equal(createSubrequestLedger(120).retrievalAllowance(), 120 - 16 - 7);
+  assert.equal(createSubrequestLedger(120).retrievalAllowance(),
+    120 - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
+});
+
+// CORRECTED CONTRACT (2026-10-14, stage allowances): the reserve
+// keeps its total (16) and retrieval keeps its allowance (27),
+// but the reserve is no longer a lump estimate — it is the sum
+// of the named stage shares it must fund, the largest of them
+// enforced as a hard phase allowance, and the whole budget
+// closes line by line: retrieval allowance + validation
+// allowance + authorize + synthesis race + tail reserve = the
+// limit exactly, so no stage can spend another stage's share.
+// The lump derivation priced validation at 4 and padded the
+// rest with shares the tail also carried; the live probe on the
+// hard capped build showed synthesis still starving behind a
+// real validation draw, which is the defect this fixes.
+await test("the budget arithmetic closes: every stage's share is a named constant", () => {
+  assert.equal(SUBREQUEST_VALIDATION_ALLOWANCE, 5,
+    "validation phase: two model legs + three first attempt Crossref checks");
+  assert.equal(SUBREQUEST_AUTHORIZE_COST, 6,
+    "authorize block: budget select + first insert + cold ensure + cache read + cache telemetry + routing read");
+  assert.equal(SUBREQUEST_SYNTHESIS_RACE_COST, 5,
+    "a synthesis race worth firing: one leg per live provider bucket, breadth first");
+  assert.equal(SUBREQUEST_ANSWER_RESERVE,
+    SUBREQUEST_VALIDATION_ALLOWANCE + SUBREQUEST_AUTHORIZE_COST + SUBREQUEST_SYNTHESIS_RACE_COST,
+    "the reserve is exactly the shares it must fund after retrieval");
+  assert.equal(
+    SUBREQUEST_RETRIEVAL_ALLOWANCE + SUBREQUEST_VALIDATION_ALLOWANCE +
+    SUBREQUEST_AUTHORIZE_COST + SUBREQUEST_SYNTHESIS_RACE_COST + SUBREQUEST_TAIL_RESERVE,
+    SUBREQUEST_LIMIT,
+    "retrieval + validation + authorize + synthesis + tail = the limit");
 });
 
 await test("outside the retrieval phase, grants are never refused by the ceiling", () => {
@@ -369,6 +404,93 @@ await test("the snapshot carries the phase tally once the phase has spent", () =
   assert.equal(snap.retrievalSpent, 3);
   assert.equal(snap.retrievalAllowance, SUBREQUEST_RETRIEVAL_ALLOWANCE);
   assert.equal(snap.retrievalRefused, 0);
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("the validation phase allowance — a hard cap on the stage (2026-10-14)");
+
+// The live probe on the hard capped build (829397a): retrieval
+// capped at its allowance, validation OK for the first time that
+// evening, fact check OK — and synthesis STILL skipped
+// "subrequest budget exhausted". The stages between gather and
+// synthesis spent the lump reserve the old derivation had priced
+// validation at 4 inside of. The validation block is advisory
+// (papers ship without it), so it gets the retrieval cap's shape:
+// a hard phase allowance enforced at the grant points. Spent
+// allowance stops the block and the trim is recorded, instead of
+// the block quietly eating synthesis's share.
+await test("the validation allowance is the stage's own constant at any plan limit", () => {
+  const ledger = createSubrequestLedger();
+  assert.equal(ledger.validationAllowance(), SUBREQUEST_VALIDATION_ALLOWANCE);
+  // The stage's cost does not grow with the plan limit.
+  assert.equal(createSubrequestLedger(120).validationAllowance(), SUBREQUEST_VALIDATION_ALLOWANCE);
+  // A cap below the allowance shrinks the ceiling to the cap.
+  assert.equal(createSubrequestLedger(4).validationAllowance(), 4);
+});
+
+await test("outside the validation phase, grants are never refused by its ceiling", () => {
+  const ledger = createSubrequestLedger();
+  ledger.setStage("validation");
+  spendN(ledger, SUBREQUEST_VALIDATION_ALLOWANCE + 5);
+  assert.equal(ledger.used(), SUBREQUEST_VALIDATION_ALLOWANCE + 5);
+  assert.equal(ledger.validationSpent(), 0, "no phase, no phase spend");
+  assert.equal(ledger.validationRefusals(), 0);
+  assert.equal(ledger.validationCapHit(1), false, "no phase, no cap");
+});
+
+await test("inside the phase, grants stop at the allowance and refusals are not counted", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginValidationPhase();
+  spendN(ledger, SUBREQUEST_VALIDATION_ALLOWANCE);
+  assert.equal(ledger.validationSpent(), SUBREQUEST_VALIDATION_ALLOWANCE);
+  assert.equal(ledger.validationCapHit(0), false, "at the allowance exactly, a zero cost grant still fits");
+  assert.equal(ledger.validationCapHit(1), true, "one more grant would cross the allowance");
+  // Refused with the budget error (the class the failure
+  // classifier reads as our own exhaustion), and NOT counted:
+  // no platform attempt happened.
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  assert.equal(ledger.used(), SUBREQUEST_VALIDATION_ALLOWANCE, "a refused grant must not count");
+  assert.equal(ledger.validationSpent(), SUBREQUEST_VALIDATION_ALLOWANCE);
+  assert.equal(ledger.validationRefusals(), 1);
+  assert.throws(() => ledger.spendBinding("budget", 2), /too many subrequests/i);
+  assert.equal(ledger.used(), SUBREQUEST_VALIDATION_ALLOWANCE);
+  assert.equal(ledger.validationRefusals(), 2);
+  ledger.endValidationPhase();
+  // Phase closed: the stage spends against the overall limit again.
+  ledger.spend();
+  assert.equal(ledger.used(), SUBREQUEST_VALIDATION_ALLOWANCE + 1);
+  assert.equal(ledger.validationCapHit(1), false, "no phase, no cap");
+});
+
+await test("the phase count is cumulative across blocks; other stages are not capped by it", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginValidationPhase();
+  spendN(ledger, SUBREQUEST_VALIDATION_ALLOWANCE - 2);
+  ledger.endValidationPhase();
+  ledger.beginValidationPhase();
+  spendN(ledger, 2);
+  assert.equal(ledger.validationSpent(), SUBREQUEST_VALIDATION_ALLOWANCE);
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  ledger.endValidationPhase();
+  // Synthesis spends against the overall limit and its own floor,
+  // never against the validation ceiling.
+  ledger.setStage("synthesis");
+  spendN(ledger, 10);
+  assert.equal(ledger.used(), SUBREQUEST_VALIDATION_ALLOWANCE + 10);
+  assert.equal(ledger.validationSpent(), SUBREQUEST_VALIDATION_ALLOWANCE,
+    "synthesis spends are not validation phase spends");
+});
+
+await test("the snapshot carries the validation tally once the phase has spent", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginValidationPhase();
+  spendN(ledger, 2);
+  assert.throws(() => { spendN(ledger, SUBREQUEST_VALIDATION_ALLOWANCE); }, /too many subrequests/i);
+  ledger.endValidationPhase();
+  const snap = ledger.snapshot();
+  assert.equal(snap.validationSpent, SUBREQUEST_VALIDATION_ALLOWANCE);
+  assert.equal(snap.validationAllowance, SUBREQUEST_VALIDATION_ALLOWANCE);
+  assert.equal(snap.validationRefused, 1);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1406,6 +1528,261 @@ await test("greedy draw: the phase ends at or under its allowance, the answer st
   assertAnswerStagesFunded(data, counts);
   assert.ok((data.sources || []).length >= 8,
     `greedy scenario shipped only ${(data.sources || []).length} sources`);
+});
+
+// GREEDY VALIDATION (2026-10-14, stage allowances): a deep draw
+// in the greedy family (multi formulation payments, the full
+// rerank against a 30 paper shelf) with the validation block
+// itself ALSO greedy: the production shape on the night
+// synthesis starved. The OpenRouter key is present so BOTH
+// validation legs fire (the first leg fails, the Groq leg
+// answers), and every one of the top 8 cited papers carries a
+// DOI URL, so the retraction round is offered a check per paper
+// and each check would fail its first attempt with a 503 the
+// fetcher retries once: the block is offered 2 legs + 8 papers
+// × 2 attempts = 18 subrequests against an allowance of 5 (and
+// against the old lump reserve's 4 priced for the whole block).
+// On this draw the block's tighter price (the answer reserve)
+// cuts the retraction round to zero before the phase ceiling
+// is reached — the sacrifice order the block has always had —
+// and the phase ceiling is the cap that binds on roomier draws
+// (pinned at unit level in the phase group above and the
+// llmValidatePapers phase tests below). What this scenario
+// pins end to end: the block stays inside its allowance, its
+// core leg still answers, the cut round is recorded as a trim
+// on the stage record instead of passing as fully run, and
+// synthesis still wins an AI answer, funded from what the
+// capped block left behind.
+async function runGreedyValidationScenario() {
+  const counts = makeCounts();
+  const marks = [];
+  let epmcCalls = 0;
+  let esearchCalls = 0;
+  const crossrefFirstAttempt = new Set();
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => { counts.cache++; return undefined; },
+      put: async () => { counts.cache++; },
+      delete: async () => { counts.cache++; return false; },
+    },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = async (url, opts = {}) => {
+    attempt(counts, "fetch");
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("openrouter.ai")) {
+      // The first validation leg fails outright (the leg failure
+      // shape), so the Groq leg must fire and answer.
+      if (body.includes("relevance validator")) {
+        return new Response("overloaded", { status: 500 });
+      }
+      return jsonRes({});
+    }
+    if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
+        u.includes("api.mistral.ai") || u.includes("integrate.api.nvidia.com")) {
+      if (body.includes("literature search specialist")) {
+        return chatRes(JSON.stringify([{ term: "microbial", alternates: ["microbiota", "microbiome", "gut microbes"] }]));
+      }
+      if (body.includes("relevance validator")) {
+        return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      }
+      return chatRes(SYNTH_ANSWER);
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      epmcCalls++;
+      // One formulation empty (the fetcher pays its internal
+      // retries), the second answers with the deep shelf. The
+      // draw stays greedy — multi formulation payments, the full
+      // rerank against a 30 paper shelf — but lands in the
+      // window the live starvation came from: the answer reserve
+      // still intact when the validation block starts, so the
+      // old per round prices alone would let the block spend.
+      if (epmcCalls !== 2) return jsonRes({ resultList: { result: [] } });
+      const rows = [];
+      for (let n = 1; n <= 30; n++) {
+        rows.push({
+          title: "Diet and gut microbial community assembly in black soldier fly larvae study " + n,
+          doi: "10.1000/greedy" + n,
+          pubYear: "2024",
+          citedByCount: 7,
+          authorString: "Doe J, Roe K",
+          journalTitle: "Journal of Insect Studies",
+          abstractText: heavyAbstract(n),
+        });
+      }
+      return jsonRes({ resultList: { result: rows } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) {
+        esearchCalls++;
+        // PubMed pays its multi formulation shape too: one
+        // esearch formulation misses before the second returns
+        // ids, then efetch and esummary follow (no papers the
+        // summary shape yields).
+        return jsonRes({ esearchresult: { idlist: esearchCalls >= 2 ? ["101", "102", "103", "104", "105"] : [] } });
+      }
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    // The retraction round's shape: every DOI's first Crossref
+    // attempt 503s (the fetcher retries once, at the real
+    // retry cost), the retry answers with nothing flagged.
+    if (u.includes("api.crossref.org/works/10.1000")) {
+      if (!crossrefFirstAttempt.has(u)) {
+        crossrefFirstAttempt.add(u);
+        return new Response("busy", { status: 503 });
+      }
+      return jsonRes({});
+    }
+    if (u.includes("export.arxiv.org")) return new Response("", { status: 200 });
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const origSetStage = ledger.setStage.bind(ledger);
+    ledger.setStage = (name) => {
+      marks.push({ name, used: ledger.used(), retrievalSpent: ledger.retrievalSpent() });
+      origSetStage(name);
+    };
+    const env = {
+      DB: countingDb(counts),
+      AI: countingAi(counts),
+      GROQ_KEY: "ledger-test-groq-key-123456",
+      GEMINI_KEY: "ledger-test-gemini-key-123456",
+      MISTRAL_KEY: "ledger-test-mistral-key-123456",
+      NVIDIA_KEY: "ledger-test-nvidia-key-123456",
+      OPENROUTER_KEY: "ledger-test-openrouter-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: HEAVY_Q }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger, marks };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("greedy validation: the block stays inside its allowance, the trim is recorded, synthesis answers", async () => {
+  const { data, counts, ledger, marks } = await runGreedyValidationScenario();
+  assertLedgerEqualsPlatform(counts, ledger);
+  // The block was offered far more than its allowance (two
+  // validation legs plus eight per paper retraction checks with
+  // retries, 18 in all). Both of its caps held it inside the
+  // allowance: the phase tally counts exactly the two model
+  // legs, and the retraction round — offered eight DOI papers —
+  // was cut to none by the tighter of its two prices on this
+  // draw. (The phase ceiling's own refusal behavior is pinned
+  // at unit level in the validation phase group above and in
+  // the llmValidatePapers phase tests below: on this full
+  // pipeline draw the reserve price binds first, which is the
+  // sacrifice order the block has always had.)
+  assert.equal(ledger.validationSpent(), 2,
+    `validation phase spent ${ledger.validationSpent()}, not just its two model legs`);
+  assert.ok(ledger.validationSpent() <= SUBREQUEST_VALIDATION_ALLOWANCE,
+    "the validation block spent past its phase allowance");
+  // The phase tally shows in the snapshot once the phase has
+  // spent, like retrieval's.
+  const snap = ledger.snapshot();
+  assert.equal(snap.validationSpent, 2);
+  assert.equal(snap.validationAllowance, SUBREQUEST_VALIDATION_ALLOWANCE);
+  // The block still did its core job: the first leg failed, the
+  // Groq leg answered, and the stage record names the leg AND
+  // the trim honestly — ok true, via groq, trimmed (the
+  // retraction round was offered checks it never ran).
+  const validation = (data.stageHealth || []).find((s) => s.name === "validation");
+  assert.ok(validation, "no validation stage record shipped");
+  assert.equal(validation.ok, true, "validation stage not ok");
+  assert.equal(validation.via, "groq", "validation did not answer on its Groq leg");
+  assert.equal(validation.trimmed, true,
+    "the retraction round was cut without the trim reaching the stage record");
+  // And the answer stages synthesis exists for still ran funded:
+  // a winning synthesis, an AI answer, a real shelf.
+  assertAnswerStagesFunded(data, counts);
+  assert.ok((data.sources || []).length >= 8,
+    `greedy validation scenario shipped only ${(data.sources || []).length} sources`);
+});
+
+// The phase ceiling binding the model legs themselves, at unit
+// level (the full pipeline draw above never reaches it: the
+// reserve price binds the retraction round first, and the legs
+// are only two). The validator's papers are worded to pass the
+// programmatic passes so PASS 2 is the only thing that can stop.
+const VAL_PAPERS = [1, 2, 3].map((n) => ({
+  title: "Gut microbiome and infant growth study " + n,
+  abstract: "The gut microbiome in early infancy shapes infant growth, microbial colonization, and weight gain trajectories.",
+  journal: "Journal of Infant Studies",
+  year: 2024,
+  url: "https://doi.org/10.1000/val" + n,
+}));
+
+await test("in phase, a spent allowance keeps PASS 2 from firing, and the diag names the trim", async () => {
+  const realFetch = globalThis.fetch;
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches++; return new Response("{}", { status: 200 }); };
+  try {
+    const ledger = createSubrequestLedger();
+    ledger.beginValidationPhase();
+    spendN(ledger, SUBREQUEST_VALIDATION_ALLOWANCE);
+    const diag = { llmValidatedVia: null };
+    const out = await llmValidatePapers("gut microbiome infant growth",
+      VAL_PAPERS.map((p) => ({ ...p })), "or-token", undefined, { GROQ_KEY: "g" }, diag, undefined, ledger);
+    ledger.endValidationPhase();
+    assert.equal(fetches, 0, "PASS 2 fired a leg with its allowance spent");
+    assert.equal(out.length, 3, "the programmatic survivors were not returned");
+    assert.equal(diag.llmBudgetSkipped, true);
+    assert.equal(diag.validationTrimmed, true);
+    // The finalized record: not ok, the budget named as the
+    // reason, and the trim carried — never "no leg answered".
+    const rec = finalizeValidationHealth({ name: "validation", ok: true, ms: 1 }, diag);
+    assert.equal(rec.ok, false);
+    assert.equal(rec.skipReason, SUBREQUEST_EXHAUSTED_REASON);
+    assert.equal(rec.trimmed, true);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("in phase, the allowance running out mid loop refuses the second leg and names the budget", async () => {
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url) => {
+    seen.push(String(url));
+    return new Response("overloaded", { status: 500 });
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    ledger.beginValidationPhase();
+    spendN(ledger, SUBREQUEST_VALIDATION_ALLOWANCE - 1);
+    const diag = { llmValidatedVia: null };
+    const out = await llmValidatePapers("gut microbiome infant growth",
+      VAL_PAPERS.map((p) => ({ ...p })), "or-token", undefined, { GROQ_KEY: "g" }, diag, undefined, ledger);
+    ledger.endValidationPhase();
+    // The first leg fired and failed on the provider; the second
+    // was never fired — the phase check refused it. Exactly one
+    // fetch, the phase tally at its allowance.
+    assert.equal(seen.length, 1, `expected exactly one fired leg, saw ${seen.length}`);
+    assert.ok(seen[0].includes("openrouter.ai"), "the fired leg was not the first (OpenRouter) leg");
+    assert.equal(ledger.validationSpent(), SUBREQUEST_VALIDATION_ALLOWANCE);
+    assert.equal(out.length, 3, "the programmatic survivors were not returned");
+    assert.equal(diag.llmValidatedVia, null);
+    assert.equal(diag.llmBudgetSkipped, true,
+      "the diag would read the phase refusal as a provider outage");
+    assert.equal(diag.validationTrimmed, true);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 // EMPTY SHELF: every engine answers nothing to the ladder —
