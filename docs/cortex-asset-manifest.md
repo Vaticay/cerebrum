@@ -37,6 +37,63 @@ The Body path has two units in the shipped curriculum, and both openers are buil
 * public/cortex/paths/path-body-heart-blood.webp. WORLD, with CAMEO APPEARANCE. 1920 by 1280, 59 KB. Opener for the unit The Heart and Blood. A closer view inside the body city: the great heart shaped pump house filling the left half with round portholes and an amber door, a broad Blood Clay road curving away carrying a single file stream of small round red delivery shapes with amber parcels (the Courier Cell cameo, close up), larger pale guard shapes drifting among them, and at the lower right one leaking green pipe being patched by two small dark repair shapes, one holding a wrench.
 * public/cortex/paths/path-body-senses-nerves.webp. WORLD. 1920 by 1280, 48 KB. Opener for the unit Senses and Nerves. A green hill with the small calm control room at its top (round window, amber door), and halfway down the slope two sense houses: a white dome with one big deep sea iris for the eye, and an amber form with a clay coral spiral for the ear. Thin cables wind from both houses up the hill with amber sparks traveling along them, and a few rooftops below suggest the city the messages serve. Production note: this file is the second, clearer generation; an earlier, more abstract version was replaced before shipping and is not in the tree.
 
+## Lesson art: the Human Body flagship (Phase 2, 2026-10-14)
+
+The flagship rebuild gave the Body path six units and 37 stops, and every regular lesson now opens its teaching with lesson level art: the card 2 visual of each lesson, plus a mechanism visual on card 4 where the mechanism is spatial. The two unit openers above are reused inside the new structure (the heart and blood opener teaches the heartbeat lesson; the senses and nerves opener teaches the neurons lesson), and the path key art carries the capstone's image question. All 35 files below were generated at 1920 by 1280 and compressed for delivery to 1024 wide webp; the whole set is 1.57 MB. Cast mark is WORLD throughout; the Courier Cell cameo appears at work inside several scenes, as city traffic. Surfaces are named per file.
+
+Unit 1, Cells:
+
+* public/cortex/lessons/body/u1-l1-cell.webp. 31 KB. One large round green cell with its center spot, delivery roads and courier shapes around it. Surface: The smallest living thing, card 2 visual and its image question.
+* public/cortex/lessons/body/u1-l2-cell.webp. 28 KB. A plump round cell in its membrane ring, parcels arriving at its edge. Surface: Inside a cell, card 2.
+* public/cortex/lessons/body/u1-l2-inside.webp. 46 KB. Cutaway inside one cell: the round control center in the middle, bean shaped power stations around it. Surface: Inside a cell, card 4 mechanism and its image question; reused by the Cells checkpoint image question.
+* public/cortex/lessons/body/u1-l3-delivery.webp. 40 KB. A Blood Clay road carrying delivery shapes with amber parcels toward a waiting cell. Surface: How cells eat and breathe, card 2.
+* public/cortex/lessons/body/u1-l4-divide.webp. 34 KB. One cell stretched and pinched in the middle, two centers inside. Surface: How cells divide, card 2.
+* public/cortex/lessons/body/u1-l4-splitting.webp. 28 KB. Two round cells just after splitting, each with its own center. Surface: How cells divide, card 4 mechanism and its image question.
+* public/cortex/lessons/body/u1-l5-tissues.webp. 88 KB. Rows of identical round cells joined edge to edge as one sheet. Surface: How cells team up, card 2.
+
+Unit 2, Fuel:
+
+* public/cortex/lessons/body/u2-l1-lungs.webp. 75 KB. Two pale bellows towers joined by a tube, air puffs drifting in over city rooftops. Surface: Breathing and the lungs, card 2.
+* public/cortex/lessons/body/u2-l1-diaphragm.webp. 37 KB. Two sponge lung shapes above one wide curved sheet of muscle. Surface: Breathing and the lungs, card 4 mechanism and its image question; reused by the Fuel checkpoint image question.
+* public/cortex/lessons/body/u2-l2-blood.webp. 45 KB. A stream of round red delivery shapes with amber parcels, pale guards among them, platelet discs at the edges. Surface: Blood as a delivery system, card 2 and its image question.
+* public/cortex/lessons/body/u2-l4-digestion.webp. 46 KB. The disassembly line: a chopping station, a churning pot, one long winding tube. Surface: Digestion, card 2.
+* public/cortex/lessons/body/u2-l5-energy.webp. 54 KB. A city power station with delivery cells, a warm amber center, and full storage barrels. Surface: Where your energy actually comes from, card 2.
+
+Unit 3, Control:
+
+* public/cortex/lessons/body/u3-l2-reflex.webp. 48 KB. A hand pulling back from a warm coral pan, an amber spark running up the arm. Surface: Reflexes, card 2.
+* public/cortex/lessons/body/u3-l2-arc.webp. 39 KB. The messenger tower: a spark enters at the base, turns at a round platform, and races back down. Surface: Reflexes, card 4 mechanism and its image question; reused by the Control checkpoint image question.
+* public/cortex/lessons/body/u3-l3-brain.webp. 51 KB. The control room on its hill, its inside divided into colored rooms, green cables running down. Surface: The brain's regions, card 2.
+* public/cortex/lessons/body/u3-l4-hormones.webp. 52 KB. A slow Blood Clay river carrying sealed message bottles past round cells. Surface: Hormones, card 2.
+* public/cortex/lessons/body/u3-l5-sleep.webp. 29 KB. The body city at night: dimmed control room, repair crews by lamplight, a starlight crescent. Surface: Sleep, card 2.
+
+Unit 4, Defense:
+
+* public/cortex/lessons/body/u4-l1-skin.webp. 60 KB. The great warm brick wall of the city, guards walking its top, green germ shapes kept outside. Surface: Skin and barriers, card 2.
+* public/cortex/lessons/body/u4-l1-layers.webp. 55 KB. The skin stack from the side: shedding top layer, busy middle with sensor posts, springy base. Surface: Skin and barriers, card 4 mechanism and its image question; reused by the Defense checkpoint image question.
+* public/cortex/lessons/body/u4-l2-immune.webp. 48 KB. Pale guard shapes patrolling, one wrapping a spiky green germ. Surface: Immune cells, card 2.
+* public/cortex/lessons/body/u4-l3-fever.webp. 39 KB. Heat waves rising over rooftops, guards hurrying, one amber sun (which carries a small thermometer shape inside it; noted, kept). Surface: Fever and infection, card 2.
+* public/cortex/lessons/body/u4-l4-vaccine.webp. 50 KB. Guards studying a harmless ribboned practice dummy, note boards in hand. Surface: Vaccines, card 2.
+* public/cortex/lessons/body/u4-l5-allergy.webp. 51 KB. Guards surrounding one soft pollen puff, sneeze puffs in the air. Surface: When defense goes wrong, card 2.
+
+Unit 5, Movement:
+
+* public/cortex/lessons/body/u5-l1-bones.webp. 53 KB. Cream scaffolding towers and a rib cage around a small heart house, workers climbing. Surface: Bones, card 2.
+* public/cortex/lessons/body/u5-l2-muscles.webp. 44 KB. Crane like coral muscles tied by cables to cream bone beams. Surface: Muscles, card 2.
+* public/cortex/lessons/body/u5-l2-lever.webp. 46 KB. Two cream arm bones at a hinge, a coral muscle above pulling the lower bone up. Surface: Muscles, card 4 mechanism and its image question; reused by the Movement checkpoint image question.
+* public/cortex/lessons/body/u5-l3-joints.webp. 41 KB. Connector close ups: a pin hinge and a ball in a cup with fluid drops, under a city scene band. Surface: Joints, card 2.
+* public/cortex/lessons/body/u5-l4-growth.webp. 65 KB. A scaffolding tower growing taller, soft green top, workers adding pieces. Surface: Growth, card 2.
+* public/cortex/lessons/body/u5-l5-healing.webp. 50 KB. Repair crews patching a cracked wall with planks and sealant. Surface: Healing, card 2.
+
+Unit 6, Senses:
+
+* public/cortex/lessons/body/u6-l1-sight.webp. 37 KB. The eye house with its big Deep Sea iris window, straight light rays entering. Surface: Sight, card 2.
+* public/cortex/lessons/body/u6-l1-eye.webp. 43 KB. Inside the eye house from the side: rays through the lens landing on the back wall in spark dots. Surface: Sight, card 4 mechanism and its image question; reused by the Senses checkpoint image question.
+* public/cortex/lessons/body/u6-l2-hearing.webp. 34 KB. The amber ear house with its coral spiral, sound waves arriving, the drum at its side. Surface: Hearing, cards 2 and 4 and its image question.
+* public/cortex/lessons/body/u6-l3-flavor.webp. 42 KB. A bumpy tongue and a nose house sharing scent puffs from a bowl. Surface: Smell and taste, card 2.
+* public/cortex/lessons/body/u6-l4-touch.webp. 39 KB. Rolling skin ground with sensor posts, one tall crowded cluster on a fingertip hill. Surface: Touch and pain, card 2.
+* public/cortex/lessons/body/u6-l5-illusions.webp. 37 KB. The control room atop the body city, tiny workers assembling a picture from jigsaw pieces, gaps still showing. Surface: How the brain fills in, card 2. Production note: the planned subject, two towers of exactly equal height in different size contexts, failed three generations (the towers kept landing measurably unequal, which the style guide's no lying proportions law forbids on a lesson about illusions), so the shipped visual is the builder brain subject instead; the image question for that lesson is answered from its diagram, as planned.
+
 ## Cameo register
 
 * The Courier Cell (the Human Body): appears as the delivery traffic in public/cortex/paths/path-body.webp and close up in public/cortex/paths/path-body-heart-blood.webp.

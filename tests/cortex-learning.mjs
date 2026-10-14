@@ -148,9 +148,12 @@ await test("every path has at least 2 units of at least 2 lessons", () => {
   }
 });
 
-await test("every lesson has 5 to 8 cards and at least 3 interactive ones", () => {
+await test("every lesson has 5 to 10 cards and at least 3 interactive ones", () => {
+  // Ceiling raised 8 to 10 on 2026-10-14 with the flagship lesson
+  // standard (ten physical cards across the nine beats). Legacy
+  // lessons still run 5 to 8.
   for (const { path, lesson } of allLessons) {
-    assert.ok(lesson.cards.length >= 5 && lesson.cards.length <= 8,
+    assert.ok(lesson.cards.length >= 5 && lesson.cards.length <= 10,
       `${path.title} / ${lesson.title} has ${lesson.cards.length} cards`);
     const n = lesson.cards.filter(isInteractiveCard).length;
     assert.ok(n >= 3, `${path.title} / ${lesson.title} has only ${n} interactive cards`);
@@ -191,18 +194,32 @@ const TIER_TWO = [
   { unit: "The Restless Earth", lessons: ["Rocks That Change", "Plates on the Move"] },
 ];
 
-await test("every path has a third unit, for 24 lessons in all", () => {
+await test("the legacy paths keep the three unit shape; the flagship holds its own", () => {
+  // Updated 2026-10-14: The Human Body was rebuilt as the flagship
+  // (six units, five lessons each, a checkpoint per unit, and the
+  // capstone, for 37 lessons), superseding its tier two shape. The
+  // three legacy paths keep the three unit, six lesson shape.
   let total = 0;
   for (const p of LEARNING_PATHS) {
+    if (p.id === "the-human-body") {
+      assert.equal(p.units.length, 6, `the flagship has ${p.units.length} units`);
+      assert.equal(flattenPathLessons(p).length, 37, "the flagship should hold 37 lessons");
+      total += flattenPathLessons(p).length;
+      continue;
+    }
     assert.equal(p.units.length, 3, `${p.title} has ${p.units.length} units`);
     assert.equal(flattenPathLessons(p).length, 6, `${p.title} should hold 6 lessons`);
     total += flattenPathLessons(p).length;
   }
-  assert.equal(total, 24, `curriculum holds ${total} lessons, not 24`);
+  assert.equal(total, 55, `curriculum holds ${total} lessons, not 55`);
 });
 
 await test("the tier two units and lessons are the authored ones", () => {
   LEARNING_PATHS.forEach((p, i) => {
+    // The flagship Body path (2026-10-14) supersedes tier two; its
+    // flat indices 4 and 5 are a flagship lesson and a checkpoint,
+    // so the authored pair pin covers the legacy paths only.
+    if (p.id === "the-human-body") return;
     const flat = flattenPathLessons(p);
     assert.equal(flat[4].unitTitle, TIER_TWO[i].unit, `${p.title} tier two unit renamed`);
     assert.equal(flat[5].unitTitle, TIER_TWO[i].unit);
@@ -213,6 +230,9 @@ await test("the tier two units and lessons are the authored ones", () => {
 
 await test("every tier two lesson follows the six card lesson shape", () => {
   for (const p of LEARNING_PATHS) {
+    // Legacy paths only: the flagship Body lessons follow the ten
+    // card flagship standard instead (2026-10-14).
+    if (p.id === "the-human-body") continue;
     const flat = flattenPathLessons(p);
     for (const l of [flat[4], flat[5]]) {
       const kinds = l.cards.map((c) => c.kind);
@@ -317,8 +337,15 @@ await test("the new activity kinds are really used, in every lesson", () => {
   for (const { path, lesson } of allLessons) {
     const kinds = new Set(lesson.cards.map((c) => c.kind));
     assert.ok(kinds.has("truefalse"), `${path.title} / ${lesson.title} has no true or false card`);
-    assert.ok(kinds.has("match") || kinds.has("order"),
-      `${path.title} / ${lesson.title} has neither a match nor an order card`);
+    // Flagship accommodation (2026-10-14): Body lessons carry their
+    // hands on slot in a four kind rotation, match, order, build,
+    // and spot the error, so the slot is any of the four there.
+    // Legacy lessons keep the match or order rule.
+    const handsOn = path.id === "the-human-body"
+      ? ["match", "order", "build", "spoterror"]
+      : ["match", "order"];
+    assert.ok(handsOn.some((k) => kinds.has(k)),
+      `${path.title} / ${lesson.title} has no hands on practice card`);
   }
 });
 
@@ -553,10 +580,15 @@ await test("a lone asterisk stays literal and plain text stays whole", () => {
   assert.equal(JSON.stringify(two.filter((s) => s.italic).map((s) => s.text)), JSON.stringify(["one", "two"]));
 });
 
-await test("the species name in the deepen card is marked for italics", () => {
-  const deepen = allCards.filter((c) => c.kind === "deepen" && c.text.includes("Homo"));
-  assert.ok(deepen.length >= 1, "the Homo sapiens deepen card is missing");
-  const segs = parseRichText(deepen[0].text);
+await test("the species name in the authored cards is marked for italics", () => {
+  // The example used to live in a Body deepen card; the flagship
+  // rebuild (2026-10-14) retired the deepen shape there, and the
+  // mention now sits in the senses teach card on the blind spot.
+  // The law is unchanged: a species name in authored copy is
+  // carried in asterisks so it renders italic.
+  const carrier = allCards.filter((c) => (c.text || "").includes("Homo"));
+  assert.ok(carrier.length >= 1, "the Homo sapiens mention is missing from the authored cards");
+  const segs = parseRichText(carrier[0].text);
   assert.ok(segs.some((s) => s.italic && s.text === "Homo sapiens"), "Homo sapiens must be an italic segment");
 });
 
@@ -1491,7 +1523,9 @@ await test("no learning path string references papers, findings, citations, year
     assert.ok(!/build a course/i.test(s) && !/search for/i.test(s), `a deepen card still sends learners to a search: ${s.slice(0, 60)}`);
   }
   const deepens = allCards.filter((c) => c.kind === "deepen");
-  assert.equal(deepens.length, 24, `expected 24 deepen cards under the ban, found ${deepens.length}`);
+  // 24 until 2026-10-14, when the flagship Body rebuild retired its
+  // six deepen cards for the payoff note shape, leaving 18.
+  assert.equal(deepens.length, 18, `expected 18 deepen cards under the ban, found ${deepens.length}`);
 });
 
 await test("every learning path quiz answer is taught before it is asked, apart from the named fair applications", () => {
@@ -1548,7 +1582,7 @@ await test("every learning path quiz answer is taught before it is asked, apart 
       }
     }
   }
-  assert.equal(quizzes, 45, `expected 45 path quizzes under the coverage pin, found ${quizzes}`);
+  assert.equal(quizzes, 77, `expected 77 path quizzes under the coverage pin, found ${quizzes}`);
   assert.deepEqual([...flagged].sort(), [...FAIR_APPLICATIONS].sort(),
     `path quizzes under half coverage differ from the judged fair applications.\nflagged: ${flagged.join(" | ")}\nnamed fair: ${FAIR_APPLICATIONS.join(" | ")}`);
 });
@@ -1579,17 +1613,19 @@ await test("topic quizzes are real quizzes: four fresh options, in band, none op
 });
 
 await test("learning path quizzes meet the same length band the topics are held to", () => {
-  // The topic standard, applied to the 45 authored path quizzes
+  // The topic standard, applied to the authored path quizzes
   // (2026-10-14 panel): 14 spread wider than max to min 3, and in
   // 16 the correct option had no distractor within 0.6 to 1.67 of
   // its length, so length alone named the answer there too.
+  // The count was 45 until the flagship Body rebuild (2026-10-14)
+  // replaced its 12 quizzes with 44, for 77 in all.
   const pathCards = [];
   for (const p of LEARNING_PATHS) {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) if (card.kind === "quiz") pathCards.push({ path: p, card });
     }
   }
-  assert.equal(pathCards.length, 45, `expected 45 path quizzes, found ${pathCards.length}`);
+  assert.equal(pathCards.length, 77, `expected 77 path quizzes, found ${pathCards.length}`);
   for (const { path, card } of pathCards) {
     assert.equal(card.options.length, 4, `${path.title}: "${String(card.question).slice(0, 40)}" has ${card.options.length} options`);
     const keys = card.options.map(normKey);
@@ -1633,9 +1669,9 @@ await test("the correct option's length rank stays near chance in both authored 
     return { n, uniq, tied };
   };
   const groups = [
-    ["learning paths", LEARNING_PATHS, 45],
+    ["learning paths", LEARNING_PATHS, 77],
     ["topic courses", TOPIC_COURSES, 192],
-    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 237],
+    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 269],
   ];
   for (const [label, sets, expected] of groups) {
     const { n, uniq, tied } = rankStats(sets);
@@ -1780,16 +1816,19 @@ await test("topic true or false cards run within 40 to 60 percent true", () => {
 });
 
 await test("learning path true or false cards run within 40 to 60 percent true", () => {
-  // The path set had no share pin at all before wave seven; it runs
+  // The path set had no share pin at all before wave seven; it ran
   // 10 true of 24 (41.7 percent), inside the band, so this pins the
-  // current balance rather than rebalancing it.
+  // balance rather than rebalancing it. The flagship Body rebuild
+  // (2026-10-14) writes its true or false cards in true and false
+  // pairs by construction, so the set now runs 45 true of 92
+  // (48.9 percent) and the count pin moves to 92.
   const cards = [];
   for (const p of LEARNING_PATHS) {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) if (card.kind === "truefalse") cards.push(card);
     }
   }
-  assert.equal(cards.length, 24, `expected 24 path true or false cards, found ${cards.length}`);
+  assert.equal(cards.length, 92, `expected 92 path true or false cards, found ${cards.length}`);
   const trues = cards.filter((c) => c.answer === true).length;
   const share = trues / cards.length;
   assert.ok(share >= 0.4 && share <= 0.6,
@@ -1964,6 +2003,18 @@ await test("no dashes, paper talk, or years in any new kind card text", () => {
 await test("every path opens with a declared visual slot on its first teach card", () => {
   for (const p of LEARNING_PATHS) {
     const first = flattenPathLessons(p)[0].cards[0];
+    // Flagship exception (2026-10-14): The Human Body opens with
+    // its hook, a prediction the learner commits to before any
+    // teaching, per the flagship standard. Its first teach card is
+    // card two, and that is the card that must carry the visual.
+    if (p.id === "the-human-body") {
+      assert.equal(first.kind, "predict", "the flagship does not open with its hook");
+      const teach = flattenPathLessons(p)[0].cards[1];
+      assert.equal(teach.kind, "note", "the flagship's second card is not its first teach card");
+      assert.ok(typeof teach.visual === "string" && teach.visual.startsWith("/cortex/"),
+        "the flagship's first teach card declares no visual slot under the cortex asset root");
+      continue;
+    }
     assert.equal(first.kind, "note", `${p.title} does not open with a teach card`);
     assert.ok(typeof first.visual === "string" && first.visual.startsWith("/cortex/"),
       `${p.title} opener declares no visual slot under the cortex asset root`);
