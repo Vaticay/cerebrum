@@ -604,11 +604,17 @@ await test("the cache schema carries the wave two bump", () => {
   // mislabel a source again — and the nutrient concept class
   // resolving bare supplement names as central concepts, so
   // served answers and cited sets predate the contract).
+  // then to v43 by wave nine (2026-10-14: mechanism shape
+  // detection, the foundational lane inside the fanout budget,
+  // the mechanism engagement requirement in the citation
+  // standard, foundational primaries ordered into the evidence
+  // slice, and the mechanism first synthesis contract, so
+  // served answers and cited sets predate the contract).
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
   assert.ok(src.includes('// v41 (2026-10-14, seventh panel wave eight)'), "the v41 chain entry must remain (schema history)");
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v42"'), "CACHE_SCHEMA_VERSION must be v42");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v43"'), "CACHE_SCHEMA_VERSION must be v43");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

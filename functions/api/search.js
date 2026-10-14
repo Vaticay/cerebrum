@@ -650,6 +650,17 @@ export const SUBREQUEST_RERANK_COST = 7;
 export const SUBREQUEST_RAW_NET_COST = 5;
 export const SUBREQUEST_NL_NET_COST = 5;
 export const SUBREQUEST_RELAXED_NET_COST = 7;
+// The foundational lane's price (2026-10-14, wave nine): three
+// single call fetchers (Europe PMC, OpenAlex, Semantic Scholar)
+// fired together for the first description papers of a
+// mechanism or a method. Priced like SUBREQUEST_RAW_NET_COST,
+// the other three fetcher net: Europe PMC can multiply
+// internally on its formulations the way it does in the raw net,
+// and Semantic Scholar and OpenAlex cost 1 each, so the lane's
+// gate price is carried at 5 rather than the bare 3 its fetcher
+// count suggests. Transient retry attempts beyond that are the
+// reserve derivation's slack, as with SUBREQUEST_RUNG_COST.
+export const SUBREQUEST_FOUNDATIONAL_LANE_COST = 5;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 // The retrieval phase's HARD allowance (2026-10-14). The reserve
@@ -1908,7 +1919,24 @@ export function isNonLiterature(p) {
 // names resolve as central concepts. Cited sets, per source
 // labels, and serve shapes change under this wave, so payloads
 // cached under v41 predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v42";
+// v43 (2026-10-14, wave nine): the retrieval foundation for
+// mechanism and method questions — mechanism shape detection
+// (isMechanismShapeQuery) recorded on the query analysis; a
+// foundational lane inside the fanout budget that searches the
+// question's core system terms plus mechanism or method
+// vocabulary for the first description papers before the clause
+// fanout runs; a mechanism engagement requirement in the
+// citation standard, so a paper whose only engagement is
+// application or delivery vocabulary no longer clears on a
+// mechanism question however many central concepts it touches;
+// foundational primaries (mechanism or method engaged, early,
+// and cited at or above the pool median) ordered into the
+// evidence slice ahead of the rest; and a mechanism first
+// synthesis contract that opens the answer with the steps of
+// the mechanism itself. Cited sets, shelf composition, and
+// answer openings all change under this wave, so payloads
+// cached under v42 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v43";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -5675,6 +5703,161 @@ export function detectMeasurementIntent(query) {
   return false;
 }
 
+// MECHANISM SHAPE (2026-10-14, wave nine): a mechanism question
+// asks HOW a process happens . what binds what, what changes,
+// what is cut, built, released, or detected, and in what order.
+// Grok's audit found this shape failing intermittently on live
+// runs of "how does crispr cas9 actually cut dna": the
+// foundational primary paper (Jinek 2012, the first description
+// of the cutting mechanism) was never retrieved at all, and on
+// a fresh run an application paper (lipid nanoparticle
+// delivery) rotated into the mechanism answer's top sources.
+// Nothing in the pipeline knew this shape the way the machinery
+// above knows measurement, so nothing could prefer the papers
+// that describe the process, keep application only papers out
+// of the cited set, or tell the synthesis to open with the
+// mechanism itself. The machinery below mirrors the measurement
+// machinery: a recorded shape (analyzeQuery's mechanismShape
+// field), an engagement tier judged on the paper, a citation
+// standard term, a foundational lane in retrieval, a shelf
+// order, and a synthesis contract.
+
+// The mechanism concept vocabulary: the words of process
+// aboutness. Judged by paperMechanismTier below rather than by
+// raw membership, for the same reason METHOD_CONCEPT_GROUP is:
+// a delivery paper's abstract can mention a "receptor" in
+// passing, so membership alone is not aboutness.
+export const MECHANISM_ENGAGEMENT_WORDS = [
+  "mechanism", "cleavage", "cleave", "cut", "guide", "binding", "bind",
+  "recognition", "unwind", "anneal", "denaturation", "amplify", "amplifies",
+  "amplified", "amplification", "polymerase", "primer", "template", "strand",
+  "nick", "nuclease", "endonuclease", "catalytic", "catalysis", "hydrolysis",
+  "conformational", "domain", "structure", "structural", "detection",
+  "detect", "detects", "antibody", "antigen", "transfer", "membrane",
+  "signal", "signaling", "activation", "activate", "activates",
+  "phosphorylation", "assembly", "folding", "secretion", "transport",
+  "channel", "receptor", "enzyme", "reaction", "separation", "melting",
+  "hybridization", "probe", "fragment", "step", "process",
+];
+
+// One regex over the vocabulary: word boundary, any listed
+// word, an optional inflection suffix, then a word boundary
+// again. The trailing boundary after the optional suffix is
+// load bearing: without it "cut" would match inside
+// "cutaneous" and "anneal" inside longer unrelated words, and
+// the tier would credit engagement the paper never made.
+export const MECHANISM_WORD_RE = new RegExp(
+  "\\b(?:" + MECHANISM_ENGAGEMENT_WORDS.join("|") + ")(?:s|es|ed|ing|tion)?\\b",
+  "gi");
+
+// The distinct vocabulary words a text engages, canonicalized
+// to the listed word each match came from (the longest listed
+// prefix wins, so "signaling" counts as signaling and not also
+// as signal). Distinctness is the unit paperMechanismTier
+// counts at abstract level: two different process words are
+// engagement; one word repeated is a mention.
+function mechanismWordsIn(text) {
+  const found = new Set();
+  const src = String(text || "");
+  if (!src) return found;
+  MECHANISM_WORD_RE.lastIndex = 0;
+  const matches = src.match(MECHANISM_WORD_RE) || [];
+  for (const rawMatch of matches) {
+    const m = String(rawMatch || "").toLowerCase();
+    if (!m) continue;
+    let best = null;
+    for (const w of MECHANISM_ENGAGEMENT_WORDS) {
+      if (m === w) { best = w; break; }
+      if (m.startsWith(w)) {
+        const rest = m.slice(w.length);
+        if ((rest === "s" || rest === "es" || rest === "ed" || rest === "ing" || rest === "tion")
+          && (!best || w.length > best.length)) best = w;
+      }
+    }
+    if (best) found.add(best);
+  }
+  return found;
+}
+
+// Title level engagement (tier 2): the paper IS about a
+// process . its title carries a mechanism word. Abstract level
+// (tier 1): the abstract engages at least TWO DISTINCT
+// mechanism words . a single passing mention is not
+// engagement, mirroring paperMethodTier's reasoning that
+// membership is not aboutness. Tier 0: no mechanism signal .
+// the paper may apply, deliver, or report on the system, which
+// for a mechanism question makes it background at best.
+export function paperMechanismTier(paper) {
+  const p = paper || {};
+  if (mechanismWordsIn(p.title || "").size >= 1) return 2;
+  const abs = usableAbstract(p) || "";
+  if (abs && mechanismWordsIn(abs).size >= 2) return 1;
+  return 0;
+}
+
+// The process verbs a how question carries when it is asking
+// about a mechanism: the system DOES something (cuts, binds,
+// unwinds, detects, pumps), and the question asks how.
+const MECHANISM_PROCESS_VERB_RE =
+  "works?|cuts?|cutting|amplif(?:y|ies|ied)|detect(?:s|ed)?|trigger(?:s|ed)?|cleave(?:s|d)?|breaks? down|binds?|unwinds?|anneals?|denatures?|activates?|produces?|releases?|converts?|opens?|closes?|pumps?|fires?";
+
+// Deterministic mechanism shape: true when the question is a
+// how question carrying a process verb ("how does crispr cas9
+// actually cut dna", "how does pcr amplify dna", "how does the
+// heart pump blood"), or it names the mechanism outright
+// ("mechanism of dna replication", or a how, what, or why
+// question containing the word mechanism). Not every how
+// question qualifies: "what are the ethics of crispr gene
+// editing" has no process verb and no mechanism word, "does
+// crispr delivery work in patients" never pairs how with a
+// process verb, and "how is manganese peroxidase activity
+// measured" is measurement only . "measured" is deliberately
+// not a mechanism verb. A question can be BOTH shapes: "how
+// does a western blot detect proteins" is a mechanism question
+// (detect is a process verb) and a measurement question, and
+// neither detector suppresses the other.
+export function isMechanismShapeQuery(query) {
+  const lc = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!lc) return false;
+  if (new RegExp("\\bhow\\b[^?]*\\b(?:" + MECHANISM_PROCESS_VERB_RE + ")\\b").test(lc)) return true;
+  if (/\bmechanism of\b/.test(lc)) return true;
+  if (/^(?:how|what|why)\b/.test(lc) && /\bmechanism\b/.test(lc)) return true;
+  return false;
+}
+
+// APPLICATION AND DELIVERY VOCABULARY (2026-10-14, wave nine):
+// the words of use, not of process . a paper speaking only this
+// vocabulary is about delivering, treating with, or testing a
+// system in patients, not about how the system works. Same
+// construction as MECHANISM_WORD_RE above, trailing boundary
+// included for the same reason.
+export const APPLICATION_DELIVERY_WORDS = [
+  "delivery", "deliver", "delivers", "delivered", "nanoparticle",
+  "nanoparticles", "therapeutic", "therapeutics", "in vivo", "efficacy",
+  "clinical", "patient", "patients", "pharmacokinetic", "toxicity",
+  "transfection", "treatment", "treatments",
+];
+
+export const APPLICATION_DELIVERY_RE = new RegExp(
+  "\\b(?:" + APPLICATION_DELIVERY_WORDS.map((w) => w.replace(/\s+/g, "\\s+")).join("|") + ")(?:s|es|ed|ing|tion)?\\b",
+  "i");
+
+// An application only paper: its title and abstract engage at
+// least one application or delivery word AND its mechanism
+// tier is 0 . no process engagement at all. The citation
+// standard below uses this for tail discipline on mechanism
+// questions: the measured failure was a lipid nanoparticle
+// delivery paper, heavy on exactly this vocabulary and silent
+// on cleavage, binding, and every other process word, rotating
+// into a mechanism answer's cited set on concept touches
+// alone.
+export function paperApplicationOnly(paper) {
+  const p = paper || {};
+  const hay = String(p.title || "") + " " + (usableAbstract(p) || "");
+  if (!APPLICATION_DELIVERY_RE.test(hay)) return false;
+  return paperMechanismTier(p) === 0;
+}
+
 // Title level aboutness (tier 2): the paper IS a method paper .
 // its title announces the determination, the estimation, the
 // assay, or a method for measuring. Abstract level (tier 1):
@@ -5735,6 +5918,103 @@ export function orderShelfForMeasurement(shelf, gatedPool) {
   }
   const tiered = list.map((p, i) => ({ p, i, t: paperMethodTier(p) }));
   tiered.sort((a, b) => (b.t - a.t) || (a.i - b.i));
+  return tiered.map((x) => x.p);
+}
+
+// FOUNDATIONAL PRIMARIES (2026-10-14, wave nine): the first
+// description papers of a mechanism or a method . Jinek 2012
+// for CRISPR cutting is the measured case. They are identified
+// by signals, never by a hardcoded per topic list (a seed list
+// would rot): the paper engages the mechanism or the method
+// (either tier above 0), it is EARLY (2016 or before, the era
+// of the canonical first descriptions this wave was measured
+// against, or inside the earliest third of the pool's own
+// years when the pool runs older or younger), and it is CITED
+// at or above the pool's own median . a first description the
+// field actually built on, not an obscure early note. The
+// pool relative terms keep the standard honest on any topic:
+// what counts as early and well cited is read off the papers
+// actually gathered for the question.
+export function foundationalPoolStats(papers) {
+  const list = Array.isArray(papers) ? papers : [];
+  const cites = list
+    .map((p) => (p && typeof p.citations === "number" && Number.isFinite(p.citations) ? p.citations : 0))
+    .sort((a, b) => a - b);
+  let medianCitations = 0;
+  if (cites.length > 0) {
+    const mid = Math.floor(cites.length / 2);
+    medianCitations = cites.length % 2 === 1
+      ? cites[mid]
+      : (cites[mid - 1] + cites[mid]) / 2;
+  }
+  const years = list
+    .map((p) => {
+      const m = String((p && p.year) || "").match(/(?:19|20)\d{2}/);
+      return m ? parseInt(m[0], 10) : NaN;
+    })
+    .filter((y) => Number.isFinite(y))
+    .sort((a, b) => a - b);
+  const earlyYearCutoff = years.length > 0
+    ? years[Math.min(years.length - 1, Math.floor(years.length / 3))]
+    : 2016;
+  return { medianCitations, earlyYearCutoff };
+}
+
+export function paperIsFoundationalPrimary(paper, stats) {
+  const p = paper || {};
+  if (paperMechanismTier(p) === 0 && paperMethodTier(p) === 0) return false;
+  const yearMatch = String(p.year || "").match(/(?:19|20)\d{2}/);
+  if (!yearMatch) return false;
+  const year = parseInt(yearMatch[0], 10);
+  const s = stats || { medianCitations: 0, earlyYearCutoff: 2016 };
+  if (!(year <= 2016 || year <= s.earlyYearCutoff)) return false;
+  const citations = typeof p.citations === "number" && Number.isFinite(p.citations) ? p.citations : 0;
+  if (!(citations > 0)) return false;
+  return citations >= Math.max(1, s.medianCitations);
+}
+
+// The cited shelf for a mechanism question: foundational
+// primaries lead. Mirrors orderShelfForMeasurement exactly in
+// structure: papers the relevance gate already cleared but the
+// maxEvidence slice left out are pulled in ahead of the
+// shelf's non primary tail (the shelf size does not grow, and
+// nothing outside the gated pool is ever pulled), then the
+// whole shelf is stably ordered primaries first . among
+// primaries, higher mechanism tier first, then original order
+// . while non primaries keep their original relative order
+// untouched, so citation [1] is a foundational primary
+// whenever the pool holds one.
+export function orderShelfForMechanism(shelf, gatedPool) {
+  const list = Array.isArray(shelf) ? shelf.slice() : [];
+  if (list.length === 0) return list;
+  const stats = foundationalPoolStats([
+    ...list,
+    ...(Array.isArray(gatedPool) ? gatedPool : []),
+  ]);
+  if (Array.isArray(gatedPool)) {
+    const inShelf = new Set(list);
+    const extras = gatedPool.filter((p) => p && !inShelf.has(p) && paperIsFoundationalPrimary(p, stats));
+    // Higher mechanism tier pulls before lower; pool order
+    // (the gate's ranked order) inside each level.
+    extras.sort((a, b) => paperMechanismTier(b) - paperMechanismTier(a));
+    for (const extra of extras) {
+      let idx = -1;
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (!paperIsFoundationalPrimary(list[i], stats)) { idx = i; break; }
+      }
+      if (idx < 0) break;
+      list.splice(idx, 1);
+      list.push(extra);
+    }
+  }
+  const tiered = list.map((p, i) => ({
+    p, i, t: paperMechanismTier(p), primary: paperIsFoundationalPrimary(p, stats),
+  }));
+  tiered.sort((a, b) => {
+    if (a.primary !== b.primary) return a.primary ? -1 : 1;
+    if (a.primary && b.primary) return (b.t - a.t) || (a.i - b.i);
+    return a.i - b.i;
+  });
   return tiered.map((x) => x.p);
 }
 
@@ -6100,6 +6380,7 @@ const LEARNED_CONSTRAINT_RULES = [
  * {
  *   originalQuery, questionType, questionTerm, isNameSearch,
  *   intent: "measurement" | null,     // method intent (2026-10-14)
+ *   mechanismShape: true | false,     // mechanism shape (2026-10-14, wave nine)
  *   organism: "Hermetia illucens" | null,
  *   organismPhrases: [...],
  *   keyPhrases: ["waste oil"],        // load-bearing multi-word concepts
@@ -6123,6 +6404,14 @@ export function analyzeQuery(rawQuery) {
   // synthesis prompt) reads the same fact. Null for every other
   // question shape.
   const intent = detectMeasurementIntent(query) ? "measurement" : null;
+  // Mechanism shape (2026-10-14, wave nine): recorded on the
+  // analysis alongside intent, as an additive field with no
+  // consumer changes here — the citation standard, the
+  // foundational lane, the shelf order, and the synthesis
+  // prompt each detect the shape where they run, the way the
+  // measurement consumers do. A question can carry both
+  // shapes; neither field suppresses the other.
+  const mechanismShape = isMechanismShapeQuery(query);
   // Name detection needs the user's original capitalization ("Reese Saho"
   // vs "reese saho"), so it runs on the raw query, not the lowercased one.
   const isNameSearch = looksLikePersonName(raw);
@@ -6197,6 +6486,7 @@ export function analyzeQuery(rawQuery) {
     questionType: qType.type,
     questionTerm: qType.term || null,
     intent,
+    mechanismShape,
     isNameSearch: !!isNameSearch,
     organism,
     organismPhrases,
@@ -12751,6 +13041,15 @@ export function citationGateStandard(query, dynLookup) {
     minHits: groups.length >= 2 ? 2 : 1,
     subjectGroup: subjectConceptGroup(query, groups, dynLookup),
     centralConcepts: questionCentralConcepts(query, dynLookup),
+    // Mechanism shape (2026-10-14, wave nine): carried on the
+    // standard so the central concepts branch below can apply
+    // its tail discipline (application only papers do not
+    // clear on a mechanism question). Every reconstruction of
+    // a standard for paperClearsCitationGate must thread this
+    // field through (paperIsCitable, conceptGateKeeps,
+    // conceptGateContext), or the discipline silently drops
+    // at exactly the layers that bind citations.
+    mechanismShape: isMechanismShapeQuery(query),
   };
 }
 
@@ -12800,12 +13099,29 @@ export function paperClearsCitationGate(paper, standard) {
     // about its topic, judged as a whole. The belly collisions
     // cannot use it: their titles never name the subject.
     const allHits = centralConceptHits(paper, judged);
-    if (allHits.subjectInTitle && allHits.inTitle >= 2) return true;
-    const strong = strongCentralConcepts(judged);
-    const useSet = strong.length >= 2 ? strong : judged;
-    const hits = centralConceptHits(paper, useSet);
-    if (useSet.length === 1) return hits.total >= 1 && hits.inAbstract >= 1;
-    return hits.total >= 2 && hits.inAbstract >= 1;
+    let verdict;
+    if (allHits.subjectInTitle && allHits.inTitle >= 2) {
+      verdict = true;
+    } else {
+      const strong = strongCentralConcepts(judged);
+      const useSet = strong.length >= 2 ? strong : judged;
+      const hits = centralConceptHits(paper, useSet);
+      if (useSet.length === 1) verdict = hits.total >= 1 && hits.inAbstract >= 1;
+      else verdict = hits.total >= 2 && hits.inAbstract >= 1;
+    }
+    // TAIL DISCIPLINE (2026-10-14, wave nine): on a mechanism
+    // question, a paper whose only engagement is application
+    // or delivery vocabulary does not clear, however many
+    // central concepts it touches . that is the measured
+    // lipid nanoparticle failure: a delivery paper touching
+    // the question's crispr and cas9 concepts rotated into a
+    // mechanism answer's top sources on a fresh run, while
+    // engaging no process vocabulary at all. The discipline
+    // lives ONLY in this central concepts branch: the legacy
+    // group accounting below stands for questions whose
+    // central concepts do not resolve, exactly as before.
+    if (verdict && std.mechanismShape && paperApplicationOnly(paper)) return false;
+    return verdict;
   }
   const groups = std.groups || [];
   const hits = paperConceptGroupHits(paper, groups);
@@ -12976,7 +13292,7 @@ export function paperIsCitable(paper, idx, gateCtx) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
     if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
   }
-  return paperClearsCitationGate(p, { groups, centralTerms, subjectGroup: ctx.subjectGroup || null, centralConcepts });
+  return paperClearsCitationGate(p, { groups, centralTerms, subjectGroup: ctx.subjectGroup || null, centralConcepts, mechanismShape: !!ctx.mechanismShape });
 }
 
 export function conceptGateContext(papers, query, dynLookup) {
@@ -13002,7 +13318,7 @@ export function conceptGateContext(papers, query, dynLookup) {
       if (support && support.idx) existenceIdx = support.idx;
     } catch { /* best effort, mirroring the gate */ }
   }
-  return { groups, centralTerms: standard.centralTerms, subjectGroup: standard.subjectGroup || null, centralConcepts: standard.centralConcepts || [], anchorNeedles, existenceIdx };
+  return { groups, centralTerms: standard.centralTerms, subjectGroup: standard.subjectGroup || null, centralConcepts: standard.centralConcepts || [], mechanismShape: standard.mechanismShape, anchorNeedles, existenceIdx };
 }
 
 export function conceptGateKeeps(paper, idx, gateCtx) {
@@ -13015,7 +13331,7 @@ export function conceptGateKeeps(paper, idx, gateCtx) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
     if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
   }
-  return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [], subjectGroup: ctx.subjectGroup || null, centralConcepts: Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [] });
+  return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [], subjectGroup: ctx.subjectGroup || null, centralConcepts: Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [], mechanismShape: !!ctx.mechanismShape });
 }
 
 // The extractive evidence prune: the papers an extractive answer
@@ -17961,6 +18277,109 @@ async function gatherPapersBody(rawQuery, opts) {
   }
   endCascadeYield(yieldRelaxed);
 
+  // ═══════════════════════════════════════════════════════════════
+  // FOUNDATIONAL LANE (2026-10-14, wave nine): on a mechanism
+  // shape or a method only shape, one extra search built from
+  // the question's core system terms plus the shape's own
+  // vocabulary, aimed at the papers that FIRST described the
+  // mechanism or the method. The measured failure it answers:
+  // the ordinary ladder retrieves the system abundantly and
+  // the foundational primaries not at all (Jinek 2012 absent
+  // from every live run of the crispr cutting question), so a
+  // results count gate would never fire this lane . the shelf
+  // was full, it was full of the wrong era. The lane's query
+  // says so in the engines' own terms: the core system (the
+  // organism term when one resolved, then the top ranked
+  // terms) plus mechanism vocabulary (mechanism, cleavage,
+  // structure, guide) for mechanism shapes, or method
+  // vocabulary (assay, determination, measurement, method) for
+  // method only shapes. Three single call fetchers carry it:
+  // Europe PMC, OpenAlex, and Semantic Scholar.
+  //
+  // FUNDING TRADE, stated plainly (2026-10-14, wave nine): the
+  // lane fires BEFORE the clause fanout below, so on a capped
+  // ledger the ledger's room gate cuts clauses (each priced
+  // SUBREQUEST_RUNG_COST) rather than the lane. This is
+  // deliberate: a clause fanout widens coverage of a question
+  // whose foundational papers are still missing, and coverage
+  // of the wrong papers is the failure being fixed . the first
+  // description papers fund first, clauses take what remains.
+  //
+  // Two shaping notes the evidence forced (2026-10-14, wave
+  // nine, same day): the shapes are detected on rawQuery, not
+  // surfaceQuery — the surface form strips the question's
+  // framing words (how, does) as stopwords, which are exactly
+  // the words both detectors key on, so a surface detection
+  // never fired in the handler at all. And the cascade yield
+  // arms on the shape, not only on an empty shelf: by the time
+  // retrieval reaches this block the ladder and the fallback
+  // nets have usually spent the retrieval allowance to its
+  // ceiling, so the room gate alone would trim the lane on
+  // precisely the capped runs it exists for. For this shape a
+  // full shelf with no foundational paper in it is the same
+  // outcome the yield exists to prevent — an answer the budget
+  // cannot fix — so the yield passes the lane through the
+  // retrieval ceiling the way it passes an empty shelf's first
+  // attempt. The invocation total cap still binds every grant.
+  // ═══════════════════════════════════════════════════════════════
+  const mechanismShape = isMechanismShapeQuery(rawQuery);
+  const methodShape = detectMeasurementIntent(rawQuery);
+  if (mechanismShape || methodShape) {
+    const laneCoreTerms = [];
+    const laneSeen = new Set();
+    const lanePush = (term) => {
+      const t = String(term || "").replace(/"/g, "").trim();
+      const key = t.toLowerCase();
+      if (t && !laneSeen.has(key)) { laneSeen.add(key); laneCoreTerms.push(t); }
+    };
+    if (organismTerm) lanePush(organismTerm);
+    for (const t of ranked.slice(0, 3)) lanePush(t);
+    const laneVocabulary = mechanismShape
+      ? ["mechanism", "cleavage", "structure", "guide"]
+      : ["assay", "determination", "measurement", "method"];
+    const laneQuery = [...laneCoreTerms, ...laneVocabulary].join(" ").trim();
+    if (laneQuery) {
+      const totalBeforeLane = results.reduce(
+        (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+      );
+      let yieldLane = beginCascadeYield(totalBeforeLane, SUBREQUEST_FOUNDATIONAL_LANE_COST);
+      if (!yieldLane && ledger && !cascadeYieldSpent
+        && ledger.retrievalCapHit(SUBREQUEST_FOUNDATIONAL_LANE_COST)) {
+        cascadeYieldSpent = true;
+        ledger.setRetrievalYield(true);
+        yieldLane = true;
+      }
+      if (_budgetLeft() && (yieldLane || roomOrTrim("foundational-lane", SUBREQUEST_FOUNDATIONAL_LANE_COST))) {
+        const laneResults = await Promise.allSettled([
+          europePMC(laneQuery, 12, ledger),
+          openAlex(laneQuery, 12, openAlexKey, ledger),
+          semanticScholar(laneQuery, 10, s2Key, ledger),
+        ]);
+        // Tag the lane's papers: the record of which papers the
+        // foundational search brought in rides the record
+        // copies the way the NL net's tag does (_nlNet above).
+        for (const r of laneResults) {
+          if (r.status === "fulfilled" && Array.isArray(r.value)) {
+            for (const p of r.value) {
+              try {
+                if (p && typeof p === "object") p._foundationalLane = true;
+              } catch { /* the tag is best effort; the papers still count */ }
+            }
+          }
+        }
+        results = results.concat(laneResults);
+        diag.foundationalLane = {
+          query: laneQuery,
+          shape: mechanismShape ? "mechanism" : "method",
+          count: laneResults.reduce(
+            (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0),
+        };
+        if (yieldLane) diag.cascadeYield = "foundational-lane";
+      }
+      endCascadeYield(yieldLane);
+    }
+  }
+
   // Add results for each sub-question of a compound query. Not gated on
   // result count like the fallback stages above . a second clause with
   // zero queries fired for it isn't "thin," it's uncovered . but still
@@ -21809,6 +22228,13 @@ async function runSearchPipeline(pctx) {
     // lead with the method papers (see orderShelfForMeasurement);
     // value reporting papers are supporting at best.
     const measurementIntent = !isNameSearch && !isFollowupMode && detectMeasurementIntent(query);
+    // MECHANISM SHAPE (2026-10-14, wave nine): detected once
+    // here, alongside measurement intent, and read by the shelf
+    // order below and the synthesis prompt. A mechanism
+    // question's cited shelf must lead with the foundational
+    // primaries (see orderShelfForMechanism); a question can
+    // carry both shapes, and neither suppresses the other.
+    const mechanismShape = !isNameSearch && !isFollowupMode && isMechanismShapeQuery(query);
 
     // The citation gate. Every paper that reaches the answer must clear
     // RELEVANCE_FLOOR (50) . below it a score is carried by passing keyword
@@ -21880,6 +22306,9 @@ async function runSearchPipeline(pctx) {
       evidencePapers = citedPool.slice(0, maxEvidence);
       if (measurementIntent) {
         evidencePapers = orderShelfForMeasurement(evidencePapers, citedPool);
+      }
+      if (mechanismShape) {
+        evidencePapers = orderShelfForMechanism(evidencePapers, citedPool);
       }
     } else {
       evidencePapers = [];
@@ -22368,6 +22797,14 @@ async function runSearchPipeline(pctx) {
             "that merely report values of the quantity (production yields, stability, optimization results) are " +
             "background at most: never present a reported value as the answer to how the quantity is measured.\n\n"
           : "") +
+        (mechanismShape
+          ? "MECHANISM QUESTION . READ THIS FIRST. The user is asking how the process in their question actually " +
+            "happens, step by step. Open the answer by naming the steps of the mechanism in order, in plain " +
+            "teaching language: what recognizes or binds what, what changes, what is cut, built, released, or " +
+            "detected, and what comes out at the end. The opening paragraph is the mechanism itself, never an " +
+            "application, a use case, or a delivery method. Applications and background belong after the " +
+            "mechanism, if at all.\n\n"
+          : "") +
         (evidenceIsThin
           ? "THIN EVIDENCE \u2014 READ THIS FIRST. Only a few of the papers below genuinely address this question; " +
             "the rest of the search results scored too low to trust and were withheld, not cited. Say that in your " +
@@ -22830,6 +23267,14 @@ async function runSearchPipeline(pctx) {
           : "";
         const compactSystem =
           ID +
+          // MECHANISM CONTRACT (2026-10-14, wave nine): the
+          // compact prompt is the one waves 1 and 2 race on, so
+          // the mechanism first contract from the full prompt
+          // above must live here too or the serving path never
+          // carries it.
+          (mechanismShape
+            ? "MECHANISM QUESTION . READ THIS FIRST. Open the answer by naming the steps of the mechanism in order, in plain teaching language: what recognizes or binds what, what changes, what is cut, built, released, or detected, and what comes out at the end. The opening paragraph is the mechanism itself, never an application, a use case, or a delivery method; applications and background belong after the mechanism, if at all. "
+            : "") +
           "Write a structured scientific answer. The first section answers the question directly, then the evidence sections support it. " +
           "Synthesize claims across papers instead of listing papers one by one. Teach the answer as plain facts about the world, the way a knowledgeable assistant explains it: mechanism and cause in ordinary language, citations attached as support. Do not frame sentences around papers ('a study found'); name a paper inside a sentence only where papers disagree or a single weak source carries the claim. Cite inline as [1], [2] at the end of the sentence a source supports, and only for claims that source actually reports. " +
           "Never invent numbers, authors, or findings; use the exact numbers the abstracts give. If the sources do not answer part of the question, say so plainly in one sentence and answer only what they support. " +
