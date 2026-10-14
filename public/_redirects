@@ -10,4 +10,4 @@
 # precedence over this catch-all — verified live — and scripts/check.mjs
 # fails the build if any dist/<slug>.html is missing or if a slug-specific
 # rule ever reappears below.
-/*    /maintenance/   200
+/*    /index.html   200

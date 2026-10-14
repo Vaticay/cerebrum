@@ -190,12 +190,23 @@ await test("no hand-rolled body overflow toggles outside scrollLock.js", () => {
 
 console.log("scroll-lock — overlay coverage (unchanged contract)");
 
-await test("anyOverlayOpen includes the consent gate (!legalOk)", () => {
+/* Pin corrected 2026-10-14: this test used to assert the consent term
+   in its unscoped form (`|| !legalOk`). That form was the defect behind
+   the frozen intro: useScrollLock(anyOverlayOpen) runs in App above the
+   `!entered` early return, so an unscoped term pinned the body for every
+   first-time visitor while the door — which mounts no gate — was the
+   only thing on screen. The corrected contract keeps the gate in the
+   lock list but scopes the term to the entered shell, the only place
+   the gate renders. */
+await test("anyOverlayOpen includes the consent gate, scoped to the entered shell", () => {
   assert.match(
     appSrc,
-    /const anyOverlayOpen =[\s\S]{0,2000}!\s*legalOk/,
-    "anyOverlayOpen must include !legalOk (consent gate)"
+    /const anyOverlayOpen =[\s\S]{0,2400}entered\s*&&\s*!\s*legalOk/,
+    "anyOverlayOpen must include the consent gate as (entered && !legalOk)"
   );
+  const m = appSrc.match(/const anyOverlayOpen = ([\s\S]*?);/);
+  assert.ok(m, "anyOverlayOpen declaration not found");
+  assert.ok(!/\|\|\s*!\s*legalOk/.test(m[1]), "unscoped || !legalOk is back — the intro freezes for first-time visitors");
 });
 
 await test("anyOverlayOpen covers all known overlay states", () => {

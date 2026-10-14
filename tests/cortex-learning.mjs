@@ -51,6 +51,11 @@ const ast = parse(learnSrc, { sourceType: "module", plugins: ["jsx"] });
 const WANTED = [
   "hashStr", "seededShuffle", "cleanText",
   "mkNote", "mkQuiz", "mkTrueFalse", "mkMatch", "mkOrder", "mkDeepen",
+  "mkVisualQ", "mkSpotError", "mkPredict", "mkBuild",
+  "CORTEX_TAGLINE", "RANK_LADDER", "rankForXp", "topicMasteryLevel",
+  "DAY_MS", "FADING_AFTER_DAYS", "MASTERED_FADING_AFTER_DAYS",
+  "lessonLastActivityMs", "isLessonFading", "fadingLessons", "buildReviewSessionCards",
+  "OPENER_STYLES", "lessonOpenerStyle",
   "LEARNING_PATHS", "CATALOG", "TOPIC_COURSES", "topicPathFor", "INTERACTIVE_KINDS", "isInteractiveCard",
   "flattenPathLessons", "isLessonUnlocked", "pathProgress",
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
@@ -118,6 +123,9 @@ const {
   applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf, normKey,
   hasAttributionShape, createCourseFromResults, looksLikeFragment,
   hashStr, seededShuffle, shuffledOptionsForCard,
+  INTERACTIVE_KINDS, CORTEX_TAGLINE, RANK_LADDER, rankForXp, topicMasteryLevel,
+  FADING_AFTER_DAYS, MASTERED_FADING_AFTER_DAYS, lessonLastActivityMs, isLessonFading,
+  fadingLessons, buildReviewSessionCards, OPENER_STYLES, lessonOpenerStyle,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -1497,7 +1505,7 @@ await test("every learning path quiz answer is taught before it is asked, apart 
   // quiz: hemoglobin and iron behind red blood, the spinal cord
   // shortcut in a reflex, the word evaporated, colliding plates
   // crumpling into mountain ranges, and satellites measuring the
-  // drift. The nine questions named below still score under half
+  // drift. The questions named below still score under half
   // on vocabulary alone and are judged fair applications, not
   // gaps: each asks the learner to use a taught idea on a fresh
   // example, so the answer's words are the example's words, or the
@@ -1505,6 +1513,13 @@ await test("every learning path quiz answer is taught before it is asked, apart 
   // see. The set is asserted exactly, so a future quiz on an
   // untaught fact fails here until it is taught or added to this
   // list with its judgment stated.
+  // Update (2026-10-14, engine wave two): the list drops to eight.
+  // "Raindrops begin to fall when the droplets..." used to score
+  // under half as a fair application of the note's droplets so
+  // small they float. The water cycle lesson's new visual question
+  // now teaches, in its feedback one lesson earlier, that droplets
+  // grow heavy and fall, so the quiz is covered outright and no
+  // longer belongs on this list.
   const FAIR_APPLICATIONS = [
     "Which of these questions can science test directly?", // apply the observability test to four fresh example questions
     "A claim is testable when...", // the opening note's checkable answer, stated from the side of being shown wrong
@@ -1514,7 +1529,6 @@ await test("every learning path quiz answer is taught before it is asked, apart 
     "A result that many teams have repeated is...", // the lesson's own thesis restated; the measure misses trusts versus trustworthy
     "If the Sun's gravity suddenly vanished, Earth would...", // one step from the taught orbit model: no pull, no curve
     "What powers a star's light?", // taught in the note just before, as fuse and fusion at the center; the answer says fusing and core
-    "Raindrops begin to fall when the droplets...", // one step from the note's droplets so small they float
   ];
   const GLUE = new Set("the a an of to in on and or is are it its that this with for from by as at be can not but so than then when which what who how why into over after before about their they them one two all any each more most some such own our your you yourself only also just even still every both against between while during without within across around among along upon onto makes make made gets get got goes going come comes came take takes took give gives gave keep keeps kept used using uses way ways thing things kind kinds part parts back away together alone almost nearly really quite rather instead indeed perhaps probably sometimes usually often always never ever yet already means much same fully several".split(" "));
   const cwords = (s) => [...new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 4 && !GLUE.has(w)))];
@@ -1823,6 +1837,285 @@ await test("build error strings speak plain product language, with no paper mach
     "the busy service error is not the plain product sentence");
   assert.ok(!learnSrc.includes("did not return enough cited findings"), "the old cited findings error survived");
   assert.ok(!learnSrc.includes("literature databases are rate limiting"), "the old literature databases error survived");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Redesign wave two: tagline, new card kinds, ranks, the map, onboarding");
+
+await test("the tagline is the new line, and the old one is nowhere", () => {
+  assert.equal(CORTEX_TAGLINE, "Science you will actually remember.");
+  assert.ok(learnSrc.includes("Science you will actually remember."), "the new tagline is not in the source");
+  assert.ok(learnSrc.includes("{CORTEX_TAGLINE}"), "the home does not render the tagline constant");
+  assert.ok(!learnSrc.includes("Where papers become memory"), "the old tagline survived somewhere");
+});
+
+await test("the four new card kinds are authored in the paths and count as interactive", () => {
+  for (const kind of ["visualq", "spoterror", "predict", "build"]) {
+    assert.ok(INTERACTIVE_KINDS.includes(kind), `${kind} is not in INTERACTIVE_KINDS`);
+    assert.ok(allCards.some((c) => c.kind === kind), `no ${kind} card is authored in the learning paths`);
+    assert.ok(isInteractiveCard({ kind }), `${kind} does not read as interactive`);
+  }
+});
+
+await test("the whole curriculum still passes its own validator with the new kinds in it", () => {
+  // The validator's shape contract (two or more units per path) is
+  // the learning paths' contract; topic courses are one unit of
+  // three lessons by design and are held to their own shape pins
+  // in the catalog group above, so only the paths run here, as
+  // before this wave.
+  assert.deepEqual([...validateCurriculum()], [], "the paths validator complains");
+});
+
+await test("the validator rejects broken second version cards", () => {
+  const clone = () => JSON.parse(JSON.stringify(LEARNING_PATHS));
+  const withCard = (card) => {
+    const paths = clone();
+    paths[0].units[0].lessons[0].cards[1] = card;
+    return [...validateCurriculum(paths)];
+  };
+  const base = { question: "Q?", options: ["aa", "bb"], correct: 0, why: "w" };
+  assert.ok(withCard({ ...base, kind: "visualq" }).some((s) => s.includes("visualq needs the visual or diagram")),
+    "a visual question with nothing to look at was accepted");
+  assert.ok(withCard({ ...base, kind: "predict" }).some((s) => s.includes("predict has no outcome")),
+    "a predict card with no outcome to reveal was accepted");
+  assert.ok(withCard({ kind: "spoterror", prompt: "p", parts: ["a", "b", "c"], wrong: 9, fix: "f", why: "w" }).some((s) => s.includes("spoterror wrong index")),
+    "a spot the error card pointing outside its pieces was accepted");
+  assert.ok(withCard({ kind: "spoterror", prompt: "p", parts: ["a", "b", "c"], wrong: 1, why: "w" }).some((s) => s.includes("spoterror has no corrected piece")),
+    "a spot the error card with no correction was accepted");
+  assert.ok(withCard({ kind: "build", prompt: "p", items: ["a", "a", "b"], why: "w" }).some((s) => s.includes("build items repeat")),
+    "a build card with repeated parts was accepted");
+});
+
+await test("new kind checks are taught before they are asked", () => {
+  // The same vocabulary coverage standard the quizzes live under,
+  // extended to the new kinds: an option card's correct answer, a
+  // build card's parts, a spot the error card's true pieces and
+  // its correction must all speak the language of earlier cards
+  // in the same path.
+  const GLUE = new Set("the a an of to in on and or is are it its that this with for from by as at be can not but so than then when which what who how why into over after before about their they them one two all any each more most some such own our your you yourself only also just even still every both against between while during without within across around among along upon onto makes make made gets get got goes going come comes came take takes took give gives gave keep keeps kept used using uses way ways thing things kind kinds part parts back away together alone almost nearly really quite rather instead indeed perhaps probably sometimes usually often always never ever yet already means much same fully several".split(" "));
+  const cwords = (s) => [...new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 4 && !GLUE.has(w)))];
+  const covered = (w, seen) => seen.includes(w) || (w.length >= 6 && seen.includes(w.slice(0, 6)));
+  const cov = (text, seen) => { const need = cwords(text); if (!need.length) return 1; return need.filter((w) => covered(w, seen)).length / need.length; };
+  const cardTextAll = (c) => [c.title, c.kicker, c.text, c.question, c.statement, c.prompt, c.why, c.outcome, c.fix,
+    ...(c.options || []), ...(c.items || []), ...(c.parts || []),
+    ...(c.pairs || []).flatMap((p) => [p.left, p.right]),
+    ...(c.diagram ? [...(c.diagram.steps || []), c.diagram.caption || ""] : [])].filter(Boolean).join(" ");
+  for (const p of LEARNING_PATHS) {
+    let seen = "";
+    for (const lesson of flattenPathLessons(p)) {
+      for (const card of lesson.cards) {
+        if (card.kind === "visualq" || card.kind === "predict") {
+          assert.ok(cov(card.options[card.correct], seen) >= 0.5,
+            `${p.title}: ${card.kind} answer is not taught before it is asked: ${card.question.slice(0, 40)}`);
+        }
+        if (card.kind === "build") {
+          for (const item of card.items) {
+            assert.ok(cov(item, seen) >= 0.5,
+              `${p.title}: build part is not taught before the build: ${item.slice(0, 40)}`);
+          }
+        }
+        if (card.kind === "spoterror") {
+          card.parts.forEach((part, i) => {
+            if (i === card.wrong) {
+              assert.ok(cwords(part).some((w) => covered(w, seen)),
+                `${p.title}: the wrong piece is not even about the taught topic: ${part.slice(0, 40)}`);
+            } else {
+              assert.ok(cov(part, seen) >= 0.5,
+                `${p.title}: a true piece of the claim was never taught: ${part.slice(0, 40)}`);
+            }
+          });
+          assert.ok(cov(card.fix, seen + " " + card.parts.join(" ")) >= 0.5,
+            `${p.title}: the correction does not speak the taught language: ${card.fix.slice(0, 40)}`);
+        }
+        seen = (seen + " " + cardTextAll(card).toLowerCase()).trim();
+      }
+    }
+  }
+});
+
+await test("authored new kind options obey the fairness band", () => {
+  for (const c of allCards) {
+    if (c.kind !== "visualq" && c.kind !== "predict") continue;
+    assert.equal(c.options.length, 4, `${c.kind} should offer four options`);
+    const keys = c.options.map(normKey);
+    assert.equal(new Set(keys).size, keys.length, `${c.kind} has a repeated option`);
+    const lens = c.options.map((o) => o.length);
+    const ref = lens[c.correct];
+    assert.ok(Math.max(...lens) <= Math.min(...lens) * 3, `${c.kind} options spread too wide: ${lens.join(", ")}`);
+    assert.ok(c.options.some((o, i) => i !== c.correct && o.length >= ref * 0.6 && o.length <= ref * 1.67),
+      `${c.kind}: the correct option stands alone by length`);
+    assert.ok(c.why && c.why.length > 10, `${c.kind} has no real explanation`);
+    for (const opt of c.options) assert.ok(!/^\d/.test(opt), `${c.kind}: an option opens with a digit`);
+  }
+});
+
+await test("no dashes, paper talk, or years in any new kind card text", () => {
+  const fields = (c) => [c.question, c.prompt, c.why, c.outcome, c.fix, ...(c.options || []), ...(c.items || []), ...(c.parts || [])].filter(Boolean);
+  for (const c of allCards) {
+    if (!["visualq", "spoterror", "predict", "build"].includes(c.kind)) continue;
+    for (const s of fields(c)) {
+      assert.ok(!s.includes("-") && !s.includes("—") && !s.includes("–"), `a dash in a ${c.kind} card: ${s.slice(0, 50)}`);
+      assert.ok(!/\bpaper(s)?\b|\bfinding(s)?\b|\bliterature\b|\bet al\b/i.test(s), `paper talk in a ${c.kind} card: ${s.slice(0, 50)}`);
+      assert.ok(!/\b(19|20)\d{2}\b/.test(s), `a year in a ${c.kind} card: ${s.slice(0, 50)}`);
+    }
+  }
+});
+
+await test("every path opens with a declared visual slot on its first teach card", () => {
+  for (const p of LEARNING_PATHS) {
+    const first = flattenPathLessons(p)[0].cards[0];
+    assert.equal(first.kind, "note", `${p.title} does not open with a teach card`);
+    assert.ok(typeof first.visual === "string" && first.visual.startsWith("/cortex/"),
+      `${p.title} opener declares no visual slot under the cortex asset root`);
+  }
+  const water = flattenPathLessons(LEARNING_PATHS.find((p) => p.id === "earth-and-weather"))
+    .find((l) => l.id === "earth-water-cycle");
+  assert.ok(water.cards[0].diagram && water.cards[0].diagram.steps.length >= 4,
+    "the water cycle teach card carries no diagram");
+  const visualq = water.cards.find((c) => c.kind === "visualq");
+  assert.ok(visualq && visualq.diagram, "the water cycle visual question is not answered from the taught diagram");
+});
+
+await test("the rank ladder is the named five rungs, in order, on rising thresholds", () => {
+  assert.deepEqual([...RANK_LADDER.map((r) => r.name)],
+    ["Observer", "Explorer", "Investigator", "Field Researcher", "Principal Investigator"]);
+  for (let i = 1; i < RANK_LADDER.length; i++) {
+    assert.ok(RANK_LADDER[i].minXp > RANK_LADDER[i - 1].minXp, "rank thresholds do not rise");
+  }
+  for (const r of RANK_LADDER) assert.ok(r.kit && r.kit.length > 10, `${r.name} has no kit line`);
+});
+
+await test("rankForXp reads the rung, the distance, and the top", () => {
+  assert.equal(rankForXp(0).name, "Observer");
+  assert.equal(rankForXp(0).xpToNext, RANK_LADDER[1].minXp);
+  assert.equal(rankForXp(RANK_LADDER[1].minXp - 1).name, "Observer");
+  assert.equal(rankForXp(RANK_LADDER[1].minXp).name, "Explorer");
+  assert.equal(rankForXp(RANK_LADDER[2].minXp).name, "Investigator");
+  assert.equal(rankForXp(RANK_LADDER[3].minXp).name, "Field Researcher");
+  const top = rankForXp(RANK_LADDER[4].minXp + 500);
+  assert.equal(top.name, "Principal Investigator");
+  assert.equal(top.atTop, true);
+  assert.equal(top.xpToNext, 0);
+  const mid = rankForXp(RANK_LADDER[1].minXp + (RANK_LADDER[2].minXp - RANK_LADDER[1].minXp) / 2);
+  assert.equal(mid.pctToNext, 50);
+});
+
+await test("topic mastery levels run from untouched to fully mastered", () => {
+  const topic = TOPIC_COURSES[0];
+  const flat = flattenPathLessons(topic);
+  assert.equal(topicMasteryLevel(topic, { lessons: {} }), 0, "an untouched topic reads above zero");
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, topic, flat[0].id, 100);
+  const partial = topicMasteryLevel(topic, prog);
+  assert.ok(partial >= 1 && partial < 5, `one mastered lesson of three reads ${partial}, outside 1 to 4`);
+  for (const l of flat) prog = applyLessonResult(prog, topic, l.id, 100);
+  assert.equal(topicMasteryLevel(topic, prog), 5, "a fully mastered topic does not read 5");
+});
+
+await test("fading reads the last study day, with a longer grace for mastered lessons", () => {
+  const NOW = Date.parse("2026-10-20T00:00:00.000Z");
+  const daysAgo = (n) => new Date(NOW - n * 86400000).toISOString();
+  assert.equal(isLessonFading({ done: true, best: 20, lastAt: daysAgo(1) }, NOW), false, "yesterday is not fading");
+  assert.equal(isLessonFading({ done: true, best: 20, lastAt: daysAgo(FADING_AFTER_DAYS) }, NOW), true, "an unmastered lesson fades at its threshold");
+  assert.equal(isLessonFading({ done: true, best: 100, mastered: true, lastAt: daysAgo(FADING_AFTER_DAYS + 1) }, NOW), false, "a mastered lesson keeps its longer grace");
+  assert.equal(isLessonFading({ done: true, best: 100, mastered: true, lastAt: daysAgo(MASTERED_FADING_AFTER_DAYS) }, NOW), true, "a mastered lesson fades at its own threshold");
+  assert.equal(isLessonFading({ done: false, lastAt: daysAgo(30) }, NOW), false, "an unfinished lesson cannot fade");
+  assert.equal(isLessonFading({ done: true, best: 20, completedAt: daysAgo(30) }, NOW), true, "a legacy record fades off its completion date");
+  assert.equal(isLessonFading(null, NOW), false);
+  assert.equal(lessonLastActivityMs({ lastAt: daysAgo(2), completedAt: daysAgo(9) }), NOW - 2 * 86400000,
+    "the last study day should win over the first completion date");
+});
+
+await test("lesson results stamp the last study day and keep the first completion date", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 80);
+  const rec = prog.lessons[flat0[0].id];
+  assert.ok(typeof rec.lastAt === "string" && Number.isFinite(Date.parse(rec.lastAt)), "no readable last study day was stamped");
+  const again = applyLessonResult(prog, path0, flat0[0].id, 90);
+  assert.equal(again.lessons[flat0[0].id].completedAt, rec.completedAt, "a replay rewrote the first completion date");
+});
+
+await test("the review session serves due cards first, then fading lessons only", () => {
+  const NOW = Date.parse("2026-10-20T00:00:00.000Z");
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 20);
+  prog.lessons[flat0[0].id].lastAt = new Date(NOW - 5 * 86400000).toISOString();
+  const fading = fadingLessons(LEARNING_PATHS, prog, NOW);
+  assert.equal(fading.length, 1, "exactly the aged lesson should read as fading");
+  assert.equal(fading[0].lesson.id, flat0[0].id);
+  const dueCards = [
+    { kind: "quiz", question: "dq1", options: ["a", "b"], correct: 0, why: "w", claimId: "dc1" },
+    { kind: "quiz", question: "dq2", options: ["a", "b"], correct: 1, why: "w", claimId: "dc2" },
+  ];
+  const out = buildReviewSessionCards({ progress: prog, dueCards, seed: 4, limit: 10, paths: LEARNING_PATHS, now: NOW });
+  assert.deepEqual([...out.slice(0, 2).map((c) => c.claimId)], ["dc1", "dc2"], "due cards do not lead the session");
+  const fadingCards = new Set(flat0[0].cards.filter(isInteractiveCard));
+  for (const c of out.slice(2)) assert.ok(fadingCards.has(c), "the session pulled a card from a lesson that is not fading");
+  assert.equal(buildReviewSessionCards({ progress: { lessons: {} }, dueCards: [], seed: 4, paths: LEARNING_PATHS, now: NOW }).length, 0,
+    "nothing due and nothing fading should build an empty session");
+});
+
+await test("the opener rhythm rotates by position and only opens visual where a visual exists", () => {
+  assert.deepEqual([...OPENER_STYLES], ["visual", "predict", "story"]);
+  const water = flattenPathLessons(LEARNING_PATHS.find((p) => p.id === "earth-and-weather"))[0];
+  const plain = flat0[1];
+  assert.equal(lessonOpenerStyle(water, 0), "visual", "a lesson with a diagram should open visual at a visual slot");
+  assert.equal(lessonOpenerStyle(plain, 0), "story", "a lesson with no visual falls back to the story opener");
+  assert.equal(lessonOpenerStyle(plain, 1), "predict");
+  assert.equal(lessonOpenerStyle(plain, 2), "story");
+  assert.equal(lessonOpenerStyle(water, 3), "visual", "the rotation should come back around");
+  assert.equal(lessonOpenerStyle(plain, 4), "predict", "the rotation is by position, not by lesson");
+});
+
+await test("an import with a readable last study day parses, and a numeric one is refused", () => {
+  const doc = deepDoc();
+  doc.builtinProgress.lessons.l1.lastAt = "2026-10-13T00:00:00.000Z";
+  assert.equal(parseCortexImport(JSON.stringify(doc)).ok, true, "a record carrying lastAt was refused");
+  const bad = deepDoc();
+  bad.builtinProgress.lessons.l1.lastAt = 42;
+  const parsed = parseCortexImport(JSON.stringify(bad));
+  assert.equal(parsed.ok, false, "a numeric last study day was accepted");
+  assert.ok(parsed.error.includes("path progress"), `reason does not name the section: ${parsed.error}`);
+});
+
+await test("the Player renders every second version kind and the character slot", () => {
+  for (const needle of ['card.kind === "visualq"', 'card.kind === "spoterror"', 'card.kind === "predict"', 'card.kind === "build"']) {
+    assert.ok(learnSrc.includes(needle), `the Player does not render ${needle}`);
+  }
+  for (const needle of ["LOOK AT THE PICTURE", "SPOT THE ERROR", "PREDICT WHAT HAPPENS", "BUILD THE SYSTEM", "WHAT ACTUALLY HAPPENS"]) {
+    assert.ok(learnSrc.includes(needle), `a stage label is missing: ${needle}`);
+  }
+  assert.ok(learnSrc.includes("function CardVisual"), "the visual slot component is missing");
+  assert.ok(learnSrc.includes('state === "error"'), "the visual slot does not hide a missing asset");
+  assert.ok(learnSrc.includes("function CharacterPose"), "the character slot component is missing");
+  // Pin corrected 2026-10-14: the first version of this test pinned the
+  // placeholder pose paths the engine wave guessed (cheer.png and
+  // celebrate.png, which no art deliverable ever produced). The poses now
+  // point at the art wave's real files, and this pin names them so a
+  // future rename on either side fails loudly instead of rendering air.
+  assert.ok(learnSrc.includes("/cortex/character/pip-celebrating.webp") && learnSrc.includes("/cortex/character/pip-greeting.webp"),
+    "the character poses are not declared under the character asset root");
+  assert.ok(learnSrc.includes("<DiagramArt"), "the diagram renderer is not used");
+});
+
+await test("the home carries the journey, the bench, the bundle, ranks, and onboarding", () => {
+  for (const needle of [
+    "Your journey", "NEXT STOP", "FADING", "REVIEW BENCH", "Start review",
+    "COURSES FROM YOUR SEARCHES", "YOUR RANK", "rankForXp(profile.xp)",
+    "Mastery level", "topicMasteryLevel(topicPath, builtinProgress)",
+    "function OnboardingFlow", "What are you curious about?", "How many minutes a day?",
+    "Start your first lesson", "DAILY SESSION COMPLETE", "TOMORROW",
+    "startBundle", "bundleStage", "lessonOpenerStyle(lesson, lessonIdx)",
+  ]) {
+    assert.ok(learnSrc.includes(needle), `the home is missing: ${needle}`);
+  }
+  const journey = learnSrc.indexOf("Your journey");
+  const searches = learnSrc.indexOf("COURSES FROM YOUR SEARCHES");
+  const studio = learnSrc.indexOf("CONTRIBUTOR STUDIO");
+  assert.ok(journey > 0 && searches > journey, "courses from searches should sit below the journey");
+  assert.ok(studio > searches, "the contributor studio should sit below the journey too");
+  assert.ok(!learnSrc.includes("out of hearts") && !learnSrc.includes("lives to lose"),
+    "a punishment mechanic crept into the copy");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

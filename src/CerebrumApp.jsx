@@ -22486,7 +22486,16 @@ function App() {
     // visitor (or anyone whose legal cookie expired) gets a fixed overlay
     // over a scrollable page, and the body can be left overflow:hidden
     // with no cleanup path when the gate is dismissed.
-    || !legalOk
+    // Scoped to `entered` (2026-10-14): the gate renders only at the end
+    // of the entered shell (see the Commit 69 render below). The Intro
+    // early return further down mounts no gate at all. Unscoped, this
+    // term was true from first paint on the door for every first-time
+    // visitor, so the unified lock pinned the body (position:fixed) with
+    // nothing on screen to release it — the intro could not scroll. On
+    // desktop the door's first viewport still showed the way in, so the
+    // freeze went unseen. On phones the door stacks taller than the
+    // viewport and everything below the first screen was unreachable.
+    || (entered && !legalOk)
     // Background scroll bled through these modals on iOS (body never
     // locked): flowchart studio, Pro modal, profile viewer, provenance
     // panel, film credits, and incoming/active call overlays.

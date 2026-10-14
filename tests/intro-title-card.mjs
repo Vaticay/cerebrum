@@ -408,6 +408,23 @@ await test("the consent gate renders exactly once, in the app shell", () => {
   assert.ok(appSrc.includes("{!legalOk && ("), "the shell gate is no longer unconditional");
 });
 
+await test("the door is never scroll locked before the way in", () => {
+  /* Regression (2026-10-14): the shell's anyOverlayOpen lock list carried
+     the consent term `|| !legalOk` unscoped. useScrollLock runs in App
+     above the `!entered` early return, so for every first-time visitor
+     (no current cb_legal cookie) the unified lock pinned the body
+     (position:fixed, overflow:hidden) while the door was the only thing
+     mounted — no gate on screen to release it, and the intro could not
+     scroll at all. On phones, where the door stacks taller than the
+     viewport, everything below the first screen was unreachable. The
+     consent term is scoped to the shell now: the lock may engage for
+     the gate only once `entered`, where the gate actually renders. */
+  const decl = appSrc.match(/const anyOverlayOpen = ([\s\S]*?);/);
+  assert.ok(decl, "anyOverlayOpen declaration not found");
+  assert.ok(/entered\s*&&\s*!\s*legalOk/.test(decl[1]), "the consent lock term is not scoped to the entered shell");
+  assert.ok(!/\|\|\s*!\s*legalOk/.test(decl[1]), "the consent lock term is unscoped again — the door freezes for first-time visitors");
+});
+
 await test("the stage keeps one centred column inside the standard shell", () => {
   /* Contract revised 2026-10-13 on Dusty's directive ("bring back
      the side bar but make it better"), superseding the plate pass

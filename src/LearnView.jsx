@@ -78,6 +78,13 @@ function saveProfile(p) { saveJSON(PROFILE_KEY, p); }
 export const CORTEX_EXPORT_FORMAT = "cerebrum-cortex-progress";
 export const CORTEX_EXPORT_VERSION = 1;
 
+/* The Cortex tagline (redesign, 2026-10-14). The old line, "Where
+   papers become memory.", described a product that referenced
+   papers in its learning flow; that flow was removed by the
+   owner's own order, so the line now promises what Cortex does:
+   taught science that stays with the learner. */
+export const CORTEX_TAGLINE = "Science you will actually remember.";
+
 function cortexIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 function cortexIsFiniteNumber(v) { return typeof v === "number" && Number.isFinite(v); }
 function cortexIsStringArray(v) { return Array.isArray(v) && v.every((x) => typeof x === "string"); }
@@ -123,13 +130,17 @@ function cortexCourseProblem(course) {
     if (!Array.isArray(lesson.cards)) return "That file's courses section holds a lesson with no cards list. Nothing was imported.";
     for (const card of lesson.cards) {
       if (!cortexIsPlainObject(card) || typeof card.kind !== "string") return "That file's courses section holds a card with no kind. Nothing was imported.";
-      if ((card.kind === "quiz" || card.kind === "cloze")
+      if ((card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "predict")
         && (!Array.isArray(card.options) || card.options.length < 2
           || !Number.isInteger(card.correct) || card.correct < 0 || card.correct >= card.options.length)) {
         return "That file's courses section holds a question card whose answers are not readable. Nothing was imported.";
       }
       if (card.kind === "match" && !Array.isArray(card.pairs)) return "That file's courses section holds a matching card with no pairs list. Nothing was imported.";
-      if (card.kind === "order" && !Array.isArray(card.items)) return "That file's courses section holds an ordering card with no items list. Nothing was imported.";
+      if ((card.kind === "order" || card.kind === "build") && !Array.isArray(card.items)) return "That file's courses section holds an ordering card with no items list. Nothing was imported.";
+      if (card.kind === "spoterror" && (!Array.isArray(card.parts)
+        || !Number.isInteger(card.wrong) || card.wrong < 0 || card.wrong >= card.parts.length)) {
+        return "That file's courses section holds a spot the error card whose pieces are not readable. Nothing was imported.";
+      }
       if (card.kind === "truefalse" && typeof card.answer !== "boolean") return "That file's courses section holds a true or false card with no answer. Nothing was imported.";
     }
   }
@@ -164,6 +175,7 @@ function cortexProgressRecordProblem(rec) {
     return "That file's path progress section holds a lesson record whose mastery marks are not readable. Nothing was imported.";
   }
   if (rec.completedAt != null && typeof rec.completedAt !== "string") return "That file's path progress section holds a lesson record whose date is not readable. Nothing was imported.";
+  if (rec.lastAt != null && typeof rec.lastAt !== "string") return "That file's path progress section holds a lesson record whose last study date is not readable. Nothing was imported.";
   return null;
 }
 
@@ -1185,6 +1197,77 @@ function Cover({ title, height, radius = 16, fontSize, cat, img }) {
    below): lessons that teach the topic in plain words, then quiz
    what they taught. Art is a small flat illustration system drawn
    in SVG, one motif per shelf, in the shelf's own deep tones. */
+/* ── visual slots (redesign, 2026-10-14) ───────────────────────────
+   Teach cards and checks declare visuals by asset path (the art
+   wave delivers the files under public/cortex/). A slot whose
+   asset has not arrived renders nothing at all: no broken image,
+   no reserved box, no layout shift, so a card without its art is
+   exactly the card as it renders today. The character slot is the
+   same idea at feedback and win screens: one small reaction image
+   of the guide, present only when the art exists. */
+function CardVisual({ src, P, accent, height = 190 }) {
+  const [state, setState] = useState("loading");
+  useEffect(() => { setState("loading"); }, [src]);
+  if (!src || state === "error") return null;
+  return (
+    <div aria-hidden="true" style={{
+      display: state === "ok" ? "block" : "none",
+      borderRadius: 18, overflow: "hidden", border: "1px solid " + P.line,
+      background: P.raised, marginBottom: 20,
+    }}>
+      <img src={src} alt="" loading="lazy"
+        onLoad={() => setState("ok")} onError={() => setState("error")}
+        style={{ width: "100%", height, objectFit: "cover", display: "block" }} />
+    </div>
+  );
+}
+
+const CHARACTER_POSES = {
+  wave: "/cortex/character/pip-greeting.webp",
+  cheer: "/cortex/character/pip-celebrating.webp",
+  think: "/cortex/character/pip-thinking.webp",
+  celebrate: "/cortex/character/pip-celebrating.webp",
+};
+
+function CharacterPose({ pose, size = 54 }) {
+  const [ok, setOk] = useState(false);
+  const src = CHARACTER_POSES[pose] || null;
+  useEffect(() => { setOk(false); }, [src]);
+  if (!src) return null;
+  return (
+    <img src={src} alt="" aria-hidden="true" loading="lazy"
+      onLoad={() => setOk(true)} onError={() => setOk(false)}
+      style={{ display: ok ? "block" : "none", width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
+  );
+}
+
+/* A labelled diagram drawn from card data: the steps of a system
+   as chips joined by arrows, with a caption. This is the teaching
+   visual a lesson carries before any art file exists, and the same
+   diagram a visual question is answered from. Words stay in the
+   page, where they can be read, resized, and tested. */
+function DiagramArt({ diagram, P, accent }) {
+  if (!diagram || !Array.isArray(diagram.steps) || !diagram.steps.length) return null;
+  return (
+    <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 18px 14px", marginBottom: 20 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: 8 }}>
+        {diagram.steps.map((step, i) => (
+          <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <span style={{
+              fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, lineHeight: 1.4,
+              background: P.bg, border: "1.5px solid " + accent, borderRadius: RADIUS.pill, padding: "8px 13px",
+            }}>{step}</span>
+            {i < diagram.steps.length - 1 && <span aria-hidden="true" style={{ color: accent, fontWeight: 800 }}>→</span>}
+          </span>
+        ))}
+      </div>
+      {diagram.caption && (
+        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.55, margin: "12px 0 2px" }}>{diagram.caption}</p>
+      )}
+    </div>
+  );
+}
+
 const CATALOG = [
   { name: "Mind and Brain", motif: "brain", pair: ["#27354d", "#131e30"], topics: [
     { t: "Sleep and Memory", q: "sleep memory consolidation", b: "What sleep does to the memories you formed that day, and how the studies measure it.", img: "/assets/cortex/sleep-memory.jpg" },
@@ -1314,7 +1397,7 @@ function loadBuiltinProgress() {
 }
 function saveBuiltinProgress(p) { saveJSON(BUILTIN_PROGRESS_KEY, p); }
 
-const mkNote = (kicker, title, text) => ({ kind: "note", kicker, title, text });
+const mkNote = (kicker, title, text, extra) => ({ kind: "note", kicker, title, text, ...(extra || {}) });
 const mkQuiz = (question, options, correct, why) => ({ kind: "quiz", question, options, correct, why });
 const mkTrueFalse = (statement, answer, why) => ({
   kind: "truefalse", statement, answer, correct: answer ? 0 : 1,
@@ -1326,6 +1409,28 @@ const mkMatch = (prompt, pairs, why) => ({
 });
 const mkOrder = (prompt, items, why) => ({ kind: "order", question: prompt, prompt, items, why });
 const mkDeepen = (text) => ({ kind: "deepen", text });
+
+/* ── second version card kinds (redesign, 2026-10-14) ─────────────
+   Four kinds join the Player. Each is a check on something an
+   earlier card in the same lesson taught, each answers through the
+   same feedback sheet, and each obeys the quiz fairness laws:
+   options are restatements in one length band, no position or
+   length giveaway, and the Player, never the data, decides where
+   options sit. A visual question is answered from a picture or
+   diagram the lesson taught with (the card carries the same visual
+   or diagram as the teach card). Spot the error shows a worked
+   claim as tappable pieces, exactly one of them wrong. Predict
+   asks the learner to commit to an outcome before the card reveals
+   what happens and why. Build assembles a small system from its
+   parts in the right order, scored like an order card. */
+/* visual/ diagram are declared in the card data: visual is an asset
+   path under public/cortex/ delivered by the art wave; when the
+   asset is absent the Player renders the card exactly as it renders
+   today, with no broken image and no reserved space. */
+const mkVisualQ = (question, visual, diagram, options, correct, why) => ({ kind: "visualq", question, visual, diagram, options, correct, why });
+const mkSpotError = (prompt, parts, wrong, fix, why) => ({ kind: "spoterror", prompt, parts, wrong, fix, why });
+const mkPredict = (question, outcome, options, correct, why) => ({ kind: "predict", question, outcome, options, correct, why });
+const mkBuild = (prompt, items, why) => ({ kind: "build", question: prompt, prompt, items, why });
 
 export const LEARNING_PATHS = [
   {
@@ -1341,7 +1446,8 @@ export const LEARNING_PATHS = [
             id: "sci-questions", title: "Questions That Can Be Tested", subtitle: "Science starts with a question the world can answer",
             cards: [
               mkNote("The big idea", "Science starts with a question",
-                "Science begins when someone asks a question the world can answer. Not every question works. A good science question points at something you can observe, count, or measure, so the answer can be checked by anyone who repeats the work."),
+                "Science begins when someone asks a question the world can answer. Not every question works. A good science question points at something you can observe, count, or measure, so the answer can be checked by anyone who repeats the work.",
+                { visual: "/cortex/paths/path-science.webp" }),
               mkQuiz("Which of these questions can science test directly?",
                 ["Which song is the most beautiful ever written?", "Do plants grow faster in sunlight or in shade?", "What is the meaning of life and why are we all here?", "Which color is the luckiest?"],
                 1,
@@ -1496,7 +1602,8 @@ export const LEARNING_PATHS = [
             id: "body-heart", title: "Your Heart, the Pump", subtitle: "A fist sized muscle with a nonstop job",
             cards: [
               mkNote("The big idea", "A pump that never clocks out",
-                "Your heart is a muscle about the size of your fist. It squeezes about once a second, all day and all night, pushing blood around your body. Each squeeze sends blood out carrying oxygen and food, and welcomes back blood the body is done with."),
+                "Your heart is a muscle about the size of your fist. It squeezes about once a second, all day and all night, pushing blood around your body. Each squeeze sends blood out carrying oxygen and food, and welcomes back blood the body is done with.",
+                { visual: "/cortex/paths/path-body.webp" }),
               mkQuiz("What does blood carry to the cells of your body?",
                 ["Only water and salts", "Oxygen and nutrients", "Electric signals", "Solid bones"],
                 1,
@@ -1529,6 +1636,11 @@ export const LEARNING_PATHS = [
               mkMatch("Match each part of blood to its job.",
                 [["Plasma", "The liquid part of blood"], ["Red blood cells", "Carry oxygen around the body"], ["White blood cells", "Hunt and destroy germs"], ["Platelets", "Help blood clot when you are cut"]],
                 "One liquid, three crews: carriers, defenders, and repairers."),
+              mkPredict("You cut your finger and it starts to bleed. Predict what happens at the cut over the next few minutes.",
+                "The bleeding slows and stops. Platelets gather at the cut and help the blood clot, and the clot seals the leak while the skin heals under it.",
+                ["Platelets help seal the leak and a clot forms", "White cells carry extra oxygen to the cut", "Plasma turns into new red cells at the cut", "The blood stops flowing everywhere at once"],
+                0,
+                "Platelets are the repair crew. When a vessel is cut, they help the blood clot right there, plugging the leak. The dry top of that clot is the scab you see later."),
               mkQuiz("Why does blood look red?",
                 ["The food you eat dyes it red", "Red cells hold an iron rich protein that turns bright red when it carries oxygen", "It reflects the color of the skin and the light shining through it at the surface", "It stays hot from the beating heart"],
                 1,
@@ -1651,7 +1763,8 @@ export const LEARNING_PATHS = [
             id: "space-planets", title: "The Planets in Order", subtitle: "Four rocky worlds, four giants",
             cards: [
               mkNote("The big idea", "Eight planets, one star",
-                "Our solar system is the Sun plus everything its gravity holds: eight planets, their moons, and crowds of rocky and icy leftovers. The four planets nearest the Sun are small and rocky. The four far ones are giants made mostly of gas and liquid."),
+                "Our solar system is the Sun plus everything its gravity holds: eight planets, their moons, and crowds of rocky and icy leftovers. The four planets nearest the Sun are small and rocky. The four far ones are giants made mostly of gas and liquid.",
+                { visual: "/cortex/paths/path-space.webp" }),
               mkOrder("Put these planets in order from the Sun.",
                 ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn"],
                 "Mercury is closest, then Venus, Earth, and Mars, and then the giants Jupiter and Saturn. Uranus and Neptune come after Saturn."),
@@ -1662,6 +1775,11 @@ export const LEARNING_PATHS = [
               mkMatch("Match each body to its description.",
                 [["Sun", "The star at the center of our system"], ["Earth", "The only planet known to have life"], ["Jupiter", "The largest planet"], ["Moon", "The natural satellite that orbits Earth"]],
                 "One star, one home, one giant, and one faithful moon."),
+              mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
+                ["The four planets nearest the Sun are small and rocky", "Mercury is the closest planet to the Sun", "Jupiter is the largest planet of all", "Jupiter sits closer to the Sun than Earth"],
+                3,
+                "Jupiter sits far beyond Mars, much farther from the Sun than Earth.",
+                "Jupiter is a giant of the outer system. It comes after Mars, far past Earth, among the far planets the lesson opened with. The first three pieces are all true; the last one moves Jupiter into the inner system, where it does not belong."),
               mkTrueFalse("The Sun is a star.",
                 true,
                 "The Sun is a medium sized star. It only looks huge and bright because it is so much closer than every other star."),
@@ -1805,8 +1923,9 @@ export const LEARNING_PATHS = [
             id: "earth-water-cycle", title: "The Water Cycle", subtitle: "The same water, round and round",
             cards: [
               mkNote("The big idea", "The same water, round and round",
-                "The water in your glass is ancient. It has been in oceans, clouds, rain, rivers, and living things, over and over again. The Sun powers the whole loop by lifting water into the air as invisible vapor. Water that turns into vapor and rises this way has evaporated."),
-              mkOrder("Put the water cycle in order.",
+                "The water in your glass is ancient. It has been in oceans, clouds, rain, rivers, and living things, over and over again. The Sun powers the whole loop by lifting water into the air as invisible vapor. Water that turns into vapor and rises this way has evaporated.",
+                { visual: "/cortex/paths/path-earth.webp", diagram: { steps: ["Ocean water warms in the Sun", "Water rises as vapor", "Vapor cools and forms clouds", "Water falls as rain or snow", "Rivers carry it back to the ocean"], caption: "The water cycle, in five moves. Nothing is created and nothing is lost; the same water goes around." } }),
+              mkBuild("Build the water cycle: tap each step in the order it happens.",
                 ["Sunlight warms the ocean", "Water rises into the air as vapor", "The vapor cools and forms clouds", "Water falls as rain or snow", "Rivers carry it back to the ocean"],
                 "Warmth lifts the water, cooling gathers it into clouds, gravity brings it down, and rivers return it to the sea."),
               mkQuiz("Water rising from the sea into the air has...",
@@ -1816,6 +1935,12 @@ export const LEARNING_PATHS = [
               mkMatch("Match each word to what it means.",
                 [["Evaporation", "Liquid water turning into vapor"], ["Condensation", "Vapor turning back into liquid drops"], ["Precipitation", "Rain, snow, or hail falling from clouds"], ["Collection", "Water gathering in oceans, lakes, and the ground"]],
                 "Up as vapor, back as drops, down as rain, gathered in the sea. Then it starts again."),
+              mkVisualQ("Look at the diagram of the cycle. What happens right after the vapor cools?",
+                "/cortex/paths/path-earth.webp",
+                { steps: ["Ocean water warms in the Sun", "Water rises as vapor", "Vapor cools and forms clouds", "Water falls as rain or snow", "Rivers carry it back to the ocean"], caption: "The water cycle, in five moves." },
+                ["It gathers into clouds", "It falls as rain at once", "It sinks into the ground", "It turns into sunlight"],
+                0,
+                "Cooling comes first, then gathering. The vapor condenses into tiny droplets, and billions of droplets together form a cloud. Rain only falls later, once the droplets grow heavy."),
               mkTrueFalse("Rain over land is a brand new supply of water made by clouds.",
                 false,
                 "Clouds move water around; they do not create it. Rain is ocean and lake water that evaporated, traveled on the wind, and fell again."),
@@ -3748,7 +3873,7 @@ export function builtinPathFor(id) {
   return LEARNING_PATHS.find((p) => p.id === id) || TOPIC_COURSES.find((p) => p.id === id) || null;
 }
 
-export const INTERACTIVE_KINDS = ["quiz", "cloze", "battle", "truefalse", "match", "order"];
+export const INTERACTIVE_KINDS = ["quiz", "cloze", "battle", "truefalse", "match", "order", "visualq", "spoterror", "predict", "build"];
 export function isInteractiveCard(card) {
   return !!card && INTERACTIVE_KINDS.includes(card.kind);
 }
@@ -3829,12 +3954,144 @@ export function applyLessonResult(progress, path, lessonId, pct, opts) {
        existed count their done state as the first completion. */
     completions: (prev.completions || (prev.done ? 1 : 0)) + 1,
     completedAt: prev.completedAt || new Date().toISOString(),
+    /* The last day this lesson was studied, first completion or
+       replay. The journey map reads it to mark finished ground as
+       fading when its review falls due; records written before
+       this field existed fall back to completedAt. */
+    lastAt: new Date().toISOString(),
     reviewMastered,
     mastered: isLessonMastered({ done: true, best, reviewMastered }),
   };
   const pp = pathProgress(path, next);
   if (pp.nextLessonId) next.lastLessonId = pp.nextLessonId;
   return next;
+}
+
+/* ── ranks: XP becomes a ladder with a face (redesign, 2026-10-14) ──
+   Five named rungs sit on top of the XP total. Each rung carries a
+   kit line, one plain sentence about what a learner at that rung
+   travels with, and the home and win screens show the current rung,
+   its kit line in a framed medallion, and the distance to the next
+   rung, so progress is visible instead of a bare number. */
+export const RANK_LADDER = [
+  { name: "Observer", minXp: 0, kit: "A notebook, sharp eyes, and a head full of questions." },
+  { name: "Explorer", minXp: 200, kit: "A field notebook with the first paths filled in." },
+  { name: "Investigator", minXp: 600, kit: "A magnifier, a habit of checking, and reviews kept on schedule." },
+  { name: "Field Researcher", minXp: 1400, kit: "A full field kit, and whole subjects held without notes." },
+  { name: "Principal Investigator", minXp: 3000, kit: "The whole kit, plus the judgment to know what to ask next." },
+];
+
+export function rankForXp(xp) {
+  const total = Math.max(0, Math.floor(xp || 0));
+  let idx = 0;
+  for (let i = 0; i < RANK_LADDER.length; i++) if (total >= RANK_LADDER[i].minXp) idx = i;
+  const rank = RANK_LADDER[idx];
+  const next = RANK_LADDER[idx + 1] || null;
+  const intoRank = total - rank.minXp;
+  const spanXp = next ? next.minXp - rank.minXp : 0;
+  return {
+    index: idx,
+    name: rank.name,
+    kit: rank.kit,
+    minXp: rank.minXp,
+    xp: total,
+    nextName: next ? next.name : null,
+    nextMinXp: next ? next.minXp : null,
+    xpToNext: next ? next.minXp - total : 0,
+    pctToNext: next ? Math.min(100, Math.round((intoRank / spanXp) * 100)) : 100,
+    atTop: !next,
+  };
+}
+
+/* Per topic mastery, levels 0 to 5, computed from what the progress
+   record already holds: how much of the topic is done, how much is
+   mastered, the average best score across finished lessons, and
+   how much of the finishing came through review passes. Level 0 is
+   untouched; a fully mastered topic with strong scores reads 5. */
+export function topicMasteryLevel(topicPath, progress) {
+  if (!topicPath) return 0;
+  const flat = flattenPathLessons(topicPath);
+  const store = (progress && progress.lessons) || {};
+  const recs = flat.map((l) => store[l.id]).filter((r) => r && r.done);
+  if (!recs.length || !flat.length) return 0;
+  const mastered = recs.filter((r) => isLessonMastered(r)).length;
+  const reviewed = recs.filter((r) => r.reviewMastered).length;
+  const avgBest = recs.reduce((sum, r) => sum + (r.best || 0), 0) / recs.length;
+  const score = 0.5 * (mastered / flat.length)
+    + 0.3 * (avgBest / 100) * (recs.length / flat.length)
+    + 0.2 * (reviewed / flat.length);
+  return Math.max(1, Math.min(5, 1 + Math.floor(score * 5)));
+}
+
+/* ── fading: finished ground whose review is due ───────────────────
+   A finished lesson reads as fading on the journey map when enough
+   days have passed since it was last studied: two days for a lesson
+   finished but not mastered, seven for a mastered one, matching the
+   spirit of the review schedule without touching its math. */
+export const FADING_AFTER_DAYS = 2;
+export const MASTERED_FADING_AFTER_DAYS = 7;
+
+export function lessonLastActivityMs(rec) {
+  if (!rec) return 0;
+  const raw = rec.lastAt || rec.completedAt || "";
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+export function isLessonFading(rec, now = Date.now()) {
+  if (!rec || !rec.done) return false;
+  const last = lessonLastActivityMs(rec);
+  if (!last) return false;
+  const days = isLessonMastered(rec) ? MASTERED_FADING_AFTER_DAYS : FADING_AFTER_DAYS;
+  return now - last >= days * DAY_MS;
+}
+
+/* Every fading lesson across a set of paths, in path order: the
+   review bench counts them and the review session samples them. */
+export function fadingLessons(paths, progress, now = Date.now()) {
+  const out = [];
+  const store = (progress && progress.lessons) || {};
+  for (const path of paths || []) {
+    for (const lesson of flattenPathLessons(path)) {
+      if (isLessonFading(store[lesson.id], now)) out.push({ path, lesson });
+    }
+  }
+  return out;
+}
+
+/* The review session: due spaced review cards first, then
+   activities sampled from fading lessons, so one tap from the
+   review bench plays exactly what is due and nothing else.
+   Deterministic for a given seed, like daily practice. */
+export function buildReviewSessionCards({ progress, dueCards = [], seed = 1, limit = 10, paths = null, now = Date.now() } = {}) {
+  const pool = paths || [...LEARNING_PATHS, ...TOPIC_COURSES];
+  const fading = fadingLessons(pool, progress, now);
+  const fadingCards = [];
+  for (const { lesson } of fading) {
+    for (const c of lesson.cards) if (isInteractiveCard(c)) fadingCards.push(c);
+  }
+  const duePart = dueCards.slice(0, 6);
+  const room = Math.max(0, limit - duePart.length);
+  const picks = seededShuffle(fadingCards, (seed || 1) + 29).slice(0, room);
+  return [...duePart, ...picks].slice(0, limit);
+}
+
+/* ── lesson rhythm: the opener rotates by position ─────────────────
+   Lesson shape used to be identical everywhere, so lesson twelve
+   felt like lesson one. The opener framing now rotates with the
+   lesson's position on its path: a visual opener where the lesson
+   actually carries a visual or diagram, a predict opener, then a
+   story opener, repeating. Card order inside the lesson never
+   changes; only the framing on the lesson intro rotates, so every
+   ordering guarantee the suite pins still holds. */
+export const OPENER_STYLES = ["visual", "predict", "story"];
+export function lessonOpenerStyle(lesson, flatIndex) {
+  const want = OPENER_STYLES[Math.abs(flatIndex || 0) % OPENER_STYLES.length];
+  if (want === "visual") {
+    const hasVisual = ((lesson && lesson.cards) || []).some((c) => c.visual || c.diagram);
+    return hasVisual ? "visual" : "story";
+  }
+  return want;
 }
 
 /* Daily practice: due review cards first in spirit, then activities
@@ -3877,10 +4134,17 @@ export function validateCurriculum(paths = LEARNING_PATHS) {
   const lessonIds = new Set();
   const cardCheck = (card, where) => {
     if (!card || !card.kind) { problems.push(where + ": card without a kind"); return; }
-    if (card.kind === "quiz" || card.kind === "cloze") {
+    if (card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "predict") {
       if (!Array.isArray(card.options) || card.options.length < 2) problems.push(where + ": " + card.kind + " needs at least 2 options");
       else if (!(card.correct >= 0 && card.correct < card.options.length)) problems.push(where + ": " + card.kind + " correct index is outside its options");
       if (!card.why) problems.push(where + ": " + card.kind + " has no explanation");
+      if (card.kind === "visualq" && !card.visual && !card.diagram) problems.push(where + ": visualq needs the visual or diagram it is answered from");
+      if (card.kind === "predict" && !card.outcome) problems.push(where + ": predict has no outcome to reveal");
+    } else if (card.kind === "spoterror") {
+      if (!Array.isArray(card.parts) || card.parts.length < 3 || card.parts.length > 6) problems.push(where + ": spoterror needs 3 to 6 pieces");
+      else if (!(card.wrong >= 0 && card.wrong < card.parts.length)) problems.push(where + ": spoterror wrong index is outside its pieces");
+      if (!card.fix) problems.push(where + ": spoterror has no corrected piece to teach");
+      if (!card.why) problems.push(where + ": spoterror has no explanation");
     } else if (card.kind === "truefalse") {
       if (typeof card.answer !== "boolean") problems.push(where + ": truefalse answer is not a boolean");
       if (!card.statement) problems.push(where + ": truefalse has no statement");
@@ -3895,10 +4159,10 @@ export function validateCurriculum(paths = LEARNING_PATHS) {
         if (new Set(rights).size !== rights.length) problems.push(where + ": match right sides repeat");
         if (card.pairs.some((p) => !p.left || !p.right)) problems.push(where + ": match has an empty side");
       }
-    } else if (card.kind === "order") {
-      if (!Array.isArray(card.items) || card.items.length < 3 || card.items.length > 6) problems.push(where + ": order needs 3 to 6 items");
-      else if (new Set(card.items).size !== card.items.length) problems.push(where + ": order items repeat");
-      if (!card.why) problems.push(where + ": order has no explanation");
+    } else if (card.kind === "order" || card.kind === "build") {
+      if (!Array.isArray(card.items) || card.items.length < 3 || card.items.length > 6) problems.push(where + ": " + card.kind + " needs 3 to 6 items");
+      else if (new Set(card.items).size !== card.items.length) problems.push(where + ": " + card.kind + " items repeat");
+      if (!card.why) problems.push(where + ": " + card.kind + " has no explanation");
     } else if (card.kind === "note") {
       if (!card.title || !card.text) problems.push(where + ": note needs a title and text");
     } else if (card.kind === "deepen") {
@@ -4006,7 +4270,7 @@ export function orderScore(placed, items) {
 }
 
 /* ── lesson player (full screen) ─────────────────────────────────── */
-function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress, onLessonDone, onReviewDone }) {
+function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress, onLessonDone, onReviewDone, rankSummary, goalPicker }) {
   const [lessonIdx, setLessonIdx] = useState(startLesson || 0);
   const [cardIdx, setCardIdx] = useState(0);
   const [picked, setPicked] = useState(null);
@@ -4105,14 +4369,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      and displayOptions, so the whole surface agrees on the order
      actually shown. */
   const quizDisplay = useMemo(() => {
-    if (!card || (card.kind !== "quiz" && card.kind !== "cloze" && card.kind !== "truefalse")) return null;
+    if (!card || (card.kind !== "quiz" && card.kind !== "cloze" && card.kind !== "truefalse" && card.kind !== "visualq" && card.kind !== "predict")) return null;
     return shuffledOptionsForCard(card, hashStr(card.question || card.statement || card.prompt || "") + 59 + shuffleSalt.current + attempt * 131);
   }, [card, attempt]);
   const displayOptions = quizDisplay ? quizDisplay.options : (card ? card.options : null);
   const displayCorrect = quizDisplay ? quizDisplay.correct : (card ? card.correct : null);
   const isRight = interactive && card.kind !== "battle" && (
     card.kind === "match" ? matchMistakes === 0
-    : card.kind === "order" ? orderCorrect
+    : card.kind === "order" || card.kind === "build" ? orderCorrect
+    : card.kind === "spoterror" ? picked === card.wrong
     : picked === displayCorrect
   );
   const lessonPct = lesson ? Math.round(((cardIdx + (checked ? 1 : 0)) / lesson.cards.length) * 100) : 0;
@@ -4125,7 +4390,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     return seededShuffle(card.pairs.map((_, i) => i), hashStr(card.prompt || "") + 31 + shuffleSalt.current + attempt * 131);
   }, [card, attempt]);
   const orderDisplay = useMemo(() => {
-    if (!card || card.kind !== "order") return [];
+    if (!card || (card.kind !== "order" && card.kind !== "build")) return [];
     return seededShuffle(card.items, hashStr(card.prompt || "") + 47 + shuffleSalt.current + attempt * 131);
   }, [card, attempt]);
 
@@ -4206,7 +4471,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     playSound("tick", soundOn);
   };
   const checkOrder = () => {
-    if (!card || card.kind !== "order" || checked) return;
+    if (!card || (card.kind !== "order" && card.kind !== "build") || checked) return;
     if (orderPlaced.length !== card.items.length) return;
     const res = orderScore(orderPlaced, card.items);
     setOrderResult(res);
@@ -4225,7 +4490,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const check = () => {
     if (!interactive || picked === null || checked) return;
-    if (card.kind === "match" || card.kind === "order") return;
+    if (card.kind === "match" || card.kind === "order" || card.kind === "build") return;
     setChecked(true);
     setAnswered((n) => n + 1);
     if (card.kind === "battle") {
@@ -4234,7 +4499,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       say("Both readings are on the table. Plus " + paid + " XP.");
       return;
     }
-    const correct = picked === displayCorrect;
+    const correct = card.kind === "spoterror" ? picked === card.wrong : picked === displayCorrect;
     if (correct) setRight((n) => n + 1);
     if (!correct) {
       const origin = course.lessons[lessonIdx];
@@ -4357,6 +4622,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               ? "Every lesson on this path is done. Your progress is saved on the path, and daily practice will keep pulling activities from it so the ideas stay fresh."
               : "Every question you answered is on your review schedule now. It comes back when it starts to fade, not before."}
           </p>
+          {rankSummary && (
+            <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 440 }}>
+              Your rank: <span style={{ color: P.ink, fontWeight: 700 }}>{rankSummary.name}</span>
+              {rankSummary.atTop ? ". Top rung, earned." : " · " + rankSummary.xpToNext + " XP to " + rankSummary.nextName + "."}
+            </p>
+          )}
+          <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
+            <CharacterPose pose="celebrate" size={64} />
+          </div>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
               <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700, color: accent }}>+{sessionXp}</div>
@@ -4372,7 +4646,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
               {misses.map((m, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 18px", marginBottom: 10 }}>
-                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement}</div>
+                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement || m.card.prompt}</div>
                   <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2 }}>
                     {"The idea: "}<span style={{ color: P.ink }}><RichText text={m.card.why} /></span>
                   </div>
@@ -4419,6 +4693,26 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.2, margin: "30px 0 12px" }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, margin: "0 0 22px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
+          {(() => {
+            /* The opener rotates with the lesson's position, so a
+               path does not feel like the same shape twelve times:
+               a picture first where the lesson carries one, a guess
+               first, then a story first, repeating. */
+            const opener = lessonOpenerStyle(lesson, lessonIdx);
+            const line = opener === "visual"
+              ? "This one starts with the picture. Look first, then read."
+              : opener === "predict"
+                ? "This one starts with a guess. Commit to an answer before you check; the correction is what makes it stick."
+                : "This one starts with a story. Settle in first, then the checks begin.";
+            return (
+              <div style={{ display: "inline-block", background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "9px 16px", margin: "0 0 26px" }}>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, letterSpacing: "0.06em" }}>
+                  {opener === "visual" ? "START WITH THE PICTURE" : opener === "predict" ? "START WITH A GUESS" : "START WITH A STORY"}
+                </span>
+                <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}> · {line}</span>
+              </div>
+            );
+          })()}
           {(() => {
             const purpose = {
               basics: "The core ideas of this topic, stated plainly. Read them first; the checks that follow ask about exactly these points, and nothing else.",
@@ -4468,6 +4762,37 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               ? "+" + lessonXp + " XP. This lesson is marked on your path, and the next one is unlocked."
               : "+" + lessonXp + " XP. The questions from this lesson are on your review schedule now."}
           </p>
+          <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 6px" }}>
+            <CharacterPose pose="celebrate" size={64} />
+          </div>
+          {rankSummary && (
+            <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>
+              Your rank: <span style={{ color: P.ink, fontWeight: 700 }}>{rankSummary.name}</span>
+              {rankSummary.atTop ? ". That is the top rung. It stays yours by keeping the learning going." : " · " + rankSummary.xpToNext + " XP to " + rankSummary.nextName + "."}
+            </p>
+          )}
+          {goalPicker && (
+            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>SET YOUR DAILY GOAL</div>
+              <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>
+                One win in. How many minutes a day should Cortex ask of you? Small and daily beats big and rare.
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[5, 10, 15, 20].map((m) => (
+                  <button key={m} className="lv-chip" onClick={() => goalPicker.onPick(m)}
+                    aria-pressed={goalPicker.minutes === m}
+                    style={{
+                      borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 48,
+                      background: goalPicker.minutes === m ? accent : "transparent",
+                      color: goalPicker.minutes === m ? (at || "#101408") : P.ink,
+                      border: "1px solid " + (goalPicker.minutes === m ? accent : P.line),
+                    }}>
+                    {m} min
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {firstFinish && (
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 10px" }}>
@@ -4506,7 +4831,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     );
   }
 
-  const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
+  const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "build" ? "Build" : c.kind === "visualq" ? "Look" : c.kind === "spoterror" ? "Spot the error" : c.kind === "predict" ? "Predict" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
 
   /* Feedback tones are Cerebrum's own, from the design system's
      STATUS palette: the strong hue for borders and the sheet button,
@@ -4535,12 +4860,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: P.ink,
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
+          <CharacterPose pose={sheetGood ? "cheer" : "think"} size={48} />
+        </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Two readings, honestly held. That is the point."
             : card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
-            : card.kind === "order" ? (orderResult && orderResult.perfect ? "In the right order."
+            : card.kind === "order" || card.kind === "build" ? (orderResult && orderResult.perfect ? (card.kind === "build" ? "Built in the right order." : "In the right order.")
               : orderResult && orderResult.correctPositions > 0 ? orderResult.correctPositions + " of " + orderResult.total + " steps in the right place."
               : "Not the right order.")
+            : card.kind === "spoterror" ? (isRight ? "You found the wrong piece." : "That piece is fine.")
             : isRight ? "Right." : "Not quite."}
           <span style={{ float: "right", fontSize: FONT_SIZES.label, fontWeight: 700, color: sheetGood ? goodInk : badInk }}>
             {"+" + lastAward + " XP"}
@@ -4557,8 +4886,25 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 You picked: <span style={{ fontWeight: 600 }}><RichText text={displayOptions[picked]} /></span>
               </p>
             )}
+            {card.kind === "spoterror" && picked !== null && picked !== undefined && (
+              <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
+                You picked: <span style={{ fontWeight: 600 }}><RichText text={card.parts[picked]} /></span>
+              </p>
+            )}
+            {card.kind === "predict" && card.outcome && (
+              <>
+                <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHAT ACTUALLY HAPPENS</p>
+                <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 12px", color: P.ink }}><RichText text={card.outcome} /></p>
+              </>
+            )}
             <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHY</p>
             <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}><RichText text={card.why} /></p>
+            {card.kind === "spoterror" && (
+              <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "10px 0 0", color: P.ink }}>
+                The wrong piece says: <span style={{ fontWeight: 600 }}><RichText text={card.parts[card.wrong]} /></span><br />
+                It should say: <span style={{ fontWeight: 600 }}><RichText text={card.fix} /></span>
+              </p>
+            )}
           </>
         )}
         <button className="lv-btn" onClick={advance}
@@ -4619,6 +4965,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.22, margin: 0, color: course.img ? "#fff" : P.ink }}>{card.title}</h2>
                 </div>
               </div>
+              {(card.visual || card.diagram) && (
+                <>
+                  <CardVisual src={card.visual} P={P} accent={accent} />
+                  <DiagramArt diagram={card.diagram} P={P} accent={accent} />
+                </>
+              )}
               <p style={{ fontSize: FONT_SIZES.title, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               {lesson.id === "vocab" && course.vocab && course.vocab.length > 0 && (
                 <div style={{ marginTop: 26 }}>
@@ -4662,12 +5014,18 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </div>
           )}
 
-          {(card.kind === "quiz" || card.kind === "cloze") && (
+          {(card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "predict") && (
             <div>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>
-                {card.vocab ? "VOCABULARY · TERMS IN CONTEXT" : card.kind === "cloze" ? "PREDICT THE RESULT" : "RECALL"}
+                {card.vocab ? "VOCABULARY · TERMS IN CONTEXT" : card.kind === "cloze" ? "PREDICT THE RESULT" : card.kind === "visualq" ? "LOOK AT THE PICTURE" : card.kind === "predict" ? "PREDICT WHAT HAPPENS" : "RECALL"}
               </div>
               <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
+              {card.kind === "visualq" && (
+                <>
+                  <CardVisual src={card.visual} P={P} accent={accent} />
+                  <DiagramArt diagram={card.diagram} P={P} accent={accent} />
+                </>
+              )}
               {card.prompt && (
                 <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "17px 19px", margin: "4px 0 10px" }}>
                   <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}><RichText text={card.prompt} /></p>
@@ -4767,6 +5125,35 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </div>
           )}
 
+          {card.kind === "spoterror" && (
+            <div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>SPOT THE ERROR</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>The claim below is built from pieces. Exactly one piece is wrong. Tap it, then check.</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
+                {(card.parts || []).map((part, i) => {
+                  let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
+                  if (checked && i === card.wrong) { bg = badWash; border = toneBad; color = P.ink; }
+                  else if (checked && i === picked) { bg = goodWash; border = toneGood; color = P.ink; }
+                  else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
+                  return (
+                    <button key={i} className={"lv-opt" + (checked && picked === i && i !== card.wrong ? " lv-shake" : "")}
+                      onClick={() => pick(i)} disabled={checked} aria-pressed={picked === i}
+                      style={{
+                        appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
+                        background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: RADIUS.xl,
+                        padding: "15px 18px", fontSize: FONT_SIZES.body, lineHeight: 1.5,
+                        color, cursor: checked ? "default" : "pointer", textAlign: "left",
+                        fontFamily: "var(--cb-font)", minHeight: 54,
+                      }}>
+                      <RichText text={part} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {card.kind === "match" && (
             <div>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>MATCH THE PAIRS</div>
@@ -4820,11 +5207,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </div>
           )}
 
-          {card.kind === "order" && (
+          {(card.kind === "order" || card.kind === "build") && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>PUT IT IN ORDER</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>{card.kind === "build" ? "BUILD THE SYSTEM" : "PUT IT IN ORDER"}</div>
               <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
-              <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>Tap the steps in the order they happen. Tap a placed step to take it back.</p>
+              <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>{card.kind === "build" ? "Tap the parts in the order the system runs. Tap a placed part to take it back." : "Tap the steps in the order they happen. Tap a placed step to take it back."}</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 9, margin: "20px 0 18px" }}>
                 {orderPlaced.length === 0 && (
                   <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: 0, border: "1.5px dashed " + P.line, borderRadius: 14, padding: "15px 16px" }}>Your order will appear here.</p>
@@ -4922,7 +5309,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 style={{ ...btnPrimary, width: "100%", opacity: 0.45, cursor: "default" }}>
                 Match every pair to finish
               </button>
-            ) : card.kind === "order" ? (
+            ) : card.kind === "order" || card.kind === "build" ? (
               <button className="lv-btn lv-btn-primary"
                 style={{
                   ...btnPrimary, width: "100%",
@@ -4930,7 +5317,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   cursor: orderPlaced.length !== card.items.length ? "default" : "pointer",
                 }}
                 onClick={checkOrder} disabled={orderPlaced.length !== card.items.length}>
-                Check order
+                {card.kind === "build" ? "Check build" : "Check order"}
               </button>
             ) : (
               <button className="lv-btn lv-btn-primary"
@@ -5077,6 +5464,9 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             <div className="lv-fill" style={{ width: pp.pct + "%", height: "100%", background: accent, borderRadius: RADIUS.pill }} />
           </div>
         </div>
+        <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.55, margin: "10px 0 0" }}>
+          Filled stops are ground you own. A stop marked fading is a finished lesson whose review has come due: it is still yours, and a short review session from the Cortex home brings it back to full strength.
+        </p>
       </div>
 
       {path.units.map((unit, ui) => (
@@ -5094,6 +5484,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             const rec = store[lesson.id];
             const isDone = !!(rec && rec.done);
             const mastered = isLessonMastered(rec);
+            const fading = isLessonFading(rec);
             const unlocked = isLessonUnlocked(path, lesson.id, progress);
             const isCurrent = unlocked && !isDone;
             const offset = offsets[(flatIdx + li) % offsets.length];
@@ -5103,10 +5494,11 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                   style={{
                     flexShrink: 0, width: 56, height: 56, borderRadius: "50%",
                     background: mastered ? accent : P.raised,
-                    border: "2px solid " + (mastered || isDone || isCurrent ? accent : P.line),
+                    border: (fading ? "2px dashed " : "2px solid ") + (mastered || isDone || isCurrent ? accent : P.line),
                     display: "flex", alignItems: "center", justifyContent: "center",
                     color: mastered ? at : isDone || isCurrent ? accent : P.faint,
                     fontWeight: 800, fontSize: FONT_SIZES.title, fontFamily: "var(--cb-font)",
+                    opacity: fading ? 0.72 : 1,
                   }}>
                   {isDone ? (
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -5128,12 +5520,14 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                     <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
                     <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", color: mastered || isDone || isCurrent ? accent : P.faint, flexShrink: 0 }}>
-                      {mastered ? "MASTERED" : isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
+                      {mastered ? "MASTERED" : fading ? "FADING" : isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
                     </span>
                   </span>
                   <span style={{ display: "block", color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.5, marginTop: 5 }}>{lesson.subtitle}</span>
                   <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
-                    {mastered
+                    {fading
+                      ? "Finished, and its review is due. A review session from the home brings it back."
+                      : mastered
                       ? "Mastered · best score " + (rec.best || 0) + "% · tap to play again"
                       : isDone
                         ? "Best score " + (rec.best || 0) + "% · done, not mastered yet. Reach " + MASTERY_MIN_PCT + "% or clear the review of your misses to master it"
@@ -5280,6 +5674,105 @@ function CortexTour({ P, accent, at, onClose }) {
             Skip the tour
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ── first run onboarding (redesign, 2026-10-14) ───────────────────
+   Two questions, then straight into a first lesson. What are you
+   curious about (which sets the first path), and how many minutes
+   a day (which becomes the daily goal, adjustable later on the
+   first win screen). No account wall, no tour first: the first
+   lesson starts inside the first minute, and the goal is set for
+   real on the win screen while the feeling is warm. */
+const ONBOARDING_CHOICES = [
+  { id: "the-human-body", label: "The human body", note: "Hearts, blood, senses, and the machinery of you" },
+  { id: "space-and-the-solar-system", label: "Space", note: "Planets, stars, gravity, and the far beyond" },
+  { id: "earth-and-weather", label: "Earth and weather", note: "Water, air, rocks, and the restless planet" },
+  { id: "how-science-works", label: "How science works", note: "Questions, evidence, and honest answers" },
+  { id: "everything", label: "A bit of everything", note: "Start with the water cycle, then wander" },
+];
+const ONBOARDING_FIRST_LESSON = {
+  "the-human-body": "the-human-body",
+  "space-and-the-solar-system": "space-and-the-solar-system",
+  "earth-and-weather": "earth-and-weather",
+  "how-science-works": "how-science-works",
+  everything: "earth-and-weather",
+};
+
+function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
+  const [step, setStep] = useState(0);
+  const [curiosity, setCuriosity] = useState("everything");
+  const [minutes, setMinutes] = useState(5);
+  const chip = (active) => ({
+    borderRadius: RADIUS.pill, padding: "11px 18px", fontSize: FONT_SIZES.body, fontWeight: 700,
+    cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50,
+    background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink,
+    border: "1.5px solid " + (active ? accent : P.line), textAlign: "left",
+  });
+  return (
+    <div style={{ maxWidth: 620, margin: "0 auto", padding: "48px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink }}>
+      <style>{CSS}</style>
+      <div className="lv-rise">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+          <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={30} /></span>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint }}>
+            WELCOME TO CORTEX · {step + 1} OF 2
+          </span>
+          <span style={{ marginLeft: 2 }}><CharacterPose pose="wave" size={40} /></span>
+        </div>
+        <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 8px", lineHeight: 1.2 }}>Cortex</h1>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
+        {step === 0 ? (
+          <>
+            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>What are you curious about?</h2>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
+              Pick the one that pulls at you. It chooses your first path; every path stays open to you afterwards.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {ONBOARDING_CHOICES.map((c) => (
+                <button key={c.id} className="lv-opt" style={chip(curiosity === c.id)} aria-pressed={curiosity === c.id}
+                  onClick={() => setCuriosity(c.id)}>
+                  {c.label}
+                  <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: curiosity === c.id ? (at || "#101408") : P.ink2, marginTop: 3 }}>{c.note}</span>
+                </button>
+              ))}
+            </div>
+            <button className="lv-btn lv-btn-primary" onClick={() => setStep(1)}
+              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+              Continue
+            </button>
+          </>
+        ) : (
+          <>
+            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>How many minutes a day?</h2>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
+              This becomes your daily goal: the size of one daily session. Small and daily beats big and rare, and you can change it on your first win screen.
+            </p>
+            <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+              {[5, 10, 15, 20].map((m) => (
+                <button key={m} className="lv-chip" style={chip(minutes === m)} aria-pressed={minutes === m}
+                  onClick={() => setMinutes(m)}>
+                  {m} min a day
+                </button>
+              ))}
+            </div>
+            <button className="lv-btn lv-btn-primary"
+              onClick={() => onDone({ curiosity, minutes })}
+              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+              Start your first lesson
+            </button>
+            <button onClick={() => setStep(0)}
+              style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "12px 0 0", display: "block", margin: "0 auto" }}>
+              Back
+            </button>
+          </>
+        )}
+        <button onClick={onSkip}
+          style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", padding: "16px 0 0", display: "block", margin: "0 auto" }}>
+          Skip for now
+        </button>
       </div>
     </div>
   );
@@ -5466,26 +5959,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   };
   const buildCourse = () => buildCourseFrom(topic.trim());
 
-  /* Daily practice: one mixed session. Due findings from search
-     courses come back first in spirit, then activities from built
-     in lessons already finished, with finished but unmastered
-     lessons sampled first as practice material. */
-  const startDaily = () => {
-    const dueCards = due.slice(0, 10).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
-    const seed = Number(todayKey().replace(/[^0-9]/g, "")) || 1;
-    const cards = buildDailyPracticeCards({ progress: builtinProgress, dueCards, seed, paths: [...LEARNING_PATHS, ...TOPIC_COURSES] });
-    if (!cards.length) return;
-    setScreen({
-      name: "player", fromPath: false,
-      course: { id: "daily", title: "Daily practice", lessons: [{ id: "daily", title: "Daily practice", subtitle: "Fading questions and activities from your paths, mixed together", cards }], doneLessons: [] },
-      startLesson: 0,
-    });
-  };
-
   /* Built in paths: starting a lesson points the continue row at
      it; finishing one records the score through the Player's
      onLessonDone callback. */
-  const startBuiltinLesson = (path, flatIdx) => {
+  const startBuiltinLesson = (path, flatIdx, opts) => {
     const course = courseFromPath(path, builtinProgress);
     const lesson = course.lessons[flatIdx];
     if (!lesson) return;
@@ -5494,7 +5971,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     cur.lastLessonId = lesson.id;
     saveBuiltinProgress(cur);
     setBuiltinProgress(cur);
-    setScreen({ name: "player", course, startLesson: flatIdx, fromPath: false, pathId: path.id });
+    setScreen({ name: "player", course, startLesson: flatIdx, fromPath: false, pathId: path.id, fromOnboarding: !!(opts && opts.fromOnboarding) });
   };
   const handleBuiltinLessonDone = (pathId, lesson, pct) => {
     const path = builtinPathFor(pathId);
@@ -5517,6 +5994,116 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setBuiltinProgress(next);
   };
 
+  /* ── the daily session bundle (reviewer consensus, 2026-10-14) ──
+     Daily practice is one bundled session in a fixed order: a
+     short review warmup drawn from due spaced review items, then
+     one new lesson at the learner's next stop, then a payoff
+     screen with rank progress, the streak, and one hook for
+     tomorrow. One button starts the bundle; leaving a stage early
+     ends the bundle rather than skipping ahead. Warmup repeats pay
+     at the existing review rates, through the same pay path as
+     every other session: nothing new was invented for them. */
+  const [bundleStageDone, setBundleStageDone] = useState({ warmup: false, lesson: false });
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
+  const updateProfile = (patch) => {
+    setProfile((prev) => {
+      const p = { ...(prev || loadProfile()), ...patch };
+      saveProfile(p);
+      return p;
+    });
+  };
+
+  const nextBundleStop = () => {
+    const order = [];
+    const last = builtinPathFor(builtinProgress.lastPathId);
+    if (last) order.push(last);
+    for (const p of LEARNING_PATHS) if (!order.includes(p)) order.push(p);
+    for (const p of TOPIC_COURSES) if (!order.includes(p)) order.push(p);
+    for (const p of order) {
+      const pp = pathProgress(p, builtinProgress);
+      if (pp.nextLessonId) {
+        const flat = flattenPathLessons(p);
+        const flatIdx = flat.findIndex((l) => l.id === pp.nextLessonId);
+        if (flatIdx >= 0) return { path: p, flatIdx, lesson: flat[flatIdx] };
+      }
+    }
+    return null;
+  };
+
+  const startBundleLesson = () => {
+    const stop = nextBundleStop();
+    if (!stop) { setScreen({ name: "payoff" }); return; }
+    const course = courseFromPath(stop.path, builtinProgress);
+    const lesson = course.lessons[stop.flatIdx];
+    if (!lesson) { setScreen({ name: "payoff" }); return; }
+    const cur = loadBuiltinProgress();
+    cur.lastPathId = stop.path.id;
+    cur.lastLessonId = lesson.id;
+    saveBuiltinProgress(cur);
+    setBuiltinProgress(cur);
+    setScreen({ name: "player", course, startLesson: stop.flatIdx, fromPath: false, pathId: stop.path.id, bundleStage: "lesson" });
+  };
+
+  const startBundle = () => {
+    setBundleStageDone({ warmup: false, lesson: false });
+    const warm = due.slice(0, 6).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
+    if (warm.length) {
+      setScreen({
+        name: "player", fromPath: false, bundleStage: "warmup",
+        course: { id: "bundle-warmup", title: "Daily session", lessons: [{ id: "bundle-warmup", title: "Review warmup", subtitle: "Questions that are due, while they are still fresh enough to fix", cards: warm }], doneLessons: [] },
+        startLesson: 0,
+      });
+      return;
+    }
+    startBundleLesson();
+  };
+
+  /* The review bench: one tap plays exactly what is due, due
+     spaced review cards first, then activities from fading
+     lessons. */
+  const startReview = () => {
+    const dueCards = due.slice(0, 10).map((c) => ({ ...c.card, claimId: c.id, kind: c.card.kind || "quiz" }));
+    const seed = Number(todayKey().replace(/[^0-9]/g, "")) || 1;
+    const cards = buildReviewSessionCards({ progress: builtinProgress, dueCards, seed, paths: [...LEARNING_PATHS, ...TOPIC_COURSES] });
+    if (!cards.length) return;
+    setScreen({
+      name: "player", fromPath: false,
+      course: { id: "review-bench", title: "Review bench", lessons: [{ id: "review-bench", title: "Review bench", subtitle: "What is due, brought back while it can still be fixed", cards }], doneLessons: [] },
+      startLesson: 0,
+    });
+  };
+
+  const completeOnboarding = ({ curiosity, minutes }) => {
+    updateProfile({ onboarded: true, curiosity, dailyGoalMinutes: minutes });
+    const path = builtinPathFor(ONBOARDING_FIRST_LESSON[curiosity] || "earth-and-weather") || LEARNING_PATHS[0];
+    startBuiltinLesson(path, 0, { fromOnboarding: true });
+  };
+  const skipOnboarding = () => {
+    updateProfile({ onboarded: true });
+    setOnboardingDismissed(true);
+  };
+
+  const handlePlayerExit = () => {
+    refresh();
+    setProfile(touchStreak(loadProfile()));
+    setBuiltinProgress(loadBuiltinProgress());
+    if (screen.bundleStage === "warmup") {
+      if (bundleStageDone.warmup) { startBundleLesson(); return; }
+      setScreen({ name: "home" });
+      return;
+    }
+    if (screen.bundleStage === "lesson") {
+      if (bundleStageDone.lesson) { setScreen({ name: "payoff" }); return; }
+      setScreen({ name: "home" });
+      return;
+    }
+    if (screen.fromOnboarding) { setScreen({ name: "home" }); return; }
+    if (screen.pathId) setScreen({ name: "bpath", pathId: screen.pathId });
+    else if (screen.fromPath && screen.course.id !== "review") setScreen({ name: "path", courseId: screen.course.id });
+    else setScreen({ name: "home" });
+  };
+
   const removeCourse = (id) => {
     const all = loadLearnCourses().filter((c) => c.id !== id);
     saveJSON(COURSES_KEY, all);
@@ -5534,17 +6121,22 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         startLesson={screen.startLesson}
         P={P} accent={accent} at={at || "#101408"}
         soundOn={soundOn}
-        onExit={() => {
-          refresh();
-          setProfile(touchStreak(loadProfile()));
-          setBuiltinProgress(loadBuiltinProgress());
-          if (screen.pathId) setScreen({ name: "bpath", pathId: screen.pathId });
-          else if (screen.fromPath && screen.course.id !== "review") setScreen({ name: "path", courseId: screen.course.id });
-          else setScreen({ name: "home" });
+        rankSummary={rankForXp(profile ? profile.xp : 0)}
+        goalPicker={screen.fromOnboarding
+          ? { minutes: (profile && profile.dailyGoalMinutes) || 5, onPick: (m) => updateProfile({ dailyGoalMinutes: m }) }
+          : null}
+        onExit={handlePlayerExit}
+        onProgress={(xpGain, course, doneLessons) => {
+          handleProgress(xpGain, course, doneLessons);
+          if (screen.bundleStage === "warmup" && doneLessons && doneLessons.length) {
+            setBundleStageDone((s) => ({ ...s, warmup: true }));
+          }
         }}
-        onProgress={handleProgress}
         onLessonDone={screen.course && screen.course.builtin
-          ? (lesson, pct) => handleBuiltinLessonDone(screen.course.pathId, lesson, pct)
+          ? (lesson, pct) => {
+            handleBuiltinLessonDone(screen.course.pathId, lesson, pct);
+            if (screen.bundleStage === "lesson") setBundleStageDone((s) => ({ ...s, lesson: true }));
+          }
           : undefined}
         onReviewDone={screen.course && screen.course.builtin
           ? (lessonId) => handleBuiltinReviewDone(screen.course.pathId, lessonId)
@@ -5605,6 +6197,75 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const dailyReady = due.length > 0 || startedPaths.length > 0;
   const totalPathLessons = LEARNING_PATHS.reduce((n, p) => n + flattenPathLessons(p).length, 0);
   const totalPathDone = LEARNING_PATHS.reduce((n, p) => n + pathProgress(p, builtinProgress).done, 0);
+  const progressStore = builtinProgress.lessons || {};
+  const allBuiltinSets = [...LEARNING_PATHS, ...TOPIC_COURSES];
+  const fadingAll = fadingLessons(allBuiltinSets, builtinProgress);
+  const reviewDueCount = due.length + fadingAll.length;
+  const bundleStop = nextBundleStop();
+  const bundleReady = due.length > 0 || !!bundleStop;
+
+  /* The bundle payoff: rank progress, the streak, mastery so far,
+     and one hook for tomorrow. Shown only at the end of a full
+     daily session bundle, never for a stage left early. */
+  if (screen.name === "payoff") {
+    const rank = rankForXp(profile ? profile.xp : 0);
+    const masteredTotal = allBuiltinSets.reduce((n, p) => n + pathProgress(p, builtinProgress).mastered, 0);
+    const doneTotal = allBuiltinSets.reduce((n, p) => n + pathProgress(p, builtinProgress).done, 0);
+    const hook = bundleStop
+      ? "Tomorrow, your next stop is " + bundleStop.lesson.title + " on " + bundleStop.path.title + "."
+      : fadingAll.length > 0
+        ? "Tomorrow, " + fadingAll.length + " finished lesson" + (fadingAll.length === 1 ? " is" : "s are") + " fading and due for review."
+        : "Tomorrow, a fresh daily session will be waiting here.";
+    return (
+      <div style={{ maxWidth: 620, margin: "0 auto", padding: "56px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, textAlign: "center" }}>
+        <style>{CSS}</style>
+        <div className="lv-rise">
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+            <CharacterPose pose="celebrate" size={72} />
+          </div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
+          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
+          <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 26px", maxWidth: 440 }}>
+            Warmup, new ground, and a clear head to end on. Here is where today leaves you.
+          </p>
+          <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 26, flexWrap: "wrap" }}>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
+              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: accent }}>{rank.name}</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
+                {rank.atTop ? "Top rank" : rank.xpToNext + " XP to " + rank.nextName}
+              </div>
+            </div>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
+              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700 }}>{profile ? profile.streak || 0 : 0} day streak</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{profile ? profile.xp : 0} XP in all</div>
+            </div>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
+              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700 }}>{masteredTotal} mastered</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{doneTotal} lessons finished</div>
+            </div>
+          </div>
+          <div style={{ background: P.raised, border: "1px solid " + accent, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440, textAlign: "left" }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 7 }}>TOMORROW</div>
+            <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>{hook}</p>
+          </div>
+          <button className="lv-btn lv-btn-primary" onClick={() => setScreen({ name: "home" })}
+            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+            Back to Cortex home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* First run: a learner with no progress and no answers yet gets
+     the two question onboarding instead of the home, once. */
+  const freshLearner = !!profile && !profile.onboarded && (profile.xp || 0) === 0 && totalPathDone === 0 && courses.length === 0;
+  if (freshLearner && !onboardingDismissed && screen.name === "home") {
+    return (
+      <OnboardingFlow P={P} accent={accent} at={at || "#101408"}
+        onDone={completeOnboarding} onSkip={skipOnboarding} />
+    );
+  }
 
   return (
     <div className="lv-home" style={{ maxWidth: 880, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)" }}>
@@ -5616,6 +6277,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <span style={{ color: accent, display: "inline-flex", flexShrink: 0 }}><Icon name="cortex" size={36} /></span>
             <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
           </div>
+          <p className="lv-tagline" style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: FONT_SIZES.title, color: P.ink, margin: "0 0 8px" }}>{CORTEX_TAGLINE}</p>
           <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
             Lessons that teach you a subject in small steps, with quizzes on what you just learned. Follow a path, pick a catalog topic, or build a course from any question. What you answer comes back later, right before you forget, so it stays.
           </p>
@@ -5637,6 +6299,44 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         {pill(null, due.length, "due for review")}
         {pill(null, courses.length, "courses")}
       </div>
+
+      {/* your rank: the XP ladder made visible, frame and kit line
+          changing with the rung */}
+      {profile && (() => {
+        const rank = rankForXp(profile.xp);
+        return (
+          <div style={{
+            display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
+            background: P.raised, border: (2 + Math.min(2, rank.index)) + "px solid " + accent,
+            borderRadius: 20, padding: "16px 20px", margin: "0 0 26px",
+          }}>
+            <span aria-hidden="true" style={{
+              width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
+              border: (2 + Math.min(3, rank.index)) + "px solid " + accent,
+              display: "flex", alignItems: "center", justifyContent: "center", color: accent,
+              background: withAlphaSafe(accent, 0.1 + rank.index * 0.05),
+            }}>
+              <Icon name="cortex" size={24} />
+            </span>
+            <span style={{ flex: "1 1 260px", minWidth: 0 }}>
+              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, display: "block", marginBottom: 3 }}>
+                YOUR RANK · RUNG {rank.index + 1} OF {RANK_LADDER.length}
+              </span>
+              <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, display: "block" }}>{rank.name}</span>
+              <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 3, lineHeight: 1.5 }}>{rank.kit}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+                <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block", maxWidth: 300 }}>
+                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: rank.pctToNext + "%" }} />
+                </span>
+                <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>
+                  {rank.atTop ? "Top rung reached" : rank.xpToNext + " XP to " + rank.nextName}
+                </span>
+              </span>
+            </span>
+            <CharacterPose pose="wave" size={52} />
+          </div>
+        );
+      })()}
 
       {/* progress backup: the record lives in this browser only, so
           it can leave as a file the learner keeps, and return as one */}
@@ -5722,62 +6422,153 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         );
       })()}
 
-      {/* daily practice */}
-      <div style={{ border: "1px solid " + (dailyReady ? accent : P.line), borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
+      {/* the daily session bundle: warmup, one new lesson, payoff */}
+      <div style={{ border: "1px solid " + (bundleReady ? accent : P.line), borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DAILY PRACTICE</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-          {dailyReady
-            ? "A short mixed session: " + (due.length > 0 ? due.length + " fading question" + (due.length === 1 ? "" : "s") + " and " : "") + "activities from the paths you have started."
-            : "Finish any lesson on a path and daily practice unlocks: a short mixed session that keeps what you learned from fading."}
+          One session, in a fixed order: a short review warmup from what is due, then one new lesson at your next stop, then a payoff screen with your rank, your streak, and tomorrow's hook.
         </p>
         <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-          {totalPathDone} of {totalPathLessons} path lessons done so far.
+          {due.length > 0
+            ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
+            : "Nothing is due, so the warmup rests and the session starts at your next stop."}
+          {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished; the session is a review round."}
+          {" "}{totalPathDone} of {totalPathLessons} path lessons done so far.
         </p>
-        <button className="lv-btn lv-btn-primary" onClick={startDaily} disabled={!dailyReady}
+        <button className="lv-btn lv-btn-primary" onClick={startBundle} disabled={!bundleReady}
           style={{
             background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
             padding: "13px 24px", fontSize: FONT_SIZES.body, fontWeight: 700,
-            cursor: dailyReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
-            opacity: dailyReady ? 1 : 0.5,
+            cursor: bundleReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
+            opacity: bundleReady ? 1 : 0.5,
           }}>
           Start daily practice
         </button>
       </div>
 
-      {/* learning paths */}
+      {/* the review bench: review as a place, with its due count
+          on the door */}
+      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REVIEW BENCH</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
+          {reviewDueCount > 0
+            ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due for review: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
+            : "Nothing is due right now. Finished lessons land here as they start to fade, and scheduled questions arrive on their own timing."}
+        </p>
+        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+          Review is what makes lessons stay. It pays at the usual rates, and finishing a fading lesson's review brings it back to full strength on the map.
+        </p>
+        <button className="lv-btn lv-btn-primary" onClick={startReview} disabled={reviewDueCount === 0}
+          style={{
+            background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
+            padding: "13px 24px", fontSize: FONT_SIZES.body, fontWeight: 700,
+            cursor: reviewDueCount > 0 ? "pointer" : "default", fontFamily: "var(--cb-font)",
+            opacity: reviewDueCount > 0 ? 1 : 0.5,
+          }}>
+          Start review{reviewDueCount > 0 ? " (" + reviewDueCount + " due)" : ""}
+        </button>
+      </div>
+
+      {/* the journey: paths as places, units as regions, lessons
+          as stops. Filled ground is knowledge the learner owns;
+          a dashed, dimmed stop is finished ground whose review
+          has come due, so review due shows on the map itself. */}
       <div style={{ marginBottom: 30 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEARNING PATHS</div>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 16px" }}>
-          Whole subjects, taught step by step. Lessons are short, the activities are the teaching, and nothing here needs a search to start. Every lesson teaches first, then checks what stuck.
+        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, color: P.ink, margin: "0 0 8px", lineHeight: 1.25 }}>Your journey</h2>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 10px" }}>
+          Whole subjects, taught step by step, laid out as places to travel. Every lesson teaches first, then checks what stuck, and nothing here needs a search to start.
         </p>
-        <div className="lv-catalog">
-          {LEARNING_PATHS.map((path) => {
-            const pp = pathProgress(path, builtinProgress);
-            const cat = CATALOG.find((c) => c.name === path.category) || null;
-            return (
-              <button key={path.id} className="lv-topic" onClick={() => setScreen({ name: "bpath", pathId: path.id })}
-                style={{
-                  textAlign: "left", cursor: "pointer", padding: 0, overflow: "hidden",
-                  background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
-                  fontFamily: "var(--cb-font)", color: P.ink,
-                }}>
-                <Cover title={path.title} height={104} radius={0} cat={cat} />
-                <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{path.title}</span>
-                  <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{path.blurb}</span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-                    <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
-                      <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pp.pct + "%" }} />
-                    </span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>
-                      {pp.complete ? "Complete" : pp.done > 0 ? pp.done + " of " + pp.total : pp.total + " lessons"}
-                    </span>
+        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
+          How to read the map: a filled stop is ground you own. The outlined stop is where you are. A dashed stop marked fading is a finished lesson whose review has come due; it is still yours, and a visit to the review bench brings it back.
+        </p>
+        {LEARNING_PATHS.map((path) => {
+          const pp = pathProgress(path, builtinProgress);
+          const flat = flattenPathLessons(path);
+          let stopNo = -1;
+          return (
+            <div key={path.id} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 22, padding: "20px 20px 10px", marginBottom: 18 }}>
+              <button onClick={() => setScreen({ name: "bpath", pathId: path.id })}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--cb-font)", color: P.ink }}>
+                <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, lineHeight: 1.3 }}>{path.title}</span>
+                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, flexShrink: 0 }}>
+                    {pp.complete ? "Complete" : pp.done > 0 ? pp.done + " of " + pp.total + " stops" : pp.total + " stops"}
                   </span>
                 </span>
+                <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, marginTop: 4 }}>{path.blurb}</span>
+                <span style={{ display: "block", height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", marginTop: 10 }}>
+                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pp.pct + "%" }} />
+                </span>
               </button>
-            );
-          })}
-        </div>
+              {path.units.map((unit, ui) => {
+                const unitOwned = unit.lessons.every((l) => progressStore[l.id] && progressStore[l.id].done);
+                return (
+                  <div key={unit.id} style={{
+                    marginTop: 16, borderRadius: 16, padding: "12px 12px 2px",
+                    background: unitOwned ? withAlphaSafe(accent, P.dark ? 0.13 : 0.08) : "transparent",
+                    border: "1px solid " + (unitOwned ? accent : "transparent"),
+                  }}>
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: unitOwned ? accent : P.faint, marginBottom: 10, paddingLeft: 4 }}>
+                      UNIT {ui + 1} · {unit.title.toUpperCase()}{unitOwned ? " · YOURS" : ""}
+                    </div>
+                    {unit.lessons.map((lesson) => {
+                      stopNo += 1;
+                      const myStop = stopNo;
+                      const rec = progressStore[lesson.id];
+                      const isDone = !!(rec && rec.done);
+                      const mastered = isLessonMastered(rec);
+                      const fading = isLessonFading(rec);
+                      const unlocked = isLessonUnlocked(path, lesson.id, builtinProgress);
+                      const isCurrent = unlocked && !isDone;
+                      return (
+                        <div key={lesson.id} style={{ display: "flex", gap: 13, alignItems: "flex-start", marginBottom: 12 }}>
+                          <span aria-hidden="true" className={isCurrent ? "lv-pulse" : ""}
+                            style={{
+                              flexShrink: 0, width: 40, height: 40, borderRadius: "50%", marginTop: 2,
+                              background: isDone ? accent : P.bg,
+                              border: (fading ? "2px dashed " : "2px solid ") + (isDone || isCurrent ? accent : P.line),
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              color: isDone ? (at || "#101408") : isCurrent ? accent : P.faint,
+                              fontWeight: 800, fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)",
+                              opacity: fading ? 0.7 : 1,
+                            }}>
+                            {isDone ? (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                            ) : unlocked ? myStop + 1 : (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke="currentColor" strokeWidth="2" />
+                                <path d="M8 10.5 V7.8 a4 4 0 0 1 8 0 v2.7" stroke="currentColor" strokeWidth="2" />
+                              </svg>
+                            )}
+                          </span>
+                          <button className="lv-node"
+                            onClick={() => { if (unlocked) startBuiltinLesson(path, myStop); else setScreen({ name: "bpath", pathId: path.id }); }}
+                            style={{
+                              flex: 1, minWidth: 0, display: "block", textAlign: "left", cursor: "pointer",
+                              background: P.bg, border: "1px solid " + (isCurrent ? accent : P.line), borderRadius: 14,
+                              padding: "11px 14px", fontFamily: "var(--cb-font)", color: P.ink,
+                              opacity: unlocked ? 1 : 0.6,
+                            }}>
+                            <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                              <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 700, lineHeight: 1.3 }}>{lesson.title}</span>
+                              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", color: isDone || isCurrent ? accent : P.faint, flexShrink: 0 }}>
+                                {mastered ? "MASTERED" : fading ? "FADING" : isDone ? "DONE" : isCurrent ? "NEXT STOP" : "LOCKED"}
+                              </span>
+                            </span>
+                            <span style={{ display: "block", color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.45, marginTop: 3 }}>
+                              {fading ? "Finished, and its review is due." : lesson.subtitle}
+                            </span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
 
       {/* courses from searches: heading for everything below */}
@@ -5807,6 +6598,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           {CATALOG.filter((c) => catFilter === "All" || catFilter === c.name).flatMap((cat) => cat.topics.map((t) => ({ cat, t }))).map(({ cat, t }) => {
             const topicPath = topicPathFor(t.t);
             const tpp = topicPath ? pathProgress(topicPath, builtinProgress) : null;
+            const mastery = topicPath ? topicMasteryLevel(topicPath, builtinProgress) : 0;
             return (
               <button key={cat.name + t.t} className="lv-topic"
                 onClick={() => { if (topicPath) setScreen({ name: "bpath", pathId: topicPath.id }); }}
@@ -5819,6 +6611,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
                   <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{t.t}</span>
                   <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
+                  {mastery > 0 && (
+                    <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, marginTop: 8 }}>
+                      Mastery level {mastery} of 5
+                    </span>
+                  )}
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
                     <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", color: P.faint }}>{cat.name.toUpperCase()}</span>
                     <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>{tpp && tpp.complete ? "Complete" : tpp && tpp.done > 0 ? tpp.done + " of " + tpp.total : "Start"}</span>
@@ -5861,6 +6658,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         )}
       </div>
 
+      {/* courses from your searches: the builder, and the library
+          of courses it has built for you */}
+      <div style={{ marginBottom: 4 }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
+          Ask about anything in Search, or name a topic below, and Cortex turns it into taught lessons with checks. The courses you build live here, under the journey, where they belong.
+        </p>
+      </div>
+
       {/* topic builder */}
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>BUILD A COURSE</div>
@@ -5890,6 +6696,52 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
         {buildError && <p style={{ color: "#FF8A8A", fontSize: FONT_SIZES.body, margin: "12px 0 0" }}>{buildError}</p>}
       </div>
+
+      {/* library */}
+      {courses.length === 0 ? (
+        <div style={{ border: "1px dashed " + P.line, borderRadius: 20, padding: "38px 28px", textAlign: "center" }}>
+          <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
+          <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
+            Build one above, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
+          </p>
+          <button onClick={() => onNavigate && onNavigate("search")}
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            Go to Search
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, margin: "6px 0 14px" }}>YOUR COURSES</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
+            {courses.map((course) => {
+              const mem = memoryState(course, claims);
+              const doneCount = (course.doneLessons || []).length;
+              return (
+                <button key={course.id} onClick={() => setScreen({ name: "path", courseId: course.id })}
+                  style={{
+                    textAlign: "left", cursor: "pointer", padding: 0, overflow: "hidden",
+                    background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
+                    fontFamily: "var(--cb-font)", color: P.ink,
+                  }}>
+                  <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
+                  <span style={{ display: "block", padding: "15px 18px 17px" }}>
+                    <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "block", marginTop: 4 }}>
+                      {course.lessons.length} lessons · {(course.vocab || []).length} terms
+                    </span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+                      <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
+                        <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: (course.lessons.length ? Math.round((doneCount / course.lessons.length) * 100) : 0) + "%" }} />
+                      </span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: mem.pct > 0 || doneCount > 0 ? accent : P.faint, fontWeight: 600 }}>{mem.label}</span>
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* contributor studio */}
       {access.isCreator && (
@@ -5974,51 +6826,6 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
       )}
 
-      {/* library */}
-      {courses.length === 0 ? (
-        <div style={{ border: "1px dashed " + P.line, borderRadius: 20, padding: "38px 28px", textAlign: "center" }}>
-          <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
-          <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
-            Build one above, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
-          </p>
-          <button onClick={() => onNavigate && onNavigate("search")}
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-            Go to Search
-          </button>
-        </div>
-      ) : (
-        <>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, margin: "6px 0 14px" }}>YOUR COURSES</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
-            {courses.map((course) => {
-              const mem = memoryState(course, claims);
-              const doneCount = (course.doneLessons || []).length;
-              return (
-                <button key={course.id} onClick={() => setScreen({ name: "path", courseId: course.id })}
-                  style={{
-                    textAlign: "left", cursor: "pointer", padding: 0, overflow: "hidden",
-                    background: P.raised, border: "1px solid " + P.line, borderRadius: 20,
-                    fontFamily: "var(--cb-font)", color: P.ink,
-                  }}>
-                  <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
-                  <span style={{ display: "block", padding: "15px 18px 17px" }}>
-                    <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
-                    <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "block", marginTop: 4 }}>
-                      {course.lessons.length} lessons · {(course.vocab || []).length} terms
-                    </span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
-                      <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
-                        <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: (course.lessons.length ? Math.round((doneCount / course.lessons.length) * 100) : 0) + "%" }} />
-                      </span>
-                      <span style={{ fontSize: FONT_SIZES.caption, color: mem.pct > 0 || doneCount > 0 ? accent : P.faint, fontWeight: 600 }}>{mem.label}</span>
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
     </div>
   );
 }
