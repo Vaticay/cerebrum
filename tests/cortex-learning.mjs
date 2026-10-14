@@ -51,7 +51,7 @@ const ast = parse(learnSrc, { sourceType: "module", plugins: ["jsx"] });
 const WANTED = [
   "hashStr", "seededShuffle", "cleanText",
   "mkNote", "mkQuiz", "mkTrueFalse", "mkMatch", "mkOrder", "mkDeepen",
-  "LEARNING_PATHS", "CATALOG", "INTERACTIVE_KINDS", "isInteractiveCard",
+  "LEARNING_PATHS", "CATALOG", "TOPIC_COURSES", "topicPathFor", "INTERACTIVE_KINDS", "isInteractiveCard",
   "flattenPathLessons", "isLessonUnlocked", "pathProgress",
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
   "MASTERY_MIN_PCT", "isLessonMastered", "orderScore", "parseRichText",
@@ -94,7 +94,7 @@ const js = transformSync(chunks.join("\n") + epilogue, { loader: "jsx" }).code;
 const context = vm.createContext({});
 vm.runInContext(js, context);
 const {
-  LEARNING_PATHS, CATALOG, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
+  LEARNING_PATHS, CATALOG, TOPIC_COURSES, topicPathFor, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
   pathProgress, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
   MASTERY_MIN_PCT, isLessonMastered, orderScore, parseRichText, TOUR_STEPS,
   focusTrapStep, cleanText,
@@ -102,7 +102,7 @@ const {
   matchScore, lessonXpScale, scaleXp,
   COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, SOUND_KEY, BUILTIN_PROGRESS_KEY,
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
-  applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf,
+  applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf, normKey,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -672,12 +672,12 @@ await test("the tour opens with the learning paths", () => {
   assert.ok(!learnSrc.includes("Pick a course, or build one"), "the old course first tour step survived");
 });
 
-await test("home leads with learning and shelves come after", () => {
+await test("home leads with learning and topic courses come after", () => {
   const daily = learnSrc.indexOf("DAILY PRACTICE");
   const paths = learnSrc.indexOf("LEARNING PATHS");
-  const shelves = learnSrc.indexOf("COURSES FROM YOUR SEARCHES");
+  const shelves = learnSrc.indexOf("TOPIC COURSES");
   assert.ok(daily > 0 && paths > daily, "daily practice should sit above the paths grid");
-  assert.ok(shelves > paths, "courses from searches should sit below the paths");
+  assert.ok(shelves > paths, "topic courses should sit below the paths");
   assert.ok(learnSrc.includes("cerebrum-learn2-progress"), "built in progress storage key missing");
   assert.ok(learnSrc.includes("Start daily practice"), "daily practice entry missing");
 });
@@ -1006,14 +1006,18 @@ await test("generated card text renders through RichText on the card surfaces", 
 // ─═════════════════════════════════════════════════════════════════
 group("Tour honesty, the builtin source note, and catalog blurbs");
 
-await test("the tour scopes its claims to the learners they describe", () => {
-  assert.ok(TOUR_STEPS[1].body.includes("enough findings"), "the pretest step does not name its condition");
-  assert.ok(!TOUR_STEPS[2].body.includes("Cortex grades you against the paper itself"),
-    "the check step still promises paper grading to every learner");
-  assert.ok(TOUR_STEPS[2].body.includes("built from a search"), "the check step does not scope paper quoting to search courses");
-  assert.ok(TOUR_STEPS[2].body.includes("standard textbook material"), "the check step does not say what path checks do instead");
-  assert.ok(TOUR_STEPS[3].body.includes("built from papers"), "the review step does not scope claims to search courses");
-  assert.ok(TOUR_STEPS[3].body.includes("daily practice"), "the review step does not say how path lessons stay fresh");
+await test("the tour describes taught lessons and real quizzes, with no paper talk", () => {
+  // Pivot contract (2026-10-13): the tour once scoped paper grading and
+  // paper quoting claims per learner kind. Courses no longer reference
+  // papers at all, so the tour now describes the one flow every course
+  // shares: teach plainly, then quiz what was taught.
+  assert.ok(TOUR_STEPS[1].body.includes("only then quizzes you on it"), "the teach step does not promise teaching before quizzing");
+  assert.ok(TOUR_STEPS[2].body.includes("standard textbook material"), "the catalog step does not name the textbook standard");
+  assert.ok(TOUR_STEPS[2].body.includes("built from a search"), "the catalog step does not mention search built courses");
+  assert.ok(!TOUR_STEPS.some((s) => (s.title + " " + s.body).includes("Cortex grades you against the paper itself")),
+    "the tour still promises paper grading somewhere");
+  assert.ok(TOUR_STEPS[3].body.includes("daily practice"), "the review step does not say how lessons stay fresh");
+  assert.ok(TOUR_STEPS[3].body.includes("review schedule"), "the review step does not name the review schedule");
 });
 
 await test("builtin lessons carry an honest source note, with no invented citation", () => {
@@ -1085,6 +1089,8 @@ await test("a generated quiz offers restatements only, with the verbatim finding
       `an option opens with the finding's own words: ${opt.slice(0, 40)}`);
   }
   assert.equal(card.why, CLAIM_TRIAL.text, "the feedback quote must stay the verbatim finding");
+  assert.equal(card.cite, undefined, "a generated quiz card still carries a citation");
+  assert.equal(card.paperTitle, undefined, "a generated quiz card still carries a paper title");
 });
 
 await test("quiz options sit in one length band around the answer", () => {
@@ -1140,6 +1146,147 @@ await test("cloze keeps its shape: the value is the question, the quote stays in
   assert.ok(card.prompt.includes("_____"), "the cloze prompt does not blank the value");
   assert.equal(card.options[card.correct], "23%", "the cloze answer is not the finding's value");
   assert.equal(card.why, CLAIM_TRIAL.text, "cloze feedback must quote the finding verbatim");
+});
+
+
+group("Catalog topic courses: taught lessons, real quizzes");
+
+const topicLessons = TOPIC_COURSES.flatMap((p) =>
+  flattenPathLessons(p).map((l) => ({ path: p, lesson: l })));
+const topicCardsFlat = [];
+for (const { path, lesson } of topicLessons) {
+  for (const card of lesson.cards) topicCardsFlat.push({ path, lesson, card });
+}
+const TC_STOP = new Set(["the", "a", "an", "of", "to", "in", "on", "and", "or", "is", "are", "it", "its", "that", "this", "with", "for", "from", "by", "as", "at", "be", "can", "not", "but", "so", "than", "then", "when", "which", "what", "who", "how", "why", "into", "over", "after", "before", "about", "their", "they", "them", "one", "two", "all", "any", "each", "more", "most", "some", "such", "own", "our", "your", "you", "yourself", "only", "also", "just", "even", "still", "every", "both"]);
+const tcWords = (s) => [...new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 4 && !TC_STOP.has(w)))];
+const tcCardText = (c) => [c.title, c.kicker, c.text, c.question, c.statement, c.prompt, c.why, ...(c.options || []), ...(c.pairs || []).flatMap((p) => [p.left, p.right])].filter(Boolean).join(" ");
+const tcDisplayStrings = [];
+for (const p of TOPIC_COURSES) {
+  tcDisplayStrings.push(p.title, p.blurb);
+  for (const u of p.units) {
+    tcDisplayStrings.push(u.title, u.subtitle);
+    for (const l of u.lessons) {
+      tcDisplayStrings.push(l.title, l.subtitle);
+      for (const c of l.cards) tcDisplayStrings.push(tcCardText(c));
+    }
+  }
+}
+
+await test("every one of the 24 catalog topics has exactly one authored topic course", () => {
+  const topics = CATALOG.flatMap((c) => c.topics.map((t) => ({ shelf: c.name, title: t.t })));
+  assert.equal(topics.length, 24, `expected 24 catalog topics, found ${topics.length}`);
+  assert.equal(TOPIC_COURSES.length, 24, `expected 24 topic courses, found ${TOPIC_COURSES.length}`);
+  for (const { shelf, title } of topics) {
+    const matches = TOPIC_COURSES.filter((p) => p.title === title);
+    assert.equal(matches.length, 1, `topic "${title}" has ${matches.length} courses`);
+    assert.equal(matches[0].category, shelf, `"${title}" sits on the wrong shelf`);
+    assert.equal(topicPathFor(title), matches[0], `topicPathFor does not resolve "${title}"`);
+  }
+});
+
+await test("each topic course is 3 lessons of 5 to 8 cards, teaching lessons open with a note", () => {
+  for (const { path, lesson } of topicLessons) {
+    assert.ok(lesson.cards.length >= 5 && lesson.cards.length <= 8,
+      `${path.title} / ${lesson.title} has ${lesson.cards.length} cards`);
+    const interactive = lesson.cards.filter(isInteractiveCard).length;
+    assert.ok(interactive >= 3, `${path.title} / ${lesson.title} has only ${interactive} interactive cards`);
+  }
+  for (const p of TOPIC_COURSES) {
+    const lessons = flattenPathLessons(p);
+    assert.equal(lessons.length, 3, `${p.title} has ${lessons.length} lessons`);
+    assert.equal(lessons[0].cards[0].kind, "note", `${p.title} lesson 1 does not open with teaching`);
+    assert.equal(lessons[1].cards[0].kind, "note", `${p.title} lesson 2 does not open with teaching`);
+    assert.ok(lessons[2].cards.every(isInteractiveCard), `${p.title} review lesson is not all checks`);
+  }
+});
+
+await test("every quiz answer in a topic course is covered by an earlier card in the same course", () => {
+  // Coverage is vocabulary based, with two honest allowances: word
+  // families count as one word (bacteria covers bacterial, via a six
+  // letter stem), and glue words carry no topic. A correct option
+  // must still reuse at least half its content words from earlier
+  // cards in the same course; a question about untaught material
+  // (the failure this fixture exists to catch) scores near zero.
+  // True statements must restate taught words the same way; for a
+  // FALSE statement the check lands on its correction instead: the
+  // why must speak the taught language, and the statement must at
+  // least be about the taught topic.
+  const GLUE = new Set("the a an of to in on and or is are it its that this with for from by as at be can not but so than then when which what who how why into over after before about their they them one two all any each more most some such own our your you yourself only also just even still every both against between while during without within across around among along upon onto makes make made gets get got goes going come comes came take takes took give gives gave keep keeps kept used using uses way ways thing things kind kinds part parts back away together alone almost nearly really quite rather instead indeed perhaps probably sometimes usually often always never ever yet already means much same fully several".split(" "));
+  const cwords = (s) => [...new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 4 && !GLUE.has(w)))];
+  const covered = (w, seen) => seen.includes(w) || (w.length >= 6 && seen.includes(w.slice(0, 6)));
+  const cov = (text, seen) => { const need = cwords(text); if (!need.length) return 1; return need.filter((w) => covered(w, seen)).length / need.length; };
+  for (const p of TOPIC_COURSES) {
+    let seen = "";
+    for (const lesson of flattenPathLessons(p)) {
+      for (const card of lesson.cards) {
+        if (card.kind === "truefalse") {
+          if (card.answer === true) {
+            assert.ok(cov(card.statement, seen) >= 0.5,
+              `${p.title}: true statement is not a restatement of taught material: ${card.statement.slice(0, 50)}`);
+          } else {
+            assert.ok(cwords(card.statement).some((w) => covered(w, seen)),
+              `${p.title}: false statement is not even about the taught topic: ${card.statement.slice(0, 50)}`);
+            assert.ok(cov(card.why, seen) >= 0.5,
+              `${p.title}: the correction of a false statement does not speak the taught language: ${card.statement.slice(0, 50)}`);
+          }
+        } else if (card.options && card.correct != null) {
+          assert.ok(cov(card.options[card.correct], seen) >= 0.5,
+            `${p.title}: quiz "${String(card.question).slice(0, 40)}" answer is not taught before it is asked`);
+        }
+        if (card.kind === "match") {
+          for (const pair of card.pairs) {
+            const lw = cwords(pair.left);
+            if (lw.length) assert.ok(lw.some((w) => covered(w, seen)),
+              `${p.title}: match term "${pair.left}" was never named in an earlier card`);
+          }
+        }
+        seen = (seen + " " + tcCardText(card).toLowerCase()).trim();
+      }
+    }
+  }
+});
+
+await test("no topic course string references papers, findings, citations, years, or dashes", () => {
+  for (const s of tcDisplayStrings) {
+    assert.ok(!/\bet al\b/i.test(s), `citation pattern in topic text: ${s.slice(0, 60)}`);
+    assert.ok(!/\[(\d+)\]/.test(s), `bracket citation in topic text: ${s.slice(0, 60)}`);
+    assert.ok(!/\b(19|20)\d{2}\b/.test(s), `a year in topic text: ${s.slice(0, 60)}`);
+    assert.ok(!/\bpaper(s)?\b/i.test(s), `paper talk in topic text: ${s.slice(0, 60)}`);
+    assert.ok(!/\bfinding(s)?\b/i.test(s), `finding talk in topic text: ${s.slice(0, 60)}`);
+    assert.ok(!/\bliterature\b/i.test(s), `literature talk in topic text: ${s.slice(0, 60)}`);
+    assert.ok(!s.includes("-") && !s.includes("\u2014") && !s.includes("\u2013"), `a dash in topic text: ${s.slice(0, 60)}`);
+  }
+});
+
+await test("topic quizzes are real quizzes: four fresh options, in band, none opening with a digit", () => {
+  for (const { path, card } of topicCardsFlat) {
+    if (!card.options || card.kind === "truefalse") continue;
+    assert.equal(card.options.length, 4, `${path.title}: "${String(card.question).slice(0, 40)}" has ${card.options.length} options`);
+    const keys = card.options.map(normKey);
+    assert.equal(new Set(keys).size, keys.length, `${path.title}: duplicate option text in "${String(card.question).slice(0, 40)}"`);
+    assert.ok(Number.isInteger(card.correct) && card.correct >= 0 && card.correct < 4, `${path.title}: bad correct index`);
+    assert.ok(card.why && card.why.length > 10, `${path.title}: a check has no real explanation`);
+    // The anti gaming rule for authored sets: options are comparable
+    // to each other (longest at most triple the shortest), and the
+    // correct option is never the unique extreme, at least one
+    // distractor sits within 0.6 to 1.67 of its length. Length alone
+    // must not name the answer.
+    const lens = card.options.map((o) => o.length);
+    const ref = lens[card.correct];
+    assert.ok(Math.max(...lens) <= Math.min(...lens) * 3,
+      `${path.title}: option lengths spread too wide in "${String(card.question).slice(0, 40)}": ${lens.join(", ")}`);
+    assert.ok(card.options.some((o, i) => i !== card.correct && o.length >= ref * 0.6 && o.length <= ref * 1.67),
+      `${path.title}: the correct option stands alone by length in "${String(card.question).slice(0, 40)}"`);
+    for (const opt of card.options) {
+      assert.ok(!/^\d/.test(opt), `${path.title}: an option opens with a digit: ${opt.slice(0, 40)}`);
+    }
+  }
+});
+
+await test("the learning flow carries no paper machinery at all", () => {
+  assert.ok(!learnSrc.includes("THE FINDING"), "the feedback sheet still has a finding label");
+  assert.ok(!learnSrc.includes("FROM THE LITERATURE"), "a reading card label survived");
+  assert.ok(!learnSrc.includes("papers in this course"), "a paper count survived in course stats");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
