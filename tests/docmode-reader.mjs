@@ -637,9 +637,10 @@ await test("the disclosure renders under Q&A answers in both reader surfaces and
   assert.equal(qaNotes, 2, "both Q&A render sites must render the truncation note; found " + qaNotes);
   assert.match(src, /promptTruncationNote\(compareResult\.promptTruncation, "comparison"\)/, "compare result does not render the truncation note");
   // Every render is gated on the field itself, so a null field (nothing
-  // cut) renders nothing anywhere.
+  // cut) renders nothing anywhere. Four sites: the two Q&A surfaces,
+  // the comparison, and the summary masthead.
   const gates = src.split("promptTruncation.documentShortened ? (").length - 1;
-  assert.equal(gates, 3, "all three render sites must gate on documentShortened; found " + gates);
+  assert.equal(gates, 4, "all four render sites must gate on documentShortened; found " + gates);
 });
 
 await test("the note is gated on documentShortened, names the omitted count, and is dash free", async () => {
@@ -656,6 +657,75 @@ await test("the note is gated on documentShortened, names the omitted count, and
   // covers the whole helper (body plus its returns), so any hyphen,
   // en dash, or em dash in the wording fails here.
   assert.ok(!/[-\u2010-\u2015]/.test(fn), "note copy must contain no dash characters");
+});
+
+// ── answerTruncated + evidence: cut short text and the claim trail ──
+group("answerTruncated and evidence — the desk renders the backend's honesty flags");
+
+await test("Q&A entries carry answerTruncated and evidence off the result", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // streamDocumentApi resolves with the whole done payload; the
+  // backend puts answerTruncated and evidence on Q&A results. The
+  // desk's history entry must keep both the way it keeps
+  // promptTruncation, or the flags die at the state boundary.
+  // askFollowUp is the one landing for Q&A entries; the comparison
+  // keeps its own narrower shape (its evidence offsets index the
+  // combined two document text, which neither pane displays).
+  assert.ok(src.includes("answerTruncated: !!(result && result.answerTruncated), evidence: (result && Array.isArray(result.evidence)) ? result.evidence : []"),
+    "askFollowUp entry drops answerTruncated or evidence");
+});
+
+await test("the summary needs no state change: its result is stored whole and the masthead reads the flags off it", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  assert.match(src, /setSummary\(result\);/, "analyze does not store the whole summary result");
+  assert.match(src, /answerTruncatedNote\(summary\.answerTruncated, "summary"\)/, "summary masthead does not render the cut short note");
+  assert.match(src, /promptTruncationNote\(summary\.promptTruncation, "summary"\)/, "summary masthead does not render the prompt truncation note");
+  // The cut short summary notice wears the same notice dress as the
+  // masthead's other completeness disclosures.
+  assert.match(src, /\{summary\.answerTruncated && \(\s*<div role="note"/, "summary cut short notice is not a masthead note");
+});
+
+await test("the cut short note renders under Q&A answers in both reader surfaces", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const hits = src.split('answerTruncatedNote(h.answerTruncated, "answer")').length - 1;
+  assert.equal(hits, 2, "both Q&A render sites must render the cut short note; found " + hits);
+  const gates = src.split("h.answer && h.answerTruncated ? (").length - 1;
+  assert.equal(gates, 2, "both Q&A cut short renders must gate on the entry's flag; found " + gates);
+});
+
+await test("the cut short note is gated on the flag and dash free", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const at = src.indexOf("function answerTruncatedNote");
+  assert.ok(at > 0, "answerTruncatedNote helper missing");
+  const fn = src.slice(at, src.indexOf("\n}", at) + 2);
+  assert.match(fn, /if \(!flag\) return null;/, "note must return null when the flag is off");
+  assert.match(fn, /cut short at the length limit/, "note wording missing");
+  assert.match(fn, /may end abruptly/, "note must say the text may end abruptly");
+  assert.ok(!/[-\u2010-\u2015]/.test(fn), "note copy must contain no dash characters");
+});
+
+await test("the evidence trail renders under Q&A answers in both reader surfaces", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const hits = src.split("<DocEvidenceTrail evidence={h.evidence}").length - 1;
+  assert.equal(hits, 2, "both Q&A render sites must render the evidence trail; found " + hits);
+});
+
+await test("the trail component is honest: empty renders nothing, unverified never shows a location", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const at = src.indexOf("function DocEvidenceTrail");
+  assert.ok(at > 0, "DocEvidenceTrail component missing");
+  const fn = src.slice(at, src.indexOf("\nfunction NotebookMode", at));
+  // The empty contract: no entries, no section (the negative case).
+  assert.match(fn, /if \(!Array\.isArray\(evidence\) \|\| evidence\.length === 0\) return null;/, "trail must render nothing for an empty or absent trail");
+  // Verified entries show the backend's offsets; the unverified
+  // branch is a separate arm that names the quote as not found.
+  assert.match(fn, /e\.verified \? \(/, "trail must branch on the backend's verified flag");
+  assert.match(fn, /Found in the document, characters/, "verified entries must show their passage location");
+  assert.match(fn, /e\.match === "normalized"/, "normalized matches must be disclosed as spacing differences");
+  assert.match(fn, /Not found in the document\. Treat this quote with care\./, "unverified entries must be labelled as not found");
+  // The rendered output of this component, including that the
+  // unverified arm prints no offsets and the empty trail prints
+  // nothing at all, is pinned at render level in tests/ui-render.cjs.
 });
 
 // ── Edited documents: reading state goes stale, never resurrects ────

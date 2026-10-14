@@ -11,7 +11,7 @@ const fcSource = fs.readFileSync('src/flowcharts.jsx','utf8');
 const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall'];
+const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -20,7 +20,7 @@ const dsFunctions = dsAst.program.body
 const fcFunctions = fcAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length,7);
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length,9);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c});
 /* Extra stubs for the dialog-semantics renders below: the real React
@@ -112,4 +112,53 @@ console.log('Actual search-mode, shared-button and card components render in dar
  assert.match(call,/Accept/);
  assert.match(call,/Decline/);
  console.log('Incoming call card renders as a modal dialog with a focusable panel and both actions.');
+}
+
+/* ── Document Reader honesty surfaces, render level ──────────────────
+   The REAL DocEvidenceTrail and answerTruncatedNote from
+   CerebrumApp.jsx, rendered for real: the backend's evidence trail
+   (functions/api/document.js) shows each quoted passage with its
+   verified location, a normalized match is disclosed as a spacing
+   difference, and an unverified quote is labelled not found with NO
+   location printed, because its offsets are -1 and meaningless.
+   The negative cases matter as much: an empty or absent trail
+   renders nothing at all, and the cut short note is null when the
+   flag is off. */
+{
+ const P={dark:true,ink:'#eee',ink2:'#bbb',faint:'#999',line:'#444',line2:'#555',warn:'#b98a2f'};
+ const trail=renderToStaticMarkup(React.createElement(context.DocEvidenceTrail,{P,evidence:[
+  {quote:'Fifteen minutes in urban green space measurably restored directed attention.',start:120,end:197,verified:true,match:'exact'},
+  {quote:'Reaction time variability improved only in the park condition.',start:2048,end:2111,verified:true,match:'normalized'},
+  {quote:'Attention was fully restored within two minutes of exposure.',start:-1,end:-1,verified:false,match:null},
+ ]}));
+ assert.match(trail,/Evidence from the document/);
+ assert.match(trail,/Fifteen minutes in urban green space measurably restored directed attention\./);
+ assert.match(trail,/Found in the document, characters 120 to 197\./);
+ // Large offsets are formatted the way the surface formats counts.
+ assert.match(trail,/characters 2,048 to 2,111, with spacing that differs from the document\./);
+ assert.match(trail,/Attention was fully restored within two minutes of exposure\./);
+ assert.match(trail,/Not found in the document\. Treat this quote with care\./);
+ // The unverified entry's -1 offsets never reach the page.
+ assert.doesNotMatch(trail,/characters -1/);
+ console.log('Evidence trail renders exact, normalized, and unverified entries with honest locations.');
+
+ // A trail of ONLY an unverified entry prints no location anywhere.
+ const unv=renderToStaticMarkup(React.createElement(context.DocEvidenceTrail,{P,evidence:[
+  {quote:'A passage the model invented out of whole cloth.',start:-1,end:-1,verified:false,match:null},
+ ]}));
+ assert.match(unv,/Not found in the document/);
+ assert.doesNotMatch(unv,/characters/);
+ // Negative cases: no entries, no trail, not even the heading.
+ assert.equal(renderToStaticMarkup(React.createElement(context.DocEvidenceTrail,{P,evidence:[]})),'');
+ assert.equal(renderToStaticMarkup(React.createElement(context.DocEvidenceTrail,{P,evidence:undefined})),'');
+ assert.equal(renderToStaticMarkup(React.createElement(context.DocEvidenceTrail,{P})),'');
+ console.log('Evidence trail renders nothing when the trail is empty or absent.');
+
+ // The cut short note: null when the flag is off (the render sites
+ // then show nothing), the plain sentence when it is on.
+ assert.equal(context.answerTruncatedNote(false,'answer'),null);
+ assert.equal(context.answerTruncatedNote(undefined,'summary'),null);
+ assert.equal(context.answerTruncatedNote(true,'answer'),'This answer was cut short at the length limit, so it may end abruptly.');
+ assert.equal(context.answerTruncatedNote(true,'summary'),'This summary was cut short at the length limit, so it may end abruptly.');
+ console.log('Cut short note is null when the flag is off and plain when it is on.');
 }

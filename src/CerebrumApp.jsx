@@ -16498,6 +16498,55 @@ function promptTruncationNote(pt, what) {
   }
   return `Part of the document was left out of this ${what}.`;
 }
+/* Reader facing words for the backend's answerTruncated flag
+   (functions/api/document.js): the winning model call ended at its
+   length limit, so the text stops wherever the cap fell instead of
+   at a real ending, and the reader is owed that fact in the open.
+   Returns null when the flag is off; the render sites show nothing
+   then. House rule: no dashes of any kind in reader copy. */
+function answerTruncatedNote(flag, what) {
+  if (!flag) return null;
+  return `This ${what} was cut short at the length limit, so it may end abruptly.`;
+}
+/* The claim level evidence trail the backend ships on Q&A results
+   (functions/api/document.js, buildDocumentEvidence): every passage
+   the answer quotes, located in the document text or flagged
+   unverified:
+     [{ quote, start, end, verified, match }]
+   start and end are character offsets into the document text, end
+   exclusive, the same basis the reader's highlights use. match is
+   "exact" (the quote appears word for word), "normalized" (it
+   appears once runs of whitespace are collapsed; the offsets still
+   index the original text), or null when verified is false, in
+   which case start and end are -1 and no location may be shown.
+   An unverified quote is labelled as not found, never dressed as
+   grounded. Renders nothing when the trail is empty or absent, so
+   an answer without quoted passages carries no empty section. */
+function DocEvidenceTrail({ evidence, P }) {
+  if (!Array.isArray(evidence) || evidence.length === 0) return null;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 2 }}>Evidence from the document</div>
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+        The passages this answer quotes, checked against the document text.
+      </div>
+      {evidence.map((e, i) => (
+        <div key={i} style={{ padding: "9px 0", borderTop: `1px solid ${P.line}` }}>
+          <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)", fontStyle: "italic" }}>{e.quote}</div>
+          {e.verified ? (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4 }}>
+              Found in the document, characters {Number(e.start).toLocaleString()} to {Number(e.end).toLocaleString()}{e.match === "normalized" ? ", with spacing that differs from the document" : ""}.
+            </div>
+          ) : (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.warn || "#b98a2f", fontFamily: "var(--cb-font)", marginTop: 4 }}>
+              Not found in the document. Treat this quote with care.
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
@@ -16558,7 +16607,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   /* Premium pass: the composer input lights its border on focus. */
   const [qaFocus, setQaFocus] = useState(false);
   const [qaBusy, setQaBusy] = useState(false);
-  const [qaHistory, setQaHistory] = useState([]); // [{ query, answer, model, promptTruncation, budgetExhausted, errorMsg }]
+  const [qaHistory, setQaHistory] = useState([]); // [{ query, answer, model, promptTruncation, budgetExhausted, answerTruncated, evidence, errorMsg }]
   const [hoverCite, setHoverCite] = useState(null);
   const [extractingPdf, setExtractingPdf] = useState(false);
   const fileInputRef = useRef(null);
@@ -17043,7 +17092,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       if (qaGen !== docGen.current) return;
       const finalText = result && result.answer ? result.answer : "";
-      const entry = { query: q, answer: finalText, model: (result && result.model) || null, promptTruncation: (result && result.promptTruncation) || null, budgetExhausted: !!(result && result.budgetExhausted) };
+      const entry = { query: q, answer: finalText, model: (result && result.model) || null, promptTruncation: (result && result.promptTruncation) || null, budgetExhausted: !!(result && result.budgetExhausted), answerTruncated: !!(result && result.answerTruncated), evidence: (result && Array.isArray(result.evidence)) ? result.evidence : [] };
       setQaHistory((h) => (retireStaleQa ? [entry] : h.map((x, i) => (i === h.length - 1 ? entry : x))));
       if (retireStaleQa) setAnalysisText(srcText);
     } catch (e) {
@@ -17899,6 +17948,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     {h.answer && h.promptTruncation && h.promptTruncation.documentShortened ? (
                       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{promptTruncationNote(h.promptTruncation, "answer")}</div>
                     ) : null}
+                    {h.answer && h.answerTruncated ? (
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{answerTruncatedNote(h.answerTruncated, "answer")}</div>
+                    ) : null}
+                    {h.answer ? <DocEvidenceTrail evidence={h.evidence} P={P} /> : null}
                   </div>
                 ))}
                 <div style={{ display: "flex", gap: 8, marginTop: qaHistory.length ? 16 : 0, alignItems: "flex-end" }}>
@@ -17989,6 +18042,21 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   The monthly AI token budget is used up, so this is a basic extract of key passages rather than an AI synthesis.
                 </div>
               )}
+              {/* The summary's own writing was cut at the length limit:
+                  the backend's answerTruncated flag, in the same notice
+                  dress as the two disclosures above. */}
+              {summary.answerTruncated && (
+                <div role="note" style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "8px 12px", lineHeight: 1.55 }}>
+                  {answerTruncatedNote(summary.answerTruncated, "summary")}
+                </div>
+              )}
+              {/* The prompt fitting cut rides the summary result too
+                  (runSummary's promptTruncation): the same quiet line
+                  the Q&A and compare surfaces render, so a summary is
+                  never mistaken for a full read of a long document. */}
+              {summary.promptTruncation && summary.promptTruncation.documentShortened ? (
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 10 }}>{promptTruncationNote(summary.promptTruncation, "summary")}</div>
+              ) : null}
               {/* The report's table of contents: every section the read
                   promises, marked present or honestly missing, each one
                   a jump to its tab. */}
@@ -18164,6 +18232,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       {h.answer && h.promptTruncation && h.promptTruncation.documentShortened ? (
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{promptTruncationNote(h.promptTruncation, "answer")}</div>
                       ) : null}
+                      {h.answer && h.answerTruncated ? (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{answerTruncatedNote(h.answerTruncated, "answer")}</div>
+                      ) : null}
+                      {h.answer ? <DocEvidenceTrail evidence={h.evidence} P={P} /> : null}
                     </div>
                   ))}
                 </>
