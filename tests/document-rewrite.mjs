@@ -674,6 +674,82 @@ await test("the extractive fallback's passages verify against the document", asy
   assert.ok(result.evidence.every((e) => e.verified), "extractive passages must all verify: " + JSON.stringify(result.evidence));
 });
 
+// ── evidence accounting: no quoted passage is silently dropped ──────────
+// The fourth panel found the two silent holes in the trail: a quote over
+// the 600 char verification bound vanished entirely (the extraction regex
+// could not even see it), and every quote past the 12 entry cap vanished
+// with it. Both exclusions are now entries — verified: false with a note
+// naming the reason — so the trail accounts for every quoted passage.
+group("evidence trail — exclusions are accounted, never silent");
+
+await test("a quote over the verification bound is accounted as too-long, not dropped", async () => {
+  const longQuote = "The longitudinal cohort followed 412 quokkas across nine field seasons and recorded nap duration, foraging range, and body mass at every capture, finding that " + "seasonal variation in nap duration tracked rainfall more closely than temperature, ".repeat(6) + "a pattern that held in every subpopulation studied.";
+  assert.ok(longQuote.length > 600, "fixture quote must exceed the verification bound");
+  const doc = "Introductory material about the reserve. " + longQuote + " Closing remarks about future work.";
+  const gen = async () => ({
+    answer: 'The study reports: "' + longQuote + '" That is the central finding.',
+    model: "fake-model",
+  });
+  const result = await document.runQA({}, doc, "What did the cohort find?", "", { generateFn: gen });
+  assert.equal(result.evidence.length, 1, "the over-long quote vanished from the trail");
+  const ev = result.evidence[0];
+  assert.equal(ev.quote, longQuote);
+  assert.equal(ev.verified, false);
+  assert.equal(ev.match, null);
+  assert.equal(ev.start, -1);
+  assert.equal(ev.end, -1);
+  assert.equal(ev.note, "too-long");
+});
+
+await test("an over-long quote does not corrupt the quotes that follow it", () => {
+  const longQuote = "word ".repeat(150).trim();
+  const answer = 'First "' + longQuote + '" and then "nap duration rose sharply in spring" as well.';
+  const quotes = document.extractAnswerQuotes(answer);
+  assert.equal(quotes.length, 2);
+  assert.equal(quotes[0], longQuote);
+  assert.equal(quotes[1], "nap duration rose sharply in spring");
+  const doc = "Field notes: nap duration rose sharply in spring across all sites.";
+  const trail = document.buildDocumentEvidence(doc, answer);
+  assert.equal(trail.length, 2);
+  assert.equal(trail[0].note, "too-long");
+  assert.equal(trail[1].verified, true);
+  assert.equal(trail[1].match, "exact");
+});
+
+await test("quotes past the checked cap are accounted as over-cap, not dropped", () => {
+  const passages = [];
+  const docParts = [];
+  for (let i = 1; i <= 14; i++) {
+    const p = "Finding number " + i + " states that nap duration changed measurably.";
+    passages.push(p);
+    docParts.push(p);
+  }
+  const doc = docParts.join(" ");
+  const trail = document.verifyDocumentPassages(doc, passages);
+  assert.equal(trail.length, 14, "quotes past the cap vanished from the trail");
+  for (let i = 0; i < 12; i++) {
+    assert.equal(trail[i].verified, true, "entry " + (i + 1) + " should have been checked and verified");
+    assert.equal(trail[i].note, undefined, "a checked entry carries no exclusion note");
+  }
+  for (let i = 12; i < 14; i++) {
+    assert.equal(trail[i].verified, false);
+    assert.equal(trail[i].note, "over-cap");
+    assert.equal(trail[i].start, -1);
+    assert.equal(trail[i].match, null);
+  }
+});
+
+await test("excluded passages dedupe like checked ones and do not consume checked slots", () => {
+  const longQuote = "filler ".repeat(100).trim();
+  const passages = [longQuote, longQuote];
+  for (let i = 1; i <= 12; i++) passages.push("Checked passage " + i + " with enough length to count.");
+  const doc = passages.slice(2).join(" ");
+  const trail = document.verifyDocumentPassages(doc, passages);
+  assert.equal(trail.length, 13, "the duplicated over-long quote must earn exactly one entry");
+  assert.equal(trail[0].note, "too-long");
+  assert.ok(trail.slice(1).every((e) => e.verified), "all 12 checked slots must still be used after an exclusion");
+});
+
 // ── finish_reason: a cut off answer says so ─────────────────────────────
 group("finish_reason — answerTruncated on every path");
 
@@ -699,6 +775,109 @@ await test("summary paths report answerTruncated from the winning call", async (
   assert.equal(reduced.answerTruncated, true);
   const extracted = await document.runSummary({}, short, { generateFn: alwaysFail });
   assert.equal(extracted.answerTruncated, false);
+});
+
+// ── Workers AI finish state: derived from usage, or honestly unknown ────
+// The fourth panel: callCF returned finishReason null unconditionally,
+// so a Workers AI win cut at its token cap reported answerTruncated
+// false — a confident negative the leg never gave. Now usage derives
+// the reason, and no usage surfaces the unknown in the stage detail.
+group("finish_reason — the Workers AI leg derives or discloses");
+
+await test("generate derives length from Workers AI usage at the sent cap", async () => {
+  let sentMaxTokens = null;
+  const env = {
+    AI: {
+      run: async (model, opts) => {
+        sentMaxTokens = opts.max_tokens;
+        return { response: "A complete sounding answer that in fact ran to the very end of its token allowance.", usage: { prompt_tokens: 120, completion_tokens: opts.max_tokens } };
+      },
+    },
+  };
+  const r = await document.generate(env, [{ role: "user", content: "Summarize this." }], 1000, {});
+  assert.equal(sentMaxTokens, 1000, "the CF leg must be sent the caller's cap (under the 2400 ceiling)");
+  assert.equal(r.finishReason, "length");
+  assert.equal(r.finishReasonKnown, true);
+});
+
+await test("generate derives stop from Workers AI usage under the cap", async () => {
+  const env = {
+    AI: {
+      run: async () => ({ response: "A short answer that finished well inside its token allowance, complete.", usage: { prompt_tokens: 90, completion_tokens: 25 } }),
+    },
+  };
+  const r = await document.generate(env, [{ role: "user", content: "Summarize this." }], 1000, {});
+  assert.equal(r.finishReason, "stop");
+  assert.equal(r.finishReasonKnown, true);
+});
+
+await test("generate reports the finish state unknown when Workers AI gives no usage", async () => {
+  const env = {
+    AI: {
+      run: async () => ({ response: "An answer of perfectly ordinary length with no usage block attached at all." }),
+    },
+  };
+  const r = await document.generate(env, [{ role: "user", content: "Summarize this." }], 1000, {});
+  assert.equal(r.finishReason, null);
+  assert.equal(r.finishReasonKnown, false);
+});
+
+await test("an unknown finish state surfaces in the Q&A stage detail, not as a confident negative", async () => {
+  const doc = "ATP production occurs in the mitochondria. The trial enrolled 40 quokkas.";
+  const genUnknown = async () => ({ answer: "A complete answer of ample length drawn from the document.", model: "fake-cf", finishReason: null, finishReasonKnown: false });
+  const result = await document.runQA({}, doc, "Where?", "", { generateFn: genUnknown });
+  assert.equal(result.answerTruncated, false);
+  assert.match(result.stageHealth[0].detail || "", /does not report whether it stopped at its length limit/);
+  const genKnown = async () => ({ answer: "A complete answer of ample length drawn from the document.", model: "fake-or", finishReason: "length", finishReasonKnown: true });
+  const result2 = await document.runQA({}, doc, "Where?", "", { generateFn: genKnown });
+  assert.equal(result2.answerTruncated, true);
+  assert.equal(result2.stageHealth[0].detail, undefined, "a leg that reports its finish state needs no unknown disclaimer");
+});
+
+await test("an unknown finish state surfaces in the summary and digest stage details", async () => {
+  const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
+  const genUnknown = async () => ({ answer: "## Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-cf", finishReason: null, finishReasonKnown: false });
+  const single = await document.runSummary({}, short, { generateFn: genUnknown });
+  assert.match(single.stageHealth[0].detail || "", /truncation is unknown/);
+  const paper = makePaper(60);
+  const digestUnknown = async (env, chunkText, i) => ({ answer: "Digest " + (i + 1) + ". " + "u".repeat(80), finishReason: null, finishReasonKnown: false });
+  const reduced = await document.runSummary({}, paper, { digest: digestUnknown, generateFn: genUnknown });
+  assert.equal(reduced.path, "mapreduce");
+  const digestStage = reduced.stageHealth.find((s) => s.name === "digest");
+  assert.match(digestStage.detail || "", /truncation is unknown/);
+  const chunks = document.chunkDocument(paper, 6000);
+  const agg = await document.summarizeChunks({}, chunks, null, { digest: digestUnknown });
+  assert.equal(agg.unknownFinishChunks.length, chunks.length);
+  assert.deepEqual(agg.lengthCutChunks, []);
+});
+
+// ── offset basis: the handler never trims the submitted text ────────────
+// The fourth panel: evidence offsets were measured on handler trimmed
+// text while the reader's highlights index the document as submitted,
+// so the numbers disagreed whenever a paste carried leading or trailing
+// whitespace. The handler now keeps the request body text exact, and
+// judges emptiness on a trimmed copy only.
+group("evidence trail — offsets index the submitted text");
+
+await test("the handler intake keeps body.documentText untrimmed and trims only for the empty check", async () => {
+  const src = await readFile(join(root, "functions/api/document.js"), "utf8");
+  assert.ok(!src.includes('body.documentText === "string" ? body.documentText.trim()'), "the handler trims the submitted document text again");
+  assert.match(src, /body\.documentText === "string" \? body\.documentText : ""/, "the handler no longer keeps the submitted text exact");
+  assert.match(src, /if \(!documentText\.trim\(\)\) \{\s*\n\s*return errRes\("No document text provided\."/, "the empty check no longer covers whitespace only submissions");
+});
+
+await test("evidence offsets index a whitespace padded document exactly as submitted", async () => {
+  const padded = "\n\n   The trial enrolled 200 quokkas in total and measured nap duration weekly.   \n";
+  const gen = async () => ({
+    answer: 'It states "The trial enrolled 200 quokkas in total" in the methods.',
+    model: "fake-model",
+  });
+  const result = await document.runQA({}, padded, "How many quokkas?", "", { generateFn: gen });
+  assert.equal(result.evidence.length, 1);
+  const ev = result.evidence[0];
+  assert.equal(ev.verified, true);
+  assert.equal(padded.slice(ev.start, ev.end), ev.quote, "offsets must index the padded text, lead whitespace included");
+  assert.ok(ev.start > 0, "the offset must count the leading whitespace the old handler trimmed away");
 });
 
 // ── summary promptTruncation: the clamp is disclosed ────────────────────

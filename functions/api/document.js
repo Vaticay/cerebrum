@@ -357,18 +357,34 @@ const callOR = async (env, model, messages, maxTokens, { timeoutMs = 20000, idle
 
 const callCF = async (env, model, messages, maxTokens, timeoutMs = 25000) => {
   if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding");
+  // Capped at the summary contract's budget (SUMMARY_MAX_TOKENS,
+  // 2400): a lower cap here truncated four section summaries and the
+  // shortfall surfaced as missing sections in the reader.
+  const sentCap = Math.min(maxTokens, 2400);
   const out = await Promise.race([
-    // Capped at the summary contract's budget (SUMMARY_MAX_TOKENS,
-    // 2400): a lower cap here truncated four section summaries and the
-    // shortfall surfaced as missing sections in the reader.
-    env.AI.run(model, { messages, max_tokens: Math.min(maxTokens, 2400) }),
+    env.AI.run(model, { messages, max_tokens: sentCap }),
     new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), timeoutMs)),
   ]);
   const cleaned = cleanAIResponse((out && out.response) || "");
   if (cleaned.length < 40) throw new Error(model + ": response too short");
-  // Workers AI does not report a finish reason in this response shape,
-  // so the field is an honest null: unknown, never guessed.
-  return { answer: cleaned, model, finishReason: null };
+  // Finish reason (2026-10-14, fourth panel): Workers AI carries no
+  // finish_reason field in this response shape, but models that report
+  // token usage expose the same fact arithmetically: a completion that
+  // consumed the entire max_tokens cap it was sent was stopped by that
+  // cap, and one that stopped short of it was not. When usage is
+  // present the reason is therefore DERIVED, not guessed:
+  // finishReasonKnown is true and finishReason is "length" or "stop".
+  // When usage is absent there is no sound signal (a character count
+  // cannot price tokens across content types), so finishReason stays
+  // null and finishReasonKnown is false: the callers surface that
+  // unknown in their stage detail instead of letting
+  // `finishReason === "length"` quietly read as a confident "not
+  // truncated" for a leg that never said.
+  const completionTokens = out && out.usage ? Number(out.usage.completion_tokens) : NaN;
+  if (Number.isFinite(completionTokens)) {
+    return { answer: cleaned, model, finishReason: completionTokens >= sentCap ? "length" : "stop", finishReasonKnown: true };
+  }
+  return { answer: cleaned, model, finishReason: null, finishReasonKnown: false };
 };
 
 // Provider roster, fastest free models first. The chunk-digestion path
@@ -488,6 +504,19 @@ export function docStageEntry(name, ok, t0, extra = {}) {
   if (extra.detail) entry.detail = extra.detail;
   if (Array.isArray(extra.skippedLegs) && extra.skippedLegs.length) entry.skippedLegs = extra.skippedLegs;
   return entry;
+}
+
+/* The stage detail for a winning call whose leg cannot say whether it
+ * stopped at its length cap (the Workers AI leg when it reports no
+ * token usage): the result's truncation state is UNKNOWN, and the stage
+ * record says so, instead of the shipped answerTruncated: false being
+ * read downstream as a verified negative. Returns undefined for every
+ * leg that does report (including stubbed test legs, which carry no
+ * finishReasonKnown field at all), so docStageEntry omits the detail. */
+export function truncationUnknownDetail(r) {
+  return r && r.finishReasonKnown === false
+    ? "the winning model does not report whether it stopped at its length limit, so truncation is unknown for this result"
+    : undefined;
 }
 
 // A provider race in the spirit of search.js's wave system: Promise.any
@@ -800,6 +829,7 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
   const skippedSeen = new Set();
   let promptClampOmittedChars = 0;
   const lengthCutChunks = [];
+  const unknownFinishChunks = [];
   const noteDigestResult = (r, i) => {
     if (!r || typeof r !== "object") return;
     if (Array.isArray(r.skippedLegs)) {
@@ -814,6 +844,12 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
       promptClampOmittedChars += Math.max(0, (r.promptClamp.originalChars || 0) - (r.promptClamp.promptChars || 0));
     }
     if (r.finishReason === "length") lengthCutChunks.push(i + 1);
+    // A chunk won by a leg that cannot report its finish state: its
+    // digest may have been cut at the cap and nobody can tell. Recorded
+    // so the digest stage can disclose the unknown next to the cuts it
+    // does know about, instead of the absence of a "length" reading as
+    // proof the digest was whole.
+    if (r.finishReasonKnown === false) unknownFinishChunks.push(i + 1);
   };
   const worker = async () => {
     while (next < n) {
@@ -841,7 +877,8 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
   await Promise.all(workers);
   failed.sort((a, b) => a - b);
   lengthCutChunks.sort((a, b) => a - b);
-  return { sections, failed, budgetDenied, skippedLegs, promptClampOmittedChars, lengthCutChunks };
+  unknownFinishChunks.sort((a, b) => a - b);
+  return { sections, failed, budgetDenied, skippedLegs, promptClampOmittedChars, lengthCutChunks, unknownFinishChunks };
 }
 
 // ---- extractive fallback (no LLM, never throws) --------------------------
@@ -1059,7 +1096,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
           chunkCount: 0,
           path: "single",
           answerTruncated: r.finishReason === "length",
-          stageHealth: [docStageEntry("summary", true, t0, { skippedLegs: r.skippedLegs })],
+          stageHealth: [docStageEntry("summary", true, t0, { detail: truncationUnknownDetail(r), skippedLegs: r.skippedLegs })],
           ...(pt ? { promptTruncation: pt } : {}),
         };
       } catch (e) {
@@ -1068,7 +1105,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
     }
     const chunks = chunkDocument(documentText, MAP_CHUNK_CHARS);
     const digestT0 = Date.now();
-    const { sections, failed, budgetDenied, skippedLegs: digestSkippedLegs, promptClampOmittedChars, lengthCutChunks } = await summarizeChunks(env, chunks, onProgress, { digest, priorSections, costCtl });
+    const { sections, failed, budgetDenied, skippedLegs: digestSkippedLegs, promptClampOmittedChars, lengthCutChunks, unknownFinishChunks } = await summarizeChunks(env, chunks, onProgress, { digest, priorSections, costCtl });
     const good = sections.filter(Boolean);
     // The digest stage's health entry: ok false when any section went
     // unread, ok null with a skipReason when the budget denied every
@@ -1077,6 +1114,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
     const digestDetails = [];
     if (failed.length) digestDetails.push(failed.length + " of " + chunks.length + " sections could not be read");
     if (lengthCutChunks && lengthCutChunks.length) digestDetails.push("sections " + lengthCutChunks.join(", ") + " hit their length cap while being read");
+    if (unknownFinishChunks && unknownFinishChunks.length) digestDetails.push("sections " + unknownFinishChunks.join(", ") + " were read by a model that does not report whether it hit its length cap, so their truncation is unknown");
     if (promptClampOmittedChars > 0) digestDetails.push("section prompts were shortened by about " + promptClampOmittedChars + " characters to fit the length limit");
     const digestStage =
       budgetDenied && !good.length
@@ -1126,7 +1164,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
         chunkCount: chunks.length,
         path: "mapreduce",
         answerTruncated: r.finishReason === "length",
-        stageHealth: [digestStage, docStageEntry("synthesis", true, synthT0, { skippedLegs: r.skippedLegs })],
+        stageHealth: [digestStage, docStageEntry("synthesis", true, synthT0, { detail: truncationUnknownDetail(r), skippedLegs: r.skippedLegs })],
         ...(pt ? { promptTruncation: pt } : {}),
       };
     } catch (e) {
@@ -1163,17 +1201,41 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
 // either: the reader can show it as unverified and the user can judge.
 //
 // The trail ships on Q&A results as `evidence`:
-//   [{ quote, start, end, verified, match }]
+//   [{ quote, start, end, verified, match, note? }]
 // quote is the passage as printed in the answer; start/end are character
-// offsets into the document text as submitted to the endpoint (after its
-// own trim and length cap); end is exclusive. match is "exact" (the
+// offsets into the document text as submitted to the endpoint (the exact
+// request body text, subject only to the endpoint length cap — the
+// handler does not trim it, so the offsets index the same text a reader
+// of the submission sees); end is exclusive. match is "exact" (the
 // quote appears verbatim), "normalized" (it appears once runs of
 // whitespace are collapsed to single spaces; start/end still index the
 // ORIGINAL text, original whitespace included), or null when verified
 // is false (start/end are then -1).
+//
+// ACCOUNTING (2026-10-14, fourth panel): the trail accounts for EVERY
+// distinct passage the answer quotes — none is silently dropped. A
+// passage that cannot be located is an entry with verified: false. A
+// passage that was never even checked carries note: "too-long" (over
+// EVIDENCE_MAX_QUOTE_CHARS, the length locatePassage is trusted with) or
+// note: "over-cap" (past the EVIDENCE_MAX_ENTRIES checked slots), also
+// verified: false with start/end -1. `note` is absent on every checked
+// entry, so existing consumers see the original shape; a consumer that
+// reads note can tell "not in the document" from "never checked".
+// Excluded entries do not consume checked slots, so the trail can hold
+// more than EVIDENCE_MAX_ENTRIES rows when an answer quotes heavily;
+// the quote text is a substring of an answer the response already
+// carries, so the accounting costs no new exposure.
 const EVIDENCE_MAX_ENTRIES = 12;
 const EVIDENCE_MIN_QUOTE_CHARS = 12;
 const EVIDENCE_MAX_QUOTE_CHARS = 600;
+// Extraction must SEE over-long quotes to account for them: the old
+// 600-char capture bound made a longer quote invisible (and could pair
+// its closing quote mark with a later quote's opening, corrupting the
+// rest of the extraction). The capture bound is generous — an answer
+// is token capped, so no real quote approaches it — and the 600-char
+// verification bound is enforced in verifyDocumentPassages instead,
+// where the exclusion can be recorded.
+const EVIDENCE_CAPTURE_MAX_CHARS = 10000;
 
 // Pull the double-quoted passages out of an answer. Curly quotes are
 // matched as well as straight ones; single quotes are not (apostrophes
@@ -1181,7 +1243,7 @@ const EVIDENCE_MAX_QUOTE_CHARS = 600;
 export function extractAnswerQuotes(answerText) {
   const text = String(answerText || "");
   const out = [];
-  const re = /["“]([^"”\n]{1,600})["”]/g;
+  const re = new RegExp('["“]([^"”\\n]{1,' + EVIDENCE_CAPTURE_MAX_CHARS + '})["”]', "g");
   let m;
   while ((m = re.exec(text)) !== null) {
     const q = m[1].trim();
@@ -1238,18 +1300,32 @@ export function locatePassage(documentText, passage) {
 }
 
 // Verify a list of passages against the document, deduped (a passage
-// the answer quotes twice earns one entry) and capped, in answer order.
-// Exported for unit tests.
+// the answer quotes twice earns one entry), in answer order. At most
+// EVIDENCE_MAX_ENTRIES passages are located; every further distinct
+// passage is still returned, flagged as never checked (note: "over-cap"),
+// and a passage over the verification length bound is returned the same
+// way (note: "too-long") — the trail accounts for every quoted passage,
+// so an exclusion is a visible entry, never a silent drop. Exported for
+// unit tests.
 export function verifyDocumentPassages(documentText, passages) {
   const seen = new Set();
   const out = [];
+  let checked = 0;
   for (const raw of passages || []) {
-    if (out.length >= EVIDENCE_MAX_ENTRIES) break;
     const quote = String(raw || "").trim();
-    if (quote.length < EVIDENCE_MIN_QUOTE_CHARS || quote.length > EVIDENCE_MAX_QUOTE_CHARS) continue;
+    if (quote.length < EVIDENCE_MIN_QUOTE_CHARS) continue;
     const key = quote.replace(/\s+/g, " ").toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    if (quote.length > EVIDENCE_MAX_QUOTE_CHARS) {
+      out.push({ quote, start: -1, end: -1, verified: false, match: null, note: "too-long" });
+      continue;
+    }
+    if (checked >= EVIDENCE_MAX_ENTRIES) {
+      out.push({ quote, start: -1, end: -1, verified: false, match: null, note: "over-cap" });
+      continue;
+    }
+    checked++;
     const loc = locatePassage(documentText, quote);
     out.push({ quote, start: loc.start, end: loc.end, verified: loc.match !== null, match: loc.match });
   }
@@ -1382,7 +1458,7 @@ export async function runQA(env, documentText, query, historyBlock, { onToken = 
       partial: false,
       answerTruncated: r.finishReason === "length",
       evidence: buildDocumentEvidence(fullText, r.answer),
-      stageHealth: [docStageEntry("answer", true, t0, { skippedLegs: r.skippedLegs })],
+      stageHealth: [docStageEntry("answer", true, t0, { detail: truncationUnknownDetail(r), skippedLegs: r.skippedLegs })],
       ...(pt ? { promptTruncation: pt } : {}),
     };
   } catch (e) {
@@ -1563,7 +1639,17 @@ export async function onRequest(context) {
     const parsed = await readJsonBody(request, cors, MAX_BODY_BYTES);
     if (!parsed.ok) return parsed.response;
     const body = parsed.body;
-    let documentText = typeof body.documentText === "string" ? body.documentText.trim() : "";
+    // The document text is kept EXACTLY as submitted — never trimmed
+    // here (2026-10-14, fourth panel). The Q&A evidence trail's offsets
+    // index this text, and the reader's highlights index the document
+    // as submitted too; a handler side trim rebased every offset by the
+    // trimmed lead, so the trail's numbers disagreed with the text in
+    // front of the reader. One text, indexed identically by both
+    // surfaces: the request body as sent, subject only to the
+    // MAX_DOCUMENT_LEN cap below (a tail cut, which moves no offsets).
+    // Emptiness is still judged on the trimmed text further down, so a
+    // whitespace only submission is the same 400 it always was.
+    let documentText = typeof body.documentText === "string" ? body.documentText : "";
     const query = typeof body.query === "string" ? body.query.trim().slice(0, MAX_QUERY_LEN) : "";
     // Bound the history input BEFORE formatHistory touches it: the client
     // sends the whole Q&A thread and a hostile one could send thousands of
@@ -1576,7 +1662,7 @@ export async function onRequest(context) {
     // summarizeChunks (length must match or the whole array is ignored).
     const priorSections = Array.isArray(body.priorSections) ? body.priorSections : null;
 
-    if (!documentText) {
+    if (!documentText.trim()) {
       return errRes("No document text provided.", 400, "missing_document", cors);
     }
 
