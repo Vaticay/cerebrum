@@ -697,34 +697,11 @@ export const plateHead = (color) => ({
   textTransform: "uppercase", color, whiteSpace: "nowrap",
 });
 
-export function PlateFrame({ headLeft, headCenter, headRight, faint, line, children }) {
-  const corner = (pos) => (
-    <span aria-hidden="true" style={{
-      position: "absolute", ...pos, fontFamily: "var(--cb-mono)",
-      fontSize: 13, lineHeight: 1, color: faint, pointerEvents: "none",
-      userSelect: "none",
-    }}>+</span>
-  );
-  return (
-    <div style={{ position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      {corner({ top: 0, left: 0 })}
-      {corner({ top: 0, right: 0 })}
-      {corner({ bottom: 0, left: 0 })}
-      {corner({ bottom: 0, right: 0 })}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        gap: 16, padding: "2px 10px 12px", borderBottom: "1px solid " + line,
-      }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 16, minWidth: 0 }}>{headLeft}</span>
-        {headCenter != null && (
-          <span style={{ flex: 1, textAlign: "center", minWidth: 0, overflow: "hidden" }}>{headCenter}</span>
-        )}
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 16, minWidth: 0 }}>{headRight}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
+/* PlateFrame, the plate era's corner registered frame component, was
+   removed with the frontend audit: it rendered nowhere in the app (the
+   restored film door never used it), and the one frame language that
+   remains live is TickFrame on the answer viewport. plateHead above
+   stays: the home stage running heads use it. */
 
 /* ════════════════════════════════════════════════════════════════════
    DotField: the plate ambient (2026-10-13).

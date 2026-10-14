@@ -135,6 +135,36 @@ function statusBad(P, pn) {
   return P.dark ? (pn === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31";
 }
 
+/* Roving tabindex keyboard support for role="tablist" containers
+   (WAI APG tabs pattern, automatic activation). Attach as the tablist's
+   onKeyDown: Left/Right (and Up/Down) move between the tabs, Home/End
+   jump to the ends, and the newly focused tab is activated — matching
+   these controls' click-to-switch semantics. The render side of the
+   pattern lives at each tab: the selected tab carries tabIndex 0, the
+   rest -1, plus id / aria-controls linkage to its tabpanel. Returns
+   true when the key was handled. */
+function tabListKeyDown(e) {
+  const key = e.key;
+  if (key !== "ArrowRight" && key !== "ArrowLeft" && key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return false;
+  const list = e.currentTarget;
+  if (!list || !list.querySelectorAll) return false;
+  const tabs = Array.from(list.querySelectorAll('[role="tab"]:not([disabled])'));
+  if (!tabs.length) return false;
+  const active = document.activeElement;
+  let idx = tabs.indexOf(active);
+  if (idx < 0) idx = tabs.findIndex((t) => t.getAttribute("aria-selected") === "true");
+  if (idx < 0) idx = 0;
+  let next = idx;
+  if (key === "ArrowRight" || key === "ArrowDown") next = (idx + 1) % tabs.length;
+  else if (key === "ArrowLeft" || key === "ArrowUp") next = (idx - 1 + tabs.length) % tabs.length;
+  else if (key === "Home") next = 0;
+  else if (key === "End") next = tabs.length - 1;
+  e.preventDefault();
+  tabs[next].focus();
+  tabs[next].click();
+  return true;
+}
+
 /* Light theme variants for warn and good, mirroring statusBad (2026-10-13,
    second panel in a row to flag it). The raw STATUS hues fail WCAG text
    contrast on the Light palette: warn #d9a520 is 2.13:1 and good #10b981
@@ -311,4 +341,4 @@ function toast(message, opts = {}) {
     }));
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
-export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, useWindowHeight, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
+export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, tabListKeyDown, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, useWindowHeight, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };

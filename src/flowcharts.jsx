@@ -483,7 +483,7 @@ function FcThumb({ chart, accent }) {
   const scale = Math.min(1, 280 / b.w, 120 / b.h);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   return (
-    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: "rgba(127,140,127,0.06)", borderRadius: 8 }}>
+    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: "rgba(127,140,127,0.06)", borderRadius: RADIUS.md }}>
       {(chart.edges || []).map((e) => {
         const a = byId.get(e.from), bb = byId.get(e.to);
         if (!a || !bb) return null;
@@ -868,7 +868,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
   const studioBtn = (label, onClick, opts = {}) => (
     <UIButton P={P} variant="ghost" type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || label}
       style={{
-        padding: "12px 24px", borderRadius: 6, cursor: opts.disabled ? "default" : "pointer",
+        padding: "12px 24px", borderRadius: RADIUS.sm, cursor: opts.disabled ? "default" : "pointer",
         fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-font)",
         background: opts.primary ? accent : withAlpha(accent, 0.07),
         color: opts.primary ? at : opts.disabled ? P.faint : P.ink2,
@@ -923,7 +923,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             </span>
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
               <span className="cb-kicker">Studio</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Evidence map</span>
+              <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Evidence map</span>
             </div>
           </div>
           <div style={{ width: 1, height: 26, background: P.line, flexShrink: 0 }} />
@@ -946,7 +946,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           {!isMobile && (
             <div role="toolbar" aria-label="Canvas tools" style={{
               display: "flex", alignItems: "center", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.045)",
-              border: `1px solid ${P.line}`, borderRadius: 6, padding: 3, gap: 2,
+              border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: 3, gap: 2,
             }}>
               {[["select", "Select", "cursor"], ["connect", "Connect", "link"]].map(([key, label, icon]) => {
                 const on = tool === key;
@@ -954,7 +954,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   <UIButton P={P} variant="ghost" key={key} type="button" aria-pressed={on} title={key === "connect" ? "Connect: click a source node, then a target" : "Select and drag nodes"}
                     onClick={() => { setTool(key); setPendingFrom(null); }}
                     style={{ minHeight: 44,
-                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 16px", borderRadius: 6,
+                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 16px", borderRadius: RADIUS.sm,
                       border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-font)",
                       background: on ? accent : "transparent", color: on ? at : P.ink2,
                       boxShadow: on ? `0 2px 10px ${withAlpha(accent, 0.4)}` : "none",
@@ -1038,7 +1038,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           }}>
             {!isMobile && <div className="cb-kicker" style={{ padding: "2px 6px 12px" }}>Nodes</div>}
             {isMobile && (
-              <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, borderRadius: 6, padding: 2, gap: 2, flexShrink: 0, marginRight: 4 }}>
+              <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: 2, gap: 2, flexShrink: 0, marginRight: 4 }}>
                 {[["select", "cursor"], ["connect", "link"]].map(([key, icon]) => (
                   <UIButton P={P} variant="ghost" key={key} type="button" aria-pressed={tool === key} title={key === "connect" ? "Connect nodes" : "Select nodes"}
                     onClick={() => { setTool(key); setPendingFrom(null); }}
@@ -1177,12 +1177,12 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     <path d="M60 43 h14" stroke={P.faint} strokeWidth="1.5" /><path d="M71 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                     <path d="M146 43 h10" stroke={P.faint} strokeWidth="1.5" strokeDasharray="3 3" /><path d="M153 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                   </svg>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
+                  <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
                     Add nodes from the rail, or lift this answer's reasoning into a starting chart.
                   </div>
                   {answerText && (
-                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: 6, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: RADIUS.sm, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                       <Icon name="edit" size={14} /> Draft from answer
                     </button>
                   )}
@@ -1190,7 +1190,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               </div>
             )}
             {/* zoom controls */}
-            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: Z.overlay, display: "flex", alignItems: "center", gap: 2, background: P.bg, border: `1px solid ${P.line}`, borderRadius: 6, padding: 4 }}>
+            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: Z.overlay, display: "flex", alignItems: "center", gap: 2, background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: 4 }}>
               {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"]].map(([label, f, t2]) => (
                 <UIButton P={P} variant="ghost" key={label} type="button" title={t2} aria-label={t2}
                   onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }))}
@@ -1220,7 +1220,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div className="cb-kicker">Inspector</div>
               {(selNode || selEdge) && (
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: 2, padding: "3px 12px", textTransform: "none", letterSpacing: "normal" }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.viewport, padding: "3px 12px", textTransform: "none", letterSpacing: "normal" }}>
                   {selNode ? FC_NODE_TYPES[selNode.type].name : "Arrow"}
                 </div>
               )}
@@ -1254,7 +1254,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 {selNode.detail && (
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Source sentence</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 12px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: 8 }}>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 12px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md }}>
                       {selNode.detail}
                     </div>
                   </div>
@@ -1954,11 +1954,11 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       <div style={{ flex: 1, overflowY: "auto", padding: 10, minHeight: 0 }}>
         {railTab === "diagrams" && (
           <>
-            <button onClick={newDiagram} style={{ ...railItem, borderRadius: 6, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 600, marginBottom: 8 }}>
+            <button onClick={newDiagram} style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 600, marginBottom: 8 }}>
               <span aria-hidden="true">＋</span> New diagram
             </button>
             <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file, loaded verbatim"
-              style={{ ...railItem, borderRadius: 6, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 600, marginBottom: 8 }}>
+              style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 600, marginBottom: 8 }}>
               <span aria-hidden="true">⤒</span> Import .mmd
             </button>
             {diagrams.length === 0 && (
@@ -2045,7 +2045,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       {/* ── Top bar: instrument chrome ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: isMobile ? "12px 14px" : "14px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap" }}>
         <UIButton P={P} variant="ghost" onClick={() => setRailOpen((v) => !v)} aria-label={railOpen ? "Hide side panel" : "Show side panel"} title={railOpen ? "Hide side panel" : "Show side panel"}
-          style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: 6, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
+          style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2" />
             <line x1="9.5" y1="4" x2="9.5" y2="20" />
@@ -2110,7 +2110,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               {[["code", "Code"], ["preview", "Preview"]].map(([key, label]) => (
                 <UIButton P={P} variant="ghost" key={key} onClick={() => setMobilePane(key)}
                   style={{
-                    minHeight: 44, flex: 1, padding: "9px 0", borderRadius: 6,
+                    minHeight: 44, flex: 1, padding: "9px 0", borderRadius: RADIUS.sm,
                     fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)", cursor: "pointer",
                     background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
                     color: mobilePane === key ? accent : P.faint,
@@ -2130,7 +2130,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             borderBottom: !isMobile && paneLayout === "stack" && sourceOpen ? `1px solid ${P.line}` : "none",
             margin: isMobile ? "10px 14px 0" : 0,
             border: isMobile ? `1px solid ${P.line}` : undefined,
-            borderRadius: isMobile ? 12 : 0, overflow: "hidden",
+            borderRadius: isMobile ? RADIUS.lg : 0, overflow: "hidden",
             background: P.surface,
           }}>
             <div style={paneLabel}>
@@ -2150,7 +2150,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             flex: 1, flexDirection: "column", minWidth: 0, minHeight: isMobile ? 420 : 0, position: "relative",
             margin: isMobile ? "10px 14px 0" : 0,
             border: isMobile ? `1px solid ${P.line}` : "none",
-            borderRadius: isMobile ? 12 : 0, overflow: "hidden",
+            borderRadius: isMobile ? RADIUS.lg : 0, overflow: "hidden",
             background: P.surface,
           }}>
             <div style={paneLabel}>
@@ -2312,7 +2312,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
         )}
         {title ? (
         <div style={{
-          fontSize: 17, fontWeight: 650, color: ink,
+          fontSize: FONT_SIZES.title, fontWeight: 650, color: ink,
           letterSpacing: "-0.015em", lineHeight: 1.3, fontFamily: "var(--cb-font)",
         }}>{title}</div>
         ) : null}
@@ -2325,7 +2325,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
            the chrome's look. */
         style={{
           border: "none", background: "transparent",
-          color: subInk, cursor: "pointer", borderRadius: 6,
+          color: subInk, cursor: "pointer", borderRadius: RADIUS.sm,
           width: 44, height: 44, display: "inline-flex", alignItems: "center",
           justifyContent: "center", flexShrink: 0, padding: 0,
         }}
@@ -2334,7 +2334,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
           style={{
             border: `1px solid ${P ? P.line : "rgba(255,255,255,0.12)"}`,
             background: P ? "transparent" : "rgba(255,255,255,0.05)",
-            borderRadius: 6, width: 30, height: 30, display: "inline-flex",
+            borderRadius: RADIUS.sm, width: 30, height: 30, display: "inline-flex",
             alignItems: "center", justifyContent: "center", fontSize: 16,
             lineHeight: 1, fontFamily: "var(--cb-font)",
             transition: "background 150ms ease",

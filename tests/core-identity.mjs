@@ -308,7 +308,10 @@ await test("the tab button speaks the unread count and the badge numeral clears 
   // sidebar Inbox button and the inbox thread pill already use.
   assert.ok(appSrc.includes("aria-label={t.badge > 0 ? `${t.label}, ${t.badge} unread` : t.label}"),
     "the tab button's accessible name drops the unread count");
-  const badgeAt = appSrc.indexOf("minWidth: 16, height: 16, borderRadius: 8");
+  /* The badge radius now comes from the design token (RADIUS.md === 8):
+     the frontend audit migrated raw radius literals to tokens, so this
+     pin follows the token instead of the literal it replaced. */
+  const badgeAt = appSrc.indexOf("minWidth: 16, height: 16, borderRadius: RADIUS.md");
   assert.ok(badgeAt > 0, "the tab badge span is gone");
   const badgeSpan = appSrc.slice(badgeAt, badgeAt + 340);
   assert.ok(badgeSpan.includes('aria-hidden="true"'), "the tab badge is no longer hidden from assistive tech");

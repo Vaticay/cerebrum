@@ -290,13 +290,16 @@ await test("the door renders no plate frame, dot field, or running head", () => 
   assert.ok(!src.includes("Every answer is traced to the papers behind it, so any claim can be opened and checked."), "plate definition clause (b) survives");
 });
 
-await test("the plate components stay exported from intro.jsx", () => {
-  /* The restoration removes nothing from the module's exports: the
-     shell round owns whether and where the frame renders (its stage
-     was being rebuilt in the same round), and plateHead remains in
-     use there. What this file pins is that intro.jsx keeps offering
-     all three, so no importer can break. */
-  assert.ok(src.includes("export function PlateFrame"), "PlateFrame no longer exported");
+await test("plateHead and DotField stay exported; the dead PlateFrame is gone", () => {
+  /* Contract corrected by the frontend audit (third panel rescore):
+     PlateFrame rendered nowhere in the app (zero <PlateFrame> call
+     sites; the restored film door never used it), so the dead frame
+     was removed and the one live frame language is TickFrame on the
+     answer viewport. This pin used to require PlateFrame's export;
+     it now requires its absence, while plateHead (live in the shell's
+     home stage running heads) and DotField stay exported. */
+  assert.ok(!src.includes("export function PlateFrame"), "the dead PlateFrame is exported again");
+  assert.ok(!appSrc.includes("<PlateFrame"), "something renders the dead frame");
   assert.ok(src.includes("export const plateHead"), "plateHead no longer exported");
   assert.ok(src.includes("export function DotField"), "DotField no longer exported");
   assert.ok(appSrc.includes("plateHead"), "the shell no longer uses the plate voice at all");
