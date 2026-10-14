@@ -262,8 +262,25 @@ export async function onRequest(context) {
         const callerId = user.id;
         const calleeIds = authorized.slice();
         const pushWork = (async () => {
+          // Mute silences call ringing on this path too (owner
+          // ruling, 2026-10-14): a participant who muted this thread
+          // gets no call push, the same exclusion send-message
+          // applies to its message push in data.js. The in app half
+          // of the contract is the incoming-calls resource there,
+          // which never reports a call from a muted thread. A failed
+          // mute lookup falls through unfiltered rather than
+          // swallowing a call nobody muted.
+          let pushIds = calleeIds;
+          try {
+            const mutedRows = await env.DB.prepare(
+              "SELECT user_id FROM thread_participants WHERE thread_id = ? AND COALESCE(muted, 0) = 1"
+            ).bind(threadId).all();
+            const mutedIds = new Set((mutedRows.results || []).map((r) => r.user_id));
+            if (mutedIds.size) pushIds = calleeIds.filter((id) => !mutedIds.has(id));
+          } catch { /* unfiltered fallthrough, per the note above */ }
+          if (!pushIds.length) return;
           const callerName = await getPushDisplayName(env, callerId);
-          await sendPushToUsers(env, calleeIds, () => buildCallPushPayload({ callerName, threadId }));
+          await sendPushToUsers(env, pushIds, () => buildCallPushPayload({ callerName, threadId }));
         })();
         if (context && typeof context.waitUntil === "function") context.waitUntil(pushWork);
         else pushWork.catch(() => {});

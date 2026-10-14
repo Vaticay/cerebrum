@@ -15,9 +15,9 @@ import { fileURLToPath } from "node:url";
 import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
-  FREE_AI_ANSWERS_PER_MONTH,
-  FREE_DOC_READS_PER_MONTH,
-  FREE_FLOWCHARTS_PER_MONTH,
+  FREE_AI_ANSWERS_PER_QUOTA_PERIOD,
+  FREE_DOC_READS_PER_QUOTA_PERIOD,
+  FREE_FLOWCHARTS_PER_QUOTA_PERIOD,
   LITE_AI_ANSWERS,
   LITE_DOC_READS,
   LITE_FLOWCHARTS,
@@ -342,8 +342,22 @@ const envOf = (db) => ({ DB: db });
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
 
-await test("free cap is 50 AI answers a month", () => {
-  assert.equal(FREE_AI_ANSWERS_PER_MONTH, 50);
+await test("free cap is 50 AI answers per quota period", () => {
+  assert.equal(FREE_AI_ANSWERS_PER_QUOTA_PERIOD, 50);
+});
+
+await test("free quota caps are exported with their quota period values", () => {
+  assert.equal(FREE_AI_ANSWERS_PER_QUOTA_PERIOD, 50);
+  assert.equal(FREE_DOC_READS_PER_QUOTA_PERIOD, 3);
+  assert.equal(FREE_FLOWCHARTS_PER_QUOTA_PERIOD, 1);
+  assert.deepEqual(capsForTier("free"), { ai: 50, docs: 3, flowcharts: 1 });
+});
+
+await test("no exported constant in proEntitlement is named PER_MONTH", async () => {
+  const src = await readFile(join(root, "functions/lib/proEntitlement.js"), "utf8");
+  const exported = [...src.matchAll(/export const ([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+  assert.ok(exported.length > 0, "expected exported constants to scan");
+  assert.deepEqual(exported.filter((name) => name.includes("PER_MONTH")), []);
 });
 
 await test("monthKey is UTC YYYY-MM", () => {
@@ -535,7 +549,7 @@ await test("lifetime pro is unlimited too", async () => {
   assert.equal(aiSynthesisAllowed(gate), true);
 });
 
-await test("free user meters against the monthly bucket, cap enforced", async () => {
+await test("free user meters against the quota period bucket, cap enforced", async () => {
   const db = mockDB();
   db.addUser({ id: "u2", email: "free@x.com" });
   const env = envOf(db);
@@ -551,7 +565,7 @@ await test("free user meters against the monthly bucket, cap enforced", async ()
   assert.equal(aiSynthesisAllowed(gate), false);
 });
 
-await test("usage buckets are per-month: a new month resets", async () => {
+await test("usage buckets are per quota period: an old bucket does not count", async () => {
   const db = mockDB();
   db.addUser({ id: "u3", email: "m@x.com" });
   const env = envOf(db);
@@ -584,7 +598,7 @@ await test("lite tier helpers: isLiteRow, tierOfRow, capsForTier", () => {
   assert.equal(LITE_DOC_READS, 30);
   assert.equal(LITE_FLOWCHARTS, 10);
   assert.equal(capsForTier("pro").ai, Infinity);
-  assert.equal(capsForTier("free").ai, FREE_AI_ANSWERS_PER_MONTH);
+  assert.equal(capsForTier("free").ai, FREE_AI_ANSWERS_PER_QUOTA_PERIOD);
 });
 
 await test("checkout plan names map to the right paid tier", () => {
@@ -1219,15 +1233,15 @@ await test("consumes in one quota period don't leak into another period", async 
   const env = envOf(db);
   const realNow = Date.now;
   try {
-    for (let i = 0; i < FREE_AI_ANSWERS_PER_MONTH; i++) {
-      assert.ok((await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_MONTH)).allowed);
+    for (let i = 0; i < FREE_AI_ANSWERS_PER_QUOTA_PERIOD; i++) {
+      assert.ok((await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_QUOTA_PERIOD)).allowed);
     }
-    const full = await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_MONTH);
+    const full = await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_QUOTA_PERIOD);
     assert.ok(!full.allowed, "full period must deny");
-    assert.equal(full.used, FREE_AI_ANSWERS_PER_MONTH);
+    assert.equal(full.used, FREE_AI_ANSWERS_PER_QUOTA_PERIOD);
     // One full quota period forward: the bucket is fresh again.
     Date.now = () => realNow() + FREE_QUOTA_PERIOD_DAYS * 24 * 3600 * 1000;
-    const fresh = await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_MONTH);
+    const fresh = await consumeAiAnswer(env, "u45", FREE_AI_ANSWERS_PER_QUOTA_PERIOD);
     assert.ok(fresh.allowed, "new period must allow");
     assert.equal(fresh.used, 1, "new period starts at 1, not 16");
   } finally {
@@ -1238,8 +1252,8 @@ await test("consumes in one quota period don't leak into another period", async 
 // ── Document-read + flowchart metering (2026-09-15: free 3 docs, 1 chart) ──
 
 await test("free doc-read bucket: 0→3 increments, caps are 3 and 1", async () => {
-  assert.equal(FREE_DOC_READS_PER_MONTH, 3, "doc cap must be 3");
-  assert.equal(FREE_FLOWCHARTS_PER_MONTH, 1, "flowchart cap must be 1");
+  assert.equal(FREE_DOC_READS_PER_QUOTA_PERIOD, 3, "doc cap must be 3");
+  assert.equal(FREE_FLOWCHARTS_PER_QUOTA_PERIOD, 1, "flowchart cap must be 1");
   const db = mockDB();
   db.addUser({ id: "u30", email: "doc@x.com" });
   const env = envOf(db);
@@ -1264,10 +1278,10 @@ await test("doc reads and flowchart saves use separate buckets from AI answers",
   assert.equal(await getFlowchartCount(env, "u31"), 1, "flowchart bucket must hold exactly the chart increments");
 });
 
-await test("document endpoint gates: sign-in required, free 3/mo, quota in response", async () => {
+await test("document endpoint gates: sign-in required, free 3 per quota period, quota in response", async () => {
   const src = await readFile(join(root, "functions/api/document.js"), "utf8");
   assert.match(src, /auth_required/, "document endpoint must require sign-in");
-  assert.match(src, /FREE_DOC_READS_PER_MONTH/, "document endpoint must use the free doc cap");
+  assert.match(src, /FREE_DOC_READS_PER_QUOTA_PERIOD/, "document endpoint must use the free doc cap");
   assert.match(src, /doc_quota_exhausted/, "document endpoint must return a quota code at the cap");
   assert.match(src, /consumeDocRead\(env, docUser\.id, docCap\)/, "document endpoint must atomically consume the doc read at the gate");
   assert.match(src, /quota: docQuota\(\)/, "document responses must carry the quota shape");
@@ -1277,7 +1291,7 @@ await test("flowchart-allow action meters new charts and denies at the cap", asy
   const src = await readFile(join(root, "functions/api/pro/index.js"), "utf8");
   assert.match(src, /case "flowchart-allow"/, "pro.js must route flowchart-allow");
   assert.match(src, /consumeFlowchart\(env, user\.id, cap\)/, "flowchart-allow must atomically consume");
-  assert.match(src, /FREE_FLOWCHARTS_PER_MONTH/, "flowchart-allow must use the free chart cap");
+  assert.match(src, /FREE_FLOWCHARTS_PER_QUOTA_PERIOD/, "flowchart-allow must use the free chart cap");
   assert.match(src, /docReads,\n    flowcharts,/, "pro status must expose docReads and flowcharts");
 });
 

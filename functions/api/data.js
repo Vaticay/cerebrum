@@ -189,9 +189,12 @@ async function ensureMessageClientKey(env) {
  * mean. pinned_at is a timestamp rather than a boolean so pinned
  * conversations order by when they were pinned; NULL means unpinned.
  * muted is 1 while the reader has muted the conversation: the inbox
- * list still shows it and its unread count, but nothing notifies —
- * no web push (send-message filters muted recipients out) and no
- * in app notification from the client's list poll.
+ * list still shows it and its unread count, but nothing notifies and
+ * nothing rings — no web push (send-message and the call push in
+ * callsignal.js both filter muted recipients out), no in app
+ * notification from the client's list poll, and no call ringing,
+ * because the incoming-calls resource never reports a call from a
+ * muted thread.
  *
  * Self-healing, the same pattern as ensureMessageClientKey above and
  * the rating column in this file: each ALTER is attempted once per
@@ -987,11 +990,20 @@ export async function onRequest(context) {
         const RING_WINDOW_MS = 9000;
         let row = null;
         try {
+          // The muted term is the server half of the mute contract for
+          // calls (owner ruling, 2026-10-14: a mute that still rings
+          // is not a mute). The join already lands on the callee's own
+          // participant row, so a thread the callee muted simply never
+          // reports a call here — and this resource is the only feed
+          // the client's ringing poll has, so the ringtone, the
+          // incoming call card, and the "Incoming call" notification
+          // all stay silent by construction. The push half of the
+          // same contract lives in callsignal.js.
           row = await env.DB.prepare(
             `SELECT cs.thread_id, cs.sender_id, cs.created_at, cs.payload
              FROM call_signals cs
              JOIN thread_participants tp ON tp.thread_id = cs.thread_id
-             WHERE tp.user_id = ? AND cs.sender_id != ? AND cs.type = 'ring' AND cs.created_at > ?
+             WHERE tp.user_id = ? AND cs.sender_id != ? AND cs.type = 'ring' AND cs.created_at > ? AND COALESCE(tp.muted, 0) = 0
              ORDER BY cs.created_at DESC LIMIT 1`
           ).bind(user.id, user.id, Date.now() - RING_WINDOW_MS).first();
         } catch (e) {
@@ -3230,10 +3242,12 @@ export async function onRequest(context) {
     }
 
     // Mute a conversation for the caller: the thread stays in the
-    // list with its unread count, but nothing notifies — send-message
-    // filters muted recipients out of its web push, and the client's
-    // list poll skips muted threads when it raises notifications.
-    // Same participant-row storage and membership guard as pinning.
+    // list with its unread count, but nothing notifies and nothing
+    // rings — send-message and callsignal filter muted recipients
+    // out of their web push, the incoming-calls resource never
+    // reports a call from a muted thread, and the client's polls
+    // skip muted threads when they raise notifications. Same
+    // participant-row storage and membership guard as pinning.
     if (action === "set-thread-muted") {
       const threadId = safeId(body.thread_id);
       if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);

@@ -6,7 +6,7 @@
 //     Enforcement reads the row at request time — no live Stripe calls in
 //     the hot path.
 //   - AI synthesis is a metered resource. Free accounts get
-//     FREE_AI_ANSWERS_PER_MONTH AI answers per quota period (a fixed
+//     FREE_AI_ANSWERS_PER_QUOTA_PERIOD AI answers per quota period (a fixed
 //     FREE_QUOTA_PERIOD_DAYS-day grid), tracked in pro_usage. Pro (paid or
 //     lifetime) is unlimited. Anonymous callers get no AI synthesis at all —
 //     there is no identity to meter against — and fall through to the
@@ -22,13 +22,13 @@
 
 import { timingSafeEqualHex } from "./authHelpers.js";
 
-export const FREE_AI_ANSWERS_PER_MONTH = 50;
+export const FREE_AI_ANSWERS_PER_QUOTA_PERIOD = 50;
 // Notebook Mode (document analysis) and Flowchart Studio are metered the
 // same way: free accounts get a small quota-period bucket, Pro is unlimited.
 // These caps are product policy set by Dusty (2026-09-15): 3 document reads
 // and 1 saved flowchart per quota period on the free tier.
-export const FREE_DOC_READS_PER_MONTH = 3;
-export const FREE_FLOWCHARTS_PER_MONTH = 1;
+export const FREE_DOC_READS_PER_QUOTA_PERIOD = 3;
+export const FREE_FLOWCHARTS_PER_QUOTA_PERIOD = 1;
 
 // ── Pro Lite ──────────────────────────────────────────────────────────────
 // The middle rung, set by Dusty (2026-09-15): $3.99/mo or $39/yr for 10x
@@ -54,7 +54,7 @@ export function tierOfRow(row) {
 export function capsForTier(tier) {
   if (tier === "pro") return { ai: Infinity, docs: Infinity, flowcharts: Infinity };
   if (tier === "lite") return { ai: LITE_AI_ANSWERS, docs: LITE_DOC_READS, flowcharts: LITE_FLOWCHARTS };
-  return { ai: FREE_AI_ANSWERS_PER_MONTH, docs: FREE_DOC_READS_PER_MONTH, flowcharts: FREE_FLOWCHARTS_PER_MONTH };
+  return { ai: FREE_AI_ANSWERS_PER_QUOTA_PERIOD, docs: FREE_DOC_READS_PER_QUOTA_PERIOD, flowcharts: FREE_FLOWCHARTS_PER_QUOTA_PERIOD };
 }
 
 // Checkout plan name → paid tier. Student rides the monthly price with a
@@ -423,7 +423,7 @@ export async function resolveAiGate(env, sessionUser, anonId, ledger = null) {
     kind: "anonymous",
     userId: null,
     aiUsed: 0,
-    aiCap: FREE_AI_ANSWERS_PER_MONTH,
+    aiCap: FREE_AI_ANSWERS_PER_QUOTA_PERIOD,
     proSource: null,
   };
   if (!sessionUser || !sessionUser.id) {
@@ -473,7 +473,7 @@ export async function resolveAiGate(env, sessionUser, anonId, ledger = null) {
     kind: lite ? "lite" : "free",
     userId: sessionUser.id,
     aiUsed: used,
-    aiCap: lite ? LITE_AI_ANSWERS : FREE_AI_ANSWERS_PER_MONTH,
+    aiCap: lite ? LITE_AI_ANSWERS : FREE_AI_ANSWERS_PER_QUOTA_PERIOD,
     proSource: lite ? row.pro_source || "subscription" : null,
   };
 }
@@ -488,7 +488,7 @@ export function aiSynthesisAllowed(gate) {
   return false;
 }
 
-// Atomically consume one AI answer from the caller's monthly bucket.
+// Atomically consume one AI answer from the caller's quota period bucket.
 // Returns the new count. Check-then-act racy by design: worst case under
 // heavy concurrency a free user lands one or two answers over the cap —
 // immaterial for a soft product cap, and the atomic upsert means the count
@@ -508,7 +508,7 @@ export async function recordAiAnswer(env, userId, ledger = null) {
 
 // ── Document-read metering (Notebook Mode) ───────────────────────────────
 // Same atomic upsert as AI answers: free accounts get
-// FREE_DOC_READS_PER_MONTH document analyses per quota period, Pro unlimited.
+// FREE_DOC_READS_PER_QUOTA_PERIOD document analyses per quota period, Pro unlimited.
 
 export async function getDocReads(env, userId) {
   await ensureProTables(env);
@@ -533,8 +533,8 @@ export async function recordDocRead(env, userId) {
 }
 
 // ── Flowchart metering (Flowchart Studio saves) ──────────────────────────
-// Free accounts get FREE_FLOWCHARTS_PER_MONTH *new* flowcharts per UTC
-// month; re-saving an existing chart never counts. Pro unlimited.
+// Free accounts get FREE_FLOWCHARTS_PER_QUOTA_PERIOD *new* flowcharts per
+// quota period; re-saving an existing chart never counts. Pro unlimited.
 
 export async function getFlowchartCount(env, userId) {
   await ensureProTables(env);

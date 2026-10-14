@@ -24,7 +24,7 @@ import { checkRateLimit } from "../../lib/rateLimit.js";
 import { getSessionUser } from "../../lib/authHelpers.js";
 import { getTenantSpend } from "../../lib/requestLog.js";
 import {
-  FREE_AI_ANSWERS_PER_MONTH, FREE_DOC_READS_PER_MONTH, FREE_FLOWCHARTS_PER_MONTH,
+  FREE_AI_ANSWERS_PER_QUOTA_PERIOD, FREE_DOC_READS_PER_QUOTA_PERIOD, FREE_FLOWCHARTS_PER_QUOTA_PERIOD,
   LITE_AI_ANSWERS, LITE_DOC_READS, LITE_FLOWCHARTS,
   FREE_QUOTA_PERIOD_DAYS, periodKey, quotaResetsInMs,
   PRO_PLANS, isValidProPlan, isLiteRow, tierOfRow, capsForTier, tierForCheckoutPlan,
@@ -80,9 +80,9 @@ function publicPlans() {
       perMonth: PRO_PLANS["lite-annual"].perMonth,
       note: "10x the free usage. Not unlimited — and none of Pro's badge or theme.",
     },
-    freeAiCap: FREE_AI_ANSWERS_PER_MONTH,
-    freeDocReadsCap: FREE_DOC_READS_PER_MONTH,
-    freeFlowchartsCap: FREE_FLOWCHARTS_PER_MONTH,
+    freeAiCap: FREE_AI_ANSWERS_PER_QUOTA_PERIOD,
+    freeDocReadsCap: FREE_DOC_READS_PER_QUOTA_PERIOD,
+    freeFlowchartsCap: FREE_FLOWCHARTS_PER_QUOTA_PERIOD,
     liteAiCap: LITE_AI_ANSWERS,
     liteDocReadsCap: LITE_DOC_READS,
     liteFlowchartsCap: LITE_FLOWCHARTS,
@@ -741,7 +741,7 @@ async function handleTemplateStats(request, env, cors) {
 // ── POST: flowchart-allow (signed in) ─────────────────────────────────────
 // The client calls this when a free user saves a NEW flowchart (re-saving an
 // existing chart never touches this endpoint). Pro is always allowed.
-// Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per quota period;
+// Free accounts get FREE_FLOWCHARTS_PER_QUOTA_PERIOD new charts per quota period;
 // the increment is atomic with the allowance check.
 async function handleFlowchartAllow(request, env, cors) {
   let user = null;
@@ -758,7 +758,7 @@ async function handleFlowchartAllow(request, env, cors) {
     try { proUsed = await recordFlowchart(env, user.id); } catch { /* best-effort */ }
     return json({ ok: true, allowed: true, pro: true, used: proUsed, cap: null }, 200, cors);
   }
-  // Free accounts get FREE_FLOWCHARTS_PER_MONTH new charts per quota period
+  // Free accounts get FREE_FLOWCHARTS_PER_QUOTA_PERIOD new charts per quota period
   // (Lite 10). The allowance check and the increment are ONE atomic consume:
   // concurrent saves can never overshoot the cap.
   const cap = capsForTier(tier).flowcharts;

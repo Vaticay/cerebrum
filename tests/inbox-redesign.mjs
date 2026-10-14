@@ -21,6 +21,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const inboxSrc = await readFile(join(root, "src/inbox.jsx"), "utf8");
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const dataSrc = await readFile(join(root, "functions/api/data.js"), "utf8");
+const callsignalSrc = await readFile(join(root, "functions/api/callsignal.js"), "utf8");
 
 let passed = 0;
 const failures = [];
@@ -35,18 +36,20 @@ async function test(name, fn) {
   }
 }
 
-await test("the mute toast claims message notifications only, in both directions", () => {
-  // Mute silences message notifications for the thread; call
-  // notifications still arrive (ringing behavior is the owner's
-  // separate open ruling, and this copy must not wait for it to be
-  // honest). Until wave eight the toast read "Notifications muted
-  // for this conversation", claiming every kind (seventh panel,
-  // Inbox). The settings surface already scopes its copy this way;
-  // the toast now matches it.
-  assert.ok(inboxSrc.includes("\"Message notifications muted for this conversation.\""), "the mute toast is not scoped to message notifications");
-  assert.ok(inboxSrc.includes("\"Message notifications unmuted for this conversation.\""), "the unmute toast is not scoped to message notifications");
-  assert.ok(!inboxSrc.includes("\"Notifications muted for this conversation.\""), "the unscoped mute toast is back");
-  assert.ok(!inboxSrc.includes("\"Notifications unmuted for this conversation.\""), "the unscoped unmute toast is back");
+await test("the mute toast claims the full mute scope, calls included, in both directions", () => {
+  // Corrected contract, wave eleven (2026-10-14): the owner ruled
+  // that a muted thread must not ring for calls from that thread on
+  // any path, and the gates landed with this wave (incoming-calls
+  // excludes muted threads; the call push filters muted callees).
+  // The wave eight pin that stood here required the message only
+  // scope, which was the honest copy while ringing genuinely sat
+  // outside the mute; it is replaced, not loosened: the message
+  // only strings are the forbidden ones now, because they would
+  // underclaim what the mute actually does.
+  assert.ok(inboxSrc.includes("\"Notifications muted for this conversation, calls included.\""), "the mute toast does not claim the call scope");
+  assert.ok(inboxSrc.includes("\"Notifications unmuted for this conversation.\""), "the unmute toast is missing");
+  assert.ok(!inboxSrc.includes("\"Message notifications muted for this conversation.\""), "the message only mute toast is back");
+  assert.ok(!inboxSrc.includes("\"Message notifications unmuted for this conversation.\""), "the message only unmute toast is back");
 });
 
 await test("composer is a growing textarea, not a single line input", () => {
@@ -410,6 +413,29 @@ await test("a muted recipient is left out of the web push fan-out", () => {
   assert.ok(inboxSrc.includes("!t.muted"), "the client list poll still notifies for muted threads");
 });
 
+await test("a muted thread cannot ring: incoming-calls and the call push both gate on muted", () => {
+  // Wave eleven (owner ruling, 2026-10-14): mute silences call
+  // ringing for the thread on every path. There are exactly two
+  // serverside ring sources. The incoming-calls resource is the
+  // only feed the client's ringing poll has, so excluding muted
+  // threads there silences the ringtone, the incoming call card,
+  // and the "Incoming call" notification by construction. The
+  // call push in callsignal.js is the closed tab path; it must
+  // filter muted callees before sendPushToUsers, the same
+  // exclusion the message fan-out above applies.
+  const icIdx = dataSrc.indexOf('resource === "incoming-calls"');
+  assert.ok(icIdx > -1, "incoming-calls resource missing");
+  const icBlock = dataSrc.slice(icIdx, icIdx + 3200);
+  assert.ok(icBlock.includes("COALESCE(tp.muted, 0) = 0"), "incoming-calls does not exclude muted threads, so a muted thread still rings in app");
+  const pushIdx = callsignalSrc.indexOf("if (pushCall)");
+  assert.ok(pushIdx > -1, "call push block not found in callsignal");
+  const pushBlock = callsignalSrc.slice(pushIdx, pushIdx + 2400);
+  assert.ok(pushBlock.includes("COALESCE(muted, 0) = 1"), "the call push never looks up muted callees");
+  assert.ok(pushBlock.includes("mutedIds"), "the call push does not build the muted callee set");
+  assert.ok(pushBlock.includes("sendPushToUsers(env, pushIds"), "the call push does not send to the filtered recipient list");
+  assert.ok(!pushBlock.includes("sendPushToUsers(env, calleeIds"), "the call push still sends to the unfiltered callee list");
+});
+
 await test("a muted conversation stays silent on the open thread poll too", () => {
   // The fifth audit panel: the list poll guarded its notifications
   // with the muted flag, but the open thread poll's arrival path fired
@@ -604,6 +630,24 @@ await test("the inbox root fills its parent instead of hardcoding the viewport",
     assert.deepEqual(fanoutC, ["usr_a"], "an unmuted recipient dropped out of the push fan-out");
   });
 
+  await test("functional: a call from a muted thread never reaches incoming-calls", async () => {
+    // A fresh ring heartbeat from usr_c in th_dm_c, the shape the
+    // caller's client repeats while it waits. Wave eleven: the
+    // incoming-calls resource is the only feed the callee's ringing
+    // poll has, so this flip is the whole in app ring gate.
+    ins("INSERT INTO call_signals (thread_id, sender_id, client_id, type, payload, created_at) VALUES ('th_dm_c', 'usr_c', 'client-c', 'ring', '{}', ?)", Date.now());
+    const ringing = await call("usr_a", "GET", "?resource=incoming-calls");
+    assert.equal(ringing.json.call && ringing.json.call.threadId, "th_dm_c", "an unmuted ring does not reach the callee");
+    const mute = await call("usr_a", "POST", "", { action: "set-thread-muted", thread_id: "th_dm_c", muted: true });
+    assert.equal(mute.json.muted, true);
+    const silenced = await call("usr_a", "GET", "?resource=incoming-calls");
+    assert.equal(silenced.json.call, null, "a muted thread still rings through incoming-calls");
+    const unmute = await call("usr_a", "POST", "", { action: "set-thread-muted", thread_id: "th_dm_c", muted: false });
+    assert.equal(unmute.json.muted, false);
+    const again = await call("usr_a", "GET", "?resource=incoming-calls");
+    assert.equal(again.json.call && again.json.call.threadId, "th_dm_c", "unmuting does not restore the ring");
+  });
+
   await test("functional: a presence ping shows up as the peer's last active time", async () => {
     const before = await call("usr_a", "GET", "?resource=inbox");
     assert.equal(before.json.items.find((t) => t.id === "th_dm_b").otherLastActiveAt, null, "presence claimed before any heartbeat");
@@ -726,6 +770,98 @@ await test("the app shell notifier is mute guarded, like both inbox polls", () =
   const openBefore = inboxSrc.slice(Math.max(0, openAt - 2000), openAt);
   assert.match(openBefore, /if \(!threadMuted\) \{/, "the open thread poll's notify is not inside its muted guard");
 });
+
+// Functional: the real callsignal handler against a real SQLite
+// database, with the push service stubbed at fetch. This is the
+// closed tab half of the wave eleven mute contract: the ring
+// heartbeat is real, the push fan-out is real, and only the
+// network edge is fake, so a fetch hit is proof a push left.
+{
+  const { DatabaseSync } = await import("node:sqlite");
+  const { createHash } = await import("node:crypto");
+  const { onRequest: callsignalRequest } = await import(join(root, "functions/api/callsignal.js"));
+
+  const sqlite = new DatabaseSync(":memory:");
+  const wrapStmt = (sql) => {
+    let vals = [];
+    const stmt = {
+      bind: (...v) => { vals = v; return stmt; },
+      first: async () => { const r = sqlite.prepare(sql).get(...vals); return r === undefined ? null : r; },
+      all: async () => ({ results: sqlite.prepare(sql).all(...vals) }),
+      run: async () => { const info = sqlite.prepare(sql).run(...vals); return { success: true, meta: { changes: Number(info.changes || 0) } }; },
+    };
+    return stmt;
+  };
+  const db = {
+    prepare: (sql) => wrapStmt(sql),
+    exec: async (sql) => { sqlite.exec(sql); return { results: [] }; },
+    batch: async (stmts) => { const out = []; for (const s of stmts) out.push(await s.run()); return out; },
+  };
+  const b64u = (bytes) => Buffer.from(bytes).toString("base64url");
+  // VAPID takes any valid P-256 scalar; the lib derives the public
+  // key from it. The subscription key must be a real point, because
+  // the sender runs genuine ECDH against it before fetch.
+  const subKeys = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const subPubRaw = new Uint8Array(await crypto.subtle.exportKey("raw", subKeys.publicKey));
+  const env = { DB: db, VAPID_PRIVATE_KEY: b64u(Uint8Array.from({ length: 32 }, (_, i) => i + 1)) };
+
+  sqlite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, email_lower TEXT, username TEXT, name TEXT, affiliation TEXT, show_affiliation INTEGER, discoverable INTEGER, plan TEXT, created_at INTEGER)");
+  sqlite.exec("CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT, created_at INTEGER, expires_at INTEGER)");
+  sqlite.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, kind TEXT, name TEXT, created_at INTEGER)");
+  sqlite.exec("CREATE TABLE thread_participants (thread_id TEXT, user_id TEXT, last_read_at INTEGER, pinned_at INTEGER, muted INTEGER)");
+  // The sender creates this at send time; the seed needs it first.
+  sqlite.exec("CREATE TABLE push_subscriptions (user_id TEXT NOT NULL, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (user_id, endpoint))");
+  // ensureSocialTables memoizes per process, and the data.js block
+  // above already spent it on its own database, so this block's
+  // database needs the two tables the handler reads before insert.
+  sqlite.exec("CREATE TABLE user_blocks (blocker_id TEXT NOT NULL, blocked_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (blocker_id, blocked_id))");
+  sqlite.exec("CREATE TABLE call_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, client_id TEXT NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL)");
+  const hash = (s) => createHash("sha256").update(s).digest("hex");
+  const now = Date.now();
+  for (const [id, email, username, name] of [
+    ["usr_a", "alice@example.com", "alice", "Alice"],
+    ["usr_b", "bob@example.com", "bob", "Bob"],
+  ]) {
+    sqlite.prepare("INSERT INTO users (id, email, email_lower, username, name, show_affiliation) VALUES (?, ?, ?, ?, ?, 1)").run(id, email, email, username, name);
+  }
+  for (const [uid, tok] of [["usr_a", "token-alpha"], ["usr_b", "token-bravo"]]) {
+    sqlite.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(hash(tok), uid, now, now + 3600000);
+  }
+  const ins = (sql, ...v) => sqlite.prepare(sql).run(...v);
+  ins("INSERT INTO threads (id, kind, name, created_at) VALUES ('th_mute', 'dm', NULL, ?)", now);
+  ins("INSERT INTO threads (id, kind, name, created_at) VALUES ('th_open', 'dm', NULL, ?)", now);
+  ins("INSERT INTO thread_participants (thread_id, user_id, muted) VALUES ('th_mute', 'usr_a', 0)");
+  ins("INSERT INTO thread_participants (thread_id, user_id, muted) VALUES ('th_mute', 'usr_b', 1)");
+  ins("INSERT INTO thread_participants (thread_id, user_id, muted) VALUES ('th_open', 'usr_a', 0)");
+  ins("INSERT INTO thread_participants (thread_id, user_id, muted) VALUES ('th_open', 'usr_b', 0)");
+  ins("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at) VALUES ('usr_b', 'https://push.example.com/sub-b', ?, ?, ?)",
+    b64u(subPubRaw), b64u(Uint8Array.from({ length: 16 }, () => 7)), now);
+
+  const fetchHits = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => { fetchHits.push(String(url)); return new Response(null, { status: 201 }); };
+  try {
+    const ring = async (threadId) => {
+      const pending = [];
+      const req = new Request("https://askcerebrum.org/api/callsignal", {
+        method: "POST",
+        headers: { Cookie: "cb_sess=token-alpha", "Content-Type": "application/json", Origin: "https://askcerebrum.org" },
+        body: JSON.stringify({ threadId, clientId: "client-a", type: "ring", payload: {} }),
+      });
+      const res = await callsignalRequest({ request: req, env, waitUntil: (p) => pending.push(p) });
+      await Promise.all(pending);
+      return res.status;
+    };
+    await test("functional: a ring in a muted thread sends no call push, and an unmuted thread sends one", async () => {
+      assert.equal(await ring("th_mute"), 200);
+      assert.deepEqual(fetchHits, [], "a callee who muted the thread still got a call push");
+      assert.equal(await ring("th_open"), 200);
+      assert.deepEqual(fetchHits, ["https://push.example.com/sub-b"], "an unmuted callee got no call push");
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

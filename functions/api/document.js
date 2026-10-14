@@ -1778,7 +1778,7 @@ export async function onRequest(context) {
 
     // ── Access gate: document analysis is provider-backed AI spend, so it
     // belongs to accounts, not anonymous callers. Free accounts get
-    // FREE_DOC_READS_PER_MONTH reads per UTC month; Pro is unlimited.
+    // FREE_DOC_READS_PER_QUOTA_PERIOD reads per quota period; Pro is unlimited.
     // (Fail closed: an unresolvable session denies, like search.js.)
     let proLib = null;
     let docUser = null;
@@ -1796,7 +1796,7 @@ export async function onRequest(context) {
     const docGate = await proLib.resolveAiGate(env, docUser);
     // Pro (paid or lifetime) reads unlimited documents. Lite and free draw
     // from their metered buckets — 30 and 3 reads per 5-day period
-    // (FREE_DOC_READS_PER_MONTH on the free tier). The auth check and the
+    // (FREE_DOC_READS_PER_QUOTA_PERIOD on the free tier). The auth check and the
     // increment are ONE atomic consume: concurrent requests can never
     // overshoot the cap. The reservation happens up front, so a failed
     // analysis burns the reserved slot instead of risking unbounded
