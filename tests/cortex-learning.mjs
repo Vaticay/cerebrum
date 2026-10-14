@@ -78,6 +78,14 @@ const WANTED = [
   "quizCard", "clozeCard",
   "VOCAB_STOP", "extractVocab", "vocabCard",
   "loadJSON", "saveJSON", "loadClaims", "saveClaims", "createCourseFromResults",
+  "todayKey", "cortexLoopProblem",
+  "SPARKS_RATES", "SPARKS_NEVER_BUYS", "emptyLoop", "loopForDay",
+  "buildDailyQuests", "questState", "recordLoopEvent", "settleQuestPayouts",
+  "awardSparksForRankUps", "spendSparks", "buyStreakFreeze",
+  "streakRepairOffer", "applyStreakRepair", "reminderFor",
+  "LEAGUE_GROUP_SIZE", "LEAGUE_DAILY_POINTS_CAP", "LEAGUES_WEEKLY_ACTIVE_GATE",
+  "leagueDailyPoints", "leagueWeeklyPoints", "leagueGroupFor", "leaguesAreOpen",
+  "shareCardModel",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -126,6 +134,14 @@ const {
   INTERACTIVE_KINDS, CORTEX_TAGLINE, RANK_LADDER, rankForXp, topicMasteryLevel,
   FADING_AFTER_DAYS, MASTERED_FADING_AFTER_DAYS, lessonLastActivityMs, isLessonFading,
   fadingLessons, buildReviewSessionCards, OPENER_STYLES, lessonOpenerStyle,
+  todayKey, cortexLoopProblem,
+  SPARKS_RATES, SPARKS_NEVER_BUYS, emptyLoop, loopForDay,
+  buildDailyQuests, questState, recordLoopEvent, settleQuestPayouts,
+  awardSparksForRankUps, spendSparks, buyStreakFreeze,
+  streakRepairOffer, applyStreakRepair, reminderFor,
+  LEAGUE_GROUP_SIZE, LEAGUE_DAILY_POINTS_CAP, LEAGUES_WEEKLY_ACTIVE_GATE,
+  leagueDailyPoints, leagueWeeklyPoints, leagueGroupFor, leaguesAreOpen,
+  shareCardModel,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -2167,6 +2183,271 @@ await test("the home carries the journey, the bench, the bundle, ranks, and onbo
   assert.ok(studio > searches, "the contributor studio should sit below the journey too");
   assert.ok(!learnSrc.includes("out of hearts") && !learnSrc.includes("lives to lose"),
     "a punishment mechanic crept into the copy");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Loop systems: quests, Sparks, reminders, leagues, share cards");
+
+const loopDay = "2026-10-14";
+const keyDaysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return todayKey(d); };
+
+await test("quest plan shape: always three, session first, deterministic", () => {
+  const args = { day: loopDay, profile: { xp: 0 }, progress: { lessons: {} }, dueCount: 0 };
+  const quests = buildDailyQuests(args);
+  assert.equal(quests.length, 3);
+  assert.deepEqual([...quests.map((q) => q.slot)], ["session", "target", "stretch"]);
+  assert.equal(quests[0].kind, "session");
+  assert.equal(quests[0].title, "Finish today's session");
+  assert.deepEqual(asJSON(buildDailyQuests(args)), asJSON(quests), "identical inputs must give identical quests");
+  for (const q of quests) {
+    assert.ok(typeof q.title === "string" && q.title.length > 0);
+    assert.ok(typeof q.detail === "string" && q.detail.length > 0);
+    assert.ok(!q.title.includes("-") && !q.detail.includes("-"), `a dash in quest copy: ${q.title}`);
+  }
+});
+
+await test("target picks review when due, and stretch picks an available checkpoint before a new topic", () => {
+  const withDue = buildDailyQuests({ day: loopDay, profile: { xp: 0 }, progress: { lessons: {} }, dueCount: 3 });
+  assert.equal(withDue[1].kind, "review");
+  assert.equal(withDue[1].dueAtStart, 3);
+  // Make the flagship path's next unfinished lesson its first checkpoint.
+  const body = LEARNING_PATHS.find((p) => p.id === "the-human-body");
+  const flat = flattenPathLessons(body);
+  const checkpointIdx = flat.findIndex((l) => l.checkpoint === true);
+  assert.ok(checkpointIdx > 0, "the flagship should carry a checkpoint lesson");
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  for (let i = 0; i < checkpointIdx; i++) prog = applyLessonResult(prog, body, flat[i].id, 90);
+  const quests = buildDailyQuests({ day: loopDay, profile: { xp: 0 }, progress: prog, dueCount: 0 });
+  assert.equal(quests[2].kind, "checkpoint", `stretch should pick the checkpoint, got ${quests[2].kind}`);
+  assert.equal(quests[2].targetId, flat[checkpointIdx].id);
+  const fresh = buildDailyQuests({ day: loopDay, profile: { xp: 0 }, progress: { lessons: {} }, dueCount: 0 });
+  assert.equal(fresh[2].kind, "newtopic", "with no checkpoint next, stretch should open a new topic");
+  assert.ok(TOPIC_COURSES.some((p) => p.id === fresh[2].pathId));
+  assert.equal(fresh[1].kind, "lesson");
+  assert.equal(fresh[1].targetId, flat0[0].id, "with nothing started, target is the first path's first lesson");
+});
+
+await test("questState reports review progress, partial and cleared", () => {
+  const quest = buildDailyQuests({ day: loopDay, profile: { xp: 0 }, progress: { lessons: {} }, dueCount: 3 })[1];
+  const loop = emptyLoop(loopDay);
+  assert.deepEqual(asJSON(questState(quest, { loop, dueCount: 2, progress: { lessons: {} } })), { current: 1, total: 3, done: false });
+  assert.deepEqual(asJSON(questState(quest, { loop, dueCount: 0, progress: { lessons: {} } })), { current: 3, total: 3, done: true });
+  assert.deepEqual(asJSON(questState(quest, { loop, dueCount: 3, progress: { lessons: {} } })), { current: 0, total: 3, done: false });
+});
+
+await test("questState reads event based quests from the loop record", () => {
+  const targetId = flat0[0].id;
+  let p = { xp: 0, sparks: 0 };
+  p = recordLoopEvent(p, loopDay, { type: "lesson", lessonId: targetId });
+  const loop = loopForDay(p, loopDay);
+  const lessonQuest = { slot: "target", kind: "lesson", title: "t", detail: "d", targetId, pathId: path0.id, dueAtStart: 0 };
+  assert.equal(questState(lessonQuest, { loop, dueCount: 0, progress: { lessons: {} } }).done, true);
+  const perfectQuest = { slot: "stretch", kind: "perfect", title: "t", detail: "d", targetId: null, pathId: null, dueAtStart: 0 };
+  assert.equal(questState(perfectQuest, { loop, dueCount: 0, progress: { lessons: {} } }).done, false);
+  p = recordLoopEvent(p, loopDay, { type: "perfect", lessonId: targetId });
+  assert.equal(questState(perfectQuest, { loop: loopForDay(p, loopDay), dueCount: 0, progress: { lessons: {} } }).done, true);
+  const sessionQuest = { slot: "session", kind: "session", title: "t", detail: "d", targetId: null, pathId: null, dueAtStart: 0 };
+  assert.equal(questState(sessionQuest, { loop, dueCount: 0, progress: { lessons: {} } }).done, false);
+  p = recordLoopEvent(p, loopDay, { type: "session" });
+  assert.equal(questState(sessionQuest, { loop: loopForDay(p, loopDay), dueCount: 0, progress: { lessons: {} } }).done, true);
+});
+
+await test("recordLoopEvent pays the session once per day, and again the next day", () => {
+  let p = { xp: 0, sparks: 0 };
+  p = recordLoopEvent(p, loopDay, { type: "session" });
+  assert.equal(p.sparks, SPARKS_RATES.session);
+  p = recordLoopEvent(p, loopDay, { type: "session" });
+  assert.equal(p.sparks, SPARKS_RATES.session, "a second session event the same day pays nothing");
+  p = recordLoopEvent(p, "2026-10-15", { type: "session" });
+  assert.equal(p.sparks, SPARKS_RATES.session * 2, "the next day pays again");
+  const source = { xp: 0, sparks: 3 };
+  recordLoopEvent(source, loopDay, { type: "session" });
+  assert.equal(source.sparks, 3, "recordLoopEvent must not mutate its input");
+});
+
+await test("perfect and checkpoint events dedupe per lesson per day", () => {
+  let p = { xp: 0, sparks: 0 };
+  p = recordLoopEvent(p, loopDay, { type: "perfect", lessonId: "l-a" });
+  p = recordLoopEvent(p, loopDay, { type: "perfect", lessonId: "l-a" });
+  assert.equal(p.sparks, SPARKS_RATES.perfect, "the same perfect lesson pays once a day");
+  p = recordLoopEvent(p, loopDay, { type: "perfect", lessonId: "l-b" });
+  assert.equal(p.sparks, SPARKS_RATES.perfect * 2);
+  p = recordLoopEvent(p, loopDay, { type: "checkpoint", lessonId: "l-a" });
+  p = recordLoopEvent(p, loopDay, { type: "checkpoint", lessonId: "l-a" });
+  assert.equal(p.sparks, SPARKS_RATES.perfect * 2 + SPARKS_RATES.checkpoint);
+  p = recordLoopEvent(p, "2026-10-15", { type: "perfect", lessonId: "l-a" });
+  assert.equal(p.sparks, SPARKS_RATES.perfect * 3 + SPARKS_RATES.checkpoint, "a new day pays the same lesson again");
+});
+
+await test("settleQuestPayouts pays five once per quest", () => {
+  const quests = buildDailyQuests({ day: loopDay, profile: { xp: 0 }, progress: { lessons: {} }, dueCount: 0 });
+  let p = { xp: 0, sparks: 0 };
+  p = recordLoopEvent(p, loopDay, { type: "lesson", lessonId: quests[1].targetId });
+  const first = settleQuestPayouts(p, loopDay, quests, { dueCount: 0, progress: { lessons: {} } });
+  assert.deepEqual([...first.newlyPaid], ["target"]);
+  assert.equal(first.profile.sparks, SPARKS_RATES.quest);
+  assert.equal(first.profile.loop.paid.target, true);
+  assert.equal(first.profile.loop.done.target, true);
+  const second = settleQuestPayouts(first.profile, loopDay, quests, { dueCount: 0, progress: { lessons: {} } });
+  assert.deepEqual([...second.newlyPaid], []);
+  assert.equal(second.profile.sparks, SPARKS_RATES.quest, "a settled quest pays only once");
+});
+
+await test("rank ups pay fifty per rung and nothing within a rung", () => {
+  assert.equal(awardSparksForRankUps({ sparks: 0 }, 0, RANK_LADDER[1].minXp).sparks, 50);
+  assert.equal(awardSparksForRankUps({ sparks: 10 }, 0, RANK_LADDER[2].minXp).sparks, 110);
+  assert.equal(awardSparksForRankUps({ sparks: 7 }, 10, 100).sparks, 7);
+  assert.equal(SPARKS_RATES.rankUp, 50);
+});
+
+await test("spending refuses to go below zero, and freezes refuse at the cap and when short", () => {
+  assert.equal(spendSparks({ sparks: 20 }, 30), null);
+  assert.equal(spendSparks({ sparks: 20 }, 20).sparks, 0);
+  assert.equal(buyStreakFreeze({ sparks: 200, freezes: SPARKS_RATES.freezeCap }), null, "the freeze cap refuses");
+  assert.equal(buyStreakFreeze({ sparks: 40, freezes: 0 }), null, "a short balance refuses");
+  const bought = buyStreakFreeze({ sparks: 50, freezes: 1 });
+  assert.equal(bought.freezes, 2);
+  assert.equal(bought.sparks, 0);
+});
+
+await test("streak repair fires only for exactly one missed day and restores the count for 100", () => {
+  const oneMissed = { xp: 0, sparks: 150, freezes: 0, days: [keyDaysAgo(2), keyDaysAgo(0)], bridged: [] };
+  const offer = streakRepairOffer(oneMissed, new Date());
+  assert.ok(offer, "one missed day should produce an offer");
+  assert.equal(offer.missedDay, keyDaysAgo(1));
+  assert.equal(offer.lostStreak, 1);
+  assert.equal(offer.cost, 100);
+  const noMiss = { xp: 0, sparks: 150, freezes: 0, days: [keyDaysAgo(1), keyDaysAgo(0)], bridged: [] };
+  assert.equal(streakRepairOffer(noMiss, new Date()), null, "no missed day means no offer");
+  const twoMissed = { xp: 0, sparks: 150, freezes: 0, days: [keyDaysAgo(3), keyDaysAgo(0)], bridged: [] };
+  assert.equal(streakRepairOffer(twoMissed, new Date()), null, "two missed days means no offer");
+  const repaired = applyStreakRepair(oneMissed);
+  assert.equal(repaired.sparks, 50, "repair charges 100");
+  assert.ok(repaired.days.includes(keyDaysAgo(1)), "the missed day is back in the record");
+  assert.ok(repaired.bridged.includes(keyDaysAgo(1)), "the missed day is marked bridged");
+  assert.equal(repaired.streak, 3, "today, the repaired day, and the day before count back");
+  assert.equal(applyStreakRepair({ ...oneMissed, sparks: 50 }), null, "repair refuses when the balance is short");
+});
+
+await test("Sparks never buy list is exact, and spending has exactly the two purchase paths", () => {
+  assert.deepEqual([...SPARKS_NEVER_BUYS], ["answers", "hints", "skips", "XP", "rank", "mastery", "league standing"]);
+  assert.ok(learnSrc.includes("buyStreakFreeze"), "the freeze purchase path is missing");
+  assert.ok(learnSrc.includes("applyStreakRepair"), "the repair purchase path is missing");
+  const spendCalls = learnSrc.match(/spendSparks\(/g) || [];
+  assert.equal(spendCalls.length, 3, `spendSparks should appear only as its definition plus the freeze and repair calls, found ${spendCalls.length}`);
+  for (const copy of ["Buy a hint", "Buy an answer", "Buy a skip", "Buy XP", "Buy rank", "Buy mastery"]) {
+    assert.ok(!learnSrc.includes(copy), `a purchase offer for a never buy item crept in: ${copy}`);
+  }
+  assert.ok(learnSrc.includes("Sparks never buy "), "the shop does not state the never buy line");
+});
+
+await test("league points cap the day, ignore replays, and sum capped days for the week", () => {
+  assert.equal(LEAGUE_GROUP_SIZE, 30);
+  assert.equal(LEAGUE_DAILY_POINTS_CAP, 60);
+  assert.equal(LEAGUES_WEEKLY_ACTIVE_GATE, 3000);
+  assert.equal(leagueDailyPoints({ lessonsFirstTime: 2, reviewCorrect: 5 }), 50);
+  assert.equal(leagueDailyPoints({ lessonsFirstTime: 10, reviewCorrect: 50 }), 60, "the daily cap applies");
+  assert.equal(leagueDailyPoints({}), 0);
+  assert.equal(leagueDailyPoints({ lessonsFirstTime: 1, reviewCorrect: 0, replays: 99 }), 20, "replays earn nothing and are never counted");
+  assert.equal(leagueWeeklyPoints([60, 50, 10]), 120);
+  assert.equal(leaguesAreOpen(2999), false);
+  assert.equal(leaguesAreOpen(3000), true);
+});
+
+await test("league groups chunk sorted ids into groups of thirty holding the learner", () => {
+  const ids = Array.from({ length: 65 }, (_, i) => "learner-" + String(i).padStart(2, "0"));
+  const mine = leagueGroupFor("learner-40", ids);
+  assert.ok(mine.length <= 30, `a league group holds ${mine.length}`);
+  assert.ok(mine.includes("learner-40"));
+  assert.equal(leagueGroupFor("learner-00", ids).length, 30);
+  assert.deepEqual([...leagueGroupFor("nobody", ids)], []);
+});
+
+await test("reminders wait for the chosen hour, name the streak and quest, and turn urgent late", () => {
+  const quests = buildDailyQuests({ day: loopDay, profile: { xp: 0 }, progress: { lessons: {} }, dueCount: 0 });
+  const atHour = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d; };
+  const profile = { xp: 0, sparks: 0, streak: 5, reminderHour: 9 };
+  assert.equal(reminderFor({ profile, quests, loop: emptyLoop(loopDay), now: atHour(8) }), null, "before the chosen hour there is no reminder");
+  assert.equal(reminderFor({ profile: { ...profile, reminderHour: null }, quests, loop: emptyLoop(loopDay), now: atHour(12) }), null, "no chosen hour means no reminder");
+  const doneLoop = { ...emptyLoop(loopDay), sessionDone: true };
+  assert.equal(reminderFor({ profile, quests, loop: doneLoop, now: atHour(12) }), null, "a finished session needs no reminder");
+  const daily = reminderFor({ profile, quests, loop: emptyLoop(loopDay), now: atHour(10) });
+  assert.equal(daily.kind, "daily");
+  assert.ok(daily.body.includes("5"), "the daily reminder does not name the streak");
+  assert.ok(daily.body.includes(quests[0].title), "the daily reminder does not name the open quest");
+  const late = reminderFor({ profile, quests, loop: emptyLoop(loopDay), now: atHour(23) });
+  assert.equal(late.kind, "atrisk");
+  assert.ok(late.body.includes("5") && late.body.includes("session"), "the late reminder should name the streak and the session");
+});
+
+await test("share card models shape every kind, with celebrate for wins and wave for rank", () => {
+  const lesson = shareCardModel("lesson", { title: "Cells", courseTitle: "The Human Body", accuracy: 90, xp: 120 });
+  assert.equal(lesson.pose, "celebrate");
+  assert.equal(lesson.title, "Cells");
+  assert.ok(lesson.eyebrow.length > 0);
+  assert.deepEqual([...lesson.lines], ["First try accuracy 90%", "+120 XP", "The Human Body"]);
+  const course = shareCardModel("course", { title: "Sleep", accuracy: 80, xp: 200 });
+  assert.equal(course.pose, "celebrate");
+  assert.ok(course.lines.some((l) => l.includes("80%")));
+  const session = shareCardModel("session", { streak: 4, rankName: "Explorer", mastered: 9 });
+  assert.equal(session.pose, "celebrate");
+  assert.ok(session.lines.some((l) => l.includes("Explorer")));
+  assert.ok(session.lines.some((l) => l.includes("9")));
+  const streak = shareCardModel("streak", { streak: 30, rankName: "Explorer", mastered: 9 });
+  assert.equal(streak.title, "30 day streak");
+  assert.equal(streak.pose, "celebrate");
+  const rank = shareCardModel("rank", { rankName: "Explorer", xp: 250 });
+  assert.equal(rank.pose, "wave");
+  assert.equal(rank.title, "Explorer");
+  for (const m of [lesson, course, session, streak, rank]) {
+    assert.ok(Array.isArray(m.lines) && m.lines.every((l) => typeof l === "string"));
+    assert.ok(!JSON.stringify(m).includes("-") || m.title.includes("Human"), `a dash in a share model: ${JSON.stringify(m)}`);
+  }
+});
+
+await test("import validation accepts the new profile fields and refuses a corrupt loop", () => {
+  const good = deepDoc();
+  good.profile = { ...good.profile, sparks: 25, loopDay: loopDay, reminderHour: 9, leaguesOptIn: true, loop: asJSON(emptyLoop(loopDay)) };
+  assert.equal(parseCortexImport(JSON.stringify(good)).ok, true, "a profile carrying the new fields was refused");
+  const badLoop = deepDoc();
+  badLoop.profile = { ...badLoop.profile, sparks: 25, loop: "not a loop" };
+  assert.equal(parseCortexImport(JSON.stringify(badLoop)).ok, false, "a corrupt loop record was accepted");
+  const badEvents = deepDoc();
+  badEvents.profile = { ...badEvents.profile, loop: { plan: null, events: { lessons: "not a list" } } };
+  assert.equal(parseCortexImport(JSON.stringify(badEvents)).ok, false, "loop events that are not string lists were accepted");
+  const badQuest = deepDoc();
+  badQuest.profile = { ...badQuest.profile, loop: { plan: { target: { title: 42 } } } };
+  assert.equal(parseCortexImport(JSON.stringify(badQuest)).ok, false, "a quest descriptor without a string title was accepted");
+  const badHour = deepDoc();
+  badHour.profile = { ...badHour.profile, reminderHour: 25 };
+  assert.equal(parseCortexImport(JSON.stringify(badHour)).ok, false, "a reminder hour outside the day was accepted");
+  assert.equal(cortexLoopProblem(null), null);
+  assert.equal(cortexLoopProblem(asJSON(emptyLoop(loopDay))), null);
+  assert.ok(cortexLoopProblem("nope").includes("profile"));
+});
+
+await test("export and import round trip keeps sparks and the reminder hour", () => {
+  const state = {
+    ...cortexFixtureState,
+    profile: { ...cortexFixtureState.profile, sparks: 33, reminderHour: 13, leaguesOptIn: false, loopDay: loopDay, loop: null },
+  };
+  const parsed = parseCortexImport(JSON.stringify(buildCortexExport(state, new Date())));
+  assert.equal(parsed.ok, true, parsed.error || "round trip refused");
+  assert.equal(parsed.state.profile.sparks, 33);
+  assert.equal(parsed.state.profile.reminderHour, 13);
+});
+
+await test("the home carries quests, the Sparks shop, reminders, leagues, share cards, and the third onboarding step", () => {
+  for (const needle of [
+    "TODAY'S QUESTS", "SPARKS", "Buy a streak freeze · 50 Sparks", "Repair the missed day · 100 Sparks",
+    "REMINDERS", "Reminders live here for now", "LEAGUES", "Leagues are not open yet",
+    "You are in for opening day. Your place is saved.",
+    "function ShareCardButton", "Share card", "shareCardModel(",
+    "When should Cortex remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
+    "Tomorrow, one quest is still open: ",
+  ]) {
+    assert.ok(learnSrc.includes(needle), `the loop surface is missing: ${needle}`);
+  }
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

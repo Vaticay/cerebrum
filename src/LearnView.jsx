@@ -62,7 +62,7 @@ function loadProfile() {
   if (p) return p;
   let xp = 0;
   try { xp = parseInt(localStorage.getItem("cerebrum-learn-xp") || "0", 10) || 0; } catch { xp = 0; }
-  return { xp, days: [], bridged: [], freezes: 2, freezeMilestone: 0 };
+  return { xp, days: [], bridged: [], freezes: 2, freezeMilestone: 0, sparks: 0, loopDay: "", loop: null, reminderHour: null, leaguesOptIn: false };
 }
 function saveProfile(p) { saveJSON(PROFILE_KEY, p); }
 
@@ -88,7 +88,7 @@ export const CORTEX_TAGLINE = "Science you will actually remember.";
 function cortexIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 function cortexIsFiniteNumber(v) { return typeof v === "number" && Number.isFinite(v); }
 function cortexIsStringArray(v) { return Array.isArray(v) && v.every((x) => typeof x === "string"); }
-function cortexEmptyProfile() { return { xp: 0, days: [], bridged: [], freezes: 2, freezeMilestone: 0 }; }
+function cortexEmptyProfile() { return { xp: 0, days: [], bridged: [], freezes: 2, freezeMilestone: 0, sparks: 0, loopDay: "", loop: null, reminderHour: null, leaguesOptIn: false }; }
 function cortexEmptyBuiltinProgress() { return { lessons: {}, lastPathId: "", lastLessonId: "" }; }
 function cortexImportFailure(error) { return { ok: false, error }; }
 
@@ -179,6 +179,31 @@ function cortexProgressRecordProblem(rec) {
   return null;
 }
 
+export function cortexLoopProblem(loop) {
+  if (loop == null) return null;
+  if (!cortexIsPlainObject(loop)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (loop.plan != null) {
+    if (!cortexIsPlainObject(loop.plan) && !Array.isArray(loop.plan)) return "That file's profile section holds a daily plan that is not readable. Nothing was imported.";
+    const descriptors = Array.isArray(loop.plan) ? loop.plan : Object.values(loop.plan);
+    for (const q of descriptors) {
+      if (q == null) continue;
+      if (!cortexIsPlainObject(q) || typeof q.title !== "string") return "That file's profile section holds a daily quest that is not readable. Nothing was imported.";
+    }
+  }
+  if (loop.sessionDone != null && typeof loop.sessionDone !== "boolean") return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (loop.sessionPaid != null && typeof loop.sessionPaid !== "boolean") return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (loop.done != null && !cortexIsPlainObject(loop.done)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (loop.paid != null && !cortexIsPlainObject(loop.paid)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (loop.events != null) {
+    if (!cortexIsPlainObject(loop.events)) return "That file's profile section holds daily loop events that are not readable. Nothing was imported.";
+    for (const key of ["lessons", "perfect", "checkpoints", "paidPerfect", "paidCheckpoints"]) {
+      if (loop.events[key] != null && !cortexIsStringArray(loop.events[key])) return "That file's profile section holds daily loop events that are not readable. Nothing was imported.";
+    }
+  }
+  if (loop.dueAtStart != null && !cortexIsFiniteNumber(loop.dueAtStart)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  return null;
+}
+
 /* Validate a whole export file before anything is restored. Any
    problem returns a failure with plain words and no partial state,
    so a malformed or foreign file provably changes nothing. A file
@@ -223,6 +248,16 @@ export function parseCortexImport(text) {
     || (data.profile.freezes != null && !cortexIsFiniteNumber(data.profile.freezes))
     || (data.profile.freezeMilestone != null && !cortexIsFiniteNumber(data.profile.freezeMilestone))) {
     return cortexImportFailure("That file's profile section is not shaped like a Cortex profile. Nothing was imported.");
+  }
+  if ((data.profile.sparks != null && (!cortexIsFiniteNumber(data.profile.sparks) || data.profile.sparks < 0))
+    || (data.profile.loopDay != null && typeof data.profile.loopDay !== "string")
+    || (data.profile.reminderHour != null && (!Number.isInteger(data.profile.reminderHour) || data.profile.reminderHour < 0 || data.profile.reminderHour > 23))
+    || (data.profile.leaguesOptIn != null && typeof data.profile.leaguesOptIn !== "boolean")) {
+    return cortexImportFailure("That file's profile section is not shaped like a Cortex profile. Nothing was imported.");
+  }
+  if (data.profile.loop != null) {
+    const loopProblem = cortexLoopProblem(data.profile.loop);
+    if (loopProblem) return cortexImportFailure(loopProblem);
   }
   if (!cortexIsPlainObject(data.builtinProgress) || !cortexIsPlainObject(data.builtinProgress.lessons)) {
     return cortexImportFailure("That file is missing its path progress section. Nothing was imported.");
@@ -5673,6 +5708,509 @@ export function orderScore(placed, items) {
   return { correctPositions, total, xp, perfect };
 }
 
+/* ── loop systems: daily quests, Sparks, reminders, leagues ───────
+   Phase 3. One daily loop: a session, one target quest chosen from
+   the weakest visible behaviour, and one stretch quest. Finishing
+   work records events on the day, quests pay Sparks when they
+   settle, and Sparks pay only for streak protection. Nothing here
+   sells progress of any kind. All of it is pure, so the whole loop
+   can be pinned without a DOM. */
+export const SPARKS_RATES = { session: 10, quest: 5, checkpoint: 15, perfect: 5, rankUp: 50, freezeCost: 50, repairCost: 100, freezeCap: 2 };
+export const SPARKS_NEVER_BUYS = ["answers", "hints", "skips", "XP", "rank", "mastery", "league standing"];
+
+export function emptyLoop(day) {
+  return {
+    plan: null,
+    sessionDone: false,
+    sessionPaid: false,
+    done: { session: false, target: false, stretch: false },
+    paid: { session: false, target: false, stretch: false },
+    events: { lessons: [], perfect: [], checkpoints: [], paidPerfect: [], paidCheckpoints: [] },
+    dueAtStart: 0,
+  };
+}
+
+export function loopForDay(profile, dayKey) {
+  const base = emptyLoop(dayKey);
+  if (!profile || profile.loopDay !== dayKey || !profile.loop || typeof profile.loop !== "object" || Array.isArray(profile.loop)) return base;
+  const stored = profile.loop;
+  return {
+    ...base,
+    ...stored,
+    done: { ...base.done, ...(stored.done || {}) },
+    paid: { ...base.paid, ...(stored.paid || {}) },
+    events: {
+      lessons: [...((stored.events && stored.events.lessons) || [])],
+      perfect: [...((stored.events && stored.events.perfect) || [])],
+      checkpoints: [...((stored.events && stored.events.checkpoints) || [])],
+      paidPerfect: [...((stored.events && stored.events.paidPerfect) || [])],
+      paidCheckpoints: [...((stored.events && stored.events.paidCheckpoints) || [])],
+    },
+  };
+}
+
+export function buildDailyQuests({ day, profile, progress, dueCount } = {}) {
+  const dayStr = day || "";
+  const xp = (profile && profile.xp) || 0;
+  const due = Math.max(0, dueCount || 0);
+  const allPaths = [...LEARNING_PATHS, ...TOPIC_COURSES];
+  const session = {
+    slot: "session", kind: "session",
+    title: "Finish today's session",
+    detail: "Play the daily session from warmup to payoff.",
+    targetId: null, pathId: null, dueAtStart: due,
+  };
+  let target = null;
+  if (due > 0) {
+    target = {
+      slot: "target", kind: "review",
+      title: "Clear the review queue",
+      detail: due + (due === 1 ? " question is" : " questions are") + " due for review today.",
+      targetId: null, pathId: null, dueAtStart: due,
+    };
+  } else {
+    const fading = fadingLessons(allPaths, progress || { lessons: {} });
+    if (fading.length) {
+      target = {
+        slot: "target", kind: "fading",
+        title: "Revisit " + fading[0].lesson.title,
+        detail: "This finished lesson is fading. A visit brings it back.",
+        targetId: fading[0].lesson.id, pathId: fading[0].path.id, dueAtStart: due,
+      };
+    } else {
+      const candidates = [];
+      for (const path of allPaths) {
+        const pp = pathProgress(path, progress || { lessons: {} });
+        if (pp.nextLessonId) candidates.push({ path, pp });
+      }
+      let pick = candidates[0] || null;
+      const started = candidates.filter((c) => c.pp.done > 0 && !c.pp.complete);
+      if (started.length) {
+        const sorted = [...started].sort((a, b) => (a.pp.pct - b.pp.pct) || (a.pp.done - b.pp.done));
+        const bestPct = sorted[0].pp.pct;
+        const bestDone = sorted[0].pp.done;
+        const tied = sorted.filter((c) => c.pp.pct === bestPct && c.pp.done === bestDone);
+        pick = tied.length > 1 ? tied[hashStr(dayStr + xp) % tied.length] : sorted[0];
+      }
+      if (pick) {
+        const flat = flattenPathLessons(pick.path);
+        const lesson = flat.find((l) => l.id === pick.pp.nextLessonId) || flat[0];
+        target = {
+          slot: "target", kind: "lesson",
+          title: "Finish " + (lesson ? lesson.title : "the next lesson"),
+          detail: "The next unfinished lesson on " + pick.path.title + ".",
+          targetId: lesson ? lesson.id : pick.pp.nextLessonId, pathId: pick.path.id, dueAtStart: due,
+        };
+      } else {
+        target = {
+          slot: "target", kind: "lesson",
+          title: "Finish a lesson",
+          detail: "Pick any path and finish its next lesson.",
+          targetId: null, pathId: null, dueAtStart: due,
+        };
+      }
+    }
+  }
+  let stretch = null;
+  for (const path of allPaths) {
+    const pp = pathProgress(path, progress || { lessons: {} });
+    if (!pp.nextLessonId) continue;
+    const flat = flattenPathLessons(path);
+    const next = flat.find((l) => l.id === pp.nextLessonId);
+    if (next && next.checkpoint === true) {
+      stretch = {
+        slot: "stretch", kind: "checkpoint",
+        title: "Pass the checkpoint " + next.title,
+        detail: "The checkpoint lesson on " + path.title + " is your next stop there.",
+        targetId: next.id, pathId: path.id, dueAtStart: due,
+      };
+      break;
+    }
+  }
+  if (!stretch) {
+    const freshTopic = TOPIC_COURSES.find((p) => pathProgress(p, progress || { lessons: {} }).done === 0);
+    if (freshTopic) {
+      stretch = {
+        slot: "stretch", kind: "newtopic",
+        title: "Start " + freshTopic.title,
+        detail: "A topic you have not opened yet. One lesson starts it.",
+        targetId: null, pathId: freshTopic.id, dueAtStart: due,
+      };
+    } else {
+      stretch = {
+        slot: "stretch", kind: "perfect",
+        title: "Finish a lesson with a perfect score",
+        detail: "Every check right on the first try, in any lesson.",
+        targetId: null, pathId: null, dueAtStart: due,
+      };
+    }
+  }
+  return [session, target, stretch];
+}
+
+export function questState(quest, { loop, dueCount, progress, now } = {}) {
+  if (!quest) return { current: 0, total: 1, done: false };
+  const effLoop = loop || emptyLoop("");
+  const events = effLoop.events || { lessons: [], perfect: [], checkpoints: [] };
+  const lessonsDone = events.lessons || [];
+  const at = now == null ? Date.now() : now;
+  if (quest.kind === "session") {
+    const done = !!effLoop.sessionDone;
+    return { current: done ? 1 : 0, total: 1, done };
+  }
+  if (quest.kind === "review") {
+    const total = Math.max(0, quest.dueAtStart || 0);
+    const remaining = Math.min(Math.max(0, dueCount || 0), total);
+    return { current: total - remaining, total, done: total > 0 && (dueCount || 0) === 0 };
+  }
+  if (quest.kind === "fading") {
+    const inEvents = !!quest.targetId && lessonsDone.includes(quest.targetId);
+    const rec = progress && progress.lessons ? progress.lessons[quest.targetId] : null;
+    const noLongerFading = !!rec && !!rec.done && !isLessonFading(rec, at);
+    const done = inEvents || noLongerFading;
+    return { current: done ? 1 : 0, total: 1, done };
+  }
+  if (quest.kind === "lesson") {
+    const done = !!quest.targetId && lessonsDone.includes(quest.targetId);
+    return { current: done ? 1 : 0, total: 1, done };
+  }
+  if (quest.kind === "checkpoint") {
+    const done = !!quest.targetId && (events.checkpoints || []).includes(quest.targetId);
+    return { current: done ? 1 : 0, total: 1, done };
+  }
+  if (quest.kind === "newtopic") {
+    const path = [...LEARNING_PATHS, ...TOPIC_COURSES].find((p) => p.id === quest.pathId) || null;
+    const ids = path ? flattenPathLessons(path).map((l) => l.id) : [];
+    const done = ids.some((id) => lessonsDone.includes(id));
+    return { current: done ? 1 : 0, total: 1, done };
+  }
+  if (quest.kind === "perfect") {
+    const done = ((events.perfect || []).length > 0);
+    return { current: done ? 1 : 0, total: 1, done };
+  }
+  return { current: 0, total: 1, done: false };
+}
+
+export function recordLoopEvent(profile, day, event) {
+  const base = profile || {};
+  const loop = loopForDay(base, day);
+  const next = {
+    ...base,
+    sparks: Math.max(0, base.sparks || 0),
+    loopDay: day,
+    loop: {
+      ...loop,
+      done: { ...loop.done },
+      paid: { ...loop.paid },
+      events: {
+        lessons: [...loop.events.lessons],
+        perfect: [...loop.events.perfect],
+        checkpoints: [...loop.events.checkpoints],
+        paidPerfect: [...loop.events.paidPerfect],
+        paidCheckpoints: [...loop.events.paidCheckpoints],
+      },
+    },
+  };
+  if (!event || !event.type) return next;
+  if (event.type === "lesson" && event.lessonId) {
+    if (!next.loop.events.lessons.includes(event.lessonId)) next.loop.events.lessons.push(event.lessonId);
+  } else if (event.type === "perfect" && event.lessonId) {
+    if (!next.loop.events.perfect.includes(event.lessonId)) next.loop.events.perfect.push(event.lessonId);
+    if (!next.loop.events.paidPerfect.includes(event.lessonId)) {
+      next.loop.events.paidPerfect.push(event.lessonId);
+      next.sparks = Math.max(0, next.sparks + SPARKS_RATES.perfect);
+    }
+  } else if (event.type === "checkpoint" && event.lessonId) {
+    if (!next.loop.events.checkpoints.includes(event.lessonId)) next.loop.events.checkpoints.push(event.lessonId);
+    if (!next.loop.events.paidCheckpoints.includes(event.lessonId)) {
+      next.loop.events.paidCheckpoints.push(event.lessonId);
+      next.sparks = Math.max(0, next.sparks + SPARKS_RATES.checkpoint);
+    }
+  } else if (event.type === "session") {
+    next.loop.sessionDone = true;
+    if (!next.loop.sessionPaid) {
+      next.loop.sessionPaid = true;
+      next.sparks = Math.max(0, next.sparks + SPARKS_RATES.session);
+    }
+  }
+  return next;
+}
+
+export function settleQuestPayouts(profile, day, quests, ctx = {}) {
+  const base = profile || {};
+  const loop = loopForDay(base, day);
+  const next = {
+    ...base,
+    sparks: Math.max(0, base.sparks || 0),
+    loopDay: day,
+    loop: {
+      ...loop,
+      done: { ...loop.done },
+      paid: { ...loop.paid },
+      events: {
+        lessons: [...loop.events.lessons],
+        perfect: [...loop.events.perfect],
+        checkpoints: [...loop.events.checkpoints],
+        paidPerfect: [...loop.events.paidPerfect],
+        paidCheckpoints: [...loop.events.paidCheckpoints],
+      },
+    },
+  };
+  const newlyPaid = [];
+  for (const quest of quests || []) {
+    if (!quest || !quest.slot) continue;
+    const state = questState(quest, { loop: next.loop, dueCount: ctx.dueCount || 0, progress: ctx.progress, now: ctx.now });
+    if (state.done) {
+      next.loop.done[quest.slot] = true;
+      if (!next.loop.paid[quest.slot]) {
+        next.loop.paid[quest.slot] = true;
+        next.sparks = Math.max(0, next.sparks + SPARKS_RATES.quest);
+        newlyPaid.push(quest.slot);
+      }
+    }
+  }
+  return { profile: next, newlyPaid };
+}
+
+export function awardSparksForRankUps(profile, fromXp, toXp) {
+  const base = profile || {};
+  const gained = rankForXp(toXp).index - rankForXp(fromXp).index;
+  if (gained <= 0) return { ...base, sparks: Math.max(0, base.sparks || 0) };
+  return { ...base, sparks: Math.max(0, (base.sparks || 0) + gained * SPARKS_RATES.rankUp) };
+}
+
+export function spendSparks(profile, amount) {
+  const balance = Math.max(0, (profile && profile.sparks) || 0);
+  const cost = Math.max(0, amount || 0);
+  if (balance < cost) return null;
+  return { ...(profile || {}), sparks: balance - cost };
+}
+
+export function buyStreakFreeze(profile) {
+  const base = profile || {};
+  if ((base.freezes || 0) >= SPARKS_RATES.freezeCap) return null;
+  const spent = spendSparks(base, SPARKS_RATES.freezeCost);
+  if (!spent) return null;
+  return { ...spent, freezes: (base.freezes || 0) + 1 };
+}
+
+export function streakRepairOffer(profile, now) {
+  const base = profile || {};
+  const nowDate = now == null ? new Date() : (now instanceof Date ? now : new Date(now));
+  const keyFor = (offset) => { const d = new Date(nowDate); d.setDate(d.getDate() + offset); return todayKey(d); };
+  const days = new Set(base.days || []);
+  const today = keyFor(0);
+  const yesterday = keyFor(-1);
+  const dayBefore = keyFor(-2);
+  if (!days.has(today) || days.has(yesterday) || !days.has(dayBefore)) return null;
+  let lostStreak = 0;
+  for (let offset = -2; ; offset--) {
+    if (days.has(keyFor(offset))) lostStreak++;
+    else break;
+  }
+  return { missedDay: yesterday, lostStreak, cost: SPARKS_RATES.repairCost };
+}
+
+export function applyStreakRepair(profile) {
+  const base = profile || {};
+  const offer = streakRepairOffer(base, new Date());
+  if (!offer) return null;
+  const spent = spendSparks(base, SPARKS_RATES.repairCost);
+  if (!spent) return null;
+  const days = [...new Set([...(base.days || []), offer.missedDay])].sort();
+  const bridged = [...new Set([...(base.bridged || []), offer.missedDay])];
+  const set = new Set(days);
+  let streak = 0;
+  for (let offset = 0; ; offset--) {
+    const d = new Date(); d.setDate(d.getDate() + offset);
+    if (set.has(todayKey(d))) streak++;
+    else break;
+  }
+  return { ...spent, days, bridged, streak };
+}
+
+export function reminderFor({ profile, quests, loop, now } = {}) {
+  const base = profile || {};
+  if (base.reminderHour == null) return null;
+  const effLoop = loop || emptyLoop("");
+  if (effLoop.sessionDone) return null;
+  const nowDate = now == null ? new Date() : (now instanceof Date ? now : new Date(now));
+  const hour = nowDate.getHours();
+  if (hour < base.reminderHour) return null;
+  const streak = base.streak || 0;
+  if (hour >= 22) {
+    return {
+      kind: "atrisk",
+      title: "Your streak needs you tonight",
+      body: "Your streak is " + streak + (streak === 1 ? " day" : " days") + ". Finish today's session before midnight to keep it going.",
+    };
+  }
+  const list = quests || [];
+  const open = list.find((q) => {
+    if (!q) return false;
+    if (q.kind === "session") return !effLoop.sessionDone;
+    if (effLoop.done && q.slot && effLoop.done[q.slot]) return false;
+    if (effLoop.paid && q.slot && effLoop.paid[q.slot]) return false;
+    return true;
+  }) || list[0] || null;
+  return {
+    kind: "daily",
+    title: "Time for Cortex",
+    body: "Your streak is " + streak + (streak === 1 ? " day" : " days") + "." + (open ? " Still open today: " + open.title + "." : " Finish today's session to keep it going."),
+  };
+}
+
+export const LEAGUE_GROUP_SIZE = 30;
+export const LEAGUE_DAILY_POINTS_CAP = 60;
+export const LEAGUES_WEEKLY_ACTIVE_GATE = 3000;
+
+export function leagueDailyPoints({ lessonsFirstTime = 0, reviewCorrect = 0 } = {}) {
+  const raw = Math.max(0, lessonsFirstTime || 0) * 20 + Math.max(0, reviewCorrect || 0) * 2;
+  return Math.min(LEAGUE_DAILY_POINTS_CAP, raw);
+}
+
+export function leagueWeeklyPoints(arrayOfDailyPoints) {
+  return (arrayOfDailyPoints || []).reduce((sum, n) => sum + (n || 0), 0);
+}
+
+export function leagueGroupFor(learnerId, ids, size = LEAGUE_GROUP_SIZE) {
+  const sorted = [...(ids || [])].sort((a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0));
+  const chunkSize = Math.max(1, size || LEAGUE_GROUP_SIZE);
+  for (let i = 0; i < sorted.length; i += chunkSize) {
+    const chunk = sorted.slice(i, i + chunkSize);
+    if (chunk.includes(learnerId)) return chunk;
+  }
+  return [];
+}
+
+export function leaguesAreOpen(weeklyActives) {
+  return (weeklyActives || 0) >= LEAGUES_WEEKLY_ACTIVE_GATE;
+}
+
+export function shareCardModel(kind, data = {}) {
+  const d = data || {};
+  if (kind === "lesson") {
+    const lines = [];
+    if (d.accuracy != null) lines.push("First try accuracy " + d.accuracy + "%");
+    if (d.xp != null) lines.push("+" + d.xp + " XP");
+    if (d.courseTitle) lines.push(d.courseTitle);
+    if (Array.isArray(d.lines)) lines.push(...d.lines);
+    return { eyebrow: "LESSON COMPLETE", title: d.title || d.lessonTitle || "Lesson complete", lines, pose: "celebrate" };
+  }
+  if (kind === "course") {
+    const lines = [];
+    if (d.accuracy != null) lines.push("First try accuracy " + d.accuracy + "%");
+    if (d.xp != null) lines.push("+" + d.xp + " XP");
+    if (d.lessons != null) lines.push(d.lessons + " lessons finished");
+    if (Array.isArray(d.lines)) lines.push(...d.lines);
+    return { eyebrow: "COURSE COMPLETE", title: d.title || d.courseTitle || "Course complete", lines, pose: "celebrate" };
+  }
+  if (kind === "streak") {
+    const lines = [];
+    if (d.rankName) lines.push("Rank " + d.rankName);
+    if (d.mastered != null) lines.push(d.mastered + " lessons mastered");
+    if (d.lessonsMastered != null) lines.push(d.lessonsMastered + " lessons mastered");
+    if (Array.isArray(d.lines)) lines.push(...d.lines);
+    return { eyebrow: "STREAK", title: (d.streak != null ? d.streak + " day streak" : d.title || "Streak"), lines, pose: "celebrate" };
+  }
+  if (kind === "rank") {
+    const lines = [];
+    if (d.kit) lines.push(d.kit);
+    if (d.xp != null) lines.push(d.xp + " XP in all");
+    if (Array.isArray(d.lines)) lines.push(...d.lines);
+    return { eyebrow: "YOUR RANK", title: d.rankName || d.title || "Rank", lines, pose: "wave" };
+  }
+  const lines = [];
+  if (d.streak != null) lines.push(d.streak + (d.streak === 1 ? " day" : " days") + " streak");
+  if (d.rankName) lines.push("Rank " + d.rankName);
+  if (d.mastered != null) lines.push(d.mastered + " lessons mastered");
+  if (d.lessonsMastered != null) lines.push(d.lessonsMastered + " lessons mastered");
+  if (Array.isArray(d.lines)) lines.push(...d.lines);
+  return { eyebrow: "DAILY SESSION COMPLETE", title: d.title || "Daily session complete", lines, pose: "celebrate" };
+}
+
+/* ── share cards: one square image the learner chooses to share ──
+   The click draws a 1080 by 1080 canvas from the pure model, then
+   offers the system share sheet when the browser can share files
+   and a download either way. Nothing is posted automatically. */
+function ShareCardButton({ model, P, accent }) {
+  const [msg, setMsg] = useState("");
+  if (!model) return null;
+  const draw = async () => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1080; canvas.height = 1080;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.fillStyle = (P && P.bg) || "#1c1917";
+      ctx.fillRect(0, 0, 1080, 1080);
+      ctx.strokeStyle = accent; ctx.lineWidth = 14;
+      ctx.beginPath(); ctx.arc(540, 300, 150, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = accent; ctx.lineWidth = 6;
+      ctx.strokeRect(36, 36, 1008, 1008);
+      const src = CHARACTER_POSES[model.pose] || null;
+      const img = src ? await new Promise((resolve) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => resolve(null);
+        im.src = src;
+      }) : null;
+      if (img) { try { ctx.drawImage(img, 440, 190, 200, 200); } catch { /* draw without it */ } }
+      ctx.textAlign = "center";
+      ctx.fillStyle = accent;
+      ctx.font = "700 30px Georgia, serif";
+      ctx.fillText("Cortex", 540, 110);
+      ctx.fillStyle = (P && P.ink2) || "#d4d4d8";
+      ctx.font = "400 26px Georgia, serif";
+      ctx.fillText(CORTEX_TAGLINE, 540, 150);
+      ctx.fillStyle = accent;
+      ctx.font = "700 28px Georgia, serif";
+      ctx.fillText(String(model.eyebrow || ""), 540, 510);
+      ctx.fillStyle = (P && P.ink) || "#ffffff";
+      ctx.font = "600 62px Georgia, serif";
+      const words = String(model.title || "").split(/\s+/);
+      const wrapped = [];
+      let lineNow = "";
+      for (const w of words) {
+        const trial = lineNow ? lineNow + " " + w : w;
+        if (ctx.measureText(trial).width > 880 && lineNow) { wrapped.push(lineNow); lineNow = w; } else lineNow = trial;
+      }
+      if (lineNow) wrapped.push(lineNow);
+      wrapped.slice(0, 3).forEach((ln, i) => ctx.fillText(ln, 540, 590 + i * 72));
+      ctx.fillStyle = (P && P.ink) || "#ffffff";
+      ctx.font = "400 36px Georgia, serif";
+      (model.lines || []).slice(0, 5).forEach((ln, i) => ctx.fillText(String(ln), 540, 790 + i * 52));
+      ctx.fillStyle = (P && P.faint) || "#a1a1aa";
+      ctx.font = "400 26px Georgia, serif";
+      ctx.fillText("Cortex · askcerebrum.org", 540, 1010);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) return;
+      const file = typeof File !== "undefined" ? new File([blob], "cortexshare.png", { type: "image/png" }) : null;
+      if (file && typeof navigator !== "undefined" && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: "Cortex" }); } catch { /* the download still follows */ }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "cortexshare.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setMsg("Share card saved as an image.");
+    } catch { setMsg("The share card could not be made here."); }
+  };
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+      <button className="lv-btn" onClick={draw}
+        style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+        Share card
+      </button>
+      {msg && <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>{msg}</span>}
+    </span>
+  );
+}
+
 /* ── lesson player (full screen) ─────────────────────────────────── */
 function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgress, onLessonDone, onReviewDone, rankSummary, goalPicker }) {
   const [lessonIdx, setLessonIdx] = useState(startLesson || 0);
@@ -6035,6 +6573,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
             <CharacterPose pose="celebrate" size={64} />
           </div>
+          <div style={{ margin: "0 auto 18px" }}>
+            <ShareCardButton P={P} accent={accent} model={shareCardModel("course", { title: course.title, accuracy: answered ? Math.round((right / answered) * 100) : 100, xp: sessionXp })} />
+          </div>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
               <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700, color: accent }}>+{sessionXp}</div>
@@ -6175,6 +6716,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               {rankSummary.atTop ? ". That is the top rung. It stays yours by keeping the learning going." : " · " + rankSummary.xpToNext + " XP to " + rankSummary.nextName + "."}
             </p>
           )}
+          <div style={{ margin: "0 auto 18px" }}>
+            <ShareCardButton P={P} accent={accent} model={shareCardModel("lesson", { title: lesson.title, courseTitle: course.title, accuracy: answered ? Math.round((right / answered) * 100) : 100, xp: lessonXp })} />
+          </div>
           {goalPicker && (
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>SET YOUR DAILY GOAL</div>
@@ -7084,12 +7628,13 @@ function CortexTour({ P, accent, at, onClose }) {
 }
 
 /* ── first run onboarding (redesign, 2026-10-14) ───────────────────
-   Two questions, then straight into a first lesson. What are you
-   curious about (which sets the first path), and how many minutes
-   a day (which becomes the daily goal, adjustable later on the
-   first win screen). No account wall, no tour first: the first
-   lesson starts inside the first minute, and the goal is set for
-   real on the win screen while the feeling is warm. */
+   Three short questions, then straight into a first lesson. What
+   are you curious about (which sets the first path), how many
+   minutes a day (which becomes the daily goal, adjustable later
+   on the first win screen), and when Cortex should remind you.
+   No account wall, no tour first: the first lesson starts inside
+   the first minute, and the goal is set for real on the win
+   screen while the feeling is warm. */
 const ONBOARDING_CHOICES = [
   { id: "the-human-body", label: "The human body", note: "Hearts, blood, senses, and the machinery of you" },
   { id: "space-and-the-solar-system", label: "Space", note: "Planets, stars, gravity, and the far beyond" },
@@ -7109,6 +7654,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
   const [step, setStep] = useState(0);
   const [curiosity, setCuriosity] = useState("everything");
   const [minutes, setMinutes] = useState(5);
+  const [reminderHour, setReminderHour] = useState(null);
   const chip = (active) => ({
     borderRadius: RADIUS.pill, padding: "11px 18px", fontSize: FONT_SIZES.body, fontWeight: 700,
     cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50,
@@ -7122,7 +7668,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
           <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={30} /></span>
           <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint }}>
-            WELCOME TO CORTEX · {step + 1} OF 2
+            WELCOME TO CORTEX · {step + 1} OF 3
           </span>
           <span style={{ marginLeft: 2 }}><CharacterPose pose="wave" size={40} /></span>
         </div>
@@ -7148,7 +7694,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
               Continue
             </button>
           </>
-        ) : (
+        ) : step === 1 ? (
           <>
             <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>How many minutes a day?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
@@ -7163,11 +7709,35 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
               ))}
             </div>
             <button className="lv-btn lv-btn-primary"
-              onClick={() => onDone({ curiosity, minutes })}
+              onClick={() => setStep(2)}
+              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+              Continue
+            </button>
+            <button onClick={() => setStep(0)}
+              style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "12px 0 0", display: "block", margin: "0 auto" }}>
+              Back
+            </button>
+          </>
+        ) : (
+          <>
+            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Cortex remind you?</h2>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
+              Pick a time and Cortex will have your streak and your open quest waiting when you come back. You can change this later on the home page.
+            </p>
+            <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
+              {[{ label: "No reminder", value: null }, { label: "Morning 8 AM", value: 8 }, { label: "Midday 1 PM", value: 13 }, { label: "Evening 7 PM", value: 19 }].map((opt) => (
+                <button key={opt.label} className="lv-chip" style={chip(reminderHour === opt.value)} aria-pressed={reminderHour === opt.value}
+                  onClick={() => setReminderHour(opt.value)}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <button className="lv-btn lv-btn-primary"
+              onClick={() => onDone({ curiosity, minutes, reminderHour })}
               style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
               Start your first lesson
             </button>
-            <button onClick={() => setStep(0)}
+            <button onClick={() => setStep(1)}
               style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "12px 0 0", display: "block", margin: "0 auto" }}>
               Back
             </button>
@@ -7209,6 +7779,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [studio, setStudio] = useState({ title: "", category: "Mind and Brain", query: "", blurb: "" });
   const [studioMsg, setStudioMsg] = useState("");
   const [progressMsg, setProgressMsg] = useState("");
+  const [questCheer, setQuestCheer] = useState([]);
+  const [sparksMsg, setSparksMsg] = useState("");
 
   const refresh = () => {
     setCourses(loadLearnCourses());
@@ -7305,8 +7877,20 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const due = useMemo(() => dueClaims(claims), [claims]);
 
   const handleProgress = (xpGain, course, doneLessons) => {
+    let newLessonIds = [];
+    if (course && course.id !== "review" && doneLessons) {
+      const existing = loadLearnCourses().find((c) => c.id === course.id);
+      if (existing) {
+        const beforeIds = new Set(existing.doneLessons || []);
+        newLessonIds = doneLessons.filter((id) => !beforeIds.has(id));
+      }
+    }
     setProfile((prev) => {
-      const p = { ...(prev || loadProfile()), xp: (prev ? prev.xp : 0) + xpGain };
+      const base = prev || loadProfile();
+      const fromXp = base.xp || 0;
+      const toXp = fromXp + xpGain;
+      let p = awardSparksForRankUps({ ...base, xp: toXp }, fromXp, toXp);
+      for (const id of newLessonIds) p = recordLoopEvent(p, todayKey(), { type: "lesson", lessonId: id });
       saveProfile(p);
       return p;
     });
@@ -7380,9 +7964,21 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const handleBuiltinLessonDone = (pathId, lesson, pct) => {
     const path = builtinPathFor(pathId);
     if (!path || !lesson) return;
-    const next = applyLessonResult(loadBuiltinProgress(), path, lesson.id, pct);
+    const prevProgress = loadBuiltinProgress();
+    const prevRecord = (prevProgress.lessons || {})[lesson.id];
+    const firstTime = !(prevRecord && prevRecord.done);
+    void firstTime;
+    const next = applyLessonResult(prevProgress, path, lesson.id, pct);
     saveBuiltinProgress(next);
     setBuiltinProgress(next);
+    setProfile((prev) => {
+      let p = prev || loadProfile();
+      p = recordLoopEvent(p, todayKey(), { type: "lesson", lessonId: lesson.id });
+      if (pct === 100) p = recordLoopEvent(p, todayKey(), { type: "perfect", lessonId: lesson.id });
+      if (lesson.checkpoint === true) p = recordLoopEvent(p, todayKey(), { type: "checkpoint", lessonId: lesson.id });
+      saveProfile(p);
+      return p;
+    });
   };
 
   /* Completing a Review what you missed pass masters the lesson it
@@ -7418,6 +8014,46 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     });
   };
 
+  const recordSessionDone = () => {
+    setProfile((prev) => {
+      const p = recordLoopEvent(prev || loadProfile(), todayKey(), { type: "session" });
+      saveProfile(p);
+      return p;
+    });
+  };
+
+  /* The loop reconcile: ensure today's loop and plan exist, then
+     settle any quest payouts the day has earned. Writes only when
+     something actually changed, so the effect settles. */
+  useEffect(() => {
+    if (!profile) return;
+    const day = todayKey();
+    let working = profile;
+    let changed = false;
+    const effLoop = loopForDay(working, day);
+    if (working.loopDay !== day || !working.loop || effLoop.plan == null) {
+      let loop = effLoop;
+      if (loop.plan == null) {
+        const quests = buildDailyQuests({ day, profile: working, progress: builtinProgress, dueCount: due.length });
+        loop = { ...loop, plan: { session: quests[0], target: quests[1], stretch: quests[2] }, dueAtStart: due.length };
+      }
+      working = { ...working, sparks: working.sparks || 0, loopDay: day, loop };
+      changed = true;
+    }
+    const plan = working.loop && working.loop.plan;
+    const planQuests = plan ? (Array.isArray(plan) ? plan : [plan.session, plan.target, plan.stretch].filter(Boolean)) : [];
+    if (planQuests.length) {
+      const settled = settleQuestPayouts(working, day, planQuests, { dueCount: due.length, progress: builtinProgress });
+      if (settled.newlyPaid.length) {
+        working = settled.profile;
+        changed = true;
+        setQuestCheer(settled.newlyPaid);
+      }
+    }
+    if (changed) { saveProfile(working); setProfile(working); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, due, builtinProgress]);
+
   const nextBundleStop = () => {
     const order = [];
     const last = builtinPathFor(builtinProgress.lastPathId);
@@ -7437,10 +8073,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
   const startBundleLesson = () => {
     const stop = nextBundleStop();
-    if (!stop) { setScreen({ name: "payoff" }); return; }
+    if (!stop) { recordSessionDone(); setScreen({ name: "payoff" }); return; }
     const course = courseFromPath(stop.path, builtinProgress);
     const lesson = course.lessons[stop.flatIdx];
-    if (!lesson) { setScreen({ name: "payoff" }); return; }
+    if (!lesson) { recordSessionDone(); setScreen({ name: "payoff" }); return; }
     const cur = loadBuiltinProgress();
     cur.lastPathId = stop.path.id;
     cur.lastLessonId = lesson.id;
@@ -7478,8 +8114,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     });
   };
 
-  const completeOnboarding = ({ curiosity, minutes }) => {
-    updateProfile({ onboarded: true, curiosity, dailyGoalMinutes: minutes });
+  const completeOnboarding = ({ curiosity, minutes, reminderHour }) => {
+    updateProfile({ onboarded: true, curiosity, dailyGoalMinutes: minutes, reminderHour: reminderHour == null ? null : reminderHour });
     const path = builtinPathFor(ONBOARDING_FIRST_LESSON[curiosity] || "earth-and-weather") || LEARNING_PATHS[0];
     startBuiltinLesson(path, 0, { fromOnboarding: true });
   };
@@ -7498,7 +8134,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       return;
     }
     if (screen.bundleStage === "lesson") {
-      if (bundleStageDone.lesson) { setScreen({ name: "payoff" }); return; }
+      if (bundleStageDone.lesson) { recordSessionDone(); setScreen({ name: "payoff" }); return; }
       setScreen({ name: "home" });
       return;
     }
@@ -7607,6 +8243,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const reviewDueCount = due.length + fadingAll.length;
   const bundleStop = nextBundleStop();
   const bundleReady = due.length > 0 || !!bundleStop;
+  const todayLoop = profile ? loopForDay(profile, todayKey()) : emptyLoop(todayKey());
+  const todayQuests = todayLoop.plan
+    ? (Array.isArray(todayLoop.plan) ? todayLoop.plan : [todayLoop.plan.session, todayLoop.plan.target, todayLoop.plan.stretch].filter(Boolean))
+    : buildDailyQuests({ day: todayKey(), profile: profile || {}, progress: builtinProgress, dueCount: due.length });
+  const repairOffer = profile ? streakRepairOffer(profile, new Date()) : null;
+  const reminder = profile ? reminderFor({ profile, quests: todayQuests, loop: todayLoop, now: new Date() }) : null;
 
   /* The bundle payoff: rank progress, the streak, mastery so far,
      and one hook for tomorrow. Shown only at the end of a full
@@ -7615,11 +8257,14 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     const rank = rankForXp(profile ? profile.xp : 0);
     const masteredTotal = allBuiltinSets.reduce((n, p) => n + pathProgress(p, builtinProgress).mastered, 0);
     const doneTotal = allBuiltinSets.reduce((n, p) => n + pathProgress(p, builtinProgress).done, 0);
-    const hook = bundleStop
-      ? "Tomorrow, your next stop is " + bundleStop.lesson.title + " on " + bundleStop.path.title + "."
-      : fadingAll.length > 0
-        ? "Tomorrow, " + fadingAll.length + " finished lesson" + (fadingAll.length === 1 ? " is" : "s are") + " fading and due for review."
-        : "Tomorrow, a fresh daily session will be waiting here.";
+    const openQuest = todayQuests.find((q) => !questState(q, { loop: todayLoop, dueCount: due.length, progress: builtinProgress }).done);
+    const hook = openQuest
+      ? "Tomorrow, one quest is still open: " + openQuest.title + "."
+      : bundleStop
+        ? "Tomorrow, your next stop is " + bundleStop.lesson.title + " on " + bundleStop.path.title + "."
+        : fadingAll.length > 0
+          ? "Tomorrow, " + fadingAll.length + " finished lesson" + (fadingAll.length === 1 ? " is" : "s are") + " fading and due for review."
+          : "Tomorrow, a fresh daily session will be waiting here.";
     return (
       <div style={{ maxWidth: 620, margin: "0 auto", padding: "56px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, textAlign: "center" }}>
         <style>{CSS}</style>
@@ -7652,6 +8297,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 7 }}>TOMORROW</div>
             <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>{hook}</p>
           </div>
+          <div style={{ margin: "0 auto 24px" }}>
+            <ShareCardButton P={P} accent={accent} model={shareCardModel([7, 30, 100, 365].includes(profile ? profile.streak || 0 : 0) ? "streak" : "session", { streak: profile ? profile.streak || 0 : 0, rankName: rank.name, mastered: masteredTotal })} />
+          </div>
           <button className="lv-btn lv-btn-primary" onClick={() => setScreen({ name: "home" })}
             style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
             Back to Cortex home
@@ -7662,7 +8310,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   /* First run: a learner with no progress and no answers yet gets
-     the two question onboarding instead of the home, once. */
+     the three question onboarding instead of the home, once. */
   const freshLearner = !!profile && !profile.onboarded && (profile.xp || 0) === 0 && totalPathDone === 0 && courses.length === 0;
   if (freshLearner && !onboardingDismissed && screen.name === "home") {
     return (
@@ -7700,9 +8348,24 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div className="lv-pills" style={{ display: "flex", gap: 9, flexWrap: "wrap", margin: "20px 0 26px" }}>
         {pill(flame, profile ? profile.streak || 0 : 0, "day streak" + (profile && profile.freezes ? " · " + profile.freezes + " freeze" + (profile.freezes === 1 ? "" : "s") : ""))}
         {pill(null, profile ? profile.xp : 0, "XP")}
+        {pill(null, profile ? profile.sparks || 0 : 0, "Sparks")}
         {pill(null, due.length, "due for review")}
         {pill(null, courses.length, "courses")}
       </div>
+
+      {reminder && (
+        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", background: P.raised, border: "1px solid " + accent, borderRadius: 20, padding: "16px 20px", margin: "0 0 26px" }}>
+          <CharacterPose pose={reminder.kind === "atrisk" ? "think" : "wave"} size={52} />
+          <span style={{ flex: "1 1 260px", minWidth: 0 }}>
+            <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, display: "block" }}>{reminder.title}</span>
+            <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 3, lineHeight: 1.5 }}>{reminder.body}</span>
+          </span>
+          <button className="lv-btn lv-btn-primary" onClick={startBundle}
+            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 48 }}>
+            Start today's session
+          </button>
+        </div>
+      )}
 
       {/* your rank: the XP ladder made visible, frame and kit line
           changing with the rung */}
@@ -7736,6 +8399,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   {rank.atTop ? "Top rung reached" : rank.xpToNext + " XP to " + rank.nextName}
                 </span>
               </span>
+              <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 8 }}>
+                {profile.sparks || 0} Sparks
+              </span>
+              <span style={{ display: "block", marginTop: 10 }}>
+                <ShareCardButton P={P} accent={accent} model={shareCardModel("rank", { rankName: rank.name, kit: rank.kit, xp: profile.xp })} />
+              </span>
             </span>
             <CharacterPose pose="wave" size={52} />
           </div>
@@ -7765,6 +8434,25 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         {progressMsg && (
           <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "8px 0 0" }}>{progressMsg}</p>
         )}
+      </div>
+
+      {/* reminders: in app only, shown on return at the chosen hour */}
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REMINDERS</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
+          Reminders live here for now: pick an hour and Cortex will have your streak and your open quest waiting at the top of this page when you come back.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[{ label: "None", value: null }, { label: "7 AM", value: 7 }, { label: "9 AM", value: 9 }, { label: "1 PM", value: 13 }, { label: "6 PM", value: 18 }, { label: "9 PM", value: 21 }].map((opt) => {
+            const active = profile ? (profile.reminderHour == null ? null : profile.reminderHour) === opt.value : opt.value === null;
+            return (
+              <button key={opt.label} className="lv-chip" aria-pressed={active} onClick={() => updateProfile({ reminderHour: opt.value })}
+                style={{ borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44, background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink, border: "1px solid " + (active ? accent : P.line) }}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* continue hero: last built in lesson, else an unfinished
@@ -7848,6 +8536,114 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           }}>
           Start daily practice
         </button>
+      </div>
+
+      {/* today's quests: the daily loop made visible */}
+      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>TODAY'S QUESTS</div>
+        {questCheer.length > 0 && questCheer.map((slot) => {
+          const cheerQuest = todayQuests.find((q) => q.slot === slot);
+          return (
+            <div key={slot} style={{ display: "flex", alignItems: "center", gap: 12, background: P.bg, border: "1px solid " + accent, borderRadius: 14, padding: "12px 14px", marginBottom: 12 }}>
+              <CharacterPose pose="celebrate" size={44} />
+              <span style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
+                {"+5 Sparks · " + (cheerQuest ? cheerQuest.title : "Quest done")}
+              </span>
+            </div>
+          );
+        })}
+        {todayQuests.map((quest) => {
+          const state = questState(quest, { loop: todayLoop, dueCount: due.length, progress: builtinProgress });
+          const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : (state.done ? 100 : 0);
+          return (
+            <div key={quest.slot} style={{ padding: "12px 0", borderTop: "1px solid " + P.line, opacity: state.done ? 0.75 : 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+                <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, lineHeight: 1.35 }}>{quest.title}</span>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: state.done ? accent : P.ink2, flexShrink: 0 }}>{state.done ? "Done" : state.current + " of " + state.total}</span>
+              </div>
+              <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 8px" }}>{quest.detail}</p>
+              <span style={{ display: "block", height: 6, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
+                <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pct + "%" }} />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* sparks: streak protection only, earned by the loop */}
+      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>SPARKS</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
+          You hold {profile ? profile.sparks || 0 : 0} Sparks.
+        </p>
+        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+          Sparks come from finishing sessions and quests, passing checkpoints and perfect lessons, and climbing ranks. They pay for streak protection, and nothing else.
+        </p>
+        {(() => {
+          const freezesNow = profile ? profile.freezes || 0 : 0;
+          const balance = profile ? profile.sparks || 0 : 0;
+          const atCap = freezesNow >= SPARKS_RATES.freezeCap;
+          const short = balance < SPARKS_RATES.freezeCost;
+          return (
+            <div style={{ marginBottom: 14 }}>
+              <button className="lv-btn lv-btn-primary" disabled={atCap || short}
+                onClick={() => {
+                  if (!profile) return;
+                  const bought = buyStreakFreeze(profile);
+                  if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It will bridge one missed day."); }
+                }}
+                style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1 }}>
+                Buy a streak freeze · 50 Sparks
+              </button>
+              {(atCap || short) && (
+                <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
+                  {atCap ? "You already hold the most freezes you can carry." : "You need 50 Sparks for a freeze."}
+                </p>
+              )}
+            </div>
+          );
+        })()}
+        {repairOffer && (
+          <div style={{ border: "1px solid " + accent, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 10px" }}>
+              You missed a day and a streak of {repairOffer.lostStreak} {repairOffer.lostStreak === 1 ? "day" : "days"} ended. This offer lasts today only, and repairing it puts the missed day back.
+            </p>
+            <button className="lv-btn lv-btn-primary" disabled={(profile ? profile.sparks || 0 : 0) < repairOffer.cost}
+              onClick={() => {
+                if (!profile) return;
+                const repaired = applyStreakRepair(profile);
+                if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired. Your streak reads restored."); }
+              }}
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1 }}>
+              Repair the missed day · 100 Sparks
+            </button>
+            {(profile ? profile.sparks || 0 : 0) < repairOffer.cost && (
+              <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>You need 100 Sparks to repair the missed day.</p>
+            )}
+          </div>
+        )}
+        {sparksMsg && <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "0 0 10px" }}>{sparksMsg}</p>}
+        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
+          {"Sparks never buy " + SPARKS_NEVER_BUYS.join(", ") + "."}
+        </p>
+      </div>
+
+      {/* leagues: not open yet, joining is a saved choice only */}
+      <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEAGUES</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
+          Leagues open once enough learners are active each week. Groups of 30, ranked on league points earned from first time lessons and review accuracy, capped each day. Replays earn nothing, and joining is always your choice.
+        </p>
+        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+          Leagues are not open yet.
+        </p>
+        <button className="lv-btn" aria-pressed={!!(profile && profile.leaguesOptIn)} onClick={() => updateProfile({ leaguesOptIn: !(profile && profile.leaguesOptIn) })}
+          style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+          {profile && profile.leaguesOptIn ? "You are in" : "Join when leagues open"}
+        </button>
+        {profile && profile.leaguesOptIn && (
+          <p style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "10px 0 0" }}>You are in for opening day. Your place is saved.</p>
+        )}
       </div>
 
       {/* the review bench: review as a place, with its due count
