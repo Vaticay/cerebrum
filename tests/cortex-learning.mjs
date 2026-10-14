@@ -89,7 +89,7 @@ const WANTED = [
   "leagueDailyPoints", "leagueWeeklyPoints", "leagueGroupFor", "leaguesAreOpen",
   "shareCardModel",
   "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
-  "novaMoodFor",
+  "novaMoodFor", "tipEligible", "TIP_GAP_MS",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -149,7 +149,7 @@ const {
   leagueDailyPoints, leagueWeeklyPoints, leagueGroupFor, leaguesAreOpen,
   shareCardModel,
   visitGapDays, shelfGlyphFor, shelfObjects,
-  novaMoodFor,
+  novaMoodFor, tipEligible, TIP_GAP_MS,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -2794,11 +2794,14 @@ await test("the wave 3 home carries its zones, its settings surface, and Nova's 
   // asleep presence is pinned as the avatar's asleep state; the
   // raster pose files themselves stay declared for the artwork
   // surfaces, as the character slot test above still requires.
+  // Pin updated again 2026-10-14 (presence wave): the owner
+  // ordered Nova bigger and reactive, so the asleep presence is
+  // the live wrapper at the library empty state's 120px now.
   for (const needle of [
     "NOVA'S SHELF", "Nothing on the shelf yet", "There you are. Your reviews waited.",
     "Due for review", "Nova settings", "lv-nova-live", "lv-band", "lv-status", "lv-cols",
     'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
-    'NovaAvatar state="asleep"', "Start daily practice", "LAST_VISIT_KEY",
+    'NovaLive state="asleep" size={120}', "Start daily practice", "LAST_VISIT_KEY",
   ]) {
     assert.ok(learnSrc.includes(needle), `the wave 3 home is missing: ${needle}`);
   }
@@ -2927,21 +2930,38 @@ await test("the home is six focused screens behind one tablist, and Today holds 
 });
 
 await test("the living Nova is a layered vector with a true blink, per state lids, and reduced motion stilling", () => {
+  // Pins moved 2026-10-14 (presence wave): the owner ordered
+  // better animations, so the blink cycle is the irregular 11.7s
+  // one (two single blinks and a double blink, long rests), the
+  // sway runs per filament amplitudes, and the greeting look
+  // turns the head with the pupils. The pins below describe the
+  // new internals; the contracts they guard (a true blink, per
+  // state lids, reduced motion stilling) are unchanged.
   assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48 })'), "the vector Nova component is missing");
-  for (const k of ["@keyframes nvBlink", "@keyframes nvBreath", "@keyframes nvSway", "@keyframes nvLook"])
+  for (const k of ["@keyframes nvBlink", "@keyframes nvBreath", "@keyframes nvSway", "@keyframes nvLook", "@keyframes nvHeadTurn", "@keyframes nvSwayTip", "@keyframes nvSwayRoot"])
     assert.ok(learnSrc.includes(k), "the avatar is missing " + k);
-  assert.ok(learnSrc.includes(".nv-lid { animation: nvBlink 7.3s linear infinite;"), "the eyelids do not run the blink cycle");
+  assert.ok(learnSrc.includes(".nv-lid { animation: nvBlink 11.7s linear infinite;"), "the eyelids do not run the blink cycle");
+  assert.ok(learnSrc.includes(".nv-st-greeting .nv-head { animation: nvHeadTurn 15s ease-in-out infinite; }"), "the greeting look does not turn the head");
+  assert.ok(learnSrc.includes(".nv-gaze { transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px));"), "the pointer gaze group is missing");
+  assert.ok(learnSrc.includes(".nv-gaze { transition: none !important; transform: none !important; }"), "reduced motion does not still the pointer gaze");
   for (const s of ["greeting", "thinking", "explaining", "pleased", "deadpan", "worried", "fading", "asleep"])
     assert.ok(learnSrc.includes(`.nv-st-${s} { --lid:`), "state " + s + " sets no eyelid height");
+  assert.ok(learnSrc.includes(".nv-st-fading .nv-gills-l { --nv-gill-l: -5deg; }"), "fading does not set the gill posture");
   assert.ok(learnSrc.includes(".nv-st-fading .nv-gill-gold { fill: #A79B7D; opacity: 0.55; }"), "fading does not dim the gill gold");
   assert.ok(learnSrc.includes(".nv-st-pleased .nv-gill-gold { fill: #D8BC72; }"), "pleased does not brighten the gill gold");
   assert.ok(learnSrc.includes(".nv-breath, .nv-fil, .nv-lid, .nv-pupils { animation: none !important; }"), "reduced motion does not still the avatar");
 });
 
 await test("vector Nova stands at the persistent spots and the raster art keeps the artwork moments", () => {
-  assert.ok(learnSrc.includes("<NovaAvatar state={novaMood} size={46} />"), "the header does not render the mood driven Nova");
+  // Pins moved 2026-10-14 (presence wave): the owner ordered Nova
+  // bigger and reactive. The header Nova is 66px in a 68px circle
+  // and the bench greeter is 54px, both through the reactive
+  // NovaLive wrapper; the old 46 and 40 pins described the sizes
+  // he ruled too small.
+  assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header does not render the mood driven live Nova");
+  assert.ok(learnSrc.includes("width: 68, height: 68"), "the header circle did not grow with its Nova");
   assert.ok(learnSrc.includes("<SheetNova good={sheetGood}"), "the feedback sheet lost its timed Nova reaction");
-  assert.ok(learnSrc.includes('state="fading" size={40}'), "the review bench greeter is not the fading vector Nova");
+  assert.ok(learnSrc.includes('state="fading" size={54}'), "the review bench greeter is not the bigger fading live Nova");
   assert.ok(learnSrc.includes('pose="greeting" size={128}'), "the lesson intro lost its raster artwork");
   assert.ok(learnSrc.includes("CHARACTER_POSES[model.pose]"), "the share card no longer reads the raster pose set");
 });
@@ -2953,6 +2973,34 @@ await test("novaMoodFor ranks streak risk over overdue review over the late nigh
   assert.equal(novaMoodFor({ hour: 2 }), "asleep");
   assert.equal(novaMoodFor({ hour: 14, returned: true }), "greeting");
   assert.equal(novaMoodFor({ hour: 14 }), "greeting");
+});
+
+await test("the presence wave: Nova is live where she stands, and her tips obey the gate", () => {
+  // Presence wave (2026-10-14), on the owner's order: Nova bigger,
+  // reactive, better animated, and helping in speech bubbles.
+  assert.ok(learnSrc.includes('function NovaLive({ state = "greeting", size = 48 })'), "the reactive Nova wrapper is missing");
+  assert.ok(learnSrc.includes('"--nv-lift": lift ? "1.6deg" : "0deg"'), "the gill lift does not ride in on hover");
+  assert.ok(learnSrc.includes('setBeat(["worried", "fading", "deadpan", "asleep"].includes(state) ? "deadpan" : "pleased")'), "a tap does not earn the context beat");
+  assert.ok(learnSrc.includes('const SEEN_TIPS_KEY = "cerebrum-learn2-seentips";'), "the seen tips store is not its own key");
+  assert.ok(learnSrc.includes("function NovaSpeech("), "the speech bubble is missing");
+  assert.ok(learnSrc.includes("function NovaTip("), "the tip component is missing");
+  for (const id of ["today", "paths", "library", "library-empty", "create", "shop", "leagues", "bench", "streak"])
+    assert.ok(learnSrc.includes(`id="${id}"`), "the " + id + " tip is not placed");
+  assert.ok(learnSrc.includes('NovaSpeech state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}'), "the reminder is not in bubble form");
+  assert.ok(learnSrc.includes("streak={missStreak}"), "the sheet Nova does not hear the miss streak");
+  assert.ok(learnSrc.includes("armed={missStreak >= 2}"), "the strategy tip does not arm on the second straight miss");
+  assert.ok(!JSON.stringify(buildCortexExport(cortexFixtureState, new Date())).includes("seentips"), "the export carries the seen tips store");
+});
+
+await test("tipEligible enforces first visit, the minute gap, and the repeat window", () => {
+  const now = 1000000000;
+  assert.equal(tipEligible({}, "today", now, 0, 0), true, "an unseen tip behind no gate should be eligible");
+  assert.equal(tipEligible({ today: now - 1000 }, "today", now, 0, 0), false, "a seen tip with no repeat window stays seen");
+  assert.equal(tipEligible({}, "today", now, now - 30000, 0), false, "a tip inside the minute after another is blocked");
+  assert.equal(tipEligible({}, "today", now, now - 61000, 0), true, "a tip after the minute gap is eligible");
+  const week = 7 * 24 * 3600 * 1000;
+  assert.equal(tipEligible({ streak: now - 2 * 24 * 3600 * 1000 }, "streak", now, 0, week), false, "the streak tip inside its week stays quiet");
+  assert.equal(tipEligible({ streak: now - 8 * 24 * 3600 * 1000 }, "streak", now, 0, week), true, "the streak tip returns after its week");
 });
 
 await test("no visible Wick survives: the first run eyebrows read Nova and Wick lives only in history comments", () => {

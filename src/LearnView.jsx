@@ -1269,31 +1269,49 @@ const CSS = `
    height, the gaze, the mouth, the gill posture, and the gill
    gold brightness. All of it is CSS on vector parts: no canvas,
    no per frame JavaScript, transforms and opacity only. */
-.nv-breath { animation: nvBreath 4.6s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 50% 100%; }
-@keyframes nvBreath { from { transform: scale(1, 1); } to { transform: scale(1.006, 1.02); } }
+.nv-breath { animation: nvBreath 5.4s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 50% 100%; }
+@keyframes nvBreath { from { transform: scale(1, 1) rotate(0deg); } to { transform: scale(1.006, 1.02) rotate(-0.35deg); } }
 .nv-st-asleep .nv-breath { animation-duration: 7.5s; }
 .nv-fil { animation: nvSway ease-in-out infinite alternate; transform-box: fill-box; }
 .nv-fil-l { transform-origin: 100% 50%; }
 .nv-fil-r { transform-origin: 0% 50%; }
-.nv-f1 { animation-duration: 3.9s; animation-delay: -0.6s; }
+.nv-f1 { animation-duration: 3.9s; animation-delay: -0.6s; animation-name: nvSwayTip; }
 .nv-f2 { animation-duration: 4.5s; animation-delay: -1.9s; }
-.nv-f3 { animation-duration: 5.1s; animation-delay: -3.1s; }
-@keyframes nvSway { from { transform: rotate(-1.3deg); } to { transform: rotate(1.3deg); } }
-.nv-gills-l, .nv-gills-r { transform-box: fill-box; transition: transform 0.6s ease; }
-.nv-gills-l { transform-origin: 100% 50%; }
-.nv-gills-r { transform-origin: 0% 50%; }
-.nv-st-fading .nv-gills-l { transform: rotate(-5deg); }
-.nv-st-fading .nv-gills-r { transform: rotate(5deg); }
+.nv-f3 { animation-duration: 5.1s; animation-delay: -3.1s; animation-name: nvSwayRoot; }
+@keyframes nvSway {
+  0% { transform: rotate(-1.3deg); }
+  38% { transform: rotate(0.9deg); }
+  71% { transform: rotate(-0.5deg); }
+  100% { transform: rotate(1.3deg); }
+}
+@keyframes nvSwayTip {
+  0% { transform: rotate(-1.7deg); }
+  38% { transform: rotate(1.2deg); }
+  71% { transform: rotate(-0.7deg); }
+  100% { transform: rotate(1.7deg); }
+}
+@keyframes nvSwayRoot {
+  0% { transform: rotate(-0.9deg); }
+  38% { transform: rotate(0.6deg); }
+  71% { transform: rotate(-0.35deg); }
+  100% { transform: rotate(0.9deg); }
+}
+.nv-gills-l, .nv-gills-r { transform-box: fill-box; transition: transform 0.7s cubic-bezier(0.22, 0.9, 0.28, 1); }
+.nv-gills-l { transform-origin: 100% 50%; transform: rotate(calc(var(--nv-gill-l, 0deg) - var(--nv-lift, 0deg))); }
+.nv-gills-r { transform-origin: 0% 50%; transform: rotate(calc(var(--nv-gill-r, 0deg) + var(--nv-lift, 0deg))); }
+.nv-st-fading .nv-gills-l { --nv-gill-l: -5deg; }
+.nv-st-fading .nv-gills-r { --nv-gill-r: 5deg; }
 .nv-st-fading .nv-gill-gold { fill: #A79B7D; opacity: 0.55; }
-.nv-st-asleep .nv-gills-l { transform: rotate(-3deg); }
-.nv-st-asleep .nv-gills-r { transform: rotate(3deg); }
-.nv-st-worried .nv-gills-l { transform: rotate(2.5deg); }
-.nv-st-worried .nv-gills-r { transform: rotate(-2.5deg); }
+.nv-st-asleep .nv-gills-l { --nv-gill-l: -3deg; }
+.nv-st-asleep .nv-gills-r { --nv-gill-r: 3deg; }
+.nv-st-worried .nv-gills-l { --nv-gill-l: 2.5deg; }
+.nv-st-worried .nv-gills-r { --nv-gill-r: -2.5deg; }
 .nv-st-pleased .nv-gill-gold { fill: #D8BC72; }
-.nv-lid { animation: nvBlink 7.3s linear infinite; transform-box: fill-box; transform-origin: 50% 0%; }
+.nv-gill-gold { transition: fill 0.6s ease, opacity 0.6s ease; }
+.nv-lid { animation: nvBlink 11.7s linear infinite; transform-box: fill-box; transform-origin: 50% 0%; }
 @keyframes nvBlink {
-  0%, 6%, 44%, 50%, 100% { transform: scaleY(var(--lid, 0.34)); }
-  3%, 47% { transform: scaleY(1); }
+  0%, 5.5%, 41%, 46.5%, 78%, 81%, 84.5%, 100% { transform: scaleY(var(--lid, 0.34)); }
+  3%, 44%, 79.5%, 83% { transform: scaleY(1); }
 }
 .nv-st-greeting { --lid: 0.34; }
 .nv-st-thinking { --lid: 0.26; }
@@ -1304,14 +1322,28 @@ const CSS = `
 .nv-st-fading { --lid: 0.52; }
 .nv-st-asleep { --lid: 1; }
 .nv-st-asleep .nv-lid { animation: none; transform: scaleY(1); }
-.nv-pupils { transition: transform 0.5s ease; }
-.nv-st-greeting .nv-pupils { animation: nvLook 13s ease-in-out infinite; }
+.nv-pupils { transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1); }
+.nv-gaze { transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px)); transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+/* Avatar art redesign (2026-10-14): the head is its own group so
+   a state can move the head itself. Asleep tips it a few degrees
+   down at the neck; every other state leaves it level. */
+.nv-head { transition: transform 0.7s cubic-bezier(0.22, 0.9, 0.28, 1); transform-box: fill-box; transform-origin: 50% 92%; }
+.nv-st-asleep .nv-head { transform: translateY(4px) rotate(2.2deg); }
+.nv-st-greeting .nv-pupils { animation: nvLook 15s ease-in-out infinite; }
 @keyframes nvLook {
   0%, 30% { transform: translate(0px, 0px); }
-  38%, 46% { transform: translate(-4.5px, 0.5px); }
+  36%, 46% { transform: translate(-4.5px, 0.5px); }
   54%, 70% { transform: translate(0px, 0px); }
   78%, 86% { transform: translate(4.5px, 0px); }
   94%, 100% { transform: translate(0px, 0px); }
+}
+.nv-st-greeting .nv-head { animation: nvHeadTurn 15s ease-in-out infinite; }
+@keyframes nvHeadTurn {
+  0%, 32% { transform: rotate(0deg) translateX(0px); }
+  39%, 47% { transform: rotate(-1.1deg) translateX(-1.2px); }
+  55%, 71% { transform: rotate(0deg) translateX(0px); }
+  79%, 87% { transform: rotate(1deg) translateX(1.2px); }
+  95%, 100% { transform: rotate(0deg) translateX(0px); }
 }
 .nv-st-thinking .nv-pupils { transform: translate(0px, -4px); }
 .nv-st-explaining .nv-pupils { transform: translate(0px, -1px); }
@@ -1351,7 +1383,10 @@ const CSS = `
      height the state sets, because the keyframes are what the
      reduced motion gate removes, not the state classes. */
   .nv-breath, .nv-fil, .nv-lid, .nv-pupils { animation: none !important; }
-  .nv-gills-l, .nv-gills-r, .nv-pupils { transition: none !important; }
+  .nv-head { animation: none !important; }
+  .nv-gills-l, .nv-gills-r, .nv-pupils, .nv-head { transition: none !important; }
+  .nv-gill-gold { transition: none !important; }
+  .nv-gaze { transition: none !important; transform: none !important; }
   .nv-lid { transform: scaleY(var(--lid, 0.34)); }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
@@ -1497,10 +1532,27 @@ function CharacterPose({ pose, size = 54, live = false }) {
    nvSway, nvBlink, nvLook), articulated per part, with the
    expression carried by the nv-st-* state classes. The state
    names are the pose keys the product already uses. */
+/* Avatar art redesign (2026-10-14): the first vector drawing
+   (round egg head, petal gills, ringed dot eyes, stub body) read
+   as a placeholder next to the raster set, and the owner ruled
+   it undesigned. The drawing above is rebuilt on the raster
+   Nova's own construction: a wide flattened dome head turned a
+   touch off centre, gill ribbons layered shade copy, ivory
+   ribbon, seamed gold tip, fine centre vein, a body that flows
+   out of the head and curls into the tail fin with the mauve
+   wash under its inner curve and the gold spine line along the
+   sweep, and eyes built the way the raster draws them, a dark
+   half disc pupil hanging under a heavy lid line. The lid is an
+   ivory slab whose lower edge is that line; the blink keyframes
+   scale the slab from its top, so the line rides down over the
+   pupil, and each state's --lid value parks it at rest. The
+   component contract is unchanged: same state prop and eight
+   states, same CSS animation system, same call sites. */
 const NV_INK = "#3A352C";
 const NV_IVORY = "#F1EADA";
 const NV_SOCKET = "#FBF7EC";
 const NV_GOLD = "#C4A35A";
+const NV_SHADE = "#D2BFB2";
 
 export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false, returned = false } = {}) {
   if (streakAtRisk) return "worried";
@@ -1511,79 +1563,279 @@ export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false
 }
 
 function NovaAvatar({ state = "greeting", size = 48 }) {
-  const lidL = "M82,108 A14,12 0 0 1 110,108 Q96,116 82,108 Z";
-  const lidR = "M130,108 A14,12 0 0 1 158,108 Q144,116 130,108 Z";
   return (
     <svg className={"nv-avatar nv-st-" + state} width={size} height={size} viewBox="-14 -10 268 260"
       aria-hidden="true" focusable="false" style={{ display: "block", flexShrink: 0 }}>
       <g className="nv-breath">
-        <g className="nv-gills-l">
-          <g className="nv-fil nv-fil-l nv-f1">
-            <path d="M78,78 C56,60 30,54 12,62 C26,76 52,84 76,92 C80,88 80,82 78,78 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <ellipse className="nv-gill-gold" cx="15" cy="63" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(-18 15 63)" />
-          </g>
-          <g className="nv-fil nv-fil-l nv-f2">
-            <path d="M72,96 C46,88 20,90 4,100 C18,112 48,116 72,112 C75,107 74,101 72,96 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <ellipse className="nv-gill-gold" cx="8" cy="101" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(-6 8 101)" />
-          </g>
-          <g className="nv-fil nv-fil-l nv-f3">
-            <path d="M76,120 C52,118 28,126 14,140 C30,150 56,148 76,138 C78,132 78,126 76,120 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <ellipse className="nv-gill-gold" cx="17" cy="142" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(24 17 142)" />
-          </g>
-        </g>
+        {/* the body: one streamlined mass flowing out of the head
+            and curling into the tail fin, the mauve wash riding its
+            inner curve and the gold spine line along its back */}
+        <path d="M96,120 C72,140 54,166 48,192 C76,220 134,234 186,222 C212,215 230,200 236,182 C214,168 194,168 180,178 C150,162 118,158 98,166 C86,171 85,148 90,128 C92,124 94,121 96,120 Z"
+          fill={NV_IVORY} stroke={NV_INK} strokeWidth="4.5" strokeLinejoin="round" />
+        <path d="M94,168 C116,160 150,164 182,180 C152,176 120,174 100,180 C93,177 91,172 94,168 Z" fill={NV_SHADE} />
+        <path className="nv-spine" d="M96,206 C126,218 162,220 196,208" fill="none" stroke={NV_GOLD} strokeWidth="3" strokeLinecap="round" opacity="0.9" />
+        {/* the far gills, right side: shorter, tucked, drooping
+            beside the head. Each ribbon is drawn in layers: a shade
+            copy offset behind, the ivory ribbon, the gold tip as its
+            own seamed section, and a fine centre vein. */}
         <g className="nv-gills-r">
           <g className="nv-fil nv-fil-r nv-f1">
-            <path d="M162,78 C184,60 210,54 228,62 C214,76 188,84 164,92 C160,88 160,82 162,78 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <ellipse className="nv-gill-gold" cx="225" cy="63" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(18 225 63)" />
+            <path d="M202,56 C220,44 240,44 253,54 C241,65 221,71 205,72 C202,67 201,61 202,56 Z" fill={NV_SHADE} transform="translate(3 5)" />
+            <path d="M202,56 C220,44 240,44 253,54 C241,65 221,71 205,72 C202,67 201,61 202,56 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <path className="nv-gill-gold" d="M232,47.5 C240,49 247,51.5 253,56.5 C246,61.5 238,64 231,64.5 C233,59 233,53 232,47.5 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+            <path d="M204,63 C220,55 236,53 250,57" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
           </g>
           <g className="nv-fil nv-fil-r nv-f2">
-            <path d="M168,96 C194,88 220,90 236,100 C222,112 192,116 168,112 C165,107 166,101 168,96 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <ellipse className="nv-gill-gold" cx="232" cy="101" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(6 232 101)" />
+            <path d="M208,82 C226,76 244,82 254,96 C243,108 223,111 209,104 C207,97 206,89 208,82 Z" fill={NV_SHADE} transform="translate(3 5)" />
+            <path d="M208,82 C226,76 244,82 254,96 C243,108 223,111 209,104 C207,97 206,89 208,82 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <path className="nv-gill-gold" d="M235,85.5 C242,88 248,92 252.5,98.5 C246,104 238,106.5 231,106 C232.5,99.5 233.5,92.5 235,85.5 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+            <path d="M210,94 C224,89 240,90 252,97" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
           </g>
           <g className="nv-fil nv-fil-r nv-f3">
-            <path d="M164,120 C188,118 212,126 226,140 C210,150 184,148 164,138 C162,132 162,126 164,120 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <ellipse className="nv-gill-gold" cx="223" cy="142" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(-24 223 142)" />
+            <path d="M205,108 C221,108 235,118 241,135 C229,144 212,141 205,130 C203,123 203,115 205,108 Z" fill={NV_SHADE} transform="translate(3 5)" />
+            <path d="M205,108 C221,108 235,118 241,135 C229,144 212,141 205,130 C203,123 203,115 205,108 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <path className="nv-gill-gold" d="M226,118.5 C232,123.5 236.5,130 239,138 C232.5,142 225,142.5 219.5,140 C221,132.5 222.5,125.5 226,118.5 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+            <path d="M207,119 C218,120.5 230,127 238,136" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
           </g>
         </g>
-        <path d="M84,158 C80,186 88,214 104,222 L136,222 C152,214 160,186 156,158 C140,168 100,168 84,158 Z"
-          fill={NV_IVORY} stroke={NV_INK} strokeWidth="4" strokeLinejoin="round" />
-        <path className="nv-spine" d="M120,182 L120,207" stroke={NV_GOLD} strokeWidth="3.5" strokeLinecap="round" opacity="0.9" />
-        <path d="M120,44 C152,44 176,70 176,106 C176,142 152,166 120,166 C88,166 64,142 64,106 C64,70 88,44 120,44 Z"
-          fill={NV_IVORY} stroke={NV_INK} strokeWidth="4" strokeLinejoin="round" />
-        <ellipse cx="96" cy="108" rx="14" ry="12" fill={NV_SOCKET} stroke={NV_INK} strokeWidth="3.5" />
-        <ellipse cx="144" cy="108" rx="14" ry="12" fill={NV_SOCKET} stroke={NV_INK} strokeWidth="3.5" />
-        <g className="nv-pupils">
-          <circle cx="96" cy="110" r="6.2" fill={NV_INK} />
-          <circle cx="144" cy="110" r="6.2" fill={NV_INK} />
-          <circle cx="93.8" cy="107.4" r="1.9" fill={NV_SOCKET} />
-          <circle cx="141.8" cy="107.4" r="1.9" fill={NV_SOCKET} />
+        {/* the near gills, left side: the long flowing ribbons of
+            the raster set, sweeping back off the head */}
+        <g className="nv-gills-l">
+          <g className="nv-fil nv-fil-l nv-f1">
+            <path d="M88,60 C64,42 32,34 0,44 C-6,46 -9,52 -6,57 C22,67 56,76 86,80 C89,74 89,66 88,60 Z" fill={NV_SHADE} transform="translate(3 5)" />
+            <path d="M88,60 C64,42 32,34 0,44 C-6,46 -9,52 -6,57 C22,67 56,76 86,80 C89,74 89,66 88,60 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <path className="nv-gill-gold" d="M26,43 C14,43.5 3,46 -6,57 C4,62 16,66 27,68.5 C23,60.5 23,51 26,43 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+            <path d="M86,68 C64,57 46,54 31,55.5" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
+          </g>
+          <g className="nv-fil nv-fil-l nv-f2">
+            <path d="M84,86 C54,78 22,82 -2,96 C-7,99 -7,104 -3,107 C24,114 56,114 82,108 C85,101 85,93 84,86 Z" fill={NV_SHADE} transform="translate(3 5)" />
+            <path d="M84,86 C54,78 22,82 -2,96 C-7,99 -7,104 -3,107 C24,114 56,114 82,108 C85,101 85,93 84,86 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <path className="nv-gill-gold" d="M22,88 C12,90 3,93 -3,103 C7,108 17,110 25,110.5 C21,103.5 20,95.5 22,88 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+            <path d="M82,97 C58,91 42,92.5 28,95.5" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
+          </g>
+          <g className="nv-fil nv-fil-l nv-f3">
+            <path d="M86,112 C58,110 30,118 8,136 C3,140 3,145 7,147 C34,152 62,146 86,134 C88,127 88,119 86,112 Z" fill={NV_SHADE} transform="translate(3 5)" />
+            <path d="M86,112 C58,110 30,118 8,136 C3,140 3,145 7,147 C34,152 62,146 86,134 C88,127 88,119 86,112 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <path className="nv-gill-gold" d="M30,122 C20,126 12,131 7,141 C16,145 26,146 34,145 C31,137.5 29.5,129.5 30,122 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+            <path d="M84,123 C62,121.5 46,124.5 36,129.5" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
+          </g>
         </g>
-        <path className="nv-lid" d={lidL} fill={NV_IVORY} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-        <path className="nv-lid" d={lidR} fill={NV_IVORY} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-        <path className="nv-mouth nv-m-line" d="M105,143 Q120,146 135,143" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
-        <path className="nv-mouth nv-m-flat" d="M106,144 L134,144" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
-        <path className="nv-mouth nv-m-smile" d="M104,141 Q120,150 136,141" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
-        <path className="nv-mouth nv-m-frown" d="M106,146 Q120,140 134,146" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
-        <ellipse className="nv-mouth nv-m-open" cx="120" cy="144" rx="5.5" ry="4" fill={NV_INK} />
-        <path className="nv-mouth nv-m-short" d="M110,143 L130,143" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
+        {/* the head: a wide flattened dome, the face set a touch
+            right of centre so the head reads turned, not stamped */}
+        <g className="nv-head">
+          <path d="M84,124 C70,108 66,84 76,64 C84,45 106,34 136,33 C168,32 199,43 212,62 C222,78 224,98 216,114 C206,134 182,144 148,144 C120,144 96,138 84,124 Z"
+            fill={NV_IVORY} stroke={NV_INK} strokeWidth="4.5" strokeLinejoin="round" />
+          <g className="nv-pupils">
+            <g className="nv-gaze">
+              <path d="M112,84 L140,84 C140,98 134,112 126,112 C118,112 112,98 112,84 Z" fill={NV_INK} />
+              <path d="M156,84 L184,84 C184,98 178,112 170,112 C162,112 156,98 156,84 Z" fill={NV_INK} />
+              <circle cx="121.5" cy="103" r="2.1" fill={NV_SOCKET} />
+              <circle cx="165.5" cy="103" r="2.1" fill={NV_SOCKET} />
+            </g>
+          </g>
+          {/* each lid is an ivory slab whose lower edge is the lid
+              line: the blink keyframes scale the slab from its top,
+              so the line rides down over the pupil to close the eye,
+              and the state's --lid value parks it at resting height */}
+          <g className="nv-lid">
+            <path d="M104,120 L104,85 L148,85 L148,120 Q126,127 104,120 Z" fill={NV_IVORY} />
+            <path d="M104,120 Q126,127 148,120" fill="none" stroke={NV_INK} strokeWidth="4.2" strokeLinecap="round" />
+          </g>
+          <g className="nv-lid">
+            <path d="M156,120 L156,85 L184,85 L184,120 Q170,127 156,120 Z" fill={NV_IVORY} />
+            <path d="M156,120 Q170,127 184,120" fill="none" stroke={NV_INK} strokeWidth="4.2" strokeLinecap="round" />
+          </g>
+          <path className="nv-mouth nv-m-line" d="M106,128 Q136,131.5 168,130" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
+          <path className="nv-mouth nv-m-flat" d="M107,130 L167,130" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
+          <path className="nv-mouth nv-m-smile" d="M108,128 Q137,136.5 166,128" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
+          <path className="nv-mouth nv-m-frown" d="M108,132.5 Q137,125.5 166,132.5" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
+          <ellipse className="nv-mouth nv-m-open" cx="148" cy="130" rx="6" ry="4.5" fill={NV_INK} />
+          <path className="nv-mouth nv-m-short" d="M130,130 L166,130" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
+        </g>
       </g>
     </svg>
   );
 }
 
-/* The feedback sheet's Nova (home restructure wave): the sheet
-   is where Nova reacts. A correct answer flashes pleased, a
-   wrong one lands deadpan, and after a couple of seconds the
-   face settles to explaining, which is what the sheet itself is
-   doing. The timer only changes which state class renders; the
-   motion itself is the avatar's CSS. */
-function SheetNova({ good }) {
-  const [settled, setSettled] = useState(false);
+/* The feedback sheet's Nova (home restructure wave, reaction
+   beats extended by the presence wave, 2026-10-14): the sheet is
+   where Nova reacts, in three beats. Thinking while the answer
+   lands, then the verdict (pleased for a right answer, deadpan
+   for a miss, worried instead from the second miss in a row,
+   when a streak is building), then the face settles to
+   explaining, which is what the sheet itself is doing. The
+   timers only change which state class renders; the motion
+   itself is the avatar's CSS. A new sheet mounts a new Nova, so
+   the beats always start clean and never queue across cards. */
+function SheetNova({ good, streak = 0 }) {
+  const [phase, setPhase] = useState(0);
   useEffect(() => {
-    const t = setTimeout(() => setSettled(true), 2100);
-    return () => clearTimeout(t);
+    const t1 = setTimeout(() => setPhase(1), 650);
+    const t2 = setTimeout(() => setPhase(2), 2350);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
-  return <NovaAvatar state={settled ? "explaining" : good ? "pleased" : "deadpan"} size={48} />;
+  const face = phase === 0 ? "thinking"
+    : phase === 1 ? (good ? "pleased" : streak >= 2 ? "worried" : "deadpan")
+    : "explaining";
+  return <NovaAvatar state={face} size={48} />;
+}
+
+/* ── the reactive Nova (presence wave, 2026-10-14) ───────────────
+   NovaLive wraps the avatar where Nova is present at size: the
+   header, the bench, the empty states. She notices the pointer:
+   her gaze follows it a few pixels (the values ride in as CSS
+   custom properties on the wrapper and land on the avatar's
+   gaze group), her gills lift a little while it is near, and a
+   click or tap earns one short beat, pleased in good standing,
+   deadpan when the current mood is low, before she settles back
+   to the state the product asked for. A second tap restarts the
+   beat; nothing queues, and unmounting clears the timer. Under
+   reduced motion the gaze is stilled by the CSS gate and the
+   beat is a plain expression change. */
+function NovaLive({ state = "greeting", size = 48 }) {
+  const [gaze, setGaze] = useState(null);
+  const [lift, setLift] = useState(false);
+  const [beat, setBeat] = useState(null);
+  const beatTimer = useRef(null);
+  useEffect(() => () => { if (beatTimer.current) clearTimeout(beatTimer.current); }, []);
+  const onMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    if (!r.width) return;
+    const dx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (r.width / 2)));
+    const dy = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (r.height / 2)));
+    setGaze({ x: dx * 3.2, y: dy * 2.4 });
+    setLift(true);
+  };
+  const onLeave = () => { setGaze(null); setLift(false); };
+  const onTap = () => {
+    if (beatTimer.current) clearTimeout(beatTimer.current);
+    setBeat(["worried", "fading", "deadpan", "asleep"].includes(state) ? "deadpan" : "pleased");
+    beatTimer.current = setTimeout(() => setBeat(null), 1100);
+  };
+  const vars = {
+    "--nv-gx": (gaze ? gaze.x : 0).toFixed(2) + "px",
+    "--nv-gy": (gaze ? gaze.y : 0).toFixed(2) + "px",
+    "--nv-lift": lift ? "1.6deg" : "0deg",
+  };
+  return (
+    <span style={{ display: "inline-flex", ...vars }}
+      onPointerMove={onMove} onPointerLeave={onLeave} onClick={onTap}>
+      <NovaAvatar state={beat || state} size={size} />
+    </span>
+  );
+}
+
+/* ── Nova's tips (presence wave, 2026-10-14) ─────────────────────
+   Nova helps people through the product in speech bubbles, in
+   her own voice: short, dry, one idea each. The rules are the
+   product's: one bubble on screen at a time and never a second
+   within a minute (the gate below), each tip shows on a first
+   visit only and is remembered in its own storage key, outside
+   the profile and outside the export document, on the same
+   pattern as the last visit stamp. A tip names the control it
+   teaches and sits in the flow beside it; it never covers
+   anything and never carries a duplicate button. Dismissing is
+   a real button; leaving the screen after a tip appeared also
+   counts it as seen, so nothing nags on the next visit. */
+const SEEN_TIPS_KEY = "cerebrum-learn2-seentips";
+const TIP_GAP_MS = 60000;
+let novaTipActiveId = null;
+let novaTipLastShownAt = 0;
+
+export function tipEligible(seen, id, now, lastShownAt, repeatAfterMs) {
+  const at = seen && typeof seen[id] === "number" ? seen[id] : 0;
+  if (at && now - at < (repeatAfterMs || Infinity)) return false;
+  if (now - lastShownAt < TIP_GAP_MS) return false;
+  return true;
+}
+
+function loadSeenTips() { return loadJSON(SEEN_TIPS_KEY, {}); }
+
+function recordTipSeen(id) {
+  const seen = loadSeenTips();
+  seen[id] = Date.now();
+  saveJSON(SEEN_TIPS_KEY, seen);
+}
+
+export function useNovaTip(id, { armed = true, repeatAfterMs = 0 } = {}) {
+  const [show, setShow] = useState(false);
+  const claimedRef = useRef(false);
+  useEffect(() => {
+    if (!armed || !id || claimedRef.current) return;
+    if (novaTipActiveId) return;
+    const seen = loadSeenTips();
+    const seenTimes = Object.values(seen).filter((v) => typeof v === "number");
+    const lastAny = Math.max(novaTipLastShownAt, ...seenTimes, 0);
+    if (!tipEligible(seen, id, Date.now(), lastAny, repeatAfterMs)) return;
+    novaTipActiveId = id;
+    novaTipLastShownAt = Date.now();
+    claimedRef.current = true;
+    setShow(true);
+    return () => {
+      if (novaTipActiveId === id) novaTipActiveId = null;
+      if (claimedRef.current) { recordTipSeen(id); claimedRef.current = false; }
+    };
+  }, [id, armed, repeatAfterMs]);
+  const dismiss = () => {
+    recordTipSeen(id);
+    if (novaTipActiveId === id) novaTipActiveId = null;
+    claimedRef.current = false;
+    setShow(false);
+  };
+  return { show, dismiss };
+}
+
+/* The speech bubble itself: Nova at the left, a solid cream
+   bubble with a tail toward her, text in her voice, and a
+   dismiss button when the speech is a tip. Bare mode is the
+   bubble alone with the tail up, for the centered empty states
+   where the big Nova already stands over it. The bubble is
+   plain text to a screen reader (role status announces it);
+   the avatar inside stays decorative. */
+function NovaSpeech({ state = "greeting", size = 44, bare = false, tail = "left", onDismiss, children }) {
+  const tailStyle = tail === "up"
+    ? { top: -7, left: "50%", marginLeft: -7, borderTop: "1px solid " + CREAM_LINE, borderLeft: "1px solid " + CREAM_LINE }
+    : { left: -7, top: 17, borderLeft: "1px solid " + CREAM_LINE, borderBottom: "1px solid " + CREAM_LINE };
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+      {!bare && (
+        <span style={{ flexShrink: 0, marginTop: 1 }}>
+          <NovaLive state={state} size={size} />
+        </span>
+      )}
+      <div role="status" style={{
+        position: "relative", background: CREAM, color: CREAM_INK,
+        border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl,
+        padding: "12px 16px", maxWidth: 470,
+      }}>
+        <span aria-hidden="true" style={{
+          position: "absolute", width: 13, height: 13, background: CREAM,
+          transform: "rotate(45deg)", ...tailStyle,
+        }} />
+        <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, paddingRight: onDismiss ? 24 : 0 }}>{children}</div>
+        {onDismiss && (
+          <button type="button" aria-label="Dismiss tip" onClick={onDismiss}
+            style={{
+              position: "absolute", top: 4, right: 4, width: 32, height: 32,
+              background: "none", border: "none", color: CREAM_FAINT, cursor: "pointer",
+              fontSize: 13, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center",
+            }}>
+            ✕
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NovaTip({ id, state = "greeting", size = 44, bare = false, tail = "left", armed = true, repeatAfterMs = 0, style, children }) {
+  const { show, dismiss } = useNovaTip(id, { armed, repeatAfterMs });
+  if (!show) return null;
+  return (
+    <div style={style}>
+      <NovaSpeech state={state} size={size} bare={bare} tail={tail} onDismiss={dismiss}>{children}</NovaSpeech>
+    </div>
+  );
 }
 
 /* ── wave 3 (2026-10-14): the Nova home discipline ─────────────────
@@ -9336,6 +9588,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [showLessonDone, setShowLessonDone] = useState(false);
   const [firstFinish, setFirstFinish] = useState(false);
   const [misses, setMisses] = useState([]);
+  /* Consecutive misses, for Nova's reactions (presence wave,
+     2026-10-14): the sheet's verdict turns worried from the
+     second straight miss, and her strategy tip arms at the same
+     point. Any right answer clears it; a new lesson starts it
+     over. */
+  const [missStreak, setMissStreak] = useState(0);
   const [reviewCards, setReviewCards] = useState(null);
   const [reviewForId, setReviewForId] = useState(null);
   const [attempt, setAttempt] = useState(0);
@@ -9493,7 +9751,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         const clean = matchMistakes === 0;
         setChecked(true);
         setAnswered((n) => n + 1);
-        if (clean) setRight((n) => n + 1); else noteMiss();
+        if (clean) { setRight((n) => n + 1); setMissStreak(0); } else { noteMiss(); setMissStreak((n) => n + 1); }
         const paid = pay(matchScore(matchMistakes));
         say(clean ? "All pairs matched, first try. Plus " + paid + " XP." : "All pairs matched. Plus " + paid + " XP.");
       } else {
@@ -9525,7 +9783,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     setOrderCorrect(res.perfect);
     setChecked(true);
     setAnswered((n) => n + 1);
-    if (res.perfect) setRight((n) => n + 1); else noteMiss();
+    if (res.perfect) { setRight((n) => n + 1); setMissStreak(0); } else { noteMiss(); setMissStreak((n) => n + 1); }
     const paid = pay(res.xp);
     playSound(res.perfect ? "correct" : "wrong", soundOn);
     say(res.perfect
@@ -9547,6 +9805,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       return;
     }
     const correct = card.kind === "spoterror" ? picked === card.wrong : picked === displayCorrect;
+    setMissStreak((n) => (correct ? 0 : n + 1));
     if (correct) setRight((n) => n + 1);
     if (!correct) {
       const origin = course.lessons[lessonIdx];
@@ -9606,6 +9865,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   };
 
   const startMissReview = (cards) => {
+    setMissStreak(0);
     setReviewForId(lesson ? lesson.id : null);
     setReviewCards(cards);
     setCardIdx(0);
@@ -9614,6 +9874,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   };
 
   const nextLesson = () => {
+    setMissStreak(0);
     setShowLessonDone(false);
     resetCardState();
     if (lessonIdx < course.lessons.length - 1) {
@@ -9923,7 +10184,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} />
+          <SheetNova good={sheetGood} streak={missStreak} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Two readings, honestly held. That is the point."
@@ -9968,6 +10229,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </p>
             )}
           </>
+        )}
+        {!sheetGood && (
+          <NovaTip id="streak" state="worried" size={36} armed={missStreak >= 2} repeatAfterMs={7 * 24 * 3600 * 1000} style={{ marginTop: 16 }}>
+            Two in a row. Change tactics: cover the options, say the answer in your own words, then look. Faster guessing is not a strategy.
+          </NovaTip>
         )}
         <button className="lv-btn" onClick={advance}
           style={{
@@ -11610,8 +11876,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           it never turns sound on by itself. */}
       <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, minHeight: 56 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
-          <span aria-hidden="true" style={{ width: 48, height: 48, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "1px solid " + P.line, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <NovaAvatar state={novaMood} size={46} />
+          <span aria-hidden="true" style={{ width: 68, height: 68, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "1px solid " + P.line, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <NovaLive state={novaMood} size={66} />
           </span>
           <div style={{ minWidth: 0 }}>
             <h1 className="lv-wordmark" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
@@ -11663,15 +11929,17 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "14px 0 0", maxWidth: 620 }}>
         Lessons that teach you a subject in small steps, with quizzes on what you just learned. Follow a path, pick a catalog topic, or build a course from any question. What you answer comes back later, right before you forget, so it stays.
       </p>
+      <NovaTip id="today" state="greeting" style={{ marginTop: 18 }}>
+        Right. Start with today's practice. The rest can wait.
+      </NovaTip>
 
       {/* The return greeting: Nova notices an absence of two days
           or more, once, in its own voice. */}
       {showReturnGreeting && (
-        <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 22 }}>
-          <NovaAvatar state="greeting" size={40} />
-          <p style={{ fontSize: FONT_SIZES.body, color: P.ink, margin: 0, lineHeight: 1.5 }}>
+        <div style={{ marginTop: 22 }}>
+          <NovaSpeech state="greeting" size={48}>
             {reviewDueCount > 0 ? "There you are. Your reviews waited." : "There you are. All quiet, and everything held."}
-          </p>
+          </NovaSpeech>
         </div>
       )}
 
@@ -11682,12 +11950,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           button is the action it is pointing at. */}
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, margin: "20px 0 20px" }}>
         {reminder && (
-          <div style={{ display: "flex", gap: 14, alignItems: "center", paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
-            <NovaAvatar state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={44} />
-            <span style={{ minWidth: 0 }}>
-              <span style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, display: "block" }}>{reminder.title}</span>
-              <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
-            </span>
+          <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
+            <NovaSpeech state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}>
+              <span style={{ fontWeight: 600, display: "block" }}>{reminder.title}</span>
+              <span style={{ fontSize: FONT_SIZES.label, color: CREAM_FAINT, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
+            </NovaSpeech>
           </div>
         )}
         <div className="lv-band">
@@ -11796,7 +12063,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ marginBottom: 26 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
               <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>REVIEW BENCH</span>
-              {reviewDueCount > 0 && <NovaAvatar state="fading" size={40} />}
+              <NovaLive state="fading" size={54} />
             </div>
             <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
@@ -11804,6 +12071,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
                 : "Nothing is due right now. Finished lessons land here as they start to fade, and scheduled questions arrive on their own timing."}
             </p>
+            {reviewDueCount === 0 && (
+              <NovaTip id="bench" state="fading" style={{ margin: "2px 0 14px" }}>
+                Quiet bench. Reviews land here as finished lessons fade. Until then, the next lesson is up top.
+              </NovaTip>
+            )}
             {reviewDueCount > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
                 {due.length > 0 && (
@@ -11886,7 +12158,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             {shelf.length === 0 ? (
               <div>
                 <div style={{ marginBottom: 10 }}>
-                  <NovaAvatar state="asleep" size={56} />
+                  <NovaLive state="asleep" size={72} />
                 </div>
                 <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
                   Nothing on the shelf yet. Finish a path and its object lands here, and stays.
@@ -11920,6 +12192,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {homeTab === "shop" && (
         <div style={{ maxWidth: 720, marginTop: 24 }}>
+          <NovaTip id="shop" state="pleased" style={{ marginBottom: 16 }}>
+            Sparks buy streak freezes and nothing else. You earn them by finishing things.
+          </NovaTip>
           {/* sparks: streak protection only, earned by the loop.
               Its own screen now (home restructure wave): the shop
               used to sit in Today's rail, where it competed with
@@ -11985,6 +12260,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {homeTab === "leagues" && (
         <div style={{ maxWidth: 720, marginTop: 24 }}>
+          <NovaTip id="leagues" state="explaining" style={{ marginBottom: 16 }}>
+            Leagues rank learners on points from new lessons and honest reviews. Joining is your call and costs nothing.
+          </NovaTip>
           {/* leagues: not open yet, joining is a saved choice only.
               Its own screen now (home restructure wave), beside
               the shop it used to share a rail with. */}
@@ -12022,6 +12300,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
           How to read the map: a filled stop is ground you own. The outlined stop is where you are. A dashed stop marked fading is a finished lesson whose review has come due; it is still yours, and a visit to the review bench brings it back.
         </p>
+        <NovaTip id="paths" state="explaining" style={{ margin: "0 0 18px" }}>
+          Whole subjects, in order, one lesson at a time. Start one and it keeps your place.
+        </NovaTip>
         {LEARNING_PATHS.map((path) => {
           const pp = pathProgress(path, builtinProgress);
           const flat = flattenPathLessons(path);
@@ -12212,6 +12493,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </p>
       </div>
 
+      {courses.length > 0 && (
+        <NovaTip id="library" state="greeting" style={{ margin: "0 0 18px" }}>
+          Everything you build waits here. Courses keep your place between visits.
+        </NovaTip>
+      )}
+
       {/* library */}
       {courses.length === 0 ? (
         <div style={{ border: "1px dashed " + P.line, borderRadius: RADIUS.xl, padding: "38px 28px", textAlign: "center" }}>
@@ -12219,12 +12506,17 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               surface, now the living avatar): an empty state is a
               Nova moment, and nothing here needs Nova awake. */}
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-            <NovaAvatar state="asleep" size={96} />
+            <NovaLive state="asleep" size={120} />
           </div>
           <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
             Quiet in here. Build one on the Create screen, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
           </p>
+          <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
+            <NovaTip id="library-empty" state="asleep" bare tail="up">
+              Nothing here yet. Build one on Create, or turn a search answer into a course. Both land here, and I keep them.
+            </NovaTip>
+          </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
             <button onClick={() => setHomeTab("create")}
               style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -12283,6 +12575,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum searches for what is known and turns the answer's ideas into taught lessons with quizzes, on the spot.
         </p>
+        <NovaTip id="create" state="thinking" style={{ margin: "0 0 14px" }}>
+          Name a subject in plain words. I look up what is known and build the lessons. Vague works. Specific works better.
+        </NovaTip>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
             value={topic}
