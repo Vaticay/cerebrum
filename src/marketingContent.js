@@ -15,12 +15,16 @@
  *   titles of roughly 38 to 49 chars.
  * - The lede becomes the meta description and must be 140 to 160 chars
  *   (also enforced by the test).
- * - Database counts must say "15 open scholarly databases", the sanctioned
- *   number (functions/lib/product.js SOURCE_COUNT; see scripts/check.mjs).
+ * - Database counts derive from functions/lib/product.js SOURCE_COUNT
+ *   (imported below); never type the number into copy. The count is
+ *   the fanout slot count: one entry per source a search queries in
+ *   parallel, preprint index included (see scripts/check.mjs).
  * - The slogan below is Dusty's, word for word. Never reword it; only the
  *   labeling/styling around it may change.
  */
 export const SLOGAN = "Ask a real research question. Every claim traces to a paper you can open.";
+
+import { SOURCE_COUNT } from "../functions/lib/product.js";
 
 const SOFTWARE_APP_BASE = {
   softwareApp: true,
@@ -33,7 +37,7 @@ export const MARKETING_PAGES = {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Features",
     title: "Search, read, and map the scientific literature",
-    lede: "Cerebrum searches 15 scholarly databases in parallel and answers with citations you can check. Searching and AI answers are free, with no account needed.",
+    lede: `Cerebrum searches ${SOURCE_COUNT} scholarly databases in parallel and answers with citations you can check. Searching and AI answers are free, with no account needed.`,
     updated: "Updated October 2026.",
     blocks: [
       {
@@ -45,6 +49,7 @@ export const MARKETING_PAGES = {
         list: [
           "Answers graded against the evidence: every claim links to a real paper you can open, with a confidence note on how strongly the literature supports it.",
           "Search record and coverage on every answer: what the answer rests on, what was asked, and what ran, at a permanent link of its own, with copy and download and a JSON form.",
+          "A budget ledger on every search: each search runs on a stated budget of 50 platform calls, and the response and the record show what each stage spent against it.",
           "Document Mode: paste or upload a long paper and get a structured summary built section by section, with live progress. Reading a document needs a free account.",
           "Diagram Studio: turn a pathway, method, or mechanism into an editable Mermaid diagram with SVG, PNG, and .mmd export.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
@@ -64,6 +69,10 @@ export const MARKETING_PAGES = {
       {
         h: "Why a record, not just an answer",
         p: "A summary on its own asks to be trusted. A record can be checked. When your methods section has to say how the literature was found, the Search record is the thing you point to: the search itself, documented and kept, instead of a result you have to take on faith.",
+      },
+      {
+        h: "A stated budget behind every search",
+        p: "Every search also runs on a stated budget of platform calls, the requests Cerebrum makes to databases and models while it works: 50 in total, divided before the search starts. Up to 23 calls gather papers, 5 cover the work that follows gathering, 5 validate candidate papers, 5 authorize the answer, 5 write it, and 7 are held for the closing steps, fact checking, metering, and storing the record. The plan closes exactly (23 + 5 + 5 + 5 + 5 + 7 = 50), and the total is a hard cap enforced while the search runs, so no stage can spend the search past it. The spending is published rather than hidden: every search response carries its ledger, the calls each stage used against the limit of 50, and the same ledger is frozen into the Search record, so what an answer cost is as checkable as what it rests on.",
       },
       {
         h: "Watch a topic and new papers surface for you",
@@ -107,7 +116,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Where do the answers come from?",
-        a: "From 15 open scholarly databases, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, and bioRxiv, searched in parallel. Every claim in an answer links to a real paper you can open.",
+        a: `From ${SOURCE_COUNT} open scholarly databases, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, and bioRxiv, searched in parallel. Every claim in an answer links to a real paper you can open.`,
       },
       {
         q: "Do I need an account?",
@@ -175,7 +184,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Pro Student",
-        p: "Verified college students can get Cerebrum Pro for $7.99 per month for the first 12 months.",
+        p: "Verified college students can get Cerebrum Pro for $7.99 per month for the first 12 months. Verification uses the email address on your account, and only addresses ending in .edu or .ac.uk qualify.",
         list: [
           "Full Cerebrum Pro while subscribed, including unlimited AI answers, document reads, and flowcharts.",
           "After the first 12 months, the subscription renews at the standard $20 monthly price unless cancelled.",
@@ -202,7 +211,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "How does Pro Student pricing work?",
-        a: "Verified college students get Cerebrum Pro for $7.99 per month for the first 12 months. The subscription then renews at the standard $20 monthly price unless cancelled.",
+        a: "Verified college students get Cerebrum Pro for $7.99 per month for the first 12 months. Verification uses the email address on your account, and only addresses ending in .edu or .ac.uk qualify. The subscription then renews at the standard $20 monthly price unless cancelled.",
       },
       {
         q: "Can I cancel?",

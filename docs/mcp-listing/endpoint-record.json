@@ -1,1 +1,523 @@
-{"bothPathsAnswerIdentically":true,"endpoints":["https://askcerebrum.org/mcp","https://askcerebrum.org/api/mcp"],"protocolProbes":[{"observed":"result with protocolVersion 2025-03-26, capabilities { tools: {} }, serverInfo { name: cerebrum, version: 1.0.0 }","observedOn":"2026-10-14","probe":"initialize with protocolVersion 2025-03-26"},{"observed":"error code -32600, message Invalid Request","observedOn":"2026-10-14","probe":"request with the jsonrpc member missing"},{"observed":"error code -32601, message Method not found","observedOn":"2026-10-14","probe":"unknown method resources/list"},{"observed":"HTTP 400, error code -32700, message Parse error, id null","observedOn":"2026-10-14","probe":"malformed JSON body"},{"observed":"HTTP 202, no body","observedOn":"2026-10-14","probe":"notification (no id)"},{"observed":"error code -32602, message Invalid params: unknown tool","observedOn":"2026-10-14","probe":"unknown tool name in tools/call"},{"observed":"HTTP 405","observedOn":"2026-10-14","probe":"unsupported HTTP method DELETE"},{"observed":"HTTP 200 with a JSON description of the server, its tools, and how to call it","observedOn":"2026-10-14","probe":"GET on the endpoint"}],"purpose":"Verbatim record of what the live Cerebrum MCP endpoint returned on the recording date. Directory listing copy in this package is written from this record and from functions/api/mcp.js, never from memory.","rateLimitFromCode":{"keyedBy":"privacyKey of the MCP scope and the client IP","limit":20,"note":"The limiter fails bounded, never open (corrected 2026-10-14): when the durable check throws, the handler falls back to the shared per isolate in memory limiter keyed on the client, and refuses past the limit with the same 429 shape. Before 2026-10-14 the same failure was logged and the request was served with no limit applied; the record of 13 October 2026 said so, and it is no longer true. functions/api/mcp.js onRequest.","onLimit":"HTTP 429, JSON RPC error code -32000, Retry-After 30","windowMs":60000},"recordedOn":"2026-10-14","resultAnatomyFromCode":{"get_trending":"A text content block (the edition line, then up to five headlines per section, each with source name and URL) plus structuredContent shaped by the tool's declared outputSchema: the edition, the sections with their headlines as title, source, and URL data, and the headline count. Both renderings are built from one grouping in functions/api/mcp.js, so they cannot disagree.","search_literature":"A text content block plus structuredContent. The text: the answer text; then, when the answer was assembled from source excerpts or the pipeline degraded, one plain quality note saying so; then a Sources section of numbered lines (title, authors, year, DOI or URL, and whether the source was cited in the answer or is further reading); then a Coverage line (records gathered and sources cited) when the payload carries a funnel; then a coverage note when present; then, when the search stored a Search record, a block naming the record's permanent address, its question, its time, and its source and database counts. With no sources, the text says plainly that the answer should be treated as ungrounded. The structuredContent carries the same facts as data, shaped by the tool's declared outputSchema: the answer text, the synthesis mode, the degraded flag, the sources as objects (title, authors, year, DOI, URL, cited), the source and cited counts, the coverage counts and note, and the record object with its permanent address when a record was stored. Nulls are honest: a field the payload does not carry ships as null."},"serverInfo":{"name":"cerebrum","protocolVersion":"2025-03-26","transport":"Stateless streamable HTTP, plain JSON bodies, no sessions, no server sent events","version":"1.0.0"},"structuredContentStatus":"In the endpoint code as of 2026-10-14 (functions/api/mcp.js, with the per tool outputSchema declarations). The live build probed on 2026-10-14 (848a221) predates that code: its tools/call results carried only content and isError, verified by inspecting the result keys of a live search call. The same code change adds the icon and documentation address to the initialize result and to the GET description; the live initialize and GET responses probed on 2026-10-14 do not yet carry them. Before submitting to either directory, rerun these probes against the live endpoint and confirm structuredContent, the icon, and the documentation address are present live, because both directories scan the live server, not this package.","toolAnnotationsPresentToday":true,"toolCallObservations":[{"observed":"Worked. Returned the 2026-10-14 edition: sections including Biology & Medicine and Preprints, five headlines each, each headline carrying its source name and the original story URL. Result isError false. The result carried no structuredContent; see structuredContentStatus.","observedOn":"2026-10-14","tool":"get_trending"},{"observed":"One call on 14 October 2026 (how do wood frogs survive freezing). Returned a full synthesized AI answer with numbered citations in 13.6 seconds, isError false. The result keys were exactly content and isError: no structuredContent, because the live build probed predates the structured output code. See structuredContentStatus. Earlier calls on 13 October 2026 (bees and stinging, frogs surviving freezing, sleep and colds, plants folding their leaves) also all returned isError false: one full synthesized answer and three extractive answers in the What the sources say shape, whose result text discloses that assembly honestly. See the reliability note in README.md.","observedOn":"2026-10-14","tool":"search_literature"}],"toolTitlesPresentToday":true,"toolsListResponseVerbatim":{"tools":[{"annotations":{"destructiveHint":false,"openWorldHint":true,"readOnlyHint":true},"description":"Search the scientific literature for a research question and return a cited answer with a numbered source list. Use this when you need evidence from papers rather than general knowledge.","inputSchema":{"additionalProperties":false,"properties":{"query":{"description":"A research question or topic to search for in the scientific literature.","type":"string"}},"required":["query"],"type":"object"},"name":"search_literature","title":"Search the literature"},{"annotations":{"destructiveHint":false,"openWorldHint":true,"readOnlyHint":true},"description":"Get the current Trending in Science edition and return the top headlines grouped by section with links to the original stories.","inputSchema":{"additionalProperties":false,"properties":{},"type":"object"},"name":"get_trending","title":"Trending in Science"}]}}
+{
+  "recordedOn": "2026-10-14",
+  "endpoint": "https://askcerebrum.org/mcp",
+  "alternateEndpoint": "https://askcerebrum.org/api/mcp",
+  "bothPathsAnswerIdentically": true,
+  "note": "Regenerated 2026-10-14 (wave six) by probing the live endpoint after the structured output deploy (MCP structured output wave) reached production. The previous edition of this record described the build probed earlier that day, which predated that code: it reported no structuredContent in tools/call results, no icon or documentation address in initialize, and no outputSchema in tools/list. All three are live now and are recorded verbatim below. The one identity value still in transition is the icon: the live server at probe time returns the 180 by 180 touch icon address, and the code change pointing the server identity at the 512 by 512 mark served from the site root (https://askcerebrum.org/icon-512.png) is written but was not yet deployed when these probes ran. After that deploy lands, rerun the initialize and GET probes and update the two icon values in this file.",
+  "probeMethod": "Plain HTTPS requests with curl against the production endpoint on 2026-10-14: a GET for the human readable description, then JSON RPC POSTs for initialize, tools/list, one tools/call per tool, and the protocol error probes. Responses below are the parsed response bodies, verbatim where the field name says so.",
+  "getDescriptionVerbatim": {
+    "name": "cerebrum",
+    "version": "1.0.0",
+    "protocolVersion": "2025-03-26",
+    "icon": "https://askcerebrum.org/apple-touch-icon.png",
+    "documentationUrl": "https://askcerebrum.org/features",
+    "description": "Cerebrum is a free scientific literature search engine. This endpoint lets assistants call Cerebrum search as a tool.",
+    "transport": "Stateless HTTP transport using JSON RPC 2.0",
+    "tools": [
+      {
+        "name": "search_literature",
+        "description": "Search the scientific literature for a research question and return a cited answer with a numbered source list. Use this when you need evidence from papers rather than general knowledge."
+      },
+      {
+        "name": "get_trending",
+        "description": "Get the current Trending in Science edition and return the top headlines grouped by section with links to the original stories."
+      }
+    ],
+    "usage": "Send a POST request with a JSON RPC 2.0 message. Use tools/list to discover tools and tools/call to run a tool."
+  },
+  "initializeResultVerbatim": {
+    "protocolVersion": "2025-03-26",
+    "capabilities": {
+      "tools": {}
+    },
+    "serverInfo": {
+      "name": "cerebrum",
+      "version": "1.0.0",
+      "icon": "https://askcerebrum.org/apple-touch-icon.png",
+      "documentationUrl": "https://askcerebrum.org/features"
+    }
+  },
+  "serverInfo": {
+    "name": "cerebrum",
+    "version": "1.0.0",
+    "protocolVersion": "2025-03-26",
+    "icon": "https://askcerebrum.org/apple-touch-icon.png",
+    "documentationUrl": "https://askcerebrum.org/features",
+    "iconNote": "Live at probe time: the 180 by 180 touch icon. The 512 by 512 mark is served from the site root as /icon-512.png and the endpoint code now names that address; it becomes the live value with the next deploy."
+  },
+  "toolsListResultVerbatim": {
+    "tools": [
+      {
+        "name": "search_literature",
+        "title": "Search the literature",
+        "description": "Search the scientific literature for a research question and return a cited answer with a numbered source list. Use this when you need evidence from papers rather than general knowledge.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "A research question or topic to search for in the scientific literature."
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "answer": {
+              "type": "string"
+            },
+            "synthesisMode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "degraded": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "authors": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "year": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "doi": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "cited": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "title",
+                  "authors",
+                  "year",
+                  "doi",
+                  "url",
+                  "cited"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "sourceCount": {
+              "type": "integer"
+            },
+            "citedCount": {
+              "type": "integer"
+            },
+            "coverage": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "gathered": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "cited": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "gathered",
+                "cited"
+              ],
+              "additionalProperties": false
+            },
+            "coverageNote": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recordUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "record": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "question": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "askedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sourceCount": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "citedCount": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "databaseCount": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "url",
+                "question",
+                "askedAt",
+                "sourceCount",
+                "citedCount",
+                "databaseCount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "answer",
+            "synthesisMode",
+            "degraded",
+            "sources",
+            "sourceCount",
+            "citedCount",
+            "coverage",
+            "coverageNote",
+            "recordUrl",
+            "record"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "get_trending",
+        "title": "Trending in Science",
+        "description": "Get the current Trending in Science edition and return the top headlines grouped by section with links to the original stories.",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": true
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "edition": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "source",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "items"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "itemCount": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "edition",
+            "sections",
+            "itemCount"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
+  "structuredContentStatus": "Live and verified in this probe round. Both tools/call results carried content, structuredContent, and isError, and both tools declare an outputSchema in tools/list (see the verbatim tools/list result above). The search result's structuredContent keys, in order: answer, synthesisMode, degraded, sources, sourceCount, citedCount, coverage, coverageNote, recordUrl, record. The trending result's structuredContent keys: edition, sections, itemCount. Structured output is therefore no longer a pre submission blocker; the submission steps in README.md treat it as shipped.",
+  "toolCallObservations": {
+    "get_trending": {
+      "resultKeys": [
+        "content",
+        "structuredContent",
+        "isError"
+      ],
+      "isError": false,
+      "structuredContentVerbatim": {
+        "edition": "2026-10-14",
+        "sections": [
+          {
+            "name": "Biology & Medicine",
+            "items": [
+              {
+                "title": "Advances and perspectives in genetically encoded biosensors for biomarker detection and theranostic circuits.",
+                "source": "Europe PMC",
+                "url": "https://doi.org/10.1016/j.synbio.2026.09.006"
+              },
+              {
+                "title": "Language reorganization in brain arteriovenous malformations with fiber-based regional functional connectivity",
+                "source": "Europe PMC",
+                "url": "https://doi.org/10.1016/j.mrl.2026.200307"
+              },
+              {
+                "title": "Harnessing synthetic microbial communities for desert vegetation restoration",
+                "source": "Europe PMC",
+                "url": "https://doi.org/10.1016/j.synbio.2026.08.013"
+              },
+              {
+                "title": "Flushing-Assisted Saline Immersion Endoscopic Submucosal Dissection in the Rectum: A Video-Based Feasibility Series",
+                "source": "Europe PMC",
+                "url": "https://doi.org/10.1002/deo2.70447"
+              },
+              {
+                "title": "Clinical Outcomes of Double Half-Pigtail Versus Straight Plastic Stents for Endoscopic Biliary Drainage of Malignant Distal Biliary Obstruction",
+                "source": "Europe PMC",
+                "url": "https://doi.org/10.1002/deo2.70446"
+              }
+            ]
+          },
+          {
+            "name": "Preprints",
+            "items": [
+              {
+                "title": "Bovine H5N1 influenza viruses have adapted to more efficiently use receptors abundant in cattle",
+                "source": "bioRxiv · microbiology",
+                "url": "https://doi.org/10.64898/2026.04.02.715584"
+              },
+              {
+                "title": "Inflammation-driven cellular selection impacts X-linked mosaicism in the epidermis",
+                "source": "bioRxiv · cell biology",
+                "url": "https://doi.org/10.64898/2026.10.08.757664"
+              },
+              {
+                "title": "Contrasting relationships between evolved consumer diversity and productivity for essential vs. substitutable resources",
+                "source": "bioRxiv · ecology",
+                "url": "https://doi.org/10.64898/2026.10.08.757349"
+              },
+              {
+                "title": "WildObserve: Camera-trap image review software that learns species labels during annotation",
+                "source": "bioRxiv · ecology",
+                "url": "https://doi.org/10.64898/2026.10.06.757089"
+              },
+              {
+                "title": "Rapid trait adaptation has contrasting effects on different dimensions of stability under environmental change",
+                "source": "bioRxiv · ecology",
+                "url": "https://doi.org/10.64898/2026.10.02.756195"
+              }
+            ]
+          },
+          {
+            "name": "Physics & Chemistry",
+            "items": [
+              {
+                "title": "Joint Neural Posterior Estimation and Model Selection for Chemical Reaction Networks",
+                "source": "arXiv",
+                "url": "http://arxiv.org/abs/2610.18825v1"
+              },
+              {
+                "title": "Embossing of Tapered, Isometric Micro-Interdigitated Flow Fields for Enhanced Desalination by Faradaic Deionization",
+                "source": "arXiv",
+                "url": "http://arxiv.org/abs/2610.18791v1"
+              },
+              {
+                "title": "Ensuring Complete Consistency between Hops and Wavefunction Propagation in Fewest-Switches Surface Hopping",
+                "source": "arXiv",
+                "url": "http://arxiv.org/abs/2610.18743v1"
+              },
+              {
+                "title": "Extending the mean first-passage-time formalism to the reconstruction of high free-energy barriers: A top-start approach",
+                "source": "arXiv",
+                "url": "http://arxiv.org/abs/2610.18653v1"
+              },
+              {
+                "title": "Does Pretraining Teach Chemical Language Models Chemistry?",
+                "source": "arXiv",
+                "url": "http://arxiv.org/abs/2610.18651v1"
+              }
+            ]
+          },
+          {
+            "name": "Space",
+            "items": [
+              {
+                "title": "Ship 40 Back At Starbase After Surprise Reentry Survival",
+                "source": "SpacePolicyOnline.com",
+                "url": "https://spacepolicyonline.com/news/ship-40-back-at-starbase-after-surprise-reentry-survival/"
+              },
+              {
+                "title": "Launch Preview: Falcon 9, ZhuQue-2E to launch during quiet week",
+                "source": "NASASpaceflight",
+                "url": "https://www.nasaspaceflight.com/2026/10/launch-preview-101326/"
+              },
+              {
+                "title": "TB 26-08 Complex Modes in Lightly Damped Structural Systems:A Two-Mode Interaction Perspective",
+                "source": "NASA",
+                "url": "https://www.nasa.gov/centers-and-facilities/nesc/tb-26-08-complex-modes-in-lightly-damped-structural-systemsa-two-mode-interaction-perspective/"
+              },
+              {
+                "title": "SpaceX launches NASA science and cargo to the International Space Station",
+                "source": "Spaceflight Now",
+                "url": "https://spaceflightnow.com/2026/10/13/spacex-launches-nasa-science-and-cargo-to-the-international-space-station/"
+              },
+              {
+                "title": "NASA JPL Testing Readies Voyager Technologies Lander for Moon Mission",
+                "source": "NASA",
+                "url": "https://www.nasa.gov/missions/moon-base/nasa-jpl-testing-readies-voyager-technologies-lander-for-moon-mission/"
+              }
+            ]
+          }
+        ],
+        "itemCount": 20
+      },
+      "note": "The text block opens \"Trending in Science, edition 2026-10-14.\" and lists 20 items across 4 sections, matching the structured twin."
+    },
+    "search_literature": {
+      "query": "how do wood frogs survive freezing solid in winter",
+      "resultKeys": [
+        "content",
+        "structuredContent",
+        "isError"
+      ],
+      "isError": false,
+      "structuredContent": {
+        "answer": "[answer text of 3427 chars shipped in the live result; opening: \"## The short answer\\n\\nWood frogs (_Lithobates sylvaticus_) survive freezing solid in winter by accumulating high concentrations of **glucose** and other **cryopr\"]",
+        "synthesisMode": "ai",
+        "degraded": false,
+        "sources": [
+          {
+            "title": "BIOPRESERVATION: HEAT/MASS TRANSFER CHALLENGES AND BIOCHEMICAL/GENETIC ADAPTATIONS IN BIOLOGICAL SYSTEMS",
+            "authors": "Ram V. Devireddy",
+            "year": 2012,
+            "doi": "10.1615/heattransres.2012006187",
+            "url": "https://doi.org/10.1615/heattransres.2012006187",
+            "cited": true
+          },
+          {
+            "title": "Molecular changes in natural antifreeze phenomena and cryopreservation",
+            "authors": "Lingyu Shi et al.",
+            "year": 2024,
+            "doi": "10.22541/au.172115402.29256223/v1",
+            "url": "https://doi.org/10.22541/au.172115402.29256223/v1",
+            "cited": true
+          }
+        ],
+        "sourceCount": 2,
+        "citedCount": 2,
+        "coverage": {
+          "gathered": 17,
+          "cited": 2
+        },
+        "coverageNote": null,
+        "recordUrl": null,
+        "record": null
+      },
+      "note": "A full AI answer (synthesisMode ai, degraded false) citing both gathered sources on this call. recordUrl and record were null on this call: no record was stored for this run, so the fields carried their null form, as the schema allows. Elapsed about 17.5 seconds end to end."
+    }
+  },
+  "protocolProbes": {
+    "observedOn": "2026-10-14",
+    "missingJsonrpcMember": "POST {\"id\":5,\"method\":\"initialize\",\"params\":{}} returned {\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32600,\"message\":\"Invalid Request\"}}",
+    "unknownMethod": "POST {\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"resources/list\",\"params\":{}} returned {\"jsonrpc\":\"2.0\",\"id\":6,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}",
+    "malformedJson": "POST body \"{not json\" returned HTTP 400 with {\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"Parse error\"}}",
+    "notification": "POST {\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"} (no id) returned HTTP 202 with an empty body.",
+    "unknownTool": "tools/call with name \"nope\" returned {\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown tool\"}}",
+    "deleteMethod": "DELETE returned HTTP 405."
+  },
+  "rateLimitFromCode": "functions/api/mcp.js enforces MCP_RATE_LIMIT = 20 requests per MCP_RATE_WINDOW_MS = 60000 ms per client IP (KV backed checkRateLimit, key prefix mcp). Over the limit the HTTP status is 429, the JSON RPC error code is -32000 with message \"Rate limit exceeded\", and the response carries Retry-After: 30. If the rate limit store itself throws, the endpoint falls back to a bounded in memory limiter (checkRateLimitMemoryOnly) at the same numbers rather than failing open or closed. Not retested live in this round: the earlier same day probes already confirmed the 429 shape, and the probe budget is itself rate limited.",
+  "resultAnatomyFromCode": "A successful tools/call result carries content (one text block), structuredContent shaped by the tool's declared outputSchema, and isError false, as observed live above. The search text block is the answer followed by a numbered source list and, when a Search record was stored, its address; when the upstream search failed or timed out, the same envelope ships with isError true and a plain language failure text (and no structuredContent on the error path)."
+}

@@ -64,13 +64,19 @@ plain JSON bodies, no sessions, no sign in. It exposes two tools:
 
 One timing note, stated plainly because both directories scan the
 live server rather than this package: the structured output and the
-icon and documentation fields on the server identity are in the
-endpoint code as of 14 October 2026, and the live build probed that
-day did not yet return them (the record in `endpoint-record.json`
-says exactly what the live build returned). They reach the
-directories with the next deploy of `functions/api/mcp.js`. Before
-submitting, rerun the record's probes and confirm the live server
-returns `structuredContent`.
+icon and documentation fields on the server identity shipped in the
+endpoint code on 14 October 2026, and the endpoint record in this
+folder was regenerated that day, after the deploy landed, from live
+probes: `initialize` returns the icon and the documentation address,
+`tools/list` declares an `outputSchema` for both tools, and real
+`tools/call` results carry `structuredContent` for both tools. That
+wait is over; nothing about the endpoint stands in front of
+submission. One smaller identity change is queued behind it: the
+live server at probe time still names the 180 by 180 touch icon,
+and the code now points the server identity at the 512 by 512 mark
+the site serves at `https://askcerebrum.org/icon-512.png`. It takes
+effect with the next deploy; if a portal asks about icon size
+before then, the 512 asset in this package is the same mark.
 
 Protocol behavior a reviewer would test, all verified live: a request
 missing the `jsonrpc` member, or carrying a value other than `2.0`,
@@ -151,7 +157,11 @@ stand as written.
    so a larger asset could have been a portal finding with nothing
    ready to answer it. That is covered now: `openai-plugin/assets/`
    also carries `icon-512.png`, 512 by 512, rendered from the mark's
-   vector source. `plugin.json` still points its composer icon and
+   vector source, and the same file is served from the site root as
+   `https://askcerebrum.org/icon-512.png`, which is the address the
+   MCP server identity in `functions/api/mcp.js` now names (live
+   with the next deploy; the 180 by 180 touch icon keeps its own
+   job). `plugin.json` still points its composer icon and
    logo slots at the 180 by 180 files; if a portal asks for the
    larger asset in a slot, point that slot at `icon-512.png` and
    rezip. Treat any portal finding on size as the requirement.
@@ -184,11 +194,11 @@ under Sources:
       change is a five minute job once the token exists.
 - [ ] Connect the server in the portal and run **Scan Tools**. The scan
       imports tool names, titles, descriptions, schemas, security
-      schemes, and annotations from the live endpoint. Titles and
-      annotations are live (gap 1, closed), and the scan will also
-      import each tool's `outputSchema` once the structured output
-      deploy is the live build; confirm that first with the probes in
-      `endpoint-record.json`.
+      schemes, and annotations from the live endpoint. Titles,
+      annotations, and each tool's `outputSchema` are all live
+      (verified in the 14 October 2026 probes recorded in
+      `endpoint-record.json`), so the scan imports the full identity,
+      structured output included.
 - [ ] Listing rules from the guidelines: the name must not append
       "MCP" or "Plugin" to the product name (ours is just Cerebrum);
       descriptions must not advertise pricing, subscriptions, trials,
@@ -302,14 +312,12 @@ so the wording in the file is the wording to paste, unchanged.
 
 ## Submission day: what Dusty does, in order
 
-1. No endpoint work stands in front of submission. Tool titles and
-   annotations are deployed and verified live. One confirmation
-   remains: the structured output and the server identity fields are
-   in the endpoint code, and the live build probed on 14 October
-   2026 did not yet return them, so once a deploy carrying
-   `functions/api/mcp.js` is live, rerun the probes in
-   `endpoint-record.json` and confirm `structuredContent` comes back
-   from a real call. Then call both tools a few times from a custom
+1. No endpoint work stands in front of submission. Tool titles,
+   annotations, the server identity fields, and structured output
+   are deployed and verified live in the 14 October 2026 probes
+   recorded in `endpoint-record.json` (run after the deploy landed,
+   so no further deploy needs to happen first). What remains here
+   is yours, **Dusty**: call both tools a few times from a custom
    connector as the final live check, because both directories read
    the live server, not this package.
 2. ChatGPT: sign in to the OpenAI platform with the account that will

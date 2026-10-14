@@ -19,10 +19,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { MARKETING_PAGES, MARKETING_SLUGS, SLOGAN, DEMO_QUESTIONS } = await import(join(root, "src/marketingContent.js"));
 const { PAGES: LEGAL_PAGES } = await import(join(root, "src/legalContent.js"));
 const widgetsSrc = await readFile(join(root, "src/marketingWidgets.jsx"), "utf8");
+const searchSrc = await readFile(join(root, "functions/api/search.js"), "utf8");
 const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const llmsTxt = await readFile(join(root, "public/llms.txt"), "utf8");
 const { INFO_SLUGS, classifyRoute } = await import(join(root, "src/routeClassify.js"));
-const { SOURCE_COUNT } = await import(join(root, "functions/lib/product.js"));
+const { SCHOLARLY_SOURCES, SOURCE_COUNT } = await import(join(root, "functions/lib/product.js"));
 
 let passed = 0;
 let failed = 0;
@@ -97,6 +98,39 @@ t("database-count claims match the sanctioned number", () => {
   const claims = [...copy.matchAll(/(\d+)\s+open scholarly databases/g)].map((m) => Number(m[1]));
   assert.ok(claims.length > 0, "no database-count claim found in marketing copy");
   for (const n of claims) assert.equal(n, SOURCE_COUNT, `copy claims ${n} databases`);
+});
+
+t("the canonical source list is the search fanout, slot for slot", () => {
+  // The count is only canonical if product.js's list IS the fanout:
+  // same ids, same order, as the sourceNames array the search ships.
+  // The preprint slot is one entry (the Europe PMC preprint index);
+  // medRxiv is reached through it and must not appear as its own id.
+  const m = searchSrc.match(/const sourceNames = \[([\s\S]*?)\];/);
+  assert.ok(m, "sourceNames array not found in functions/api/search.js");
+  const fanoutIds = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  assert.deepEqual(fanoutIds, SCHOLARLY_SOURCES.map((s) => s.id),
+    "product.js SCHOLARLY_SOURCES and the search fanout disagree");
+  assert.ok(!fanoutIds.includes("medrxiv"), "medRxiv is not a fanout slot; it is reached through the preprint index");
+});
+
+t("legal copy count claims derive from the same canonical list", () => {
+  const copy = JSON.stringify(LEGAL_PAGES);
+  const claims = [
+    ...[...copy.matchAll(/(\d+)\s+open scholarly databases/g)].map((m) => Number(m[1])),
+    ...[...copy.matchAll(/queries (\d+) sources/g)].map((m) => Number(m[1])),
+  ];
+  assert.ok(claims.length >= 3, `expected at least 3 legal count claims, found ${claims.length}`);
+  for (const n of claims) assert.equal(n, SOURCE_COUNT, `legal copy claims ${n} databases`);
+  const faq = LEGAL_PAGES.about.faq.find((f) => f.q === "Which databases does Cerebrum search?");
+  assert.ok(faq, "About FAQ lost its database list answer");
+  assert.ok(faq.a.startsWith(`${SOURCE_COUNT} open scholarly sources`),
+    `database FAQ does not lead with the canonical count: ${faq.a.slice(0, 80)}`);
+  for (const s of SCHOLARLY_SOURCES) {
+    if (s.id === "preprints") continue;
+    assert.ok(faq.a.includes(s.name), `database FAQ omits ${s.name}`);
+  }
+  assert.ok(faq.a.includes("preprint index"), "database FAQ does not name the preprint index slot");
+  assert.ok(faq.a.includes("medRxiv"), "database FAQ does not say medRxiv is reached through the index");
 });
 
 t("pricing offers are the real plans ($20/mo, $144/yr USD)", () => {

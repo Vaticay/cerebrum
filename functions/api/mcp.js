@@ -28,13 +28,17 @@ export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_INFO = { name: "cerebrum", version: "1.0.0" };
 
 // Server identity surfaces beyond the name and version (2026-10-14,
-// MCP structured output wave): the icon is the site's own touch icon,
-// served from the same origin as the endpoint, and the documentation
-// address is the features page, which is the URL the directory
-// listing package already names as the documentation URL. Both ride
-// on the initialize result and on the human readable GET description
-// so a directory scanner and a person see the same identity.
-export const MCP_ICON_URL = "https://askcerebrum.org/apple-touch-icon.png";
+// MCP structured output wave): the icon is the site's own 512 by 512
+// mark, served from the site root (public/icon-512.png, the same mark
+// the directory listing package holds), because directory scanners
+// read the live server and the 180 by 180 touch icon is below the
+// size some of them ask for; the touch icon keeps its own job on
+// devices. The documentation address is the features page, which is
+// the URL the directory listing package already names as the
+// documentation URL. Both ride on the initialize result and on the
+// human readable GET description so a directory scanner and a person
+// see the same identity.
+export const MCP_ICON_URL = "https://askcerebrum.org/icon-512.png";
 export const MCP_DOCUMENTATION_URL = "https://askcerebrum.org/features";
 
 // Aligned with anonymous search in functions/api/search.js, which allows

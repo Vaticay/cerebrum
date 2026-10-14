@@ -26,6 +26,17 @@ export const PRODUCT = {
  * two cannot drift. `peerReviewed` describes what the source predominantly
  * indexes and is what lets the UI label a preprint honestly rather than
  * implying everything returned has been reviewed.
+ *
+ * The counting definition every surface derives from: one entry is one slot
+ * in the parallel fanout, one thing a search actually queries. The last
+ * entry, "preprints", is one such slot: the dedicated preprint search over
+ * Europe PMC's preprint index (the SRC:PPR slice), which is how medRxiv,
+ * Research Square, ChemRxiv, SSRN and Preprints.org content is reached in a
+ * topic search. medRxiv has no fanout slot of its own (it is also used
+ * directly for author lookups), so counting bioRxiv and medRxiv as two of
+ * the total, as some copy once did, double counts a slot that is not there
+ * and drops this one. The entry's name says what the slot is: an index of
+ * preprint servers, not a server itself.
  */
 export const SCHOLARLY_SOURCES = [
   { id: "europePMC",      name: "Europe PMC",       category: "biomedical",     peerReviewed: "mixed" },
@@ -42,7 +53,7 @@ export const SCHOLARLY_SOURCES = [
   { id: "BASE",           name: "BASE",             category: "aggregator",     peerReviewed: "mixed" },
   { id: "pmcFullText",    name: "PMC Full Text",    category: "biomedical",     peerReviewed: "mostly" },
   { id: "openAire",       name: "OpenAIRE",         category: "aggregator",     peerReviewed: "mixed" },
-  { id: "preprints",      name: "Preprint servers",   category: "preprint",       peerReviewed: "no" },
+  { id: "preprints",      name: "Preprint index",     category: "preprint",       peerReviewed: "no" },
 ];
 
 /** Derived, never hand-written. */

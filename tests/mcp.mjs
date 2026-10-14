@@ -85,6 +85,10 @@ await test("initialize returns the pinned handshake shape", async () => {
   // address, so a directory scanner reads the same identity the
   // listing package submits. Name, version, protocol, and
   // capabilities are unchanged.
+  // Pin updated again 2026-10-14 (wave six): the icon is the 512 by
+  // 512 mark served from the site root, not the 180 by 180 touch
+  // icon, because directory scanners read the live server identity
+  // and the touch icon is below the size some of them ask for.
   const res = await handleRpcMessage(rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "0" } }, 7), fakeRunners);
   assert.equal(res.jsonrpc, "2.0");
   assert.equal(res.id, 7);
@@ -94,10 +98,23 @@ await test("initialize returns the pinned handshake shape", async () => {
     serverInfo: {
       name: "cerebrum",
       version: "1.0.0",
-      icon: "https://askcerebrum.org/apple-touch-icon.png",
+      icon: "https://askcerebrum.org/icon-512.png",
       documentationUrl: "https://askcerebrum.org/features",
     },
   });
+});
+
+await test("the server icon URL names a real 512 by 512 asset in public/", async () => {
+  // The icon address in the server identity is only honest if the
+  // site actually serves that file. public/ is copied verbatim into
+  // the build output, so the file's presence and dimensions here are
+  // what the deployed site serves at the same path.
+  const { readFile } = await import("node:fs/promises");
+  const png = await readFile(join(root, "public/icon-512.png"));
+  assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "public/icon-512.png is not a PNG");
+  assert.equal(png.readUInt32BE(16), 512, "public/icon-512.png width is not 512");
+  assert.equal(png.readUInt32BE(20), 512, "public/icon-512.png height is not 512");
+  assert.equal(mcp.MCP_ICON_URL, "https://askcerebrum.org/icon-512.png");
 });
 
 await test("ping returns an empty result", async () => {
@@ -569,7 +586,7 @@ await test("GET returns a human readable description naming both tools", async (
   const body = await res.json();
   assert.equal(body.name, "cerebrum");
   assert.equal(body.protocolVersion, "2025-03-26");
-  assert.equal(body.icon, "https://askcerebrum.org/apple-touch-icon.png", "GET description lost the server icon");
+  assert.equal(body.icon, "https://askcerebrum.org/icon-512.png", "GET description lost the server icon");
   assert.equal(body.documentationUrl, "https://askcerebrum.org/features", "GET description lost the documentation address");
   assert.deepEqual(body.tools.map((t) => t.name), ["search_literature", "get_trending"]);
 });
