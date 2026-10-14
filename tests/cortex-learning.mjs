@@ -64,6 +64,12 @@ const WANTED = [
   "cortexEmptyProfile", "cortexEmptyBuiltinProgress", "cortexImportFailure",
   "cortexCourseProblem", "cortexClaimProblem", "cortexProgressRecordProblem",
   "buildCortexExport", "parseCortexImport", "applyCortexImport",
+  "normKey", "protectPeriods", "looksLikeFragment", "extractClaims",
+  "NUMBER_RE", "numbersIn", "formatYearValue", "shortCite", "claimSeq",
+  "FLIP_WORDS", "flipDirection", "scaleNumberIn", "mutatedVariants", "nearestClaims",
+  "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",
+  "moveFrontClause", "rotateMidClause", "restateClaim", "withinOptionBand",
+  "quizCard", "clozeCard",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -96,7 +102,7 @@ const {
   matchScore, lessonXpScale, scaleXp,
   COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, SOUND_KEY, BUILTIN_PROGRESS_KEY,
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
-  applyCortexImport,
+  applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -631,6 +637,25 @@ await test("feedback tones come from the design system, not borrowed brand colou
   assert.ok(learnSrc.includes("withAlpha(STATUS.good"), "no STATUS wash fills");
 });
 
+await test("the feedback sheet and action bar sit on solid surfaces, never a bare wash", () => {
+  // Dusty's 2026-10-13 photo: the feedback sheet's background was
+  // the 13 to 20 percent alpha wash itself, so the quiz options
+  // underneath showed through and the finding text double exposed.
+  // The sheet must composite its tint over the opaque surface
+  // token, and the unchecked action bar must be solid too.
+  assert.ok(!learnSrc.includes("background: sheetGood ? goodWash : badWash"),
+    "the feedback sheet background is the bare translucent wash");
+  const sheetAt = learnSrc.indexOf('className="lv-sheet"');
+  assert.ok(sheetAt > 0, "feedback sheet not found");
+  const sheetBlock = learnSrc.slice(sheetAt, sheetAt + 600);
+  assert.ok(sheetBlock.includes("backgroundColor: P.surface"),
+    "the feedback sheet has no solid surface underlay");
+  assert.ok(sheetBlock.includes("backgroundImage:") && sheetBlock.includes("goodWash"),
+    "the feedback sheet lost its tone tint instead of layering it over the solid surface");
+  assert.ok(!learnSrc.includes('linear-gradient(rgba(0,0,0,0), " + P.bg'),
+    "the bottom action bar still fades from transparent over scrolling content");
+});
+
 await test("mastery shows on the path, distinctly from done", () => {
   assert.ok(learnSrc.includes('"MASTERED"'), "the path view has no mastered state");
   assert.ok(learnSrc.includes("not mastered yet"), "done but unmastered lessons are not explained");
@@ -1009,6 +1034,112 @@ await test("catalog blurbs describe coverage instead of asserting facts", () => 
   for (const flat of ["Half your oxygen comes from these", "Pain is an opinion the brain can revise", "Gravity is geometry", "A teaspoon of soil holds a civilization"]) {
     assert.ok(!all.includes(flat), `a flat factual assertion is still on the home surface: ${flat}`);
   }
+});
+
+group("Quiz options: restatements, not lifts");
+
+/* Dusty's 2026-10-13 ruling: quiz options were the papers' own
+   sentences, so the correct one could be spotted by matching its
+   opening words against text the player had already seen. These
+   fixtures pin the fix: options are restatements, distractors
+   share the frame and the length band, and the verbatim finding
+   survives only in the feedback (card.why). */
+const QUIZ_SOURCES = [
+  { title: "Sleep loss and infection risk", authors: "Prather AA, Cohen S", journal: "Sleep", year: 2015 },
+  { title: "Dream content across sleep stages", authors: "Nielsen T", journal: "Sleep Medicine Reviews", year: 2017 },
+  { title: "Resident sleepiness after overnight shifts", authors: "Lockley SW", journal: "BMJ", year: 2019 },
+  { title: "A supplement and reaction time", authors: "Smith J, Doe A", journal: "Nutrients", year: 2021 },
+];
+const CLAIM_TRIAL = { text: "In a randomized trial, adults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more.", sourceIdx: 1 };
+const CLAIM_DREAM = { text: "Dream properties evaluated using the Dream Property Scale showed qualitative differences between SOREMP and NREMP dream reports, with more emotional content in the later REM periods of the night.", sourceIdx: 2 };
+const CLAIM_RESIDENT = { text: "Sleep loss raised next day sleepiness scores by 41% in a crossover study of 28 medical residents working overnight shifts in a teaching hospital.", sourceIdx: 3 };
+const CLAIM_SUPPLEMENT = { text: "Compared with a placebo group, volunteers taking the supplement showed reaction times that were 12% faster after eight weeks of daily use in the laboratory.", sourceIdx: 4 };
+const QUIZ_CLAIMS = [CLAIM_TRIAL, CLAIM_DREAM, CLAIM_RESIDENT, CLAIM_SUPPLEMENT];
+
+await test("restateClaim strips the report frame and swaps the scaffolding words", () => {
+  const photo = "We investigated how seven nights of insufficient sleep (6 h time in bed), compared to sufficient sleep, alter periodic and aperiodic components of the phasic and tonic REM sleep electroencephalography (EEG), in 542 sleep recordings of 36 young adults.";
+  const out = restateClaim(photo);
+  assert.notEqual(out, photo, "the photo's pretest option survived verbatim");
+  assert.ok(out.startsWith("Seven nights of"), `the report frame survived: ${out.slice(0, 40)}`);
+  assert.ok(out.includes("too little sleep"), "insufficient was not restated in plain words");
+  assert.notEqual(firstWordsOf(out, 3), firstWordsOf(photo, 3), "the opening three words still match the source sentence");
+});
+
+await test("restateClaim breaks the opening of a findings sentence with no frame to strip", () => {
+  const out = restateClaim(CLAIM_DREAM.text);
+  assert.notEqual(out, CLAIM_DREAM.text, "the dream claim survived verbatim");
+  assert.ok(out.includes("assessed"), "evaluated was not swapped");
+  assert.notEqual(firstWordsOf(out, 3), firstWordsOf(CLAIM_DREAM.text, 3), "the opening three words still match");
+  const moved = restateClaim(CLAIM_TRIAL.text);
+  assert.ok(moved.endsWith("in a randomized trial."), `the front clause was not moved: ${moved.slice(-30)}`);
+  assert.notEqual(firstWordsOf(moved, 3), firstWordsOf(CLAIM_TRIAL.text, 3), "the trial claim still opens with its source words");
+});
+
+await test("a generated quiz offers restatements only, with the verbatim finding kept for feedback", () => {
+  const card = quizCard(CLAIM_TRIAL, QUIZ_CLAIMS, QUIZ_SOURCES);
+  assert.equal(card.options.length, 4, "a quiz should offer four options");
+  assert.ok(!card.options.includes(CLAIM_TRIAL.text), "the verbatim finding is still an option");
+  assert.notEqual(card.options[card.correct], CLAIM_TRIAL.text, "the correct option is the verbatim finding");
+  for (const opt of card.options) {
+    assert.notEqual(firstWordsOf(opt, 3), firstWordsOf(CLAIM_TRIAL.text, 3),
+      `an option opens with the finding's own words: ${opt.slice(0, 40)}`);
+  }
+  assert.equal(card.why, CLAIM_TRIAL.text, "the feedback quote must stay the verbatim finding");
+});
+
+await test("quiz options sit in one length band around the answer", () => {
+  // The stated band: every option is at least half and at most
+  // double the correct option's length, so length alone cannot
+  // single the answer out.
+  for (const claim of QUIZ_CLAIMS) {
+    const card = quizCard(claim, QUIZ_CLAIMS, QUIZ_SOURCES);
+    assert.equal(card.options.length, 4, `quiz for "${claim.text.slice(0, 30)}" shipped ${card.options.length} options`);
+    const ref = card.options[card.correct].length;
+    for (const opt of card.options) {
+      assert.ok(opt.length >= ref * 0.5 && opt.length <= ref * 2,
+        `option length ${opt.length} sits outside the band around the answer's ${ref}: ${opt.slice(0, 40)}`);
+    }
+  }
+});
+
+await test("no generated option opens with any course finding's words", () => {
+  const seenOpenings = new Set(QUIZ_CLAIMS.map((c) => firstWordsOf(c.text, 3)));
+  for (const claim of QUIZ_CLAIMS) {
+    const card = quizCard(claim, QUIZ_CLAIMS, QUIZ_SOURCES);
+    for (const opt of card.options) {
+      assert.ok(!seenOpenings.has(firstWordsOf(opt, 3)),
+        `an option opens with a seen finding's words: ${opt.slice(0, 40)}`);
+      assert.ok(!QUIZ_CLAIMS.some((c) => c.text === opt), "an option is a verbatim course finding");
+    }
+  }
+});
+
+await test("the correct option's position is not fixed across questions", () => {
+  const positions = new Set(QUIZ_CLAIMS.map((c) => quizCard(c, QUIZ_CLAIMS, QUIZ_SOURCES).correct));
+  assert.ok(positions.size >= 2, `the answer sat in the same slot for every question: ${[...positions]}`);
+});
+
+await test("extracted claims flow into restated quizzes while feedback stays verbatim", () => {
+  const md = "## Summary\n\nAdults who slept under six hours showed a 23% higher rate of infection over the following winter in the trial cohort. [1]\n";
+  const claims = extractClaims(md);
+  assert.equal(claims.length, 1, "the fixture answer should yield exactly one claim");
+  const pool = [...claims, ...QUIZ_CLAIMS];
+  const card = quizCard(claims[0], pool, QUIZ_SOURCES);
+  assert.equal(card.why, claims[0].text, "feedback must quote the extracted finding word for word");
+  assert.ok(!card.options.includes(claims[0].text), "the extracted finding shipped as a verbatim option");
+  assert.notEqual(firstWordsOf(card.options[card.correct], 3), firstWordsOf(claims[0].text, 3),
+    "the correct option opens with the extracted finding's words");
+});
+
+await test("cloze keeps its shape: the value is the question, the quote stays in feedback", () => {
+  // Audited for the same gaming: cloze options are bare values,
+  // so there is no opening to match; the verbatim sentence is
+  // the prompt by design and the finding stays quoted in why.
+  const card = clozeCard(CLAIM_TRIAL, QUIZ_CLAIMS, QUIZ_SOURCES);
+  assert.ok(card, "a numbered claim should produce a cloze card");
+  assert.ok(card.prompt.includes("_____"), "the cloze prompt does not blank the value");
+  assert.equal(card.options[card.correct], "23%", "the cloze answer is not the finding's value");
+  assert.equal(card.why, CLAIM_TRIAL.text, "cloze feedback must quote the finding verbatim");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

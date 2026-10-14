@@ -615,20 +615,122 @@ function nearestClaims(claim, allClaims, n) {
   const top = scored.slice(0, 6).map((x) => x.c);
   return seededShuffle(top, hashStr(claim.text) + 3).slice(0, n).map((c) => c.text);
 }
+
+/* ── restatement: quiz options are paraphrases, never lifts ──────
+   Quiz options used to be the finding's own sentence, word for
+   word, and the distractors were that sentence with one fact
+   changed or another paper's sentence untouched. The player had
+   just read the finding (on the paper card before the check, or
+   in the search answer the course was built from), so the right
+   option could be picked by matching its opening words against
+   text already on screen: a surface game, not recall. Every
+   option is now a restatement of its claim, produced by small
+   deterministic transforms: report frames are stripped ("We
+   investigated how X alters Y" becomes the claim itself, "X
+   alters Y"), a curated set of verbs and terms is swapped for
+   plain equivalents, and a leading or middle clause is moved
+   when the opening would otherwise survive untouched. The
+   distractors get the same treatment and are held to the
+   answer's length band, so no surface cue (verbatim overlap,
+   a lone long option, a unique specificity) singles the answer
+   out. The finding itself still appears word for word after
+   answering, in the feedback sheet and the review schedule,
+   where quoting it is the point. */
+const RESTATE_WORDS = {
+  investigated: "examined", evaluated: "assessed", demonstrated: "showed",
+  observed: "noted", reported: "stated", conducted: "carried out",
+  performed: "carried out", selected: "chosen", recruited: "enrolled",
+  altered: "changed", alters: "changes", alter: "change",
+  insufficient: "too little", sufficient: "enough", adults: "people",
+  raised: "increased", reduced: "lowered",
+};
+function firstWordsOf(text, n) {
+  return String(text || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).slice(0, n).join(" ");
+}
+function swapRestateWords(text) {
+  const keys = Object.keys(RESTATE_WORDS).sort((a, b) => b.length - a.length);
+  const re = new RegExp("\\b(" + keys.join("|") + ")\\b", "gi");
+  return text.replace(re, (m) => {
+    const repl = RESTATE_WORDS[m.toLowerCase()];
+    return m[0] === m[0].toUpperCase() ? repl[0].toUpperCase() + repl.slice(1) : repl;
+  });
+}
+function stripReportFrame(text) {
+  const verbs = "investigated|examined|assessed|evaluated|explored|tested|found|showed|demonstrated|reported|observed|noted|asked";
+  const m = text.match(new RegExp("^(?:(?:the\\s+)?(?:study|trial|experiment|analysis|authors|researchers|team)|we)\\s+(?:" + verbs + ")\\s+(?:how|that|whether)\\s+", "i"))
+    || text.match(/^(?:the\s+)?(?:results|findings|data)\s+(?:showed|show|indicated|suggested|demonstrated|revealed)\s+(?:that\s+)?/i)
+    || text.match(/^it\s+(?:was|is)\s+(?:found|shown|reported|observed|noted)\s+that\s+/i);
+  if (!m) return text;
+  const rest = text.slice(m[0].length).trim();
+  if (rest.length < 24) return text;
+  return rest[0].toUpperCase() + rest.slice(1);
+}
+function moveFrontClause(text) {
+  const m = text.match(/^((?:In|Among|Across|During|After|Before|Over|Within|Using|For|Compared with|Compared to)\b[^,]{3,70}),\s+(.+)$/s);
+  if (!m) return null;
+  const main = m[2].trim();
+  if (main.length < 24) return null;
+  const front = m[1][0].toLowerCase() + m[1].slice(1);
+  return (main[0].toUpperCase() + main.slice(1)).replace(/[.!?]+$/, "") + ", " + front + ".";
+}
+function rotateMidClause(text) {
+  const parts = text.split(", ");
+  if (parts.length < 3) return null;
+  const mid = parts[1].trim();
+  if (!/^(compared|using|including|based|with|involving)\b/i.test(mid)) return null;
+  const head = parts[0].trim();
+  const tail = parts.slice(2).join(", ");
+  if (head.length < 12 || tail.length < 12) return null;
+  return mid[0].toUpperCase() + mid.slice(1) + ", " + head[0].toLowerCase() + head.slice(1) + ", " + tail;
+}
+function restateClaim(text) {
+  const orig = String(text || "").trim();
+  if (!orig) return orig;
+  let out = stripReportFrame(orig);
+  out = swapRestateWords(out);
+  if (firstWordsOf(out, 3) === firstWordsOf(orig, 3)) {
+    out = moveFrontClause(out) || rotateMidClause(out) || out;
+  }
+  return out;
+}
+/* Options live in one length band around the answer, so the
+   answer is never the lone long (or lone short) sentence on the
+   card. The band is half to double, the same rule the fixtures
+   assert. */
+function withinOptionBand(len, ref) {
+  return len >= Math.ceil(ref * 0.5) && len <= Math.floor(ref * 2);
+}
 function quizCard(claim, allClaims, sources, opts = {}) {
   const source = sources[claim.sourceIdx - 1];
-  const variants = mutatedVariants(claim, allClaims);
-  let distract;
-  if (variants.length >= 3) distract = variants.slice(0, 3);
-  else if (variants.length > 0) distract = [...variants, ...nearestClaims(claim, allClaims, 3 - variants.length)];
-  else distract = nearestClaims(claim, allClaims, 3);
-  const options = seededShuffle([claim.text, ...distract], hashStr(claim.text) + 7);
+  const salt = hashStr(claim.text);
+  const answer = restateClaim(claim.text);
+  /* Distractor candidates: fact mutations of the claim itself
+     first (same claim, one fact wrong), then the course's other
+     claims. Every candidate is restated and held to the answer's
+     length band; the band relaxes only when the pool runs dry,
+     so a card never ships short of options. */
+  const pool = [...mutatedVariants(claim, allClaims), ...nearestClaims(claim, allClaims, 6)];
+  const seenOpt = new Set([normKey(answer)]);
+  const distract = [];
+  for (const strict of [true, false]) {
+    for (const cand of pool) {
+      if (distract.length >= 3) break;
+      const r = restateClaim(cand);
+      const k = normKey(r);
+      if (!r || seenOpt.has(k)) continue;
+      if (strict && !withinOptionBand(r.length, answer.length)) continue;
+      seenOpt.add(k);
+      distract.push(r);
+    }
+    if (distract.length >= 3) break;
+  }
+  const options = seededShuffle([answer, ...distract], salt + 7);
   return {
     kind: "quiz",
-    claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
+    claimId: "cl" + salt + "-" + (claimSeq++),
     question: "Which of these matches what the evidence actually found?",
     options,
-    correct: options.indexOf(claim.text),
+    correct: options.indexOf(answer),
     why: claim.text,
     cite: shortCite(source),
     paperTitle: source ? source.title : "",
@@ -2577,7 +2679,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   /* Feedback tones are Cerebrum's own, from the design system's
      STATUS palette: the strong hue for borders and the sheet button,
      a wash of it for fills, and the theme aware ink pairing the rest
-     of the app uses for status text. No borrowed brand colours. */
+     of the app uses for status text. No borrowed brand colours.
+     The wash is a tint only, never a background on its own: the
+     feedback sheet slides up over the card, and a translucent
+     sheet double exposes whatever sits beneath it (the garbled
+     finding in Dusty's 2026-10-13 photo). The sheet's background
+     is the solid surface token with the wash layered over it as
+     an image, so the composite is opaque in every palette. */
   const toneGood = STATUS.good;
   const toneBad = STATUS.bad;
   const goodInk = P.dark ? STATUS.good : "#047857";
@@ -2589,7 +2697,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const sheet = checked ? (
     <div className="lv-sheet" style={{
       position: "sticky", bottom: 0, marginTop: 28,
-      background: sheetGood ? goodWash : badWash,
+      backgroundColor: P.surface,
+      backgroundImage: "linear-gradient(" + (sheetGood ? goodWash : badWash) + ", " + (sheetGood ? goodWash : badWash) + ")",
       borderTop: "2px solid " + (sheetGood ? toneGood : toneBad),
       borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: P.ink,
     }}>
@@ -3041,9 +3150,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         </div>
       </div>
 
-      {/* bottom action bar / feedback sheet */}
+      {/* bottom action bar / feedback sheet. The bar is solid P.bg,
+          not a fade from transparent: it carries the Check button
+          over scrolling card content, and a translucent bar lets
+          that content show through under the button. Same rule as
+          the feedback sheet above. */}
       {checked ? sheet : (
-        <div style={{ position: "sticky", bottom: 0, padding: "14px 24px 22px", background: "linear-gradient(rgba(0,0,0,0), " + P.bg + " 34%)" }}>
+        <div style={{ position: "sticky", bottom: 0, padding: "14px 24px 22px", background: P.bg }}>
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
             {card.kind === "match" ? (
               <button className="lv-btn" disabled
