@@ -1,7 +1,7 @@
 # Cerebrum MCP directory listing package
 
 Prepared 13 October 2026 and regenerated 14 October 2026 against
-fresh live probes of the endpoint (recorded in
+build d339606 with fresh live probes of the endpoint (recorded in
 `endpoint-record.json`). This folder holds everything needed to
 submit Cerebrum's MCP endpoint to the two assistant directories: the
 ChatGPT directory (OpenAI plugins) and the Claude Connectors
@@ -20,7 +20,7 @@ directory, and until now the repo held no submission preparation at all.
 ## What is in this folder
 
 - `endpoint-record.json`: the ground truth. What the live endpoint
-  returned on 14 October 2026, recorded verbatim: the tools/list
+  (build d339606) returned on 14 October 2026, recorded verbatim: the tools/list
   reply, the initialize reply, every protocol error probe, and what
   real tool calls returned. All listing copy in this package is
   written from this record and from `functions/api/mcp.js`.
@@ -32,8 +32,13 @@ directory, and until now the repo held no submission preparation at all.
   at the production server.
 - `openai-plugin/assets/`: the site icon at 180 by 180, copied from
   `public/`, plus `icon-512.png` at 512 by 512, rendered on
-  14 October 2026 from the mark's vector source (`icon.svg`), ready
-  to bundle into the package ZIP.
+  14 October 2026 from the mark's vector source (`icon.svg`). The
+  manifest's logo slot names the 512 asset and its composer icon
+  slot names the 180 file.
+- `openai-plugin.zip`: the built ChatGPT package, zipped from the
+  contents of `openai-plugin/` on 14 October 2026 and verified entry
+  by entry against the folder, `icon-512.png` included. Rebuild it
+  only if the folder changes.
 - `claude-listing.json`: the Anthropic portal field values, ready to
   paste. The Claude flow has no manifest file for a remote connector;
   the portal collects these fields directly.
@@ -71,12 +76,13 @@ probes: `initialize` returns the icon and the documentation address,
 `tools/list` declares an `outputSchema` for both tools, and real
 `tools/call` results carry `structuredContent` for both tools. That
 wait is over; nothing about the endpoint stands in front of
-submission. One smaller identity change is queued behind it: the
-live server at probe time still names the 180 by 180 touch icon,
-and the code now points the server identity at the 512 by 512 mark
-the site serves at `https://askcerebrum.org/icon-512.png`. It takes
-effect with the next deploy; if a portal asks about icon size
-before then, the 512 asset in this package is the same mark.
+submission. The server identity names the 512 by 512 mark now too:
+on build d339606, probed for the current edition of
+`endpoint-record.json`, `initialize` and the GET description both
+return `https://askcerebrum.org/icon-512.png`, and the file at that
+address measures 512 by 512 and is byte identical to the asset in
+this package. The 180 by 180 touch icon keeps its own job on the
+site and is no longer the server identity.
 
 Protocol behavior a reviewer would test, all verified live: a request
 missing the `jsonrpc` member, or carrying a value other than `2.0`,
@@ -103,7 +109,12 @@ which is the mode the endpoint serves when the provider fleet is
 capped. The result text discloses that assembly honestly rather than
 dressing it as synthesis, which is the behavior a reviewer should see
 and the behavior the listing copy describes.
-`get_trending` succeeded on every call. Two honest caveats for
+`get_trending` succeeded on every call. The wave seven regeneration
+round on build d339606 added one more call of each kind: the
+trending call returned the 2026-10-14 edition (20 items, four
+sections), and the search call (about 13 seconds, an extractive
+draw under capped fleet conditions) returned a real record address
+whose record page answered HTTP 200. Two honest caveats for
 submission day, neither of them a defect found in the endpoint: the
 search path is slow (a direct call took about 18 seconds, and MCP
 calls run in the same range; the 14 October call took 13.6 seconds),
@@ -155,16 +166,19 @@ stand as written.
    at 180 by 180, and neither directory document fetched for this
    package states an exact pixel size for a remote connector icon,
    so a larger asset could have been a portal finding with nothing
-   ready to answer it. That is covered now: `openai-plugin/assets/`
-   also carries `icon-512.png`, 512 by 512, rendered from the mark's
+   ready to answer it. That is covered now, on the server and in
+   the package. `openai-plugin/assets/`
+   carries `icon-512.png`, 512 by 512, rendered from the mark's
    vector source, and the same file is served from the site root as
    `https://askcerebrum.org/icon-512.png`, which is the address the
-   MCP server identity in `functions/api/mcp.js` now names (live
-   with the next deploy; the 180 by 180 touch icon keeps its own
-   job). `plugin.json` still points its composer icon and
-   logo slots at the 180 by 180 files; if a portal asks for the
-   larger asset in a slot, point that slot at `icon-512.png` and
-   rezip. Treat any portal finding on size as the requirement.
+   MCP server identity names live (verified on build d339606:
+   `initialize` and the GET description both return it; the 180 by
+   180 touch icon keeps its own job). In the package, `plugin.json`
+   points its logo slot at `icon-512.png` and its composer icon
+   slot at the 180 by 180 `icon.png`, and `openai-plugin.zip` is
+   built from the folder with all four assets inside, so the
+   uploadable bundle matches the folder and the live server.
+   Treat any portal finding on size as the requirement.
 
 ## ChatGPT directory (OpenAI)
 
@@ -187,8 +201,10 @@ under Sources:
       submit plugins containing apps for review. **Dusty** to confirm
       which project he uses.
 - [ ] The package ZIP: `plugin.json` plus `mcp.json` plus the assets
-      they name. Ready in `openai-plugin/`; zip that folder's contents
-      at submission time.
+      they name. Built and in this folder as `openai-plugin.zip`,
+      contents verified against `openai-plugin/` on 14 October 2026;
+      rebuild from the folder only if the folder changes before
+      submission.
 - [ ] Domain verification: host the portal's token at the challenge URL
       (gap 3 above). **Dusty** triggers it in the portal; the site
       change is a five minute job once the token exists.
@@ -315,8 +331,8 @@ so the wording in the file is the wording to paste, unchanged.
 1. No endpoint work stands in front of submission. Tool titles,
    annotations, the server identity fields, and structured output
    are deployed and verified live in the 14 October 2026 probes
-   recorded in `endpoint-record.json` (run after the deploy landed,
-   so no further deploy needs to happen first). What remains here
+   against build d339606 recorded in `endpoint-record.json`, so no
+   further deploy needs to happen first. What remains here
    is yours, **Dusty**: call both tools a few times from a custom
    connector as the final live check, because both directories read
    the live server, not this package.

@@ -164,7 +164,7 @@ t("pricing offers cover every verified paid plan", () => {
 t("pricing copy presents every verified tier and its headline allowances", () => {
   const pricingCopy = JSON.stringify(MARKETING_PAGES.pricing);
   const required = [
-    "Free, forever",
+    "Free",
     "Cost: $0, with no payment required.",
     "50 AI answers, 3 document reads, and 1 flowchart every 5 days",
     "Pro Lite",
@@ -242,8 +242,8 @@ t("features page names the unaffiliated researcher audience", () => {
 });
 
 t("pricing lists the record and MCP with the free offer, not as Pro gates", () => {
-  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
-  assert.ok(freeBlock, "pricing page lost its Free, forever block");
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free");
+  assert.ok(freeBlock, "pricing page lost its Free block");
   const freeJson = JSON.stringify(freeBlock);
   assert.ok(freeJson.includes("Search record"), "Search record not listed with the free offer");
   assert.ok(freeJson.includes("MCP"), "MCP not listed with the free offer");
@@ -256,6 +256,22 @@ t("pricing lists the record and MCP with the free offer, not as Pro gates", () =
     "pricing FAQ lost the not Pro only answer");
 });
 
+t("no page copy promises the free tier is permanent", () => {
+  // The Terms reserve changing free limits (section 5) and
+  // discontinuing parts of the service (section 14), so copy must
+  // state what the free tier is today, never that it lasts forever.
+  // The pricing block was headed "Free, forever" and the features
+  // page said the core work "stays free" until wave seven (sixth
+  // panel, Product). Both are corrected contract, pinned here.
+  const copy = JSON.stringify(MARKETING_PAGES) + JSON.stringify(LEGAL_PAGES);
+  assert.ok(!/free, forever/i.test(copy), "a page still promises 'Free, forever'");
+  assert.ok(!/stays free/i.test(copy), "a page still says the core work 'stays free'");
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free");
+  assert.ok(freeBlock, "pricing page lost its Free block");
+  assert.ok(JSON.stringify(freeBlock).includes("50 AI answers"),
+    "the Free block no longer states what the free tier includes today");
+});
+
 t("new product copy strings contain no dash characters of any kind", () => {
   const DASHES = ["-", "–", "—"];
   const pieces = [];
@@ -264,8 +280,8 @@ t("new product copy strings contain no dash characters of any kind", () => {
     assert.ok(b, `missing block for dash check: ${h}`);
     pieces.push(JSON.stringify(b));
   }
-  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
-  assert.ok(freeBlock && Array.isArray(freeBlock.list), "Free, forever list missing for dash check");
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free");
+  assert.ok(freeBlock && Array.isArray(freeBlock.list), "Free list missing for dash check");
   pieces.push(JSON.stringify(freeBlock.list));
   for (const h of NEW_PRICING_HEADINGS) {
     const b = blockByHeading(MARKETING_PAGES.pricing, h);
@@ -329,8 +345,8 @@ t("features page presents watched topics with the real mechanics", () => {
 });
 
 t("pricing names watched topics with the free offer, not as a Pro gate", () => {
-  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
-  assert.ok(freeBlock, "pricing page lost its Free, forever block");
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free");
+  assert.ok(freeBlock, "pricing page lost its Free block");
   const freeJson = JSON.stringify(freeBlock);
   assert.ok(/watch/i.test(freeJson), "watched topics not listed with the free offer");
   const proBlock = blockByHeading(MARKETING_PAGES.pricing, "Cerebrum Pro");
@@ -353,8 +369,8 @@ t("watched topics copy strings contain no dash characters of any kind", () => {
   const bullet = (whatYouGet.list || []).find((li) => li.includes("Watched topics"));
   assert.ok(bullet, "missing Watched topics bullet for dash check");
   pieces.push(JSON.stringify(bullet));
-  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free, forever");
-  assert.ok(freeBlock && Array.isArray(freeBlock.list), "Free, forever list missing for dash check");
+  const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free");
+  assert.ok(freeBlock && Array.isArray(freeBlock.list), "Free list missing for dash check");
   const freeBullet = freeBlock.list.find((li) => /watch/i.test(li));
   assert.ok(freeBullet, "missing pricing free watch bullet for dash check");
   pieces.push(JSON.stringify(freeBullet));

@@ -102,7 +102,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Built for researchers without a library",
-        p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree all read the same literature and get shut out of the same paywalls. Cerebrum is built for you as well: searching and AI answers need no account, a free account carries the same allowances under your name on any device and adds document reads, and free answers carry the same coverage line and Search record, permanent link included, as any other answer. If a tool you relied on moved features you used behind a paywall, the core work here stays free.",
+        p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree all read the same literature and get shut out of the same paywalls. Cerebrum is built for you as well: searching and AI answers need no account, a free account carries the same allowances under your name on any device and adds document reads, and free answers carry the same coverage line and Search record, permanent link included, as any other answer. If a tool you relied on moved features you used behind a paywall, the core work here is free.",
       },
       {
         h: "What it refuses to do",
@@ -152,7 +152,7 @@ export const MARKETING_PAGES = {
     ],
     blocks: [
       {
-        h: "Free, forever",
+        h: "Free",
         p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. No ads, no tracking pixels, no sale of personal information.",
         list: [
           "Cost: $0, with no payment required.",

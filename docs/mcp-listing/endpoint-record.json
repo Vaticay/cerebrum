@@ -1,15 +1,20 @@
 {
   "recordedOn": "2026-10-14",
+  "liveBuild": {
+    "sha": "d339606",
+    "builtAt": "2026-10-14T08:35:07.496Z",
+    "source": "https://askcerebrum.org/version.json, fetched immediately before this probe round"
+  },
   "endpoint": "https://askcerebrum.org/mcp",
   "alternateEndpoint": "https://askcerebrum.org/api/mcp",
   "bothPathsAnswerIdentically": true,
-  "note": "Regenerated 2026-10-14 (wave six) by probing the live endpoint after the structured output deploy (MCP structured output wave) reached production. The previous edition of this record described the build probed earlier that day, which predated that code: it reported no structuredContent in tools/call results, no icon or documentation address in initialize, and no outputSchema in tools/list. All three are live now and are recorded verbatim below. The one identity value still in transition is the icon: the live server at probe time returns the 180 by 180 touch icon address, and the code change pointing the server identity at the 512 by 512 mark served from the site root (https://askcerebrum.org/icon-512.png) is written but was not yet deployed when these probes ran. After that deploy lands, rerun the initialize and GET probes and update the two icon values in this file.",
-  "probeMethod": "Plain HTTPS requests with curl against the production endpoint on 2026-10-14: a GET for the human readable description, then JSON RPC POSTs for initialize, tools/list, one tools/call per tool, and the protocol error probes. Responses below are the parsed response bodies, verbatim where the field name says so.",
+  "note": "Regenerated 2026-10-14 (wave seven) by probing the live endpoint on build d339606, the build that carries both the structured output work and the server identity change. The previous edition of this record was probed on the build before the identity change deployed: it recorded the 180 by 180 touch icon address in the verbatim initialize and GET fields, and a search observation whose recordUrl was null because that run stored no record. Both are superseded by this round: initialize and the GET description now return https://askcerebrum.org/icon-512.png (the file at that address was fetched and is a 512 by 512 PNG, byte identical to public/icon-512.png and to openai-plugin/assets/icon-512.png in this folder), and this round's search call returned a real recordUrl whose page was fetched and returned HTTP 200. Every probe in this edition, including the protocol error probes, ran against build d339606.",
+  "probeMethod": "Plain HTTPS requests with curl against the production endpoint on 2026-10-14, spaced several seconds apart: a GET for the human readable description on both paths (byte identical), JSON RPC POSTs for initialize, tools/list, and one tools/call per tool, the five protocol error probes, a fetch of the icon address, and a fetch of the record page the search result named. Responses below are the parsed response bodies, verbatim where the field name says so.",
   "getDescriptionVerbatim": {
     "name": "cerebrum",
     "version": "1.0.0",
     "protocolVersion": "2025-03-26",
-    "icon": "https://askcerebrum.org/apple-touch-icon.png",
+    "icon": "https://askcerebrum.org/icon-512.png",
     "documentationUrl": "https://askcerebrum.org/features",
     "description": "Cerebrum is a free scientific literature search engine. This endpoint lets assistants call Cerebrum search as a tool.",
     "transport": "Stateless HTTP transport using JSON RPC 2.0",
@@ -33,7 +38,7 @@
     "serverInfo": {
       "name": "cerebrum",
       "version": "1.0.0",
-      "icon": "https://askcerebrum.org/apple-touch-icon.png",
+      "icon": "https://askcerebrum.org/icon-512.png",
       "documentationUrl": "https://askcerebrum.org/features"
     }
   },
@@ -41,9 +46,9 @@
     "name": "cerebrum",
     "version": "1.0.0",
     "protocolVersion": "2025-03-26",
-    "icon": "https://askcerebrum.org/apple-touch-icon.png",
+    "icon": "https://askcerebrum.org/icon-512.png",
     "documentationUrl": "https://askcerebrum.org/features",
-    "iconNote": "Live at probe time: the 180 by 180 touch icon. The 512 by 512 mark is served from the site root as /icon-512.png and the endpoint code now names that address; it becomes the live value with the next deploy."
+    "iconNote": "Live on build d339606: the 512 by 512 mark served from the site root. The address in initialize and in the GET description is https://askcerebrum.org/icon-512.png; the file fetched from it measures 512 by 512 and is byte identical to the copy in public/ and to openai-plugin/assets/icon-512.png in this folder. The 180 by 180 touch icon keeps its own job as the site touch icon and is no longer the MCP server identity."
   },
   "toolsListResultVerbatim": {
     "tools": [
@@ -329,7 +334,7 @@
       }
     ]
   },
-  "structuredContentStatus": "Live and verified in this probe round. Both tools/call results carried content, structuredContent, and isError, and both tools declare an outputSchema in tools/list (see the verbatim tools/list result above). The search result's structuredContent keys, in order: answer, synthesisMode, degraded, sources, sourceCount, citedCount, coverage, coverageNote, recordUrl, record. The trending result's structuredContent keys: edition, sections, itemCount. Structured output is therefore no longer a pre submission blocker; the submission steps in README.md treat it as shipped.",
+  "structuredContentStatus": "Live and verified in this probe round on build d339606. Both tools/call results carried content, structuredContent, and isError, and both tools declare an outputSchema in tools/list (see the verbatim tools/list result above). The search result's structuredContent keys, in order: answer, synthesisMode, degraded, sources, sourceCount, citedCount, coverage, coverageNote, recordUrl, record. The trending result's structuredContent keys: edition, sections, itemCount. Structured output is therefore no longer a pre submission blocker; the submission steps in README.md treat it as shipped.",
   "toolCallObservations": {
     "get_trending": {
       "resultKeys": [
@@ -467,7 +472,7 @@
       "note": "The text block opens \"Trending in Science, edition 2026-10-14.\" and lists 20 items across 4 sections, matching the structured twin."
     },
     "search_literature": {
-      "query": "how do wood frogs survive freezing solid in winter",
+      "query": "does creatine make your hair fall out",
       "resultKeys": [
         "content",
         "structuredContent",
@@ -475,42 +480,98 @@
       ],
       "isError": false,
       "structuredContent": {
-        "answer": "[answer text of 3427 chars shipped in the live result; opening: \"## The short answer\\n\\nWood frogs (_Lithobates sylvaticus_) survive freezing solid in winter by accumulating high concentrations of **glucose** and other **cryopr\"]",
-        "synthesisMode": "ai",
-        "degraded": false,
+        "answer": "[answer text of 1795 chars shipped in the live result; opening: \"## Summary\\n\\nThe room’s lighting was not good, quite bad in fact, but I managed to read that the biopsy was atypical, requiring repetition if clinicall\"]",
+        "synthesisMode": "extractive",
+        "degraded": true,
         "sources": [
           {
-            "title": "BIOPRESERVATION: HEAT/MASS TRANSFER CHALLENGES AND BIOCHEMICAL/GENETIC ADAPTATIONS IN BIOLOGICAL SYSTEMS",
-            "authors": "Ram V. Devireddy",
-            "year": 2012,
-            "doi": "10.1615/heattransres.2012006187",
-            "url": "https://doi.org/10.1615/heattransres.2012006187",
+            "title": "Panacea",
+            "authors": "Kacper Niburski",
+            "year": 2022,
+            "doi": "10.1097/acm.0000000000004604",
+            "url": "https://doi.org/10.1097/acm.0000000000004604",
             "cited": true
           },
           {
-            "title": "Molecular changes in natural antifreeze phenomena and cryopreservation",
-            "authors": "Lingyu Shi et al.",
-            "year": 2024,
-            "doi": "10.22541/au.172115402.29256223/v1",
-            "url": "https://doi.org/10.22541/au.172115402.29256223/v1",
+            "title": "‘If Your Hair Is Relaxed, White People Are Relaxed. If Your Hair Is Nappy, They’re Not Happy’: Black Hair as a Site of ‘Post-Racial’ Social Control in English Schools",
+            "authors": "Remi Joseph-Salisbury et al.",
+            "year": 2018,
+            "doi": "10.3390/socsci7110219",
+            "url": "https://doi.org/10.3390/socsci7110219",
+            "cited": true
+          },
+          {
+            "title": "Your history is printed in your hair",
+            "authors": "Rachel Courtland",
+            "year": 2008,
+            "doi": "10.1038/news.2008.617",
+            "url": "https://doi.org/10.1038/news.2008.617",
+            "cited": true
+          },
+          {
+            "title": "Can your hair tell your secret?",
+            "authors": "Shaza Ahmed et al.",
+            "year": 2017,
+            "doi": "10.1530/endoabs.50.p033",
+            "url": "https://doi.org/10.1530/endoabs.50.p033",
+            "cited": true
+          },
+          {
+            "title": "Hair loss vs. emotion: How negative emotions could be increasing your hair loss",
+            "authors": "Rebecca Lewinson",
+            "year": 2016,
+            "doi": "10.29173/hsi214",
+            "url": "https://doi.org/10.29173/hsi214",
+            "cited": true
+          },
+          {
+            "title": "Your Hair and Your Health.",
+            "authors": null,
+            "year": 1926,
+            "doi": "10.1001/jama.1926.02670500046032",
+            "url": "https://doi.org/10.1001/jama.1926.02670500046032",
+            "cited": true
+          },
+          {
+            "title": "The Evolution of the Promise of Hair Cloning: How Hair Cell Cloning Will Fit Into Your Practice",
+            "authors": "Paul Kemp",
+            "year": 2022,
+            "doi": "10.33589/32.2.37",
+            "url": "https://doi.org/10.33589/32.2.37",
+            "cited": true
+          },
+          {
+            "title": "Influence of Creatine Monohydrate Supplementation on Androgens and Global Hair Assessments",
+            "authors": null,
+            "year": 2020,
+            "doi": "10.31525/ct1-nct04298840",
+            "url": "https://doi.org/10.31525/ct1-nct04298840",
             "cited": true
           }
         ],
-        "sourceCount": 2,
-        "citedCount": 2,
+        "sourceCount": 8,
+        "citedCount": 8,
         "coverage": {
-          "gathered": 17,
-          "cited": 2
+          "gathered": 37,
+          "cited": 8
         },
         "coverageNote": null,
-        "recordUrl": null,
-        "record": null
+        "recordUrl": "https://askcerebrum.org/record/r_31019b82a6303aa5c4026e0fa60c533e",
+        "record": {
+          "id": "r_31019b82a6303aa5c4026e0fa60c533e",
+          "url": "https://askcerebrum.org/record/r_31019b82a6303aa5c4026e0fa60c533e",
+          "question": "does creatine make your hair fall out",
+          "askedAt": "2026-10-14T08:49:27.267Z",
+          "sourceCount": 8,
+          "citedCount": 8,
+          "databaseCount": 14
+        }
       },
-      "note": "A full AI answer (synthesisMode ai, degraded false) citing both gathered sources on this call. recordUrl and record were null on this call: no record was stored for this run, so the fields carried their null form, as the schema allows. Elapsed about 17.5 seconds end to end."
+      "note": "This draw served the extractive tier (synthesisMode extractive, degraded true) while the provider fleet was capped, and the text block carried the plain quality note disclosing that assembly, as the listing copy describes. The record stored on this run: recordUrl names a real Search record and fetching https://askcerebrum.org/record/r_31019b82a6303aa5c4026e0fa60c533e returned HTTP 200. That supersedes the previous edition of this record, whose search observation carried recordUrl null because that run stored no record. Elapsed about 13 seconds end to end."
     }
   },
   "protocolProbes": {
-    "observedOn": "2026-10-14",
+    "observedOn": "2026-10-14 (build d339606; every probe below was rerun this round)",
     "missingJsonrpcMember": "POST {\"id\":5,\"method\":\"initialize\",\"params\":{}} returned {\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32600,\"message\":\"Invalid Request\"}}",
     "unknownMethod": "POST {\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"resources/list\",\"params\":{}} returned {\"jsonrpc\":\"2.0\",\"id\":6,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}",
     "malformedJson": "POST body \"{not json\" returned HTTP 400 with {\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"Parse error\"}}",
@@ -518,6 +579,6 @@
     "unknownTool": "tools/call with name \"nope\" returned {\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown tool\"}}",
     "deleteMethod": "DELETE returned HTTP 405."
   },
-  "rateLimitFromCode": "functions/api/mcp.js enforces MCP_RATE_LIMIT = 20 requests per MCP_RATE_WINDOW_MS = 60000 ms per client IP (KV backed checkRateLimit, key prefix mcp). Over the limit the HTTP status is 429, the JSON RPC error code is -32000 with message \"Rate limit exceeded\", and the response carries Retry-After: 30. If the rate limit store itself throws, the endpoint falls back to a bounded in memory limiter (checkRateLimitMemoryOnly) at the same numbers rather than failing open or closed. Not retested live in this round: the earlier same day probes already confirmed the 429 shape, and the probe budget is itself rate limited.",
+  "rateLimitFromCode": "functions/api/mcp.js enforces MCP_RATE_LIMIT = 20 requests per MCP_RATE_WINDOW_MS = 60000 ms per client IP (KV backed checkRateLimit, key prefix mcp). Over the limit the HTTP status is 429, the JSON RPC error code is -32000 with message \"Rate limit exceeded\", and the response carries Retry-After: 30. If the rate limit store itself throws, the endpoint falls back to a bounded in memory limiter (checkRateLimitMemoryOnly) at the same numbers rather than failing open or closed. Unchanged at build d339606. Not retested live in this round: the earlier same day probes already confirmed the 429 shape, and the probe budget is itself rate limited.",
   "resultAnatomyFromCode": "A successful tools/call result carries content (one text block), structuredContent shaped by the tool's declared outputSchema, and isError false, as observed live above. The search text block is the answer followed by a numbered source list and, when a Search record was stored, its address; when the upstream search failed or timed out, the same envelope ships with isError true and a plain language failure text (and no structuredContent on the error path)."
 }
