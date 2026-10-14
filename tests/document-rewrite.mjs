@@ -395,10 +395,14 @@ await test("provider failure on a long document: the extractive fallback still r
   assert.equal(result.promptTruncation, undefined, "a purely extractive answer covers the whole document and must not claim a shortened prompt");
 });
 
-await test("every Q&A response surface carries promptTruncation (source pin)", async () => {
+await test("every response surface carries promptTruncation, Q&A and summary (source pin)", async () => {
   const src = await readFile(join(root, "functions/api/document.js"), "utf8");
   const hits = src.split("promptTruncation: result.promptTruncation || null").length - 1;
-  assert.equal(hits, 3, "sync, streamed, and async Q&A payloads must all surface promptTruncation; found " + hits);
+  // Was 3 (Q&A surfaces only) until the 2026-10-13 rescore fix: the pin
+  // counted only the Q&A payloads because summaries never disclosed a
+  // prompt clamp at all. The corrected contract is both modes on all
+  // three surfaces — sync, streamed, and async — so the count is 6.
+  assert.equal(hits, 6, "sync, streamed, and async payloads of BOTH modes must surface promptTruncation; found " + hits);
 });
 
 // ── shortenDocumentForPrompt units ──────────────────────────────────────
@@ -595,6 +599,291 @@ await test("attachDocumentMedia never omits the key: null candidate -> honest nu
   assert.equal(m.media.image, null);
   assert.equal(m.media.video, null);
   assert.ok(typeof m.media.resolvedAt === "number");
+});
+
+// ── evidence trail: quoted passages are located, or flagged ─────────────
+// The third rescore defect: the Q&A prompt asked the model to quote, and
+// nothing anywhere checked the quotes. These pins prove the trail is
+// computed by actually locating each passage in the document text.
+group("evidence trail — quotes verified against the document");
+
+await test("locatePassage finds exact, normalized, and missing passages", () => {
+  const doc = "The trial  enrolled\n\n200 quokkas in total. Nap duration rose by 12 percent overall.";
+  const exact = document.locatePassage(doc, "Nap duration rose by 12 percent overall.");
+  assert.equal(exact.match, "exact");
+  assert.equal(doc.slice(exact.start, exact.end), "Nap duration rose by 12 percent overall.");
+  const norm = document.locatePassage(doc, "The trial enrolled 200 quokkas in total.");
+  assert.equal(norm.match, "normalized");
+  // Offsets index the ORIGINAL text, original whitespace included.
+  assert.equal(doc.slice(norm.start, norm.end), "The trial  enrolled\n\n200 quokkas in total.");
+  const missing = document.locatePassage(doc, "The trial enrolled 900 quokkas in total.");
+  assert.equal(missing.match, null);
+  assert.equal(missing.start, -1);
+  assert.equal(missing.end, -1);
+});
+
+await test("extractAnswerQuotes pulls straight and curly quoted passages", () => {
+  const quotes = document.extractAnswerQuotes('The paper says "mortality fell by 37 percent" and also “nap duration rose sharply”. Tiny "no" is ignored.');
+  assert.deepEqual(quotes, ["mortality fell by 37 percent", "nap duration rose sharply"]);
+});
+
+await test("an AI answer's real quote verifies with offsets into the document", async () => {
+  const doc = "ATP production occurs in the mitochondria through oxidative phosphorylation. The quokka study measured ATP production across 50 specimens.";
+  const gen = async () => ({
+    answer: 'ATP is made in the mitochondria: "ATP production occurs in the mitochondria through oxidative phosphorylation." That is the site.',
+    model: "fake-model",
+  });
+  const result = await document.runQA({}, doc, "Where does ATP production occur?", "", { generateFn: gen });
+  assert.equal(result.evidence.length, 1);
+  const ev = result.evidence[0];
+  assert.equal(ev.verified, true);
+  assert.equal(ev.match, "exact");
+  assert.equal(doc.slice(ev.start, ev.end), ev.quote);
+});
+
+await test("a quote the model reflowed across whitespace still verifies as normalized", async () => {
+  const doc = "The trial enrolled 200 quokkas\nand measured nap duration weekly.";
+  const gen = async () => ({
+    answer: 'It states "The trial enrolled 200 quokkas and measured nap duration weekly." in the methods.',
+    model: "fake-model",
+  });
+  const result = await document.runQA({}, doc, "How many quokkas?", "", { generateFn: gen });
+  assert.equal(result.evidence.length, 1);
+  assert.equal(result.evidence[0].verified, true);
+  assert.equal(result.evidence[0].match, "normalized");
+});
+
+await test("a fabricated quote is flagged unverified, never presented as grounded", async () => {
+  const doc = "ATP production occurs in the mitochondria. The trial enrolled 40 quokkas.";
+  const gen = async () => ({
+    answer: 'The document reports that "mortality fell by 91 percent in the treatment arm" during the trial.',
+    model: "fake-model",
+  });
+  const result = await document.runQA({}, doc, "What happened to mortality?", "", { generateFn: gen });
+  assert.equal(result.evidence.length, 1);
+  assert.equal(result.evidence[0].verified, false);
+  assert.equal(result.evidence[0].match, null);
+  assert.equal(result.evidence[0].start, -1);
+});
+
+await test("the extractive fallback's passages verify against the document", async () => {
+  const doc = "ATP production occurs in the mitochondria through oxidative phosphorylation. The quokka study measured ATP production across 50 specimens. Unrelated filler about weather patterns and cloud formations.";
+  const result = await document.runQA({}, doc, "Where does ATP production occur?", "", { generateFn: alwaysFail });
+  assert.equal(result.model, "extractive");
+  assert.ok(result.evidence.length >= 1, "no evidence entries for the extractive answer");
+  assert.ok(result.evidence.every((e) => e.verified), "extractive passages must all verify: " + JSON.stringify(result.evidence));
+});
+
+// ── finish_reason: a cut off answer says so ─────────────────────────────
+group("finish_reason — answerTruncated on every path");
+
+await test("a Q&A call ending at its token cap sets answerTruncated", async () => {
+  const doc = "ATP production occurs in the mitochondria. The trial enrolled 40 quokkas.";
+  const gen = async () => ({ answer: "A long answer that was cut off mid sentence and", model: "fake-model", finishReason: "length" });
+  const result = await document.runQA({}, doc, "Where?", "", { generateFn: gen });
+  assert.equal(result.answerTruncated, true);
+  const genStop = async () => ({ answer: "A complete answer of ample length drawn from the document.", model: "fake-model", finishReason: "stop" });
+  const result2 = await document.runQA({}, doc, "Where?", "", { generateFn: genStop });
+  assert.equal(result2.answerTruncated, false);
+});
+
+await test("summary paths report answerTruncated from the winning call", async () => {
+  const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
+  const genLen = async () => ({ answer: "## Executive Summary\nCut off mid way through a very long summary that hit the cap", model: "fake-model", finishReason: "length" });
+  const single = await document.runSummary({}, short, { generateFn: genLen });
+  assert.equal(single.answerTruncated, true);
+  const paper = makePaper(60);
+  const digest = async (env, chunkText, i) => ({ answer: "Digest " + (i + 1) + ". " + "u".repeat(80) });
+  const reduced = await document.runSummary({}, paper, { digest, generateFn: genLen });
+  assert.equal(reduced.path, "mapreduce");
+  assert.equal(reduced.answerTruncated, true);
+  const extracted = await document.runSummary({}, short, { generateFn: alwaysFail });
+  assert.equal(extracted.answerTruncated, false);
+});
+
+// ── summary promptTruncation: the clamp is disclosed ────────────────────
+group("runSummary prompt fitting — a clamped summary is disclosed");
+
+await test("a clamped single call reports promptTruncation in the Q&A shape", async () => {
+  const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
+  const gen = async () => ({
+    answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.",
+    model: "fake-model",
+    promptClamp: { truncated: true, originalChars: 120000, promptChars: 100000 },
+  });
+  const result = await document.runSummary({}, short, { generateFn: gen });
+  assert.ok(result.promptTruncation, "no promptTruncation on a clamped summary");
+  assert.equal(result.promptTruncation.documentShortened, true);
+  assert.equal(result.promptTruncation.omittedChars, 20000);
+  assert.equal(result.promptTruncation.documentChars, short.length);
+});
+
+await test("an unclamped summary reports no promptTruncation", async () => {
+  const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
+  const gen = async () => ({ answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" });
+  const result = await document.runSummary({}, short, { generateFn: gen });
+  assert.equal(result.promptTruncation, undefined, "nothing was cut, so nothing may be reported");
+});
+
+// ── stage health: every analysis names how its stages went ─────────────
+group("stageHealth — ok, failed, and skipped with reasons");
+
+await test("Q&A stage health: success, failure, and budget skip", async () => {
+  const doc = "ATP production occurs in the mitochondria. The trial enrolled 40 quokkas.";
+  const okGen = async () => ({ answer: "A complete answer of ample length drawn from the document.", model: "fake-model", skippedLegs: [{ model: "some:free", reason: "rate limit cooldown" }] });
+  const ok = await document.runQA({}, doc, "Where?", "", { generateFn: okGen });
+  assert.equal(ok.stageHealth.length, 1);
+  assert.equal(ok.stageHealth[0].name, "answer");
+  assert.equal(ok.stageHealth[0].ok, true);
+  assert.deepEqual(ok.stageHealth[0].skippedLegs, [{ model: "some:free", reason: "rate limit cooldown" }]);
+  const failed = await document.runQA({}, doc, "Where?", "", { generateFn: alwaysFail });
+  assert.equal(failed.stageHealth[0].ok, false);
+  const budgetGen = async () => {
+    const e = new Error("token budget exhausted");
+    e.code = "token_budget_exhausted";
+    throw e;
+  };
+  const denied = await document.runQA({}, doc, "Where?", "", { generateFn: budgetGen });
+  assert.equal(denied.stageHealth[0].ok, null);
+  assert.equal(denied.stageHealth[0].skipReason, "token budget exhausted");
+});
+
+await test("summary stage health: digest and synthesis stages named separately", async () => {
+  const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
+  const gen = async () => ({ answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" });
+  const single = await document.runSummary({}, short, { generateFn: gen });
+  assert.deepEqual(single.stageHealth.map((s) => [s.name, s.ok]), [["summary", true]]);
+  const paper = makePaper(60);
+  const failAt = 1;
+  const digest = async (env, chunkText, i) => {
+    if (i === failAt) throw new Error("chunk blew up");
+    return { answer: "Digest " + (i + 1) + " reports quokka outcomes. " + "w".repeat(80) };
+  };
+  const mr = await document.runSummary({}, paper, { digest, generateFn: gen });
+  assert.deepEqual(mr.stageHealth.map((s) => [s.name, s.ok]), [["digest", false], ["synthesis", true]]);
+  assert.ok(mr.stageHealth[0].detail.includes("could not be read"), "digest detail does not name the unread sections");
+  const deniedDigest = async () => {
+    const e = new Error("token budget exhausted");
+    e.code = "token_budget_exhausted";
+    throw e;
+  };
+  const denied = await document.runSummary({}, paper, { digest: deniedDigest, generateFn: gen });
+  assert.equal(denied.stageHealth[0].name, "digest");
+  assert.equal(denied.stageHealth[0].ok, null);
+  assert.equal(denied.stageHealth[0].skipReason, "token budget exhausted");
+});
+
+// ── leg parking: the reader's roster learns from failures ──────────────
+group("document leg health — classification, parking, and the race");
+
+await test("classifyDocLegFailure reads the providers' own wording", () => {
+  assert.equal(document.classifyDocLegFailure(new Error("m: HTTP 429 — {\"error\":{\"message\":\"You have hit the per-day free limit\"}}")), "daily-cap");
+  assert.equal(document.classifyDocLegFailure(new Error("m: HTTP 429 — rate limit exceeded")), "rate-limit");
+  assert.equal(document.classifyDocLegFailure(new Error("m: timed out")), "timeout");
+  assert.equal(document.classifyDocLegFailure(new Error("m: response too short")), "other");
+  assert.equal(document.classifyDocLegFailure(new Error("m: no OPENROUTER_KEY configured")), "other");
+});
+
+await test("a rate limit parks for a minute, a success clears, timeouts need a streak", () => {
+  document.resetDocLegHealth();
+  const t = 1000000;
+  document.recordDocLegOutcome("leg-a", false, new Error("leg-a: HTTP 429 — slow down"), t);
+  const park = document.docLegParkInfo("leg-a", t + 1000);
+  assert.ok(park, "rate limited leg was not parked");
+  assert.equal(park.parkClass, "rate-limit");
+  assert.equal(park.untilMs, t + document.DOC_LEG_PARK_RATE_LIMIT_MS);
+  assert.equal(document.docLegParkInfo("leg-a", t + document.DOC_LEG_PARK_RATE_LIMIT_MS + 1), null, "park outlives its window");
+  document.recordDocLegOutcome("leg-a", true, null, t + 2000);
+  assert.equal(document.docLegParkInfo("leg-a", t + 2000), null, "a success did not clear the park");
+  document.recordDocLegOutcome("leg-b", false, new Error("leg-b: timed out"), t);
+  assert.equal(document.docLegParkInfo("leg-b", t), null, "one timeout parked the leg");
+  document.recordDocLegOutcome("leg-b", false, new Error("leg-b: timed out"), t + 1);
+  assert.ok(document.docLegParkInfo("leg-b", t + 2), "two timeouts in a row did not park the leg");
+  document.recordDocLegOutcome("leg-c", false, new Error("leg-c: response too short"), t);
+  assert.equal(document.docLegParkInfo("leg-c", t), null, "a content failure parked the leg");
+  document.resetDocLegHealth();
+});
+
+await test("generate skips a parked leg and names the skip", async () => {
+  document.resetDocLegHealth();
+  const realFetch = globalThis.fetch;
+  const env = { OPENROUTER_KEY: "test-key" };
+  const longAnswer = "A complete answer of ample length drawn from the document text itself.";
+  globalThis.fetch = async (url, opts) => {
+    const model = JSON.parse(opts.body).model;
+    if (model === "park-me:free") {
+      return { ok: false, status: 429, text: async () => "rate limit exceeded" };
+    }
+    return { ok: true, json: async () => ({ choices: [{ message: { content: longAnswer }, finish_reason: "stop" }] }) };
+  };
+  try {
+    // First call: park-me fires, 429s, and is parked by the outcome
+    // recorder; the small-model retry carries the call.
+    const first = await document.generate(env, [{ role: "user", content: "q" }], 100, { providers: ["park-me:free"] });
+    assert.equal(first.model, "meta-llama/llama-3.2-3b-instruct:free");
+    assert.deepEqual(first.skippedLegs, []);
+    assert.ok(document.docLegParkInfo("park-me:free"), "the 429 did not park the leg");
+    // Second call: the parked leg is not fired at all, and the skip is
+    // named on the result.
+    const second = await document.generate(env, [{ role: "user", content: "q" }], 100, { providers: ["park-me:free"] });
+    assert.equal(second.model, "meta-llama/llama-3.2-3b-instruct:free");
+    assert.deepEqual(second.skippedLegs, [{ model: "park-me:free", reason: "rate limit cooldown" }]);
+    assert.equal(second.finishReason, "stop");
+  } finally {
+    globalThis.fetch = realFetch;
+    document.resetDocLegHealth();
+  }
+});
+
+await test("a streamed call carries its finish_reason out of generate", async () => {
+  document.resetDocLegHealth();
+  const realFetch = globalThis.fetch;
+  const env = { OPENROUTER_KEY: "test-key" };
+  const enc = new TextEncoder();
+  const sse = new ReadableStream({
+    start(controller) {
+      controller.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"A streamed answer that keeps going well past forty characters "}}]}\n\n'));
+      controller.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"and then stops mid thought"},"finish_reason":"length"}]}\n\n'));
+      controller.enqueue(enc.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  globalThis.fetch = async () => new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  try {
+    const tokens = [];
+    const r = await document.generate(env, [{ role: "user", content: "q" }], 100, { providers: ["stream-me:free"], onToken: (t) => tokens.push(t) });
+    assert.equal(r.finishReason, "length");
+    assert.ok(tokens.join("").includes("mid thought"), "streamed tokens were not forwarded");
+  } finally {
+    globalThis.fetch = realFetch;
+    document.resetDocLegHealth();
+  }
+});
+
+// ── prompt formatting bars ──────────────────────────────────────────────
+group("document prompts — species italics, abbreviations, teaching voice, exact quotes");
+
+await test("the Q&A prompt instructs the formatting bars and exact quotes", async () => {
+  const seen = {};
+  await document.runQA({}, "Some document text about mitochondria and cellular energy production pathways.", "What does it say?", "", { generateFn: captureGen(seen) });
+  const sys = seen.messages[0].content;
+  assert.match(sys, /quote it exactly, word for word/, "Q&A prompt does not demand exact quotes");
+  assert.match(sys, /italicize species names/, "Q&A prompt does not instruct species italics");
+  assert.match(sys, /abbreviation in parentheses/, "Q&A prompt does not instruct abbreviation expansion");
+  assert.match(sys, /teach as you answer/, "Q&A prompt does not instruct the teaching voice");
+});
+
+await test("the summary prompt instructs the formatting bars", async () => {
+  const seen = {};
+  const generateFn = async (env, messages) => {
+    seen.messages = messages;
+    return { answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" };
+  };
+  await document.runSummary({}, "A short document about mitochondria and cellular energy production pathways in cells.", { generateFn });
+  const sys = seen.messages[0].content;
+  assert.match(sys, /italicize species names/, "summary prompt does not instruct species italics");
+  assert.match(sys, /abbreviation in parentheses/, "summary prompt does not instruct abbreviation expansion");
+  assert.match(sys, /teach as you summarize/, "summary prompt does not instruct the teaching voice");
 });
 
 // ── done ────────────────────────────────────────────────────────────────

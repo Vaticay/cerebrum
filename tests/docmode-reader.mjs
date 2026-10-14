@@ -753,5 +753,47 @@ await test("the stale notices are present on every surface and carry no dashes",
   assert.equal(qaNotices, 2, "both Q&A surfaces must carry the stale notice; found " + qaNotices);
 });
 
+// ── document.js user visible strings: no dashes of any kind ───────────
+// The third rescore found an em dash surviving in the rate limit error
+// message in functions/api/document.js, a file the client copy checks
+// never reach. The owner's rule covers backend strings a reader can be
+// shown, so the check lives here now: the classified error messages are
+// tested behaviorally, and every user facing literal in the file is
+// scanned for em and en dashes.
+group("document.js user visible strings — no dashes of any kind");
+
+const documentApi = await import(join(root, "functions/api/document.js"));
+
+await test("every classified error message is dash free", () => {
+  const cases = [
+    new Error("deepseek/deepseek-chat-v3:free: no OPENROUTER_KEY configured"),
+    new Error("qwen/qwen-2.5: timed out"),
+    new Error("All providers failed: a: HTTP 429 | b: HTTP 429"),
+    new Error("something entirely unexpected"),
+  ];
+  for (const e of cases) {
+    const c = documentApi.classifyDocumentError(e);
+    assert.ok(!/[-\u2010-\u2015]/.test(c.message), "classified message contains a dash character: " + c.message);
+  }
+  const rl = documentApi.classifyDocumentError(new Error("All providers failed: a: HTTP 429"));
+  assert.equal(rl.message, "Every free AI model is rate limited right now. This is not a problem with your document. Capacity usually returns within a minute.");
+});
+
+await test("no user facing literal in document.js carries an em or en dash", async () => {
+  const src = await readFile(join(root, "functions/api/document.js"), "utf8");
+  const literals = [];
+  for (const m of src.matchAll(/message:\s*"([^"]*)"/g)) literals.push(m[1]);
+  for (const m of src.matchAll(/errRes\(\s*"([^"]*)"/g)) literals.push(m[1]);
+  assert.ok(literals.length >= 10, "the scan found too few user facing literals to trust: " + literals.length);
+  for (const lit of literals) {
+    assert.ok(!/[\u2013\u2014]/.test(lit), "user facing literal contains an em or en dash: " + lit);
+  }
+  // The quota messages ride in a ternary, not a bare errRes literal, so
+  // they are pinned directly.
+  assert.ok(src.includes("Lite reads 30. Pro reads unlimited."), "fixed quota wording missing");
+  assert.ok(!src.includes("Lite reads 30 \u2014"), "the quota message still carries an em dash");
+  assert.ok(!src.includes("rate-limited right now \u2014"), "the rate limit message still carries an em dash");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
