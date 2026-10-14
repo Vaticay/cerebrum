@@ -216,16 +216,19 @@ const TIER_TWO = [
   { unit: "The Restless Earth", lessons: ["Rocks That Change", "Plates on the Move"] },
 ];
 
-await test("the legacy paths keep the three unit shape; the flagship holds its own", () => {
+await test("the legacy paths keep the three unit shape; the flagships hold their own", () => {
   // Updated 2026-10-14: The Human Body was rebuilt as the flagship
   // (six units, five lessons each, a checkpoint per unit, and the
   // capstone, for 37 lessons), superseding its tier two shape. The
   // three legacy paths keep the three unit, six lesson shape.
+  // Nova content wave (2026-10-14): a second flagship joins, Matter
+  // and Energy, built to the same discipline (six units, 37 lessons
+  // with capstone), so the curriculum total moves 55 to 92.
   let total = 0;
   for (const p of LEARNING_PATHS) {
-    if (p.id === "the-human-body") {
-      assert.equal(p.units.length, 6, `the flagship has ${p.units.length} units`);
-      assert.equal(flattenPathLessons(p).length, 37, "the flagship should hold 37 lessons");
+    if (p.id === "the-human-body" || p.id === "matter-and-energy") {
+      assert.equal(p.units.length, 6, `the flagship ${p.title} has ${p.units.length} units`);
+      assert.equal(flattenPathLessons(p).length, 37, `the flagship ${p.title} should hold 37 lessons`);
       total += flattenPathLessons(p).length;
       continue;
     }
@@ -233,7 +236,7 @@ await test("the legacy paths keep the three unit shape; the flagship holds its o
     assert.equal(flattenPathLessons(p).length, 6, `${p.title} should hold 6 lessons`);
     total += flattenPathLessons(p).length;
   }
-  assert.equal(total, 55, `curriculum holds ${total} lessons, not 55`);
+  assert.equal(total, 92, `curriculum holds ${total} lessons, not 92`);
 });
 
 await test("the tier two units and lessons are the authored ones", () => {
@@ -241,7 +244,9 @@ await test("the tier two units and lessons are the authored ones", () => {
     // The flagship Body path (2026-10-14) supersedes tier two; its
     // flat indices 4 and 5 are a flagship lesson and a checkpoint,
     // so the authored pair pin covers the legacy paths only.
-    if (p.id === "the-human-body") return;
+    // Nova content wave (2026-10-14): Matter and Energy is a second
+    // flagship on the same terms, so it skips here too.
+    if (p.id === "the-human-body" || p.id === "matter-and-energy") return;
     const flat = flattenPathLessons(p);
     assert.equal(flat[4].unitTitle, TIER_TWO[i].unit, `${p.title} tier two unit renamed`);
     assert.equal(flat[5].unitTitle, TIER_TWO[i].unit);
@@ -253,8 +258,9 @@ await test("the tier two units and lessons are the authored ones", () => {
 await test("every tier two lesson follows the six card lesson shape", () => {
   for (const p of LEARNING_PATHS) {
     // Legacy paths only: the flagship Body lessons follow the ten
-    // card flagship standard instead (2026-10-14).
-    if (p.id === "the-human-body") continue;
+    // card flagship standard instead (2026-10-14), and Matter and
+    // Energy (Nova content wave, 2026-10-14) follows it too.
+    if (p.id === "the-human-body" || p.id === "matter-and-energy") continue;
     const flat = flattenPathLessons(p);
     for (const l of [flat[4], flat[5]]) {
       const kinds = l.cards.map((c) => c.kind);
@@ -362,8 +368,10 @@ await test("the new activity kinds are really used, in every lesson", () => {
     // Flagship accommodation (2026-10-14): Body lessons carry their
     // hands on slot in a four kind rotation, match, order, build,
     // and spot the error, so the slot is any of the four there.
-    // Legacy lessons keep the match or order rule.
-    const handsOn = path.id === "the-human-body"
+    // Legacy lessons keep the match or order rule. Nova content
+    // wave (2026-10-14): Matter and Energy is a flagship too and
+    // takes the same four kind rotation.
+    const handsOn = (path.id === "the-human-body" || path.id === "matter-and-energy")
       ? ["match", "order", "build", "spoterror"]
       : ["match", "order"];
     assert.ok(handsOn.some((k) => kinds.has(k)),
@@ -1653,19 +1661,49 @@ await test("every one of the 24 catalog topics has exactly one authored topic co
   }
 });
 
-await test("each topic course is 3 lessons of 5 to 8 cards, teaching lessons open with a note", () => {
-  for (const { path, lesson } of topicLessons) {
-    assert.ok(lesson.cards.length >= 5 && lesson.cards.length <= 8,
-      `${path.title} / ${lesson.title} has ${lesson.cards.length} cards`);
-    const interactive = lesson.cards.filter(isInteractiveCard).length;
-    assert.ok(interactive >= 3, `${path.title} / ${lesson.title} has only ${interactive} interactive cards`);
-  }
+await test("each topic course follows the flagship topic standard", () => {
+  // Rewritten for the Nova content wave (2026-10-14): every topic
+  // course was rebuilt to the flagship lesson standard of The Human
+  // Body. The old shape (three lessons of 5 to 8 cards, teaching
+  // lessons opening with a note, a five card review) is retired.
+  // Now: two teaching lessons of exactly ten cards in the flagship
+  // order (predict hook, three teach notes with the mechanism note
+  // carrying a diagram, a visual question answered from that same
+  // diagram, one hands on card, a true then false pair, an apply
+  // quiz, and a payoff note ending in a Tomorrow hook), then an
+  // eight card all interactive checkpoint in the flagship order.
+  const HANDS_ON = ["match", "order", "build", "spoterror"];
   for (const p of TOPIC_COURSES) {
     const lessons = flattenPathLessons(p);
     assert.equal(lessons.length, 3, `${p.title} has ${lessons.length} lessons`);
-    assert.equal(lessons[0].cards[0].kind, "note", `${p.title} lesson 1 does not open with teaching`);
-    assert.equal(lessons[1].cards[0].kind, "note", `${p.title} lesson 2 does not open with teaching`);
-    assert.ok(lessons[2].cards.every(isInteractiveCard), `${p.title} review lesson is not all checks`);
+    lessons.forEach((lesson, li) => {
+      const kinds = [...lesson.cards.map((c) => c.kind)];
+      if (li < 2) {
+        assert.equal(kinds.length, 10, `${p.title} / ${lesson.title} has ${kinds.length} cards, not 10`);
+        assert.deepEqual(kinds.slice(0, 5), ["predict", "note", "note", "note", "visualq"],
+          `${p.title} / ${lesson.title} does not open with the flagship hook and teach run`);
+        assert.ok(HANDS_ON.includes(kinds[5]), `${p.title} / ${lesson.title} card six is not a hands on card`);
+        assert.deepEqual(kinds.slice(6), ["truefalse", "truefalse", "quiz", "note"],
+          `${p.title} / ${lesson.title} does not close with the flagship pair, apply quiz, and payoff`);
+        assert.equal(lesson.cards[6].answer, true, `${p.title} / ${lesson.title} first true or false card is not the true one`);
+        assert.equal(lesson.cards[7].answer, false, `${p.title} / ${lesson.title} second true or false card is not the false one`);
+        const mechanism = lesson.cards[3];
+        assert.ok(mechanism.diagram && Array.isArray(mechanism.diagram.steps) && mechanism.diagram.steps.length >= 3,
+          `${p.title} / ${lesson.title} mechanism note carries no diagram`);
+        assert.deepEqual(lesson.cards[4].diagram, mechanism.diagram,
+          `${p.title} / ${lesson.title} visual question does not repeat the mechanism diagram word for word`);
+        const payoff = lesson.cards[9];
+        assert.equal(payoff.kicker, "The payoff", `${p.title} / ${lesson.title} last card is not the payoff`);
+        assert.ok(payoff.text.includes("Tomorrow:"), `${p.title} / ${lesson.title} payoff ends without its Tomorrow hook`);
+      } else {
+        assert.ok(lesson.title.startsWith("Checkpoint: "), `${p.title} third lesson is not titled as a checkpoint`);
+        assert.deepEqual(kinds, ["quiz", "match", "visualq", "truefalse", "truefalse", "order", "quiz", "spoterror"],
+          `${p.title} checkpoint does not follow the eight card flagship checkpoint order`);
+        assert.ok(lesson.cards.every(isInteractiveCard), `${p.title} checkpoint is not all checks`);
+        assert.equal(lesson.cards[3].answer, true, `${p.title} checkpoint first true or false card is not the true one`);
+        assert.equal(lesson.cards[4].answer, false, `${p.title} checkpoint second true or false card is not the false one`);
+      }
+    });
   }
 });
 
@@ -1815,7 +1853,9 @@ await test("every learning path quiz answer is taught before it is asked, apart 
       }
     }
   }
-  assert.equal(quizzes, 77, `expected 77 path quizzes under the coverage pin, found ${quizzes}`);
+  // Nova content wave (2026-10-14): the fifth path, Matter and
+  // Energy, adds its 44 quizzes to the 77, for 121 in all.
+  assert.equal(quizzes, 121, `expected 121 path quizzes under the coverage pin, found ${quizzes}`);
   assert.deepEqual([...flagged].sort(), [...FAIR_APPLICATIONS].sort(),
     `path quizzes under half coverage differ from the judged fair applications.\nflagged: ${flagged.join(" | ")}\nnamed fair: ${FAIR_APPLICATIONS.join(" | ")}`);
 });
@@ -1851,14 +1891,16 @@ await test("learning path quizzes meet the same length band the topics are held 
   // 16 the correct option had no distractor within 0.6 to 1.67 of
   // its length, so length alone named the answer there too.
   // The count was 45 until the flagship Body rebuild (2026-10-14)
-  // replaced its 12 quizzes with 44, for 77 in all.
+  // replaced its 12 quizzes with 44, for 77 in all. The Nova content
+  // wave (2026-10-14) adds the fifth path Matter and Energy with 44
+  // more of its own, for 121 in all.
   const pathCards = [];
   for (const p of LEARNING_PATHS) {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) if (card.kind === "quiz") pathCards.push({ path: p, card });
     }
   }
-  assert.equal(pathCards.length, 77, `expected 77 path quizzes, found ${pathCards.length}`);
+  assert.equal(pathCards.length, 121, `expected 121 path quizzes, found ${pathCards.length}`);
   for (const { path, card } of pathCards) {
     assert.equal(card.options.length, 4, `${path.title}: "${String(card.question).slice(0, 40)}" has ${card.options.length} options`);
     const keys = card.options.map(normKey);
@@ -1901,10 +1943,16 @@ await test("the correct option's length rank stays near chance in both authored 
     }
     return { n, uniq, tied };
   };
+  // Nova content wave (2026-10-14): the flagship shape moves checks
+  // into predict, visualq, and spoterror cards. Each topic now
+  // carries 4 quizzes among 20 interactive checks in 28 cards (was
+  // 8 quizzes among 17 cards), so topic quizzes fall 192 to 96,
+  // while the fifth path lifts path quizzes 77 to 121; both sets
+  // together run 217.
   const groups = [
-    ["learning paths", LEARNING_PATHS, 77],
-    ["topic courses", TOPIC_COURSES, 192],
-    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 269],
+    ["learning paths", LEARNING_PATHS, 121],
+    ["topic courses", TOPIC_COURSES, 96],
+    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 217],
   ];
   for (const [label, sets, expected] of groups) {
     const { n, uniq, tied } = rankStats(sets);
@@ -2039,9 +2087,12 @@ group("True or false balance and build error language");
 
 await test("topic true or false cards run within 40 to 60 percent true", () => {
   // Before the rebalance (2026-10-14 panel): 13 true to 35 false,
-  // so guessing False scored about 73 percent.
+  // so guessing False scored about 73 percent. The Nova content
+  // wave (2026-10-14) rebuilt every topic to the flagship shape
+  // with a true then false pair in each of its 3 lessons, so the
+  // set now runs 144 cards, 72 true, by construction.
   const cards = topicCardsFlat.map((x) => x.card).filter((c) => c.kind === "truefalse");
-  assert.equal(cards.length, 48, `expected 48 topic true or false cards, found ${cards.length}`);
+  assert.equal(cards.length, 144, `expected 144 topic true or false cards, found ${cards.length}`);
   const trues = cards.filter((c) => c.answer === true).length;
   const share = trues / cards.length;
   assert.ok(share >= 0.4 && share <= 0.6,
@@ -2054,14 +2105,18 @@ await test("learning path true or false cards run within 40 to 60 percent true",
   // balance rather than rebalancing it. The flagship Body rebuild
   // (2026-10-14) writes its true or false cards in true and false
   // pairs by construction, so the set now runs 45 true of 92
-  // (48.9 percent) and the count pin moves to 92.
+  // (48.9 percent) and the count pin moves to 92. The Nova content
+  // wave (2026-10-14) adds the fifth path Matter and Energy, whose
+  // true or false cards are also written in true and false pairs:
+  // 74 more cards, 37 of them true, so the set runs 82 true of 166
+  // (49.4 percent) and the count pin moves to 166.
   const cards = [];
   for (const p of LEARNING_PATHS) {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) if (card.kind === "truefalse") cards.push(card);
     }
   }
-  assert.equal(cards.length, 92, `expected 92 path true or false cards, found ${cards.length}`);
+  assert.equal(cards.length, 166, `expected 166 path true or false cards, found ${cards.length}`);
   const trues = cards.filter((c) => c.answer === true).length;
   const share = trues / cards.length;
   assert.ok(share >= 0.4 && share <= 0.6,
@@ -2077,6 +2132,10 @@ await test("topic courses carry mixed true or false answers, not a single answer
   // point, so every course now mixes. The ceiling allows at most
   // 2 of 24 single answer courses if a future course's content
   // genuinely cannot carry a mixed pair; the current count is 0.
+  // Nova content wave (2026-10-14): topics rebuilt to the flagship
+  // shape carry six true or false cards each, three true then false
+  // pairs by construction, so every course mixes by design and the
+  // per course count pin moves 2 to 6.
   let single = 0;
   const names = [];
   for (const course of TOPIC_COURSES) {
@@ -2084,7 +2143,7 @@ await test("topic courses carry mixed true or false answers, not a single answer
     for (const lesson of flattenPathLessons(course)) {
       for (const card of lesson.cards) if (card.kind === "truefalse") answers.push(card.answer);
     }
-    assert.equal(answers.length, 2, `${course.title}: expected 2 true or false cards, found ${answers.length}`);
+    assert.equal(answers.length, 6, `${course.title}: expected 6 true or false cards, found ${answers.length}`);
     if (answers.every((a) => a === answers[0])) { single++; names.push(course.title); }
   }
   assert.ok(single <= 2, `${single} of 24 topic courses are single answer (${names.join(", ")}), over the ceiling of 2`);
@@ -2247,7 +2306,9 @@ await test("every path opens with a declared visual slot on its first teach card
     // its hook, a prediction the learner commits to before any
     // teaching, per the flagship standard. Its first teach card is
     // card two, and that is the card that must carry the visual.
-    if (p.id === "the-human-body") {
+    // Nova content wave (2026-10-14): Matter and Energy is built to
+    // the same flagship standard and takes the same exception.
+    if (p.id === "the-human-body" || p.id === "matter-and-energy") {
       assert.equal(first.kind, "predict", "the flagship does not open with its hook");
       const teach = flattenPathLessons(p)[0].cards[1];
       assert.equal(teach.kind, "note", "the flagship's second card is not its first teach card");
@@ -2734,6 +2795,80 @@ await test("the share card draws the wave 3 layout: cream circle, gold glow, two
   assert.ok(learnSrc.includes("Cerebrum · askcerebrum.org"), "share card footer is not the spec footer");
   assert.ok(!learnSrc.includes("ctx.strokeRect(36, 36"), "the old share card frame survived");
   assert.ok(!learnSrc.includes("Nova · askcerebrum.org"), "the old share card footer survived");
+});
+
+// ══════════════════════════════════════════════════════════════════
+group("Nova content wave: the fifth path, at the flagship standard");
+
+await test("the fifth path is Matter and Energy, six units and 37 lessons like the flagship", () => {
+  // Nova content wave (2026-10-14): the outside reviewers converged
+  // on a fifth authored path in matter, energy, and chemistry. It
+  // is authored to the flagship standard of The Human Body and sits
+  // with the other authored paths.
+  assert.equal(LEARNING_PATHS.length, 5, `expected 5 authored paths, found ${LEARNING_PATHS.length}`);
+  const mx = LEARNING_PATHS.find((p) => p.id === "matter-and-energy");
+  assert.ok(mx, "the fifth path is missing");
+  assert.equal(mx.title, "Matter and Energy");
+  assert.equal(mx.category, "Matter and Energy");
+  assert.equal(mx.units.length, 6, `the fifth path has ${mx.units.length} units`);
+  assert.equal(flattenPathLessons(mx).length, 37, "the fifth path should hold 37 lessons");
+  const flagged = flattenPathLessons(mx).filter((l) => l.checkpoint === true);
+  assert.equal(flagged.length, 6, `the fifth path has ${flagged.length} flagged checkpoints, not 6`);
+  for (const l of flagged) {
+    assert.equal(l.subtitle, "Eight mixed questions on the whole unit. Nothing new, just proof.",
+      `${l.title} checkpoint subtitle drifted from the flagship wording`);
+  }
+});
+
+await test("every fifth path lesson follows the flagship card sequences", () => {
+  const mx = LEARNING_PATHS.find((p) => p.id === "matter-and-energy");
+  const HANDS_ON = ["match", "order", "build", "spoterror"];
+  for (const lesson of flattenPathLessons(mx)) {
+    const kinds = [...lesson.cards.map((c) => c.kind)];
+    if (lesson.id === "mx-capstone") {
+      assert.deepEqual(kinds, ["note", "quiz", "order", "note", "predict", "visualq", "truefalse", "truefalse", "quiz", "note"],
+        "the capstone does not follow the flagship capstone sequence");
+      continue;
+    }
+    if (lesson.checkpoint === true) {
+      assert.deepEqual(kinds, ["quiz", "match", "visualq", "truefalse", "truefalse", "order", "quiz", "spoterror"],
+        `${lesson.title} does not follow the eight card checkpoint sequence`);
+      assert.equal(lesson.cards[3].answer, true, `${lesson.title} checkpoint pair opens false`);
+      assert.equal(lesson.cards[4].answer, false, `${lesson.title} checkpoint pair closes true`);
+      continue;
+    }
+    assert.equal(kinds.length, 10, `${lesson.title} has ${kinds.length} cards, not 10`);
+    assert.deepEqual(kinds.slice(0, 5), ["predict", "note", "note", "note", "visualq"],
+      `${lesson.title} does not open with the flagship hook and teach run`);
+    assert.ok(HANDS_ON.includes(kinds[5]), `${lesson.title} card six is not a hands on card`);
+    assert.deepEqual(kinds.slice(6), ["truefalse", "truefalse", "quiz", "note"],
+      `${lesson.title} does not close with the flagship pair, apply quiz, and payoff`);
+    assert.equal(lesson.cards[6].answer, true, `${lesson.title} first true or false card is not the true one`);
+    assert.equal(lesson.cards[7].answer, false, `${lesson.title} second true or false card is not the false one`);
+    assert.deepEqual(lesson.cards[4].diagram, lesson.cards[3].diagram,
+      `${lesson.title} visual question does not repeat the mechanism diagram word for word`);
+    assert.equal(lesson.cards[9].kicker, "The payoff", `${lesson.title} last card is not the payoff`);
+  }
+});
+
+await test("the fifth path leaves an atom on Nova's shelf when completed", () => {
+  const mx = LEARNING_PATHS.find((p) => p.id === "matter-and-energy");
+  assert.equal(shelfGlyphFor(mx), "atom", "the fifth path glyph should be its atom, not a fallback");
+  const progress = { lessons: {} };
+  for (const l of flattenPathLessons(mx)) progress.lessons[l.id] = { done: true, best: 100 };
+  const shelf = shelfObjects(LEARNING_PATHS, progress);
+  assert.equal(shelf.length, 1, `expected exactly the finished fifth path on the shelf, got ${JSON.stringify(shelf)}`);
+  assert.equal(shelf[0].pathId, "matter-and-energy");
+  assert.equal(shelf[0].glyph, "atom", "a completed Matter and Energy should leave an atom on the shelf");
+});
+
+await test("the search built course asks the search for a medium answer, the value it accepts", () => {
+  // The search accepts short, medium, and long for answerLength;
+  // medium is the normal answer the main search box sends. The
+  // course builder in LearnView once sent "standard", a value the
+  // search does not accept (Nova content wave, 2026-10-14).
+  assert.ok(learnSrc.includes('answerLength: "medium"'), "the course builder does not send the accepted medium answer length");
+  assert.ok(!learnSrc.includes('answerLength: "standard"'), "the course builder still sends the unaccepted standard answer length");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
