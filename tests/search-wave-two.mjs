@@ -614,7 +614,9 @@ await test("the cache schema carries the wave two bump", () => {
   // it exists to force this comment chain to be written, not to
   // freeze the version.
   assert.ok(src.includes('// v41 (2026-10-14, seventh panel wave eight)'), "the v41 chain entry must remain (schema history)");
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v43"'), "CACHE_SCHEMA_VERSION must be v43");
+  // PIN UPDATED (2026-10-14, wave ten): v44 — see the chain
+  // comment above the constant for the wave ten reasons.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v44"'), "CACHE_SCHEMA_VERSION must be v44");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -1612,8 +1614,13 @@ await test("all three gating consumers resolve through the shared helper", () =>
   // context both resolve the standard through it, and it resolves
   // its groups through gateConceptGroups, so the precedence the
   // consumers share cannot drift at either level.
-  assert.equal(src.split("= citationGateStandard(query, dynLookup)").length - 1, 2,
-    "the gate and the gate context must both resolve through citationGateStandard");
+  // PIN UPDATED (2026-10-14, wave ten): a third resolver
+  // joins — paperClearsLegacyStandard, the gate audit's
+  // comparison standard, which resolves its standard through
+  // the same helper (and nulls the topicality layer) so the
+  // comparison can never drift from the gate it audits.
+  assert.equal(src.split("= citationGateStandard(query, dynLookup)").length - 1, 3,
+    "the gate, the gate context, and the legacy comparison must all resolve through citationGateStandard");
   assert.ok(src.includes("const groups = gateConceptGroups(query, dynLookup);"),
     "citationGateStandard itself must resolve its groups through gateConceptGroups");
   assert.ok(src.includes("const resolvedGroups = gateConceptGroups(rawQuery, dynLookup);"),

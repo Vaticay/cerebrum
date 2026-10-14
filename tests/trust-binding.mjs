@@ -519,13 +519,28 @@ await test("exceptionally high prose beside level thin is replaced by the comput
 });
 
 await test("a moderate assertion beside moderate ships verbatim", () => {
+  // PIN UPDATED (2026-10-14, wave ten, brief item 6): this pin
+  // codified the old conditional contract, under which model
+  // authored solidity prose shipped as the section whenever it
+  // did not overclaim. The hardcore audit's A1 specimen proved
+  // the contract defective: prose the recogniser could not rank
+  // ("high resolution crystal structures", "a high level of
+  // confidence") shipped beside a thin object with claim check
+  // 0 of 1. The corrected contract: the headed solidity section
+  // DERIVES from the confidence object at every level, so the
+  // section body is the computed line and the model's own
+  // solidity sentence does not ship, within level or not.
   const answer =
     "## Summary\n\n" +
     "Creatine did not increase hair shedding in the trial that measured it [1].\n\n" +
     "## How solid is this?\n\n" +
     "Confidence is moderate: the trials agree, but the samples are small and the follow up short [1].";
   const out = bindProseConfidenceToLevel(answer, "moderate", MODERATE_LINE);
-  assert.equal(out, answer, "a within level assertion was rewritten");
+  assert.ok(out.includes("## How solid is this?\n\n" + MODERATE_LINE),
+    "the section did not derive from the computed line: " + out);
+  assert.ok(!out.includes("the trials agree, but the samples are small"),
+    "model authored solidity prose shipped as the section");
+  assert.ok(out.includes("did not increase hair shedding"), "the answer body was harmed");
 });
 
 await test("a high assertion beside strong ships verbatim; strength words about other things are untouched", () => {

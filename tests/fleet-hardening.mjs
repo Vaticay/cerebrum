@@ -266,9 +266,15 @@ await test("the 403 restricted model is not an entry in OR_FREE_MODELS", () => {
   // same key answered sibling models in the same races, so it was
   // never a missing key problem, and the full size inkling shows
   // no such failure and stays.
+  // PIN UPDATED (2026-10-14, wave ten): the last clause is
+  // superseded by newer live evidence. The wave nine build's
+  // PCR probe trail shows the FULL SIZE inkling failing with
+  // the same HTTP 403 restriction ("only available on
+  // agenti..."), so it leaves the roster too, and
+  // classifyLegFailure now parks the model-restricted class.
   const orBlock = src.slice(src.indexOf("const OR_FREE_MODELS = ["), src.indexOf("const OR_FREE_MODELS = [") + 1800);
   assert.ok(!orBlock.includes('"thinkingmachines/inkling-small:free"'), "inkling-small is back in OR_FREE_MODELS");
-  assert.ok(orBlock.includes('"thinkingmachines/inkling:free"'), "the healthy full size inkling must stay");
+  assert.ok(!orBlock.includes('"thinkingmachines/inkling:free"'), "the full size inkling is restricted too and must stay out (wave ten evidence)");
 });
 
 await test("no wave or rescue roster references the removed list position", () => {

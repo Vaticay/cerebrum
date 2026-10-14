@@ -343,9 +343,15 @@ function cacheAwareDb(counts, rows) {
         run: async () => {
           attempt(counts, "d1");
           if (sql.includes("INSERT")) {
+            // WAVE TEN (2026-10-14): the INSERT binds a computed
+            // eligibility score at binds[4] and created_at at
+            // binds[5] (the pre wave ten statement had 5 binds
+            // and this stub hardcoded score 0 with created_at
+            // at binds[4], which read the score as the timestamp
+            // and silently expired every row).
             rows.set(binds[0], {
               query_key: binds[0], answer_id: binds[1], answer: binds[2],
-              sources: binds[3], score: 0, created_at: binds[4],
+              sources: binds[3], score: binds[4], created_at: binds[5],
             });
           }
           return { success: true, meta: { changes: 1 } };

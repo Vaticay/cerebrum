@@ -1008,7 +1008,13 @@ await test("a tight allowance funds one leg per bucket before any bucket's secon
   // zero cost legs here pin the planner's contract for genuinely
   // free legs; production descriptors no longer cost Workers AI
   // legs at zero — see the next test.)
-  assert.deepEqual(selected.map((d) => d.label), ["or-1", "or-2", "groq-1", "wai-1", "wai-2", "wai-3"]);
+  // PIN UPDATED (2026-10-14, wave ten, item 15): the selection
+  // SET is unchanged, but selected is now returned in the round
+  // robin pick order this comment always described, not in
+  // descriptor order. The old assertion contradicted the comment
+  // above it and codified the provider grouped firing order the
+  // wave exists to spread.
+  assert.deepEqual(selected.map((d) => d.label), ["or-1", "groq-1", "wai-1", "or-2", "wai-2", "wai-3"]);
   assert.deepEqual(skipped.map((d) => d.label), ["or-3", "or-4", "groq-2"]);
 });
 
@@ -1031,13 +1037,20 @@ await test("Workers AI legs costed at the platform truth (1) trim like fetch leg
 });
 
 await test("a plentiful allowance fires every leg in construction order (behavior unchanged)", () => {
+  // PIN UPDATED (2026-10-14, wave ten, item 15): every leg
+  // still fires under a plentiful allowance (the set and the
+  // skip behavior are unchanged), but the returned order is the
+  // round robin pick order, not construction order: or-1,
+  // groq-1, wai-1, then or-2. Firing grouped by provider was
+  // the defect; the test name's "behavior unchanged" clause
+  // referred to the set, which stands.
   const descriptors = [
     leg("or-1", "openrouter", 1), leg("or-2", "openrouter", 1),
     leg("groq-1", "compat:groq", 1),
     leg("wai-1", "workers-ai", 0),
   ];
   const { selected, skipped } = planWaveLegs(descriptors, 500);
-  assert.deepEqual(selected.map((d) => d.label), ["or-1", "or-2", "groq-1", "wai-1"]);
+  assert.deepEqual(selected.map((d) => d.label), ["or-1", "groq-1", "wai-1", "or-2"]);
   assert.deepEqual(skipped, []);
 });
 

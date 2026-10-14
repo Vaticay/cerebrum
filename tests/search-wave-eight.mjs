@@ -568,8 +568,11 @@ await test("CACHE_SCHEMA_VERSION is v43 with the wave nine entry in its chain", 
   // v42 pin from wave eight round three (source list truth,
   // PubMed two calls, Gemini validation leg, swimmer's ear and
   // nutrient concepts).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v43";'),
-    "the cache schema version was not bumped to v43");
+  // Updated 2026-10-14 (wave ten): bumped to v44 (gate audit,
+  // tail hygiene, solidity binding, bucket spread, cache key
+  // derivation). The v43 entry stays in the chain as history.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v44";'),
+    "the cache schema version was not bumped to v44");
   assert.ok(/v43 \(2026-10-14, wave nine\)/.test(src),
     "the v43 chain entry is missing its dated reason");
   assert.ok(/v42 \(2026-10-14, seventh panel wave eight, round three\)/.test(src),

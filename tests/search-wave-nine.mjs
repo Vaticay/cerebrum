@@ -642,13 +642,23 @@ await test("every fanout source is named in About and in the providers lists, an
 group("Group 9 — the cache version pin");
 
 await test("CACHE_SCHEMA_VERSION is v43 with a dated wave nine chain entry", () => {
+  // PIN UPDATED (2026-10-14, wave ten): the version moved to
+  // v44 (gate audit comparison admission, presented list
+  // hygiene, solidity binding, bucket spread synthesis, and the
+  // answer cache key finally derived from this constant). The
+  // v43 chain entry must remain as history, and the key
+  // derivation is pinned here so a future bump cannot silently
+  // decouple from the key again.
   const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
-  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v43\""),
-    "CACHE_SCHEMA_VERSION is not pinned to v43");
+  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v44\""),
+    "CACHE_SCHEMA_VERSION is not pinned to v44");
   const start = src.search(/\/\/ v43 \(/);
   assert.ok(start >= 0, "no dated v43 chain entry above the version constant");
   const entry = src.slice(start, start + 2500);
   assert.ok(/wave nine/i.test(entry), "the v43 chain entry does not mention wave nine");
+  assert.ok(/\/\/ v44 \(2026-10-14, wave ten\)/.test(src), "the v44 chain entry is missing");
+  assert.ok(src.includes("const answerKeyVersion = CACHE_SCHEMA_VERSION + \"-\" + answerLength;"),
+    "the answer cache key must derive from CACHE_SCHEMA_VERSION (wave ten)");
 });
 
 console.log(`\nsearch-wave-nine: ${passed} passed, ${failures.length} failed`);

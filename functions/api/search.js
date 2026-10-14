@@ -64,7 +64,17 @@ const OR_FREE_MODELS = [
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
   "google/gemma-4-31b-it:free",
-  "thinkingmachines/inkling:free",
+  // 2026-10-14 (wave ten): thinkingmachines/inkling:free removed.
+  // The wave nine live PCR probe shows it failing with HTTP 403
+  // "only available on agenti..." — the same provider side
+  // restriction that removed inkling-small below, now on the
+  // full size model. classifyLegFailure now parks the
+  // model-restricted class, but a roster leg that can never
+  // answer still burns its first seat in every fresh isolate.
+  // Indices after this slot shift down one: OR_WAVE2's
+  // [1, 3, 4] now names nemotron-super, gemma-4-26b, and
+  // nemotron-nano-omni; the wave 3 roster was re pinned to keep
+  // naming gemma-4-26b (now [3]).
   "google/gemma-4-26b-a4b-it:free",
   // 2026-10-14: thinkingmachines/inkling-small:free removed. Live
   // production probes (the saved stageHealth trails) show it failing
@@ -194,9 +204,44 @@ export function classifyLegFailure(error) {
   if (/too many subrequests/i.test(msg)) return "subrequest-budget";
   if (/circuit open/i.test(msg)) return "circuit-open";
   if (/per[-\s]?day|daily/i.test(msg)) return "daily-cap";
+  // WAVE TEN (2026-10-14, brief item 15): a provider side model
+  // restriction ("... is only available on ...", HTTP 403) is
+  // not a transient failure. It classified as "other", which
+  // never parks, so the restricted leg refired in every wave of
+  // every request — the wave nine PCR probe's trail carries
+  // exactly that 403. It now has its own class and parks like a
+  // daily cap. A bare 403 without restriction wording stays
+  // "other": an auth or permission failure must not be read as
+  // a model restriction.
+  if (/http 403/i.test(msg) && /only availab|not available|restricted/i.test(msg)) return "model-restricted";
   if (/timed out|timeout/i.test(msg)) return "timeout";
   if (/http 429|rate limit|too many requests|quota/i.test(msg)) return "rate-limit";
   return "other";
+}
+
+/* The synthesis bucket a race label draws from (wave ten, item
+ * 15). OpenRouter's :free models share ONE account level daily
+ * pool keyed to the API key, and Workers AI models share one
+ * account allocation — the rosters say so themselves — so a
+ * daily cap on one model of those buckets is a cap on the
+ * bucket. Compat providers are keyed per provider and their
+ * models carry separate per model pools, so they get per
+ * provider buckets and are NOT shared parked (below). */
+const COMPAT_PROVIDER_IDS = new Set(["groq", "gemini", "mistral", "nvidia", "cerebras", "github"]);
+export function synthesisBucketForLabel(label) {
+  const key = legHealthKey(label);
+  if (key.startsWith("@cf/")) return "workers-ai";
+  const sep = key.indexOf(":");
+  if (sep > 0 && COMPAT_PROVIDER_IDS.has(key.slice(0, sep))) return "compat:" + key.slice(0, sep);
+  return "openrouter";
+}
+const SHARED_PARK_BUCKETS = new Set(["openrouter", "workers-ai"]);
+export function bucketParkInfo(label, nowMs = Date.now()) {
+  const bucket = synthesisBucketForLabel(label);
+  if (!SHARED_PARK_BUCKETS.has(bucket)) return null;
+  const h = legHealthStore.get("bucket:" + bucket);
+  if (!h || !h.parkedUntil || h.parkedUntil <= nowMs) return null;
+  return { bucket, untilMs: h.parkedUntil, reason: h.parkReason || "parked", parkClass: h.parkClass };
 }
 
 export function recordLegOutcome(label, ok, error, nowMs = Date.now()) {
@@ -214,16 +259,49 @@ export function recordLegOutcome(label, ok, error, nowMs = Date.now()) {
     h.parkReason = "";
     h.parkClass = null;
     h.lastFailureClass = null;
+    // A success inside a shared bucket clears the bucket park:
+    // the pool answered, so it is not capped, whatever an
+    // earlier leg recorded.
+    const bucket = synthesisBucketForLabel(label);
+    if (SHARED_PARK_BUCKETS.has(bucket)) {
+      const bh = legHealthStore.get("bucket:" + bucket);
+      if (bh) { bh.parkedUntil = 0; bh.parkReason = ""; bh.parkClass = null; }
+    }
     return { ...h };
   }
   h.failures++;
   const cls = classifyLegFailure(error);
   h.lastFailureClass = cls;
-  if (cls === "daily-cap") {
+  if (cls === "daily-cap" || cls === "model-restricted") {
     h.timeoutStreak = 0;
     h.parkedUntil = nowMs + LEG_PARK_DAILY_CAP_MS;
-    h.parkReason = "daily rate limit cap";
+    h.parkReason = cls === "daily-cap" ? "daily rate limit cap" : "model restricted by provider";
     h.parkClass = cls;
+    // WAVE TEN (item 15): a daily cap inside a SHARED bucket
+    // parks the bucket, not just the model. The old per model
+    // park let one account level cap fail leg after leg: wave
+    // 1's capped OpenRouter model parked, wave 2 then fired
+    // three more OpenRouter models into the same dead pool, and
+    // the retries fired three more (the wave nine probes show
+    // the same two models 429ing at 37 to 40 ms run after run).
+    // Compat providers are excluded by construction: their per
+    // model pools do not drain together.
+    if (cls === "daily-cap") {
+      const bucket = synthesisBucketForLabel(label);
+      if (SHARED_PARK_BUCKETS.has(bucket)) {
+        const bk = "bucket:" + bucket;
+        let bh = legHealthStore.get(bk);
+        if (!bh) {
+          bh = { successes: 0, failures: 0, timeoutStreak: 0, parkedUntil: 0, parkReason: "", parkClass: null, lastFailureClass: null };
+          legHealthStore.set(bk, bh);
+        }
+        bh.failures++;
+        bh.parkedUntil = nowMs + LEG_PARK_DAILY_CAP_MS;
+        bh.parkReason = "daily rate limit cap (shared provider bucket)";
+        bh.parkClass = cls;
+        bh.lastFailureClass = cls;
+      }
+    }
   } else if (cls === "rate-limit") {
     h.timeoutStreak = 0;
     h.parkedUntil = nowMs + LEG_PARK_RATE_LIMIT_MS;
@@ -400,6 +478,12 @@ export function planDelayedRescue(attempts, opts = {}) {
   const eligible = candidates.filter((label) => {
     const parkNow = legParkInfo(label, nowMs);
     if (parkNow && parkNow.parkClass === "daily-cap") return false;
+    // Wave ten (item 15): a leg whose SHARED bucket is daily
+    // parked is ineligible even when its own label never
+    // failed: the second chosen leg must not be a sibling model
+    // of a capped bucket.
+    const bPark = bucketParkInfo(label, nowMs);
+    if (bPark && bPark.parkClass === "daily-cap") return false;
     return !legParkInfo(label, nowMs + waitMs);
   });
   if (eligible.length === 0) {
@@ -1030,6 +1114,35 @@ export function chargeBookkeeping(ledger, label, n = 1) {
  * every unselected leg is returned in `skipped` so the caller can
  * record the skip by name. Pure over its inputs: the caller owns
  * the ledger and the firing. */
+/* Round robin interleave by bucket (wave ten, item 15): the
+ * descriptor arrays are built provider grouped (all OpenRouter
+ * legs, then all compat, then all Workers AI), so an
+ * uninterleaved wave fires one provider's legs first and a
+ * provider level failure (a daily cap) burns the wave's early
+ * grants and grace clock on a single bucket. Interleaving
+ * spreads the firing order across buckets; membership and cost
+ * are unchanged. */
+export function interleaveByBucket(descriptors) {
+  const legs = Array.isArray(descriptors) ? descriptors : [];
+  const buckets = [];
+  const byBucket = new Map();
+  for (const d of legs) {
+    const b = String((d && d.bucket) || "other");
+    if (!byBucket.has(b)) { byBucket.set(b, []); buckets.push(b); }
+    byBucket.get(b).push(d);
+  }
+  const out = [];
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const b of buckets) {
+      const queue = byBucket.get(b);
+      if (queue.length > 0) { out.push(queue.shift()); progressed = true; }
+    }
+  }
+  return out;
+}
+
 export function planWaveLegs(descriptors, fetchAllowance) {
   const legs = Array.isArray(descriptors) ? descriptors : [];
   const allowance = Math.max(0, Math.floor(Number(fetchAllowance) || 0));
@@ -1041,6 +1154,7 @@ export function planWaveLegs(descriptors, fetchAllowance) {
     byBucket.get(b).push(i);
   });
   const chosen = new Set();
+  const chosenOrder = [];
   let spent = 0;
   let progressed = true;
   while (progressed) {
@@ -1058,13 +1172,19 @@ export function planWaveLegs(descriptors, fetchAllowance) {
       const idx = queue[pos];
       spent += Math.max(0, Math.floor(Number(legs[idx].fetchCost) || 0));
       chosen.add(idx);
+      chosenOrder.push(idx);
       queue.splice(pos, 1);
       progressed = true;
     }
   }
-  const selected = [];
+  // WAVE TEN (item 15): the selection is returned in the round
+  // robin PICK order, not the descriptor order. The planner
+  // already selected breadth first across buckets; returning
+  // the picks grouped by provider re concentrated the firing
+  // order the selection had just spread.
+  const selected = chosenOrder.map((i) => legs[i]);
   const skipped = [];
-  legs.forEach((d, i) => { if (chosen.has(i)) selected.push(d); else skipped.push(d); });
+  legs.forEach((d, i) => { if (!chosen.has(i)) skipped.push(d); });
   return { selected, skipped };
 }
 
@@ -1936,7 +2056,18 @@ export function isNonLiterature(p) {
 // the mechanism itself. Cited sets, shelf composition, and
 // answer openings all change under this wave, so payloads
 // cached under v42 predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v43";
+// v44 (2026-10-14, wave ten): the citation gates stop emptying
+// healthy pools (gate audit comparison admission), the presented
+// list carries the citation standard, the no evidence state
+// requires retrieval level emptiness, answers derive their
+// solidity section from the confidence object, the falsification
+// and repeated sentence passes run at ship time, synthesis legs
+// spread across provider buckets with shared parks, and — the
+// reason this constant finally matters — the answer cache key
+// is now DERIVED from this version (it was a hardcoded "v9-"
+// string the chain never reached, so bumps retired nothing).
+// Cached payloads under v43 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v44";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -3704,6 +3835,47 @@ export function clampStageLegTimeout({ startedAt, now, budgetMs, wantMs, legsAft
 // the synthesis wave 2 roster uses), so the expansion does not depend
 // on a single capped pool. diag.llmExpandedVia records which leg
 // answered, so a live check can prove the mechanism ran.
+/* AUXILIARY STAGE LEG HEALTH (2026-10-14, wave ten, item 15):
+ * the expansion and validation stages fire some of the same
+ * models the synthesis waves race (the gemma validation model
+ * is also the fastpath lead), but only the race path read or
+ * wrote the leg health store — so an expansion leg could prove
+ * a model daily capped at minute one and the synthesis fastpath
+ * would still lead with it at minute two and take the same 429
+ * (measured live on the wave nine CRISPR probe, in a single
+ * request). These helpers give the auxiliary legs the same
+ * labels the race uses, so park checks and outcome records are
+ * shared in both directions. Skipped legs cost nothing and the
+ * stages fail open exactly as before. */
+export function auxLegHealthLabel(leg) {
+  if (!leg || !leg.model) return null;
+  if (leg.cf) return leg.model;
+  if (leg.via === "groq") return "groq:" + leg.model;
+  if (leg.via === "gemini") return "gemini:" + leg.model;
+  if (leg.via === "workers-ai") return leg.model;
+  return leg.model;
+}
+export function auxLegParked(leg) {
+  const label = auxLegHealthLabel(leg);
+  if (!label) return false;
+  // Only LONG parks skip an auxiliary leg: a daily cap or a
+  // provider restriction is the failure that will still be true
+  // when synthesis runs seconds later, and it is the measured
+  // harm (an auxiliary leg proves the cap, synthesis leads with
+  // the capped model anyway). A 60 second rate limit cooldown
+  // or a timeout park is the race path's concern; the auxiliary
+  // stages are sequential and already fall through a sick leg
+  // on their own, and skipping on short parks would let one
+  // stage's transient failure starve the other's first leg.
+  const park = legParkInfo(label) || bucketParkInfo(label);
+  return !!(park && (park.parkClass === "daily-cap" || park.parkClass === "model-restricted"));
+}
+async function auxLegHttpError(leg, r) {
+  let body = "";
+  try { if (r && typeof r.text === "function") body = String(await r.text()).slice(0, 200); } catch { /* body is diagnostic only */ }
+  return new Error(String(leg && leg.model || "leg") + ": HTTP " + (r ? r.status : "?") + " . " + body);
+}
+
 export async function defaultConceptGroupCall(query, env, timing, ledger = null) {
   // Stage budget: llmConceptGroups races this whole call against
   // 6500ms. Legs are clamped against that remaining budget (see
@@ -3753,6 +3925,10 @@ export async function defaultConceptGroupCall(query, env, timing, ledger = null)
   });
   for (let li = 0; li < legs.length; li++) {
     const leg = legs[li];
+    // Wave ten (item 15): a leg the shared health store has
+    // parked (its own park, or its shared bucket's) is skipped,
+    // not fired into a known cap.
+    if (auxLegParked(leg)) continue;
     // Subrequest budget: a leg that cannot be afforded is not fired
     // at all . the stage fails open exactly as if the leg had errored,
     // and the caller records the budget as the reason.
@@ -3779,11 +3955,18 @@ export async function defaultConceptGroupCall(query, env, timing, ledger = null)
         }),
         signal: c.signal,
       });
-      if (!r.ok) continue;
+      if (!r.ok) {
+        recordLegOutcome(auxLegHealthLabel(leg), false, await auxLegHttpError(leg, r));
+        continue;
+      }
       const j = await r.json();
       const text = (j?.choices?.[0]?.message?.content || "").trim();
-      if (text) return { text, via: leg.via };
-    } catch {
+      if (text) {
+        recordLegOutcome(auxLegHealthLabel(leg), true);
+        return { text, via: leg.via };
+      }
+    } catch (e) {
+      recordLegOutcome(auxLegHealthLabel(leg), false, e);
       // fall through to the next leg
     } finally {
       clearTimeout(t);
@@ -4432,6 +4615,13 @@ export const QUERY_FILLER_WORDS = new Set([
   // Pronouns and person words: who is asking is never a concept.
   "anyone", "someone", "everyone", "anybody", "somebody",
   "everybody", "nobody", "whoever", "people", "person",
+  // Possessives (2026-10-14, wave ten): the asker's possession
+  // is the asker's, not a concept — "your" survived screening
+  // and glued itself to the question's verb, minting the
+  // constraint "eating your", a phrase no paper contains,
+  // which the constraint filter then used to zero a healthy
+  // yogurt shelf.
+  "your", "yours", "my", "mine", "his", "hers", "its", "our", "ours", "their", "theirs",
   // Negation and scaffolding.
   "not", "no", "never", "without", "whether",
 ]);
@@ -4465,6 +4655,13 @@ export function screenKeyPhrase(phrase) {
   const words = normalizeConstraintText(phrase).split(" ").filter(Boolean);
   if (!words.length) return "";
   const content = words.filter((w) => !isQueryFillerWord(w));
+  // A lone surviving gerund stays: "sleeping" is the genuine
+  // topic of the sleep question (pinned by the query
+  // expansion suite), so a verb form alone is not proof of
+  // scaffolding. The yogurt specimen ("eating your") is
+  // handled by the possessives in the filler set above plus
+  // the constraint filter's never zero stand down at its
+  // call site — the screen does not need to guess.
   return content.join(" ");
 }
 
@@ -5855,7 +6052,23 @@ export function paperApplicationOnly(paper) {
   const p = paper || {};
   const hay = String(p.title || "") + " " + (usableAbstract(p) || "");
   if (!APPLICATION_DELIVERY_RE.test(hay)) return false;
-  return paperMechanismTier(p) === 0;
+  if (paperMechanismTier(p) === 0) return true;
+  // WAVE TEN (2026-10-14, item 4 evidence): the wave nine rule
+  // let the live probe's lipid nanoparticle paper through,
+  // cited at position 2, because its abstract mentions process
+  // words while reporting the outcomes of what it delivered.
+  // The narrower distinction the evidence supports: that
+  // paper's TITLE is delivery framed AND states an application
+  // purpose ("...delivery of CRISPR-Cas9 RNP versus mRNA/sgRNA
+  // for gene editing") while carrying no mechanism word. A
+  // delivery framed paper whose abstract genuinely engages the
+  // mechanism (the wave nine binding and membrane fixture)
+  // keeps its tier 1 rescue — only the purpose stated delivery
+  // title is decisive.
+  const title = String(p.title || "");
+  if (APPLICATION_DELIVERY_RE.test(title) && mechanismWordsIn(title).size === 0 &&
+      /\bfor\s+(?:\w+\s+){0,2}?(?:editing|therapy|therapeut\w*|treatment|delivery|clinical\s+use)\b/i.test(title)) return true;
+  return false;
 }
 
 // Title level aboutness (tier 2): the paper IS a method paper .
@@ -6015,6 +6228,67 @@ export function orderShelfForMechanism(shelf, gatedPool) {
     if (a.primary && b.primary) return (b.t - a.t) || (a.i - b.i);
     return a.i - b.i;
   });
+  return tiered.map((x) => x.p);
+}
+
+/* ── Famous health questions (2026-10-14, wave ten, brief
+ * item 5) ───────────────────────────────────────────────────
+ * The audit's coffee question ("does coffee make you live
+ * longer") returned only 2012 to 2017 newsletter commentary —
+ * no cohort study, no systematic review — because nothing in
+ * the pipeline prefers the designs that actually answer a
+ * famous health benefit or harm question over the commentary
+ * that surrounds it. The shape: a plain language yes or no
+ * health question (an opener plus a health outcome word). The
+ * prior: cohort studies, systematic reviews, and meta analyses
+ * outrank newsletter and commentary pieces in the evidence
+ * order, and the foundational lane runs a health vocabulary
+ * variant so those designs are in the pool at all. */
+export function isFamousHealthShapeQuery(query) {
+  const lc = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!/^(does|do|did|is|are|can|will|should)\b/.test(lc)) return false;
+  return /\b(help|helps|helpful|good for|bad for|hurt|hurts|harm|harms|harmful|benefit|benefits|beneficial|healthy|healthier|live longer|longevity|life expectancy|cause|causes)\b/.test(lc)
+    && /\b(eat|eating|drink|drinking|take|taking|use|using|consume|consuming|food|diet|gut|kidney|kidneys|liver|heart|brain|body|health|sleep|weight|longer|life)\b/.test(lc);
+}
+
+const HEALTH_COMMENTARY_RE = /\b(health letter|health watch|newsletter|commentary|editorial|perspective|viewpoint|in my opinion)\b/i;
+export function healthEvidenceTier(paper) {
+  const p = paper || {};
+  const title = String(p.title || "");
+  const journal = String(p.journal || "");
+  const pubTypes = Array.isArray(p.publicationTypes) ? p.publicationTypes.join(" ") : String(p.publicationType || "");
+  const hay = title + " " + pubTypes;
+  if (/\b(systematic review|meta[-\s]?analysis|meta[-\s]?analyses|umbrella review)\b/i.test(hay)) return 3;
+  if (/\b(cohort|prospective stud|randomi[sz]ed controlled|controlled trial|mendelian randomization)\b/i.test(hay)) return 2;
+  if (HEALTH_COMMENTARY_RE.test(journal) || HEALTH_COMMENTARY_RE.test(title)) return 0;
+  return 1;
+}
+
+/* The cited shelf for a famous health question: the designs
+ * that answer it lead. Mirrors orderShelfForMechanism: higher
+ * tier papers the gate cleared but the slice left out are
+ * pulled in ahead of the shelf's commentary tail (the shelf
+ * size does not grow), then the shelf is stably ordered by
+ * tier descending, original order inside a tier. */
+export function orderShelfForHealth(shelf, gatedPool) {
+  const list = Array.isArray(shelf) ? shelf.slice() : [];
+  if (list.length === 0) return list;
+  if (Array.isArray(gatedPool)) {
+    const inShelf = new Set(list);
+    const extras = gatedPool.filter((p) => p && !inShelf.has(p) && healthEvidenceTier(p) >= 2);
+    extras.sort((a, b) => healthEvidenceTier(b) - healthEvidenceTier(a));
+    for (const extra of extras) {
+      let idx = -1;
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (healthEvidenceTier(list[i]) === 0) { idx = i; break; }
+      }
+      if (idx < 0) break;
+      list.splice(idx, 1);
+      list.push(extra);
+    }
+  }
+  const tiered = list.map((p, i) => ({ p, i, t: healthEvidenceTier(p) }));
+  tiered.sort((a, b) => (b.t - a.t) || (a.i - b.i));
   return tiered.map((x) => x.p);
 }
 
@@ -8302,6 +8576,10 @@ export async function defaultValidationCall(messages, token, env, timing, ledger
   });
   for (let li = 0; li < legs.length; li++) {
     const leg = legs[li];
+    // Wave ten (item 15): shared leg health, as in
+    // defaultConceptGroupCall: a parked leg is skipped, not
+    // fired into a known cap.
+    if (auxLegParked(leg)) continue;
     // Subrequest budget: see defaultConceptGroupCall . an unaffordable
     // leg is not fired; the stage fails open and names the budget.
     if (ledger && ledger.remaining() <= 0) return null;
@@ -8343,7 +8621,10 @@ export async function defaultValidationCall(messages, token, env, timing, ledger
           new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), timeoutMs)),
         ]);
         const text = ((out && out.response) || "").trim();
-        if (text) return { text, via: leg.via };
+        if (text) {
+          recordLegOutcome(auxLegHealthLabel(leg), true);
+          return { text, via: leg.via };
+        }
         continue;
       }
       const r = await fetch(leg.url, {
@@ -8358,11 +8639,18 @@ export async function defaultValidationCall(messages, token, env, timing, ledger
         }),
         signal: c.signal,
       });
-      if (!r.ok) continue;
+      if (!r.ok) {
+        recordLegOutcome(auxLegHealthLabel(leg), false, await auxLegHttpError(leg, r));
+        continue;
+      }
       const j = await r.json();
       const text = (j?.choices?.[0]?.message?.content || "").trim();
-      if (text) return { text, via: leg.via };
-    } catch {
+      if (text) {
+        recordLegOutcome(auxLegHealthLabel(leg), true);
+        return { text, via: leg.via };
+      }
+    } catch (e) {
+      recordLegOutcome(auxLegHealthLabel(leg), false, e);
       // fall through to the next leg
     } finally {
       clearTimeout(t);
@@ -9153,20 +9441,104 @@ function scoreFindingSentence(s) {
   return score;
 }
 
-function tidyExtractSentence(s) {
+function tidyExtractSentence(s, abbrState) {
   let t = String(s || "").replace(/\s+/g, " ").trim();
   t = t.replace(/^(abstract|summary|background|objective|results?|conclusion|findings)\s*:\s*/i, "");
+  // WAVE TEN (2026-10-14, hardcore audit defect 11): pseudo
+  // precise statistics never ship in excerpt display. A p value
+  // printed as 0.00000 is a rounding artefact of the source (a
+  // probability is never exactly zero): the parenthetical form
+  // is dropped whole, the bare form becomes the honest bound.
+  t = t.replace(/\s*\(p\s*=\s*0\.0+\s*\)/gi, "");
+  t = t.replace(/\bp\s*=\s*0\.0+\b/gi, "p < 0.001");
+  if (abbrState) t = expandExcerptAbbreviations(t, abbrState);
   if (!/[.!?]$/.test(t)) t += ".";
   return t.replace(/^[a-z]/, (c) => c.toUpperCase());
 }
 
+/* EXCERPT ABBREVIATION EXPANSION (2026-10-14, wave ten, audit
+ * defect 11): the synthesis prompt binds a model to expand
+ * abbreviations at first use, but extractive answers have no
+ * model, and no mechanical backstop existed — DNPH, GGT, and
+ * MAC shipped bare in excerpts, and CRISPR itself was never
+ * expanded on the fallback path. The expansion set is the
+ * audit's measured set plus the terms the SYNONYMS table itself
+ * expands (CRISPR's expansion is the table's own first entry);
+ * an abbreviation outside this set is left exactly as the
+ * source wrote it, never guessed at. The state set is per
+ * answer build: the first bare use in the build expands, later
+ * uses stand, and a "Full Term (ABBR)" definition the source
+ * itself printed marks the abbreviation as already defined.
+ * Idempotent by construction, so re tidying a sentence cannot
+ * double expand it. */
+export const EXCERPT_ABBREVIATION_EXPANSIONS = [
+  ["CRISPR", "clustered regularly interspaced short palindromic repeats"],
+  ["DNPH", "2,4-dinitrophenylhydrazine"],
+  ["GGT", "gamma-glutamyl transferase"],
+  ["MAC", "maximum allowable concentration"],
+];
+export function expandExcerptAbbreviations(text, seen) {
+  let t = String(text || "");
+  if (!t) return t;
+  const state = seen instanceof Set ? seen : new Set();
+  for (const m of t.matchAll(/\(([A-Z]{2,7})\)/g)) state.add(m[1]);
+  for (const [abbr, full] of EXCERPT_ABBREVIATION_EXPANSIONS) {
+    if (state.has(abbr)) continue;
+    const re = new RegExp("\\b" + abbr + "\\b");
+    if (re.test(t)) {
+      t = t.replace(re, full + " (" + abbr + ")");
+      state.add(abbr);
+    }
+  }
+  return t;
+}
+
 // Bold quantitative fragments (32%, p < 0.01, 3-fold) . the same emphasis an
 // AI synthesis would give its key numbers, done mechanically.
+// WAVE TEN (2026-10-14, audit defect 11): a sign directly before
+// a percentage rides INSIDE the emphasis. The audit specimen
+// shipped "(-**25%** development time...)": the source's
+// reduction shorthand "-25%" was split by the old capture, which
+// started at the digit and orphaned the minus outside the bold.
+// The sign joins the capture only when it stands at a word
+// boundary of its own (start, whitespace, or an opening paren),
+// so a range like "3-25%" still bolds the plain "25%".
 function boldExtractQuantities(s) {
   return String(s || "").replace(
-    /(\b\d+(?:\.\d+)?\s?%|\bp\s?<\s?0\.\d+|\b\d+(?:\.\d+)?\s?fold\b)/gi,
-    "**$1**"
+    /((?:(?<=^|[\s(])[−-]\s?)?\d+(?:\.\d+)?\s?%|\bp\s?<\s?0\.\d+|\b\d+(?:\.\d+)?\s?fold\b)/gi,
+    (m) => "**" + m.replace(/−/g, "-") + "**"
   );
+}
+
+/* FALSIFICATION LIST PASS (2026-10-14, wave ten, audit defect
+ * 11): the extractive builder emits the "What would change
+ * this?" bullets as real lines, but a synthesis can emit the
+ * whole list as one run on paragraph with ". - " separators,
+ * and no post processor split it, so the section rendered as a
+ * single block. This pass runs at the run last point beside the
+ * repeated sentence pass: when the section body carries inline
+ * item separators and no real bullet line, it is rebuilt as one
+ * bullet per item. A section already listing, or holding a
+ * single statement, ships untouched. */
+export function ensureFalsificationList(answer) {
+  const text = String(answer || "");
+  const hm = text.match(/^##\s+What would change this[^\n]*$/im);
+  if (!hm) return text;
+  const h = hm.index;
+  const afterHead = h + hm[0].length;
+  const rest = text.slice(afterHead);
+  const nextH = rest.search(/\n##\s/);
+  const end = nextH >= 0 ? afterHead + nextH : text.length;
+  const body = text.slice(afterHead, end).trim();
+  if (!body || /^- /m.test(body)) return text;
+  let items = body.split(/(?<=[.!?])\s+-\s+/).map((x) => x.trim()).filter(Boolean);
+  if (items.length < 2) {
+    items = body.split(/\s+-\s+(?=[A-Z"“])/).map((x) => x.trim()).filter(Boolean);
+  }
+  if (items.length < 2) return text;
+  const rebuilt = text.slice(0, afterHead) + "\n\n" +
+    items.map((it) => "- " + it.replace(/^-\s+/, "")).join("\n") + "\n";
+  return rebuilt + text.slice(end);
 }
 
 function extractTitleClaim(title) {
@@ -9611,6 +9983,10 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
   const n = (pool || []).length;
   const hasRef = (pool || []).some((it) => { const p = (it && it.p) || it || {}; return p.type === "Reference" || /wikipedia/i.test(p.journal || "") || /wikipedia/i.test(p.url || ""); });
   const unitWord = hasRef ? (n === 1 ? "source" : "sources") : (n === 1 ? "paper" : "papers");
+  // Wave ten (2026-10-14, audit defect 10): the verb agrees
+  // with the unit. The old copy hardcoded "are", which shipped
+  // "The closest paper are listed below" on a one paper pool.
+  const unitVerb = n === 1 ? "is" : "are";
   let md = "## Couldn't find a direct answer\n\n";
   const existenceSupport = isExistenceQuestion(q)
     ? findExistenceSupport(items, q, ctx && ctx.queryAnalysis)
@@ -9618,7 +9994,7 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
   if (isExistenceQuestion(q)) {
     md += existenceAnswerLine(existenceSupport, unitWord) + " " +
       "The evidence was too thin to build a fuller summary, so the closest " +
-      unitWord + " are listed below.\n";
+      unitWord + " " + unitVerb + " listed below.\n";
   }
   // CONSTRAINT FAILURE LEAD (2026-10-09): when the intelligence layer found
   // that no paper satisfies the query's key constraints, say so directly
@@ -9633,11 +10009,11 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
       md += "The closest " + (cc.partial === 1 ? "paper mentions" : "papers mention") +
         " related terms, but not the full phrase. ";
     }
-    md += "The closest " + unitWord + " are listed below to read directly.\n";
+    md += "The closest " + unitWord + " " + unitVerb + " listed below to read directly.\n";
   } else if (!isExistenceQuestion(q)) {
     md += "Cerebrum found " + n + " " + unitWord + (q ? " for \"" + q + "\"" : "") +
       ", but none of them support a reliable summary. " +
-      "The closest " + unitWord + " are listed below to read directly.\n";
+      "The closest " + unitWord + " " + unitVerb + " listed below to read directly.\n";
   }
   md += "\n### Why the evidence falls short\n\n";
   md += quality.reasons.map((r) => "- " + r).join("\n") + "\n";
@@ -9701,6 +10077,8 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
   const q = String((ctx && ctx.query) || "").trim().slice(0, 160);
   const qTerms = significantQueryTerms(q);
   const all = items || [];
+  // Wave ten: one abbreviation state for this build's excerpts.
+  const abbrState = new Set();
 
   // Score a sentence by query-term overlap. Deliberately simple: for
   // background prose we want sentences that address the question, not the
@@ -9728,7 +10106,7 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       .slice(0, maxN);
   };
   const tidy = (s) => {
-    let t = stripClaimTags(tidyExtractSentence(String(s || ""))).trim();
+    let t = stripClaimTags(tidyExtractSentence(String(s || ""), abbrState)).trim();
     if (!/[.!?]$/.test(t)) t += ".";
     return t.replace(/^[a-z]/, (ch) => ch.toUpperCase());
   };
@@ -9863,6 +10241,52 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       picked.push({ text: t, idx: c.idx, ws });
     }
     for (const p of picked) delete p.ws;
+    // WAVE TEN (2026-10-14, hardcore audit defect 9, brief item
+    // 13): LIMITED TIER HONESTY. This tier admitted any paper
+    // with one sentence matching one query term, and framed its
+    // best passage as "The short answer" however little of the
+    // question the paper engaged. The audit's edge probe shipped
+    // a chicken plumage morphology paper as the short answer to
+    // a question about hat color and egg laying: it matched on
+    // "color" and "chickens" and addressed nothing asked. When
+    // the lead paper does not clear the citation standard AND
+    // engage at least half the question's central concepts, the
+    // frame changes: no short answer, a plain statement that no
+    // retrieved study examines the question, and the paper shown
+    // only under a Closest match heading. The existence branch
+    // is exempt: its direct report test is stricter already.
+    if (picked.length > 0 && !isExistenceQuestion(q)) {
+      let addresses = true;
+      try {
+        const std = citationGateStandard(q, (ctx && ctx.dynLookup) || null);
+        const leadItem = paperItems.find((it) => it.idx === picked[0].idx);
+        if (leadItem && Array.isArray(std.centralConcepts) && std.centralConcepts.length > 0) {
+          const hits = centralConceptHits(leadItem.p, std.centralConcepts);
+          addresses = paperClearsCitationGate(leadItem.p, std) &&
+            hits.total >= Math.max(2, Math.ceil(std.centralConcepts.length / 2));
+        }
+      } catch { addresses = true; }
+      if (!addresses) {
+        let md = "## No study here examines this\n\n";
+        md += "No retrieved study examines \"" + q + "\". The closest paper found is shown below as a closest match only. It does not answer the question.\n";
+        md += "\n### Closest match\n\n";
+        for (const it of paperItems) {
+          const p = it.p || {};
+          const title = extractTitleClaim(p.title) || "Untitled";
+          const venue = [p.journal, extractiveYearText(p.year)].filter(Boolean).join(", ");
+          md += "- **" + title + "**" + (venue ? " . " + venue : "") + " [" + it.idx + "]\n";
+        }
+        md += "\nPassage from the closest match:\n\n" + picked[0].text + " [" + picked[0].idx + "]\n";
+        let reforms = [];
+        try { reforms = deriveReformulations(q) || []; } catch { reforms = []; }
+        if (reforms.length > 0) {
+          md += "\n### Try asking it this way\n\n" +
+            reforms.slice(0, 3).map((r, i) => (i + 1) + ". **" + r.label + ":** \"" + r.query + "\"").join("\n") + "\n";
+        }
+        md += "\n*Assembled from the sources above without AI interpretation" + gateClosing(ctx) + "*\n";
+        return { md, tier: "limited" };
+      }
+    }
     if (picked.length > 0) {
       /* Frame (2026-10-13 voice pass): answer line first, evidence
          second. The old frame opened with a "What the sources say"
@@ -9922,17 +10346,22 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
 // crack into patterns as it dries?" decomposes into "mudcrack", "soil drying",
 // "desiccation cracking" . each likely to have better coverage than the full
 // phrasing. No dashes in user copy.
-function deriveRelatedTopics(query, qTerms) {
+export function deriveRelatedTopics(query, qTerms) {
   const out = [];
   const seen = new Set();
-  const terms = (qTerms || []).filter((t) => t.length >= 4);
-  // Suggest the two most distinctive terms as standalone topics.
-  const sorted = [...terms].sort((a, b) => b.length - a.length);
-  for (const t of sorted.slice(0, 2)) {
-    const k = t.toLowerCase();
+  // WAVE TEN (2026-10-14, audit defect 10): a single bare word
+  // is not a topic. The old code emitted the two longest query
+  // terms as standalone topics, which shipped "Longer" as a
+  // related topic for the coffee question. Topics are now
+  // adjacent term PAIRS in the question's own order: two words
+  // name a subject area, one word names nothing.
+  const FILLER = new Set(["make", "makes", "does", "do", "did", "is", "are", "was", "were", "help", "helps", "actually", "really", "just", "much", "many", "more", "most"]);
+  const terms = (qTerms || []).filter((t) => t.length >= 4 && !FILLER.has(String(t).toLowerCase()));
+  for (let i = 0; i + 1 < terms.length && out.length < 3; i++) {
+    const label = (String(terms[i]).replace(/^[a-z]/, (c) => c.toUpperCase())) + " " + terms[i + 1];
+    const k = label.toLowerCase();
     if (seen.has(k)) continue;
     seen.add(k);
-    const label = t.replace(/^[a-z]/, (c) => c.toUpperCase());
     out.push("\"" + label + "\"");
   }
   return out.slice(0, 3);
@@ -10005,8 +10434,11 @@ export function buildDefinitionAnswer(term, papers, ctx = {}) {
   if (defs.length === 0) return null;
   const titleTerm = term.replace(/^[a-z]/, (c) => c.toUpperCase());
   let md = "## What is " + titleTerm + "?\n\n";
+  // Wave ten: definition excerpts cross the same tidying as the
+  // other tiers (pseudo precision strip, first use expansion).
+  const defAbbrState = new Set();
   for (const d of defs) {
-    let s = d.text.trim();
+    let s = tidyExtractSentence(d.text.trim(), defAbbrState);
     if (!/[.!?]$/.test(s)) s += ".";
     md += s + " [" + d.idx + "]\n\n";
   }
@@ -10037,6 +10469,76 @@ export function buildDefinitionAnswer(term, papers, ctx = {}) {
     }
   }
   return md;
+}
+
+/* METHOD STEP PLANS (2026-10-14, wave ten, hardcore audit
+ * defect 5, brief item 11): when every synthesis leg fails, the
+ * extractive fallback is what the reader gets, and on how
+ * questions it listed excerpts in density order without ever
+ * teaching the method: the western blot answer never walked
+ * separation, transfer, blocking, antibody, detection; the PCR
+ * answer taught measurement uncertainty. These plans name the
+ * canonical step order for the measured method shapes. The
+ * assembler below only ORDERS cited excerpts against them: a
+ * step bullet is a verbatim excerpt from a cited paper, the
+ * only authored words are the step labels and the honesty
+ * sentences. Step patterns are verb bound, not noun bound, on
+ * the live evidence: the PCR probe's excerpts contained the
+ * word "primer" four times and "Extended Survival" once, and
+ * neither is an annealing or an extension step, so bare noun
+ * matches never count as a step. */
+export const METHOD_STEP_PLANS = [
+  { id: "western-blot", queryRe: /\b(western\s*blot|immunoblot)/i, steps: [
+    { id: "separation", label: "Separation", re: /\b(separat\w+|gel electrophoresis|sds[- ]page|polyacrylamide|resolved by size|molecular weight)\b/i },
+    { id: "transfer", label: "Transfer", re: /\b(transfer\w*|electroblot\w*|blotted onto|onto a (nitrocellulose|pvdf) membrane)\b/i },
+    { id: "blocking", label: "Blocking", re: /\b(block\w+|nonfat milk|bovine serum albumin|\bbsa\b|nonspecific binding|non-specific binding)\b/i },
+    { id: "antibody", label: "Antibody binding", re: /\b(primary antibod\w+|secondary antibod\w+|antibod\w+ (binds|binding|probe)|probed with)\b/i },
+    { id: "detection", label: "Detection", re: /\b(detect\w+|chemiluminescen\w+|chromogenic|visual\w+|signal is (read|recorded)|expos\w+\b[^.!?]{0,24}?\b(film|membrane)\b)/i } ] },
+  { id: "enzyme-activity", queryRe: /\b(enzyme|assay)\b/i, needsMeasurement: true, steps: [
+    { id: "substrate", label: "Substrate", re: /\b(substrates?|onpg|abts|chromogenic substrate|incubat\w+ with)\b/i },
+    { id: "rate", label: "Rate", re: /\b(initial rate|rate of|per minute|over time|the slope|product (forms|formation|appears)|substrate (disappears|is consumed)|change in absorbance)\b/i },
+    { id: "measurement", label: "Measurement", re: /\b(spectrophotomet\w+|absorbance|wavelength|\d+\s?nm|colorimet\w+|fluoromet\w+|measured (by|using|with))\b/i } ] },
+  { id: "lead-testing", queryRe: /\blead\b/i, queryRe2: /\b(water|test|testing|sample|detect|measure|tap)\b/i, steps: [
+    { id: "sample", label: "Sampling", re: /\b(samples? (is |are |was )?(collected|taken|drawn)|first[- ]draw|flushed|tap water sample|sampling)\b/i },
+    { id: "analysis", label: "Analysis", re: /\b(icp[- ]?ms|atomic absorption|laborator\w+ (analysis|analysed|analyzed)|test kit|analys\w+ (by|using|for lead)|measured (by|using))\b/i },
+    { id: "threshold", label: "Threshold", re: /\b(action level|threshold|limit of detection|exceeds?|15\s?(ppb|µg\/l|ug\/l|micrograms))\b/i } ] },
+  { id: "pcr-cycle", queryRe: /\b(pcr|polymerase chain reaction)\b/i, steps: [
+    { id: "denaturation", label: "Denaturation", re: /\b(denatur\w+|strands? (separate|melt)|melting|9[458]\s?°?\s?c|heated to)\b/i },
+    { id: "annealing", label: "Annealing", re: /\b(anneal\w+|primers? (bind|binds|binding|anneal|hybrid)|hybrid\w+ to the template)\b/i },
+    { id: "extension", label: "Extension", re: /\b(extension step|polymerase (extends|synthes\w+|builds)|new strands? (is |are )?(synthes|built|made)|taq polymerase|72\s?°?\s?c)\b/i } ] },
+];
+export function methodStepPlanFor(query, measurementIntent, mechanismShape) {
+  const q = String(query || "");
+  if (!q) return null;
+  let type = "";
+  try { type = classifyQuestionType(q).type || ""; } catch { type = ""; }
+  const how = !!measurementIntent || !!mechanismShape || /^\s*how\b/i.test(q) || type === "methods" || type === "mechanism";
+  if (!how) return null;
+  return METHOD_STEP_PLANS.find((p) =>
+    p.queryRe.test(q) && (!p.queryRe2 || p.queryRe2.test(q)) && (!p.needsMeasurement || measurementIntent)) || null;
+}
+export function methodStepIndex(text, plan) {
+  if (!plan) return -1;
+  const t = String(text || "");
+  for (let i = 0; i < plan.steps.length; i++) {
+    if (plan.steps[i].re.test(t)) return i;
+  }
+  return -1;
+}
+/* Every step a text carries, in plan order. A real method
+ * sentence often carries two steps ("separated proteins were
+ * transferred onto a membrane"), and the walk's assignment
+ * needs all of them: first match alone would file that
+ * sentence under separation and leave transfer, which only it
+ * carries, uncovered. */
+export function methodStepIndexes(text, plan) {
+  if (!plan) return [];
+  const t = String(text || "");
+  const out = [];
+  for (let i = 0; i < plan.steps.length; i++) {
+    if (plan.steps[i].re.test(t)) out.push(i);
+  }
+  return out;
 }
 
 export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
@@ -10096,6 +10598,15 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       (ctx && ctx.intent === "measurement") ||
       (ctx && ctx.query && detectMeasurementIntent(ctx.query))
     );
+    // Wave ten, item 11: the method step plan for this question
+    // (western blot, enzyme activity, lead testing, PCR cycle),
+    // or null. Drives the step first excerpt partition below and
+    // the ordered method walk in the assembly.
+    const mechanismShapeHere = !!(
+      (ctx && ctx.queryAnalysis && ctx.queryAnalysis.mechanismShape) ||
+      (ctx && ctx.query && isMechanismShapeQuery(ctx.query))
+    );
+    const methodPlan = methodStepPlanFor(ctx && ctx.query, measurementIntent, mechanismShapeHere);
     const poolCap = depth === "long" ? 12 : depth === "short" ? 6 : 8;
     const findingsPerPaper = depth === "long" ? 3 : depth === "short" ? 1 : 2;
     const ledeClaimCap = depth === "long" ? 3 : depth === "short" ? 1 : 2;
@@ -10223,6 +10734,10 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // sentences keep their density score (0), so they fill a
     // findings slot only when density alone leaves one open.
     const findingsQTerms = significantQueryTerms(ctx && ctx.query);
+    // Wave ten: one abbreviation state for the whole build, so
+    // the first excerpted use of a known abbreviation expands
+    // and later uses stand (expandExcerptAbbreviations).
+    const abbrState = new Set();
     const termSets = [];
     // Method intent (2026-10-14): inside a method paper, the
     // sentences that carry the answer are the procedure
@@ -10289,6 +10804,20 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
           for (const r of procFirst) if (r.score < 0) r.score = 0;
         }
       }
+      // Wave ten, item 11: on a method plan question, a step
+      // carrying sentence survives the per paper slice ahead of
+      // a denser value sentence, on ANY paper (blot and lead
+      // papers are routinely method tier 0, so the measurement
+      // partition above never sees them). Stable partition:
+      // step sentences first, each class in its ranked order.
+      if (methodPlan && ranked.length > 1) {
+        const stepFirst = ranked.filter((r) => methodStepIndex(r.s, methodPlan) >= 0);
+        if (stepFirst.length > 0 && stepFirst.length < ranked.length) {
+          const rest = ranked.filter((r) => methodStepIndex(r.s, methodPlan) < 0);
+          ranked.length = 0;
+          ranked.push(...stepFirst, ...rest);
+        }
+      }
       const top = ranked.slice(0, findingsPerPaper);
       // Extraction tags ("[Results] …") are stripped here so they can never
       // reach a citation or the printed summary. The integrity gate runs on
@@ -10296,7 +10825,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       // mid-parenthetical split, a glued section label) is dropped here and
       // the paper falls back to its remaining sentences or its title.
       it.findings = top
-        .map(({ s }) => stripClaimTags(tidyExtractSentence(s)))
+        .map(({ s }) => stripClaimTags(tidyExtractSentence(s, abbrState)))
         .filter((s) => s && isWellFormedClaim(s))
         .map((s) => boldExtractQuantities(s));
       it.findingScores = top
@@ -10319,13 +10848,21 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         // value claim would otherwise reintroduce the value
         // lede through the replacement path.
         let briefOrder = fromBrief.map((t, i) => i);
+        if (methodPlan && fromBrief.length > 1) {
+          // Wave ten, item 11: brief claims get the same step
+          // first order as the regex sentences.
+          briefOrder = briefOrder
+            .map((i) => ({ i, step: methodStepIndex(fromBrief[i], methodPlan) >= 0 ? 0 : 1 }))
+            .sort((a, b) => (a.step - b.step) || (a.i - b.i))
+            .map((o) => o.i);
+        }
         if (measurementIntent && it.methodTier > 0 && fromBrief.length > 1) {
           briefOrder = briefOrder
             .map((i) => ({ i, proc: PROCEDURE_SENTENCE_RE.test(fromBrief[i]) }))
             .sort((a, b) => ((b.proc ? 1 : 0) - (a.proc ? 1 : 0)) || (a.i - b.i))
             .map((o) => o.i);
         }
-        it.findings = briefOrder.map((i) => boldExtractQuantities(fromBrief[i]));
+        it.findings = briefOrder.map((i) => boldExtractQuantities(expandExcerptAbbreviations(fromBrief[i], abbrState)));
         it.findingScores = briefOrder.map((i) => {
           const sc = scoreFindingSentence(fromBrief[i]);
           return measurementIntent && it.methodTier > 0 &&
@@ -10495,6 +11032,67 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         md += "\n*Note: \"" + ctx.ambiguity.term + "\" is ambiguous. It can mean " +
           interps.slice(0, 3).join(", ") +
           ". The sources below were retrieved for the question as asked.*\n";
+      }
+    }
+
+    // WAVE TEN, item 11: THE METHOD WALK. On a method plan
+    // question, the cited excerpts that carry the method's
+    // steps are presented in the plan's order, each a verbatim
+    // excerpt with its citation, consumed through takeClaim so
+    // nothing prints twice. Steps the lede already taught count
+    // as covered. When fewer than two steps are covered by any
+    // cited excerpt, the answer says so plainly instead of
+    // pretending the excerpts teach the method — the PCR
+    // probe's uncertainty and copy number excerpts are the
+    // standing specimen. The honesty gate's early returns above
+    // never reach this block: a tier that could not support a
+    // research answer makes no method claim at all.
+    if (methodPlan) {
+      const coveredByLede = new Set();
+      for (const l of leads) {
+        const si = methodStepIndex(l.text, methodPlan);
+        if (si >= 0) coveredByLede.add(si);
+      }
+      // Greedy per step assignment: steps are filled in plan
+      // order from the ranked candidates, a candidate serves
+      // one step only, and a step the lede already taught is
+      // skipped so a two step sentence stays free to cover the
+      // later step only it carries.
+      const byStep = new Map();
+      const usedCand = new Set();
+      for (let si = 0; si < methodPlan.steps.length; si++) {
+        if (coveredByLede.has(si)) continue;
+        for (const c of candidates) {
+          if (c.score < 0 || usedCand.has(c)) continue; // title claims are not excerpts
+          if (methodStepIndexes(c.text, methodPlan).includes(si)) {
+            byStep.set(si, c);
+            usedCand.add(c);
+            break;
+          }
+        }
+      }
+      const coveredCount = coveredByLede.size + byStep.size;
+      if (coveredCount >= 2) {
+        if (byStep.size > 0) {
+          md += "\n**How the method runs, in order:**\n";
+          for (const si of [...byStep.keys()].sort((a, b) => a - b)) {
+            const c = byStep.get(si);
+            const t = takeClaim(c.text);
+            if (!t) continue;
+            let s = stripClaimTags(t);
+            if (!/[.!?]$/.test(s)) s += ".";
+            md += "\n- **" + methodPlan.steps[si].label + ":** " + s + " [" + c.idx + "]";
+          }
+          md += "\n";
+        }
+        const missing = methodPlan.steps
+          .filter((st, i) => !coveredByLede.has(i) && !byStep.has(i))
+          .map((st) => st.label.toLowerCase());
+        if (missing.length > 0) {
+          md += "\nThe cited excerpts do not cover every step: no cited passage lays out " + missing.join(" or ") + ".\n";
+        }
+      } else {
+        md += "\nThe cited excerpts do not lay out the method in order: they report results and measurements around it, but no cited passage walks through its steps.\n";
       }
     }
 
@@ -10978,6 +11576,64 @@ function claimsOppose(ca, cb) {
   return NEGATION_RE.test(la) !== NEGATION_RE.test(lb);
 }
 
+/* GENUINE OPPOSITION (2026-10-14, wave ten, hardcore audit
+ * defect 7): claimsOppose alone manufactures disputes. Its bare
+ * negation rule fires whenever ONE side contains any negation,
+ * about anything: the audit's lead in water pair shipped as a
+ * disagreement because one claim said "no regulations exist for
+ * higher education settings" (a negation about regulation
+ * coverage) while the other side was a study OBJECTIVE ("To
+ * detail baseline drinking water sample lead concentrations...")
+ * that asserts no finding at all. A disagreement section, a
+ * divided verdict, and a falsification bullet were all built on
+ * that pair. Genuine opposition requires:
+ *   (i) both sides are declarative findings — a sentence that
+ *       opens as an aim, objective, or purpose statement ("To
+ *       detail...", "This study aimed...", "The objective of...")
+ *       asserts nothing and can oppose nothing;
+ *   (ii) the opposition is ANCHORED on the same dimension: a
+ *       direction word flipped across the pair (increased vs
+ *       decreased), or a negation difference where BOTH sides
+ *       use a direction word they share (improved vs did not
+ *       improve). A lone negation about an unrelated proposition
+ *       is not opposition.
+ * Every conflict consumer (the extractive builder's disagreement
+ * section, the handler's verdict and literature_conflicts, the
+ * confidence divided cap, the falsification bullets) reads the
+ * detectors below, so the gate lives in the detectors, not in
+ * any one rendering. opts.topicEstablished skips the lexical
+ * topic check for the semantic detector, whose topic evidence
+ * is embedding similarity rather than shared words. */
+const CLAIM_AIM_RE = /^\s*(?:to\s+\w|this study\s+(?:aims|aimed|seeks|sought|was designed)|the\s+(?:aim|objective|purpose)\s+of|we\s+(?:aim|aimed|seek|sought|set out)\b|objectives?\s+(?:of|were|was)\b)/i;
+export function claimIsAimStatement(text) {
+  return CLAIM_AIM_RE.test(String(text || ""));
+}
+function claimDirectionStems(text) {
+  const low = " " + String(text || "").toLowerCase() + " ";
+  const found = new Set();
+  for (const [x, y] of DIRECTION_OPPOSITES) {
+    if (low.includes(x)) found.add(x);
+    if (low.includes(y)) found.add(y);
+  }
+  return found;
+}
+export function claimsGenuinelyOppose(ca, cb, opts = {}) {
+  const a = String(ca || "");
+  const b = String(cb || "");
+  if (!a || !b) return false;
+  if (claimIsAimStatement(a) || claimIsAimStatement(b)) return false;
+  if (!opts.topicEstablished && !claimsShareTopic(a, b)) return false;
+  const da = claimDirectionStems(a);
+  const db = claimDirectionStems(b);
+  for (const [x, y] of DIRECTION_OPPOSITES) {
+    if ((da.has(x) && db.has(y)) || (da.has(y) && db.has(x))) return true;
+  }
+  if (NEGATION_RE.test(a) !== NEGATION_RE.test(b)) {
+    for (const w of da) if (db.has(w)) return true;
+  }
+  return false;
+}
+
 // ── Per-paper claim extraction (deterministic) ────────────────────
 /* Sentence-integrity gate for extractive claims (2026-09-15 incident).
  *
@@ -11258,7 +11914,7 @@ export async function detectSemanticConflicts(papers, env, existingConflicts = [
         let found = null;
         for (const ca of claimsA) {
           for (const cb of claimsB) {
-            if (claimsOppose(ca, cb)) { found = { ca, cb }; break; }
+            if (claimsGenuinelyOppose(ca, cb, { topicEstablished: true })) { found = { ca, cb }; break; }
           }
           if (found) break;
         }
@@ -11300,7 +11956,7 @@ export function detectSourceConflicts(papers, briefClaims = null) {
       const ia = items[a], ib = items[b];
       for (const ca of ia.claims) {
         for (const cb of ib.claims) {
-          if (!claimsShareTopic(ca, cb) || !claimsOppose(ca, cb)) continue;
+          if (!claimsShareTopic(ca, cb) || !claimsGenuinelyOppose(ca, cb)) continue;
           // Near copies of one claim are agreement restated, not
           // a dispute (Job 3b): the pair never forms.
           if (claimsNearDuplicates(ca, cb)) continue;
@@ -11898,7 +12554,13 @@ function confidenceWordRank(word) {
 
 const CONFIDENCE_ASSERTION_RES = [
   /\bconfidence\b[^.!?\n]{0,60}?\b(?:is|was|remains|sits at|stands at|runs|rates?)\b[^.!?\n]{0,40}?\b(absolute|exceptionally high|very high|high|strong|moderate|medium|low|thin|limited|weak)\b/i,
-  /\b(absolute|exceptionally high|very high|high|moderate|medium|low)\s+confidence\b/i,
+  /\b(absolute|exceptionally high|very high|high|strong|moderate|medium|low)\s+(?:level\s+of\s+)?confidence\b/i,
+  // Wave ten (2026-10-14, hardcore audit defect 6): the reversed
+  // order the audit specimen used — "indicating a high level of
+  // confidence" names the strength AFTER the noun with a level
+  // phrase between, which both patterns above missed, so the
+  // sentence ranked -1 and shipped beside a thin object.
+  /\bconfidence\b[^.!?\n]{0,30}?\b(very high|high|strong|moderate|medium)\b/i,
   /\bcertainty\b[^.!?\n]{0,40}?\b(absolute|total|complete)\b/i,
 ];
 
@@ -11989,15 +12651,23 @@ export function bindProseConfidenceToLevel(answer, level, line) {
   const out = [];
   for (const block of blocks) {
     if (block.heading && CONFIDENCE_HEADING_RE.test(block.headingText || "")) {
-      const body = block.lines.join("\n");
-      const sentences = splitBodySentences(body.replace(/\n/g, " "));
-      const overclaims = sentences.some((s) => confidenceAssertionRank(s) > levelRank);
-      if (overclaims) {
-        out.push({ heading: block.heading, lines: [line] });
-        changed = true;
-        continue;
-      }
-      out.push(block);
+      // WAVE TEN (2026-10-14, hardcore audit defect 6): the
+      // solidity section IS the confidence object rendered as
+      // prose, so it derives from the object unconditionally.
+      // The old branch replaced the body only when it recognised
+      // an overclaiming sentence, and the audit's clean run
+      // walked straight past the recogniser: "supported by
+      // multiple biochemical and structural studies, including
+      // high resolution crystal structures" carries no ranked
+      // assertion word, and "a high level of confidence" matched
+      // no pattern (both fixed in the pattern family above) — so
+      // prose claiming high confidence shipped in the same
+      // response whose object said thin with claim check 0 of 1.
+      // A headed confidence section now always renders the
+      // computed line and nothing else; the sentence level
+      // binding below still governs assertions outside it.
+      out.push({ heading: block.heading, lines: [line] });
+      changed = true;
       continue;
     }
     const newLines = [];
@@ -12085,6 +12755,48 @@ export function bindBakedConfidenceLine(answer, level, line) {
     return text.slice(0, m.index) + marker + lead + bound + text.slice(m.index + m[0].length);
   }
   return text;
+}
+
+/* REPEATED SENTENCE PASS (2026-10-14, wave ten, hardcore audit
+ * defect 10): the extractive confidence paragraph duplicated its
+ * own cap sentence in 5 of 12 audit probes. The mechanism: the
+ * builder bakes "Confidence is capped because the answer was
+ * assembled from source excerpts." into the paragraph; the ship
+ * gate then replaces the paragraph's first sentence with the
+ * recomputed line, whose own cap clause CONTAINS that sentence
+ * as a substring ("...assembled from source excerpts and part of
+ * the answer pipeline degraded and..."), and the baked sentence
+ * survives beside it because deduplicateContent only runs on the
+ * AI path and only drops exact duplicates. This pass runs on
+ * every shipped body at the run last point: per paragraph, a
+ * sentence (25 chars or longer, normalised) that exactly repeats
+ * an earlier sentence in the same paragraph, or is CONTAINED in
+ * one, is dropped. First occurrence wins; a paragraph is never
+ * emptied; short lines (bullets, labels, headings) are untouched
+ * because the pass only rewrites paragraphs it actually changed
+ * and splits them on sentence boundaries only when they read as
+ * prose (no leading bullet or heading marker). */
+export function dedupeRepeatedSentences(text) {
+  const src = String(text || "");
+  if (!src) return src;
+  const norm = (s) => s.toLowerCase().replace(/\*\*/g, "").replace(/\s+/g, " ").trim();
+  return src.split(/\n{2,}/).map((para) => {
+    const flat = para.replace(/\n/g, " ").trim();
+    if (!flat || flat.startsWith("#") || flat.startsWith("- ") || flat.startsWith("*")) return para;
+    const sentences = splitBodySentences(flat);
+    if (sentences.length < 2) return para;
+    const seen = [];
+    const out = [];
+    let dropped = false;
+    for (const s of sentences) {
+      const n = norm(s);
+      if (n.length >= 25 && seen.some((p) => p === n || p.includes(n))) { dropped = true; continue; }
+      seen.push(n);
+      out.push(s);
+    }
+    if (!dropped || out.length === 0) return para;
+    return out.join(" ");
+  }).join("\n\n");
 }
 
 // ── Both concepts gate (2026-10-13, wave two) ────────────────────
@@ -13134,6 +13846,25 @@ export function paperClearsCitationGate(paper, standard) {
   return paperSharesCentralTerm(paper, std.centralTerms || []);
 }
 
+/* paperClearsLegacyStandard(paper, query, dynLookup): the
+ * PRE WAVE EIGHT admission standard — the group accounting
+ * that stands below the topicality branch in
+ * paperClearsCitationGate (subject touch or two group hits;
+ * one group, one hit; no groups, a shared central term), judged
+ * WITHOUT the central concepts topicality layer. Wave ten's
+ * gate audit (items 1 and 2) uses it as the comparison
+ * standard: when the current standard admits nothing from a
+ * healthy gathered pool but this one admits papers at the
+ * relevance floor, the strict standard — not retrieval — is
+ * what emptied the run, and the handler ships a limited answer
+ * over the comparison set instead of a false no evidence
+ * state. It never loosens anything on its own: it runs only
+ * inside that audit, on a zero citable outcome. */
+export function paperClearsLegacyStandard(paper, query, dynLookup) {
+  const std = citationGateStandard(query, dynLookup);
+  return paperClearsCitationGate(paper, { ...std, centralConcepts: null, mechanismShape: false });
+}
+
 export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
   const text = String(answer || "");
   const list = Array.isArray(papers) ? papers : [];
@@ -14171,7 +14902,29 @@ function recordFunnelOf(raw, diag, sourceCount) {
   const excludedWeakTitles = Array.isArray(f.excludedWeakTitles)
     ? f.excludedWeakTitles.filter((t) => typeof t === "string" && t).slice(0, 5).map((t) => t.slice(0, 120))
     : [];
-  return { gathered, deduped, excludedWeak, excludedWeakTitles, excludedNonEnglish, excludedRetracted: n(f.excludedRetracted), cited };
+  // WAVE TEN (parent order, from the wave nine live probes):
+  // the foundational lane's outcome rides the funnel so a live
+  // verification can see whether the lane fired, what it
+  // searched, and how much it brought in. Before this the lane
+  // ran invisibly: the wave nine CRISPR probe could not
+  // confirm it fired at all. The title rescue (item 3) rides
+  // the same way.
+  const foundationalLane = diag && diag.foundationalLane && typeof diag.foundationalLane === "object"
+    ? {
+        fired: true,
+        query: typeof diag.foundationalLane.query === "string" ? diag.foundationalLane.query.slice(0, 200) : null,
+        shape: typeof diag.foundationalLane.shape === "string" ? diag.foundationalLane.shape : null,
+        admitted: typeof diag.foundationalLane.count === "number" ? n(diag.foundationalLane.count) : null,
+      }
+    : null;
+  const titleRescued = diag && diag.titleRescued && typeof diag.titleRescued.admitted === "number"
+    ? n(diag.titleRescued.admitted) : null;
+  return {
+    gathered, deduped, excludedWeak, excludedWeakTitles, excludedNonEnglish,
+    excludedRetracted: n(f.excludedRetracted), cited,
+    ...(foundationalLane ? { foundationalLane } : {}),
+    ...(titleRescued ? { titleRescued } : {}),
+  };
 }
 
 /* The author string for a record entry, in the shape the response's
@@ -14637,6 +15390,53 @@ export function buildSearchRecord(input) {
       && /^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/.test(input.recordId)
       ? input.recordId : null;
 
+    // Wave ten (item 10): the minimum cited support outcome,
+    // normalized additively like every other late field. When
+    // the handler ran no retry (the answer cited 2 or more, or
+    // the shape was out of scope), a derived label still marks
+    // a single source outcome, so the record never hides one.
+    let recordMinSupport = null;
+    try {
+      const ms = input.minSupport;
+      if (ms && typeof ms === "object") {
+        recordMinSupport = {
+          citedBefore: typeof ms.citedBefore === "number" ? ms.citedBefore : null,
+          retried: !!ms.retried,
+          retryModel: typeof ms.retryModel === "string" ? ms.retryModel : null,
+          citedAfter: typeof ms.citedAfter === "number" ? ms.citedAfter : null,
+          singleSource: !!ms.singleSource,
+          reason: typeof ms.reason === "string" ? ms.reason : null,
+        };
+      } else if (recordFunnel && recordFunnel.cited === 1) {
+        recordMinSupport = { citedBefore: 1, retried: false, retryModel: null, citedAfter: 1, singleSource: true, reason: "not-eligible" };
+      }
+    } catch { recordMinSupport = null; }
+
+    // Wave ten (items 1 and 2): the gate audit, present only
+    // when the citation layer emptied (or nearly emptied) a
+    // gathered pool: the top excluded papers with their
+    // exclusion reasons under both admission standards, and
+    // whether the run shipped a limited answer instead of the
+    // no evidence state.
+    let recordGateAudit = null;
+    try {
+      const ga = input.gateAudit;
+      if (ga && typeof ga === "object" && Array.isArray(ga.excluded)) {
+        recordGateAudit = {
+          gathered: typeof ga.gathered === "number" ? ga.gathered : null,
+          citableBefore: typeof ga.citableBefore === "number" ? ga.citableBefore : null,
+          comparisonAdmitted: typeof ga.comparisonAdmitted === "number" ? ga.comparisonAdmitted : null,
+          shippedLimited: !!ga.shippedLimited,
+          excluded: ga.excluded.slice(0, 8).map((e) => ({
+            title: String((e && e.title) || "").slice(0, 300),
+            standard: typeof (e && e.standard) === "boolean" ? e.standard : null,
+            legacy: typeof (e && e.legacy) === "boolean" ? e.legacy : null,
+            reasons: Array.isArray(e && e.reasons) ? e.reasons.slice(0, 4).map((r) => String(r).slice(0, 120)) : [],
+          })),
+        };
+      }
+    } catch { recordGateAudit = null; }
+
     return {
       // Version 2 (2026-10-13): sources carry authors and journal,
       // and the record carries the executed query set. Consumers read
@@ -14660,6 +15460,8 @@ export function buildSearchRecord(input) {
       degraded: recordDegraded,
       failedStages,
       sources: recordSources,
+      ...(recordMinSupport ? { minSupport: recordMinSupport } : {}),
+      ...(recordGateAudit ? { gateAudit: recordGateAudit } : {}),
     };
   } catch {
     return null;
@@ -14891,6 +15693,10 @@ export function buildCachedServeTrust(input) {
     try {
       servedAnswer = bindBakedConfidenceLine(answer, confidence.level, confidence.line);
     } catch { /* the binding must never break the answer */ }
+    // Wave ten: cached serves cross the same repeated sentence
+    // pass as fresh ones (the cache binder has the same span
+    // shape and the same duplication exposure).
+    try { servedAnswer = dedupeRepeatedSentences(servedAnswer); } catch { /* never break the serve */ }
   }
   const coverage = buildCoverage({
     funnel: input && input.funnel ? input.funnel : null,
@@ -14948,41 +15754,107 @@ export function retrievalStrategiesTried(diag) {
 //   2. Rephrase: swap a term for the literature's synonym (CONCEPT_LOOKUP).
 //   3. Split: a multi-part question becomes its first self-contained part.
 // MeSH/plain-language synonyms fill any remaining slots.
+/* WAVE TEN (2026-10-14, hardcore audit defects 9 and 10): the
+ * rephrase generator built its suggestions from the CLEANED
+ * keyword bag — the question's own auxiliary frame stripped as
+ * stopwords — and then dropped the longest word from the bag.
+ * What shipped were fragments no one could ask: "yogurt your
+ * gut" (drop "eating" from the bag of "does eating yogurt
+ * actually help your gut"), "bad your kidneys" (drop the
+ * SUBJECT, creatine), "live longer", "color farmers hat eggs
+ * lay". Two rules now govern every suggestion, at the single
+ * push() choke point every arm flows through:
+ *   1. Suggestions are built from the ORIGINAL question text,
+ *      never from the cleaned bag, so the auxiliary frame that
+ *      makes them questions survives.
+ *   2. A suggestion ships only if it is a usable question: at
+ *      least four words, opening on a question word, carrying a
+ *      verb, and not ending on a dangling function word.
+ * The broaden arm additionally never drops the question's
+ * subject (its first content word that is not a gerund opener):
+ * dropping a hedge or a secondary detail broadens a question,
+ * dropping its subject destroys it. When no arm can produce a
+ * usable question the list is simply shorter, or empty — a
+ * missing suggestion is honest, a fragment is not. */
+const REFORM_QUESTION_START_RE = /^(does|do|did|is|are|was|were|can|could|should|will|would|why|how|what|which|who|when|where)\b/i;
+const REFORM_QUESTION_VERB_RE = /\b(does|do|did|is|are|was|were|can|could|will|would|help|helps|make|makes|affect|affects|cause|causes|change|changes|work|works|live|lives|happen|happens|cut|cuts|find|finds|keep|keeps|eat|eats|grow|grows|show|shows|mean|means|harm|harms|prevent|prevents|reduce|reduces|increase|increases|form|forms|dry|dries|crack|cracks|lay|lays|get|gets|give|gives|take|takes|lead|leads|seem|seems|look|looks|sound|sounds|feel|feels|become|becomes|remain|remains|exist|exists|occur|occurs|differ|differs|matter|matters|count|counts)\b/i;
+const REFORM_DANGLING_END = new Set(["your", "the", "a", "an", "for", "to", "of", "in", "on", "as", "it", "their", "its", "this", "that", "with", "from", "by", "into", "over"]);
+export function isUsableReformulation(text) {
+  const t = String(text || "").trim().replace(/[?]+$/, "").trim();
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length < 4) return false;
+  if (!REFORM_QUESTION_START_RE.test(t)) return false;
+  if (!REFORM_QUESTION_VERB_RE.test(t)) return false;
+  if (REFORM_DANGLING_END.has(words[words.length - 1].toLowerCase())) return false;
+  return true;
+}
 export function deriveReformulations(query) {
   const out = [];
   const seen = new Set();
   const q = String(query || "").trim();
   if (!q) return out;
   const push = (label, text) => {
-    text = String(text || "").trim().replace(/\s+/g, " ");
+    text = String(text || "").trim().replace(/\s+/g, " ").replace(/[?]+$/, "").trim();
     if (!text || text.length < 4 || text.length > 140) return;
+    if (!isUsableReformulation(text)) return;
     const k = text.toLowerCase();
-    if (k === q.toLowerCase() || seen.has(k)) return;
+    if (k === q.replace(/[?]+$/, "").trim().toLowerCase() || seen.has(k)) return;
     seen.add(k);
-    out.push({ label, query: text });
+    out.push({ label, query: text + "?" });
   };
-  let words = [];
-  // Surface terms only (wave seven): reformulations are user
-  // facing, and the lemmatized cleanQuery minted stems in them
-  // ("flie", "rais"). See cleanSurfaceQuery.
-  try { words = cleanSurfaceQuery(q).split(/\s+/).filter(Boolean); } catch { words = q.split(/\s+/).filter(Boolean); }
-  const content = words.filter((w) => w.length > 3 && !EXTRACT_STOPWORDS.has(w.toLowerCase()));
-  if (content.length >= 3) {
-    const drop = [...content].sort((a, b) => b.length - a.length)[0];
-    push(
-      "Broaden it: drop the most specific term",
-      words.filter((w) => w.toLowerCase() !== drop.toLowerCase()).join(" ")
-    );
+  const origWords = q.replace(/[?]+$/, "").split(/\s+/).filter(Boolean);
+  const contentIdx = [];
+  origWords.forEach((w, i) => {
+    const lw = w.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (lw.length > 3 && !EXTRACT_STOPWORDS.has(lw)) contentIdx.push(i);
+  });
+  const content = contentIdx.map((i) => origWords[i]);
+  // The subject: the first content word that is not a gerund
+  // opener ("eating" opens the yogurt question; yogurt is its
+  // subject).
+  let subjectIdx = -1;
+  for (const i of contentIdx) {
+    const lw = origWords[i].toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!GERUND_OPENER_WORDS.has(lw)) { subjectIdx = i; break; }
   }
-  for (const w of content.slice(0, 4)) {
-    const group = CONCEPT_LOOKUP.get(w.toLowerCase());
+  if (subjectIdx < 0 && contentIdx.length > 0) subjectIdx = contentIdx[0];
+  // Broaden: drop the longest NON SUBJECT content word.
+  // Wave ten: try each droppable word, longest first, until
+  // one candidate passes the usability gate — dropping the
+  // longest can strand a dangling function word ("is creatine
+  // bad for your?") and the single attempt then yielded no
+  // suggestion at all, while dropping the next word ("is
+  // creatine bad for kidneys") is a grammatical question.
+  const droppable = contentIdx.filter((i) => i !== subjectIdx);
+  if (content.length >= 3 && droppable.length > 0) {
+    const byLength = droppable.slice().sort((a, b) => origWords[b].length - origWords[a].length);
+    const before = out.length;
+    for (const dropIdx of byLength) {
+      push(
+        "Broaden it: drop the most specific term",
+        origWords.filter((_, i) => i !== dropIdx).join(" ")
+      );
+      if (out.length > before) break;
+    }
+  }
+  // Literature's wording: swap one content word for its concept
+  // group's alternate, inside the ORIGINAL question text.
+  for (const i of contentIdx.slice(0, 4)) {
+    const w = origWords[i].toLowerCase().replace(/[^a-z0-9]/g, "");
+    const group = CONCEPT_LOOKUP.get(w);
     if (group) {
-      const alt = [...group].find((g) => g.toLowerCase() !== w.toLowerCase() && g.length > 3);
+      const alt = [...group].find((g) => g.toLowerCase() !== w && g.length > 3 && !/\s/.test(g));
       if (alt) {
-        push("Try the literature's wording", words.map((x) => (x.toLowerCase() === w.toLowerCase() ? alt : x)).join(" "));
+        push("Try the literature's wording", origWords.map((x, xi) => (xi === i ? alt : x)).join(" "));
         break;
       }
     }
+  }
+  // Why and how swap: the same question asked the other way.
+  const swap = q.replace(/[?]+$/, "").match(/^(why|how)\s+(does|do|did|is|are|can|could)\b/i);
+  if (swap) {
+    const other = swap[1].toLowerCase() === "why" ? "How" : "Why";
+    push("Ask it the other way", other + q.replace(/[?]+$/, "").slice(swap[1].length));
   }
   const parts = q.split(/\s+and\s+|\s+vs\.?\s+|[?;]/i).map((s) => s.trim()).filter((s) => s.length > 10);
   if (parts.length >= 2) push("Ask one thing at a time", parts[0]);
@@ -15367,7 +16239,15 @@ export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gated
   if (errored) {
     likelyReasons.push("Part of the pipeline itself failed on this run . retrying may succeed where this attempt didn't.");
   }
-  likelyReasons.push("The finding may be too new to be indexed yet, or reported only in preprints and theses.");
+  // WAVE TEN (item 2): "too new to be indexed" is a claim about
+  // RETRIEVAL emptiness. When the run gathered candidate papers
+  // (gatedOut > 0) the finding was indexed and found — the
+  // citation standard is what withheld it — so the boilerplate
+  // is false on that path and never ships there. It remains for
+  // the genuinely empty retrieval it describes.
+  if (!(gatedOut > 0)) {
+    likelyReasons.push("The finding may be too new to be indexed yet, or reported only in preprints and theses.");
+  }
   likelyReasons.push("A terminology mismatch . the field may call this something else (see the rephrasings below).");
 
   return {
@@ -15398,6 +16278,25 @@ export function renderNoResultsAnswer(query, payload) {
 // A bibliography entry the answer never cites must not read as support.
 // Label it plainly as further reading instead of silently implying it
 // backs a claim.
+/* distinctCitedCount(answer, maxIndex): how many DISTINCT
+ * numbered sources an answer cites, counting only indices that
+ * exist on the shipped shelf (wave ten, item 10). Drives the
+ * minimum cited support rule, the cache write's clean answer
+ * test, and the cached fallback's fullness test, so the count
+ * means the same thing at all three sites. */
+export function distinctCitedCount(answer, maxIndex) {
+  const text = String(answer || "");
+  const max = Math.max(0, Math.floor(Number(maxIndex) || 0));
+  const seen = new Set();
+  const re = /\[(\d+)\]/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const n = parseInt(m[1], 10);
+    if (n >= 1 && n <= max) seen.add(n);
+  }
+  return seen.size;
+}
+
 export function labelUncitedSources(sources, answer) {
   const cited = new Set();
   const re = /\[(\d+)\]/g;
@@ -15451,6 +16350,28 @@ export function labelUncitedSources(sources, answer) {
 // 12 and bounds the fullest shipped list at 22 entries, which
 // covers the ranks the cut most often strands (13 to 22).
 export const FURTHER_READING_TAIL_CAP = 10;
+/* paperTitleEngagesConcepts(paper, query, dynLookup) (wave
+ * ten, brief item 4): presented list hygiene at the citation
+ * standard. A paper whose TITLE engages none of the question's
+ * central concepts has no business in the user facing source
+ * list in any position — not cited, not further reading. The
+ * audit's specimens: a Rohingya bioethics paper on a lead
+ * testing question, OLED and theatre papers on why the sky is
+ * blue, an enhancer lncRNA paper on the CRISPR question. The
+ * relevance floor alone admitted all of them. Fails open when
+ * the question resolves no central concepts (nothing to judge
+ * with) and on its own errors. */
+export function paperTitleEngagesConcepts(paper, query, dynLookup) {
+  try {
+    const concepts = questionCentralConcepts(query, dynLookup);
+    if (!Array.isArray(concepts) || concepts.length === 0) return true;
+    const titleOnly = { ...(paper || {}), abstract: "", snippet: "" };
+    return centralConceptHits(titleOnly, concepts).inTitle >= 1;
+  } catch {
+    return true;
+  }
+}
+
 export function buildFurtherReadingTail(shelf, evidence) {
   if (!Array.isArray(shelf) || shelf.length === 0) return [];
   const evidenceKeys = new Set();
@@ -15842,7 +16763,7 @@ export function extractLiteratureConflicts(answer, sources) {
         const claimA = cleanMinedClaimText(halves[0].replace(/\[\d+\]/g, "").replace(/[,;]\s*$/, ""));
         const claimB = cleanMinedClaimText(halves[1].replace(/\[\d+\]/g, "").replace(/^\s*,?\s*/, "").replace(/\.\s*$/, ""));
         if (!claimA || !claimB) continue;
-        if (!claimsShareTopic(claimA, claimB) || !claimsOppose(claimA, claimB)) continue;
+        if (!claimsShareTopic(claimA, claimB) || !claimsGenuinelyOppose(claimA, claimB)) continue;
         conflicts.push({
           claimA,
           claimB,
@@ -17901,11 +18822,25 @@ async function gatherPapersBody(rawQuery, opts) {
      * A source that errored in every attempt has ok:false. */
     if (!diag.sourceTotals) diag.sourceTotals = new Map();
     for (const o of perSource) {
-      const prev = diag.sourceTotals.get(o.source) || { source: o.source, ok: false, count: 0, attempts: 0 };
+      // WAVE TEN (2026-10-14, hardcore audit defect 8, brief
+      // item 14): openAlexCommon is an extra QUERY on the
+      // openAlex slot, not a fifteenth database — but keyed by
+      // its pair name here it became a fifteenth entry in
+      // sourceOutcomes, and publicSourcesQueried maps those
+      // verbatim into the response, so sourcesQueried flipped
+      // between 14 and 15 across runs of the same hour depending
+      // on whether the bare common terms rung fired (measured
+      // live on the wave nine build: two of three probes at 15).
+      // The totals fold it into openAlex (counts summed, ok
+      // ORed), so the public per database record always carries
+      // exactly the canonical sources. Per rung perSource detail
+      // above keeps the raw slot name for diagnostics.
+      const key = o.source === "openAlexCommon" ? "openAlex" : o.source;
+      const prev = diag.sourceTotals.get(key) || { source: key, ok: false, count: 0, attempts: 0 };
       prev.ok = prev.ok || o.status === "fulfilled";
       prev.count += o.count;
       prev.attempts += 1;
-      diag.sourceTotals.set(o.source, prev);
+      diag.sourceTotals.set(key, prev);
     }
     diag.sourceOutcomes = [...diag.sourceTotals.values()];
     /* The Dive: report real per-database progress for the loading
@@ -18324,7 +19259,12 @@ async function gatherPapersBody(rawQuery, opts) {
   // ═══════════════════════════════════════════════════════════════
   const mechanismShape = isMechanismShapeQuery(rawQuery);
   const methodShape = detectMeasurementIntent(rawQuery);
-  if (mechanismShape || methodShape) {
+  // Wave ten (item 5): famous health questions get the lane
+  // too, with the vocabulary of the designs that answer them,
+  // so cohort studies and systematic reviews are in the pool
+  // before the clause fanout spends on commentary.
+  const healthShape = isFamousHealthShapeQuery(rawQuery);
+  if (mechanismShape || methodShape || healthShape) {
     const laneCoreTerms = [];
     const laneSeen = new Set();
     const lanePush = (term) => {
@@ -18336,7 +19276,9 @@ async function gatherPapersBody(rawQuery, opts) {
     for (const t of ranked.slice(0, 3)) lanePush(t);
     const laneVocabulary = mechanismShape
       ? ["mechanism", "cleavage", "structure", "guide"]
-      : ["assay", "determination", "measurement", "method"];
+      : healthShape
+        ? ["systematic review", "meta-analysis", "cohort"]
+        : ["assay", "determination", "measurement", "method"];
     const laneQuery = [...laneCoreTerms, ...laneVocabulary].join(" ").trim();
     if (laneQuery) {
       const totalBeforeLane = results.reduce(
@@ -18370,7 +19312,7 @@ async function gatherPapersBody(rawQuery, opts) {
         results = results.concat(laneResults);
         diag.foundationalLane = {
           query: laneQuery,
-          shape: mechanismShape ? "mechanism" : "method",
+          shape: mechanismShape ? "mechanism" : healthShape ? "health" : "method",
           count: laneResults.reduce(
             (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0),
         };
@@ -19396,6 +20338,60 @@ async function gatherPapersBody(rawQuery, opts) {
       diag.floorRelaxed = { admitted: admitted.length, minimum: SHELF_FLOOR_MINIMUM };
     }
   }
+  // TITLE STRONG SHELF RESCUE (2026-10-14, wave ten, brief
+  // item 3): the shelf cut is a score sort, and quality signals
+  // (recency, citation rate, journal tier) can push a paper
+  // whose TITLE engages the question's central concepts —
+  // subject included — below the cut while papers whose titles
+  // engage nothing ride their quality score onto the shelf.
+  // The hardcore audit's CRISPR funnel is the specimen: "After
+  // the CRISPR-Cas9 cut: Predicting generated mutations" and
+  // "Check twice, cut once" died in excludedWeak while an
+  // enhancer lncRNA paper with zero title engagement shipped
+  // in the presented list. The rescue: a gathered paper whose
+  // title engages at least two central concepts (or the
+  // subject concept plus one more) displaces the shelf's
+  // lowest scoring zero title engagement paper, up to three
+  // rescues. It never grows the shelf past its limit, never
+  // touches a shelf paper that engages anything in its title,
+  // and changes nothing downstream: the relevance floor and
+  // the citation gate judge the rescued paper exactly like
+  // any other shelf member.
+  try {
+    if (scorerCentralConcepts.length >= 2 && scoredAllCapture.length > finalScored.length) {
+      const shelfKeys = new Set();
+      for (const p of finalScored) for (const k of paperDedupeKeys(p)) shelfKeys.add(k);
+      const strong = scoredAllCapture
+        .filter((p) => p && p.title && !paperDedupeKeys(p).some((k) => shelfKeys.has(k)))
+        .filter((p) => titlePassesLanguageScreen(p.title || ""))
+        .filter((p) => String(p.abstract || "").trim().length > 0)
+        .map((p) => ({ p, hits: centralConceptHits(p, scorerCentralConcepts) }))
+        .filter((x) => x.hits.inTitle >= 2 || (x.hits.subjectInTitle && x.hits.inTitle >= 1 && x.hits.total >= 2))
+        .sort((a, b) => ((b.p.score || 0) - (a.p.score || 0)))
+        .slice(0, 3);
+      let rescued = 0;
+      for (const { p } of strong) {
+        let worstIdx = -1;
+        let worstScore = Infinity;
+        finalScored.forEach((s, i) => {
+          try {
+            if (centralConceptHits(s, scorerCentralConcepts).inTitle === 0 && (s.score || 0) < worstScore) {
+              worstScore = s.score || 0;
+              worstIdx = i;
+            }
+          } catch { /* one bad shelf entry never blocks the rescue */ }
+        });
+        if (worstIdx >= 0) {
+          finalScored[worstIdx] = { ...p, titleRescued: true };
+          rescued++;
+        } else if (finalScored.length < limit) {
+          finalScored.push({ ...p, titleRescued: true });
+          rescued++;
+        }
+      }
+      if (rescued > 0) diag.titleRescued = { admitted: rescued };
+    }
+  } catch { /* the rescue must never break retrieval */ }
   const scoredFinal = finalScored;
   funnel.ranked = scoredFinal.length;
   // AUDITABILITY (2026-10-14, sixth panel, wave seven, Job 3):
@@ -20832,7 +21828,12 @@ async function runSearchPipeline(pctx) {
     // Query intelligence ("qi1") and the paper learning key keep
     // their versions: neither stores answers, so neither depends
     // on depth.
-    const answerKeyVersion = "v9-" + answerLength;
+    // WAVE TEN (2026-10-14, item 10): the answer key version IS
+    // the cache schema version, so a wave that changes answer
+    // shapes actually retires the rows cached under the old
+    // contract. Before this the key was a hardcoded "v9-" string
+    // and every dated bump in the chain above retired nothing.
+    const answerKeyVersion = CACHE_SCHEMA_VERSION + "-" + answerLength;
     // Commit 83 . the instrument's operations. See MODE_STRUCTURES.
     // Anything unrecognized falls back to the default synthesis, so an old
     // client or a hand-rolled request behaves exactly as before.
@@ -22163,10 +23164,18 @@ async function runSearchPipeline(pctx) {
       if (_cqa && _cqa.constraints && _cqa.constraints.length > 0 && !_cqa.isNameSearch && !isFollowupMode) {
         // 2026-10-12: OR semantics - paper must match at least one concept.
         // The old AND logic (must match all) killed multi-concept queries.
-        papers = papers.filter((pp) => {
+        const constraintKept = papers.filter((pp) => {
           const v = verifyPaperConstraints(pp, _cqa);
           return v.verdict === "on-topic" || v.verdict === "partial";
         });
+        // WAVE TEN (items 1 and 3): the never zero rule the
+        // programmatic passes already live by. A constraint no
+        // gathered paper satisfies is a defective constraint
+        // (the "eating your" specimen: a verb plus possessive
+        // no paper can contain), not evidence the pool is off
+        // topic — a filter that empties the whole shelf stands
+        // down rather than manufacturing a zero source run.
+        if (constraintKept.length > 0) papers = constraintKept;
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js constraint filter:", cbErr); }
 
@@ -22235,6 +23244,9 @@ async function runSearchPipeline(pctx) {
     // primaries (see orderShelfForMechanism); a question can
     // carry both shapes, and neither suppresses the other.
     const mechanismShape = !isNameSearch && !isFollowupMode && isMechanismShapeQuery(query);
+    // Wave ten (item 5): the famous health shape, for the
+    // evidence ordering below.
+    const healthShape = !isNameSearch && !isFollowupMode && isFamousHealthShapeQuery(query);
 
     // The citation gate. Every paper that reaches the answer must clear
     // RELEVANCE_FLOOR (50) . below it a score is carried by passing keyword
@@ -22277,6 +23289,10 @@ async function runSearchPipeline(pctx) {
     // from both gates themselves.
     let serveGateNoEvidence = false;
     let citablePapers = [];
+    // Wave ten (items 1 and 2): the gate audit object, filled
+    // when the citation layer empties (or nearly empties) a
+    // gathered pool; carried into the search record.
+    let gateAudit = null;
     if (!isNameSearch && !isFollowupMode && papers.length > 0) {
       try {
         const gateCtx = conceptGateContext(papers, query, _dynForValidation);
@@ -22288,6 +23304,115 @@ async function runSearchPipeline(pctx) {
         citablePapers = applyRelevanceGate(papers);
         serveGateNoEvidence = false;
       }
+    }
+    // ════════════════════════════════════════════════════════════
+    // GATE AUDIT + COMPARISON ADMISSION (2026-10-14, wave ten,
+    // brief items 1 and 2). The hardcore audit's headline defect:
+    // healthy retrieval pools (66 gathered on the PCR question,
+    // 58 on the yogurt question, budget a third unspent) emptied
+    // at the citation layer into "no citable literature" answers,
+    // while the record could not even say WHICH papers were
+    // excluded or why. The rule now: the no evidence state must
+    // prove emptiness at RETRIEVAL. When the citable set is
+    // empty — or a single paper against a large gathered pool —
+    // the audit runs before any no evidence copy can ship:
+    //   1. every shelf paper is judged under BOTH standards
+    //      (the current topicality standard and the pre wave
+    //      eight legacy standard, paperClearsLegacyStandard),
+    //      with its exclusion reasons named;
+    //   2. the top exclusions ride the search record
+    //      (gateAudit), so the outcome is auditable, not a
+    //      black box;
+    //   3. when the gathered pool is substantial and the legacy
+    //      standard admits papers at the relevance floor, the
+    //      run ships a LIMITED answer over the comparison set
+    //      (union with whatever the strict standard admitted)
+    //      instead of the false empty state. The strict standard
+    //      judged first and its verdict stands in the record;
+    //      the comparison is the standard this product shipped
+    //      for months, not an invention, and the admission is
+    //      labeled shippedLimited wherever it is reported.
+    // When retrieval genuinely gathered near zero, or the
+    // legacy standard also admits nothing, the honest no
+    // evidence state fires exactly as before.
+    if (!isNameSearch && !isFollowupMode && papers.length > 0 &&
+        (citablePapers.length === 0 || citablePapers.length === 1)) {
+      try {
+        const funnelNow = (gResult && gResult._diag && gResult._diag.funnel) || null;
+        const gatheredCount = funnelNow && typeof funnelNow.gathered === "number"
+          ? funnelNow.gathered : papers.length;
+        if (citablePapers.length === 0 || gatheredCount >= 20) {
+          const stdNow = citationGateStandard(query, _dynForValidation);
+          const rows = papers.map((p, i) => {
+            const rel = paperRelevance(p);
+            const std = paperClearsCitationGate(p, stdNow);
+            const legacy = paperClearsLegacyStandard(p, query, _dynForValidation);
+            const reasons = [];
+            if (rel < RELEVANCE_FLOOR) reasons.push("relevance " + rel + " below the floor of " + RELEVANCE_FLOOR);
+            if (!std) {
+              const hits = centralConceptHits(p, stdNow.centralConcepts || []);
+              if (hits.total === 0) reasons.push("engages none of the question's central concepts");
+              else reasons.push("engages " + hits.total + " central concept" + (hits.total === 1 ? "" : "s") + ", short of the citation standard");
+              if (stdNow.mechanismShape && paperApplicationOnly(p)) reasons.push("application or delivery only engagement on a mechanism question");
+            }
+            return { paper: p, rel, std, legacy, reasons };
+          });
+          const alreadyCitable = new Set(citablePapers);
+          const admitted = rows.filter((r) => r.legacy && r.rel >= RELEVANCE_FLOOR && !alreadyCitable.has(r.paper));
+          // The audit record names each excluded paper once:
+          // the same paper can reach the shelf through several
+          // sources at different scores, and the record is a
+          // list of papers, not of arrivals (the best scored
+          // copy's judgment stands for the paper).
+          const seenTitles = new Set();
+          const excludedRows = [];
+          for (const r of rows.slice().sort((a, b) => b.rel - a.rel)) {
+            const key = String(r.paper.title || "").toLowerCase().trim();
+            if (!key || seenTitles.has(key)) continue;
+            seenTitles.add(key);
+            excludedRows.push(r);
+            if (excludedRows.length >= 8) break;
+          }
+          gateAudit = {
+            gathered: gatheredCount,
+            citableBefore: citablePapers.length,
+            comparisonAdmitted: admitted.length,
+            shippedLimited: false,
+            excluded: excludedRows.map((r) => ({
+              title: String(r.paper.title || ""),
+              standard: r.std,
+              legacy: r.legacy,
+              reasons: r.reasons,
+            })),
+          };
+          const minAdmitted = citablePapers.length === 0 ? 1 : 2;
+          // Substantial, measured on DISTINCT papers: the raw
+          // gathered count inflates with the fanout (the same
+          // two papers returned by eight rungs count sixteen
+          // times), and the wave eight grocery shape is exactly
+          // two distinct off topic papers arriving as many
+          // copies — a pool is at least four distinct papers on
+          // the judged shelf. The audit's emptied pools were
+          // dozens of distinct papers; two is an anecdote, and
+          // the honest empty state keeps it.
+          const distinctShelf = new Set(rows.map((r) => String(r.paper.title || "").toLowerCase().trim())).size;
+          const substantialPool = distinctShelf >= 4;
+          if (substantialPool && admitted.length >= minAdmitted) {
+            // The admission is tagged on the paper objects:
+            // the canonical binding choke point below re judges
+            // the evidence set with the strict predicate, and
+            // without the tag it would silently undo the
+            // admission one layer down (the wave ten yogurt
+            // fixture caught exactly that: the serve gate
+            // admitted, the choke point emptied, and the run
+            // shipped the zero evidence fallback).
+            for (const r of admitted) { try { r.paper._gateAuditAdmitted = true; } catch { /* tagging is best effort */ } }
+            citablePapers = [...citablePapers, ...admitted.map((r) => r.paper)];
+            serveGateNoEvidence = false;
+            gateAudit.shippedLimited = true;
+          }
+        }
+      } catch { /* the audit must never break the serve gate; the pre wave ten behavior stands */ }
     }
     let evidencePapers;
     if (serveGateNoEvidence) {
@@ -22309,6 +23434,9 @@ async function runSearchPipeline(pctx) {
       }
       if (mechanismShape) {
         evidencePapers = orderShelfForMechanism(evidencePapers, citedPool);
+      }
+      if (healthShape) {
+        evidencePapers = orderShelfForHealth(evidencePapers, citedPool);
       }
     } else {
       evidencePapers = [];
@@ -22558,7 +23686,12 @@ async function runSearchPipeline(pctx) {
       try {
         const chokeCtx = conceptGateContext(evidencePapers, query, _dynForValidation);
         const beforeChoke = evidencePapers.length;
-        evidencePapers = evidencePapers.filter((p, i) => paperIsCitable(p, i + 1, chokeCtx));
+        // Wave ten (items 1 and 2): a paper the gate audit's
+        // comparison admission shipped (tagged at the serve
+        // gate) survives the choke point on its tag — the
+        // admission was a judged decision recorded in the
+        // search record, not an oversight to be corrected here.
+        evidencePapers = evidencePapers.filter((p, i) => (p && p._gateAuditAdmitted) || paperIsCitable(p, i + 1, chokeCtx));
         relevanceGatedOut += beforeChoke - evidencePapers.length;
         if (evidencePapers.length === 0) serveGateNoEvidence = true;
       } catch { /* the selection binding already ran; a choke point failure must not zero the run */ }
@@ -22617,8 +23750,16 @@ async function runSearchPipeline(pctx) {
     // are exempt, mirroring the exemptions of the passes and the
     // relevance gate: name search never ran the passes on this
     // shelf, and a follow up answer anchors on its own set.
+    // WAVE TEN (item 4): the tail is held to the citation
+    // standard's title rule (paperTitleEngagesConcepts): a
+    // paper whose title engages none of the question's central
+    // concepts never reaches the presented list, even as
+    // further reading. Applied here, at construction, so both
+    // the AI path and the extractive path (which applies its
+    // own additional full text standard below) inherit it.
     const furtherReadingTailPapers = (useEvidence && !isNameSearch && !isFollowupMode && programmaticShelf)
       ? buildFurtherReadingTail(programmaticShelf, evidencePapers)
+          .filter((p) => paperTitleEngagesConcepts(p, query, _dynForValidation))
       : [];
     let furtherReadingTail = furtherReadingTailPapers.map(toSourceEntry);
 
@@ -23327,11 +24468,34 @@ async function runSearchPipeline(pctx) {
       } catch (cbErr) { console.error("[Cerebrum] search.js if: const cached = await env.DB.prepare(:", cbErr); }
     }
 
+    // WAVE TEN (item 10): is the loaded row a FULL AI answer —
+    // recorded mode "ai" in its payload envelope and at least 2
+    // distinct citations against its own stored source list —
+    // at serve eligible score? Pre envelope rows carry no
+    // recorded mode and are never full by this test. The wave 4
+    // fallback below consults this: a full answer already in
+    // hand beats a fresh extractive assembly over the same
+    // question (the audit's yogurt repeat shape, where a score
+    // 0 full answer sat loaded while the fallback shipped).
+    let cachedFullAnswer = false;
+    if (cachedAnswer && cachedAnswer.answer && cachedAnswer.score >= 2) {
+      try {
+        const parsedCached = unpackAnswerCachePayload(cachedAnswer.sources);
+        cachedFullAnswer = !!(parsedCached.trust && parsedCached.trust.synthesisMode === "ai") &&
+          distinctCitedCount(cachedAnswer.answer, parsedCached.sources.length) >= 2;
+      } catch { cachedFullAnswer = false; }
+    }
+
     // If we have a high-confidence cached answer (score >= 2 means multiple
     // upvotes), serve it directly. Otherwise fall through to the LLM chain.
     // PRO TIER . same rule as the early cache check above: the cache is not
     // an entitlement bypass, and a served hit counts as an AI answer.
-    if (cachedAnswer && cachedAnswer.score >= 2 && aiSynthesisAllowed) {
+    // WAVE TEN (item 10): the serve is factored into a closure
+    // so the wave 4 fallback can prefer this same full answer
+    // (cachedFullAnswer above) over a fresh extractive assembly
+    // when every synthesis wave failed. Callers check the serve
+    // conditions; the closure assumes them.
+    const serveLateCachedAnswer = async () => {
       await meterAiAnswer();
       // TRUST ON CACHE SERVES (2026-10-13, wave two part two): same
       // standing rule as the early cache return . a cached answer is
@@ -23417,6 +24581,9 @@ async function runSearchPipeline(pctx) {
         }),
         { status: 200, headers: cors }
       );
+    };
+    if (cachedAnswer && cachedAnswer.score >= 2 && aiSynthesisAllowed) {
+      return await serveLateCachedAnswer();
     }
 
     // ============ AI ANSWER GENERATION (Smart Router) ============
@@ -23936,6 +25103,10 @@ async function runSearchPipeline(pctx) {
     // Declared here (not below with the waves) so the fast path can record
     // its attempt . otherwise the per-leg diagnostics go blind on it.
     const aiAttempts = []; // diagnostic trail . surfaced in _aiAttempts for debugging
+    // Wave ten (item 10): the minimum cited support outcome,
+    // filled by the retry block after the citation strips and
+    // carried into the search record as minSupport.
+    let minSupportOutcome = null;
     let preferredModel = null;
     if (env.DB && domainKey) {
       try {
@@ -24020,6 +25191,16 @@ async function runSearchPipeline(pctx) {
         aiAttempts.push({ wave, model: label, ok: false, ms: 0, parked: true, error: "parked (" + park.reason + ")" });
         return null;
       }
+      // Wave ten (item 15): the shared bucket park. A leg whose
+      // bucket is daily capped is skipped exactly like a parked
+      // leg (no subrequest, no deadline), and the skip names the
+      // bucket so the stage record can tell a bucket skip from a
+      // model skip.
+      const bPark = bucketParkInfo(label);
+      if (bPark) {
+        aiAttempts.push({ wave, model: label, ok: false, ms: 0, parked: true, bucketParked: true, error: "parked (" + bPark.reason + ")" });
+        return null;
+      }
       // A leg factory that throws SYNCHRONOUSLY (an adapter whose
       // circuit breaker refuses before its async body can run, a
       // label that fails to resolve) becomes an ordinary failed leg:
@@ -24085,7 +25266,7 @@ async function runSearchPipeline(pctx) {
             Math.min(waveCost, remaining)
           )
         : 0;
-      const { selected, skipped } = planWaveLegs(descriptors, allowance);
+      const { selected, skipped } = planWaveLegs(interleaveByBucket(descriptors), allowance);
       for (const d of skipped) {
         // plannedSkip marks the stamp as a PLANNER record (the
         // leg never fired), distinct from a fired leg whose grant
@@ -24113,6 +25294,40 @@ async function runSearchPipeline(pctx) {
         if (p) return callCompat(p)(label.slice(sep + 1), msgs, maxTok, timeoutMs);
       }
       return callOR(label, msgs, maxTok, timeoutMs);
+    };
+
+    /* PLANNED RETRY RACE (2026-10-14, wave ten, item 15): the
+     * quality and citation retries used to fire three OpenRouter
+     * models through a bare Promise.any — no wave planning, no
+     * park checks, no aiAttempts record — so a retry into a daily
+     * capped OpenRouter bucket burned three invisible legs and
+     * the synthesis stage record undercounted the stage. Every
+     * retry now races planned descriptors across buckets through
+     * fireWaveLegs (interleaved, park and bucket park checked,
+     * tail reserve held, every attempt recorded), first
+     * candidate in a different bucket from the last, and the
+     * caller's acceptance test decides what ships. Returns the
+     * raceBest winner { answer, model } or null when no leg
+     * could fire. */
+    const plannedRetryRace = async (msgs, maxTok, timeoutMs, wave, excludeLabels = []) => {
+      const labels = [];
+      if (activeProviders.some((p) => p.id === "groq")) labels.push("groq:openai/gpt-oss-120b");
+      if (cfBound) labels.push(CF_WAVE1[0]);
+      if (token) labels.push(OR_FREE_MODELS[2]);
+      if (activeProviders.some((p) => p.id === "gemini")) labels.push("gemini:gemini-3.8-flash");
+      if (activeProviders.some((p) => p.id === "mistral")) labels.push("mistral:mistral-small-latest");
+      const descriptors = labels
+        .filter((label) => !excludeLabels.includes(label))
+        .map((label) => ({
+          label,
+          bucket: synthesisBucketForLabel(label),
+          fetchCost: 1,
+          wave,
+          fire: () => callForLegLabel(label, msgs, maxTok, timeoutMs),
+        }));
+      const legs = fireWaveLegs(descriptors, { keepTailReserve: true });
+      if (legs.length === 0) return null;
+      return raceBest(legs, query, 500);
     };
 
     // fastpathCalls moved INTO the wave-1 block (2026-09-14): it must be
@@ -24520,7 +25735,13 @@ async function runSearchPipeline(pctx) {
       // requests ride along for the same reason.
       const wave2Timeout = clampLegTimeout(isProSearch || answerLength === "long" ? 12000 : 8000);
       const wave2Calls = fireWaveLegs([
-        ...(token ? OR_WAVE2.map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 2, fire: () => callOR(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
+        // WAVE TEN (item 15): wave 2's array leads with the
+        // compat and Workers AI legs and puts OpenRouter last.
+        // Wave 1 has just measured the OpenRouter bucket's state;
+        // when it is daily capped, the bucket park skips these
+        // legs anyway, and when it is not, the interleave in
+        // fireWaveLegs spreads the firing order across buckets
+        // with a non OpenRouter lead.
         // 2026-10-13: the firstOnly trim is gone. It only ever trimmed
         // Groq (every other provider lists exactly one w2 model), and
         // what it was protecting against . tail legs burning the shared
@@ -24530,6 +25751,7 @@ async function runSearchPipeline(pctx) {
         // its real shot in this wave.
         ...compatLegDescriptors(2, "w2", wave2Messages, maxTokens, wave2Timeout, undefined),
         ...(cfBound ? CF_WAVE2.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 2, fire: () => callCF(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
+        ...(token ? OR_WAVE2.map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 2, fire: () => callOR(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
       ]);
       if (wave2Calls.length > 0) {
         try {
@@ -24669,7 +25891,7 @@ async function runSearchPipeline(pctx) {
         // in case the wave 1-2 throttle has cleared by now. (Was four and
         // two until 2026-10-14: the fourth Pro seat and the second regular
         // seat were the restricted inkling-small leg, now out of the list.)
-        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4]] : [OR_FREE_MODELS[4]]).map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 3, fire: () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
+        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3]] : [OR_FREE_MODELS[3]]).map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 3, fire: () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
       ]);
       try {
         // raceBest with a short grace: this is the last-resort tier so speed
@@ -24715,9 +25937,17 @@ async function runSearchPipeline(pctx) {
         // runs), but it cannot spend past zero . a leg the allowance
         // cannot pay for is recorded as a budget skip, not fired to
         // die at the runtime.
+        // WAVE TEN (item 15): the rescue was Groq only, so a
+        // Groq wide outage left it with no working leg. It now
+        // interleaves one Workers AI leg and one OpenRouter leg
+        // between the two Groq legs; planWaveLegs still caps the
+        // fired set at what remains, so the worst case spend is
+        // unchanged.
         const rescueDescriptors = [
           { label: "groq:openai/gpt-oss-120b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000) },
+          ...(cfBound ? [{ label: CF_WAVE1[0], bucket: "workers-ai", fetchCost: 1, wave: 5, fire: () => callCF(CF_WAVE1[0], rescueMsgs, maxTokens, 12000) }] : []),
           { label: "groq:openai/gpt-oss-20b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000) },
+          ...(token ? [{ label: OR_FREE_MODELS[3], bucket: "openrouter", fetchCost: 1, wave: 5, fire: () => callOR(OR_FREE_MODELS[3], rescueMsgs, maxTokens, 12000) }] : []),
         ];
         const rescuePlan = planWaveLegs(rescueDescriptors, ledger.remaining());
         for (const d of rescuePlan.skipped) {
@@ -24767,13 +25997,18 @@ async function runSearchPipeline(pctx) {
     //     If even DELAYED_RESCUE_MIN_WAIT_MS does not fit, the wait
     //     is skipped and stage health says so.
     if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
-      const rosterLabels = [];
-      if (token) for (const m of OR_FREE_MODELS) rosterLabels.push(m);
-      for (const p of activeProviders) {
-        const pm = PROVIDER_MODELS[p.id] || {};
-        for (const m of [...(pm.w1 || []), ...(pm.w2 || [])]) rosterLabels.push(p.id + ":" + m);
-      }
-      if (cfBound) for (const m of [...CF_WAVE1, ...CF_WAVE2]) rosterLabels.push(m);
+      // WAVE TEN (item 15): the delayed roster interleaves the
+      // three buckets instead of listing every OpenRouter model
+      // first, so the success ranked candidates are not nine
+      // same bucket labels deep before a compat leg appears.
+      const rosterLabels = interleaveByBucket([
+        ...(token ? OR_FREE_MODELS.map((m) => ({ label: m, bucket: "openrouter" })) : []),
+        ...activeProviders.flatMap((p) => {
+          const pm = PROVIDER_MODELS[p.id] || {};
+          return [...(pm.w1 || []), ...(pm.w2 || [])].map((m) => ({ label: p.id + ":" + m, bucket: "compat:" + p.id }));
+        }),
+        ...(cfBound ? [...CF_WAVE1, ...CF_WAVE2].map((m) => ({ label: m, bucket: "workers-ai" })) : []),
+      ]).map((d) => d.label);
       const delayedPlan = planDelayedRescue(aiAttempts, {
         rosterLabels,
         preferredLabel: activeProviders.some((p) => p.id === "groq") ? "groq:openai/gpt-oss-120b" : null,
@@ -24971,19 +26206,17 @@ async function runSearchPipeline(pctx) {
         // 18s timeouts each . up to 54s of tail latency when the first
         // answer scored badly. Now a single race (12s cap): first model to
         // beat the score wins, and the losers' latencies don't stack.
-        const retryModels = [
-          OR_FREE_MODELS[2],
-          OR_FREE_MODELS[1],
-          OR_PRIMARY,
-        ];
+        // WAVE TEN (item 15): the race is the planned retry race
+        // (plannedRetryRace above) — cross bucket, park checked,
+        // recorded — not three OpenRouter legs through Promise.any.
         try {
-          const r = await Promise.any(
-            retryModels.map((m) => callOR(m, retryMsgs, maxTokens, 12000))
-          );
-          const retryProcessed = postProcessAnswer(r.answer);
-          const retryScore = scoreAnswerQuality(retryProcessed, query);
-          if (retryScore > qualityScore) {
-            answer = retryProcessed;
+          const r = await plannedRetryRace(retryMsgs, maxTokens, 12000, "quality");
+          if (r && typeof r.answer === "string") {
+            const retryProcessed = postProcessAnswer(r.answer);
+            const retryScore = scoreAnswerQuality(retryProcessed, query);
+            if (retryScore > qualityScore) {
+              answer = retryProcessed;
+            }
           }
         } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
       }
@@ -25027,13 +26260,11 @@ async function runSearchPipeline(pctx) {
             { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query +
               "\n\nA previous draft of this answer carried no citations at all. Write the answer again and cite the papers inline as [1], [2], etc. after the claims they support, using only the numbered papers above. Every key claim needs a citation." },
           ];
-          const retryModels2 = [OR_FREE_MODELS[2], OR_FREE_MODELS[1], OR_PRIMARY];
           // 2026-09-12: was a sequential 3-model loop (up to 54s). Raced
           // with a 12s cap like the quality retry above.
+          // WAVE TEN (item 15): planned retry race, as above.
           try {
-            const r = await Promise.any(
-              retryModels2.map((m) => callOR(m, retryMsgs2, maxTokens, 12000))
-            );
+            const r = await plannedRetryRace(retryMsgs2, maxTokens, 12000, "citation");
             const cleaned = r && typeof r.answer === "string" ? postProcessAnswer(r.answer) : "";
             // Accepted only when it fixed the defect: real citations
             // to the shelf. A longer uncited draft is not an upgrade.
@@ -25073,7 +26304,12 @@ async function runSearchPipeline(pctx) {
       // confirmed citation for this question. Follow up mode is
       // exempt, like every other gate: its citations legitimately
       // rest on the previous turn's sources.
-      if (!isFollowupMode) {
+      // WAVE TEN: a comparison admitted run (gateAudit
+      // .shippedLimited) is exempt — its evidence set IS one
+      // concept papers by construction, and this gate would
+      // strip every citation and silently undo the labeled
+      // admission the serve gate just made.
+      if (!isFollowupMode && !(gateAudit && gateAudit.shippedLimited)) {
         try {
           const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
             ? buildDynLookup(gResult._diag.llmExpanded)
@@ -25102,6 +26338,66 @@ async function runSearchPipeline(pctx) {
         conceptDemoted = [];
       }
 
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // MINIMUM CITED SUPPORT (2026-10-14, wave ten, brief item 10)
+    // A mechanism or measurement answer that ends the citation
+    // passes citing exactly ONE source contradicts the product's
+    // standing rule (multiple sources or it is not Cerebrum) and
+    // it is the audit's worst variance shape: the CRISPR repeat
+    // collapsed from 2 cited sources to 1 with claim check 0 of
+    // 1. When a clean run lands there, ONE retry races a
+    // different model in a different bucket (the planned retry
+    // race, item 15) with the two source requirement restated;
+    // the replacement ships only if it cites at least 2 distinct
+    // sources after the same strips and coverage gate. The
+    // outcome is recorded either way (minSupport on the search
+    // record), and a single source outcome is labeled, never
+    // hidden. Budget: exactly one extra leg when it fires,
+    // gated on more than the tail reserve remaining; the
+    // closure identity is untouched.
+    if (aiOK && useEvidence && evidencePapers.length >= 2 && !isFollowupMode &&
+        (mechanismShape || measurementIntent)) {
+      const citedBefore = distinctCitedCount(answer, evidencePapers.length);
+      if (citedBefore === 1) {
+        minSupportOutcome = { citedBefore, retried: false, retryModel: null, citedAfter: citedBefore, singleSource: true, reason: null };
+        try {
+          if (stageHealthDegraded(stageHealth)) {
+            minSupportOutcome.reason = "degraded";
+          } else if (ledger.remaining() <= SUBREQUEST_TAIL_RESERVE) {
+            minSupportOutcome.reason = "budget";
+          } else {
+            const winnerEntry = [...aiAttempts].reverse().find((a) => a && a.ok && typeof a.model === "string");
+            const winnerLabel = winnerEntry ? winnerEntry.model : null;
+            const retryMsgs = (compactMessages || messages).map((m, i, arr) => i === arr.length - 1
+              ? { ...m, content: m.content + "\n\nCite at least two different sources inline for the answer's key claims, using the numbered sources above." }
+              : m);
+            minSupportOutcome.retried = true;
+            const r = await plannedRetryRace(retryMsgs, maxTokens, 12000, 7, winnerLabel ? [winnerLabel] : []);
+            if (r && typeof r.answer === "string") {
+              minSupportOutcome.retryModel = r.model || null;
+              let candidate = postProcessAnswer(r.answer);
+              candidate = stripUnsupportedCitations(candidate, evidencePapers).text;
+              const gateDyn2 = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+                ? buildDynLookup(gResult._diag.llmExpanded)
+                : null;
+              candidate = applyConceptCoverageGate(candidate, evidencePapers, query, gateDyn2).text;
+              const citedAfter = distinctCitedCount(candidate, evidencePapers.length);
+              minSupportOutcome.citedAfter = citedAfter;
+              if (citedAfter >= 2) {
+                answer = candidate;
+                minSupportOutcome.singleSource = false;
+                minSupportOutcome.reason = "recovered";
+              } else {
+                minSupportOutcome.reason = "retry-kept-original";
+              }
+            } else {
+              minSupportOutcome.reason = "no-unparked-leg";
+            }
+          }
+        } catch { if (!minSupportOutcome.reason) minSupportOutcome.reason = "retry-error"; }
+      }
     }
 
     // RELOCATED (2026-10-14, answer package defect 2): the synthesis
@@ -25213,6 +26509,16 @@ async function runSearchPipeline(pctx) {
         independentProviderCount: activeProviders.length,
       } });
       try { console.log("Cerebrum: ALL AI PROVIDERS FAILED", JSON.stringify(aiAttempts)); } catch (cbErr) { console.error("[Cerebrum] search.js if: console.log('Cerebrum: ALL AI PROVIDERS FAILED', JSON.stringify(aiAtte:", cbErr); }
+      // WAVE TEN (item 10): a full AI answer already in hand from
+      // the cache beats the fresh extractive assembly below.
+      // Every wave failed on THIS run, but the stored answer was
+      // written by a clean run (score 2 at write time under the
+      // wave ten rule, or upvoted to it) and cites at least 2
+      // sources; serving it is the same serve the late cache path
+      // performs, with this run's funnel and record.
+      if (cachedFullAnswer && aiSynthesisAllowed) {
+        return await serveLateCachedAnswer();
+      }
       // ════════════════════════════════════════════════════════════════
       // WAVE 4 . DETERMINISTIC EXTRACTIVE SYNTHESIS (last resort)
       // Fires once waves 1–3 have failed on every provider. Pure local
@@ -25262,7 +26568,17 @@ async function runSearchPipeline(pctx) {
         let extBriefClaims = briefClaims;
         if (useEvidence && !isNameSearch && !isFollowupMode && evidencePapers.length > 0) {
           try {
-            const pruned = pruneExtractiveEvidence(evidencePapers, query, extGateDyn);
+            // WAVE TEN (items 1 and 2): when the gate audit's
+            // comparison admission shipped this evidence set,
+            // the prune does not re judge it under the strict
+            // standard that already emptied it once — that
+            // would rebuild the false empty state one layer
+            // down. The set was judged twice at the serve gate
+            // (both standards, reasons recorded); the builder's
+            // own sentence level screening still applies.
+            const pruned = (gateAudit && gateAudit.shippedLimited)
+              ? { changed: false, papers: evidencePapers, idxMap: new Map() }
+              : pruneExtractiveEvidence(evidencePapers, query, extGateDyn);
             if (pruned.changed) {
               extBriefClaims = (briefClaims || [])
                 .map((bc) => (bc && pruned.idxMap.has(bc.idx)) ? { ...bc, idx: pruned.idxMap.get(bc.idx) } : null)
@@ -25349,7 +26665,8 @@ async function runSearchPipeline(pctx) {
       // builders cite from the same evidence list, so the same rule
       // applies (see applyConceptCoverageGate). One concept papers
       // stay in the bibliography as further reading.
-      if (extractiveOK && useEvidence && !isFollowupMode && evidencePapers.length > 0) {
+      if (extractiveOK && useEvidence && !isFollowupMode && evidencePapers.length > 0
+          && !(gateAudit && gateAudit.shippedLimited)) {
         try {
           const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
             ? buildDynLookup(gResult._diag.llmExpanded)
@@ -25381,10 +26698,18 @@ async function runSearchPipeline(pctx) {
           query: searchQuery,
           sourcesQueried: publicSourcesQueried(),
           rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
-          gatedOut: useEvidence ? relevanceGatedOut : 0,
-          gatedExamples: useEvidence ? gatedOutTitles : [],
+          // WAVE TEN (item 2): gatedOut is what retrieval
+          // gathered and the gates withheld, counted whether or
+          // not the run still counts as evidence bearing. The
+          // old useEvidence ternary zeroed it exactly when the
+          // citation gate emptied the set (useEvidence flips
+          // false there), so the payload concluded nothing was
+          // gathered and shipped the "too new to be indexed"
+          // boilerplate on gathered pools.
+          gatedOut: relevanceGatedOut,
+          gatedExamples: gatedOutTitles,
           // Bug 4 fix: honest filter attribution in the no-results answer.
-          filteredOut: useEvidence ? evidenceFilteredOut : 0,
+          filteredOut: evidenceFilteredOut,
           filterLabel: evidenceFilterApplied,
         });
         answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
@@ -25829,9 +27154,9 @@ async function runSearchPipeline(pctx) {
                 query: searchQuery,
                 sourcesQueried: publicSourcesQueried(),
                 rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
-                gatedOut: useEvidence ? relevanceGatedOut : 0,
-                gatedExamples: useEvidence ? gatedOutTitles : [],
-                filteredOut: useEvidence ? evidenceFilteredOut : 0,
+                gatedOut: relevanceGatedOut,
+                gatedExamples: gatedOutTitles,
+                filteredOut: evidenceFilteredOut,
                 filterLabel: evidenceFilterApplied,
               });
               answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
@@ -26129,8 +27454,28 @@ async function runSearchPipeline(pctx) {
       // response down (own try/catch), it just no longer taxes the person
       // who's waiting on THIS answer for the benefit of a future one.
       ledger.spendBinding("cache", 1);
+      // WAVE TEN (item 10): serve eligibility is written at
+      // write time. Both cache serves require score >= 2, but
+      // the only writer hardcoded 0 and the only mutator was
+      // upvotes against one run's answer_id — so a clean full AI
+      // answer was never servable on a repeat, and every repeat
+      // re rolled the fleet (the audit's A1 to E1 variance, and
+      // the yogurt repeat that re ran the whole pipeline). A
+      // clean run (AI mode, at least 2 distinct cited sources,
+      // not degraded, and a claim check that ran did not support
+      // zero of its checked claims) now writes score 2: servable
+      // for the row's whole life, and never displaced by a later
+      // worse run because serve order is score first. Anything
+      // else writes 0, exactly as before, and votes keep their
+      // meaning on top.
+      const citedAtWrite = distinctCitedCount(answer, sourceList.length);
+      const supportAtWrite = factCheckResult ? factCheckSupport(factCheckResult) : null;
+      const cleanFullAi = !extractiveOK && citedAtWrite >= 2 &&
+        !(supportAtWrite && supportAtWrite.checked > 0 && supportAtWrite.supported === 0) &&
+        !stageHealthDegraded(stageHealth);
+      const cacheScore = cleanFullAi ? 2 : 0;
       const cacheWrite = env.DB.prepare(
-        "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
+        "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, ?, ?)"
       ).bind(
         cacheKey,
         answerId,
@@ -26147,6 +27492,7 @@ async function runSearchPipeline(pctx) {
           synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
           disagreementVerdict,
         }),
+        cacheScore,
         // Bug: this wrote an ISO-8601 string into a column declared
         // INTEGER (see schema.sql), while paper_cache's write a few lines
         // away correctly uses Date.now(). SQLite's flexible typing stored
@@ -26283,6 +27629,12 @@ async function runSearchPipeline(pctx) {
       ? await evidenceStructure(sourceList, ledger).catch(() => null)
       : null;
 
+    // Wave ten (2026-10-14): the repeated sentence pass runs
+    // here, after both confidence binders and the claim check
+    // append have written into the body, so a baked sentence the
+    // shipped line already contains cannot survive beside it.
+    try { answer = dedupeRepeatedSentences(answer); } catch { /* a mechanical pass must never break the answer */ }
+    try { answer = ensureFalsificationList(answer); } catch { /* same */ }
     // Run last, after every pass above has already read the plain-text
     // `answer` (fact-check, literature-conflict extraction) . see
     // italicizeScientificTerms()'s own comment for why order matters here.
@@ -26452,6 +27804,11 @@ async function runSearchPipeline(pctx) {
       sources: labeledSources,
       answer,
       recordId: searchRecordId,
+      // Wave ten: the minimum cited support outcome and the gate
+      // audit (the audit exists only when the citation layer
+      // emptied a gathered pool; see the serve gate block).
+      minSupport: minSupportOutcome,
+      gateAudit,
     });
     if (searchRecord) {
       let recordStored = await storeSearchRecord(env, searchRecord, ledger);

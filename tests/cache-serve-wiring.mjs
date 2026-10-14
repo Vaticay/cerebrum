@@ -105,9 +105,13 @@ function storingDb(rows) {
       },
       run: async () => {
         if (sql.includes("INSERT OR REPLACE INTO answer_cache")) {
+          // PIN UPDATED (2026-10-14, wave ten, item 10): the
+          // write binds its computed serve score (binds[4])
+          // since wave ten — clean full AI answers write 2,
+          // everything else 0 — so created_at moves to binds[5].
           rows.set(binds[0], {
             query_key: binds[0], answer_id: binds[1], answer: binds[2],
-            sources: binds[3], score: 0, created_at: binds[4],
+            sources: binds[3], score: binds[4], created_at: binds[5],
           });
         }
         return { success: true, meta: { changes: 1 } };
@@ -315,7 +319,10 @@ await test("the write stores the envelope and the early serve ships the stored c
     "the stored verdict is not the fresh response's verdict");
 
   // Upvotes verify the row (vote.js raises the score; only a
-  // score of 2 or more is ever served).
+  // score of 2 or more is ever served). Since wave ten a clean
+  // run also writes 2 itself; the bump to 3 here keeps this
+  // scenario on the legacy vote verified path it was written
+  // for, and either value serves.
   stored.score = 3;
 
   // THE READ: the repeat request serves from the early cache path
@@ -382,7 +389,7 @@ const B_VERDICT = { status: "settled", conflictCount: 0, summary: "No conflictin
 await test("the provenance cap caps the level and the baked line is bound on a real cache serve", async () => {
   const rows = new Map();
   const query = "what happens to a baby's gut germs in the first year";
-  const key = await cacheKey(query, {}, "v9-medium");
+  const key = await cacheKey(query, {}, "v44-medium");
   rows.set(key, {
     query_key: key,
     answer_id: "seed-b",
@@ -430,7 +437,7 @@ group("C — a pre envelope row degrades to the old behavior, exactly");
 await test("a legacy row serves with null check, null verdict, and the extractive mode resolution", async () => {
   const rows = new Map();
   const query = "can wood frogs survive being frozen solid";
-  const key = await cacheKey(query, {}, "v9-medium");
+  const key = await cacheKey(query, {}, "v44-medium");
   const legacySources = [
     { title: "Freeze tolerance in the wood frog", authors: "Storey KB, Storey JM", journal: "Journal of Experimental Biology", year: 2021, relevance: 92, abstract: "Wood frogs tolerate the freezing of up to two thirds of their body water, with ice confined to extracellular spaces.", url: "https://doi.org/10.1000/cwc1" },
     { title: "Glucose as a cryoprotectant in a freeze tolerant frog", authors: "Costanzo JP", journal: "Cryobiology", year: 2019, relevance: 88, abstract: "Glucose accumulates in the tissues of frozen frogs and acts as a colligative cryoprotectant during thaw recovery.", url: "https://doi.org/10.1000/cwc2" },
