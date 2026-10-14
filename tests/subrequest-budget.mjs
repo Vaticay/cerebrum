@@ -125,6 +125,25 @@
  *      schema and the folded slot acquire with a quiet counter,
  *      because production D1 does both; answering otherwise
  *      would exercise fallback paths and overstate the stages.
+ *  10. THE TOTAL CAP (2026-10-14, fourth panel): the phase caps
+ *      all held live and probes still shipped _ledger used at
+ *      51 to 53 against the limit of 50 — the answer stages spent
+ *      past the total because no grant point enforced it, and
+ *      the platform discovered the overshoot mid synthesis race.
+ *      grant() now refuses any grant that would push the
+ *      invocation total past the cap, ahead of the phase checks,
+ *      in every phase and in none (the cascade yield included);
+ *      refusals count in their own tally (totalRefused) and in
+ *      the shipped refused sum. The pins that encoded the old
+ *      contract — spending past the limit in the reserve
+ *      arithmetic test, the phase only refused sum in
+ *      assertLedgerShips — were updated to the corrected
+ *      contract and say so where they stand. The live shaped
+ *      replay below drives the heavy draw and asserts the
+ *      shipped total is at most the limit, the final total
+ *      (tail included) is at most the limit, the platform never
+ *      refuses an attempt, and synthesis still ships an AI
+ *      answer.
  *
  * Run with: node tests/subrequest-budget.mjs
  */
@@ -227,11 +246,22 @@ await test("retrievalRoom protects the answer reserve, with margin on top", () =
   spendN(ledger, SUBREQUEST_RUNG_COST);
   assert.equal(ledger.remaining(), SUBREQUEST_ANSWER_RESERVE);
   assert.equal(ledger.retrievalRoom(), false);
-  // Spend past zero: remaining clamps at zero, used keeps the truth.
-  spendN(ledger, SUBREQUEST_ANSWER_RESERVE + 10);
+  // Spend the reserve itself: the total lands exactly on the limit.
+  spendN(ledger, SUBREQUEST_ANSWER_RESERVE);
   assert.equal(ledger.remaining(), 0);
-  assert.equal(ledger.used(), SUBREQUEST_LIMIT + 10);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT);
   assert.equal(ledger.retrievalRoom(), false);
+  // CORRECTED CONTRACT (2026-10-14, fourth panel): this used to
+  // spend 10 past the limit and pin "used keeps the truth" at
+  // limit + 10 — the ledger recorded overshoots it never refused
+  // outside the two capped phases, which is exactly how live
+  // probes shipped _ledger used at 51 to 53 against the limit of
+  // 50. The invocation total is now a hard cap at the grant point:
+  // a further grant is refused with the budget error and NOT
+  // counted, in any phase or none (the total cap group below).
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT, "a grant past the total must refuse, not record");
+  assert.equal(ledger.totalRefusals(), 1);
 });
 
 await test("two ledgers are independent (no module state across requests)", () => {
@@ -576,6 +606,94 @@ await test("the snapshot carries the validation tally once the phase has spent",
   assert.equal(snap.validationSpent, SUBREQUEST_VALIDATION_ALLOWANCE);
   assert.equal(snap.validationAllowance, SUBREQUEST_VALIDATION_ALLOWANCE);
   assert.equal(snap.validationRefused, 1);
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("the invocation total — a hard cap on every grant (2026-10-14, fourth panel)");
+
+// The phase ceilings bind their own phases; nothing bound the
+// total itself. The answer stages spent against "the overall
+// limit and their existing guards" — reserve checks taken before
+// rounds whose real cost lands after — so live probes shipped
+// _ledger used at 51, 52, 53 against the limit of 50 while every
+// phase cap held, and the overshoot surfaced as the PLATFORM
+// refusing synthesis legs mid race at 0 ms. The grant point now
+// refuses any grant that would push the invocation total past
+// the cap, ahead of the phase checks, in every phase and in
+// none. The constants' closure (retrieval 23 + post retrieval 5
+// + validation 5 + authorize 5 + race 5 + tail 7 = 50) becomes
+// arithmetic the ledger guarantees, and a refusal is the same
+// budget error every consumer already degrades on.
+await test("outside any phase, grants stop at the limit and refusals are not counted", () => {
+  const ledger = createSubrequestLedger();
+  spendN(ledger, SUBREQUEST_LIMIT);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT);
+  assert.equal(ledger.remaining(), 0);
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT, "a refused grant must not count");
+  assert.equal(ledger.totalRefusals(), 1);
+  // A bulk binding grant that would cross is refused atomically.
+  assert.throws(() => ledger.spendBinding("tail", 3), /too many subrequests/i);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT);
+  assert.equal(ledger.totalRefusals(), 2);
+  // A zero spend is still a no-op, never a refusal.
+  ledger.spendBinding("tail", 0);
+  assert.equal(ledger.totalRefusals(), 2);
+  // The snapshot carries the tally once the total has refused.
+  assert.equal(ledger.snapshot().totalRefused, 2);
+});
+
+await test("a grant that lands exactly on the cap is honored", () => {
+  const ledger = createSubrequestLedger();
+  spendN(ledger, SUBREQUEST_LIMIT - 2);
+  ledger.spendBinding("tail", 2);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT);
+  assert.equal(ledger.totalRefusals(), 0);
+  assert.equal(ledger.snapshot().totalRefused, undefined,
+    "a total that never refused keeps the original snapshot shape");
+});
+
+await test("the total binds inside the validation phase even with allowance left", () => {
+  const ledger = createSubrequestLedger();
+  // Earlier stages spent the invocation nearly out before the
+  // block opened — the phase local shape of the live overshoot.
+  spendN(ledger, SUBREQUEST_LIMIT - 2);
+  ledger.beginValidationPhase();
+  spendN(ledger, 2);
+  assert.equal(ledger.validationSpent(), 2, "the phase spent only 2 of its allowance of 5");
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT);
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  assert.equal(ledger.validationRefusals(), 0,
+    "the phase had allowance left; the refusal is the total's, not the phase's");
+  assert.equal(ledger.totalRefusals(), 1);
+  ledger.endValidationPhase();
+});
+
+await test("the cascade yield passes the retrieval ceiling but never the total", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginRetrievalPhase();
+  ledger.setRetrievalYield(true);
+  // Every grant honored under the yield, far past the ceiling…
+  spendN(ledger, SUBREQUEST_LIMIT);
+  assert.equal(ledger.used(), SUBREQUEST_LIMIT);
+  assert.equal(ledger.retrievalRefusals(), 0, "a yield grant is not a ceiling refusal");
+  // …but the platform's own limit is not the yield's to pass.
+  assert.throws(() => ledger.spend(), /too many subrequests/i,
+    "the yield may pass the retrieval ceiling, never the invocation total");
+  assert.equal(ledger.totalRefusals(), 1);
+  ledger.setRetrievalYield(false);
+  ledger.endRetrievalPhase();
+});
+
+await test("publicLedgerSnapshot counts total refusals in the refused sum", () => {
+  const ledger = createSubrequestLedger();
+  spendN(ledger, SUBREQUEST_LIMIT);
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  const view = publicLedgerSnapshot(ledger);
+  assert.equal(view.used, SUBREQUEST_LIMIT, "the shipped total can no longer exceed the limit");
+  assert.equal(view.totalRefused, 2);
+  assert.equal(view.refused, 2, "the refused sum includes the total's refusals");
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1051,8 +1169,14 @@ function assertLedgerShips(data, counts, ledger) {
   assert.equal(view.remaining, Math.max(0, view.limit - view.used));
   assert.ok(view.retrievalSpent <= view.retrievalAllowance,
     "retrieval spent past its hard allowance in the shipped snapshot");
-  assert.equal(view.refused, (view.retrievalRefused || 0) + (view.validationRefused || 0),
-    "_ledger.refused is not the sum of the phase refusals");
+  // CORRECTED CONTRACT (2026-10-14, fourth panel): the refused
+  // sum used to be the two phase refusals only, because those
+  // were the only refusals the ledger recorded. The invocation
+  // total refuses grants now too (totalRefused), and the shipped
+  // sum is every refusal the ledger records.
+  assert.equal(view.refused,
+    (view.retrievalRefused || 0) + (view.validationRefused || 0) + (view.totalRefused || 0),
+    "_ledger.refused is not the sum of every recorded refusal");
 }
 
 await test("rich retrieval (warm): expansion and validation fire, synthesis wins, ledger equals platform", async () => {
@@ -1424,6 +1548,36 @@ await test("heavy draw, full rerank: validation runs and the synthesis race fire
   assert.equal(data.synthesisMode, "ai", "the extractive tier served instead of a synthesis win");
   assert.ok(counts.refused <= 5,
     `${counts.refused} attempts were refused past the cap; only a small post answer tail may overflow`);
+});
+
+// LIVE SHAPED REPLAY (2026-10-14, fourth panel): the heavy draw
+// above is Dusty's own question shape — the three pre gather
+// passes paid (the OpenRouter key is present), a full retrieval
+// phase against the absolute ceiling, validation at its
+// allowance, the synthesis race firing its waves, and the post
+// answer tail behind assembly. The fourth panel's live probes
+// on this shape shipped _ledger used at 51, 52, 53 against the
+// limit of 50: every phase cap held and the total overshot
+// anyway, because no grant point enforced the total. Under the
+// total cap the overshoot is refused by the ledger BEFORE the
+// platform is asked, so on this replay the shipped snapshot is
+// at most the limit, the final ledger total (tail included) is
+// at most the limit, the stub records no platform refusal at
+// all — and the stages the budget exists for still ran.
+await test("live shaped replay: the shipped total never exceeds the limit, synthesis ships an AI answer", async () => {
+  const { data, counts, ledger } = await runHeavyScenario();
+  assertLedgerEqualsPlatform(counts, ledger);
+  assert.ok(data._ledger && typeof data._ledger.used === "number", "the replay shipped no _ledger");
+  assert.ok(data._ledger.used <= SUBREQUEST_LIMIT,
+    `shipped _ledger.used ${data._ledger.used} exceeds the limit ${SUBREQUEST_LIMIT}`);
+  assert.ok(ledger.used() <= SUBREQUEST_LIMIT,
+    `final ledger total ${ledger.used()} exceeds the limit ${SUBREQUEST_LIMIT}`);
+  assert.equal(counts.refused, 0,
+    "the platform had to refuse an attempt the ledger should have refused first");
+  const synthesis = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synthesis && synthesis.ok, "synthesis did not run on the live shaped replay");
+  assert.ok(synthesis.winner, "synthesis record has no winner on the replay");
+  assert.equal(data.synthesisMode, "ai", "the extractive tier served instead of a synthesis win");
 });
 
 // ═══════════════════════════════════════════════════════════════

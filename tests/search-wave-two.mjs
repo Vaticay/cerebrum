@@ -315,18 +315,40 @@ await test("thinEvidence papers are exempt (the cascade is never defeated)", () 
   assert.deepEqual(out.demoted, []);
 });
 
-await test("single concept questions and the frog controls never engage the gate", () => {
+await test("single concept questions: the degraded standard judges, the floor protects (frog controls)", () => {
+  // Corrected contract, 2026-10-14 (fourth panel, JOB 2): the gate
+  // no longer sits out below two groups — it judges by the degraded
+  // standard (one group touch, or a shared central content term).
+  // What the frog controls protect is unchanged in effect: an on
+  // point paper on a single concept question keeps its marker, and
+  // when NO cited paper shares the question's terms at all, the
+  // floor returns the answer untouched rather than stripping it to
+  // zero citations. The mimosa question is the third shape: its on
+  // point paper shares the question's terms and keeps its marker,
+  // while the unrelated gut paper — citable under the old sit out
+  // rule on a bare keyword collision class — is demoted.
   for (const q of [
     "What lets a wood frog survive being frozen for months at a time?",
     "How can a frog turn into ice all winter and not die?",
-    "why do some plants fold their leaves when you touch them",
   ]) {
-    assert.ok(questionConceptGroups(q, null).length < 2, `gate must not engage for: ${q}`);
+    assert.ok(questionConceptGroups(q, null).length < 2, `expected a thin resolution for: ${q}`);
     const papers = [MIMOSA_PAPER(), GUT_MICROBE_PAPER()];
     const answer = "One [1]. Two [2].";
     const out = applyConceptCoverageGate(answer, papers, q, null);
-    assert.equal(out.text, answer);
+    assert.equal(out.text, answer, `the floor must leave the answer untouched for: ${q}`);
+    assert.deepEqual(out.demoted, []);
   }
+  const q = "why do some plants fold their leaves when you touch them";
+  assert.ok(questionConceptGroups(q, null).length < 2, "expected a thin resolution for the mimosa question");
+  const out = applyConceptCoverageGate(
+    "One [1]. Two [2].",
+    [MIMOSA_PAPER(), GUT_MICROBE_PAPER()],
+    q,
+    null
+  );
+  assert.ok(out.text.includes("[1]"), "the on point mimosa paper keeps its marker");
+  assert.deepEqual(out.demoted.map((d) => d.idx), [2],
+    "the unrelated gut paper is demoted under the one group standard");
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -514,10 +536,18 @@ await test("the cache schema carries the wave two bump", () => {
   // and species italics change stored answer text, uncited AI
   // answers no longer ship, and single source answers are capped
   // and limited, so stored payloads predate the shipped contract).
+  // then to v37 by the fourth panel wave (2026-10-14: deterministic
+  // fallback expansion, the citation gate judging below two
+  // groups with coverage ordered citation selection, and the
+  // prose bound to the trust fields — invented disagreement
+  // sections stripped at a zero conflict verdict, fact check
+  // unsupported claims removed from the text, and the support
+  // bound confidence caps — so stored cited sets, answer text,
+  // and confidence lines all predate the shipped contract).
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v36"'), "CACHE_SCHEMA_VERSION must be v36");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v37"'), "CACHE_SCHEMA_VERSION must be v37");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -1506,8 +1536,15 @@ await test("thin table case: the sleep and colds groups still come from expansio
 });
 
 await test("all three gating consumers resolve through the shared helper", () => {
-  assert.equal(src.split("const groups = gateConceptGroups(query, dynLookup);").length - 1, 2,
-    "the gate and the gate context must both resolve through gateConceptGroups");
+  // Corrected contract, 2026-10-14 (fourth panel, JOB 2): the
+  // shared helper is citationGateStandard — the gate and the gate
+  // context both resolve the standard through it, and it resolves
+  // its groups through gateConceptGroups, so the precedence the
+  // consumers share cannot drift at either level.
+  assert.equal(src.split("= citationGateStandard(query, dynLookup)").length - 1, 2,
+    "the gate and the gate context must both resolve through citationGateStandard");
+  assert.ok(src.includes("const groups = gateConceptGroups(query, dynLookup);"),
+    "citationGateStandard itself must resolve its groups through gateConceptGroups");
   assert.ok(src.includes("const resolvedGroups = gateConceptGroups(rawQuery, dynLookup);"),
     "the topic filter's grouped branch must resolve through gateConceptGroups");
   assert.ok(src.includes("gateDynLookup(String(ctx.query || \"\"), ctx.dynLookup)"),

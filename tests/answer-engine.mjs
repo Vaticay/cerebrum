@@ -416,8 +416,14 @@ test("selection applies the gate, then the guaranteed-evidence cascade", () => {
   // stay exempt (handled by their own branch).
   assert.ok(searchSrc.includes("const gated = applyRelevanceGate(papers);"), "gate not applied in selection");
   assert.ok(searchSrc.includes("if (gated.length >= 3)"), "gated fast path missing");
-  assert.ok(searchSrc.includes("evidencePapers = gated.slice(0, maxEvidence)"), "gated papers not selected");
-  assert.ok(searchSrc.includes("evidencePapers = ranked.slice(0, 3)"), "cascade top-3 fallback missing");
+  // 2026-10-14 (fourth panel, JOB 2): the slice is taken from the
+  // gated pool ordered by concept group coverage ahead of raw
+  // score (orderCitedSliceByCoverage), on both the fast path and
+  // the cascade — the gate itself and the cascade contract are
+  // unchanged, only the pool's order into the slice is.
+  assert.ok(searchSrc.includes("const citedPool = orderCitedSliceByCoverage(gated, query, _dynForValidation);"), "gated pool not coverage ordered");
+  assert.ok(searchSrc.includes("evidencePapers = citedPool.slice(0, maxEvidence)"), "gated papers not selected");
+  assert.ok(searchSrc.includes("evidencePapers = orderCitedSliceByCoverage(ranked, query, _dynForValidation).slice(0, 3)"), "cascade top-3 fallback missing");
   assert.ok(searchSrc.includes("p.thinEvidence = true"), "cascade papers not flagged thinEvidence");
   assert.ok(!searchSrc.includes("papers.slice(0, 8)"), "old ungated top-8 fallback still present");
 });

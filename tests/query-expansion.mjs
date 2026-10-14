@@ -47,6 +47,14 @@ const {
   rebuildStructuredQueryFromGroups,
   dropFailedRungs,
   buildSearchRecord,
+  buildDeterministicFallbackGroups,
+  inflectionVariants,
+  centralContentTerms,
+  citationGateStandard,
+  paperClearsCitationGate,
+  applyConceptCoverageGate,
+  orderCitedSliceByCoverage,
+  paperConceptGroupHits,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -1394,6 +1402,229 @@ await test("the record carries the rebuild provenance, and stays null for clean 
   const cleanRec = buildSearchRecord({ ...base, structuredQuery: "creatine AND hair" });
   assert.equal(cleanRec.structuredQueryProvenance, null,
     "a clean query's record must not claim a degradation that never happened");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("deterministic fallback expansion (2026-10-14, fourth panel)");
+
+// The panel's creatine specimen, in the mismatched everyday
+// wording the standing rule requires: neither the substance nor
+// the body part sits in any hand table group, so with the model
+// leg returning zero groups these are exactly the terms the
+// gather's dynUncovered carries.
+const CREATINE_Q = "does creatine make your hair fall out";
+const CREATINE_PAPERS = () => [
+  {
+    title: "Creatine monohydrate supplementation and hair shedding: a randomized trial",
+    abstract: "Men taking creatine monohydrate were followed for twelve weeks. Hair density and hair shedding counts did not differ from placebo, and dihydrotestosterone stayed in the normal range.",
+    url: "https://example.com/creatine-hair-trial",
+  },
+  {
+    title: "Hair in the schoolyard: hair policies and belonging in English schools",
+    abstract: "This sociology paper examines how school hair rules shape pupils' sense of identity and belonging. Hair is treated as culture and self expression throughout.",
+    url: "https://example.com/hair-sociology",
+  },
+  {
+    title: "Panacea: cure alls in the history of popular medicine",
+    abstract: "A history of universal remedies, from hair tonics to bottled elixirs, and the promises their sellers made across two centuries of popular medicine.",
+    url: "https://example.com/panacea",
+  },
+];
+
+await test("fallback covers the uncovered central terms, in the model's own shape", () => {
+  const groups = buildDeterministicFallbackGroups(CREATINE_Q, ["creatine", "hair", "fall"]);
+  assert.deepEqual(groups.map((g) => g.term), ["creatine", "hair", "fall"]);
+  for (const g of groups) {
+    assert.ok(Array.isArray(g.alternates) && g.alternates.length >= 1,
+      `group for ${g.term} carries no alternates`);
+    assert.ok(!g.alternates.includes(g.term), "a group never lists its own term as an alternate");
+  }
+  // The groups feed the same lookup the model groups feed, and
+  // the gating resolution then sees the question's concepts.
+  const dyn = buildDynLookup(groups);
+  assert.ok(gateConceptGroups(CREATINE_Q, dyn).length >= 2,
+    "the fallback groups must resolve for gating");
+});
+
+await test("fallback attaches a curated group through inflection", () => {
+  // "diets" is nobody's group key, but its singular is a member of
+  // the curated nutrition group, so the whole group attaches.
+  const groups = buildDeterministicFallbackGroups("do diets change gut germs", ["diets"]);
+  assert.equal(groups.length, 1);
+  assert.ok(groups[0].alternates.includes("diet") && groups[0].alternates.includes("nutrition"),
+    `curated group did not attach: ${JSON.stringify(groups)}`);
+});
+
+await test("fallback walks the synonyms table through a phrase the question speaks", () => {
+  const groups = buildDeterministicFallbackGroups("what do black soldier fly larvae eat", ["soldier"]);
+  assert.equal(groups.length, 1);
+  assert.ok(groups[0].alternates.some((a) => a.includes("hermetia illucens")),
+    `the organism bridge is missing: ${JSON.stringify(groups)}`);
+});
+
+await test("fallback never re-covers covered terms or framing words", () => {
+  assert.deepEqual(buildDeterministicFallbackGroups("anything", ["gut"]), [],
+    "a term the hand table covers needs no fallback group");
+  assert.deepEqual(buildDeterministicFallbackGroups("anything", ["researcher"]), [],
+    "a framing word gets no group");
+  assert.deepEqual(buildDeterministicFallbackGroups("anything", ["viruses"]), [],
+    "a curated group member is already covered");
+});
+
+await test("fallback honors the validator's caps (four groups)", () => {
+  const groups = buildDeterministicFallbackGroups("q", ["zorblaxin", "quixotase", "wobble", "tremor", "fluxion"]);
+  assert.equal(groups.length, 4);
+});
+
+await test("inflection variants stay inside the word family", () => {
+  assert.ok(inflectionVariants("germs").has("germ"));
+  assert.ok(inflectionVariants("baby").has("babies") && !inflectionVariants("baby").has("babys"));
+  assert.ok(inflectionVariants("sleeping").has("sleep"));
+  // Different concepts that share a prefix are not inflections:
+  // the fallback must never bridge them into one group.
+  assert.ok(!inflectionVariants("creatine").has("creatinine"));
+  assert.ok(!inflectionVariants("germ").has("germination"));
+});
+
+await test("the strategies line names the fallback as the fallback", () => {
+  const out = retrievalStrategiesTried({
+    llmExpanded: [{ term: "creatine", alternates: ["creatines"] }],
+    llmExpandedVia: "fallback",
+  });
+  assert.ok(out.some((s) => s.includes("deterministic fallback expansion (1 terms)")),
+    `fallback line missing: ${out}`);
+  assert.ok(!out.some((s) => s.includes("model proposed")),
+    "the fallback must not wear the model's name");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("the citation standard below two groups (2026-10-14, fourth panel)");
+
+await test("central content terms are the question's specific words, minus the closed class", () => {
+  assert.deepEqual(centralContentTerms(CREATINE_Q), ["creatine", "hair", "fall"]);
+  const frog = centralContentTerms("What lets a wood frog survive being frozen for months at a time?");
+  assert.ok(frog.includes("frog") && frog.includes("frozen"), `frog terms: ${frog}`);
+  assert.ok(!frog.includes("being") && !frog.includes("your") && !frog.includes("not"),
+    `closed class leaked into the standard: ${frog}`);
+});
+
+await test("creatine shape: with fallback groups, hair only and neither papers lose their markers", () => {
+  const dyn = buildDynLookup(buildDeterministicFallbackGroups(CREATINE_Q, ["creatine", "hair", "fall"]));
+  const papers = CREATINE_PAPERS();
+  const answer = "Creatine did not change shedding [1]. Hair rules shape belonging [2]. Cure alls promised everything [3].";
+  const out = applyConceptCoverageGate(answer, papers, CREATINE_Q, dyn);
+  assert.ok(out.text.includes("[1]"), "the on point creatine paper keeps its marker");
+  assert.deepEqual(out.demoted.map((d) => d.idx), [2, 3],
+    "the hair only sociology paper and the neither paper are demoted to further reading");
+});
+
+await test("one resolved group: a group touch or a shared central term cites, a collision does not", () => {
+  const q = "why do some plants fold their leaves when you touch them";
+  const standard = citationGateStandard(q, null);
+  assert.equal(standard.groups.length, 1, "control: the mimosa question resolves one group");
+  const onPoint = {
+    title: "Thigmonastic leaf movement in Mimosa pudica",
+    abstract: "Leaflets fold within seconds of mechanical stimulation. Turgor changes in the pulvinus drive the movement.",
+  };
+  const termSharer = {
+    title: "Touch receptors in mammalian skin",
+    abstract: "How touch receptors signal pressure is reviewed, with no plant material anywhere in the discussion of leaves and skin.",
+  };
+  const collision = {
+    title: "Infant intestinal microbiota and growth in the first year",
+    abstract: "Stool microbiota of infants was profiled monthly. Intestinal bacteria composition predicted weight gain.",
+  };
+  assert.equal(paperClearsCitationGate(onPoint, standard), true, "the group touching paper clears");
+  assert.equal(paperClearsCitationGate(termSharer, standard), true,
+    "a paper sharing a central term (touch, leaves) clears the degraded standard");
+  assert.equal(paperClearsCitationGate(collision, standard), false,
+    "a paper sharing neither the group nor any central term is barred");
+});
+
+await test("no resolved groups: central terms alone carry the standard", () => {
+  const q = "What lets a wood frog survive being frozen for months at a time?";
+  const standard = citationGateStandard(q, null);
+  assert.equal(standard.groups.length, 0, "control: the frog question resolves no groups");
+  const frogPaper = {
+    title: "Freeze tolerance in the wood frog",
+    abstract: "The wood frog survives being frozen for months, its tissues tolerating ice through the winter.",
+  };
+  const offPaper = {
+    title: "Infant intestinal microbiota and growth in the first year",
+    abstract: "Stool microbiota of infants was profiled monthly. Intestinal bacteria composition predicted weight gain.",
+  };
+  assert.equal(paperClearsCitationGate(frogPaper, standard), true);
+  assert.equal(paperClearsCitationGate(offPaper, standard), false);
+  // And through the gate itself: the off topic paper is demoted
+  // while the on topic one stands (so the floor does not trigger).
+  const out = applyConceptCoverageGate("Frogs freeze and live [1]. Gut germs shape growth [2].",
+    [frogPaper, offPaper], q, null);
+  assert.ok(out.text.includes("[1]") && !out.text.includes("[2]"),
+    `gate output: ${out.text}`);
+});
+
+await test("the floor holds below two groups too: nothing clearing ships the answer untouched", () => {
+  const q = "What lets a wood frog survive being frozen for months at a time?";
+  const papers = [
+    { title: "Thigmonastic leaf movement in Mimosa pudica", abstract: "Leaflets fold within seconds of touch." },
+    { title: "Infant intestinal microbiota and growth", abstract: "Stool microbiota of infants was profiled monthly." },
+  ];
+  const answer = "One [1]. Two [2].";
+  const out = applyConceptCoverageGate(answer, papers, q, null);
+  assert.equal(out.text, answer, "when no cited paper clears, the gate must not empty the cited set");
+  assert.deepEqual(out.demoted, []);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("citation selection — coverage ahead of score (2026-10-14, fourth panel)");
+
+const BABY_GUT_Q = "what happens to a baby's gut germs in the first year";
+const GERM_FREE_PAPER = () => ({
+  title: "Germ free mice show altered gut development",
+  abstract: "Germ free animals were raised in isolators. The gut of germ free mice developed differently and gut motility changed without microbes present.",
+  url: "https://example.com/germ-free",
+});
+const EARLY_LIFE_PAPER = () => ({
+  title: "Microbial shifts in early life shape the infant gut",
+  abstract: "We followed each baby through the first year. Gut germs changed month by month as the baby gut matured, and early microbial shifts predicted later gut health in every infant studied.",
+  url: "https://example.com/early-life",
+});
+
+await test("baby gut shape: the covering paper leads the cited slice", () => {
+  const dyn = buildDynLookup(buildDeterministicFallbackGroups(BABY_GUT_Q, ["baby"]));
+  const pool = [GERM_FREE_PAPER(), EARLY_LIFE_PAPER()];
+  const groups = questionConceptGroups(BABY_GUT_Q, dyn);
+  assert.ok(paperConceptGroupHits(EARLY_LIFE_PAPER(), groups) > paperConceptGroupHits(GERM_FREE_PAPER(), groups),
+    "control: the early life paper covers more of the question's groups");
+  const ordered = orderCitedSliceByCoverage(pool, BABY_GUT_Q, dyn);
+  assert.equal(ordered[0].url, "https://example.com/early-life",
+    "score order buried the covering paper; coverage order must lead with it");
+  assert.equal(ordered[1].url, "https://example.com/germ-free");
+});
+
+await test("coverage order is stable and a no op when nothing resolves", () => {
+  const pool = [GERM_FREE_PAPER(), EARLY_LIFE_PAPER()];
+  const same = orderCitedSliceByCoverage(pool, "what is the capital of anywhere", null);
+  assert.deepEqual(same.map((p) => p.url), pool.map((p) => p.url),
+    "with no resolved groups the pool order is untouched");
+});
+
+await test("duplicate records rank after distinct papers, whatever their coverage", () => {
+  // The shelf can carry the same work twice from different fetch
+  // rounds, scored differently. A duplicate shares its original's
+  // coverage, so without the rule it would take a slice slot from
+  // a distinct paper and the final dedupe would collapse the
+  // cited set below the pool (verified end to end against the
+  // black soldier fly draw: three copies of one paper filled the
+  // cascade slice and a distinct paper vanished from the sources).
+  const dyn = buildDynLookup(buildDeterministicFallbackGroups(BABY_GUT_Q, ["baby"]));
+  const original = { ...EARLY_LIFE_PAPER(), doi: "10.1000/dup1" };
+  const duplicate = { ...EARLY_LIFE_PAPER(), doi: "10.1000/dup1", relevance: 12 };
+  const distinct = GERM_FREE_PAPER();
+  const ordered = orderCitedSliceByCoverage([original, duplicate, distinct], BABY_GUT_Q, dyn);
+  assert.equal(ordered[0], original, "the covering original leads");
+  assert.equal(ordered[1], distinct, "the distinct paper outranks the duplicate");
+  assert.equal(ordered[2], duplicate, "the duplicate ranks last despite sharing the top coverage");
 });
 
 // ═══════════════════════════════════════════════════════════════════

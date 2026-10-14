@@ -659,12 +659,18 @@ export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 // gather (the minimum results guarantee) inherits the spent
 // allowance instead of restarting it. Answer phase spends are
 // never subject to this ceiling, only to the overall limit and
-// their existing guards. One exception, by design: the zero
+// their existing guards — and since the fourth panel the
+// overall limit is itself enforced at the ledger's grant point
+// (see the total cap in grant()): no grant of any stage may push
+// the invocation total past the cap, so the closure below is
+// arithmetic the ledger now guarantees rather than arithmetic
+// it merely derives from. One exception, by design: the zero
 // sources cascade. If the shelf is still EMPTY when a fallback
 // round starts, gatherPapers arms a one round yield
 // (setRetrievalYield) so the cascade's first real attempt fires
 // even past the ceiling — an empty shelf is the one outcome
-// worse than a spent budget.
+// worse than a spent budget. The yield passes the retrieval
+// ceiling only; the total cap still binds it.
 export const SUBREQUEST_RETRIEVAL_ALLOWANCE =
   SUBREQUEST_LIMIT - SUBREQUEST_POST_RETRIEVAL_COST - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE;
 
@@ -688,6 +694,12 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
   let usedCount = 0;
   let stage = "other";
   const byStage = {};
+  /* Invocation total refusals (2026-10-14, fourth panel): grants
+   * the TOTAL cap turned away, in any phase or none. The phase
+   * tallies below count their own ceilings' refusals; this one
+   * counts the platform limit's, so the shipped _ledger's refused
+   * sum can be the whole truth. */
+  let totalRefused = 0;
   /* Retrieval phase state (see SUBREQUEST_RETRIEVAL_ALLOWANCE):
    * phaseDepth > 0 while a gatherPapers body is executing;
    * retrievalUsed counts every grant made while the phase was
@@ -723,6 +735,31 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
    * refused grant is NOT counted: no platform attempt happened,
    * which keeps the ledger's total equal to the platform's. */
   const grant = (n) => {
+    /* THE TOTAL IS A HARD CAP (2026-10-14, fourth panel). The
+     * phase ceilings bind their own phases, but until now nothing
+     * bound the invocation total itself: the answer stages spent
+     * "against the overall limit and their existing guards", and
+     * the guards are reserve checks taken before rounds whose real
+     * cost lands after — so live probes shipped _ledger used at
+     * 51, 52, 53 against the limit of 50, and the overshoot was
+     * discovered by the PLATFORM mid synthesis race, as legs
+     * dying at 0 ms with its error. The total is therefore
+     * enforced here, ahead of the phase checks, in every phase
+     * and in none — including under the cascade yield, which may
+     * pass the retrieval ceiling but may never pass the
+     * platform's own limit. A refusal here is the same budget
+     * error every consumer already degrades on: fetchers return
+     * empty, legs record as budget trims, the fact check falls
+     * back to its zero network heuristic, and the post assembly
+     * bookkeeping (the record store, the slot release, the stage
+     * health aggregate — charged after the response snapshot by
+     * design) swallows the refusal exactly as it swallowed the
+     * platform's, so a spent cap costs the record its store and
+     * never the user their answer. */
+    if (usedCount + n > cap) {
+      totalRefused++;
+      throw new Error("Too many subrequests by single Worker invocation (invocation budget)");
+    }
     if (inRetrievalPhase() && !yieldOn && usedCount + n > retrievalCeiling) {
       retrievalRefused++;
       throw new Error("Too many subrequests by single Worker invocation (retrieval phase budget)");
@@ -768,6 +805,9 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     setStage(name) { stage = String(name || "other"); },
     used() { return usedCount; },
     remaining() { return Math.max(0, cap - usedCount); },
+    /* Grants the invocation total has refused so far (see the
+     * total cap in grant()). */
+    totalRefusals() { return totalRefused; },
     /* Retrieval phase brackets. gatherPapers opens the phase on
      * entry and closes it on return (a depth counter, so a nested
      * gather could never close an outer gather's phase early);
@@ -831,9 +871,11 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
      * invocation allowance this request spent, and where. The
      * phase fields ride along once their phase has spent or
      * refused anything (a ledger that never gathered or validated
-     * keeps the original four field shape). */
+     * keeps the original four field shape); totalRefused rides
+     * along once the invocation total has refused anything. */
     snapshot() {
       const snap = { used: usedCount, limit: cap, remaining: Math.max(0, cap - usedCount), byStage: { ...byStage } };
+      if (totalRefused > 0) snap.totalRefused = totalRefused;
       if (retrievalUsed > 0 || retrievalRefused > 0) {
         snap.retrievalSpent = retrievalUsed;
         snap.retrievalAllowance = retrievalCeiling;
@@ -913,9 +955,11 @@ export function planWaveLegs(descriptors, fetchAllowance) {
  * phase spends for the two hard capped phases (retrieval and
  * validation, present once their phase has spent or refused
  * anything, mirroring snapshot()), the phase allowances, and the
- * total refusal count — the sum of the two phases' refusals,
- * which are the only refusals the ledger records (a refused grant
- * happens BEFORE the platform call, so it is not in `used`).
+ * total refusal count — the sum of every refusal the ledger
+ * records: the two phases' ceiling refusals plus the invocation
+ * total's own (totalRefused, present once the total has refused
+ * anything; a refused grant happens BEFORE the platform call, so
+ * it is not in `used`).
  * The named budget constants ride along so a reader can check the
  * snapshot's arithmetic against the derivation above (retrieval
  * allowance 23 + post retrieval 5 + validation allowance 5 +
@@ -937,8 +981,9 @@ export function publicLedgerSnapshot(ledger) {
     limit: snap.limit,
     remaining: snap.remaining,
     byStage: { ...(snap.byStage || {}) },
-    refused: (snap.retrievalRefused || 0) + (snap.validationRefused || 0),
+    refused: (snap.retrievalRefused || 0) + (snap.validationRefused || 0) + (snap.totalRefused || 0),
   };
+  if (typeof snap.totalRefused === "number") view.totalRefused = snap.totalRefused;
   if (typeof snap.retrievalSpent === "number") {
     view.retrievalSpent = snap.retrievalSpent;
     view.retrievalAllowance = snap.retrievalAllowance;
@@ -1585,7 +1630,24 @@ export function isNonLiterature(p) {
 // the extractive body states the claim check's real result
 // instead of a pre check guess. Payloads cached under v35 must
 // not be served as though produced under any of this.
-const CACHE_SCHEMA_VERSION = "v36";
+// v37 (2026-10-14, fourth panel): the cited set and the shipped
+// prose changed again. Expansion now falls back deterministically
+// when the model returns no groups, so a stored answer's
+// expansion record can understate the coverage its question gets
+// today; the citation gate judges below two resolved groups (a
+// shared central term is the floor), and citation selection
+// orders the gated pool by concept coverage ahead of raw score,
+// so stored citation sets and orders predate both standards. The
+// prose is bound to the trust fields: a disagreement section
+// naming studies is stripped when the verdict finds no conflicts,
+// claims the fact check marks unsupported are removed from the
+// text rather than merely de cited, and confidence is capped at
+// the thin band when the claim check supports none of its claims
+// or never ran on an AI answer — a stored answer can carry all
+// three defects in its text and its confidence line. Payloads
+// cached under v36 must not be served as though produced under
+// any of this.
+const CACHE_SCHEMA_VERSION = "v37";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -3032,6 +3094,134 @@ export function buildDynLookup(groups) {
     map.set(g.term, new Set([g.term, ...g.alternates]));
   }
   return map;
+}
+
+/* ── Deterministic fallback expansion (2026-10-14, fourth panel) ──
+ * The model leg above is one capped pool away from silence: on the
+ * fourth panel's fresh questions it returned zero validated groups
+ * on 4 of 5 probes, and every downstream consumer then ran with
+ * the question's central vocabulary uncovered — the boolean rungs
+ * lost their OR forms, the relevance matcher lost its bridge, and
+ * the citation gate's resolution lost the very groups that would
+ * have barred a keyword collision paper from being cited. The
+ * fallback below builds groups for the uncovered central terms
+ * from the codebase's OWN deterministic tables, no model involved:
+ *   . a curated CONCEPT_GROUPS group the term inflects into
+ *     (sleeping -> the sleep group), attached whole;
+ *   . the SYNONYMS table in both directions: a key whose value
+ *     list names the term contributes itself and its siblings,
+ *     and a multi word key present in the question that contains
+ *     the term contributes its values (soldier in "black soldier
+ *     fly" -> Hermetia illucens, the organism bridge);
+ *   . the term's own inflections (singular and plural forms),
+ *     which guarantee the group can test membership at all.
+ * Same output shape and caps as the validator's (at most 4 groups,
+ * at most 6 alternates), same exclusions (framing words, negation
+ * leads). It is recorded honestly wherever the model groups are:
+ * the groups ride diag.llmExpanded with via "fallback", never a
+ * provider name, and retrievalStrategiesTried names the fallback
+ * as the fallback. It spends no subrequests, so gatherPapers runs
+ * it even when the model leg was budget skipped. */
+
+// The light inflection family of a single word: the forms a paper
+// might use for the same word. Deliberately narrow (plural and
+// singular swaps only): a wider stemmer would attach curated
+// groups by prefix accidents (germ -> germination, creatine ->
+// creatinine are different concepts, not inflections).
+export function inflectionVariants(term) {
+  const t = String(term || "").toLowerCase().trim();
+  const out = new Set();
+  if (!t || /\s/.test(t)) return out;
+  if (t.endsWith("ies") && t.length > 3) out.add(t.slice(0, -3) + "y");
+  else if (t.endsWith("es") && t.length > 3) out.add(t.slice(0, -2));
+  else if (t.endsWith("s") && !t.endsWith("ss")) out.add(t.slice(0, -1));
+  if (!t.endsWith("s")) {
+    const consonantY = t.endsWith("y") && !/[aeiou]y$/.test(t);
+    if (!consonantY) out.add(t + "s");
+    if (/(x|z|ch|sh)$/.test(t)) out.add(t + "es");
+    if (consonantY) out.add(t.slice(0, -1) + "ies");
+  }
+  // Verb forms: "sleeping" and "slept" questions against a table
+  // that carries "sleep". The stripped base is the variant (plus
+  // its undoubled form for running -> run); no e restoration is
+  // attempted, so make/making stays unmatched rather than risk a
+  // junk reconstruction.
+  if (t.endsWith("ing") && t.length > 5) {
+    const b = t.slice(0, -3);
+    out.add(b);
+    if (b.length > 1 && b[b.length - 1] === b[b.length - 2]) out.add(b.slice(0, -1));
+  } else if (t.endsWith("ed") && t.length > 4) {
+    const b = t.slice(0, -2);
+    out.add(b);
+    if (b.length > 1 && b[b.length - 1] === b[b.length - 2]) out.add(b.slice(0, -1));
+  }
+  out.delete(t);
+  return out;
+}
+
+// True when two single words are inflection forms of one another.
+function sameInflection(a, b) {
+  if (a === b) return true;
+  return inflectionVariants(a).has(b) || inflectionVariants(b).has(a);
+}
+
+export function buildDeterministicFallbackGroups(query, uncoveredTerms) {
+  const q = String(query || "").toLowerCase().replace(/\s+/g, " ");
+  const out = [];
+  const seenTerms = new Set();
+  const cleanPiece = (s) => String(s || "").toLowerCase().trim().replace(/\s+/g, " ");
+  const isCleanWording = (s) =>
+    /^[a-z][a-z\s-]*$/.test(s) && /[a-z]/.test(s) && !/^-|-$/.test(s);
+  for (const rawTerm of Array.isArray(uncoveredTerms) ? uncoveredTerms : []) {
+    if (out.length >= 4) break;
+    const term = cleanPiece(rawTerm);
+    if (!term || seenTerms.has(term)) continue;
+    if (term.split(" ").length > 4 || !isCleanWording(term)) continue;
+    if (EXPANSION_FRAMING_WORDS.has(term) || hasNegationLead(term)) continue;
+    // A term the hand table already covers needs no fallback.
+    if (CONCEPT_LOOKUP.has(term)) continue;
+    const alts = new Set();
+    const addAlt = (a) => {
+      const alt = cleanPiece(a);
+      if (!alt || alt === term) return;
+      if (alt.split(" ").length > 4 || !isCleanWording(alt)) return;
+      if (EXPANSION_FRAMING_WORDS.has(alt)) return;
+      alts.add(alt);
+    };
+    // 1. A curated concept group the term inflects into, whole.
+    for (const set of new Set(CONCEPT_LOOKUP.values())) {
+      let attach = false;
+      for (const member of set) {
+        if (member.indexOf(" ") === -1 && sameInflection(member, term)) { attach = true; break; }
+      }
+      if (attach) for (const member of set) addAlt(member);
+    }
+    // 2. The synonyms table, both directions, plus the multi word
+    // keys the question itself speaks that contain the term.
+    for (const [key, values] of Object.entries(SYNONYMS)) {
+      if (!Array.isArray(values)) continue;
+      const keyNamesTerm = values.some((v) => {
+        const vl = cleanPiece(v);
+        return vl === term || (vl.indexOf(" ") === -1 && sameInflection(vl, term));
+      });
+      if (keyNamesTerm) {
+        addAlt(key);
+        for (const v of values) addAlt(v);
+      }
+      if (key.indexOf(" ") !== -1 && q.includes(key)) {
+        const words = key.split(" ");
+        if (words.includes(term)) for (const v of values) addAlt(v);
+      }
+    }
+    // 3. The term's own inflections: the floor that keeps the
+    // group a real membership test even when no table knows the
+    // term at all (a substance nobody has curated yet).
+    for (const v of inflectionVariants(term)) addAlt(v);
+    if (alts.size === 0) continue;
+    seenTerms.add(term);
+    out.push({ term, alternates: [...alts].slice(0, 6) });
+  }
+  return out;
 }
 
 /* clampStageLegTimeout: the synthesis stage's clampLegTimeout
@@ -8897,6 +9087,16 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // the gate's own: when nothing clears the standard the pool
     // stands as given, so the guaranteed evidence cascade and thin
     // shelves are untouched.
+    // The unfiltered shelf, kept for the weak evidence listing
+    // below: that answer makes no claims — it lists the closest
+    // papers for the reader and says why they fall short (its
+    // headings deliberately avoid citation language) — so its
+    // enumeration is the gathered shelf complete, not the excerpt
+    // pool the standard filtered. Filtering it would silently
+    // unlist gathered papers from the one answer whose whole job
+    // is showing what was found (the 2026-10-07 honesty gate
+    // fixture lists every title only paper it was handed).
+    const shelfPool = pool;
     if (!(ctx && (ctx.isNameSearch || ctx.isFollowupMode))) {
       try {
         const gateCtx = conceptGateContext(
@@ -8904,10 +9104,14 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
           (ctx && ctx.query) || "",
           (ctx && ctx.dynLookup) || null
         );
-        if (gateCtx.groups.length >= 2) {
-          const eligible = pool.filter((it) => conceptGateKeeps(it.p, it.idx, gateCtx));
-          if (eligible.length > 0) pool = eligible;
-        }
+        // The predicate carries the whole standard now (the
+        // degraded below two groups standard included), so the
+        // filter runs whenever the standard can judge at all —
+        // the old groups >= 2 precondition was the hole the
+        // fourth panel's collision papers walked through on
+        // this path.
+        const eligible = pool.filter((it) => conceptGateKeeps(it.p, it.idx, gateCtx));
+        if (eligible.length > 0) pool = eligible;
       } catch { /* the pool standard must never break the fallback */ }
     }
     /* Substrate-drift demotion (2026-09-15 incident). A lignocellulose
@@ -9127,7 +9331,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         const topics = deriveRelatedTopics(ctx && ctx.query, qTerms);
         if (topics.length > 0) ctx = { ...ctx, relatedTopics: topics };
       } catch { /* best-effort */ }
-      return buildWeakEvidenceAnswer(items, pool, ctx, extractionQuality);
+      return buildWeakEvidenceAnswer(shelfPool.slice(0, poolCap), shelfPool, ctx, extractionQuality);
     }
     lastExtractiveTier = "research";
 
@@ -10223,6 +10427,196 @@ export function stripUnsupportedCitations(answer, papers) {
   return { text: tidied, removed };
 }
 
+/* ── Prose bound to the trust fields (2026-10-14, fourth panel) ──
+ * The verdict fields were made honest in the correctness wave;
+ * the synthesis prose was never bound to them. The fourth panel
+ * verified all three shapes on live answers: a disagreement
+ * section inventing studies the verdict said did not exist
+ * (conflictCount 0, literature_conflicts null), a claim the fact
+ * check marked unsupported keeping its place in the text after
+ * its citation was stripped, and a Moderate confidence level
+ * shipped beside "the claim check supports 0 of 1 checked claims".
+ * The two passes below are the ship gates that bind the prose to
+ * the fields; the confidence binding lives in buildConfidenceLine
+ * (the support bound caps there). Both passes share the floor
+ * every mechanical pass here keeps: they never empty the answer. */
+
+// Split one body line into sentences, terminal punctuation kept.
+function splitBodySentences(line) {
+  return String(line || "")
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“'(])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Whether a fact check claim names this sentence. The panel flags'
+// claims ARE answer sentences (verbatim), and the deep check's
+// claims are tight paraphrases of them, so the test is word
+// containment: most of the claim's content words present in the
+// sentence, or a fingerprint containment either way for the
+// verbatim cases. Containment alone is not enough on topical
+// text — a same topic sentence repeats most of the claim's words
+// while asserting something else — so when the check named the
+// claim's source (the deep check's source_index), a sentence
+// carrying citation markers must cite that source: the claim
+// lives in the sentence the check actually read. A missed match
+// leaves the flag standing in the panel; a wrong match would
+// delete prose nobody indicted, so every ambiguity resolves
+// toward not removing.
+function claimNamesSentence(claim, sentence, sourceIndex) {
+  const cf = fingerprintClaim(claim);
+  const sf = fingerprintClaim(sentence);
+  let matched = false;
+  if (cf && sf && (sf.includes(cf) || cf.includes(sf))) {
+    matched = true;
+  } else {
+    const cw = claimWordSet(claim);
+    if (cw.size >= 4) {
+      const sw = claimWordSet(sentence);
+      let shared = 0;
+      for (const w of cw) if (sw.has(w)) shared++;
+      matched = shared / cw.size >= 0.7;
+    }
+  }
+  if (!matched) return false;
+  if (Number.isInteger(sourceIndex) && sourceIndex > 0) {
+    const markers = [...String(sentence || "").matchAll(/\[(\d{1,3})\]/g)].map((mm) => Number(mm[1]));
+    if (markers.length > 0 && !markers.includes(sourceIndex)) return false;
+  }
+  return true;
+}
+
+// Sectionize an answer body the way the checkers read it: a
+// preamble block plus one block per markdown heading. The
+// bibliography boundary (answerBodyBeforeBibliography) is
+// preserved by the callers passing the body only; the tail after
+// the last section is just the last block.
+function sectionizeAnswer(text) {
+  const blocks = [];
+  let cur = { heading: null, lines: [] };
+  for (const rawLine of String(text || "").split("\n")) {
+    const m = rawLine.match(/^\s{0,3}(#{2,6})\s+(.+?)\s*$/);
+    if (m) {
+      blocks.push(cur);
+      cur = { heading: rawLine, headingText: m[2], lines: [] };
+    } else {
+      cur.lines.push(rawLine);
+    }
+  }
+  blocks.push(cur);
+  return blocks;
+}
+
+function joinAnswerSections(blocks) {
+  const parts = [];
+  for (const b of blocks) {
+    const body = b.lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    if (b.heading) {
+      parts.push(body ? b.heading.trim() + "\n\n" + body : b.heading.trim());
+    } else if (body) {
+      parts.push(body);
+    }
+  }
+  return parts.join("\n\n").trim();
+}
+
+/* JOB 3(b): a claim the fact check marks unsupported leaves the
+ * shipped text, not just its citation. Targets come in two
+ * strengths. HARD targets are the deep check's own unsupported
+ * verdicts: the sentence they name goes, markers and all, because
+ * the check read the sentence against its supposed source and
+ * found nothing there. SOFT targets are the panel flags
+ * (vocabulary alignment, stripped citations, demoted citations):
+ * the sentence goes only when it carries no surviving citation
+ * marker — a sentence another paper still supports keeps its
+ * place, since the flag indicted its citation, not its truth.
+ * Grammar care: removal is sentence granular; a section a removal
+ * empties loses its heading too rather than standing over nothing;
+ * and if removal would empty the whole body the original text
+ * stands (a mechanical pass never manufactures an empty answer). */
+export function removeUnsupportedClaimsFromAnswer(answer, targets) {
+  const text = String(answer || "");
+  const list = (Array.isArray(targets) ? targets : [])
+    .filter((t) => t && typeof t.claim === "string" && t.claim.trim().length > 0);
+  if (!text || list.length === 0) return { text, removed: 0 };
+  const boundary = answerBodyBeforeBibliography(text);
+  const tail = text.slice(boundary.length);
+  const blocks = sectionizeAnswer(boundary);
+  let removed = 0;
+  const outBlocks = [];
+  for (const block of blocks) {
+    const outLines = [];
+    for (const line of block.lines) {
+      const trimmed = line.trim();
+      if (!trimmed || /^[-*]\s*$/.test(trimmed) || trimmed.startsWith("|")) {
+        outLines.push(line);
+        continue;
+      }
+      const sentences = splitBodySentences(line);
+      const kept = [];
+      for (const s of sentences) {
+        const hit = list.find((t) => claimNamesSentence(t.claim, s, t.sourceIndex));
+        if (hit && (hit.hard || !/\[\d{1,3}\]/.test(s))) {
+          removed++;
+          continue;
+        }
+        kept.push(s);
+      }
+      if (kept.length > 0) outLines.push(kept.join(" "));
+    }
+    const bodyText = outLines.join("\n").trim();
+    // A headed section whose body the removal emptied goes too.
+    if (block.heading && !bodyText) continue;
+    outBlocks.push({ heading: block.heading, lines: outLines });
+  }
+  if (removed === 0) return { text, removed: 0 };
+  // The floor: never ship an empty body for a non empty answer.
+  const joined = joinAnswerSections(outBlocks);
+  if (!joined) return { text, removed: 0 };
+  return { text: joined + tail, removed };
+}
+
+/* JOB 3(a): at a verdict of no conflicts, a disagreement section
+ * that names studies is invention, whatever its heading calls
+ * itself. The section goes when BOTH tests hold: the heading is
+ * disagreement shaped (disagree, conflicting, opposing, mixed
+ * findings, controversy, debate, studies differ and kin), and the
+ * body names studies, journals, or researchers the way invented
+ * support is named (et al., a parenthesized year, a journal name
+ * frame, a dated study, researchers at an institution). A
+ * disagreement heading over generic hedging names nothing and
+ * stays: the strip targets fabricated attribution, not caution.
+ * Floor as everywhere: if stripping would empty the body, the
+ * original stands. */
+const DISAGREEMENT_HEADING_RE =
+  /disagree|conflicting|opposing|opposite findings|mixed (evidence|findings|results|studies)|controvers|debate|contradict|inconsistent|differing|studies differ|evidence is divided|researchers disagree/i;
+const STUDY_NAMING_RE =
+  /\bet al\.?\b|\(\s*(?:19|20)\d{2}[a-z]?\s*\)|\bjournal of\b|\bproceedings of\b|\bannals of\b|\bpublished in\b|\bresearchers (?:at|from)\b|\b(?:19|20)\d{2} (?:study|trial|review|paper)\b/i;
+
+export function stripInventedDisagreementSections(answer) {
+  const text = String(answer || "");
+  if (!text) return text;
+  const boundary = answerBodyBeforeBibliography(text);
+  const tail = text.slice(boundary.length);
+  const blocks = sectionizeAnswer(boundary);
+  let stripped = 0;
+  const out = [];
+  for (const block of blocks) {
+    if (block.heading && DISAGREEMENT_HEADING_RE.test(block.headingText || "")) {
+      const body = block.lines.join("\n");
+      if (STUDY_NAMING_RE.test(body)) {
+        stripped++;
+        continue;
+      }
+    }
+    out.push(block);
+  }
+  if (stripped === 0) return text;
+  const joined = joinAnswerSections(out);
+  if (!joined) return text; // the floor: never empty the answer
+  return joined + tail;
+}
+
 // ── Both concepts gate (2026-10-13, wave two) ────────────────────
 // The sleep and colds failure: expansion resolved the question
 // perfectly (a sleep deprivation group and a common cold group), and
@@ -10243,6 +10637,11 @@ export function stripUnsupportedCitations(answer, papers) {
 // abstract. A paper that touches fewer loses its markers and stays
 // in the bibliography as further reading, exactly the state
 // labelUncitedSources already renders; nothing is deleted.
+// Below two groups the standard degrades rather than vanishing
+// (2026-10-14, fourth panel — see citationGateStandard): one
+// group asks one touch of it or a shared central term, and no
+// groups asks a shared central term, so a lone keyword collision
+// can no longer stand as a citation on a thin table question.
 //
 // Exemptions, each a way a paper can be direct support without
 // touching two groups:
@@ -10366,12 +10765,103 @@ export function paperConceptGroupHits(paper, groups) {
   return hits;
 }
 
+/* ── The citation standard below two groups (2026-10-14, fourth
+ * panel) ───────────────────────────────────────────────────────
+ * The both concepts standard above only engages when the question
+ * resolves to two or more gating groups. On the panel's fresh
+ * questions it often resolved to one or none — the substance term
+ * had no group at all until the deterministic fallback expansion
+ * (or the model) supplied one — and the gate then returned the
+ * answer untouched, so a paper sharing a single passing keyword
+ * with the question (a sociology paper about hair, cited for a
+ * question about a hair substance) stood as a citation. The
+ * standard now degrades instead of vanishing:
+ *   . two or more groups: unchanged — a cited paper touches at
+ *     least two of them, and nothing weaker counts;
+ *   . exactly one group: a cited paper touches that group, or
+ *     shares one of the question's central content terms;
+ *   . no groups: a cited paper shares one of the question's
+ *     central content terms.
+ * Central content terms are the gate's own fallback vocabulary —
+ * the same targeting rule the expansion stage and the topic
+ * filter's singleton accounting use (specificity at least 0.5,
+ * framing words excluded) — so "central" means one thing at every
+ * gate. The floor and the exemptions are the gate's own, shared
+ * by construction: every consumer (the answer gate, the pool
+ * predicate below, the extractive pool standard) reads the
+ * standard from citationGateStandard and judges with
+ * paperClearsCitationGate, so the layers cannot drift apart. */
+// Closed class words the specificity bar alone cannot keep out:
+// its short word boost (built for gene like designators) also
+// lifts possessives, particles, negations, and ordinals past 0.5,
+// and a paper sharing only "your", "not", or "first" with the
+// question shares nothing. STOPWORDS already carries most of the
+// closed class; this is the remainder, named once here.
+const CENTRAL_TERM_CLOSED_CLASS = new Set([
+  "your", "yours", "mine", "his", "her", "hers", "them", "him",
+  "out", "off", "per", "one", "two", "first", "second", "third",
+  "not", "no", "nor", "being", "after", "before", "under", "over",
+  "better", "more", "less", "well", "only", "even",
+]);
+
+export function centralContentTerms(query) {
+  const q = String(query || "").toLowerCase();
+  const terms = [];
+  const seen = new Set();
+  for (const t of q.replace(/[^\w\s-]/g, " ").split(/[\s-]+/)) {
+    if (t.length <= 2 || STOPWORDS.has(t) || EXPANSION_FRAMING_WORDS.has(t)) continue;
+    if (CENTRAL_TERM_CLOSED_CLASS.has(t)) continue;
+    if (termSpecificity(t) < 0.5) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    terms.push(t);
+  }
+  return terms;
+}
+
+// Whole token membership in the paper's title or abstract (the
+// gate's strict reading, as in paperConceptGroupHits: a substring
+// would let "germ" hit "germination").
+export function paperSharesCentralTerm(paper, terms) {
+  if (!Array.isArray(terms) || terms.length === 0) return false;
+  const p = paper || {};
+  const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
+  if (!hay.trim()) return false;
+  const tokens = new Set(hay.split(/[^a-z0-9]+/).filter(Boolean));
+  return terms.some((t) => tokens.has(t));
+}
+
+// The citation standard for one question: its gating groups, the
+// central terms that stand in when groups run thin, and the group
+// touches a cited paper needs while groups carry the standard.
+export function citationGateStandard(query, dynLookup) {
+  const groups = gateConceptGroups(query, dynLookup);
+  return {
+    groups,
+    centralTerms: groups.length >= 2 ? [] : centralContentTerms(query),
+    minHits: groups.length >= 2 ? 2 : 1,
+  };
+}
+
+// Whether one paper clears the standard (exemptions — cascade,
+// anchor, existence — are the callers', applied before this).
+export function paperClearsCitationGate(paper, standard) {
+  const std = standard || { groups: [], centralTerms: [], minHits: 1 };
+  const groups = std.groups || [];
+  if (groups.length >= 2) return paperConceptGroupHits(paper, groups) >= 2;
+  if (groups.length === 1 && paperConceptGroupHits(paper, groups) >= 1) return true;
+  return paperSharesCentralTerm(paper, std.centralTerms || []);
+}
+
 export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
   const text = String(answer || "");
   const list = Array.isArray(papers) ? papers : [];
   if (!text || list.length === 0) return { text, demoted: [] };
-  const groups = gateConceptGroups(query, dynLookup);
-  if (groups.length < 2) return { text, demoted: [] };
+  const standard = citationGateStandard(query, dynLookup);
+  const groups = standard.groups;
+  // The gate can only judge when the question yields a standard:
+  // no groups and no central terms leaves nothing to judge with.
+  if (groups.length === 0 && standard.centralTerms.length === 0) return { text, demoted: [] };
 
   const citedIdx = new Set();
   for (const m of text.matchAll(/\[(\d{1,3})\]/g)) {
@@ -10414,7 +10904,7 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
       if (anchorNeedles.some((n) => hay.includes(n))) { keep.add(idx); continue; }
     }
     const hits = paperConceptGroupHits(p, groups);
-    if (hits >= 2) keep.add(idx);
+    if (paperClearsCitationGate(p, standard)) keep.add(idx);
     else failing.push({ idx, hits, groups: groups.length });
   }
   // The floor: nothing cited may remain is the one outcome this gate
@@ -10446,16 +10936,19 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
 // which papers may supply excerpts at all, and (in the handler)
 // which evidence entries may ship on an extractive answer. The
 // context below computes the gate's own inputs once: the resolved
-// gating concept groups (gateConceptGroups, so the curated first
-// precedence holds here exactly as at the gate), the organism and
+// gating standard (citationGateStandard, so the curated first
+// precedence and the below two groups degradation hold here
+// exactly as at the gate), the organism and
 // binomial anchor needles, and
 // the existence path's carried paper. The keep predicate mirrors
 // the gate's exemptions exactly: cascade papers (thinEvidence),
 // anchor carried papers, and the existence paper are kept; any
-// other paper must touch at least two of the question's groups.
+// other paper must clear the standard (two group touches while
+// groups carry it, the degraded standard below two groups).
 export function conceptGateContext(papers, query, dynLookup) {
   const list = Array.isArray(papers) ? papers : [];
-  const groups = gateConceptGroups(query, dynLookup);
+  const standard = citationGateStandard(query, dynLookup);
+  const groups = standard.groups;
   const qLower = String(query || "").toLowerCase();
   const anchorNeedles = [];
   const binomial = extractBinomial(String(query || ""));
@@ -10475,7 +10968,7 @@ export function conceptGateContext(papers, query, dynLookup) {
       if (support && support.idx) existenceIdx = support.idx;
     } catch { /* best effort, mirroring the gate */ }
   }
-  return { groups, anchorNeedles, existenceIdx };
+  return { groups, centralTerms: standard.centralTerms, anchorNeedles, existenceIdx };
 }
 
 export function conceptGateKeeps(paper, idx, gateCtx) {
@@ -10487,7 +10980,7 @@ export function conceptGateKeeps(paper, idx, gateCtx) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
     if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
   }
-  return paperConceptGroupHits(p, ctx.groups || []) >= 2;
+  return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [] });
 }
 
 // The extractive evidence prune: the papers an extractive answer
@@ -10504,7 +10997,11 @@ export function pruneExtractiveEvidence(papers, query, dynLookup) {
   const unchanged = { papers: list, changed: false, idxMap: identity };
   if (list.length === 0) return unchanged;
   const gateCtx = conceptGateContext(list, query, dynLookup);
-  if (!gateCtx.groups || gateCtx.groups.length < 2) return unchanged;
+  // The prune judges only when the question yields a standard:
+  // no gating groups and no central terms leaves nothing to
+  // judge with (the gate's own early return, mirrored).
+  if ((!gateCtx.groups || gateCtx.groups.length === 0) &&
+      (!gateCtx.centralTerms || gateCtx.centralTerms.length === 0)) return unchanged;
   const kept = [];
   const idxMap = new Map();
   list.forEach((p, i) => {
@@ -10515,6 +11012,56 @@ export function pruneExtractiveEvidence(papers, query, dynLookup) {
   });
   if (kept.length === 0 || kept.length === list.length) return unchanged;
   return { papers: kept, changed: true, idxMap };
+}
+
+/* ── Citation selection: coverage ahead of score (2026-10-14,
+ * fourth panel) ────────────────────────────────────────────────
+ * The cited slice was the gated pool in raw score order. On the
+ * panel's baby gut probe the pool held the on topic early life
+ * papers, but score order put germ free animal papers — which
+ * touch the question's microbe and gut vocabulary without its
+ * subject — at the slice's head, and they were what got cited
+ * while the on topic papers sat uncited below the cut. The NL
+ * net's shelf already ranks by concept group coverage ahead of
+ * raw score for exactly this reason; citation selection now
+ * applies the same principle: stable order by concept group
+ * touches over the question's full resolved groups
+ * (questionConceptGroups — the retrieval resolution the NL net
+ * itself counts, model and fallback groups included, since
+ * coverage is about how much of the question a paper speaks to,
+ * not about the citation bar), the pool's existing order
+ * breaking ties, so a paper covering more of the question's
+ * concepts is never buried below one covering fewer by score
+ * alone. No groups resolved: the pool is returned untouched —
+ * coverage has nothing to measure. */
+export function orderCitedSliceByCoverage(papers, query, dynLookup) {
+  const list = Array.isArray(papers) ? papers : [];
+  if (list.length < 2) return list;
+  const groups = questionConceptGroups(query, dynLookup);
+  if (groups.length === 0) return list;
+  // Duplicate records of one work share the original's coverage
+  // by construction — the shelf can carry the same paper from
+  // several fetch rounds, scored differently (the handler's final
+  // dedupe exists precisely because of them). Left alone, the
+  // coverage order promotes a top paper's duplicates over
+  // distinct papers, the slice fills its slots with copies of one
+  // work, and the final dedupe collapses them: the cited set
+  // ships smaller than the pool it was drawn from. Duplicates
+  // (any shared dedupe key with an earlier record) therefore
+  // rank after every distinct paper: coverage decides among
+  // distinct works first, the pool's order after.
+  const seenKeys = new Set();
+  const decorated = list.map((p, i) => {
+    const keys = paperDedupeKeys(p);
+    const dup = keys.some((k) => seenKeys.has(k));
+    for (const k of keys) seenKeys.add(k);
+    return { p, i, dup, hits: paperConceptGroupHits(p, groups) };
+  });
+  decorated.sort((a, b) =>
+    (a.dup === b.dup ? 0 : a.dup ? 1 : -1) ||
+    (b.hits - a.hits) ||
+    (a.i - b.i));
+  return decorated.map((x) => x.p);
 }
 
 // ── Named author reattachment ───────────────────────────────────
@@ -10809,7 +11356,30 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // the extractive and definition builders) . the did not check
   // reason may only print on the explicit false (defect 1).
   if (context && context.factCheckChecked === false) {
-    applyCap(59, "fact checking did not check any claims");
+    // Support bound, second prong (2026-10-14, fourth panel, JOB
+    // 3c): on an AI answer the claim check never ran on, the level
+    // may not exceed the thin band — the flat 59 cap let an
+    // unchecked AI answer ship at Moderate, a certainty its own
+    // line disclaimed. The caller marks AI answers (context
+    // .aiAnswer); every other unchecked shape (cache serves,
+    // extractive lines) keeps the established 59 cap and reason.
+    if (context.aiAnswer && !context.extractive) {
+      applyCap(45, "the claim check did not run on this answer");
+    } else {
+      applyCap(59, "fact checking did not check any claims");
+    }
+  }
+  // Support bound, first prong (2026-10-14, fourth panel, JOB 3c):
+  // the check ran and supported none of the claims it checked.
+  // The score's components never read the support count — it
+  // entered only the line's wording — so a wide, recent shelf
+  // could carry a zero support check to Moderate beside a line
+  // reading "The claim check supports 0 of 1 checked claims". The
+  // level now agrees with the line: the thin band, with the
+  // reason named in the line's cap clause.
+  if (context && context.support && typeof context.support.checked === "number" &&
+      context.support.checked > 0 && context.support.supported === 0) {
+    applyCap(45, "the claim check supports none of the claims it checked");
   }
   if (cap < 100) {
     score = Math.min(score, cap);
@@ -11539,6 +12109,31 @@ export function buildSearchRecord(input) {
         }
       : null;
 
+    // The run's health verdict (2026-10-14, MCP and record wave):
+    // whether the run degraded, and the names of the stages that
+    // failed, so the public record page can label a degraded record
+    // as degraded instead of letting it read as a clean run. The
+    // panel found a permanently stored degraded record with no
+    // banner because the record itself carried no health signal at
+    // all. The caller passes the same degraded expression the
+    // response ships (stage health verdict, or the no results
+    // terminal state) plus the stage list; absent both, fall back
+    // to the stage list's own verdict; absent everything, null,
+    // unknown, the same honest treatment the ledger gets. Additive
+    // under record version 2, like answerLength and the ledger:
+    // consumers read fields defensively and none gates on the
+    // version number, so no bump.
+    const healthRaw = Array.isArray(input.stageHealth) ? input.stageHealth : null;
+    const failedStages = healthRaw
+      ? healthRaw
+          .filter((s) => s && s.ok === false && typeof s.name === "string" && s.name)
+          .map((s) => String(s.name).slice(0, 40))
+          .slice(0, 8)
+      : null;
+    const recordDegraded = typeof input.degraded === "boolean"
+      ? input.degraded
+      : healthRaw ? stageHealthDegraded(healthRaw) : null;
+
     const flags = recordCitedFlags(sources || [], input.answer);
     // One definition of cited everywhere: when a source list exists,
     // the funnel count is the number of entries whose cited flag is
@@ -11592,6 +12187,8 @@ export function buildSearchRecord(input) {
       synthesisModel,
       answerLength,
       ledger,
+      degraded: recordDegraded,
+      failedStages,
       sources: recordSources,
     };
   } catch {
@@ -11745,7 +12342,9 @@ export function retrievalStrategiesTried(diag) {
     out.push("synonym + MeSH expansion (" + diag.conceptExpanded.length + " queries)");
   }
   if (Array.isArray(diag.llmExpanded) && diag.llmExpanded.length > 0) {
-    out.push("model proposed synonym expansion (" + diag.llmExpanded.length + " terms)");
+    out.push(diag.llmExpandedVia === "fallback"
+      ? "deterministic fallback expansion (" + diag.llmExpanded.length + " terms)"
+      : "model proposed synonym expansion (" + diag.llmExpanded.length + " terms)");
   }
   if (diag.topicMemoryRecall) out.push("topic-memory recall");
   if (diag.nlFallback) out.push("natural-language fallback");
@@ -14156,6 +14755,29 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     }
   } catch { dynLookup = null; dynGroups = []; }
+  // DETERMINISTIC FALLBACK EXPANSION (2026-10-14, fourth panel):
+  // the model leg returned zero groups for terms the hand table
+  // leaves uncovered (its pool was capped, its legs failed, or it
+  // was budget skipped — the fallback spends nothing, so all
+  // three states land here). Leaving those terms uncovered is
+  // what let a keyword collision stand as a citation on the
+  // panel's probes: no group existed for the question's substance
+  // term, so no gate could ask whether a cited paper touched it.
+  // The fallback builds the groups from the codebase's own
+  // deterministic tables instead (see
+  // buildDeterministicFallbackGroups), and the diag records them
+  // with via "fallback" — the groups ride the same llmExpanded
+  // channel the model groups ride, labeled as what they are.
+  if (dynGroups.length === 0 && dynUncovered.length > 0) {
+    try {
+      const fbGroups = buildDeterministicFallbackGroups(query, dynUncovered);
+      if (fbGroups.length > 0) {
+        dynGroups = fbGroups;
+        dynGroups.via = "fallback";
+        dynLookup = buildDynLookup(dynGroups);
+      }
+    } catch { /* the fallback must never break the gather */ }
+  }
 
   let organismTerm = null;
   if (binomial) {
@@ -18396,14 +19018,22 @@ async function runSearchPipeline(pctx) {
     } else {
       const gated = applyRelevanceGate(papers);
       if (gated.length >= 3) {
-        evidencePapers = gated.slice(0, maxEvidence);
+        // CITATION SELECTION (2026-10-14, fourth panel): the slice
+        // is taken from the gated pool ordered by concept group
+        // coverage ahead of raw score (orderCitedSliceByCoverage),
+        // so on topic papers the score order buried reach the
+        // cited slice ahead of partial coverage papers. The
+        // measurement ordering then runs over the coverage
+        // ordered pool, unchanged.
+        const citedPool = orderCitedSliceByCoverage(gated, query, _dynForValidation);
+        evidencePapers = citedPool.slice(0, maxEvidence);
         if (measurementIntent) {
-          evidencePapers = orderShelfForMeasurement(evidencePapers, gated);
+          evidencePapers = orderShelfForMeasurement(evidencePapers, citedPool);
         }
       } else if (papers.length > 0) {
         // CASCADE: gate failed, fall back to best-available
         const ranked = [...papers].sort((a, b) => (paperRelevance(b) - paperRelevance(a)));
-        evidencePapers = ranked.slice(0, 3);
+        evidencePapers = orderCitedSliceByCoverage(ranked, query, _dynForValidation).slice(0, 3);
         evidencePapers.forEach(p => { p.thinEvidence = true; });
         if (measurementIntent) {
           evidencePapers = orderShelfForMeasurement(evidencePapers, null);
@@ -20010,7 +20640,20 @@ async function runSearchPipeline(pctx) {
           recordLegOutcome(label, true);
           return r;
         },
-        (e) => { aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, error: String((e && e.message) || e) }); recordLegOutcome(label, false, e); throw e; }
+        (e) => {
+          // A leg the ledger refused (the invocation total cap,
+          // 2026-10-14 fourth panel) never made a platform call:
+          // it is a budget trim, recorded with the same
+          // budgetSkipped flag the wave planner stamps on the legs
+          // it never fired, so the attempt trail and the stage
+          // record read it as our own scarcity — never as a leg
+          // failure the fleet produced. recordLegOutcome already
+          // classifies it "subrequest-budget" (no park, no streak).
+          const budgetRefused = isSubrequestBudgetError(e);
+          aiAttempts.push({ wave, model: label, ok: false, ms: Date.now() - t0, ...(budgetRefused ? { budgetSkipped: true } : {}), error: String((e && e.message) || e) });
+          recordLegOutcome(label, false, e);
+          throw e;
+        }
       );
     };
 
@@ -21319,6 +21962,14 @@ async function runSearchPipeline(pctx) {
     // actually has the setting on, so the UI stays exactly as opt-in as the
     // toggle promises.
     let factCheckResult = null;
+    // The deep check's own unsupported claim texts, captured apart
+    // from the merged panel object: JOB 3(b) below removes the
+    // sentences they name from the shipped answer. The panel
+    // append merges the check's verdicts with the mechanical
+    // flags, but only the check's own verdicts remove — the
+    // mechanical flags' contract stays flag only (see the removal
+    // point for the scoping and its evidence).
+    let factCheckUnsupportedClaims = [];
     // Stage timing and attempt tracking for the fact check stage
     // record below: the stage reports real elapsed time, and a stage
     // that never ran (toggle off, budget gone) is distinguished from
@@ -21394,6 +22045,9 @@ async function runSearchPipeline(pctx) {
         // percentage, which let a name-spelling check present itself as a
         // verified answer. Reported by a reader: "this doesn't make sense."
         factCheckResult = { overall, summary, claims, mode: "claims" };
+        factCheckUnsupportedClaims = deepClaims
+          .filter((c) => c.status === "unsupported")
+          .map((c) => ({ claim: c.claim, sourceIndex: c.sourceIndex }));
       } else {
         // Both LLM tiers failed (no key/binding configured, timeout, or an
         // unparseable response) . fall back to the deterministic, zero-
@@ -21461,8 +22115,11 @@ async function runSearchPipeline(pctx) {
     }
     // (b) AI PATH . conservative mechanical post-check: flag claims with
     // near-zero vocabulary overlap with the paper they cite. Flagged claims
-    // are appended to the fact-check panel as unsupported (flag, don't
-    // drop . removing sentences would mangle the prose).
+    // are appended to the fact-check panel as unsupported — and, since
+    // 2026-10-14 (fourth panel, JOB 3b), the claims the check marks
+    // unsupported are also removed from the shipped text at the
+    // removal point below; the old flag only contract left the
+    // prose asserting claims its own panel called unsupported.
     let aiAlignmentIssues = [];
     if (aiOK && useEvidence && evidencePapers.length > 0) {
       try {
@@ -21471,17 +22128,24 @@ async function runSearchPipeline(pctx) {
       // Stripped false citations join the flagged claims here so the
       // FactCheck panel shows what was removed and why . the removal is
       // visible, not silent.
+      // Each flag carries its kind: the panel renders them alike,
+      // but the JOB 3(b) removal below acts on kinds differently
+      // (see the removal point), so provenance is recorded here
+      // where the three instruments are still distinguishable.
       const integrityFlags = [
         ...aiAlignmentIssues.map((iss) => ({
           claim: iss.claim,
+          kind: "alignment",
           note: iss.reason + " Worth opening the source to check where it came from.",
         })),
         ...unsupportedStripped.map((r) => ({
           claim: r.claim,
+          kind: "stripped",
           note: "Cited [" + r.idx + "], but that paper's title/abstract shares essentially no vocabulary with the sentence . the citation was removed rather than left as a false trace. Worth opening the source to check where the claim came from.",
         })),
         ...conceptDemoted.map((r) => ({
           claim: r.claim,
+          kind: "demoted",
           note: "Cited [" + r.idx + "], but that paper touches only " + r.hits + " of the question's " + r.groups + " concept groups, so it was moved to further reading rather than left standing as direct support.",
         })),
       ];
@@ -21515,6 +22179,38 @@ async function runSearchPipeline(pctx) {
             })),
             mode: "claims",
           };
+        }
+      }
+      // PROSE BOUND TO THE CHECK (2026-10-14, fourth panel, JOB
+      // 3b): a claim the fact check marks unsupported is REMOVED
+      // from the shipped text, not merely de cited and flagged.
+      // The panel's specimen kept its claim standing in the answer
+      // after the check flagged it and its citation was stripped —
+      // the flag informed the panel while the prose went on
+      // asserting the claim. The removal keys on the fact check's
+      // own verdicts: the deep tier's unsupported claims, a
+      // semantic read of each claim against its source. The
+      // mechanical flags (vocabulary alignment, stripped false
+      // citations, demoted citations) do NOT remove: they indict
+      // traceability and citation choice, not the claim's truth —
+      // they fire on ordinary paraphrase, and the established
+      // contract, pinned by the answer depth fixtures, is that
+      // such a claim ships with its citation stripped and its
+      // flag in the panel. An earlier draft of this block removed
+      // on the mechanical flags too; it gutted the depth
+      // fixtures' per finding passages and a stored Standard
+      // answer's central sentence, claims every instrument agrees
+      // are legitimate prose. The flags stay in the panel either
+      // way: the removal is visible there, not silent.
+      {
+        const removalTargets = [
+          ...factCheckUnsupportedClaims.map((c) => ({ claim: c.claim, sourceIndex: c.sourceIndex, hard: true })),
+        ];
+        if (removalTargets.length > 0) {
+          try {
+            const rm = removeUnsupportedClaimsFromAnswer(answer, removalTargets);
+            if (rm.removed > 0) answer = rm.text;
+          } catch { /* removal must never break the answer */ }
         }
       }
       // The stage's ok means "produced a checked result", the same
@@ -21712,7 +22408,7 @@ async function runSearchPipeline(pctx) {
     const citedConflictPapers = citedIndices
       .map((i) => conflictPool[i])
       .filter(Boolean);
-    const citedEvidencePapers = useEvidence ? citedConflictPapers : [];
+    let citedEvidencePapers = useEvidence ? citedConflictPapers : [];
     const citedBriefClaims = [];
     for (const bc of (briefClaims || [])) {
       if (!bc || !bc.idx) continue;
@@ -21749,6 +22445,36 @@ async function runSearchPipeline(pctx) {
       reconcileDisagreementVerdict(detected, textMined);
     stageHealth.push({ name: "disagreement", ok: true, ms: Date.now() - disagreementT0 });
 
+    // PROSE BOUND TO THE VERDICT (2026-10-14, fourth panel, JOB
+    // 3a): when the verdict says no conflicts and the conflicts
+    // list is empty, the shipped prose may not carry a disagreement
+    // section naming studies the verdict never found — the panel
+    // watched a synthesis invent a named journal study in such a
+    // section, twice, with a different invention each time, while
+    // conflictCount stood at 0. The section is stripped at this
+    // ship gate (stripInventedDisagreementSections) and the
+    // verdict line stands alone. AI answers only: the extractive
+    // tiers' disagreement sections are composed from cited claims
+    // and judged by their own alignment checker. When a section
+    // goes, the cited sets derived from the prose above are
+    // re derived, so a paper cited only inside the invented
+    // section is not counted as cited by anything downstream.
+    if (aiOK && disagreementVerdict && disagreementVerdict.conflictCount === 0 &&
+        (!literatureConflicts || literatureConflicts.length === 0)) {
+      try {
+        const strippedProse = stripInventedDisagreementSections(answer);
+        if (strippedProse !== answer) {
+          answer = strippedProse;
+          const relabeled = labelUncitedSources(sourceList, answer);
+          citedIndices.length = 0;
+          relabeled.forEach((s, i) => { if (!s.uncited) citedIndices.push(i); });
+          citedEvidencePapers = useEvidence
+            ? citedIndices.map((i) => conflictPool[i]).filter(Boolean)
+            : [];
+        }
+      } catch { /* the strip must never break the answer */ }
+    }
+
     // NEXT-GEN computed answer instruments: gaps, confidence, coverage.
     const evidenceGaps = (useEvidence && evidencePapers.length > 0)
       ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut, intent: measurementIntent ? "measurement" : null, citedCount: citedEvidencePapers.length })
@@ -21761,6 +22487,10 @@ async function runSearchPipeline(pctx) {
       ? buildConfidenceLine(citedEvidencePapers, disagreementVerdict, {
           degraded: !!extractiveOK || stageHealthDegraded(stageHealth),
           extractive: !!extractiveOK,
+          // JOB 3(c): the unchecked thin clamp keys on the answer
+          // being an AI answer; extractive shipments keep the
+          // established unchecked cap.
+          aiAnswer: !!aiOK,
           tier: answerTier,
           factCheckChecked: !!(
             factCheckResult &&
@@ -21961,6 +22691,12 @@ async function runSearchPipeline(pctx) {
       // The depth this answer was produced at (v31), so the record
       // can be checked against the reader's setting.
       answerLength,
+      // The run's health verdict, the exact expression the response
+      // below ships as `degraded`, plus the stage list it came
+      // from, so the stored record can label itself on its public
+      // page (buildSearchRecord reads both).
+      degraded: stageHealthDegraded(stageHealth) || responseKind === "no-results",
+      stageHealth,
       ledger: ledgerView,
       sources: labeledSources,
       answer,
