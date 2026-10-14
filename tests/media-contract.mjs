@@ -258,6 +258,19 @@ await test("media absent + legacy image_url → back-compat render", () => {
   assert.equal(m.credit, null);
 });
 
+await test("the fallback carries the outlet the feed names as its credit", () => {
+  // The unverified figure used to render with neither a marking nor
+  // a credit. The credit the fallback has is the item's own outlet:
+  // the picture arrived with the article record from there, and
+  // MediaFigure prints it beside the "Unverified image" marking
+  // this object's verified: false produces.
+  const m = trendingMediaOf({ title: "t", image_url: "https://example.com/legacy.png", source: "NASA" });
+  assert.equal(m.verified, false);
+  assert.equal(m.credit, "NASA");
+  assert.equal(m.source, "NASA");
+  assert.equal(m.license, null);
+});
+
 await test("media absent + no image_url → null (not resolved yet)", () => {
   assert.equal(trendingMediaOf({ title: "t" }), null);
   assert.equal(trendingMediaOf({ title: "t", image_url: "not a url" }), null);

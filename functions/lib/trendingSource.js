@@ -130,8 +130,14 @@ function cleanSpaceSummary(a) {
   const chromeHits = (s.match(NAV_CHROME_RE) || []).length;
   const siteNameRepeat = /^([a-z]{2,}\s*){3,}/i.test(s) && new Set(s.toLowerCase().split(/\s+/).filter(Boolean)).size <= 3;
   if (chromeHits >= 2 || siteNameRepeat) {
-    const site = (a && a.news_site || "Spaceflight News").trim() || "Spaceflight News";
-    return `${site} story. Full text at the source link.`;
+    // No summary. This used to return a placeholder sentence
+    // ("NASA story. Full text at the source link.") which then
+    // shipped AS the summary, with summaryMissing false — a card
+    // asserting a description it did not have. Chrome in place of a
+    // summary means the item HAS no summary; the empty string is
+    // the honest value, and buildTrendingItem marks an empty
+    // summary missing, so the card renders without one.
+    return "";
   }
   return s;
 }
@@ -179,7 +185,40 @@ function italicSentinelsToMarkdown(t) {
   return out;
 }
 
-const NAMED_ENTITIES = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'", nbsp: " " };
+// TeX commands that name a symbol rather than a word, restored by
+// cleanTrendingText before its generic command strip runs: relations
+// become the ASCII or symbol form a reader parses ($f\gg 1$ reads
+// "f >> 1"), Greek letters become the letters themselves, matching
+// the named entity decoding above.
+const TEX_SYMBOL_TEXT = {
+  // Relations carry their spaces: TeX glues them to the operands
+  // ($f\gg 1$), and the whitespace collapse downstream normalizes
+  // the spaced form ($f \gg 1$) to the same single spaces.
+  gg: " >> ", ll: " << ", geq: " >= ", ge: " >= ", leq: " <= ", le: " <= ",
+  approx: " ≈ ", sim: " ~ ", times: " × ", pm: " ± ", cdot: " · ",
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ",
+  eta: "η", theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ",
+  nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ", sigma: "σ",
+  tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω",
+};
+
+const NAMED_ENTITIES = {
+  lt: "<", gt: ">", amp: "&", quot: '"', apos: "'", nbsp: " ",
+  // Greek letters: a source that spells a name with an entity
+  // ("&epsilon;psilon", ESA's stylized name for Sophie Adenot's
+  // mission) must decode to the letter it names, not print the
+  // entity raw on the card. Numeric entities already decode through
+  // the code point branch; these are the named forms of the same
+  // letters.
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ",
+  eta: "η", theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ",
+  nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ", sigma: "σ",
+  tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω",
+  Alpha: "Α", Beta: "Β", Gamma: "Γ", Delta: "Δ", Epsilon: "Ε", Zeta: "Ζ",
+  Eta: "Η", Theta: "Θ", Iota: "Ι", Kappa: "Κ", Lambda: "Λ", Mu: "Μ",
+  Nu: "Ν", Xi: "Ξ", Omicron: "Ο", Pi: "Π", Rho: "Ρ", Sigma: "Σ",
+  Tau: "Τ", Upsilon: "Υ", Phi: "Φ", Chi: "Χ", Psi: "Ψ", Omega: "Ω",
+};
 
 // ── Data hygiene: dashes, TeX artifacts, page furniture ────────────
 // The dash gate scans the app's own authored strings; it cannot see
@@ -209,6 +248,11 @@ function deDashTrendingText(t) {
   let out = String(t);
   out = out.replace(/(\d)\s*[–—]\s*(\d)/g, "$1 to $2");
   out = out.replace(/(\d)\s*--\s*(\d)/g, "$1 to $2");
+  // A plain hyphen between decimals is the same range in a third
+  // spelling (a live summary shipped "Z_c 0.382-0.386"): it converts
+  // like the dash spellings above. Scoped to a decimal point on the
+  // left so hyphenated words and part numbers are untouched.
+  out = out.replace(/(\d+\.\d+)\s*-\s*(\d+(?:\.\d+)?)/g, "$1 to $2");
   out = out.replace(/([A-Za-z])--([A-Za-z])/g, "$1 $2");
   out = out.replace(/\s+--\s+/g, ", ");
   out = out.replace(/--/g, " ");
@@ -279,10 +323,25 @@ export function cleanTrendingText(s, opts) {
   // TeX remnants ride along in arXiv and bioRxiv abstracts
   // (\emph{...}, {Delta}, $...$). Unwrap commands, drop the braces and
   // math delimiters, keep the words.
+  // First, the commands that ARE symbols: a relation or a Greek
+  // letter dropped by the generic command strip below leaves a hole
+  // in the sentence — a live summary shipped "For f 1" where the
+  // abstract said $f\gg 1$, its comparator silently deleted. These
+  // restore to the symbol they name before the strip can eat them.
+  t = t.replace(/\\(gg|ll|geq|ge|leq|le|approx|sim|times|pm|cdot|alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|omicron|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega)\b/g,
+    (m, name) => TEX_SYMBOL_TEXT[name] || " ");
   t = t.replace(/\\[a-zA-Z]+\{([^{}]*)\}/g, "$1");
   t = t.replace(/\\[a-zA-Z]+/g, " ");
   t = t.replace(/\$/g, "");
   t = t.replace(/[{}]/g, "");
+  // Subscripts keep their base and subscript joined, the way the
+  // symbol is spoken: TeX's J_2 and Z_c shipped literally in a live
+  // summary ("f=J_2/J_1", "Z_c 0.382-0.386"). Digit subscripts join
+  // always; letter subscripts join only when short (one to three
+  // letters, a symbol's subscript), so snake_case words in prose are
+  // never fused by this rule.
+  t = t.replace(/([A-Za-z0-9])_(\d)/g, "$1$2");
+  t = t.replace(/([A-Za-z])_([a-z]{1,3})(?![a-z])/g, "$1$2");
   // Syndication boilerplate and upstream truncation markers are not
   // summary text.
   t = t.replace(/The post [\s\S]*? appeared first on [^.]*\./gi, " ");
@@ -445,24 +504,89 @@ function rebalanceTrendingItalics(s) {
 // in titles and summaries without ever touching the media URL — a cleanup
 // that strips image_url is a cleanup that silently deletes every picture
 // on the feed.
+// Topical coherence between a title and its summary. The Space
+// pipeline strips leading page furniture off a summary, and what
+// survives the strip can be a DIFFERENT text than the story's own: a
+// live edition shipped a structural systems title ("Complex Modes in
+// Lightly Damped Structural Systems") over equilibrium chemistry
+// prose, the summary of the software page the article sat beside.
+// The check is the media rule's family (tokenize both sides,
+// distinctive title tokens only): when the title yields at least
+// three distinctive tokens and the summary shares NONE of them, the
+// summary is not about this title, and a mismatched summary is worse
+// than none — the item ships summaryMissing instead. Validated
+// against the live 2026-10-14 edition: exactly the two defective
+// items share zero (the structural systems mismatch and the APOD
+// chrome placeholder); every legitimate item shares at least one,
+// including short press summaries that share only a name.
+const COHERENCE_GENERIC_TOKENS = new Set([
+  "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with",
+  "by", "from", "at", "as", "is", "are", "was", "were", "be", "been",
+  "being", "it", "its", "this", "that", "these", "those", "we", "our",
+  "they", "their", "he", "she", "his", "her", "not", "no", "than",
+  "then", "so", "such", "can", "could", "may", "might", "will",
+  "would", "should", "into", "over", "under", "between", "among",
+  "during", "after", "before", "when", "while", "which", "who",
+  "whom", "what", "how", "all", "any", "each", "other", "more",
+  "most", "many", "much", "new", "one", "two", "three", "also",
+  "using", "used", "use", "based", "study", "studies", "paper",
+  "results", "show", "shows", "showed", "found", "find", "report",
+  "reports", "nasa", "esa", "space", "mission", "missions", "launch",
+  "launches",
+]);
+function coherenceTokens(text) {
+  return new Set(
+    String(text || "").toLowerCase().split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 3)
+  );
+}
+export function summaryCoheresWithTitle(title, summary) {
+  // Too little text to judge: a short summary that repeats no title
+  // word is a stub, not a mismatch. The conviction needs a summary
+  // long enough to have had its chance to be about the title (the
+  // live mismatch ran 141 characters of another subject's prose).
+  if (String(summary || "").length < 100) return true;
+  const titleTokens = new Set(
+    [...coherenceTokens(title)].filter((t) => !COHERENCE_GENERIC_TOKENS.has(t))
+  );
+  if (titleTokens.size < 3) return true;
+  const summaryTokens = coherenceTokens(summary);
+  for (const t of titleTokens) if (summaryTokens.has(t)) return true;
+  return false;
+}
+
 export function buildTrendingItem(a, category) {
+  // Decode entities/strip tags BEFORE anything else: a title that is
+  // nothing but markup is not a title. Titles keep their italic spans
+  // as markdown *pairs* — the client renders titles through the same
+  // inline markdown path the answers use, so a marked species name
+  // comes back italic instead of roman. Summaries carry the same
+  // pairs now: the digest renders summaries through that same path
+  // (renderInlineMdLite in CerebrumApp.jsx — hero, digest rows, and
+  // the story modal), so a binomial in a summary renders italic too
+  // instead of sitting in roman while the title's names italicize.
+  const title = cleanTrendingText(a.title, { italics: "markdown" });
+  // 3000 chars: the story modal promises the fullest summary the
+  // source provided; the old 900 char cap cut abstracts mid sentence.
+  // The finish pass below then makes sure what survives ends at a
+  // sentence boundary, or admits with an ellipsis that it was cut.
+  let summary = rebalanceTrendingItalics(finishTrendingSummary(cleanTrendingText(a.summary, { italics: "markdown" }).slice(0, 3000)));
+  // An empty summary IS a missing summary, whatever the source
+  // claimed: the Space chrome fallback now yields "" rather than a
+  // placeholder sentence, and a record whose text cleaned away to
+  // nothing must not ship summaryMissing false over a blank.
+  let summaryMissing = !!a.summaryMissing || !summary;
+  // A summary that shares no distinctive vocabulary with its title
+  // is a different story's text (see summaryCoheresWithTitle): it is
+  // dropped and marked missing, never shipped mismatched.
+  if (summary && !summaryCoheresWithTitle(title, summary)) {
+    summary = "";
+    summaryMissing = true;
+  }
   return {
-    // Decode entities/strip tags BEFORE anything else: a title that is
-    // nothing but markup is not a title. Titles keep their italic spans
-    // as markdown *pairs* — the client renders titles through the same
-    // inline markdown path the answers use, so a marked species name
-    // comes back italic instead of roman. Summaries carry the same
-    // pairs now: the digest renders summaries through that same path
-    // (renderInlineMdLite in CerebrumApp.jsx — hero, digest rows, and
-    // the story modal), so a binomial in a summary renders italic too
-    // instead of sitting in roman while the title's names italicize.
-    title: cleanTrendingText(a.title, { italics: "markdown" }),
-    // 3000 chars: the story modal promises the fullest summary the
-    // source provided; the old 900 char cap cut abstracts mid sentence.
-    // The finish pass below then makes sure what survives ends at a
-    // sentence boundary, or admits with an ellipsis that it was cut.
-    summary: rebalanceTrendingItalics(finishTrendingSummary(cleanTrendingText(a.summary, { italics: "markdown" }).slice(0, 3000))),
-    summaryMissing: !!a.summaryMissing,
+    title,
+    summary,
+    summaryMissing,
     url: (a.url || "").trim(),
     image_url: a.image_url || "",
     source: a.source || category,

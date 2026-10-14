@@ -11,7 +11,7 @@ const fcSource = fs.readFileSync('src/flowcharts.jsx','utf8');
 const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks'];
+const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -20,7 +20,7 @@ const dsFunctions = dsAst.program.body
 const fcFunctions = fcAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length,16);
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length,17);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c});
 /* Extra stubs for the dialog-semantics renders below: the real React
@@ -245,10 +245,39 @@ console.log('Actual search-mode, shared-button and card components render in dar
  assert.match(vh,/prevFocus && prevFocus\.focus/,'focus is not restored when the huddle unmounts');
  // The trap stands down while a dialog is stacked over the call.
  assert.match(vh,/t\.closest\('\[role="dialog"\]'\)/,'the huddle key handler does not yield to a stacked dialog');
+ // The root gap (sixth panel): focus lands on the panel root on
+ // open, and the root is excluded from the focusable list by its
+ // minus 1 tabindex, so the wrap must treat the root itself as the
+ // boundary or Shift + Tab from the freshly focused root steps out
+ // of the aria-modal surface before any wrap engages.
+ assert.match(vh,/if \(document\.activeElement === panel\) \{ e\.preventDefault\(\); \(e\.shiftKey \? last : first\)\.focus\(\); \}/,'the huddle trap does not treat its root as the wrap boundary');
  const icAt=source.indexOf('function IncomingCall');
  const ic=source.slice(icAt,source.indexOf('\nlet __cbHuddleClientSeq',icAt));
  assert.match(ic,/call\.audioOnly \? "phone" : "camera"/,'the accept button does not pick its icon from the call kind');
+ assert.match(ic,/if \(document\.activeElement === panel\) \{ e\.preventDefault\(\); \(e\.shiftKey \? last : first\)\.focus\(\); \}/,'the incoming call trap does not treat its root as the wrap boundary');
  console.log('VideoHuddle carries the modal focus contract and the accept icon follows the call kind.');
+}
+
+/* ── MediaFigure: the unverified fallback renders marked ──────────
+   The REAL MediaFigure with the object trendingMediaOf returns for
+   an item's own article image (verified: false, the outlet as its
+   credit): the caption must carry the "Unverified image" marking
+   beside the credit, because that caption is the only thing telling
+   a checked picture from an unchecked one. A verified object must
+   NOT carry the marking. (Wave seven: the fallback previously
+   rendered with neither marking nor credit while the contract
+   comments claimed it rendered marked.) */
+{
+ const P={dark:true,ink:'#eee',ink2:'#bbb',faint:'#999',line:'#444',line2:'#555'};
+ const unv=renderToStaticMarkup(React.createElement(context.MediaFigure,{P,media:{kind:'image',url:'https://example.com/apod.jpg',poster:null,credit:'NASA',creditUrl:null,license:null,source:'NASA',verified:false},title:'Desert Stairway to Heaven'}));
+ assert.match(unv,/Unverified image/,'the unverified fallback rendered without its marking');
+ assert.match(unv,/NASA/,'the fallback credit did not render');
+ const bare=renderToStaticMarkup(React.createElement(context.MediaFigure,{P,media:{kind:'image',url:'https://example.com/x.jpg',poster:null,credit:null,creditUrl:null,license:null,source:null,verified:false},title:'No credit'}));
+ assert.match(bare,/Unverified image/,'an unverified figure with no credit rendered without its marking');
+ const ver=renderToStaticMarkup(React.createElement(context.MediaFigure,{P,media:{kind:'image',url:'https://example.com/h5n1.jpg',poster:null,credit:'NIAID / Wikimedia Commons',creditUrl:null,license:'CC BY 2.0',source:'commons',verified:true},title:'H5N1 particles'}));
+ assert.doesNotMatch(ver,/Unverified image/,'a verified figure carried the unverified marking');
+ assert.match(ver,/NIAID \/ Wikimedia Commons/);
+ console.log('MediaFigure marks the unverified fallback (with or without credit) and never marks a verified figure.');
 }
 
 /* ── Trending hero: species italics in summaries ───────────────────

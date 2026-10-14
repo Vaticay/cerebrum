@@ -72,7 +72,7 @@ import {
 /* Document Mode reader helpers: SSE streaming with a no-partial-answer
    contract, HTML text extraction, highlight guards, durable reading state. */
 import {
-  docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight,
+  docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight, rebaseQaHistoryOffsets,
   docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, evictOldestDocs, docEvictionNote, DOCMODE_MAX_TEXT,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
@@ -5949,9 +5949,9 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     {zoteroOpen && (
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, width: "100%" }}>
         <input type="password" autoComplete="off" aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
-          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 160px" }} />
+          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", flex: "1 1 160px" }} />
         <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
-          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", flex: "1 1 120px" }} />
+          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", flex: "1 1 120px" }} />
         <UIButton P={P} variant="ghost" type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</UIButton>
         <button type="button" className="cb-textbtn" style={{ padding: "6px 4px" }} onClick={() => { setZoteroOpen(false); setZMsg(""); }}>Cancel</button>
         {zMsg && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)" }}>{zMsg}</span>}
@@ -6586,7 +6586,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                         onKeyDown={(e) => { if (e.key === "Enter") verifyStudentCode(); }}
                         placeholder="000000" inputMode="numeric" autoComplete="one-time-code"
                         aria-label="Verification code"
-                        style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.body, letterSpacing: "0.3em", textAlign: "center", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
+                        style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: 16, letterSpacing: "0.3em", textAlign: "center", background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
                       <UIButton P={P} variant="ghost" onClick={verifyStudentCode} disabled={studentBusy || studentCode.length !== 6}
                         style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: studentBusy || studentCode.length !== 6 ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || studentCode.length !== 6 ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
                         {studentBusy ? "…" : "Verify"}
@@ -6608,7 +6608,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                         onKeyDown={(e) => { if (e.key === "Enter") sendStudentCode(); }}
                         placeholder="you@university.edu" type="email" autoComplete="email"
                         aria-label="College email address"
-                        style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: FONT_SIZES.small, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
+                        style={{ flex: "1 1 auto", minWidth: 0, padding: "12px", fontSize: 16, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg, fontFamily: "var(--cb-font)" }} />
                       <UIButton P={P} variant="ghost" onClick={sendStudentCode} disabled={studentBusy || !studentEmail.includes("@")}
                         style={{ padding: "12px 24px", fontSize: FONT_SIZES.small, fontWeight: 800, color: PRO.emeraldInk, background: studentBusy || !studentEmail.includes("@") ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: studentBusy || !studentEmail.includes("@") ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0, whiteSpace: "nowrap" }}>
                         {studentBusy ? "Sending…" : "Send code"}
@@ -6844,8 +6844,8 @@ function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] 
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>What should it say instead?</div>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="The correct information, if you know it. Optional when you have tapped the claim above." style={{
-                width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: RADIUS.md,
-                border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
+                width: "100%", padding: "11px 13px", fontSize: 16, borderRadius: RADIUS.md,
+                border: `1px solid ${P.line}`, background: P.surface,
                 color: P.ink, fontFamily: "var(--cb-font)", resize: "vertical", outline: "none",
               }} />
             </div>
@@ -7707,7 +7707,7 @@ function QueryRetryForm({ P, accent, onAsk, id }) {
         aria-label="Try a different query"
         style={{
           flex: 1, minWidth: 0, background: "transparent", border: `1px solid ${P.line2}`,
-          borderRadius: RADIUS.md, padding: "8px 12px", fontSize: FONT_SIZES.small, color: P.ink,
+          borderRadius: RADIUS.md, padding: "8px 12px", fontSize: 16, color: P.ink,
           fontFamily: "var(--cb-font)", outline: "none",
         }}
       />
@@ -9530,7 +9530,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     </div>
                     <input readOnly value={shareUrl} onFocus={(e) => e.target.select()}
                       aria-label="Share link"
-                      style={{ width: "100%", minHeight: 44, padding: "12px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-mono)", boxSizing: "border-box" }} />
+                      style={{ width: "100%", minHeight: 44, padding: "12px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-mono)", boxSizing: "border-box" }} />
                     <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
                       <button type="button" onClick={() => { copyToClipboard(shareUrl, "Link copied").then((ok) => { if (ok) setShareUrl(null); }); }}
                         style={{ minHeight: 44, padding: "12px 16px", borderRadius: RADIUS.sm, background: accent, color: at, border: "none", fontWeight: 700, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
@@ -10193,7 +10193,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
           {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
               {renamingId === c.id ? (
-                <input autoFocus value={renameValue} aria-label="Rename collection" onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
+                <input autoFocus value={renameValue} aria-label="Rename collection" onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
               ) : (
                 <UIButton P={P} variant="ghost" onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ minHeight: 44, flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accent : P.ink2, fontFamily: "var(--cb-font)" }}>
                   {c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span>
@@ -10212,7 +10212,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
             </div>
           ))}
           <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} placeholder="New collection…" aria-label="New collection name" style={{ flex: 1, padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} placeholder="New collection…" aria-label="New collection name" style={{ flex: 1, padding: "7px 8px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
             <UIButton P={P} variant="ghost" onClick={() => { if (newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} aria-label="Create collection" style={{ background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, padding: "0 12px", cursor: "pointer" }}><Icon name="plus" size={13} /></UIButton>
           </div>
         </div>
@@ -10515,7 +10515,7 @@ function SourceNetworkGraph({ P, accent, at, sources, threadsData, onOpenPaper =
   // node halos and hairlines read on it in either page theme.
   const darkP = P.dark ? P : PALETTES.Dark;
   return (
-    <ModalChrome label="Citation network" eyebrow="Evidence" title="How these papers cite each other" accent={accent} width={880} onClose={close}>
+    <ModalChrome media label="Citation network" eyebrow="Evidence" title="How these papers cite each other" accent={accent} width={880} onClose={close}>
       <div style={{ padding: "6px 2px 0" }}>
         <NetworkGraphBody P={darkP} accent={accent} sources={sources} threadsData={threadsData} onOpenPaper={onOpenPaper} />
       </div>
@@ -11275,6 +11275,10 @@ function docMediaOf(summary) {
    document image/video. Renders ONLY resolved media; a failed load removes
    the whole figure so a broken frame can never appear. Credit + license
    ride under the frame, linked when the backend supplies a credit URL.
+   The one unverified input is the trending fallback (the item's own
+   article image via trendingMediaOf): it renders with an "Unverified
+   image" caption line beside whatever credit the fallback carries, so
+   an unchecked picture is never dressed as a checked one.
    - `still`: video renders as its poster with a play badge (for use inside
      buttons/links where a <video> with controls would nest interactives).
    - `linkCredit`: false inside elements (like the hero button) where a
@@ -11327,7 +11331,7 @@ function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect
           </span>
         )}
       </div>
-      {(media.credit || media.license) && (
+      {(media.credit || media.license || media.verified === false) && (
         <figcaption style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "baseline", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>
           {media.credit && (creditHref && linkCredit ? (
             <a href={creditHref} target="_blank" rel="noreferrer" style={{ color: P.faint, textDecoration: "underline", textUnderlineOffset: 2 }}>{media.credit}</a>
@@ -11336,6 +11340,15 @@ function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect
           ))}
           {media.credit && media.license && <span aria-hidden="true"> · </span>}
           {media.license && <span>{media.license}</span>}
+          {/* The unverified fallback (a trending item's own article
+              image, trendingMediaOf) renders MARKED: the caption line
+              is the reader's only way to tell a checked picture from
+              an unchecked one, so the marking prints whenever the
+              media object carries verified: false, with or without a
+              credit beside it. Verified media (verified: true) never
+              shows it. */}
+          {media.verified === false && (media.credit || media.license) && <span aria-hidden="true"> · </span>}
+          {media.verified === false && <span>Unverified image</span>}
         </figcaption>
       )}
     </figure>
@@ -12310,7 +12323,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                 Edition
                 <select aria-label="Choose an edition" value={viewingEdition || ""}
                   onChange={(e) => { const v = e.target.value; if (v) openEdition(v); else backToCurrent(); }}
-                  style={{ minHeight: 44, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, cursor: "pointer" }}>
+                  style={{ minHeight: 44, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, cursor: "pointer" }}>
                   <option value="">Current edition</option>
                   {editions.slice(1).map((e) => (
                     <option key={e.id} value={e.id}>{fmtEditionDay(e.generatedAt)}</option>
@@ -12571,7 +12584,7 @@ function LiteratureTimeline({ P, accent, at, turn, close }) {
   const sources = (turn && turn.sources) || [];
   const eras = useMemo(() => groupSourcesIntoEras(sources), [sources]);
   return (
-    <ModalChrome label="The arc of this literature" eyebrow="Evidence" title="The arc of this literature" accent={accent} width={880} tall onClose={close}>
+    <ModalChrome media label="The arc of this literature" eyebrow="Evidence" title="The arc of this literature" accent={accent} width={880} tall onClose={close}>
       <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(242,244,242,0.6)", lineHeight: 1.6, margin: "2px 0 4px" }}>
         The story the cited years tell: foundations, building, current.
       </div>
@@ -13137,8 +13150,8 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
     distributeFromIndex(0, text);
   }
 
-  const inputStyle = { width: "100%", padding: "11px 13px", fontSize: FONT_SIZES.body, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", marginTop: 6 };
-  const boxStyle = { width: 44, height: 52, textAlign: "center", fontSize: 22, fontWeight: 700, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
+  const inputStyle = { width: "100%", padding: "11px 13px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", marginTop: 6 };
+  const boxStyle = { width: 44, height: 52, textAlign: "center", fontSize: 22, fontWeight: 700, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
 
   return (
     <ModalChrome label="Sign in to Cerebrum" P={P} accent={accent} onClose={close} zIndex={215} width={440}
@@ -13289,7 +13302,12 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
       const f = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
       if (!f.length) return;
       const first = f[0], last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      // Focus starts on the panel root itself (tabIndex -1, so it is
+      // not in the list above): treat the root as the boundary, or
+      // Shift + Tab from the freshly focused root steps backward out
+      // of a surface that declares aria-modal before any wrap engages.
+      if (document.activeElement === panel) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKey);
@@ -13509,7 +13527,13 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       const f = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
       if (!f.length) return;
       const first = f[0], last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      // Focus starts on the huddle root itself (tabIndex -1 while
+      // expanded, so it is not in the list above): treat the root as
+      // the boundary, or Shift + Tab from the freshly focused root
+      // steps backward out of a surface that declares aria-modal
+      // before any wrap engages. Same fix as IncomingCall.
+      if (document.activeElement === panel) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKey);
@@ -15854,7 +15878,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search a name or @username"
               aria-label="Search researchers"
-              style={{ width: "100%", padding: "12px 13px 12px 34px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)" }}
+              style={{ width: "100%", padding: "12px 13px 12px 34px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)" }}
             />
           </div>
         </div>
@@ -17017,6 +17041,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           const storedHighlights = (highlights || [])
             .map((h) => ({ ...h, start: Math.max(0, h.start - leadTrim), end: Math.max(0, Math.min(h.end - leadTrim, text.length)) }))
             .filter((h) => h.end > h.start);
+          // The Q&A history rides the same basis change: its
+          // evidence entries carry offsets into the text as pasted,
+          // so they are rebased by the same lead before saving, or a
+          // reopened trail prints numbers that index the untrimmed
+          // original while the reader shows the trimmed text.
+          const storedQaHistory = rebaseQaHistoryOffsets((qaHistory || []).filter((h) => !h.streaming).slice(-30), leadTrim, text.length);
           // The stored copy is cut when this text runs past the cap,
           // and the cut stays true while the open text is the stored
           // cut text itself: a reopened shortened document must not
@@ -17029,7 +17059,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             text: text.slice(0, DOCMODE_MAX_TEXT),
             storedShortened: wasCut,
             summary: summary && !summary.streaming && analysisText === documentText ? summary : null,
-            qaHistory: analysisText === documentText ? (qaHistory || []).filter((h) => !h.streaming).slice(-30) : [],
+            qaHistory: analysisText === documentText ? storedQaHistory : [],
             rightTab,
             highlights: marksText === documentText ? storedHighlights : [],
             docB: docB.slice(0, DOCMODE_MAX_TEXT),
@@ -17533,7 +17563,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
   const paneBase = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
-  const inputBg = P.dark ? "rgba(255,255,255,0.03)" : "#fff";
+  // Field backgrounds are the solid palette surface everywhere in
+  // src (guarded by tests/input-guards.mjs): a translucent field over
+  // a translucent parent can compose down to whatever scrolls behind
+  // it, and the reader's fields sit on several different parents.
+  const inputBg = P.surface;
   /* Wave 1 — mobile short labels for the result tabs: four full labels
      never fit 360px. The tab row also scrolls instead of clipping (see
      .cb-doc-tabs in the CSS). */
@@ -17597,7 +17631,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             {hasDoc && renaming && (
               <span style={{ display: "inline-flex", gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
                 <input autoFocus defaultValue={docDisplayTitle} id="cb-doc-rename" aria-label="Document title"
-                  style={{ minHeight: 44, padding: "6px 9px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, minWidth: 180 }} />
+                  style={{ minHeight: 44, padding: "6px 9px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, minWidth: 180 }} />
                 <button type="button"
                   onClick={() => { const v = (document.getElementById("cb-doc-rename") || {}).value; if (v && v.trim()) setCustomTitle(v.trim().slice(0, 120)); setRenaming(false); }}
                   style={{ minHeight: 44, padding: "6px 12px", borderRadius: RADIUS.md, border: "none", background: accent, color: at, fontWeight: 700, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
@@ -17717,7 +17751,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <input value={findQuery} onChange={(e) => { setFindQuery(e.target.value); setFindState(null); }}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runFind(e.shiftKey ? -1 : 1); } }}
                 placeholder="Find in document" aria-label="Find in document"
-                style={{ flex: "1 1 170px", minWidth: 0, minHeight: 44, padding: "8px 11px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small }} />
+                style={{ flex: "1 1 170px", minWidth: 0, minHeight: 44, padding: "8px 11px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: inputBg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
               <button type="button" onClick={() => runFind(1)} disabled={!findQuery.trim()}
                 style={{ minHeight: 44, padding: "8px 13px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                 Find
@@ -18328,6 +18362,20 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                           note the summary and Q&A surfaces render. */}
                       {!compareResult.streaming && compareResult.answerTruncated ? (
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{answerTruncatedNote(compareResult.answerTruncated, "comparison")}</div>
+                      ) : null}
+                      {/* The backend computes an evidence trail and a
+                          stage record for comparisons too, but this
+                          surface keeps neither (setCompareResult
+                          carries text and flags only, and a trail
+                          entry's offsets index one document, not the
+                          pair). Until a per document mapping exists,
+                          the honest half is saying so in the open, in
+                          the same quiet style as the trail's own not
+                          checked entries, rather than letting the
+                          comparison borrow the Q&A trail's authority
+                          by silence. */}
+                      {!compareResult.streaming && compareResult.text ? (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>The quotes in this comparison were not checked against the documents.</div>
                       ) : null}
                       {!compareResult.streaming && (
                         <UIButton P={P} variant="ghost" onClick={runCompare}
@@ -19038,7 +19086,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     searchInput: {
       flex: 1, border: "none", outline: "none", background: "transparent",
-      fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.body, color: P.ink,
+      fontFamily: "var(--cb-font)", fontSize: 16, color: P.ink,
       minWidth: 0, letterSpacing: TYPE.heading.letterSpacing
     },
     searchBtn: {
@@ -19234,7 +19282,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
     srcCount: { fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: RADIUS.md, fontFamily: "var(--cb-font)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
-    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.bg, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
+    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: 16, border: glassBorder, background: P.bg, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.bg, padding: 3, borderRadius: RADIUS.md, marginBottom: 14, border: `1px solid ${P.line}` },
     sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 280ms ease, color 280ms ease" },
     sortTabActive: { background: P.line, color: P.ink, boxShadow: "none", fontWeight: 600 },
@@ -20413,7 +20461,14 @@ function App() {
             const lm = t.lastMessage;
             const lid = lm && (lm.id || (lm.senderId + ":" + lm.createdAt));
             if (!lid || lm.mine) { if (lid) lastSeenIds.set(t.id, lid); continue; }
-            if (lastSeenIds.get(t.id) && lastSeenIds.get(t.id) !== lid) {
+            // A muted thread updates in silence on every surface:
+            // the inbox's own list poll has carried this guard since
+            // the mute shipped, and this app wide poll reads the same
+            // payload (its items carry the thread's muted flag), so
+            // the same condition belongs here. Until 2026-10-14 this
+            // poll had no muted term at all, so a muted thread still
+            // raised a desktop notification from any other view.
+            if (lastSeenIds.get(t.id) && lastSeenIds.get(t.id) !== lid && !t.muted) {
               cbNotify(t.name || "Cerebrum", "New message.", "cb-inbox-" + t.id, "message");
             }
             lastSeenIds.set(t.id, lid);
@@ -24348,8 +24403,8 @@ function App() {
                                       autoFocus
                                       aria-label="Rename investigation"
                                       style={{
-                                        width: "100%", fontSize: FONT_SIZES.small, fontWeight: 700, color: P.ink,
-                                        fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+                                        width: "100%", fontSize: 16, fontWeight: 700, color: P.ink,
+                                        fontFamily: "var(--cb-font)", background: P.surface,
                                         border: `1px solid ${accent}`, borderRadius: RADIUS.md, padding: "6px 12px", outline: "none",
                                       }}
                                     />

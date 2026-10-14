@@ -24,7 +24,10 @@ export function trendingDoiOf(item) {
      enrichment attaches an all null media object to every item, so
      an empty object proves nothing, and the old rule suppressed the
      Space section's own photographs in production (corrected
-     2026-10-13). The fallback renders marked unverified, and the
+     2026-10-13). The fallback renders with the outlet the feed names
+     for the item as its credit and an "Unverified image" caption
+     line (MediaFigure prints the marking from this object's
+     verified: false; a verified figure never shows it), and the
      figure still removes itself if the load fails.
    - image_url is kept for back-compat on trending payloads that predate
      the media object; precedence: media.image.url → image_url.
@@ -76,11 +79,19 @@ export function trendingMediaOf(item) {
   /* The media object rides on every item, including all null ones the
      resolver filled in when it found nothing, so its presence proves
      nothing. When no verified slot exists, the article record's own
-     image is the honest fallback: it renders marked unverified, and
-     MediaFigure still removes the figure if the load fails. */
+     image is the honest fallback. What renders (MediaFigure): the
+     image with a caption that carries the credit below AND the words
+     "Unverified image" — the flag on this object is what prints the
+     marking, and a verified object never shows it. The credit the
+     fallback has is the outlet the feed itself names for the item
+     (item.source — "NASA", "Spaceflight Now"): the picture came with
+     the article record from that outlet, and naming it is both the
+     attribution that exists and the honest limit of it. MediaFigure
+     still removes the figure if the load fails. */
   const url = cleanMediaUrl(item.image_url);
   if (!url) return null;
-  return { kind: "image", url, poster: null, credit: null, creditUrl: null, license: null, source: null, verified: false };
+  const outlet = cleanMediaText(item.source, 80);
+  return { kind: "image", url, poster: null, credit: outlet, creditUrl: null, license: null, source: outlet, verified: false };
 }
 
 export function normalizeTrendingUrl(url) {

@@ -51,6 +51,18 @@ const MAX_QUERY_LEN = 160;
 
 import { corsHeaders, readOriginAllowed, forbiddenOrigin, clientIp, privacyKey } from "../lib/http.js";
 
+// Fetch failures come in two kinds and the cache treats them very
+// differently (see resolveLeadMedia). A provider that ANSWERS — any
+// HTTP status at all, even a 403 or a 404 — has given a definitive
+// reply: it was reached, and it had nothing for us. A fetch that
+// THROWS (timeout, network refusal, or the platform refusing the
+// subrequest because the invocation is out of budget) gave no reply
+// at all, and a "no media" conclusion drawn from it is not evidence,
+// it is starvation. These helpers collapse both kinds to null for
+// their callers, so throws are counted here, at the one place both
+// kinds pass through; resolveLeadMedia snapshots the counter around
+// its fan-out and refuses to cache a miss the fan-out never earned.
+let mediaFetchThrew = 0;
 async function getJSON(url, headers) {
   try {
     const res = await fetchWithTimeout(url, {
@@ -58,7 +70,7 @@ async function getJSON(url, headers) {
     }, FETCH_TIMEOUT_MS);
     if (!res || !res.ok) return null;
     return await res.json();
-  } catch { return null; }
+  } catch { mediaFetchThrew++; return null; }
 }
 async function getText(url) {
   try {
@@ -67,7 +79,7 @@ async function getText(url) {
     }, FETCH_TIMEOUT_MS);
     if (!res || !res.ok) return null;
     return await res.text();
-  } catch { return null; }
+  } catch { mediaFetchThrew++; return null; }
 }
 
 // Strip question scaffolding and stopwords down to the few words that
@@ -170,36 +182,64 @@ function commonsFileSubject(pageTitle) {
 }
 
 // ── 3. NASA image library (public domain) ───────────────────────────────
-export function parseNasa(data) {
+// Up to three candidates, not one: a provider's first search result
+// is its nearest guess, and when that guess is a different mission
+// the topical check rejects it — under a one candidate contract the
+// source then contributed nothing, even when its second or third
+// result was the story's own subject. The winner walk reads every
+// candidate in order and applies the same checks to each, so more
+// candidates raise the honest yield without lowering the bar.
+export function parseNasaMulti(data, limit = 3) {
   const items = (data && data.collection && data.collection.items) || [];
+  const out = [];
   for (const it of items) {
+    if (out.length >= limit) break;
     const link = (it.links || []).find((l) => l && l.href && hasStillExtension(l.href));
     const meta = (it.data || [])[0] || {};
     if (link) {
-      return {
+      out.push({
         url: link.href.replace(/^http:/, "https:"),
         credit: meta.center ? `NASA/${meta.center}` : "NASA",
         creditUrl: "https://images.nasa.gov/",
         license: "Public domain",
         source: "nasa",
-        subject: mediaSubjectOf(meta.title, meta.description),
-      };
+        // Title only, deliberately: a NASA description is press
+        // release prose that shares vocabulary with every story in
+        // its domain ("testing", "mission", a launch complex), and
+        // the topical rule below read it as agreement — the Mars
+        // Exploration Rover assembly photo verified for a lunar
+        // lander story on the strength of its description alone.
+        // Every other source's subject is its title-like field (a
+        // Commons file name, a paper title, a stock alt); NASA's
+        // title is the asset's own name, and that is what is checked.
+        subject: mediaSubjectOf(meta.title),
+      });
     }
   }
-  return null;
+  return out;
+}
+export function parseNasa(data) {
+  const list = parseNasaMulti(data, 1);
+  return list.length ? list[0] : null;
 }
 async function fromNasa(query) {
   const terms = imageTerms(query, 3);
   if (!terms) return null;
-  return parseNasa(await getJSON(
+  return parseNasaMulti(await getJSON(
     "https://images-api.nasa.gov/search?" + new URLSearchParams({ q: terms, media_type: "image" })
   ));
 }
 
 // ── 4. Wikimedia Commons ────────────────────────────────────────────────
-export function parseCommons(data) {
+// Up to three candidates, like NASA (see parseNasaMulti): Commons
+// search answers a four term query with its nearest files, and the
+// first licensed file is often a same domain neighbour the topical
+// check rightly rejects while a later result is the subject itself.
+export function parseCommonsMulti(data, limit = 3) {
   const pages = (data && data.query && data.query.pages) || {};
+  const out = [];
   for (const k of Object.keys(pages)) {
+    if (out.length >= limit) break;
     const p = pages[k];
     const info = (p.imageinfo || [])[0];
     if (!info || !info.url) continue;
@@ -210,21 +250,25 @@ export function parseCommons(data) {
     // violation, and "probably fine" is not a licence.
     if (!licence) continue;
     const artist = ((ext.Artist && ext.Artist.value) || "").replace(/<[^>]*>/g, "").trim();
-    return {
+    out.push({
       url: info.url,
       credit: artist ? `${artist.slice(0, 70)} / Wikimedia Commons` : "Wikimedia Commons",
       creditUrl: info.descriptionurl || "https://commons.wikimedia.org/",
       license: licence.slice(0, 40),
       source: "commons",
       subject: commonsFileSubject(p.title),
-    };
+    });
   }
-  return null;
+  return out;
+}
+export function parseCommons(data) {
+  const list = parseCommonsMulti(data, 1);
+  return list.length ? list[0] : null;
 }
 async function fromCommons(query) {
   const terms = imageTerms(query, 4);
   if (!terms) return null;
-  return parseCommons(await getJSON(
+  return parseCommonsMulti(await getJSON(
     "https://commons.wikimedia.org/w/api.php?" + new URLSearchParams({
       action: "query", format: "json", generator: "search",
       gsrsearch: `filetype:bitmap ${terms}`, gsrnamespace: "6", gsrlimit: "6",
@@ -349,7 +393,9 @@ async function fromNasaVideo(query) {
         creditUrl: "https://images.nasa.gov/",
         license: "Public domain",
         source: "nasa-video",
-        subject: mediaSubjectOf(meta.title, meta.description),
+        // Title only, same reasoning as parseNasa: the description
+        // is press prose whose vocabulary overlaps the whole domain.
+        subject: mediaSubjectOf(meta.title),
       };
     }
   }
@@ -465,11 +511,20 @@ export function isImageCacheFresh(row, now) {
 }
 
 export function mediaCacheKey(category, query) {
-  // v4: the verification rule changed (topical match below, not URL
-  // alone). v3 rows were verified under the old rule and can carry a
-  // topically wrong asset for the whole 14 day hit TTL, so they are
-  // abandoned by namespace rather than rejudged.
-  return ((category || "") + "|" + imageTerms(query, 4) + "|v4").toLowerCase();
+  // v5: the identifier rule changed again (strong versus weak
+  // identifiers, title-only NASA subjects — see mediaMatchesSubject),
+  // and the v4 namespace carries a second, worse inheritance: miss
+  // rows written by the first v4 resolutions, which ran inside the
+  // trending refresh invocations whose subrequest budget the feed
+  // fetch and citation legs had already spent. Those fan-outs starved
+  // (every fetch refused or timed out reads exactly like "provider
+  // had nothing" at this layer), and their nulls were cached as
+  // authoritative misses and re-served for days — the live edition
+  // resolved 40 of 40 items from those rows without a single fan-out
+  // running. v4 rows are abandoned by namespace rather than trusted,
+  // and resolveLeadMedia no longer caches a miss its fan-out threw
+  // its way through, so the v5 namespace cannot refill the same way.
+  return ((category || "") + "|" + imageTerms(query, 4) + "|v5").toLowerCase();
 }
 
 // ── Topical verification: the asset must be about the subject ──────
@@ -489,18 +544,37 @@ export function mediaCacheKey(category, query) {
 // THE RULE. Both sides are tokenized (lowercase, split on non
 // alphanumerics, stopwords and generic provider words dropped, light
 // stemming of the same kind trendingUtils uses for story clustering).
-// Digit bearing tokens of length two or more are IDENTIFIERS (H5N1,
-// CRS 35, PIA04834, years). Then:
-//   · Identifier veto: when both sides carry identifiers and share
-//     none, the asset is a different numbered thing — CRS 17 is not
-//     CRS 35, Crew 12 is not a cargo run — and it is rejected however
-//     many ordinary words overlap.
-//   · Otherwise the overlap is scored: a shared identifier counts 3,
-//     a shared token from the story's TITLE counts 2, a shared token
-//     that appears only in the story's summary counts 1. A score of
-//     2 or more verifies: one distinctive shared title word is enough
-//     (the H5N1 image for the H5N1 story, "gut" for the gut
-//     microbiome story), and identifier agreement is decisive alone.
+// Digit bearing tokens of length two or more are IDENTIFIERS, and
+// they come in two strengths, a distinction the first version of
+// this rule missed and the live data punished:
+//   · STRONG identifiers name the numbered thing itself: a letter
+//     and number compound, attached (H5N1, PIA04834) or separated
+//     (CRS-17, Crew 12, Falcon 9), a catalog number of five or more
+//     digits, and any number in the story's TITLE (a headline number
+//     is the story's own: the 35th resupply, Apollo 11).
+//   · WEAK identifiers are the bare numbers that ride along inside
+//     a text without naming its subject: a launch complex, a rocket
+//     model mentioned in passing, a year. The CRS 17 launch photo
+//     and the CRS 35 story share Launch Complex 40 and the year —
+//     under the first version that coincidence counted as identifier
+//     agreement and the veto never fired.
+// Then:
+//   · Identifier veto, strong form: when both sides carry strong
+//     identifiers and share none, the asset is a different numbered
+//     thing and it is rejected however many words overlap.
+//   · Identifier veto, plain form: when both sides carry any
+//     identifiers and share none at all, same rejection.
+//   · Otherwise the overlap is scored: a shared STRONG identifier
+//     counts 3, a shared token from the story's TITLE counts 2, a
+//     shared token that appears only in the story's summary counts
+//     1. Pure digit tokens never score as words (they are the
+//     identifier machinery's business, scored there or not at all),
+//     and process words every story in a domain shares — mission,
+//     launch, testing, flight — are generic and score nothing: a
+//     score of 2 or more verifies, so what carries an asset over
+//     the line is a distinctive shared title word (the H5N1 image
+//     for the H5N1 story, "gut" for the gut microbiome story) or
+//     genuine identifier agreement.
 // An asset with no usable metadata cannot be verified topically and
 // is not verified at all: no evidence, no flag. When no candidate
 // passes both halves, the resolver returns the honest null and the
@@ -513,6 +587,26 @@ const MEDIA_GENERIC_TOKENS = new Set([
   "during", "about", "after", "before", "between", "through", "their",
   "there", "been", "have", "will", "would", "should", "more", "most",
   "other", "such", "like", "also", "only", "very",
+  // Process vocabulary: true of nearly every story in the domain,
+  // so it cannot testify that an asset is about THIS one. The Mars
+  // rover photo and the lunar lander story shared "testing" (and,
+  // through the NASA description, half a dozen more); a real match
+  // shares the subject's name, not its verbs.
+  "mission", "missions", "launch", "launches", "launched", "launching",
+  "test", "tests", "testing", "tested", "flight", "flights",
+  // Genre vocabulary: a "press conference" video of a Welsh
+  // minister verified for an ESA astronaut's press conference
+  // story on these two words alone. An event's genre is not its
+  // subject.
+  "press", "conference", "conferences",
+  // Headline verbs, the two carriers the multi candidate walk
+  // surfaced on the live replay: a Webb telescope photo verified
+  // for a wavefunction paper on the shared stem "complete", and a
+  // Mars 2020 spacecraft photo verified for a Moon lander story on
+  // "readies" — both stories and both assets wearing NASA headline
+  // verbs while being about different subjects entirely.
+  "complete", "completes", "completed", "completing",
+  "ready", "readies", "readied", "readying",
 ]);
 function mediaRawTokens(text) {
   return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").split(/\s+/).filter(Boolean);
@@ -531,10 +625,72 @@ export function mediaSubjectTokens(text) {
   }
   return out;
 }
+// Ordinal forms normalize to the number they name ("35th" → "35"):
+// the story's headline says "35th SpaceX Resupply" while its own
+// summary says "CRS-35", and an asset saying "CRS 35" must meet both.
+function normalizeMediaIdentifier(w) {
+  const m = /^(\d+)(st|nd|rd|th)$/.exec(w);
+  return m ? m[1] : w;
+}
 export function mediaIdentifierTokens(text) {
   const out = new Set();
   for (const w of mediaRawTokens(text)) {
-    if (/\d/.test(w) && w.length >= 2) out.add(w);
+    if (/\d/.test(w) && w.length >= 2) out.add(normalizeMediaIdentifier(w));
+  }
+  return out;
+}
+// Letter parts that pair with a number without naming a numbered
+// thing ("Figure 1", "Table 2", "on 35", "in 2024", "March 5"):
+// excluded from compounds so a label, a preposition, or a date can
+// never pose as a mission designator — a junk compound on the story
+// side is enough to veto a genuine asset whose own designator it
+// fails to share.
+const MEDIA_COMPOUND_STOP = new Set([
+  "figure", "fig", "table", "page", "chapter", "section",
+  "the", "and", "for", "with", "from", "into", "over", "under",
+  "after", "before", "about", "through", "during", "between",
+  "per", "via", "one", "two", "six", "ten",
+  "march", "april", "may", "june", "july",
+]);
+// STRONG identifiers in compound form: a short letter group (at
+// most six letters — CRS, Crew, SpX, Soyuz, Falcon, Apollo; longer
+// words pairing with numbers are prose, like "October 13") joined
+// to a number of up to four digits, attached (H5N1, AS07), hyphen
+// separated (CRS-17, MS-28), or space separated with at least three
+// letters (Falcon 9, Apollo 11 — a two letter word before a number
+// in open prose is a preposition, not a designator).
+export function mediaCompoundIdentifiers(text) {
+  const out = new Set();
+  const s = String(text || "").toLowerCase();
+  for (const m of s.matchAll(/\b([a-z]{2,6})-(\d{1,4})\b/g)) {
+    if (MEDIA_COMPOUND_STOP.has(m[1])) continue;
+    out.add(m[1] + m[2]);
+  }
+  for (const m of s.matchAll(/\b([a-z]{3,6}) (\d{1,4})\b/g)) {
+    if (MEDIA_COMPOUND_STOP.has(m[1])) continue;
+    out.add(m[1] + m[2]);
+  }
+  for (const w of mediaRawTokens(text)) {
+    // Attached forms the pair scan cannot see (the letter group is
+    // a single letter, as in H5N1, or the number runs long, as in
+    // PIA04834): a token mixing letters and digits is itself one.
+    if (/^(?=.*[a-z])(?=.*\d)[a-z0-9]{3,}$/.test(w)) out.add(w);
+    // A bare catalog number of five or more digits names one asset.
+    else if (/^\d{5,}$/.test(w)) out.add(w);
+  }
+  return out;
+}
+function mediaStrongIdentifiers(text, titleText) {
+  const out = mediaCompoundIdentifiers(text);
+  // Numbers in a title are the text's own headline facts, so the
+  // story's title numbers are strong on the story side — except a
+  // bare year, which is a date, not an identity: everything
+  // published this year shares it, and the APOD false pass rode on
+  // exactly a shared year.
+  if (titleText) {
+    for (const id of mediaIdentifierTokens(titleText)) {
+      if (!/^(19|20)\d{2}$/.test(id)) out.add(id);
+    }
   }
   return out;
 }
@@ -543,16 +699,49 @@ export function mediaMatchesSubject(assetSubject, storyTitle, storySummary) {
   if (!asset.size) return false;
   const assetIds = mediaIdentifierTokens(assetSubject);
   const storyIds = new Set([...mediaIdentifierTokens(storyTitle), ...mediaIdentifierTokens(storySummary)]);
+  const assetStrong = mediaStrongIdentifiers(assetSubject, "");
+  const storyStrong = mediaStrongIdentifiers(`${storyTitle || ""} ${storySummary || ""}`, storyTitle);
+  // Agreement is judged on the designator AND its number: the story
+  // may carry the bare headline number ("35th") where the asset
+  // carries the compound ("CRS-35"), and those are the same
+  // identifier wearing two forms. Each compound contributes its
+  // digit suffix as a key of its own.
+  const strongKeys = (set) => {
+    const out = new Set(set);
+    for (const k of set) {
+      const m = /^[a-z]+(\d+)$/.exec(k);
+      if (m) out.add(m[1]);
+    }
+    return out;
+  };
+  const assetStrongKeys = strongKeys(assetStrong);
+  const storyStrongKeys = strongKeys(storyStrong);
+  const sharedStrong = [...assetStrongKeys].some((id) => storyStrongKeys.has(id));
+  if (assetStrong.size && storyStrong.size && !sharedStrong) return false;
   const sharedId = [...assetIds].some((id) => storyIds.has(id));
   if (assetIds.size && storyIds.size && !sharedId) return false;
-  let score = sharedId ? 3 : 0;
+  // Identifier agreement earns its 3 only when it is strong: the
+  // shared catalog or compound, or a number from the story's own
+  // title turning up in the asset. A weak coincidence (both texts
+  // mention Launch Complex 40) earns nothing here.
+  const titleStrong = mediaStrongIdentifiers("", storyTitle);
+  const strongShare = sharedStrong || [...assetIds].some((id) => titleStrong.has(id));
+  let score = strongShare ? 3 : 0;
   const titleToks = mediaSubjectTokens(storyTitle);
   const summaryToks = mediaSubjectTokens(storySummary);
   for (const tok of asset) {
+    if (/^\d+$/.test(tok)) continue;
     if (titleToks.has(tok)) score += 2;
     else if (summaryToks.has(tok)) score += 1;
   }
-  return score >= 2;
+  // A story that carries strong identifiers names a specific
+  // numbered thing; an asset carrying none must prove itself with
+  // vocabulary, at double the usual bar. One shared company word
+  // verified a NASA astronaut-programme video for the CRS 35 cargo
+  // story: the asset named no number because it was about a
+  // different programme, and a single word could not say so.
+  const threshold = storyStrong.size && !assetStrong.size ? 4 : 2;
+  return score >= threshold;
 }
 
 // ── Shared lead-media resolver ──────────────────────────────────────────
@@ -571,7 +760,7 @@ export function mediaMatchesSubject(assetSubject, storyTitle, storySummary) {
 // mediaMatchesSubject). `subject` optionally carries the fuller story
 // text ({ title, summary }) the topical check reads; the default is
 // the query itself, which is the subject on the other call paths.
-export async function resolveLeadMedia(env, query, category, subject) {
+export async function resolveLeadMedia(env, query, category, subject, opts) {
   const diag = [];
   const key = mediaCacheKey(category, query);
   if (!imageTerms(query, 4)) return { image: null, diag, cacheHit: false };
@@ -592,6 +781,13 @@ export async function resolveLeadMedia(env, query, category, subject) {
       }
     } catch (cbErr) { console.error("[Cerebrum] image.js if: image = JSON.parse(row.payload).image || null; } catch {}:", cbErr); }
   }
+  // Cache-only probe: the caller (trending's enrichment) is deciding
+  // whether a fan-out is worth spending from a small per build
+  // budget. A fresh row answered above; anything else is reported as
+  // needsResolution and NO fetch runs and NOTHING is written — a
+  // probe must never manufacture the miss it merely failed to find.
+  if (opts && opts.cacheOnly) return { image: null, diag, cacheHit: false, needsResolution: true };
+  const fetchThrewBefore = mediaFetchThrew;
 
   // Commit 76 — parallel, not sequential.
   //
@@ -626,17 +822,33 @@ export async function resolveLeadMedia(env, query, category, subject) {
     const t0 = Date.now();
     try {
       const r = await fn();
+      // A source returns one candidate or, for the multi candidate
+      // sources (NASA, Commons), a list in the provider's own order.
       // Never hand the client a URL we wouldn't fetch ourselves: https
       // only, parseable, no embedded credentials. Third-party provider
       // payloads are untrusted input.
-      const ok = !!(r && r.url && isSafeHttpsUrl(r.url));
-      diag.push({ source: name, result: ok ? "hit" : "empty", ms: Date.now() - t0 });
-      return ok ? r : null;
+      const list = (Array.isArray(r) ? r : r ? [r] : [])
+        .filter((c) => c && c.url && isSafeHttpsUrl(c.url));
+      diag.push({ source: name, result: list.length ? "hit" : "empty", ms: Date.now() - t0 });
+      return list;
     } catch (e) {
       diag.push({ source: name, result: "error", ms: Date.now() - t0, error: safeErr(e) });
-      return null;
+      return [];
     }
   }));
+  // Flatten in priority order (source order, then the provider's own
+  // order inside a source), dropping duplicate URLs a provider
+  // repeated: the walk below reads this list as "best candidate
+  // first" and every check applies per candidate.
+  const candidates = [];
+  const seenUrls = new Set();
+  for (const list of settled) {
+    for (const cand of list) {
+      if (seenUrls.has(cand.url)) continue;
+      seenUrls.add(cand.url);
+      candidates.push(cand);
+    }
+  }
   // The winner must actually BE what it claims to be — see verifyMediaUrl
   // above. Every candidate is verified CONCURRENTLY (each under its own
   // timeout) and the winner is then walked in priority order: a dead URL
@@ -644,8 +856,8 @@ export async function resolveLeadMedia(env, query, category, subject) {
   // down, and a slow HEAD on one candidate can't stall the rest. The old
   // sequential walk burned up to 6s per dead candidate before even trying
   // the next one.
-  const verified = await Promise.all(settled.map((cand) =>
-    cand ? verifyMediaUrl(cand.url, cand.type === "video" ? "video" : "image") : Promise.resolve(false)
+  const verified = await Promise.all(candidates.map((cand) =>
+    verifyMediaUrl(cand.url, cand.type === "video" ? "video" : "image")
   ));
   // The winner walk now applies the second half of verification: a
   // candidate whose own metadata is not about this subject is passed
@@ -656,10 +868,10 @@ export async function resolveLeadMedia(env, query, category, subject) {
   const subjectTitle = (subject && subject.title) || query;
   const subjectSummary = (subject && subject.summary) || "";
   let winner = null;
-  for (let i2 = 0; i2 < settled.length; i2++) {
-    if (!settled[i2] || !verified[i2]) continue;
-    if (settled[i2].source !== "curated" && !mediaMatchesSubject(settled[i2].subject, subjectTitle, subjectSummary)) continue;
-    winner = settled[i2];
+  for (let i2 = 0; i2 < candidates.length; i2++) {
+    if (!verified[i2]) continue;
+    if (candidates[i2].source !== "curated" && !mediaMatchesSubject(candidates[i2].subject, subjectTitle, subjectSummary)) continue;
+    winner = candidates[i2];
     break;
   }
   // verified:true is the contract: downstream surfaces render this URL
@@ -669,7 +881,19 @@ export async function resolveLeadMedia(env, query, category, subject) {
   const image = winner ? { ...winner, verified: true } : null;
 
   const payload = JSON.stringify({ ok: true, image });
-  if (env.DB) {
+  // A miss is cached only when the fan-out actually ran: if any
+  // provider fetch THREW along the way (timeout, network refusal, or
+  // the platform refusing subrequests because the invocation — a
+  // trending refresh that already spent its budget on the feed fetch
+  // and the citation legs — had none left), the null below is not
+  // evidence about the subject, and caching it would re-serve the
+  // starvation as fact for the whole miss TTL. That is exactly how
+  // the v4 namespace filled with misses no provider ever voted on.
+  // An uncached miss simply resolves again on the next build. A hit
+  // is cached regardless: a verified winner is a fact the fan-out
+  // did establish.
+  const fanOutThrew = mediaFetchThrew > fetchThrewBefore;
+  if (env.DB && (image || !fanOutThrew)) {
     try {
       await env.DB.prepare(
         "INSERT INTO image_cache (q, payload, created_at, hit) VALUES (?, ?, ?, ?) ON CONFLICT(q) DO UPDATE SET payload = excluded.payload, created_at = excluded.created_at, hit = excluded.hit"

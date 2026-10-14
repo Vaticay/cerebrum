@@ -334,10 +334,13 @@ await test("legacy rows without a hit flag are treated as misses", () => {
 });
 
 await test("cache key is namespaced so fixed resolvers never read stale rows", () => {
-  // v4: the namespace moved when verification gained its topical half.
-  // v3 rows were verified on URL alone and can carry a topically wrong
-  // asset for the whole 14 day hit TTL; they are abandoned, not read.
-  assert.ok(mediaCacheKey("Biology & Medicine", "gut microbiome").includes("|v4"));
+  // v5: the namespace moved when the identifier rule gained its
+  // strong/weak distinction AND the v4 rows turned out to carry
+  // starved misses (the sixth panel's zero verified yield: fan-outs
+  // that never ran, cached as authoritative nulls). v4 rows are
+  // abandoned, not read — same reasoning as the v3 → v4 move, when
+  // URL-only verified rows were abandoned for the topical rule.
+  assert.ok(mediaCacheKey("Biology & Medicine", "gut microbiome").includes("|v5"));
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -635,6 +638,175 @@ await test("enrichTrendingMedia ships a wrong asset's item media free and a righ
     assert.ok(out[1].media.image, "the H5N1 item shipped without its matching image");
     assert.equal(out[1].media.image.verified, true);
     assert.equal(out[1].media.image.source, "nasa");
+  } finally { restore(); }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("identifier strength — a coincidence is not an agreement (wave seven)");
+
+await test("the live CRS 35 case: weak shared numbers do not save a CRS 17 asset", () => {
+  // Replayed from the live edition (item 27) with its real metadata:
+  // the asset is the CRS 17 launch, the story is CRS 35, and the two
+  // texts share Launch Complex 40 and Falcon 9. Under the first
+  // version of the rule the shared "40" counted as identifier
+  // agreement, the veto never fired, and the wrong launch verified.
+  assert.equal(mediaMatchesSubject(
+    "Live Coverage of SpaceX CRS-17 Launch to the International Space Station. The SpaceX Falcon 9 rocket launched from Launch Complex 40 at Cape Canaveral.",
+    "NASA Science, Cargo Launch on 35th SpaceX Resupply Mission to Station",
+    "The CRS-35 Dragon capsule launches from Launch Complex 40 carrying cargo and science to the station."
+  ), false, "CRS 17 asset verified for the CRS 35 story on a shared launch complex");
+  // The ordinal in the headline and the compound in the summary are
+  // the same number: "35th" must meet "CRS-35" as one identifier.
+  assert.equal(mediaMatchesSubject(
+    "SpaceX CRS-35 launch coverage",
+    "NASA Science, Cargo Launch on 35th SpaceX Resupply Mission to Station",
+    "Cargo and science for the station."
+  ), true, "the CRS 35 asset was rejected for the 35th resupply story");
+});
+
+await test("a bare shared year is not identifier agreement", () => {
+  // The live APOD case (item 39): a 1968 Apollo 7 photograph whose
+  // Commons filename carries the year as a catalog fragment verified
+  // for a 2026 APOD story on the year alone. Its own designator
+  // (AS07) names a different mission than the story's headline.
+  assert.equal(mediaMatchesSubject(
+    "AS07-11-2026 - Apollo 7 - Apollo 7 Mission, Mexico and Arizona - NARA - 16667026",
+    "APOD: 2026 October 13, Desert Stairway to Heaven",
+    "A desert stairway under the Milky Way."
+  ), false, "the Apollo 7 catalog photo verified for the APOD story on a shared year");
+});
+
+await test("a numbered story demands vocabulary from an unnumbered asset", () => {
+  // The live item 15 case: a NASA video about the astronaut
+  // programme, carrying no designator at all, verified for the
+  // CRS 35 cargo story on the single shared word "spacex". One word
+  // is not proof when the story names a specific numbered thing.
+  assert.equal(mediaMatchesSubject(
+    "What's the Status of NASA and SpaceX's Mission to Launch Astronauts to Space?",
+    "SpaceX launches NASA science and cargo to the International Space Station",
+    "The CRS-35 resupply mission carries science and cargo to the station."
+  ), false, "an unnumbered astronaut video verified for the numbered cargo story on one word");
+  // Two distinctive shared words still carry an unnumbered asset
+  // for an unnumbered story: the bar only rises when the STORY is
+  // the numbered one.
+  assert.equal(mediaMatchesSubject(
+    "Gut microbiota composition",
+    "gut microbiome brain",
+    ""
+  ), true, "the gut asset regressed under the threshold rule");
+});
+
+await test("NASA subjects are the asset's title, never its press prose", () => {
+  const parsed = parseNasa({
+    collection: { items: [{
+      links: [{ href: "https://images-assets.nasa.gov/image/PIA04834/PIA04834~medium.jpg" }],
+      data: [{ title: "Mars Exploration Rover 1", center: "JPL", description: "Engineers for the mission are completing assembly and testing for the twin robotic geologists at JPL, readying lander technologies for a Moon mission." }],
+    }] },
+  });
+  assert.equal(parsed.subject, "Mars Exploration Rover 1",
+    "the NASA subject carried description prose: " + parsed.subject);
+});
+
+await test("a later candidate from the same source wins when the first is off topic", async () => {
+  // NASA answers the H5N1 search with the rover first and the virus
+  // micrograph second. One candidate per source used to end the
+  // matter at the rover's rejection; the walk now reads the list.
+  const restore = stubFetch(async (url, opts) => {
+    const u = String(url);
+    const method = (opts && opts.method) || "GET";
+    if (method === "HEAD") {
+      const ok = u.startsWith("https://images-assets.nasa.gov/");
+      return new Response("", { status: ok ? 200 : 404, headers: { "Content-Type": ok ? "image/jpeg" : "text/html" } });
+    }
+    if (u.includes("images-api.nasa.gov")) {
+      if (u.includes("media_type=video")) return jsonRes({ collection: { items: [] } });
+      return jsonRes({ collection: { items: [
+        { links: [{ href: "https://images-assets.nasa.gov/image/PIA04834/PIA04834~medium.jpg" }], data: [{ title: "Mars Exploration Rover 1", center: "JPL" }] },
+        { links: [{ href: "https://images-assets.nasa.gov/image/PIA99999/PIA99999~medium.jpg" }], data: [{ title: "Colorized micrograph of H5N1 virus particles", center: "JPL" }] },
+      ] } });
+    }
+    if (u.includes("europepmc")) return jsonRes({ resultList: { result: [] } });
+    return new Response("{}", { status: 404 });
+  });
+  try {
+    const { image } = await resolveLeadMedia({}, "H5N1 influenza viruses", "Biology & Medicine", {
+      title: "Bovine H5N1 influenza viruses from cattle",
+      summary: "Samples of H5N1 were taken from herds.",
+    });
+    assert.ok(image, "the on topic second candidate did not verify");
+    assert.ok(image.url.includes("PIA99999"), "the winner was not the second candidate: " + image.url);
+  } finally { restore(); }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("resolution budget and miss honesty — a starved null is not a miss (wave seven)");
+
+// A tiny in-memory image_cache: the resolver's own statements,
+// nothing else modelled.
+function fakeImageDb() {
+  const rows = new Map();
+  const statement = (sql, args) => ({
+    bind: (...a) => statement(sql, a),
+    run: async () => {
+      if (sql.includes("INSERT INTO image_cache")) rows.set(args[0], { payload: args[1], created_at: args[2], hit: args[3] });
+      return { success: true };
+    },
+    first: async () => (sql.includes("FROM image_cache") ? rows.get(args[0]) || null : null),
+  });
+  return { rows, exec: async () => {}, prepare: (sql) => statement(sql, []) };
+}
+
+await test("a cache-only probe never fetches and never writes", async () => {
+  let fetches = 0;
+  const restore = stubFetch(async () => { fetches++; return new Response("{}", { status: 404 }); });
+  try {
+    const probe = await resolveLeadMedia({}, "gut microbiome brain", "Biology & Medicine", null, { cacheOnly: true });
+    assert.equal(probe.cacheHit, false);
+    assert.equal(probe.needsResolution, true);
+    assert.equal(probe.image, null);
+    assert.equal(fetches, 0, "the probe ran the fan-out it exists to avoid");
+  } finally { restore(); }
+});
+
+await test("a fan-out that threw its way to null does not cache the miss; an answered one does", async () => {
+  // Every provider fetch throws: the platform refusing subrequests
+  // and a provider timing out look exactly like this from inside.
+  const db1 = fakeImageDb();
+  const restore1 = stubFetch(async () => { throw new Error("too many subrequests"); });
+  try {
+    const { image } = await resolveLeadMedia({ DB: db1 }, "gut microbiome brain", "Biology & Medicine");
+    assert.equal(image, null);
+    assert.equal(db1.rows.size, 0, "a starved resolution cached its null as a miss");
+  } finally { restore1(); }
+  // Every provider answers 404: a definitive "nothing anywhere".
+  // That miss is earned, it caches, and the next call reads it back.
+  const db2 = fakeImageDb();
+  const restore2 = stubFetch(async () => new Response("{}", { status: 404 }));
+  try {
+    const first = await resolveLeadMedia({ DB: db2 }, "gut microbiome brain", "Biology & Medicine");
+    assert.equal(first.image, null);
+    assert.equal(db2.rows.size, 1, "an answered miss was not cached");
+    const second = await resolveLeadMedia({ DB: db2 }, "gut microbiome brain", "Biology & Medicine");
+    assert.equal(second.cacheHit, true, "the cached miss was not served back");
+    assert.equal(second.image, null);
+  } finally { restore2(); }
+});
+
+await test("enrichTrendingMedia spends at most its fan-out budget per pass and defers the rest", async () => {
+  const restore = stubFetch(nasaOnlyStub("Colorized micrograph of H5N1 virus particles"));
+  try {
+    const items = [1, 2, 3, 4, 5].map((n) => ({
+      title: `Bovine H5N1 influenza viruses study ${n}`,
+      summary: "Samples of H5N1 were taken from herds.",
+      category: "Preprints",
+    }));
+    const out = await enrichTrendingMedia({}, items, { concurrency: 2, maxFanout: 2 });
+    const resolved = out.filter((it) => "media" in it);
+    assert.equal(resolved.length, 2, `expected exactly the fan-out budget resolved, got ${resolved.length}`);
+    assert.ok(resolved.every((it) => it.media.image && it.media.image.verified),
+      "a budgeted resolution did not verify its asset");
+    assert.ok(out.filter((it) => !("media" in it)).every((it) => it.media === undefined),
+      "a deferred item was stamped resolved instead of left for a later pass");
   } finally { restore(); }
 });
 

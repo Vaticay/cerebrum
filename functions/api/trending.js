@@ -324,29 +324,56 @@ export function attachMedia(item, candidate) {
 // completes it into the same row.
 export const FIRST_SERVE_MEDIA_SLICE = 10;
 
+// How many UNCACHED subjects one enrichment pass may fan out on.
+// A fan-out is a dozen or more upstream fetches; the invocations this
+// pass runs inside (the refresh, a first serve) have already spent
+// most of their platform subrequest budget on the feed fetch and the
+// citation legs, and the first wave of topical verification resolved
+// all 40 items from inside exactly those invocations — every fan-out
+// starved, every starved null was cached as a miss, and the edition
+// served zero verified media while every per subject resolution
+// through /api/image worked. So a pass now spends its few fan-outs
+// where they can actually complete (the front of the edition first),
+// serves every already cached subject for free, and leaves the rest
+// UNRESOLVED — no media key, which the backfill check reads as work
+// still owed — instead of stamping them resolved-with-nothing on
+// evidence the budget never let anyone gather.
+export const MEDIA_FANOUT_PER_BUILD = 3;
+
 // Resolves lead media for every item through the shared /api/image
 // pipeline (resolveLeadMedia), which carries its own per-subject cache —
 // so the steady-state cost of this pass is one D1 read per item, not nine
 // upstream fetches. Items that already carry media are skipped, and one
 // item's failure never affects the rest. Concurrency is capped so a cold
 // refresh can't open hundreds of upstream connections at once.
-export async function enrichTrendingMedia(env, items, { concurrency = 4 } = {}) {
+export async function enrichTrendingMedia(env, items, { concurrency = 4, maxFanout = MEDIA_FANOUT_PER_BUILD } = {}) {
   const out = (items || []).slice();
   let next = 0;
+  let fanoutLeft = maxFanout;
   const worker = async () => {
     while (next < out.length) {
       const i = next++;
       const item = out[i];
       if (!item || (item.media && (item.media.image || item.media.video))) continue;
+      // The story's title AND summary ride along as the subject:
+      // resolveLeadMedia verifies the winning asset's own metadata
+      // against them, so a resolved asset that is about something
+      // else entirely never reaches the item (see image.js).
+      const subject = { title: item.title || "", summary: item.summary || "" };
       try {
-        // The story's title AND summary ride along as the subject:
-        // resolveLeadMedia verifies the winning asset's own metadata
-        // against them, so a resolved asset that is about something
-        // else entirely never reaches the item (see image.js).
-        const { image } = await resolveLeadMedia(env, item.title || "", item.category || "", {
-          title: item.title || "",
-          summary: item.summary || "",
-        });
+        // Cache first, for free: a fresh row, hit or miss, is a
+        // resolution a previous build already paid for.
+        const probe = await resolveLeadMedia(env, item.title || "", item.category || "", subject, { cacheOnly: true });
+        if (probe.cacheHit) {
+          out[i] = attachMedia(item, probe.image);
+          continue;
+        }
+        // Uncached, and this pass is out of fan-out budget: leave the
+        // item untouched. Its missing media key is the honest state
+        // (not resolved yet), and a later pass picks it up.
+        if (fanoutLeft <= 0) continue;
+        fanoutLeft--;
+        const { image } = await resolveLeadMedia(env, item.title || "", item.category || "", subject);
         out[i] = attachMedia(item, image);
       } catch {
         out[i] = attachMedia(item, null);

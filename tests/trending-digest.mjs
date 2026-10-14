@@ -152,10 +152,16 @@ await test("malformed citation counts degrade to no data, never a fake zero", as
   assert.equal(items.find((i) => i.title === "Negative paper").citedByCount, 0, "negative count should clamp to zero");
 });
 
-await test("spaceflight nav-chrome summaries degrade to honest attribution", async () => {
+await test("spaceflight nav-chrome summaries degrade to a missing summary", async () => {
   // Real incident (2026-09-16): an APOD item's card description was the
   // upstream scraper's nav text ("Today's APOD Archive Submissions Index
   // Search Calendar"). Site furniture must never print as a summary.
+  // Corrected contract (wave seven): this fixture used to expect the
+  // placeholder sentence "NASA story. Full text at the source link."
+  // in the summary's place — and that placeholder shipped on the live
+  // edition AS a summary with summaryMissing false (the sixth panel's
+  // item 39). A placeholder is not a summary: chrome in place of text
+  // now means the item has NO summary, empty and flagged missing.
   const space = {
     results: [
       { title: "APOD: Something in the sky.", summary: "APOD Science APOD APOD: 2026 September 16 – Today's APOD Archive Submissions Index Search Calendar",
@@ -170,8 +176,10 @@ await test("spaceflight nav-chrome summaries degrade to honest attribution", asy
   const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
   assert.ok(!/archive|submissions|calendar/i.test(byTitle["APOD: Something in the sky."].summary),
     "nav chrome leaked into the summary: " + byTitle["APOD: Something in the sky."].summary);
-  assert.match(byTitle["APOD: Something in the sky."].summary, /NASA story/,
-    "chrome summary did not degrade to outlet attribution");
+  assert.equal(byTitle["APOD: Something in the sky."].summary, "",
+    "chrome summary did not degrade to no summary at all");
+  assert.equal(byTitle["APOD: Something in the sky."].summaryMissing, true,
+    "chrome summary was not flagged as the missing summary it is");
   assert.equal(byTitle["A real story."].summary, "Engineers tested the new thruster and it worked.",
     "legitimate summary was altered");
 });
@@ -292,23 +300,74 @@ await test("an APOD shaped item comes out dash free", async () => {
     "the summary's em dash was not normalized: " + item.summary);
 });
 
-await test("a NASA tech shaped item is furniture free and TeX clean", async () => {
+await test("a NASA tech shaped item is furniture free and TeX clean, and its mismatched remainder is not shipped", async () => {
   // The live item 11 and item 30 shapes combined: a contact block and
-  // a download prompt ahead of the real summary, TeX double hyphens
-  // and an escaped percent inside it.
-  const { buildTrendingItem } = await import(join(root, "functions/lib/trendingSource.js"));
+  // a download prompt ahead of the surviving text, TeX double hyphens
+  // and an escaped percent inside it. The text level cleaning is
+  // unchanged (asserted on cleanTrendingText directly).
+  // Corrected contract (wave seven): the wave six version of this
+  // fixture expected the cleaned remainder to SHIP as the summary —
+  // equilibrium chemistry prose under a structural systems title,
+  // which is precisely the sixth panel's item 11 defect. The build
+  // now judges the remainder against its title (see
+  // summaryCoheresWithTitle) and ships it as missing instead.
+  const { cleanTrendingText, buildTrendingItem } = await import(join(root, "functions/lib/trendingSource.js"));
+  const rawSummary = "For more information, contact Joel W. Sills, Langley Research Center, joel.w.sills@nasa.gov Download the PDF version of this fact sheet. The CEA code follows the Curie--Weiss law from 10--41\\% of runs and calculates chemical equilibrium compositions.";
+  const cleaned = cleanTrendingText(rawSummary);
+  assert.ok(cleaned.startsWith("The CEA code"), "leading furniture survived: " + cleaned);
+  assert.ok(!/contact|download|nasa\.gov/i.test(cleaned), "furniture text survived: " + cleaned);
+  assert.ok(!/--/.test(cleaned), "a TeX double hyphen survived: " + cleaned);
+  assert.ok(!/[\\–—]/.test(cleaned), "a backslash or dash survived: " + cleaned);
+  assert.ok(cleaned.includes("Curie Weiss law"), "the name compound was not opened: " + cleaned);
+  assert.ok(cleaned.includes("10 to 41% of runs"), "the numeric range was not written with 'to': " + cleaned);
   const item = buildTrendingItem(
     { title: "Complex Modes in Lightly Damped Structural Systems",
-      summary: "For more information, contact Joel W. Sills, Langley Research Center, joel.w.sills@nasa.gov Download the PDF version of this fact sheet. The CEA code follows the Curie--Weiss law from 10--41\\% of runs and calculates chemical equilibrium compositions.",
+      summary: rawSummary,
       url: "https://x.example/tech", source: "NASA Tech" },
     "Space"
   );
-  assert.ok(item.summary.startsWith("The CEA code"), "leading furniture survived: " + item.summary);
-  assert.ok(!/contact|download|nasa\.gov/i.test(item.summary), "furniture text survived: " + item.summary);
-  assert.ok(!/--/.test(item.summary), "a TeX double hyphen survived: " + item.summary);
-  assert.ok(!/[\\–—]/.test(item.summary), "a backslash or dash survived: " + item.summary);
-  assert.ok(item.summary.includes("Curie Weiss law"), "the name compound was not opened: " + item.summary);
-  assert.ok(item.summary.includes("10 to 41% of runs"), "the numeric range was not written with 'to': " + item.summary);
+  assert.equal(item.summary, "", "the structural title shipped the chemistry summary: " + item.summary);
+  assert.equal(item.summaryMissing, true, "the mismatched summary was not flagged missing");
+});
+
+await test("TeX remnants repair mechanically: subscripts join, comparators restore, decimal ranges convert", async () => {
+  // The live item 30 shapes, verbatim classes: a subscripted ratio
+  // ("f=J_2/J_1"), a dropped comparator ("For f 1" where the
+  // abstract's $f\gg 1$ lost its relation to the command strip), a
+  // subscripted factor ("Z_c"), and a hyphen range between decimals
+  // ("0.382-0.386") that the dash rules did not reach.
+  const { cleanTrendingText } = await import(join(root, "functions/lib/trendingSource.js"));
+  const out = cleanTrendingText("Varying the ratio f=J_2/J_1 over a wide range has a weak effect. For $f\\gg 1$, the compressibility factor Z_c stays within 0.382-0.386 for most fluids.");
+  assert.ok(out.includes("f=J2/J1"), "subscripts were not joined: " + out);
+  assert.ok(out.includes("For f >> 1"), "the dropped comparator was not restored: " + out);
+  assert.ok(out.includes("factor Zc stays"), "the letter subscript was not joined: " + out);
+  assert.ok(out.includes("0.382 to 0.386"), "the decimal hyphen range was not converted: " + out);
+  assert.ok(!/_/.test(out), "an underscore survived: " + out);
+  // A named Greek entity decodes to the letter it names (the
+  // decodable form of the ESA mission name class): "&epsilon;psilon"
+  // is the stylized "εpsilon", and printing the entity raw was the
+  // only failure available here — the live edition's "εpsilon"
+  // itself is the mission's actual stylized name, upstream data the
+  // cleaner passes through untouched either way.
+  assert.equal(cleanTrendingText("her &epsilon;psilon mission aboard the station"),
+    "her εpsilon mission aboard the station",
+    "the named Greek entity did not decode");
+  // Snake case prose is not a subscript and is never fused.
+  assert.equal(cleanTrendingText("the neural_network module uses a learning_rate schedule"),
+    "the neural_network module uses a learning_rate schedule",
+    "snake_case words were fused by the subscript rule");
+});
+
+await test("a topically coherent long summary survives the coherence check", async () => {
+  const { buildTrendingItem } = await import(join(root, "functions/lib/trendingSource.js"));
+  const item = buildTrendingItem(
+    { title: "Complex Modes in Lightly Damped Structural Systems",
+      summary: "A method for lightly damped structural systems is presented. The structural modes interact when their frequencies are close, and the damped response of the system is derived in closed form for the two mode case.",
+      url: "https://x.example/modes", source: "NASA Tech" },
+    "Space"
+  );
+  assert.ok(item.summary.includes("lightly damped structural systems"), "a coherent summary was dropped: " + item.summary);
+  assert.equal(item.summaryMissing, false, "a coherent summary was flagged missing");
 });
 
 await test("legitimate summaries are not eaten by the furniture strip", async () => {
@@ -380,12 +439,15 @@ await test("story summaries render through the same path, so their italics marke
 group("trending endpoint — first serve media and the edition archive");
 
 // A minimal in-memory D1 stand in for the two trending tables plus
-// pass-through behaviour for the other statements the request path
-// issues (rate limit buckets, the image cache): reads miss, writes
-// land nowhere. Only the trending statements are modelled, because
-// they are the ones under test.
+// the image cache (modelled because the media enrichment contract
+// under test reads resolutions back through it: a cached miss is
+// what lets a later pass spend its fan-out budget on new items
+// instead of re-resolving settled ones). Other statements the
+// request path issues (rate limit buckets) are pass-through: reads
+// miss, writes land nowhere.
 function fakeTrendingDb() {
   const cache = { row: null };
+  const imageRows = new Map();
   const editions = new Map();
   // A statement answers run/first/all with or without a bind, the way
   // D1's own prepared statements do.
@@ -393,6 +455,7 @@ function fakeTrendingDb() {
     bind: (...a) => statement(sql, a),
     run: async () => {
       if (sql.includes("INSERT INTO trending_cache")) cache.row = { payload: args[0], fetched_at: args[1] };
+      else if (sql.includes("INSERT INTO image_cache")) imageRows.set(args[0], { payload: args[1], created_at: args[2], hit: args[3] });
       else if (sql.includes("INSERT INTO trending_editions")) editions.set(args[0], { payload: args[1], generated_at: args[2] });
       else if (sql.includes("DELETE FROM trending_editions")) {
         const keep = [...editions.entries()].sort((a, b) => b[1].generated_at - a[1].generated_at).slice(0, args[0]);
@@ -403,6 +466,7 @@ function fakeTrendingDb() {
     },
     first: async () => {
       if (sql.includes("FROM trending_cache")) return cache.row ? { payload: cache.row.payload, fetched_at: cache.row.fetched_at } : null;
+      if (sql.includes("FROM image_cache")) return imageRows.get(args[0]) || null;
       if (sql.includes("FROM trending_editions")) {
         const e = editions.get(args[0]);
         return e ? { payload: e.payload, generated_at: e.generated_at } : null;
@@ -451,33 +515,61 @@ async function callTrending(db, url) {
   return { res, data: await res.json(), pending };
 }
 
-await test("first serve carries media on the visible slice; the backfill completes the row", async () => {
-  const epmcResults = Array.from({ length: 12 }, (_, i) => ({
-    title: `Fixture study ${i + 1} on plant cell signalling.`, abstractText: "An abstract.",
+await test("first serve spends a bounded fan-out at the front of the edition; backfills complete the row over successive serves", async () => {
+  // Corrected contract (wave seven): the old version of this fixture
+  // had the first serve resolving all ten slice items inline and one
+  // backfill completing the row — ten-plus full fan-outs inside
+  // invocations whose subrequest budget the feed fetch and citation
+  // legs had already spent, which is how the live edition's media
+  // resolutions starved and their nulls got cached as misses (the
+  // sixth panel's zero verified yield). A pass now fans out on at
+  // most MEDIA_FANOUT_PER_BUILD uncached subjects, serves cached
+  // subjects for free, and leaves the rest without a media key —
+  // the state the next serve's backfill reads as work still owed.
+  // Distinct subjects, deliberately: the media cache key is the
+  // title's first content terms, so twelve studies differing only
+  // in a trailing number would be ONE subject to the resolver and
+  // the later probes would read the first item's cached miss —
+  // correct behaviour that would make this fixture measure the key
+  // instead of the budget.
+  const subjects = ["maple", "orchid", "cactus", "willow", "bamboo", "ginger", "clover", "sorrel", "nettle", "myrtle", "fennel", "sesame"];
+  const epmcResults = subjects.map((w, i) => ({
+    title: `Fixture study on ${w} cell signalling.`, abstractText: "An abstract.",
     doi: `10.9/m${i + 1}`, journalTitle: "J Fixture", firstPublicationDate: isoDaysAgo(1),
   }));
-  const spaceResults = [1, 2, 3].map((i) => ({
-    title: `Launch fixture ${i}`, summary: "A summary.", url: `https://news.example/l${i}`,
+  const spaceResults = ["Falcon", "Starship", "Soyuz"].map((w, i) => ({
+    title: `${w} launch fixture`, summary: "A summary.", url: `https://news.example/l${i + 1}`,
     image_url: "", news_site: "Fixture News", published_at: new Date().toISOString(),
   }));
   const db = fakeTrendingDb();
   const restore = stubFetch(endpointFetch({ epmcResults, spaceResults }));
-  let out;
-  try { out = await callTrending(db); } finally { restore(); }
-  const { data, pending } = out;
-  assert.equal(data.ok, true);
-  assert.equal(data.items.length, 15, "fixture edition should hold fifteen items");
-  // The visible slice (hero, rails, top of the digest) leaves with its
-  // media resolved — an explicit empty where nothing verified — and
-  // the tail leaves unresolved rather than making the first reader
-  // wait for all fifteen resolutions.
-  for (let i = 0; i < 10; i++) assert.ok("media" in data.items[i], `item ${i} on the first serve has no media key`);
-  for (let i = 10; i < 15; i++) assert.ok(!("media" in data.items[i]), `item ${i} past the slice was resolved inline`);
-  // The background backfill then completes the stored row, so the
-  // next serve carries media on every item.
-  await Promise.all(pending);
-  const stored = JSON.parse(db._cache.row.payload);
-  assert.ok(stored.items.every((it) => it && it.media), "the backfilled cache row still has items without media");
+  try {
+    const { data, pending } = await callTrending(db);
+    assert.equal(data.ok, true);
+    assert.equal(data.items.length, 15, "fixture edition should hold fifteen items");
+    // The fan-out budget lands at the front of the edition: the first
+    // three items leave resolved (an explicit empty where nothing
+    // verified), everything past them leaves unresolved rather than
+    // making the first reader wait, or starving mid-list.
+    for (let i = 0; i < 3; i++) assert.ok("media" in data.items[i], `item ${i} on the first serve has no media key`);
+    for (let i = 3; i < 15; i++) assert.ok(!("media" in data.items[i]), `item ${i} past the fan-out budget was resolved inline`);
+    // One backfill pass spends its own budget the same way: three
+    // more items resolved in the stored row, no more.
+    await Promise.all(pending);
+    let stored = JSON.parse(db._cache.row.payload);
+    assert.equal(stored.items.filter((it) => it && it.media).length, 6,
+      "one backfill pass resolved more or fewer than its fan-out budget plus the first serve's");
+    // Successive serves keep scheduling backfills while any item
+    // lacks media, and the row completes: fifteen items, three
+    // fan-outs per pass, five passes at most.
+    for (let round = 0; round < 6; round++) {
+      if (stored.items.every((it) => it && it.media)) break;
+      const next = await callTrending(db);
+      await Promise.all(next.pending);
+      stored = JSON.parse(db._cache.row.payload);
+    }
+    assert.ok(stored.items.every((it) => it && it.media), "the stored row never completed across successive backfills");
+  } finally { restore(); }
 });
 
 await test("editions accumulate: yesterday's archive gives today its second day", async () => {
