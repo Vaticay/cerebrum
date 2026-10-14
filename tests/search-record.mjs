@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildSearchRecord, buildCoverage, buildCachedServeTrust, mintSearchRecordId, storeSearchRecord } = await import(join(root, "functions/api/search.js"));
+const { buildSearchRecord, buildCoverage, buildCachedServeTrust, mintSearchRecordId, storeSearchRecord, applyRecordStoreOutcome } = await import(join(root, "functions/api/search.js"));
 const recordRoute = await import(join(root, "functions/record/[id].js"));
 const searchSrc = readFileSync(join(root, "functions/api/search.js"), "utf8");
 const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
@@ -836,7 +836,20 @@ await test("the handler mints, stamps, and stores at the one assembly point", ()
   assert.match(searchSrc, /const searchRecordId = mintSearchRecordId\(\)/, "the handler does not mint a record id");
   assert.match(searchSrc, /recordId: searchRecordId/, "the minted id is not passed to buildSearchRecord");
   assert.match(searchSrc, /storeSearchRecord\(env, searchRecord\)/, "the record is not stored under its id");
-  assert.match(searchSrc, /waitUntil\(storedRecord\)/, "the store does not ride waitUntil off the response path");
+  // Corrected contract (2026-10-13, third rescore fix): this pin
+  // used to assert the store rides waitUntil off the response path.
+  // That fire and forget shape is the defect the panel proved (2 of
+  // 3 issued record links dead): the store's result was never read,
+  // so a failed store shipped a permalink that 404'd. The store is
+  // now awaited, retried once on failure, and its outcome stamped
+  // onto the shipped record.
+  assert.match(searchSrc, /let recordStored = await storeSearchRecord\(env, searchRecord\)/,
+    "the store is not awaited, so its outcome cannot be known when the permalink is issued");
+  assert.match(searchSrc, /if \(!recordStored\) \{\s*recordStored = await storeSearchRecord\(env, searchRecord\);\s*\}/,
+    "a failed store is not retried exactly once");
+  assert.match(searchSrc, /applyRecordStoreOutcome\(searchRecord, recordStored\)/,
+    "the store outcome is not stamped onto the shipped record");
+  assert.ok(!searchSrc.includes("waitUntil(storedRecord)"), "the store still rides waitUntil unread");
 });
 
 await test("a cached serve's recomputed record carries no id and no permalink", () => {
@@ -853,6 +866,112 @@ await test("a cached serve's recomputed record carries no id and no permalink", 
   assert.ok(trust.record, "a cached serve still carries a record");
   assert.ok(!("id" in trust.record), "a recomputed cache record must not carry an id");
   assert.ok(!("url" in trust.record), "a recomputed cache record must not carry a permalink");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("record store reliability: an issued permalink cannot be silently dead (third rescore fix, 2026-10-13)");
+
+// The panel followed 3 issued record links and found 2 dead, in both
+// HTML and JSON forms, rechecked after a delay. The store swallowed
+// every failure into a false return nobody read, and the response
+// stamped id and permalink regardless. The contract now: the table
+// create is memoized per database and awaited before the insert, the
+// store returns a real verdict, the handler retries once, and a
+// record that could not be stored ships with stored false and no
+// permalink claim anywhere, while its data still ships.
+
+function fakeTableGateDb() {
+  // A database where the table genuinely does not exist until the
+  // CREATE lands on THIS database: an insert that arrives first is
+  // the D1 "no such table" hard error, not a soft miss.
+  let tableExists = false;
+  const calls = [];
+  const runFor = (sql) => async () => {
+    if (/CREATE TABLE/.test(sql)) { tableExists = true; return {}; }
+    if (/INSERT/.test(sql)) {
+      if (!tableExists) throw new Error("no such table: search_records");
+      return {};
+    }
+    return {};
+  };
+  return {
+    calls,
+    prepare(sql) {
+      calls.push(sql);
+      return {
+        bind() { return { run: runFor(sql) }; },
+        run: runFor(sql),
+      };
+    },
+  };
+}
+
+await test("the memoized create lands before the insert, and runs once per database", async () => {
+  const db = fakeTableGateDb();
+  const rec = buildSearchRecord({ ...FULL_INPUT, recordId: "r_0123456789abcdef0123456789abcdef" });
+  assert.equal(await storeSearchRecord({ DB: db }, rec), true,
+    "a store whose insert would fail without the table must land, create first");
+  assert.equal(db.calls.length, 2);
+  assert.match(db.calls[0], /CREATE TABLE IF NOT EXISTS search_records/);
+  assert.match(db.calls[1], /INSERT OR IGNORE INTO search_records/);
+  assert.equal(await storeSearchRecord({ DB: db }, rec), true);
+  assert.equal(db.calls.length, 3, "a second store on the same database must not repeat the create");
+  assert.match(db.calls[2], /INSERT OR IGNORE INTO search_records/);
+});
+
+function fakeFlakyDb() {
+  // The first insert attempt fails (a transient lock), later ones land.
+  let insertAttempts = 0;
+  return {
+    get insertAttempts() { return insertAttempts; },
+    prepare(sql) {
+      const run = async () => {
+        if (/INSERT/.test(sql)) {
+          insertAttempts++;
+          if (insertAttempts === 1) throw new Error("database is locked");
+        }
+        return {};
+      };
+      return { bind() { return { run }; }, run };
+    },
+  };
+}
+
+await test("one fresh retry absorbs a transient insert failure, in the handler's exact shape", async () => {
+  const db = fakeFlakyDb();
+  const rec = buildSearchRecord({ ...FULL_INPUT, recordId: "r_0123456789abcdef0123456789abcdef" });
+  let stored = await storeSearchRecord({ DB: db }, rec);
+  if (!stored) stored = await storeSearchRecord({ DB: db }, rec);
+  assert.equal(stored, true, "the retried store must land");
+  assert.equal(db.insertAttempts, 2, "exactly one retry, never a loop");
+});
+
+function fakeAlwaysDownDb() {
+  const run = async () => { throw new Error("storage is down"); };
+  return { prepare() { return { bind() { return { run }; }, run }; } };
+}
+
+await test("a store that always fails resolves false, and the outcome withdraws the permalink only", async () => {
+  const rec = buildSearchRecord({ ...FULL_INPUT, recordId: "r_0123456789abcdef0123456789abcdef" });
+  let stored = await storeSearchRecord({ DB: fakeAlwaysDownDb() }, rec);
+  if (!stored) stored = await storeSearchRecord({ DB: fakeAlwaysDownDb() }, rec);
+  assert.equal(stored, false, "a store that always fails is a false verdict, never a rejection");
+  const shaped = applyRecordStoreOutcome(rec, stored);
+  assert.equal(shaped.stored, false);
+  assert.ok(!("url" in shaped), "an unstored record must not carry a permalink");
+  assert.ok(!("id" in shaped), "an unstored record must not carry the id a consumer could rebuild a permalink from");
+  // The record data itself still ships; only the permalink claim changed.
+  assert.equal(shaped.question, FULL_INPUT.question);
+  assert.equal(shaped.sources.length, 3);
+  assert.equal(shaped.funnel.gathered, 88);
+});
+
+await test("a stored outcome stamps stored true and keeps the permalink", async () => {
+  const rec = buildSearchRecord({ ...FULL_INPUT, recordId: "r_0123456789abcdef0123456789abcdef" });
+  const shaped = applyRecordStoreOutcome(rec, true);
+  assert.equal(shaped.stored, true);
+  assert.equal(shaped.id, "r_0123456789abcdef0123456789abcdef");
+  assert.equal(shaped.url, "https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef");
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -964,8 +1083,23 @@ await test("the panel shows the permalink with a copy action, and says when ther
   const panelAt = appSrc.indexOf("function SearchRecordPanel");
   const endAt = appSrc.indexOf("function AnswerDiagnostics");
   const panel = appSrc.slice(panelAt, endAt);
-  assert.match(panel, /sectionRow\("Link", record\.url \|\| "No permanent link was stored for this record\."\)/,
-    "the panel does not show the link or its honest absence");
+  // Corrected contract (2026-10-13, third rescore fix): the absence
+  // line now splits by cause. A cache serve's record was never store
+  // attempted and keeps "No permanent link was stored"; a live run
+  // whose store failed (stored false, permalink withdrawn server
+  // side) must say the record could not be saved, in the panel and
+  // in the Markdown export alike.
+  assert.match(panel, /sectionRow\("Link", record\.url \|\| \(record\.stored === false/,
+    "the panel does not split the link absence by the store outcome");
+  assert.ok(panel.includes("This record could not be saved, so it has no permanent link."),
+    "the panel does not say a failed store could not be saved");
+  assert.ok(panel.includes("No permanent link was stored for this record."),
+    "the panel lost the cache serve's honest absence line");
+  const mdAt = appSrc.indexOf("function searchRecordMarkdown");
+  const md = appSrc.slice(mdAt, panelAt);
+  assert.match(md, /record\.stored === false/, "the Markdown export does not read the store outcome");
+  assert.ok(md.includes("This record could not be saved, so it has no permanent link."),
+    "the Markdown export does not say a failed store could not be saved");
   assert.match(panel, /copyToClipboard\(record\.url, "Record link copied"\)/, "no copy action for the permalink");
   assert.ok(panel.includes("Copy link"), "Copy link action missing");
 });

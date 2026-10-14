@@ -9673,27 +9673,58 @@ export function mintSearchRecordId() {
     + Math.random().toString(36).slice(2, 10);
 }
 
+/* The search_records table is created once per isolate, not once
+ * per store. The promise is memoized per database binding (a
+ * WeakMap, so test fakes and any future second binding each get
+ * their own create, and a dead binding is never pinned in memory).
+ * The old store ran the CREATE on every search: DDL takes a write
+ * lock, so under concurrent load the create itself could fail and
+ * abort a store whose table already existed, and on a cold database
+ * a concurrent first request's insert could reach the table before
+ * another isolate's create landed (INSERT OR IGNORE does not ignore
+ * a missing table). A failed create clears its own memo entry, so
+ * the next store retries the DDL instead of inheriting the failure
+ * for the isolate's lifetime. */
+const searchRecordsTableByDb = new WeakMap();
+
+function ensureSearchRecordsTable(db) {
+  let ready = searchRecordsTableByDb.get(db);
+  if (!ready) {
+    ready = (async () => {
+      await db.prepare(
+        "CREATE TABLE IF NOT EXISTS search_records (" +
+        "id TEXT NOT NULL PRIMARY KEY, question TEXT, asked_at TEXT, " +
+        "record TEXT NOT NULL, created_at INTEGER NOT NULL)"
+      ).run();
+    })();
+    searchRecordsTableByDb.set(db, ready);
+    ready.catch(() => {
+      if (searchRecordsTableByDb.get(db) === ready) {
+        searchRecordsTableByDb.delete(db);
+      }
+    });
+  }
+  return ready;
+}
+
 /* storeSearchRecord(env, record): persist one record under its id so
- * its permalink resolves at the public record page. Follows the
- * repo's self healing pattern (the llm_training_data write below):
- * the table is created on first use, the insert is INSERT OR IGNORE
- * (an id is minted once per run, so a duplicate would mean a replay,
- * and the first stored copy is the run that happened), and every
- * failure is swallowed into a false return. Best effort by contract:
- * this never rejects, never throws, and the handler never awaits it
- * on the response path (it rides waitUntil), so a storage failure
- * costs the record its page and never costs the user their answer.
- * A record without an id is not stored at all: there would be no
- * address to store it under. */
+ * its permalink resolves at the public record page. The table create
+ * is the memoized ensure above, awaited before the insert, so the
+ * two statements can no longer race inside or across requests. The
+ * insert is INSERT OR IGNORE (an id is minted once per run, so a
+ * duplicate would mean a replay, and the first stored copy is the
+ * run that happened). The return is a real verdict, true only when
+ * the insert completed: the handler awaits it (see the assembly
+ * point), retries once on false, and withdraws the permalink claim
+ * when both attempts fail (applyRecordStoreOutcome). Never rejects
+ * and never throws, so a storage failure still costs the record its
+ * page and never the user their answer. A record without an id is
+ * not stored at all: there would be no address to store it under. */
 export async function storeSearchRecord(env, record) {
   try {
     if (!env || !env.DB || !record || typeof record !== "object") return false;
     if (typeof record.id !== "string" || !record.id) return false;
-    await env.DB.prepare(
-      "CREATE TABLE IF NOT EXISTS search_records (" +
-      "id TEXT NOT NULL PRIMARY KEY, question TEXT, asked_at TEXT, " +
-      "record TEXT NOT NULL, created_at INTEGER NOT NULL)"
-    ).run();
+    await ensureSearchRecordsTable(env.DB);
     await env.DB.prepare(
       "INSERT OR IGNORE INTO search_records " +
       "(id, question, asked_at, record, created_at) " +
@@ -9710,6 +9741,29 @@ export async function storeSearchRecord(env, record) {
     console.error("[Cerebrum] search record store failed:", e && e.message);
     return false;
   }
+}
+
+/* applyRecordStoreOutcome(record, stored): stamp the store's verdict
+ * onto the record the response ships, after the store attempts have
+ * run. The stored copy in the database was serialized by the store
+ * itself and carries no such field; this stamp is response only.
+ * stored true: the record keeps its id and permalink, now known to
+ * resolve. stored false: both are withdrawn, because a permalink
+ * that 404s must not be presented as live anywhere the record
+ * travels (the in app panel, the Markdown export, the MCP record
+ * block, which keys its permalink off the id and would rebuild the
+ * dead URL from it). The record's data (question, funnel, sources)
+ * ships either way; only the permalink claim changes. Cache serve
+ * records never pass through here: they are not store attempted, so
+ * they carry no stored field at all. */
+export function applyRecordStoreOutcome(record, stored) {
+  if (!record || typeof record !== "object") return record;
+  record.stored = stored === true;
+  if (!record.stored) {
+    delete record.url;
+    delete record.id;
+  }
+  return record;
 }
 
 /* buildSearchRecord(input): the exportable, re runnable record of one
@@ -9734,9 +9788,12 @@ export async function storeSearchRecord(env, record) {
  *                    the record carries it as `id`, plus `url`, the
  *                    absolute permalink the public record page serves.
  *                    The caller that passes an id is responsible for
- *                    storing the record under it (storeSearchRecord):
- *                    an id is a promise that the page exists, so a
- *                    record is never stamped with an id nobody stored.
+ *                    storing the record under it (storeSearchRecord)
+ *                    and for the outcome: an id is a promise that the
+ *                    page exists, so when the store fails the caller
+ *                    withdraws both before the record ships
+ *                    (applyRecordStoreOutcome) and no surface ever
+ *                    presents an id nobody stored.
  * Returns null when retrieval never ran: no funnel and no database
  * outcomes means there is no search to record. (A cache serve passes
  * cachedServe with the stored source list instead . see
@@ -19572,10 +19629,18 @@ async function runSearchPipeline(pctx) {
     /* The record gets its permanent id here, at the one assembly
      * point both the AI and the extractive paths ship from, and is
      * stored under that id so the permalink in the response resolves
-     * at the public record page. The store is best effort and rides
-     * waitUntil: storeSearchRecord never rejects, and a failed store
-     * costs the record its page, never the user their answer. The
-     * record ships in this response either way. */
+     * at the public record page. The store used to ride waitUntil
+     * unread: its result was never checked, so any storage failure
+     * shipped a permalink that 404'd, indistinguishable from a live
+     * one (the third rescore followed issued record links and found
+     * them dead). The store is now awaited: it never rejects, the
+     * database writes are not fetch subrequests so they spend none
+     * of the subrequest ledger, and on a false return the handler
+     * makes one fresh retry, never a loop. The outcome is stamped
+     * onto the shipped record (applyRecordStoreOutcome): stored
+     * true keeps the permalink, stored false withdraws it, so no
+     * surface presents a link that is not there. The record's data
+     * ships in this response either way. */
     const searchRecordId = mintSearchRecordId();
     const searchRecord = buildSearchRecord({
       question: query,
@@ -19588,10 +19653,11 @@ async function runSearchPipeline(pctx) {
       recordId: searchRecordId,
     });
     if (searchRecord) {
-      const storedRecord = storeSearchRecord(env, searchRecord);
-      if (typeof waitUntil === "function") {
-        try { waitUntil(storedRecord); } catch (cbErr) { console.error("[Cerebrum] search.js record store waitUntil:", cbErr); }
+      let recordStored = await storeSearchRecord(env, searchRecord);
+      if (!recordStored) {
+        recordStored = await storeSearchRecord(env, searchRecord);
       }
+      applyRecordStoreOutcome(searchRecord, recordStored);
     }
 
     // Final subrequest ledger snapshot onto the diag (operator view

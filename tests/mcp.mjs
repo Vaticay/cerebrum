@@ -321,6 +321,27 @@ await test("a record without an id adds nothing: byte stable with no record at a
     "an id less record leaked a record block");
 });
 
+await test("an unstored record adds no block: the permalink claim was withdrawn at the source", () => {
+  // Third rescore fix (2026-10-13): when the record store fails, the
+  // search response stamps stored false and withdraws the id and
+  // url, so the record that reaches this formatter is the unstored
+  // shape below. The block keys off the id, so no permalink can be
+  // rebuilt here for a page that was never stored.
+  const unstored = {
+    ...SEARCH_PAYLOAD,
+    _record: {
+      stored: false,
+      question: "how do wood frogs survive freezing",
+      askedAt: "2026-10-13T14:00:00.000Z",
+      sources: [{ n: 1, title: "Freeze tolerance in the wood frog", cited: true }],
+      databases: [{ source: "europePMC", ok: true, count: 40 }],
+    },
+  };
+  const text = formatSearchToolResult(unstored).content[0].text;
+  assert.ok(!text.includes("Search record:"), "an unstored record leaked a record block");
+  assert.ok(!text.includes("askcerebrum.org/record/"), "an unstored record leaked a record page address");
+});
+
 // ═══════════════════════════════════════════════════════════════════
 group("tools/call get_trending");
 
