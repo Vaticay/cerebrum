@@ -51,6 +51,21 @@ function esc(v) {
   }[c]));
 }
 
+/* Source titles get the same species formatting the app gives
+ * them (2026-10-14, answer package defect 7). Upstream metadata
+ * carries species names in <i> tags, and the app renders those as
+ * italics (renderCleanTitle in src/textUtils.js). Escaping the
+ * whole title printed the tags as literal text and the species in
+ * roman. So: escape first, then restore exactly the <i> tag
+ * spellings (no attributes, nothing else) as real elements. The
+ * restore is deliberately narrower than the app's whitelist: this
+ * page is public and unauthenticated, its stored text stays
+ * escaped (the posture the security tests pin), and italics are
+ * the one formatting the species rule requires here. */
+function escTitle(v) {
+  return esc(v).replace(/&lt;(\/?)i&gt;/gi, "<$1i>");
+}
+
 function pageShell(title, bodyHtml) {
   return "<!doctype html>\n"
     + '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
@@ -168,7 +183,7 @@ function recordPage(record, url) {
   if (Array.isArray(record.sources) && record.sources.length) {
     const items = record.sources.map((s) => {
       const entry = s && typeof s === "object" ? s : {};
-      let line = esc(entry.n != null ? entry.n : "") + ". " + esc(entry.title || "Untitled");
+      let line = esc(entry.n != null ? entry.n : "") + ". " + escTitle(entry.title || "Untitled");
       if (entry.year) line += " (" + esc(entry.year) + ")";
       if (entry.authors) line += " · " + esc(entry.authors);
       if (entry.journal) line += " · " + esc(entry.journal);

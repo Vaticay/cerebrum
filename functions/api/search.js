@@ -1099,6 +1099,64 @@ function paperDedupeKey(p) {
   return ks.length ? ks[0] : "";
 }
 
+/* Core identity for dedupe (2026-10-14, answer package defect 5):
+ * the same paper shipped as sources 1 and 2 in one answer because
+ * its two records' key families never intersected . one carried a
+ * DOI, the other only a publisher URL, and their title strings
+ * differed by a subtitle one source includes and the other drops,
+ * so the full title keys never matched either. Identity is therefore
+ * also judged on the work's core: the main title (everything before
+ * the subtitle colon, normalized like the title key), the year, and
+ * the first author's surname where the record carries one. Two
+ * records with the same core are the same work UNLESS both carry
+ * DOIs and the DOIs differ (provably different works: an erratum or
+ * a companion paper can share a title, year, and author), or both
+ * carry first author surnames and they differ. A core needs a real
+ * title (at least 12 normalized characters, so "Editorial" and
+ * "Introduction" can never collide) and a plausible year; without
+ * either, the record simply has no core and the older keys decide. */
+function paperCoreIdentity(p) {
+  const rawTitle = String((p && p.title) || "");
+  const mainTitle = rawTitle.split(":")[0];
+  const core = normalizePaperTitle(mainTitle);
+  if (!core || core.length < 12) return null;
+  const yearMatch = String((p && p.year) || "").match(/(?:19|20)\d{2}/);
+  if (!yearMatch) return null;
+  const doiKeys = paperDedupeKeys(p).filter((k) => k.startsWith("doi:"));
+  return {
+    key: core + "|" + yearMatch[0],
+    doi: doiKeys.length ? doiKeys[0].slice(4) : null,
+    surname: firstAuthorSurname(p),
+  };
+}
+
+/* The first author's surname, or null when the record names no
+ * author. Author strings arrive as "Smith J, Doe A", "Smith, John;
+ * Doe, Jane", or "John Smith", so the surname is the last surviving
+ * word of the first author segment once initials (single letters)
+ * drop out . "Smith J" and "Smith, John" both reduce to "smith". */
+function firstAuthorSurname(p) {
+  const raw = String((p && p.authors) || "").trim();
+  if (!raw) return null;
+  let first = raw.split(";")[0];
+  if (first === raw) {
+    const commaAt = first.indexOf(",");
+    if (commaAt > 0) {
+      const before = first.slice(0, commaAt).trim();
+      // "Smith, John": the word before the comma is the surname
+      // alone. "Smith J, Doe A": the whole first segment is the
+      // first author. A single word before the comma tells them
+      // apart.
+      first = /^\S+$/.test(before) ? before : first.slice(0, commaAt);
+    }
+  }
+  const words = first.split(/\s+/)
+    .map((w) => w.replace(/[^A-Za-z''-]/g, ""))
+    .filter((w) => w.length > 2);
+  if (!words.length) return null;
+  return words[words.length - 1].toLowerCase();
+}
+
 /* Order-preserving dedupe over a paper list. A paper is dropped when ANY of
  * its candidate keys was already seen . this is what catches "same paper,
  * one record with DOI, one without", the duplicate that used to be cited as
@@ -1106,8 +1164,16 @@ function paperDedupeKey(p) {
 export function dedupePapers(list) {
   // 2026-10-12: Fixed - don't merge distinct papers with same title.
   // Only merge if strong identifiers match, or if neither has identifiers.
+  // 2026-10-14 (answer package defect 5): a third identity now sits
+  // between those two . the core identity (paperCoreIdentity: main
+  // title plus year plus first author surname where present). It
+  // merges records whose identifier families never intersect and
+  // whose full title strings differ by a subtitle, while its two
+  // vetoes (both DOIs present and different; both surnames present
+  // and different) keep provably distinct works apart.
   const seenStrong = new Set();  // DOIs, PMIDs, etc.
   const seenTitles = new Map();  // normalized title -> hasStrongId
+  const seenCores = new Map();   // core key -> [{ doi, surname }] of kept records
   return (list || []).filter((p) => {
     const keys = paperDedupeKeys(p);
     if (keys.length === 0) return true;
@@ -1115,6 +1181,17 @@ export function dedupePapers(list) {
     const strongKeys = keys.filter(k => !k.startsWith('title:'));
     for (const k of strongKeys) {
       if (seenStrong.has(k)) return false;  // Same DOI/PMID = same paper
+    }
+    // Core identity: same main title and year, and no veto from a
+    // differing DOI or a differing first author surname on both
+    // sides, is the same work however its records were fetched.
+    const core = paperCoreIdentity(p);
+    if (core) {
+      const kept = seenCores.get(core.key) || [];
+      const sameWork = kept.some((k) =>
+        !((k.doi && core.doi && k.doi !== core.doi) ||
+          (k.surname && core.surname && k.surname !== core.surname)));
+      if (sameWork) return false;
     }
     // For title keys: only dedupe if neither has strong IDs
     const titleKeys = keys.filter(k => k.startsWith('title:'));
@@ -1131,6 +1208,11 @@ export function dedupePapers(list) {
     for (const k of strongKeys) seenStrong.add(k);
     for (const tk of titleKeys) {
       if (!seenTitles.has(tk)) seenTitles.set(tk, hasStrong);
+    }
+    if (core) {
+      const kept = seenCores.get(core.key) || [];
+      kept.push({ doi: core.doi, surname: core.surname });
+      seenCores.set(core.key, kept);
     }
     return true;
   });
@@ -1478,7 +1560,22 @@ export function isNonLiterature(p) {
 // v34 could still lead with their value sentences. Payloads
 // cached under v34 must not be served as though produced
 // under either change.
-const CACHE_SCHEMA_VERSION = "v35";
+// v36 (2026-10-14, answer package): what an answer may ship
+// changed in ways a stored payload cannot retroactively satisfy.
+// Dedupe now merges records on a core identity (main title plus
+// year plus first author), so a stored source list can carry the
+// same paper twice under two numbers; extractive answers screen
+// first person paper voice out of their sentences, normalize em
+// and en dashes in the ship path, and italicize validated species
+// names the text itself names; an AI answer with zero citations
+// no longer ships at any length (it retries once, then the
+// extractive tier answers), so a stored uncited AI answer is a
+// defect, not a result; a single cited source now caps
+// confidence and is named as a single source in the limits; and
+// the extractive body states the claim check's real result
+// instead of a pre check guess. Payloads cached under v35 must
+// not be served as though produced under any of this.
+const CACHE_SCHEMA_VERSION = "v36";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1911,7 +2008,7 @@ function correctNameVariants(text, canonicalName) {
 
    Compound words keep their real hyphens; only the long dashes are
    touched, and only where they are doing a punctuation job. */
-function deDash(text) {
+export function deDash(text) {
   if (!text) return text;
   let t = String(text);
 
@@ -2117,7 +2214,7 @@ function escapeRegExp(s) {
 // sitting directly against it, which erases the \b boundary a bare-word
 // match would have relied on. Run this any earlier and it would silently
 // break exactly the term-matching those passes do against the answer text.
-function italicizeScientificTerms(text, query) {
+export function italicizeScientificTerms(text, query) {
   if (!text) return text;
   // Split out anything already formatted (bold/italic/code/citation) or a
   // fenced code block, and only touch the plain-prose segments in between.
@@ -2125,7 +2222,6 @@ function italicizeScientificTerms(text, query) {
   // ("__E. coli__") and guarantees citation markers like "[1]" are never
   // touched.
   const SPAN_RE = /(```[\s\S]*?```|`[^`\n]+`|\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|\[\d+\])/g;
-  const parts = text.split(SPAN_RE);
 
   // Recomputed fresh from the query rather than threaded in as a shared
   // variable . this gets called from more than one return path in
@@ -2146,6 +2242,44 @@ function italicizeScientificTerms(text, query) {
       namePatterns.push(g[0] + "\\.\\s?" + escapeRegExp(sp));
     }
   }
+
+  // Known organism binomials named in the TEXT itself (2026-10-14,
+  // answer package defect 7). The query is not the only validated
+  // source of species names: a question asked with a common name
+  // ("black soldier fly") yields no query binomial, so the net
+  // above wrapped nothing, while the papers an extractive answer
+  // quotes name the species outright . extractive answers shipped
+  // their species in roman type (or with raw markers) where AI
+  // answers italicized them. ORGANISM_BINOMIALS is the hand curated
+  // set of genuine species names, so a name from that set found in
+  // the text is validated for this run, not a blind bigram guess.
+  // Both ship paths run through here, so both get the same format.
+  const lowerText = text.toLowerCase();
+  for (const binomial of ORGANISM_BINOMIALS) {
+    if (!lowerText.includes(binomial)) continue;
+    const [g, sp] = binomial.split(" ");
+    const canonical = g.charAt(0).toUpperCase() + g.slice(1) + " " + sp;
+    if (!namePatterns.includes(canonical)) namePatterns.push(canonical);
+    if (g && g.length > 1 && sp) {
+      const abbr = g[0].toUpperCase() + "\\.\\s?" + escapeRegExp(sp);
+      if (!namePatterns.includes(abbr)) namePatterns.push(abbr);
+    }
+  }
+
+  // A validated name wrapped in double underscores (bold the model
+  // wrote around a species name) collapses to the single italic
+  // marker BEFORE the span split (2026-10-14, defect 7): the split's
+  // single underscore alternative would otherwise carve "_Name_"
+  // out of "__Name__" and strand the two outer markers as literal
+  // text beside the italics . the raw underscore failure in shipped
+  // answers. Only validated names collapse; a genuine bold span
+  // around anything else is untouched.
+  let work = text;
+  for (const pattern of namePatterns) {
+    const body = pattern.includes("\\.") ? pattern : escapeRegExp(pattern).replace(/ /g, "\\s+");
+    work = work.replace(new RegExp("__(" + body + ")__", "g"), "_$1_");
+  }
+  const parts = work.split(SPAN_RE);
 
   return parts
     .map((part, i) => {
@@ -7727,6 +7861,26 @@ const EXTRACT_FIND_HINTS = [
   "risk", "compare", "compared", "difference", "p <", "p<",
 ];
 
+/* First person paper voice (2026-10-14, answer package defect 4):
+ * the phrases in which a paper's authors speak as themselves . "we
+ * measured", "our study", "we found". The AI path treats a model
+ * writing these as a defect (scoreAnswerQuality penalizes them
+ * heavily, because Cerebrum would be presenting a paper's work as
+ * its own), but the extractive path quoted abstract sentences
+ * verbatim, so a first person sentence shipped as if Cerebrum had
+ * said it. One phrase list, shared by both screens: the quality
+ * scorer matches against it, and the extractive sentence pipelines
+ * exclude any sentence it matches . drop the sentence or pick a
+ * different one, never rewrite it (invented wording is worse). */
+const FIRST_PERSON_PAPER_VOICE_SOURCE =
+  "our findings|our results|our data|our study|our research|our analysis|" +
+  "we found|we observed|we show|we demonstrate|we report|we discovered|" +
+  "in our study|in our work|our experiments|we measured|we tested";
+const FIRST_PERSON_PAPER_VOICE_RE = new RegExp("\\b(?:" + FIRST_PERSON_PAPER_VOICE_SOURCE + ")\\b", "i");
+export function hasFirstPersonPaperVoice(text) {
+  return typeof text === "string" && FIRST_PERSON_PAPER_VOICE_RE.test(text);
+}
+
 function extractSentences(text) {
   // Guard decimals (p < 0.01) and common abbreviations so the splitter
   // doesn't cut sentences in the middle of a number or "et al."
@@ -8158,6 +8312,10 @@ export function findExistenceSupport(items, query, queryAnalysis = null) {
     for (const rawClaim of claims) {
       const claim = stripClaimTags(String(rawClaim || "")).trim();
       if (claim.length < 25) continue;
+      // First person screen (defect 4): the existence line quotes
+      // this claim as the answer's own sentence, so a claim in the
+      // paper's voice ("we measured") is never the one picked.
+      if (hasFirstPersonPaperVoice(claim)) continue;
       const low = claim.toLowerCase();
       const singular = (w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w);
       const claimTokens = new Set(low.split(/[^a-z0-9]+/).filter(Boolean).map(singular));
@@ -8272,7 +8430,9 @@ function buildWeakEvidenceAnswer(items, pool, ctx, quality) {
       ? "*This summary was assembled from the sources below. Sign in to use your free AI answers.*"
       : gateReason === "free-cap" || gateReason === "lite-cap"
         ? "*This summary was assembled from the sources below. You've used this period's AI answers; they renew next month.*"
-        : "*Cerebrum's AI providers were temporarily unavailable, so no summary was assembled. The sources above are the closest matches. Read them directly rather than relying on stitched-together sentences.*";
+        : gateReason === "uncited-answer"
+          ? "*The AI answer did not cite its sources, so it was set aside. The sources above are the closest matches. Read them directly rather than relying on stitched-together sentences.*"
+          : "*Cerebrum's AI providers were temporarily unavailable, so no summary was assembled. The sources above are the closest matches. Read them directly rather than relying on stitched-together sentences.*";
   md += "\n" + closing;
   return md;
 }
@@ -8318,7 +8478,9 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       .map((s) => s.trim())
       .filter((s) => s.length > 20)
       .map((s) => ({ s, score: scoreBackgroundSentence(s) }))
-      .filter(({ score }) => score > 0)
+      // First person screen (defect 4): quoted passages never
+      // speak in the paper's own voice.
+      .filter(({ s, score }) => score > 0 && !hasFirstPersonPaperVoice(s))
       .sort((a, b) => b.score - a.score)
       .slice(0, maxN);
   };
@@ -8410,6 +8572,8 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       for (const raw of extractSentences(usableAbstract(it.p))) {
         const s = String(raw || "").trim();
         if (s.length < 30 || s.length > 420) continue;
+        // First person screen (defect 4), same as the research tier.
+        if (hasFirstPersonPaperVoice(s)) continue;
         const matched = qTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null));
         if (matched.length === 0) continue;
         candidates.push({ s, idx: it.idx, matched, tier });
@@ -8611,7 +8775,15 @@ export function buildDefinitionAnswer(term, papers, ctx = {}) {
   // Confidence + ambiguity instruments, same as every other answer path.
   try {
     const cited = defs.map((d) => d.paper);
-    const conf = buildConfidenceLine(cited, null, { extractive: true, tier: "definition", factCheckChecked: false });
+    // factCheckChecked is null, not false (2026-10-14, answer
+    // package defect 1): this line is composed BEFORE the
+    // pipeline's claim check runs, so it must assert nothing about
+    // the check . false printed "fact checking did not check any
+    // claims" in answers whose shipped fact check object then
+    // reported claims checked. The pipeline appends the check's
+    // real result to this line once it exists
+    // (appendClaimCheckSentence).
+    const conf = buildConfidenceLine(cited, null, { extractive: true, tier: "definition", factCheckChecked: null });
     if (conf && conf.line) md += "\n**Evidence Strength** " + conf.line + "\n";
   } catch { /* instruments are best-effort */ }
   if (ctx && ctx.ambiguity && ctx.ambiguity.ambiguous) {
@@ -8822,6 +8994,15 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
             score: scoreFindingSentence(s) + (proc ? 3 : 0),
           };
         })
+        // First person screen (2026-10-14, answer package defect
+        // 4): a sentence in the paper's own voice ("we measured",
+        // "our study") is never excerpted, however dense its
+        // findings . served verbatim it would read as Cerebrum
+        // claiming the work. Screened BEFORE ranking so a dropped
+        // sentence frees its slot for the paper's next sentence;
+        // a paper whose sentences all speak in first person falls
+        // back to its title claim below.
+        .filter(({ s }) => !hasFirstPersonPaperVoice(s))
         .filter(({ s, score }) => score > 0 ||
           findingsQTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null)).length >= 2)
         .sort((a, b) => b.score - a.score);
@@ -8869,7 +9050,9 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       // back to the regex sentences above instead of shipping verbatim.
       const fromBrief = (briefByIdx[it.idx] || [])
         .map((t) => stripClaimTags(String(t || "")).trim())
-        .filter((t) => t && isWellFormedClaim(t))
+        // Brief claims are paper voice too: the same first person
+        // screen the regex sentences above get (defect 4).
+        .filter((t) => t && isWellFormedClaim(t) && !hasFirstPersonPaperVoice(t))
         .slice(0, findingsPerPaper);
       if (fromBrief.length) {
         // Method intent (2026-10-14, second pass): brief claims
@@ -9180,8 +9363,14 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       sourcesQueried: ctx.sourcesQueried || null,
       relevanceGatedOut: ctx.relevanceGatedOut || 0,
       intent: (ctx.queryAnalysis && ctx.queryAnalysis.intent) || null,
+      // On this path the examined pool IS the cited set, so the
+      // single source limit keys off the same count (defect 3).
+      citedCount: citedPapers.length,
     });
-    const conf = buildConfidenceLine(citedPapers, dVerdict, { extractive: true, tier: "research", factCheckChecked: false });
+    // factCheckChecked null, not false: composed before the claim
+    // check runs, so the line asserts nothing about it (defect 1;
+    // the pipeline appends the real result after the check).
+    const conf = buildConfidenceLine(citedPapers, dVerdict, { extractive: true, tier: "research", factCheckChecked: null });
     md += "\n## How solid is this?\n\n" + conf.line + "\n";
     // The cite cap means relevant papers can go uncited: say so plainly,
     // with the exact counts, so "withheld" (relevance bar) is never confused
@@ -9222,9 +9411,11 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         ? "*This summary was assembled from the sources below. Sign in to use your free AI answers. Verify each claim against its cited source.*"
         : gateReason === "free-cap" || gateReason === "lite-cap"
           ? "*This summary was assembled from the sources below. You've used this period's AI answers; they renew next month. Verify each claim against its cited source.*"
-          : "*Drafted directly from the sources below. Cerebrum's AI providers were " +
-            "temporarily unavailable, so this summary was assembled from the papers without AI synthesis. " +
-            "Verify each claim against its cited source.*";
+          : gateReason === "uncited-answer"
+            ? "*This summary was assembled from the sources below. The AI answer did not cite its sources, so it was replaced with one built directly from the papers. Verify each claim against its cited source.*"
+            : "*Drafted directly from the sources below. Cerebrum's AI providers were " +
+              "temporarily unavailable, so this summary was assembled from the papers without AI synthesis. " +
+              "Verify each claim against its cited source.*";
     md += "\n" + closingLine;
     return md;
   } catch {
@@ -9309,6 +9500,44 @@ export async function runStage(name, fn, opts = {}) {
       : "stage failed";
     return { ok: false, value: fallback, ms: rec.ms, error: e };
   }
+}
+
+/* reconcileRetrievalStageRecord(stageHealth, diag, paperCount):
+ * one derivation for retrieval's outcome (2026-10-14, answer
+ * package defect 8). The stage record and the search record used
+ * to be computed from two different views of the same retrieval:
+ * runStage can only see resolve versus throw, so it recorded
+ * retrieval ok whenever gatherPapers returned . but gatherPapers
+ * reports total failure INSIDE its result (the handler's catch
+ * fabricates a resolved { papers: [], _diag: { fatalError } }, and
+ * a run whose every database failed still resolves with outcomes),
+ * while the record and the coverage note derive their story from
+ * that diag. A probe therefore shipped stageHealth saying
+ * retrieval ok beside a record whose databases had all failed.
+ * This runs once retrieval has fully settled (the minimum results
+ * guarantee and the LLM rescue included, so a recovery counts) and
+ * recomputes the retrieval record from the final diag . the same
+ * object the record is built from . so the two surfaces can never
+ * disagree again. A record the runner already marked failed (a
+ * timeout) is left exactly as recorded. */
+export function reconcileRetrievalStageRecord(stageHealth, diag, paperCount) {
+  if (!Array.isArray(stageHealth)) return stageHealth;
+  const rec = stageHealth.find((s) => s && s.name === "retrieval");
+  if (!rec || rec.ok === false) return stageHealth;
+  const d = diag && typeof diag === "object" ? diag : null;
+  if (!d) return stageHealth;
+  if (typeof d.fatalError === "string" && d.fatalError) {
+    rec.ok = false;
+    rec.skipReason = "stage failed";
+    return stageHealth;
+  }
+  const outcomes = Array.isArray(d.sourceOutcomes) ? d.sourceOutcomes : null;
+  if (outcomes && outcomes.length > 0 && !(paperCount > 0)
+      && outcomes.every((o) => !o || !o.ok)) {
+    rec.ok = false;
+    rec.skipReason = "no database responded";
+  }
+  return stageHealth;
 }
 
 /* publicStageHealth: the one public serialization of the stage
@@ -10345,11 +10574,20 @@ export function reattachAuthorCitations(answer, papers) {
 }
 
 // ── Evidence gaps (computed, not generated) ─────────────────────
-export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut, intent }) {
+export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut, intent, citedCount }) {
   const gaps = [];
   const list = papers || [];
   const n = list.length;
   if (n === 0) return gaps;
+  // Single source limit (2026-10-14, answer package defect 3): the
+  // pool count and the CITED count are different facts. A wide pool
+  // whose answer cites exactly one paper still rests on a single
+  // source, and the limits must say so plainly . the n <= 2 line
+  // below speaks of the pool that cleared the bar, so when the pool
+  // is wider than the cited set, this line carries the cited truth.
+  if (typeof citedCount === "number" && citedCount === 1 && n > 1) {
+    gaps.push("The answer rests on a single source. One paper is one study's report, not a literature, so treat its claims as unconfirmed until a second source backs them.");
+  }
   // Method intent (2026-10-14): a measurement question with no
   // method paper in the pool has a specific, nameable limit —
   // the sources report the quantity's values, not how it is
@@ -10401,6 +10639,42 @@ export function factCheckSupport(factCheck) {
   if (!claims || claims.length === 0) return null;
   const supported = claims.filter((c) => c && c.status === "supported").length;
   return { supported, checked: claims.length };
+}
+
+/* appendClaimCheckSentence(answer, sentence): state the claim
+ * check's result inside an answer body whose confidence line was
+ * composed BEFORE the check ran (the extractive and definition
+ * builders print theirs at build time, when the only honest value
+ * for the check's outcome is "unknown" . see the factCheckChecked
+ * null at their buildConfidenceLine calls). The pipeline calls this
+ * once the real factCheckResult exists, so the body's line and the
+ * shipped fact check object are computed from the same result:
+ * the sentence is built by the caller from factCheckSupport, the
+ * same count the response level confidence line claims. Two body
+ * shapes carry a confidence line: the extractive five section
+ * format ("## How solid is this?" followed by the line as its own
+ * paragraph) and the definition format ("**Evidence Strength**"
+ * plus the line on one text line). Anything else is returned
+ * untouched . a body with no confidence line gets no sentence
+ * grafted onto a random paragraph. */
+export function appendClaimCheckSentence(answer, sentence) {
+  if (!answer || !sentence) return answer;
+  const text = String(answer);
+  const h = text.indexOf("## How solid is this?");
+  if (h >= 0) {
+    const paraStart = text.indexOf("\n\n", h);
+    if (paraStart >= 0) {
+      const paraEnd = text.indexOf("\n\n", paraStart + 2);
+      const at = paraEnd >= 0 ? paraEnd : text.length;
+      return text.slice(0, at) + " " + sentence + text.slice(at);
+    }
+  }
+  const m = text.match(/\*\*Evidence Strength\*\*[^\n]*/);
+  if (m) {
+    const at = m.index + m[0].length;
+    return text.slice(0, at) + " " + sentence + text.slice(at);
+  }
+  return text;
 }
 
 // 0-100 confidence score built from observable evidence signals . source
@@ -10509,6 +10783,21 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   if (context && context.degraded) {
     applyCap(59, "part of the answer pipeline degraded");
   }
+  // Single source cap (2026-10-14, answer package defect 3): an
+  // answer resting on exactly one cited paper can never carry
+  // multi source confidence language, whatever its other signals
+  // say . one paper is one study's report, and the confidence
+  // wording must reflect that (Dusty's standing rule: multiple
+  // sources are mandatory, one good source defeats the purpose).
+  if (n === 1) {
+    applyCap(45, "the answer rests on a single source");
+  }
+  // factCheckChecked false is an ASSERTION by the caller that the
+  // check ran (or definitively did not) and checked nothing; null
+  // or absent means the caller computed this line BEFORE the check
+  // ran and asserts nothing either way (the pre check body lines in
+  // the extractive and definition builders) . the did not check
+  // reason may only print on the explicit false (defect 1).
   if (context && context.factCheckChecked === false) {
     applyCap(59, "fact checking did not check any claims");
   }
@@ -12252,6 +12541,16 @@ function postProcessAnswer(rawAnswer) {
     .filter((line) => !/^\s*[A-Z][A-Z\s]*(?:\s*[·•\-.–—]\s*[A-Z][A-Z\s]*)+\s*$/.test(line))
     .join("\n");
 
+  // 3c. No dashes ship (2026-10-14, answer package defect 6):
+  // deDash used to run only inside cleanAIResponse, on the model
+  // outputs that pass through it, so an answer reaching this
+  // cleanup by another route could still carry em or en dashes to
+  // the reader. This cleanup is the ship path every AI answer
+  // passes, so the normalization lives here too; the pipeline also
+  // applies deDash at its run last point, which is the only point
+  // the extractive path (never cleaned here) is guaranteed to cross.
+  answer = deDash(answer);
+
   // 4. Clean up any artifacts
   answer = answer.replace(/\n{3,}/g, "\n\n").trim();
 
@@ -12800,7 +13099,9 @@ export function scoreAnswerQuality(answer, query) {
   // First-person research claims: the model presenting papers' findings as
   // its own ("our findings", "we found"). This is plagiarism, not style.
   // Heavy penalty . a single instance tanks the score toward regeneration.
-  const FIRST_PERSON_RE = /\b(our findings|our results|our data|our study|our research|our analysis|we found|we observed|we show|we demonstrate|we report|we discovered|in our study|in our work|our experiments|we measured|we tested)\b/gi;
+  // The phrase list is the shared FIRST_PERSON_PAPER_VOICE_SOURCE: the
+  // extractive path screens sentences against the same list.
+  const FIRST_PERSON_RE = new RegExp("\\b(?:" + FIRST_PERSON_PAPER_VOICE_SOURCE + ")\\b", "gi");
   const fpMatches = answer.match(FIRST_PERSON_RE);
   if (fpMatches) score -= fpMatches.length * 25;
 
@@ -16913,7 +17214,7 @@ async function runSearchPipeline(pctx) {
           });
           return new Response(
             JSON.stringify({
-              answer: italicizeScientificTerms(earlyHit.answer, query),
+              answer: italicizeScientificTerms(deDash(earlyHit.answer), query),
               sources: earlyTrust.labeledSources,
               videos,
               factCheck: null,
@@ -17688,6 +17989,12 @@ async function runSearchPipeline(pctx) {
         }
       }
     }
+
+    // Retrieval has now fully settled (first pass, the minimum
+    // results guarantee, the LLM rescue): reconcile the retrieval
+    // stage record with the final diag the search record is built
+    // from, so stageHealth and the record tell one story (defect 8).
+    reconcileRetrievalStageRecord(stageHealth, gResult && gResult._diag, (gResult && gResult.papers || []).length);
 
     // When user asked for MORE papers, remove duplicates of what they already have
     if (wantsMorePapers && prevSources.length > 0 && gResult.papers) {
@@ -19109,7 +19416,7 @@ async function runSearchPipeline(pctx) {
       });
       return new Response(
         JSON.stringify({
-          answer: italicizeScientificTerms(cachedAnswer.answer, query),
+          answer: italicizeScientificTerms(deDash(cachedAnswer.answer), query),
           sources: laterTrust.labeledSources,
           relevanceGatedOut,
           videos,
@@ -20509,6 +20816,202 @@ async function runSearchPipeline(pctx) {
       } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
     }
 
+    // ============ v6.0: ANSWER QUALITY ENGINE ============
+    // Post-process EVERY answer through the quality engine. This catches
+    // repetition, banned phrases, source-listing, and wrong-organism
+    // acknowledgments that the model wrote despite being told not to.
+    // This is a MECHANICAL fix . we don't rely on the model to follow rules.
+    if (aiOK) {
+      answer = postProcessAnswer(answer);
+      // ============ ZERO-EVIDENCE HALLUCINATION GUARD ============
+      // 2026-10-09: when the model was handed zero citable sources
+      // (!useEvidence && !useWeb means sourceList is empty), any specific
+      // study detail in its answer is invented by definition. The prompt
+      // above already forbids this; this is the mechanical backstop that
+      // deletes a violating answer and replaces it with the honest
+      // deterministic fallback.
+      if (!useEvidence && !useWeb) {
+        answer = guardNoEvidenceHallucination(answer, query);
+      }
+    }
+
+    // ============ v6.0: QUALITY-GATED RETRY ============
+    // Score the answer after post-processing. If it's still bad (score < 35),
+    // retry with a different model using a MUCH stricter prompt that includes
+    // examples of what NOT to do. This is the "intelligence amplifier" . even
+    // if the first model produces garbage, we catch it and try again.
+    if (aiOK && useEvidence && evidencePapers.length > 0) {
+      const qualityScore = scoreAnswerQuality(answer, query);
+      // 2026-09-12: the retry race costs up to 12s . only when the global
+      // budget has room. A good-enough answer delivered on time beats a
+      // marginally better one delivered late.
+      if (qualityScore < 35 && token && msLeft() > 9000) {
+        // Build a retry prompt that's EXTREMELY explicit about what went wrong
+        const retrySystemPrompt =
+          "You are a scientific expert writing a research synthesis. CRITICAL RULES:\n\n" +
+          "1. SYNTHESIZE . do NOT list papers one by one. Make claims and cite multiple sources inline.\n" +
+          "   BAD: '[1] found X. [2] showed Y. [3] demonstrated Z.'\n" +
+          "   GOOD: 'Gut microbiome composition varies significantly by larval instar, with early instars dominated by _Proteobacteria_ [1][3] while late instars shift toward _Firmicutes_ [2].'\n\n" +
+          "2. ORGANISM ACCURACY . only cite papers about the EXACT organism asked about.\n" +
+          "   If a paper studies a DIFFERENT organism, DO NOT CITE IT. Zero citations is better than wrong citations.\n\n" +
+          "3. NO REPETITION . every sentence must add new information. Never rephrase.\n\n" +
+          "4. NO FILLER . banned: 'further research is needed', 'plays a crucial role', 'in conclusion', " +
+          "'Overall', 'it is important to note', 'sheds light on'.\n\n" +
+          "5. START with a direct scientific claim. No 'Based on...' or 'The research shows...'.\n\n" +
+          "6. Italicize species: _E. coli_. Quantify: give numbers, not 'significant'.\n" +
+          "7. TEACH, DO NOT REPORT: phrase claims as facts about the world, explained plainly, with citations as support. BAD: 'A 2021 study found that gut microbes shift as larvae grow.' GOOD: 'Gut microbes shift as larvae grow, with early instars dominated by _Proteobacteria_ [1][3].' Paper framing only where papers disagree or a single weak source carries a claim.";
+
+        const retryMsgs = [
+          { role: "system", content: retrySystemPrompt },
+          { role: "user", content: "Sources:\n\n" + evidence + "\n\n---\nQuestion: " + query +
+            "\n\n[Your answer will be quality-scored. Previous attempt scored " + qualityScore + "/100. Beat it.]" },
+        ];
+        // 2026-09-12: this was a SEQUENTIAL for-loop over 3 models with
+        // 18s timeouts each . up to 54s of tail latency when the first
+        // answer scored badly. Now a single race (12s cap): first model to
+        // beat the score wins, and the losers' latencies don't stack.
+        const retryModels = [
+          OR_FREE_MODELS[2],
+          OR_FREE_MODELS[1],
+          OR_PRIMARY,
+        ];
+        try {
+          const r = await Promise.any(
+            retryModels.map((m) => callOR(m, retryMsgs, maxTokens, 12000))
+          );
+          const retryProcessed = postProcessAnswer(r.answer);
+          const retryScore = scoreAnswerQuality(retryProcessed, query);
+          if (retryScore > qualityScore) {
+            answer = retryProcessed;
+          }
+        } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
+      }
+    }
+
+    // ============ CITATION QUALITY CHECK ============
+    // unsupportedStripped collects the false citations stripUnsupportedCitations
+    // removes below; declared here (function scope) so the fact-check merge
+    // near the end of the pipeline can report them.
+    let unsupportedStripped = [];
+    // conceptDemoted collects the both concepts gate's demotions
+    // (applyConceptCoverageGate below), reported to the same merge
+    // under their own note: a different failure than a vocabulary
+    // mismatch, and the panel must not confuse the two.
+    let conceptDemoted = [];
+    // uncitedAnswerFallback (2026-10-14, answer package defect 2):
+    // set when the AI answer ends this block with zero citations and
+    // is handed to the wave 4 extractive tier. The synthesis stage
+    // record and the extractive closing line both name it.
+    let uncitedAnswerFallback = false;
+    // An AI answer with zero citations to the shelf is defective at
+    // ANY length. The old rule retried only a SHORT uncited answer
+    // and accepted a long one outright ("the model chose not to
+    // cite . that's correct behavior"), then appended a related
+    // papers list under the short ones . a list of papers is not a
+    // citation, and fluent uncited prose is the failure itself.
+    // Retry once with the citation requirement restated, at any
+    // length; whatever still carries no citations after the strips
+    // below flips aiOK off (end of this block) and the wave 4
+    // extractive tier builds the shipped answer from the papers.
+    if (aiOK && useEvidence && evidencePapers.length > 0) {
+      const hasCitations = /\[\d+\]/.test(answer);
+      // 2026-09-12: budget-gated like the quality retry above.
+      if (!hasCitations && msLeft() > 9000) {
+        try {
+          const retryMsgs2 = [
+            { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
+              "Cite papers ONLY if they directly address the question's specific topic and organism. " +
+              "If none of the papers are relevant, say so briefly and do not invent findings . summarize only what the papers actually report, and mark any general background as such. " +
+              "An honest short answer is better than wrong citations. SYNTHESIZE . do not list sources. Teach plainly: state findings as facts about the world with citations attached as support, not as reports about the papers; paper framing only where provenance matters." },
+            { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query +
+              "\n\nA previous draft of this answer carried no citations at all. Write the answer again and cite the papers inline as [1], [2], etc. after the claims they support, using only the numbered papers above. Every key claim needs a citation." },
+          ];
+          const retryModels2 = [OR_FREE_MODELS[2], OR_FREE_MODELS[1], OR_PRIMARY];
+          // 2026-09-12: was a sequential 3-model loop (up to 54s). Raced
+          // with a 12s cap like the quality retry above.
+          try {
+            const r = await Promise.any(
+              retryModels2.map((m) => callOR(m, retryMsgs2, maxTokens, 12000))
+            );
+            const cleaned = r && typeof r.answer === "string" ? postProcessAnswer(r.answer) : "";
+            // Accepted only when it fixed the defect: real citations
+            // to the shelf. A longer uncited draft is not an upgrade.
+            if (cleaned && /\[\d+\]/.test(cleaned)) {
+              answer = cleaned;
+            }
+          } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
+        } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
+      }
+
+      // ============ CITATION SUPPORT STRIP ============
+      // Mechanical citation integrity (see stripUnsupportedCitations): remove
+      // [N] markers whose cited paper shares essentially no vocabulary with
+      // the sentence. The sentence stays . only the false trace goes.
+      // evidencePapers (not sourceList) is passed because sourceList drops
+      // the abstract field and the check needs title+abstract; the two lists
+      // are in the same order so indices align 1:1.
+      // Runs BEFORE the D1 paper-learning write below so a stripped false
+      // citation is never "confirmed" as a correct paper for this query, and
+      // before the no-citation honesty branch so an answer stripped of every
+      // citation gets the honest "related papers" treatment.
+      try {
+        const stripped = stripUnsupportedCitations(answer, evidencePapers);
+        if (stripped.removed.length > 0) {
+          answer = stripped.text;
+          unsupportedStripped = stripped.removed;
+        }
+      } catch { /* a mechanical pass must never break the answer */ }
+
+      // ============ BOTH CONCEPTS GATE ============
+      // A multi concept question's direct support must touch at
+      // least two of its resolved concept groups (see
+      // applyConceptCoverageGate). One concept papers keep their
+      // bibliography place as further reading; only the citation
+      // markers go. Runs after the support strip and before the D1
+      // learning write, so a demoted paper is never learned as a
+      // confirmed citation for this question. Follow up mode is
+      // exempt, like every other gate: its citations legitimately
+      // rest on the previous turn's sources.
+      if (!isFollowupMode) {
+        try {
+          const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+            ? buildDynLookup(gResult._diag.llmExpanded)
+            : null;
+          const gated = applyConceptCoverageGate(answer, evidencePapers, query, gateDyn);
+          if (gated.demoted.length > 0) {
+            answer = gated.text;
+            conceptDemoted = gated.demoted;
+          }
+        } catch { /* a mechanical pass must never break the answer */ }
+      }
+
+      // The flip (defect 2): whatever reaches this point with zero
+      // citations . the draft never had any and the retry could not
+      // fix it, or the strips above removed every marker because
+      // every citation was false . does not ship as an AI answer.
+      // aiOK flips off and the wave 4 extractive tier below builds
+      // the shipped answer from the papers, honestly labeled. The
+      // strip bookkeeping described the discarded draft, so it is
+      // cleared rather than left for the fact check merge and the
+      // confidence calibration to consume against another answer.
+      if (!/\[\d+\]/.test(answer)) {
+        uncitedAnswerFallback = true;
+        aiOK = false;
+        unsupportedStripped = [];
+        conceptDemoted = [];
+      }
+
+    }
+
+    // RELOCATED (2026-10-14, answer package defect 2): the synthesis
+    // stage record and the wave 4 fallback used to sit before the
+    // answer quality engine. They sit after it now, so an AI answer
+    // the citation guard rejects (zero citations left after its
+    // retry and the citation strips) can flip aiOK and land here:
+    // this record names that reason, and wave 4 builds the shipped
+    // answer. For every other run nothing changes . the quality
+    // engine only rewrites `answer` while aiOK holds, and wave 4
+    // still only fires when aiOK is false.
     // Log the full attempt trail so a future total-failure is diagnosable
     // from Cloudflare's dashboard logs instead of requiring another live
     // repro from the user. This will show the ACTUAL reason . rate limit,
@@ -20522,7 +21025,11 @@ async function runSearchPipeline(pctx) {
     // the winner, every losing leg, and each leg's short failure reason.
     // No keys or request internals, just model labels, timings, errors.)
     const synthLegs = aiAttempts.filter((a) => a && typeof a.wave === "number" && typeof a.model === "string");
-    const synthWinner = synthLegs.find((a) => a.ok === true);
+    // An uncited answer fallback (defect 2) discards the winning
+    // draft: no model may be named as the shipped answer's author
+    // when the shipped answer is the extractive build, so the
+    // winner reads null exactly as it does when every leg failed.
+    const synthWinner = uncitedAnswerFallback ? null : synthLegs.find((a) => a.ok === true);
     // Subrequest budget (2026-10-13): when every leg that actually
     // failed did so because the invocation's own subrequest budget
     // ran out . legs the planner never fired (budgetSkipped) or legs
@@ -20535,6 +21042,7 @@ async function runSearchPipeline(pctx) {
     const synthBudgetOnly = synthRealFailures.length > 0 &&
       synthRealFailures.every((a) => a.budgetSkipped === true || isSubrequestBudgetError(a.error));
     const synthSkipReason = aiOK ? null
+      : uncitedAnswerFallback ? "answer had no citations"
       : !aiSynthesisAllowed ? "gate"
       : skipWavesForDefinition ? "definition"
       : budgetDenied ? "budget"
@@ -20677,9 +21185,11 @@ async function runSearchPipeline(pctx) {
           ambiguity,
           // Honest fallback copy: when AI synthesis was gated (not failed),
           // the extractive summary must say why . never blame an outage.
-          aiGateReason: aiSynthesisAllowed
-            ? null
-            : aiGate.kind === "anonymous" ? "signin-required" : aiGate.kind === "lite" ? "lite-cap" : "free-cap",
+          aiGateReason: uncitedAnswerFallback
+            ? "uncited-answer"
+            : aiSynthesisAllowed
+              ? null
+              : aiGate.kind === "anonymous" ? "signin-required" : aiGate.kind === "lite" ? "lite-cap" : "free-cap",
         });
         if (ext) { answer = ext; answerTier = getLastExtractiveTier(); extractiveOK = true; }
         // LEARNING (2026-10-09): if the intelligence layer finds that none
@@ -20734,240 +21244,6 @@ async function runSearchPipeline(pctx) {
       }
     }
 
-    // ============ v6.0: ANSWER QUALITY ENGINE ============
-    // Post-process EVERY answer through the quality engine. This catches
-    // repetition, banned phrases, source-listing, and wrong-organism
-    // acknowledgments that the model wrote despite being told not to.
-    // This is a MECHANICAL fix . we don't rely on the model to follow rules.
-    if (aiOK) {
-      answer = postProcessAnswer(answer);
-      // ============ ZERO-EVIDENCE HALLUCINATION GUARD ============
-      // 2026-10-09: when the model was handed zero citable sources
-      // (!useEvidence && !useWeb means sourceList is empty), any specific
-      // study detail in its answer is invented by definition. The prompt
-      // above already forbids this; this is the mechanical backstop that
-      // deletes a violating answer and replaces it with the honest
-      // deterministic fallback.
-      if (!useEvidence && !useWeb) {
-        answer = guardNoEvidenceHallucination(answer, query);
-      }
-    }
-
-    // ============ v6.0: QUALITY-GATED RETRY ============
-    // Score the answer after post-processing. If it's still bad (score < 35),
-    // retry with a different model using a MUCH stricter prompt that includes
-    // examples of what NOT to do. This is the "intelligence amplifier" . even
-    // if the first model produces garbage, we catch it and try again.
-    if (aiOK && useEvidence && evidencePapers.length > 0) {
-      const qualityScore = scoreAnswerQuality(answer, query);
-      // 2026-09-12: the retry race costs up to 12s . only when the global
-      // budget has room. A good-enough answer delivered on time beats a
-      // marginally better one delivered late.
-      if (qualityScore < 35 && token && msLeft() > 9000) {
-        // Build a retry prompt that's EXTREMELY explicit about what went wrong
-        const retrySystemPrompt =
-          "You are a scientific expert writing a research synthesis. CRITICAL RULES:\n\n" +
-          "1. SYNTHESIZE . do NOT list papers one by one. Make claims and cite multiple sources inline.\n" +
-          "   BAD: '[1] found X. [2] showed Y. [3] demonstrated Z.'\n" +
-          "   GOOD: 'Gut microbiome composition varies significantly by larval instar, with early instars dominated by _Proteobacteria_ [1][3] while late instars shift toward _Firmicutes_ [2].'\n\n" +
-          "2. ORGANISM ACCURACY . only cite papers about the EXACT organism asked about.\n" +
-          "   If a paper studies a DIFFERENT organism, DO NOT CITE IT. Zero citations is better than wrong citations.\n\n" +
-          "3. NO REPETITION . every sentence must add new information. Never rephrase.\n\n" +
-          "4. NO FILLER . banned: 'further research is needed', 'plays a crucial role', 'in conclusion', " +
-          "'Overall', 'it is important to note', 'sheds light on'.\n\n" +
-          "5. START with a direct scientific claim. No 'Based on...' or 'The research shows...'.\n\n" +
-          "6. Italicize species: _E. coli_. Quantify: give numbers, not 'significant'.\n" +
-          "7. TEACH, DO NOT REPORT: phrase claims as facts about the world, explained plainly, with citations as support. BAD: 'A 2021 study found that gut microbes shift as larvae grow.' GOOD: 'Gut microbes shift as larvae grow, with early instars dominated by _Proteobacteria_ [1][3].' Paper framing only where papers disagree or a single weak source carries a claim.";
-
-        const retryMsgs = [
-          { role: "system", content: retrySystemPrompt },
-          { role: "user", content: "Sources:\n\n" + evidence + "\n\n---\nQuestion: " + query +
-            "\n\n[Your answer will be quality-scored. Previous attempt scored " + qualityScore + "/100. Beat it.]" },
-        ];
-        // 2026-09-12: this was a SEQUENTIAL for-loop over 3 models with
-        // 18s timeouts each . up to 54s of tail latency when the first
-        // answer scored badly. Now a single race (12s cap): first model to
-        // beat the score wins, and the losers' latencies don't stack.
-        const retryModels = [
-          OR_FREE_MODELS[2],
-          OR_FREE_MODELS[1],
-          OR_PRIMARY,
-        ];
-        try {
-          const r = await Promise.any(
-            retryModels.map((m) => callOR(m, retryMsgs, maxTokens, 12000))
-          );
-          const retryProcessed = postProcessAnswer(r.answer);
-          const retryScore = scoreAnswerQuality(retryProcessed, query);
-          if (retryScore > qualityScore) {
-            answer = retryProcessed;
-          }
-        } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
-      }
-    }
-
-    // ============ CITATION QUALITY CHECK ============
-    // unsupportedStripped collects the false citations stripUnsupportedCitations
-    // removes below; declared here (function scope) so the fact-check merge
-    // near the end of the pipeline can report them.
-    let unsupportedStripped = [];
-    // conceptDemoted collects the both concepts gate's demotions
-    // (applyConceptCoverageGate below), reported to the same merge
-    // under their own note: a different failure than a vocabulary
-    // mismatch, and the panel must not confuse the two.
-    let conceptDemoted = [];
-    // If the answer has zero citations but we gave it papers, that's often
-    // CORRECT . the papers may not have been relevant. Only retry if the answer
-    // also seems low quality (too short or generic).
-    if (aiOK && useEvidence && evidencePapers.length > 0) {
-      const hasCitations = /\[\d+\]/.test(answer);
-      // Only retry if: no citations AND answer is suspiciously short (model may
-      // have given up rather than engaging with the papers)
-      // 2026-09-12: budget-gated like the quality retry above.
-      if (!hasCitations && answer.length < 200 && msLeft() > 9000) {
-        try {
-          const retryMsgs2 = [
-            { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
-              "Cite papers ONLY if they directly address the question's specific topic and organism. " +
-              "If none of the papers are relevant, say so briefly and do not invent findings . summarize only what the papers actually report, and mark any general background as such. " +
-              "An honest short answer is better than wrong citations. SYNTHESIZE . do not list sources. Teach plainly: state findings as facts about the world with citations attached as support, not as reports about the papers; paper framing only where provenance matters." },
-            { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query },
-          ];
-          const retryModels2 = [OR_FREE_MODELS[2], OR_FREE_MODELS[1], OR_PRIMARY];
-          // 2026-09-12: was a sequential 3-model loop (up to 54s). Raced
-          // with a 12s cap like the quality retry above.
-          try {
-            const r = await Promise.any(
-              retryModels2.map((m) => callOR(m, retryMsgs2, maxTokens, 12000))
-            );
-            if (r.answer.length > answer.length) {
-              answer = postProcessAnswer(r.answer);
-            }
-          } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
-        } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
-      }
-
-      // ============ CITATION SUPPORT STRIP ============
-      // Mechanical citation integrity (see stripUnsupportedCitations): remove
-      // [N] markers whose cited paper shares essentially no vocabulary with
-      // the sentence. The sentence stays . only the false trace goes.
-      // evidencePapers (not sourceList) is passed because sourceList drops
-      // the abstract field and the check needs title+abstract; the two lists
-      // are in the same order so indices align 1:1.
-      // Runs BEFORE the D1 paper-learning write below so a stripped false
-      // citation is never "confirmed" as a correct paper for this query, and
-      // before the no-citation honesty branch so an answer stripped of every
-      // citation gets the honest "related papers" treatment.
-      try {
-        const stripped = stripUnsupportedCitations(answer, evidencePapers);
-        if (stripped.removed.length > 0) {
-          answer = stripped.text;
-          unsupportedStripped = stripped.removed;
-        }
-      } catch { /* a mechanical pass must never break the answer */ }
-
-      // ============ BOTH CONCEPTS GATE ============
-      // A multi concept question's direct support must touch at
-      // least two of its resolved concept groups (see
-      // applyConceptCoverageGate). One concept papers keep their
-      // bibliography place as further reading; only the citation
-      // markers go. Runs after the support strip and before the D1
-      // learning write, so a demoted paper is never learned as a
-      // confirmed citation for this question. Follow up mode is
-      // exempt, like every other gate: its citations legitimately
-      // rest on the previous turn's sources.
-      if (!isFollowupMode) {
-        try {
-          const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
-            ? buildDynLookup(gResult._diag.llmExpanded)
-            : null;
-          const gated = applyConceptCoverageGate(answer, evidencePapers, query, gateDyn);
-          if (gated.demoted.length > 0) {
-            answer = gated.text;
-            conceptDemoted = gated.demoted;
-          }
-        } catch { /* a mechanical pass must never break the answer */ }
-      }
-
-      // Append a reference list at the bottom ONLY if citations were actually used.
-      // Previously this appended sources even when they were irrelevant, which
-      // made it look like the answer was backed by papers that don't support it.
-      if (!/\[\d+\]/.test(answer) && evidencePapers.length > 0) {
-        // No citations used . check if the answer is still good
-        if (answer.length > 300) {
-          // Answer is substantial . the model chose not to cite because papers
-          // weren't relevant. That's correct behavior. Don't force sources.
-        } else {
-          // Short answer with no citations . add source context
-          answer = answer.trim() +
-            "\n\n---\n**Related papers found (may not directly address this question):**\n" +
-            evidencePapers.slice(0, 4).map((p, i) => "[" + (i + 1) + "] " + p.title + (p.year ? " (" + p.year + ")" : "")).join("\n");
-        }
-      }
-
-      // ============ D1 PAPER-LEVEL LEARNING (write) ============
-      // Parse which citation numbers actually appear in the final answer and
-      // persist THOSE specific papers as confirmed-correct for this query.
-      // Next time this question (or an identically-worded one) is asked,
-      // these papers get force-included at max relevance instead of being
-      // rediscovered . this is the self-improving loop.
-      // Subrequest budget: up to 8 inserts, and they stand between the
-      // waves and the fact check / record store in execution order, so
-      // they may not eat the tail reserve those stages are promised.
-      if (env.DB && learnKey && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
-        try {
-          const citedIdx = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10)));
-          const citedPapers = [...citedIdx]
-            .map((n) => evidencePapers[n - 1])
-            .filter(Boolean)
-            .slice(0, 8);
-          // Fired together rather than awaited one at a time in series . this
-          // write happens after the answer is already computed but is still
-          // awaited before the response returns, so up to 8 sequential D1
-          // round-trips were pure added latency on the response tail for no
-          // reason (each row is independent; nothing here depends on another
-          // row's write completing first). Each gets its own catch so one
-          // failing insert can't take the others down with it.
-          // learnKey is null for a query the classifier declined to persist,
-          // so this whole block is unreachable for those . but state it, so a
-          // future edit cannot reintroduce the write by moving the guard.
-          const learnWrites = privacy.persist ? citedPapers : [];
-          // One D1 execution per cited paper (up to 8): charged as a
-          // batch of bound service calls before they fire.
-          if (learnWrites.length) ledger.spendBinding("learning", learnWrites.length);
-          await Promise.all(learnWrites.map((p) =>
-            env.DB.prepare(
-              "INSERT INTO paper_cache (query_key, title, url, journal, year, authors, abstract, times_confirmed, created_at) " +
-              "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) " +
-              "ON CONFLICT(query_key, title) DO UPDATE SET times_confirmed = times_confirmed + 1"
-            ).bind(learnKey, p.title || "", p.url || "", p.journal || "", p.year || "", p.authors || "", (p.abstract || "").slice(0, 500), Date.now()).run().catch(() => {})
-          ));
-        } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
-      }
-    }
-
-    // ============ D1 QUERY INTELLIGENCE LEARNING ============
-    // Store the successful query resolution so future similar queries
-    // can skip the LLM resolver entirely. This is how the system
-    // "learns and grows" . every successful answer makes the next
-    // similar query faster and more accurate.
-    if (env.DB && aiOK && answer.length > 100 && privacy.persist && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
-      const resolvedTopic = llmResolvedTopic || (resolverResult && resolverResult.topic) || null;
-      const finalSearchQuery = resolvedSearchQuery || query;
-      const intentUsed = resolverResult ? resolverResult.intent : intent.kind;
-      storeQueryIntelligence(
-        queryKey, finalSearchQuery, intentUsed, resolvedTopic,
-        conversationCtx ? conversationCtx.entities : [], env.DB, ledger
-      ).catch(() => {});
-
-      // Also update topic memory with search performance data
-      if (resolvedTopic && papers.length > 0 && privacy.persist) {
-        const searchTerms = selfReasonResult && selfReasonResult.key_terms
-          ? selfReasonResult.key_terms
-          : [];
-        updateTopicMemory(resolvedTopic, searchTerms, papers.length, env.DB, ledger).catch(() => {});
-      }
-    }
 
     // ============ TIER 4: RETIRED (v7.0) ============
     // The old dead-end error states are gone: every failure path now ends
@@ -21017,49 +21293,6 @@ async function runSearchPipeline(pctx) {
       answer = correctNameVariants(answer, canonicalName);
     }
 
-    // ---- CACHE THE ANSWER (D1) ----
-    // Store this answer so future similar queries can skip the LLM entirely.
-    // Only cache answers that have real sources . unsourced general-knowledge
-    // answers are the ones most likely to contain errors.
-    const answerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    // `&& aiOK` guard added alongside the !aiOK fallback message above .
-    // that message is real prose over 50 characters, and without this guard
-    // it would otherwise satisfy every condition here and get cached as if
-    // it were a genuine answer, serving "AI synthesis didn't complete" to
-    // every future repeat of this query even after providers recover.
-    /* `privacy.cacheable` is the gate that keeps a private question out of
-     * shared storage. Note what is being withheld: not only the question, but
-     * the ANSWER to it, because an answer to "my son's rash and Kawasaki
-     * disease" is nearly as revealing as the question and would be served to
-     * the next person who asked something similar. */
-    if (env.DB && aiOK && cacheKey && privacy.cacheable && sourceList.length > 0 && answer.length > 50 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
-      // v37: this was a plain `await` . meaning every single non-cached
-      // response paid for a full D1 round-trip AFTER the answer was already
-      // computed, purely to help future requests, before the current one
-      // could return. `waitUntil` (available on every Pages Function's
-      // context, same as a Worker's) tells the runtime to keep the isolate
-      // alive to finish this write in the background instead, while the
-      // response goes out immediately. A write failure still can't take the
-      // response down (own try/catch), it just no longer taxes the person
-      // who's waiting on THIS answer for the benefit of a future one.
-      ledger.spendBinding("cache", 1);
-      const cacheWrite = env.DB.prepare(
-        "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
-      ).bind(
-        cacheKey,
-        answerId,
-        answer,
-        JSON.stringify(sourceList.slice(0, 10)),
-        // Bug: this wrote an ISO-8601 string into a column declared
-        // INTEGER (see schema.sql), while paper_cache's write a few lines
-        // away correctly uses Date.now(). SQLite's flexible typing stored
-        // it silently, so it worked by luck (ISO strings happen to sort
-        // correctly against each other) but would sort wrong the moment
-        // any row got a genuine numeric timestamp. Match paper_cache.
-        Date.now()
-      ).run().catch(() => {}); // Cache write failure is not critical . don't block the response
-      if (typeof waitUntil === "function") waitUntil(cacheWrite); else await cacheWrite;
-    }
 
     // ════════════════════════════════════════════════════════════════
     // FACT-CHECK PASS (the real implementation . see verifyAnswerAgainstSources
@@ -21298,6 +21531,156 @@ async function runSearchPipeline(pctx) {
       }
     }
 
+    // The body's claim check sentence (2026-10-14, answer package
+    // defect 1): an extractive or definition answer printed its
+    // confidence line before the claim check ran, with the check's
+    // outcome honestly unknown (factCheckChecked null at build
+    // time). Now the check has run, state its result in the body
+    // from the same object the response ships: factCheckSupport
+    // counts the check's own verdicts, the same count the response
+    // level confidence line below claims, so the body and the
+    // object can never disagree again. AI answers compose their
+    // confidence line after the check already; only the pre
+    // composed bodies need the sentence appended.
+    if (extractiveOK && factCheckResult && Array.isArray(factCheckResult.claims) && factCheckResult.claims.length > 0) {
+      const bodySupport = factCheckSupport(factCheckResult);
+      if (bodySupport && bodySupport.checked > 0) {
+        answer = appendClaimCheckSentence(answer,
+          "The claim check supports " + bodySupport.supported + " of " + bodySupport.checked +
+          " checked claim" + (bodySupport.checked === 1 ? "" : "s") + ".");
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // BOOKKEEPING (2026-10-14, answer package defect 9): the paper
+    // learning writes, the query intelligence writes, and the answer
+    // cache write run HERE, after the fact check. They used to stand
+    // between synthesis and the check, and the learning batch alone
+    // could spend the whole subrequest tail in one gulp (its gate
+    // checked the reserve before the batch, not the batch against
+    // it), leaving the check . user facing truth . an empty ledger
+    // and a "fact check did not run" record on a heavy draw. The
+    // check is not deferrable; these writes are. Every spend is
+    // still charged at its own site under its own stage label, so
+    // the ledger stays honest; only the order changed. Their gates
+    // now protect what remains behind them (the record store and
+    // the response tail), exactly as they protected the tail before.
+
+    // ============ D1 PAPER-LEVEL LEARNING (write) ============
+    // Parse which citation numbers actually appear in the final answer and
+    // persist THOSE specific papers as confirmed-correct for this query.
+    // Next time this question (or an identically-worded one) is asked,
+    // these papers get force-included at max relevance instead of being
+    // rediscovered . this is the self-improving loop.
+    // Subrequest budget: up to 8 inserts. They run AFTER the fact
+    // check now (defect 9): this batch could spend the whole tail
+    // in one gulp, because the gate below checks the reserve
+    // before the batch rather than the batch against it, and on a
+    // heavy draw it left the fact check an empty ledger. The gate
+    // now protects what remains behind these writes instead: the
+    // record store and the response tail.
+    if (aiOK && useEvidence && evidencePapers.length > 0 && env.DB && learnKey && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+      try {
+        const citedIdx = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10)));
+        const citedPapers = [...citedIdx]
+          .map((n) => evidencePapers[n - 1])
+          .filter(Boolean)
+          .slice(0, 8);
+        // Fired together rather than awaited one at a time in series . this
+        // write happens after the answer is already computed but is still
+        // awaited before the response returns, so up to 8 sequential D1
+        // round-trips were pure added latency on the response tail for no
+        // reason (each row is independent; nothing here depends on another
+        // row's write completing first). Each gets its own catch so one
+        // failing insert can't take the others down with it.
+        // learnKey is null for a query the classifier declined to persist,
+        // so this whole block is unreachable for those . but state it, so a
+        // future edit cannot reintroduce the write by moving the guard.
+        const learnWrites = privacy.persist ? citedPapers : [];
+        // One D1 execution per cited paper (up to 8): charged as a
+        // batch of bound service calls before they fire.
+        if (learnWrites.length) ledger.spendBinding("learning", learnWrites.length);
+        await Promise.all(learnWrites.map((p) =>
+          env.DB.prepare(
+            "INSERT INTO paper_cache (query_key, title, url, journal, year, authors, abstract, times_confirmed, created_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) " +
+            "ON CONFLICT(query_key, title) DO UPDATE SET times_confirmed = times_confirmed + 1"
+          ).bind(learnKey, p.title || "", p.url || "", p.journal || "", p.year || "", p.authors || "", (p.abstract || "").slice(0, 500), Date.now()).run().catch(() => {})
+        ));
+      } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
+    }
+
+    // ============ D1 QUERY INTELLIGENCE LEARNING ============
+    // (Runs after the fact check since 2026-10-14, defect 9 . see
+    // the bookkeeping note at its new home below.)
+    // Store the successful query resolution so future similar queries
+    // can skip the LLM resolver entirely. This is how the system
+    // "learns and grows" . every successful answer makes the next
+    // similar query faster and more accurate.
+    if (env.DB && aiOK && answer.length > 100 && privacy.persist && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+      const resolvedTopic = llmResolvedTopic || (resolverResult && resolverResult.topic) || null;
+      const finalSearchQuery = resolvedSearchQuery || query;
+      const intentUsed = resolverResult ? resolverResult.intent : intent.kind;
+      storeQueryIntelligence(
+        queryKey, finalSearchQuery, intentUsed, resolvedTopic,
+        conversationCtx ? conversationCtx.entities : [], env.DB, ledger
+      ).catch(() => {});
+
+      // Also update topic memory with search performance data
+      if (resolvedTopic && papers.length > 0 && privacy.persist) {
+        const searchTerms = selfReasonResult && selfReasonResult.key_terms
+          ? selfReasonResult.key_terms
+          : [];
+        updateTopicMemory(resolvedTopic, searchTerms, papers.length, env.DB, ledger).catch(() => {});
+      }
+    }
+
+    // ---- CACHE THE ANSWER (D1) ----
+    // (Runs after the fact check since 2026-10-14, defect 9 . the
+    // cached text is the final answer either way; only the order moved.)
+    // Store this answer so future similar queries can skip the LLM entirely.
+    // Only cache answers that have real sources . unsourced general-knowledge
+    // answers are the ones most likely to contain errors.
+    const answerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    // `&& aiOK` guard added alongside the !aiOK fallback message above .
+    // that message is real prose over 50 characters, and without this guard
+    // it would otherwise satisfy every condition here and get cached as if
+    // it were a genuine answer, serving "AI synthesis didn't complete" to
+    // every future repeat of this query even after providers recover.
+    /* `privacy.cacheable` is the gate that keeps a private question out of
+     * shared storage. Note what is being withheld: not only the question, but
+     * the ANSWER to it, because an answer to "my son's rash and Kawasaki
+     * disease" is nearly as revealing as the question and would be served to
+     * the next person who asked something similar. */
+    if (env.DB && aiOK && cacheKey && privacy.cacheable && sourceList.length > 0 && answer.length > 50 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+      // v37: this was a plain `await` . meaning every single non-cached
+      // response paid for a full D1 round-trip AFTER the answer was already
+      // computed, purely to help future requests, before the current one
+      // could return. `waitUntil` (available on every Pages Function's
+      // context, same as a Worker's) tells the runtime to keep the isolate
+      // alive to finish this write in the background instead, while the
+      // response goes out immediately. A write failure still can't take the
+      // response down (own try/catch), it just no longer taxes the person
+      // who's waiting on THIS answer for the benefit of a future one.
+      ledger.spendBinding("cache", 1);
+      const cacheWrite = env.DB.prepare(
+        "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
+      ).bind(
+        cacheKey,
+        answerId,
+        answer,
+        JSON.stringify(sourceList.slice(0, 10)),
+        // Bug: this wrote an ISO-8601 string into a column declared
+        // INTEGER (see schema.sql), while paper_cache's write a few lines
+        // away correctly uses Date.now(). SQLite's flexible typing stored
+        // it silently, so it worked by luck (ISO strings happen to sort
+        // correctly against each other) but would sort wrong the moment
+        // any row got a genuine numeric timestamp. Match paper_cache.
+        Date.now()
+      ).run().catch(() => {}); // Cache write failure is not critical . don't block the response
+      if (typeof waitUntil === "function") waitUntil(cacheWrite); else await cacheWrite;
+    }
+
     // NEXT-GEN disagreement intelligence: source-level conflict detection
     // (the papers' own claims compared against each other) FIRST . it is
     // independent of the generated prose. The old answer-text mining runs
@@ -21354,7 +21737,7 @@ async function runSearchPipeline(pctx) {
 
     // NEXT-GEN computed answer instruments: gaps, confidence, coverage.
     const evidenceGaps = (useEvidence && evidencePapers.length > 0)
-      ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut, intent: measurementIntent ? "measurement" : null })
+      ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut, intent: measurementIntent ? "measurement" : null, citedCount: citedEvidencePapers.length })
       : [];
     // CALIBRATED CONFIDENCE (2026-10-07): the heuristic score is adjusted
     // for what actually happened to the answer . stripped citations and
@@ -21414,6 +21797,10 @@ async function runSearchPipeline(pctx) {
     // Run last, after every pass above has already read the plain-text
     // `answer` (fact-check, literature-conflict extraction) . see
     // italicizeScientificTerms()'s own comment for why order matters here.
+    // deDash rides the same point (2026-10-14, defect 6): it is the
+    // one ship time cleanup EVERY answer crosses, including the
+    // extractive path, which never passes through postProcessAnswer.
+    answer = deDash(answer);
     answer = italicizeScientificTerms(answer, query);
 
     // INTELLIGENCE UPGRADE (2026-10-08): smart follow-up questions generated

@@ -358,7 +358,12 @@ test("name search is exempt from the topicality gate", () => {
     title: "Foraging ecology of black-legged kittiwakes",
     journal: "Ecology",
     year: "2020",
-    abstract: "We found that foraging trip duration increased 2-fold during chick rearing. Results were significant.",
+    // Third person since 2026-10-14: this fixture's finding sentence
+    // used to read "We found that...", and the extractive first
+    // person screen (answer package defect 4) now drops such
+    // sentences, which starved the paper before the gate exemption
+    // this test exists to prove could even be reached.
+    abstract: "Foraging trip duration increased 2-fold during chick rearing across the tracked colonies. Results were significant.",
     relevance: 30,
   }];
   const md = buildExtractiveSynthesis(papers, [], { query: "Jane Smith", isNameSearch: true });

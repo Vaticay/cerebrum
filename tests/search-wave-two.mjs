@@ -509,10 +509,15 @@ await test("the cache schema carries the wave two bump", () => {
   // synthesis reserve, so for the same stored inputs speculative
   // retrieval rounds may be trimmed and expansion, validation and
   // fact check may be budget skipped with the reason recorded).
+  // then to v36 by the answer package wave (2026-10-14: dedupe
+  // merges change stored shelves, the first person screen, deDash
+  // and species italics change stored answer text, uncited AI
+  // answers no longer ship, and single source answers are capped
+  // and limited, so stored payloads predate the shipped contract).
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v35"'), "CACHE_SCHEMA_VERSION must be v35");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v36"'), "CACHE_SCHEMA_VERSION must be v36");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

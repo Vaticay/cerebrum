@@ -8240,6 +8240,16 @@ function diffSearchRecords(baseline, fresh) {
    can paste it into a methods section or a lab notebook and anyone can
    re run the same search. Ends with the record itself as JSON, so the
    export is the stable artifact, not just a summary of it. */
+/* Record source titles in Markdown (2026-10-14, answer package
+   defect 7): upstream titles carry species markup as <i> tags,
+   which the app renders as italics (renderCleanTitle) and the
+   public record page restores as real elements. In a Markdown
+   export the same formatting is the underscore marker, so the
+   tags translate instead of printing literally. */
+function recordTitleMarkdown(title) {
+  return String(title || "").replace(/<i>([^<]*)<\/i>/gi, "_$1_");
+}
+
 function searchRecordMarkdown(record) {
   if (!record || typeof record !== "object") return "";
   const lines = [];
@@ -8315,7 +8325,7 @@ function searchRecordMarkdown(record) {
       const id = s.doi ? "https://doi.org/" + s.doi : s.url || "";
       // Authors and journal print when the record carries them, and
       // nothing stands in for them when it does not.
-      let line = `${s.n}. ${s.title}` + (s.year ? ` (${s.year})` : "");
+      let line = `${s.n}. ${recordTitleMarkdown(s.title)}` + (s.year ? ` (${s.year})` : "");
       if (s.authors) line += " · " + s.authors;
       if (s.journal) line += " · " + s.journal;
       if (id) line += " · " + id;
