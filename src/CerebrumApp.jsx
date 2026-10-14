@@ -88,6 +88,7 @@ import {FlowchartStudio, MermaidStudio, Dialog, cbMotionOff, ChromeHeader, Modal
 import { InboxView, ReportConductModal } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
+import NovaEgg from "./NovaEgg.jsx";
 import { createCourseFromResults, saveLearnCourse } from "./LearnView.jsx";
 
 /* Sound effects (extracted 2026-10-07, monolith split). */
@@ -23267,6 +23268,9 @@ function App() {
 
   return (
     <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent), "--cb-solid-bg": P.bg, "--cb-surface": P.surface}} className={a11yClasses}>
+      {/* Nova's app wide Easter egg: mounted once, renders nothing
+          unless she is visiting (src/NovaEgg.jsx). */}
+      <NovaEgg />
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
       {/* Screen-reader search announcer: announces "Searching..." when a

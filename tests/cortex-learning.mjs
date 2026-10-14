@@ -90,6 +90,18 @@ const WANTED = [
   "shareCardModel",
   "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
   "novaMoodFor", "tipEligible", "TIP_GAP_MS",
+  "CHARACTER_POSES", "NOVA_AVATAR_SRC", "NOVA_CROPS",
+  "QUIRKS_KEY", "QUIRK_GAG_COOLDOWN_MS", "QUIRK_SHELF_COOLDOWN_MS",
+  "QUIRK_FAST_MS", "QUIRK_FAST_COOLDOWN_MS", "QUIRK_HARD_COOLDOWN_MS",
+  "QUIRK_BROW_COOLDOWN_MS", "QUIRK_PERFECT_COOLDOWN_MS", "QUIRK_POKE_GAP_MS",
+  "QUIRK_POKE_LOCK_MS", "QUIRK_EASY_STREAK",
+  "NOVA_EGG_LINES", "NOVA_SUMMON_LINES", "NOVA_CELEBRATE_LINES", "NOVA_GAG_LINES",
+  "NOVA_LATE_LINES", "NOVA_MORNING_LINES", "NOVA_MORNING_DENIAL",
+  "NOVA_POKE_LINE_THREE", "NOVA_POKE_LINE_FIVE", "NOVA_SHELF_LINE", "NOVA_SHELF_FAVORITE_LINE",
+  "NOVA_OPINION_HARD_LINE", "NOVA_OPINION_FAST_LINE", "NOVA_OPINION_BROW_LINE", "NOVA_OPINION_PERFECT_LINE",
+  "loadNovaQuirks", "saveNovaQuirks", "pickNovaLine", "hourLineSet",
+  "computeNovaMemory", "memoryLineFor", "loadNovaMemoryFacts",
+  "opinionForEvent", "pokeStep", "gagDue", "recordGag", "shelfCommentFor", "pickEggLine",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -150,7 +162,58 @@ const {
   shareCardModel,
   visitGapDays, shelfGlyphFor, shelfObjects,
   novaMoodFor, tipEligible, TIP_GAP_MS,
+  CHARACTER_POSES, NOVA_AVATAR_SRC, NOVA_CROPS,
+  QUIRKS_KEY, QUIRK_GAG_COOLDOWN_MS, QUIRK_SHELF_COOLDOWN_MS,
+  QUIRK_FAST_MS, QUIRK_FAST_COOLDOWN_MS, QUIRK_HARD_COOLDOWN_MS,
+  QUIRK_BROW_COOLDOWN_MS, QUIRK_PERFECT_COOLDOWN_MS, QUIRK_POKE_GAP_MS,
+  QUIRK_POKE_LOCK_MS, QUIRK_EASY_STREAK,
+  NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_GAG_LINES,
+  NOVA_LATE_LINES, NOVA_MORNING_LINES, NOVA_MORNING_DENIAL,
+  NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE, NOVA_SHELF_LINE, NOVA_SHELF_FAVORITE_LINE,
+  NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE, NOVA_OPINION_BROW_LINE, NOVA_OPINION_PERFECT_LINE,
+  loadNovaQuirks, saveNovaQuirks, pickNovaLine, hourLineSet,
+  computeNovaMemory, memoryLineFor, loadNovaMemoryFacts,
+  opinionForEvent, pokeStep, gagDue, recordGag, shelfCommentFor, pickEggLine,
+  cortexEmptyProfile, cortexEmptyBuiltinProgress,
 } = context.__x;
+
+// ── Extract the egg's pure helpers from NovaEgg.jsx the same way ──
+const eggSrc = readFileSync(join(root, "src/NovaEgg.jsx"), "utf8");
+const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
+const eggAst = parse(eggSrc, { sourceType: "module", plugins: ["jsx"] });
+const EGG_WANTED = [
+  "EGG_BASE_COOLDOWN_MS", "EGG_LONG_COOLDOWN_MS", "EGG_CELEBRATE_COOLDOWN_MS",
+  "EGG_AMBIENT_CHANCE", "EGG_TICK_MS", "WORDMARK_GAP_MS", "WORDMARK_CLICKS",
+  "eggCooldownMs", "eggBlocked", "eggEligible", "eggCelebrateEligible",
+  "countWordmarkClick", "recordEggAppearance", "recordEggDismissal",
+];
+function eggDeclFor(name) {
+  for (const node of eggAst.program.body) {
+    const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
+    if (!decl) continue;
+    if (decl.type === "FunctionDeclaration" && decl.id && decl.id.name === name) return decl;
+    if (decl.type === "VariableDeclaration") {
+      const d = decl.declarations.find((x) => x.id && x.id.name === name);
+      if (d) return decl;
+    }
+  }
+  return null;
+}
+const eggChunks = [];
+for (const name of EGG_WANTED) {
+  const decl = eggDeclFor(name);
+  assert.ok(decl, `${name} must be declared in src/NovaEgg.jsx`);
+  eggChunks.push(eggSrc.slice(decl.start, decl.end));
+}
+const eggJs = transformSync(eggChunks.join("\n") + `\n;globalThis.__egg = { ${EGG_WANTED.join(", ")} };`, { loader: "jsx" }).code;
+const eggContext = vm.createContext({});
+vm.runInContext(eggJs, eggContext);
+const {
+  EGG_BASE_COOLDOWN_MS, EGG_LONG_COOLDOWN_MS, EGG_CELEBRATE_COOLDOWN_MS,
+  EGG_AMBIENT_CHANCE, EGG_TICK_MS, WORDMARK_GAP_MS, WORDMARK_CLICKS,
+  eggCooldownMs, eggBlocked, eggEligible, eggCelebrateEligible,
+  countWordmarkClick, recordEggAppearance, recordEggDismissal,
+} = eggContext.__egg;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
   flattenPathLessons(p).map((l) => ({ path: p, lesson: l })));
@@ -2797,11 +2860,14 @@ await test("the wave 3 home carries its zones, its settings surface, and Nova's 
   // Pin updated again 2026-10-14 (presence wave): the owner
   // ordered Nova bigger and reactive, so the asleep presence is
   // the live wrapper at the library empty state's 120px now.
+  // Pin updated 2026-10-14 (avatar replacement wave): that
+  // presence is the raster art now, and the 120px empty state
+  // carries the full figure panel framing.
   for (const needle of [
     "NOVA'S SHELF", "Nothing on the shelf yet", "There you are. Your reviews waited.",
     "Due for review", "Nova settings", "lv-nova-live", "lv-band", "lv-status", "lv-cols",
     'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
-    'NovaLive state="asleep" size={120}', "Start daily practice", "LAST_VISIT_KEY",
+    'NovaLive state="asleep" size={120} framing="panel"', "Start daily practice", "LAST_VISIT_KEY",
   ]) {
     assert.ok(learnSrc.includes(needle), `the wave 3 home is missing: ${needle}`);
   }
@@ -2929,39 +2995,70 @@ await test("the home is six focused screens behind one tablist, and Today holds 
   assert.ok(create.includes("BUILD A COURSE") && create.includes("CONTRIBUTOR STUDIO"), "the Create screen lost the builder or the studio");
 });
 
-await test("the living Nova is a layered vector with a true blink, per state lids, and reduced motion stilling", () => {
-  // Pins moved 2026-10-14 (presence wave): the owner ordered
-  // better animations, so the blink cycle is the irregular 11.7s
-  // one (two single blinks and a double blink, long rests), the
-  // sway runs per filament amplitudes, and the greeting look
-  // turns the head with the pupils. The pins below describe the
-  // new internals; the contracts they guard (a true blink, per
-  // state lids, reduced motion stilling) are unchanged.
-  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48 })'), "the vector Nova component is missing");
-  for (const k of ["@keyframes nvBlink", "@keyframes nvBreath", "@keyframes nvSway", "@keyframes nvLook", "@keyframes nvHeadTurn", "@keyframes nvSwayTip", "@keyframes nvSwayRoot"])
-    assert.ok(learnSrc.includes(k), "the avatar is missing " + k);
-  assert.ok(learnSrc.includes(".nv-lid { animation: nvBlink 11.7s linear infinite;"), "the eyelids do not run the blink cycle");
-  assert.ok(learnSrc.includes(".nv-st-greeting .nv-head { animation: nvHeadTurn 15s ease-in-out infinite; }"), "the greeting look does not turn the head");
-  assert.ok(learnSrc.includes(".nv-gaze { transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px));"), "the pointer gaze group is missing");
-  assert.ok(learnSrc.includes(".nv-gaze { transition: none !important; transform: none !important; }"), "reduced motion does not still the pointer gaze");
-  for (const s of ["greeting", "thinking", "explaining", "pleased", "deadpan", "worried", "fading", "asleep"])
-    assert.ok(learnSrc.includes(`.nv-st-${s} { --lid:`), "state " + s + " sets no eyelid height");
-  assert.ok(learnSrc.includes(".nv-st-fading .nv-gills-l { --nv-gill-l: -5deg; }"), "fading does not set the gill posture");
-  assert.ok(learnSrc.includes(".nv-st-fading .nv-gill-gold { fill: #A79B7D; opacity: 0.55; }"), "fading does not dim the gill gold");
-  assert.ok(learnSrc.includes(".nv-st-pleased .nv-gill-gold { fill: #D8BC72; }"), "pleased does not brighten the gill gold");
-  assert.ok(learnSrc.includes(".nv-breath, .nv-fil, .nv-lid, .nv-pupils { animation: none !important; }"), "reduced motion does not still the avatar");
+await test("the avatar is the approved raster art in a cream disc, print finished, and the drawn vector is gone", () => {
+  // Pins moved 2026-10-14 (avatar replacement wave): the hand
+  // drawn vector Nova was rejected by the owner twice from live
+  // screenshots, first as a placeholder looking doodle and then,
+  // after the presence wave redraw, photographed in the real
+  // header with the face squished in the circle, the body reading
+  // as a bib, and the gill fan as sun rays ("Nova looks so bad").
+  // The hand drawing route is closed. The persistent avatar is
+  // the owner approved generated raster pose set, cropped into a
+  // cream disc (or a cream panel for the large empty state),
+  // moving by transforms on the art: breath, pointer gaze, pose
+  // crossfades. No blink is faked over raster art. The drawing,
+  // its per state lid and gill CSS, and its blink keyframes are
+  // removed, not left dead, and these pins now describe the
+  // raster implementation and the drawing's absence.
+  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "disc" })'), "the raster Nova component is missing");
+  for (const s of ["greeting", "explaining", "pleased", "thinking", "worried", "asleep", "fading", "deadpan"]) {
+    // The pose set keys two entries from the teaching side
+    // (explain, think); the contract is the art file each state
+    // lands on, which must be the approved pose for that state.
+    assert.equal(NOVA_AVATAR_SRC[s], "/cortex/character/nova-" + s + ".webp",
+      "the avatar state " + s + " does not read the approved pose art");
+    const crop = NOVA_CROPS[s];
+    assert.ok(crop && crop.s > 0.5 && crop.s <= 1 && crop.x >= 0 && crop.x <= 0.3 && crop.y >= 0 && crop.y <= 0.3,
+      "the " + s + " crop is not a plausible head window over the art");
+  }
+  assert.ok(learnSrc.includes(".nv-disc { position: relative; border-radius: 50%; overflow: hidden;"), "the cream disc framing is missing");
+  assert.ok(learnSrc.includes(".nv-panel { position: relative; border-radius: 18px;"), "the cream panel framing is missing");
+  assert.ok(learnSrc.includes("@keyframes nvFigBreath"), "the figure breath is missing");
+  assert.ok(learnSrc.includes("@keyframes nvLayerIn"), "the pose crossfade is missing");
+  assert.ok(learnSrc.includes("transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px));"), "the pointer gaze does not ride on the art");
+  // The print treatment (same wave, the owner's less AI looking
+  // ruling): one warm grade filter chain and a static turbulence
+  // grain, finer at small sizes, coarser at large ones.
+  assert.ok(learnSrc.includes("filter: sepia(0.17) saturate(0.93) brightness(1.02) contrast(1.04);"), "the print grade is missing or drifted");
+  assert.ok(learnSrc.includes("feTurbulence"), "the print grain is missing");
+  assert.ok(learnSrc.includes("background-size: 88px 88px"), "the small print grain is missing");
+  assert.ok(learnSrc.includes("background-size: 132px 132px"), "the standard print grain is missing");
+  assert.ok(learnSrc.includes("background-size: 190px 190px"), "the large print grain is missing");
+  // Reduced motion stills the art; the print finish is a finish,
+  // not a motion, and stays.
+  assert.ok(learnSrc.includes(".nv-figwrap, .nv-layer-in { animation: none !important; }"), "reduced motion does not still the figure");
+  assert.ok(learnSrc.includes(".nv-img, .nv-panel-img { transition: none !important; transform: none !important; }"), "reduced motion does not still the gaze");
+  // The drawn vector is gone, in code and in CSS.
+  assert.ok(!learnSrc.includes("@keyframes nvBlink"), "the drawn blink survived");
+  assert.ok(!learnSrc.includes(".nv-lid"), "the drawn eyelids survived");
+  assert.ok(!learnSrc.includes(".nv-st-"), "the drawn per state CSS survived");
+  assert.ok(!learnSrc.includes("NV_INK"), "the drawn palette survived");
 });
 
-await test("vector Nova stands at the persistent spots and the raster art keeps the artwork moments", () => {
+await test("the raster Nova stands at the persistent spots and the raster art keeps the artwork moments", () => {
   // Pins moved 2026-10-14 (presence wave): the owner ordered Nova
   // bigger and reactive. The header Nova is 66px in a 68px circle
   // and the bench greeter is 54px, both through the reactive
   // NovaLive wrapper; the old 46 and 40 pins described the sizes
-  // he ruled too small.
+  // he ruled too small. Retitled 2026-10-14 (avatar replacement
+  // wave): the standing Nova is the raster art now, and the
+  // Library empty state's 120px presence shows the full figure
+  // in its cream panel instead of a disc crop.
   assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header does not render the mood driven live Nova");
   assert.ok(learnSrc.includes("width: 68, height: 68"), "the header circle did not grow with its Nova");
   assert.ok(learnSrc.includes("<SheetNova good={sheetGood}"), "the feedback sheet lost its timed Nova reaction");
   assert.ok(learnSrc.includes('state="fading" size={54}'), "the review bench greeter is not the bigger fading live Nova");
+  assert.ok(learnSrc.includes('state="asleep" size={120} framing="panel"'), "the library empty state does not show the full figure panel");
   assert.ok(learnSrc.includes('pose="greeting" size={128}'), "the lesson intro lost its raster artwork");
   assert.ok(learnSrc.includes("CHARACTER_POSES[model.pose]"), "the share card no longer reads the raster pose set");
 });
@@ -2978,13 +3075,20 @@ await test("novaMoodFor ranks streak risk over overdue review over the late nigh
 await test("the presence wave: Nova is live where she stands, and her tips obey the gate", () => {
   // Presence wave (2026-10-14), on the owner's order: Nova bigger,
   // reactive, better animated, and helping in speech bubbles.
-  assert.ok(learnSrc.includes('function NovaLive({ state = "greeting", size = 48 })'), "the reactive Nova wrapper is missing");
-  assert.ok(learnSrc.includes('"--nv-lift": lift ? "1.6deg" : "0deg"'), "the gill lift does not ride in on hover");
-  assert.ok(learnSrc.includes('setBeat(["worried", "fading", "deadpan", "asleep"].includes(state) ? "deadpan" : "pleased")'), "a tap does not earn the context beat");
+  // Pins moved 2026-10-14 (avatar replacement wave): the wrapper
+  // takes the raster framing now, the hover lift is a translate
+  // on the art rather than a gill rotation (the art has no
+  // separate gills to rotate), and the tap beat is the quirks
+  // engine's poke ladder rather than the old context setBeat:
+  // she dislikes being poked, on a schedule, in pokeStep.
+  assert.ok(learnSrc.includes('function NovaLive({ state = "greeting", size = 48, framing = "disc" })'), "the reactive Nova wrapper is missing");
+  assert.ok(learnSrc.includes('transform: lift ? "translateY(-2px)" : "translateY(0px)"'), "the hover lift does not ride in on the wrapper");
+  assert.ok(learnSrc.includes("pokeStep(loadNovaQuirks(), Date.now())"), "a tap does not run the poke ladder");
+  assert.ok(learnSrc.includes("saveNovaQuirks(step.quirks)"), "the poke ladder's state is not stored");
   assert.ok(learnSrc.includes('const SEEN_TIPS_KEY = "cerebrum-learn2-seentips";'), "the seen tips store is not its own key");
   assert.ok(learnSrc.includes("function NovaSpeech("), "the speech bubble is missing");
   assert.ok(learnSrc.includes("function NovaTip("), "the tip component is missing");
-  for (const id of ["today", "paths", "library", "library-empty", "create", "shop", "leagues", "bench", "streak"])
+  for (const id of ["today", "paths", "library", "library-empty", "create", "shop", "leagues", "bench", "streak", "memory", "shelf"])
     assert.ok(learnSrc.includes(`id="${id}"`), "the " + id + " tip is not placed");
   assert.ok(learnSrc.includes('NovaSpeech state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}'), "the reminder is not in bubble form");
   assert.ok(learnSrc.includes("streak={missStreak}"), "the sheet Nova does not hear the miss streak");
@@ -3001,6 +3105,292 @@ await test("tipEligible enforces first visit, the minute gap, and the repeat win
   const week = 7 * 24 * 3600 * 1000;
   assert.equal(tipEligible({ streak: now - 2 * 24 * 3600 * 1000 }, "streak", now, 0, week), false, "the streak tip inside its week stays quiet");
   assert.equal(tipEligible({ streak: now - 8 * 24 * 3600 * 1000 }, "streak", now, 0, week), true, "the streak tip returns after its week");
+});
+
+// ══════════════════════════════════════════════════════════════════
+group("Nova's quirks: memory, opinions, the poke ladder, the shelf, the gag");
+
+await test("computeNovaMemory reads real progress: the weak subject computes, and thin data stays silent", () => {
+  // Quirks wave (2026-10-14): her memory lines are computed from
+  // the learner's actual profile and progress. The fixture runs
+  // real lessons through the real progress writer: four space
+  // lessons at 95 and four Matter and Energy lessons at 60, so
+  // the strongest and weakest subjects are facts, not fixtures
+  // of the line writer.
+  const nowMs = new Date("2026-10-14T00:00:00").getTime();
+  let progress = cortexEmptyBuiltinProgress();
+  const spacePath = LEARNING_PATHS.find((p) => p.category === "Space and Physics");
+  const matterPath = LEARNING_PATHS.find((p) => p.id === "matter-and-energy");
+  for (const l of flattenPathLessons(spacePath).slice(0, 4)) progress = applyLessonResult(progress, spacePath, l.id, 95);
+  for (const l of flattenPathLessons(matterPath).slice(0, 4)) progress = applyLessonResult(progress, matterPath, l.id, 60);
+  const profile = { ...cortexEmptyProfile(), days: ["2026-09-24", "2026-10-14"], streak: 6 };
+  const facts = computeNovaMemory(profile, progress, nowMs);
+  assert.equal(facts.daysKnown, 20, "days known should count from the earliest active day");
+  assert.equal(facts.streak, 6);
+  assert.ok(facts.subjects, "two worked subjects should produce a reading");
+  assert.equal(facts.subjects.strong, "Space and Physics");
+  assert.equal(facts.subjects.weak, "Matter and Energy");
+  assert.equal(memoryLineFor(facts),
+    "Your Space and Physics answers hold up. Your Matter and Energy ones wander off.",
+    "the memory line should name the strong and weak subjects the progress proves");
+  // Thin data: a brand new learner earns silence, not a guess.
+  const thin = computeNovaMemory(cortexEmptyProfile(), cortexEmptyBuiltinProgress(), nowMs);
+  assert.equal(thin.subjects, null, "no worked subjects should read as no subjects");
+  assert.equal(thin.furthest, null);
+  assert.equal(memoryLineFor(thin), null, "thin data should produce no memory line");
+  // One subject only: still no strongest versus weakest reading.
+  let oneSide = cortexEmptyBuiltinProgress();
+  for (const l of flattenPathLessons(spacePath).slice(0, 4)) oneSide = applyLessonResult(oneSide, spacePath, l.id, 95);
+  const oneFacts = computeNovaMemory(cortexEmptyProfile(), oneSide, nowMs);
+  assert.equal(oneFacts.subjects, null, "one worked subject is not a comparison");
+});
+
+await test("memoryLineFor falls to the furthest path when no subject reading exists", () => {
+  const nowMs = new Date("2026-10-14T00:00:00").getTime();
+  const smallest = [...LEARNING_PATHS, ...TOPIC_COURSES].reduce((a, b) =>
+    flattenPathLessons(a).length <= flattenPathLessons(b).length ? a : b);
+  const lessons = flattenPathLessons(smallest);
+  const n = Math.ceil(lessons.length * 0.3);
+  let progress = cortexEmptyBuiltinProgress();
+  for (const l of lessons.slice(0, n)) progress = applyLessonResult(progress, smallest, l.id, 80);
+  const facts = computeNovaMemory(cortexEmptyProfile(), progress, nowMs);
+  assert.ok(facts.furthest, "a partly walked path should be the furthest fact");
+  assert.ok(facts.furthest.pct >= 25, `the furthest fact should clear the speaking bar, got ${facts.furthest.pct}`);
+  assert.equal(memoryLineFor(facts),
+    `Furthest along: ${facts.furthest.title}, ${facts.furthest.pct} percent in. I notice these things.`);
+  // The streak and days line: a week known and a live streak.
+  const known = { ...cortexEmptyProfile(), days: ["2026-10-01"], streak: 3 };
+  const knownFacts = computeNovaMemory(known, cortexEmptyBuiltinProgress(), nowMs);
+  assert.equal(memoryLineFor(knownFacts), "Day 14 of knowing you. The streak is 3. Both respectable numbers.");
+});
+
+await test("opinionForEvent fires in priority order and each opinion rests on its own cooldown", () => {
+  const t0 = 5000000000;
+  // A perfect lesson outranks everything else on the same event.
+  const perfect = opinionForEvent({ perfectLesson: true, good: true, hard: true, ms: 500, easyStreak: 9 }, {}, t0);
+  assert.equal(perfect.line, NOVA_OPINION_PERFECT_LINE);
+  assert.equal(perfect.face, "pleased");
+  assert.equal(opinionForEvent({ perfectLesson: true }, perfect.quirks, t0 + 3600 * 1000), null,
+    "the perfect opinion inside its 20 hours stays quiet");
+  assert.ok(opinionForEvent({ perfectLesson: true }, perfect.quirks, t0 + QUIRK_PERFECT_COOLDOWN_MS + 1000),
+    "the perfect opinion returns after its cooldown");
+  // Hard earns respect, and beats the fast compliment.
+  const hard = opinionForEvent({ good: true, hard: true, ms: 900 }, {}, t0);
+  assert.equal(hard.line, NOVA_OPINION_HARD_LINE);
+  assert.equal(hard.face, "explaining");
+  assert.equal(opinionForEvent({ good: true, hard: true }, hard.quirks, t0 + 3600 * 1000), null,
+    "the hard opinion inside its 2 hours stays quiet");
+  // A genuinely fast clean answer.
+  const fast = opinionForEvent({ good: true, ms: QUIRK_FAST_MS }, {}, t0);
+  assert.equal(fast.line, NOVA_OPINION_FAST_LINE);
+  assert.equal(fast.face, "pleased");
+  assert.equal(opinionForEvent({ good: true, ms: 2000 }, fast.quirks, t0 + 10 * 60 * 1000), null,
+    "the fast opinion inside its 30 minutes stays quiet");
+  // Six easy in a row earns the raised brow, deadpan.
+  const brow = opinionForEvent({ good: true, ms: 9000, easyStreak: QUIRK_EASY_STREAK }, {}, t0);
+  assert.equal(brow.line, NOVA_OPINION_BROW_LINE);
+  assert.equal(brow.face, "deadpan");
+  // Silence cases: a miss, a slow ordinary correct, five easy.
+  assert.equal(opinionForEvent({ good: false, hard: true, ms: 100 }, {}, t0), null, "a miss earns no opinion");
+  assert.equal(opinionForEvent({ good: true, ms: 9000 }, {}, t0), null, "a slow ordinary correct earns no opinion");
+  assert.equal(opinionForEvent({ good: true, ms: 9000, easyStreak: QUIRK_EASY_STREAK - 1 }, {}, t0), null,
+    "five easy in a row is not yet the brow");
+  assert.equal(opinionForEvent({ good: true, ms: null }, {}, t0), null, "no timing, no fast opinion");
+});
+
+await test("pokeStep escalates pleased, deadpan, turned away, then ignores her for an hour", () => {
+  const t = 1000000;
+  let s = pokeStep({}, t);
+  assert.equal(s.face, "pleased");
+  assert.ok(!s.line, "the first pokes are silent amusement");
+  s = pokeStep(s.quirks, t + 5000);
+  assert.equal(s.face, "pleased");
+  s = pokeStep(s.quirks, t + 10000);
+  assert.equal(s.face, "deadpan");
+  assert.equal(s.line, NOVA_POKE_LINE_THREE, "the third poke earns the talked about this line");
+  s = pokeStep(s.quirks, t + 15000);
+  assert.equal(s.face, "deadpan");
+  assert.ok(!s.line);
+  s = pokeStep(s.quirks, t + 20000);
+  assert.equal(s.face, "asleep", "the fifth poke turns her away");
+  assert.equal(s.line, NOVA_POKE_LINE_FIVE);
+  assert.equal(s.quirks.pokes.lockUntil, t + 20000 + QUIRK_POKE_LOCK_MS, "the lock should run an hour");
+  const ignored = pokeStep(s.quirks, t + 25000);
+  assert.equal(ignored.ignore, true, "taps during the lock are ignored");
+  assert.equal(ignored.face, "asleep");
+  const after = pokeStep(s.quirks, t + 20000 + QUIRK_POKE_LOCK_MS + 1000);
+  assert.equal(after.face, "pleased", "after the hour she is amused again, from zero");
+  // A quiet minute resets her patience before any lock.
+  let q = pokeStep({}, t).quirks;
+  q = pokeStep(q, t + 5000).quirks;
+  const decayed = pokeStep(q, t + 5000 + QUIRK_POKE_GAP_MS + 1000);
+  assert.equal(decayed.quirks.pokes.count, 1, "a gap over a minute restarts the count");
+  assert.equal(decayed.face, "pleased");
+});
+
+await test("the gag rests thirty days and the shelf comments once per object on a fourteen day class rest", () => {
+  const t = 9000000000;
+  assert.equal(gagDue({}, t), true, "a learner who never heard the gag is due");
+  const told = recordGag({}, t);
+  assert.equal(gagDue(told, t + 29 * 24 * 3600 * 1000), false, "the gag inside its month stays quiet");
+  assert.equal(gagDue(told, t + QUIRK_GAG_COOLDOWN_MS + 1000), true, "the gag returns after thirty days");
+  const first = shelfCommentFor({ pathId: "p1", glyph: "flask", category: "The Human Body" }, {}, t);
+  assert.equal(first.line, NOVA_SHELF_LINE);
+  assert.equal(shelfCommentFor({ pathId: "p1", glyph: "flask" }, first.quirks, t + 1000), null,
+    "a seen object earns no second comment");
+  const fav = shelfCommentFor({ pathId: "p2", glyph: "planet", category: "Space and Physics" }, {}, t);
+  assert.equal(fav.line, NOVA_SHELF_FAVORITE_LINE, "a space object earns the warmer line");
+  const suppressed = shelfCommentFor({ pathId: "p3", glyph: "leaf" }, first.quirks, t + 24 * 3600 * 1000);
+  assert.equal(suppressed.line, null, "a second landing inside the class rest is not commented");
+  assert.ok(suppressed.quirks.shelfSeen.includes("p3"), "the seen mark lands even when the comment is suppressed");
+  const later = shelfCommentFor({ pathId: "p4", glyph: "leaf" }, suppressed.quirks, t + QUIRK_SHELF_COOLDOWN_MS + 1000);
+  assert.equal(later.line, NOVA_SHELF_LINE, "after the class rest a new landing is commented again");
+  assert.equal(shelfCommentFor(null, {}, t), null, "no object, no comment");
+  assert.equal(shelfCommentFor({ glyph: "flask" }, {}, t), null, "an object without a path id is not hers to comment on");
+});
+
+await test("pickEggLine routes hours, memory, and the gag, and the morning denial covers a repeat", () => {
+  // A realistic epoch: the gag's never told state reads as
+  // timestamp zero, so a 1970 test clock would read as recently
+  // told. Real clocks are what the engine serves.
+  const t = 9000000000;
+  // The gag lands only when due and the seed calls for it.
+  const gag = pickEggLine({ hour: 14, allowGag: true, seed: 8, facts: null }, {}, t);
+  assert.ok(NOVA_GAG_LINES.includes(gag.line), "a due gag on a calling seed should be the egg's line");
+  assert.equal(gag.quirks.gagAt, t, "telling the gag starts its thirty days");
+  const noGag = pickEggLine({ hour: 14, allowGag: true, seed: 8, facts: null }, { gagAt: t }, t + 1000);
+  assert.ok(NOVA_EGG_LINES.includes(noGag.line), "a gag on cooldown leaves the plain egg set");
+  const gated = pickEggLine({ hour: 14, allowGag: false, seed: 8, facts: null }, {}, t);
+  assert.ok(NOVA_EGG_LINES.includes(gated.line), "a surface that does not allow the gag never hears it");
+  // Hours: late night and early morning own their sets.
+  assert.ok(NOVA_LATE_LINES.includes(pickEggLine({ hour: 23, allowGag: false, seed: 1, facts: null }, {}, t).line));
+  assert.ok(NOVA_LATE_LINES.includes(pickEggLine({ hour: 2, allowGag: false, seed: 0, facts: null }, {}, t).line));
+  assert.equal(hourLineSet(23), "late");
+  assert.equal(hourLineSet(5), "morning");
+  assert.equal(hourLineSet(14), null);
+  // The morning denial: if she would repeat the cheerful line she
+  // used last, she denies it instead.
+  const target = NOVA_MORNING_LINES[0];
+  let seed = 0;
+  while (pickNovaLine(NOVA_MORNING_LINES, seed) !== target && seed < 50) seed++;
+  const deny = pickEggLine({ hour: 7, allowGag: false, seed, facts: null }, { lastEggLine: target }, t);
+  assert.equal(deny.line, NOVA_MORNING_DENIAL);
+  const fresh = pickEggLine({ hour: 7, allowGag: false, seed, facts: null }, {}, t);
+  assert.equal(fresh.line, target, "a first morning pick is the cheerful line itself");
+  // Memory outranks the plain set when the facts support a line.
+  const facts = { daysKnown: 3, streak: 0, furthest: { title: "The Human Body", pct: 40 }, subjects: null };
+  const mem = pickEggLine({ hour: 14, allowGag: false, seed: 3, facts }, {}, t);
+  assert.equal(mem.line, "Furthest along: The Human Body, 40 percent in. I notice these things.");
+  // Otherwise the plain set, and what she said is remembered.
+  const plain = pickEggLine({ hour: 14, allowGag: false, seed: 2, facts: null }, {}, t);
+  assert.ok(NOVA_EGG_LINES.includes(plain.line));
+  assert.equal(plain.quirks.lastEggLine, plain.line);
+});
+
+await test("the lines library obeys her voice rules: no dashes, no AI talk, no mascot talk", () => {
+  const lists = { NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_GAG_LINES, NOVA_LATE_LINES, NOVA_MORNING_LINES };
+  const singles = [
+    NOVA_MORNING_DENIAL, NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE, NOVA_SHELF_LINE,
+    NOVA_SHELF_FAVORITE_LINE, NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE,
+    NOVA_OPINION_BROW_LINE, NOVA_OPINION_PERFECT_LINE,
+  ];
+  const everyLine = [...Object.values(lists).flat(), ...singles];
+  assert.ok(everyLine.length >= 20, `the library should hold a real set of lines, found ${everyLine.length}`);
+  for (const line of everyLine) {
+    assert.equal(typeof line, "string");
+    assert.ok(line.length > 0, "an empty line sits in the library");
+    assert.ok(!/[-–—]/.test(line), `a dash sits in her line: ${line}`);
+    assert.ok(!/\bAI\b/.test(line), `she names herself an AI: ${line}`);
+    assert.ok(!/mascot/i.test(line), `she names herself a mascot: ${line}`);
+  }
+  assert.equal(QUIRKS_KEY, "cerebrum-learn2-quirks", "the quirks store is its own key");
+  saveNovaQuirks({ gagAt: 4242 });
+  assert.equal(loadNovaQuirks().gagAt, 4242, "the quirks store should round trip");
+  assert.ok(!JSON.stringify(buildCortexExport(cortexFixtureState, new Date())).includes("quirks"),
+    "the export carries the quirks store");
+});
+
+await test("the quirks are wired where she lives: opinions in the sheet, memory and shelf on Today, the gag in the Library", () => {
+  assert.ok(learnSrc.includes("opinionForEvent("), "the quirks engine's opinions are not called");
+  assert.ok(learnSrc.includes("face={sheetOpinion ? sheetOpinion.face : null}"), "the sheet Nova does not take the opinion's face");
+  assert.ok(learnSrc.includes("computeNovaMemory(profile, builtinProgress)"), "the home does not compute her memory from the real profile");
+  assert.ok(learnSrc.includes("shelfCommentFor("), "the shelf does not ask for her comment");
+  assert.ok(learnSrc.includes("libraryGagLine || "), "the library tip does not rotate the gag in");
+  assert.ok(learnSrc.includes('new CustomEvent("nova-egg-celebrate")'), "finishing a path does not cue the egg's celebration");
+});
+
+// ══════════════════════════════════════════════════════════════════
+group("Nova's egg: the app wide visits, their trigger, cooldowns, and exclusions");
+
+await test("the egg numbers are the chosen ones: rarity, cooldowns, the tick, the wordmark count", () => {
+  assert.equal(EGG_AMBIENT_CHANCE, 0.07, "the ambient roll should be seven in a hundred checks");
+  assert.equal(EGG_BASE_COOLDOWN_MS, 8 * 3600 * 1000, "the shared appearance cooldown should be eight hours");
+  assert.equal(EGG_LONG_COOLDOWN_MS, 48 * 3600 * 1000, "the post dismissal cooldown should be two days");
+  assert.equal(EGG_CELEBRATE_COOLDOWN_MS, 30 * 60 * 1000, "celebrations rest thirty minutes");
+  assert.equal(EGG_TICK_MS, 45000, "ambient checks tick every forty five seconds");
+  assert.equal(WORDMARK_CLICKS, 3, "the summon is three clicks");
+  assert.equal(WORDMARK_GAP_MS, 700, "summon clicks land inside seven hundred milliseconds");
+  assert.equal(eggCooldownMs({}), EGG_BASE_COOLDOWN_MS);
+  assert.equal(eggCooldownMs({ dismissals: 1 }), EGG_BASE_COOLDOWN_MS, "one dismissal does not stretch the cooldown");
+  assert.equal(eggCooldownMs({ dismissals: 2 }), EGG_LONG_COOLDOWN_MS, "two dismissals stretch the cooldown to two days");
+  const dismissed = recordEggDismissal(recordEggDismissal({}, 1000), 2000);
+  assert.equal(dismissed.dismissals, 2);
+  assert.equal(eggCooldownMs(dismissed), EGG_LONG_COOLDOWN_MS);
+});
+
+await test("eggEligible enforces the cooldown, the session rules, and every exclusion context", () => {
+  const now = 100 * 3600 * 1000;
+  const fresh = { hadEgg: false, prevSessionHadEgg: false };
+  assert.equal(eggEligible({}, {}, fresh, now), true, "a clear page, a rested store, a fresh session: eligible");
+  assert.equal(eggEligible({ lastAt: now - 3600 * 1000 }, {}, fresh, now), false, "inside the eight hours she rests");
+  assert.equal(eggEligible({ lastAt: now - 9 * 3600 * 1000 }, {}, fresh, now), true, "after the eight hours she may come");
+  assert.equal(eggEligible({ lastAt: now - 10 * 3600 * 1000, dismissals: 2 }, {}, fresh, now), false,
+    "a twice dismissed Nova rests two days, not eight hours");
+  assert.equal(eggEligible({ lastAt: now - 49 * 3600 * 1000, dismissals: 2 }, {}, fresh, now), true);
+  assert.equal(eggEligible({}, {}, { hadEgg: true, prevSessionHadEgg: false }, now), false,
+    "one ambient visit per session");
+  assert.equal(eggEligible({}, {}, { hadEgg: false, prevSessionHadEgg: true }, now), false,
+    "never on consecutive visits: last session had her, this one rests");
+  for (const ctx of [{ typing: true }, { inLesson: true }, { inCall: true }, { inCheckout: true }, { hidden: true }])
+    assert.equal(eggEligible({}, ctx, fresh, now), false, `an egg should never land in ${JSON.stringify(ctx)}`);
+  assert.equal(eggBlocked({ typing: true }), true);
+  assert.equal(eggBlocked({}), false);
+  // Celebrations answer to their own shorter shared cooldown only.
+  assert.equal(eggCelebrateEligible({ lastAt: now - 10 * 60 * 1000 }, {}, now), false, "a celebration inside thirty minutes rests");
+  assert.equal(eggCelebrateEligible({ lastAt: now - 31 * 60 * 1000 }, {}, now), true);
+  assert.equal(eggCelebrateEligible({}, { inLesson: true }, now), false, "no celebration over a lesson in progress");
+});
+
+await test("countWordmarkClick stacks quick clicks, resets on a slow one, and summons on the third", () => {
+  let st = { count: 0, lastAt: 0 };
+  st = countWordmarkClick(st, 10000);
+  assert.equal(st.count, 1);
+  assert.equal(st.summoned, false);
+  st = countWordmarkClick(st, 10500);
+  assert.equal(st.count, 2);
+  st = countWordmarkClick(st, 10900);
+  assert.equal(st.summoned, true, "the third quick click summons her");
+  assert.equal(st.count, 0, "the count restarts after a summon");
+  const slow = countWordmarkClick({ count: 2, lastAt: 10000 }, 10000 + WORDMARK_GAP_MS + 1);
+  assert.equal(slow.count, 1, "a click after the gap starts the count over");
+  assert.equal(slow.summoned, false);
+  const edge = countWordmarkClick({ count: 2, lastAt: 10000 }, 10000 + WORDMARK_GAP_MS);
+  assert.equal(edge.summoned, true, "a click exactly at the gap still counts");
+});
+
+await test("the egg is mounted once in the shell, still under quiet motion, and silent by construction", () => {
+  assert.ok(appSrc.includes('import NovaEgg from "./NovaEgg.jsx";'), "the shell does not import the egg");
+  assert.ok(appSrc.includes("<NovaEgg />"), "the egg is not mounted in the shell");
+  assert.ok(eggSrc.includes("cbMotionOff"), "the egg does not read the app's motion setting");
+  assert.ok(eggSrc.includes('window.addEventListener("nova-egg-celebrate"'), "the egg does not listen for path completions");
+  assert.ok(eggSrc.includes('aria-label="Back to landing page"'), "the summon does not watch the sidebar brand");
+  assert.ok(eggSrc.includes(".cb-stage-masthead"), "the summon does not watch the masthead wordmark");
+  assert.ok(eggSrc.includes('".lv-sheet"'), "the lesson exclusion does not probe the lesson sheet");
+  assert.ok(eggSrc.includes("sepia(0.17) saturate(0.93) brightness(1.02) contrast(1.04)"), "the egg's print grade drifted from the avatar's");
+  assert.ok(eggSrc.includes("feTurbulence"), "the egg's print grain is missing");
+  assert.ok(eggSrc.includes("@keyframes neRoll"), "the swim's barrel roll is missing");
+  assert.ok(eggSrc.includes("if (!visit) return null;"), "the egg does not unmount to zero cost when idle");
+  assert.ok(!/Audio|playSound|speak\(/.test(eggSrc), "the egg makes noise; it should be silent by construction");
 });
 
 await test("no visible Wick survives: the first run eyebrows read Nova and Wick lives only in history comments", () => {

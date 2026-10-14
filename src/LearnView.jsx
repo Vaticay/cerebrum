@@ -1258,106 +1258,46 @@ const CSS = `
   0%, 100% { transform: rotate(-0.6deg) scale(1, 1); }
   50% { transform: rotate(0.6deg) scale(1.008, 1.016); }
 }
-/* The living Nova (home restructure wave, 2026-10-14): the
-   persistent avatar is a layered vector character, and its life
-   is articulated, not a transform on a still picture. The breath
-   moves the whole figure, each gill filament sways on its own
-   phase, the eyelids carry the expression through the --lid
-   custom property and close fully on a slow blink cycle, and
-   the pupils hold a gaze per state with an occasional slow look
-   to the side at rest. State classes (nv-st-*) set the eyelid
-   height, the gaze, the mouth, the gill posture, and the gill
-   gold brightness. All of it is CSS on vector parts: no canvas,
-   no per frame JavaScript, transforms and opacity only. */
-.nv-breath { animation: nvBreath 5.4s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 50% 100%; }
-@keyframes nvBreath { from { transform: scale(1, 1) rotate(0deg); } to { transform: scale(1.006, 1.02) rotate(-0.35deg); } }
-.nv-st-asleep .nv-breath { animation-duration: 7.5s; }
-.nv-fil { animation: nvSway ease-in-out infinite alternate; transform-box: fill-box; }
-.nv-fil-l { transform-origin: 100% 50%; }
-.nv-fil-r { transform-origin: 0% 50%; }
-.nv-f1 { animation-duration: 3.9s; animation-delay: -0.6s; animation-name: nvSwayTip; }
-.nv-f2 { animation-duration: 4.5s; animation-delay: -1.9s; }
-.nv-f3 { animation-duration: 5.1s; animation-delay: -3.1s; animation-name: nvSwayRoot; }
-@keyframes nvSway {
-  0% { transform: rotate(-1.3deg); }
-  38% { transform: rotate(0.9deg); }
-  71% { transform: rotate(-0.5deg); }
-  100% { transform: rotate(1.3deg); }
-}
-@keyframes nvSwayTip {
-  0% { transform: rotate(-1.7deg); }
-  38% { transform: rotate(1.2deg); }
-  71% { transform: rotate(-0.7deg); }
-  100% { transform: rotate(1.7deg); }
-}
-@keyframes nvSwayRoot {
-  0% { transform: rotate(-0.9deg); }
-  38% { transform: rotate(0.6deg); }
-  71% { transform: rotate(-0.35deg); }
-  100% { transform: rotate(0.9deg); }
-}
-.nv-gills-l, .nv-gills-r { transform-box: fill-box; transition: transform 0.7s cubic-bezier(0.22, 0.9, 0.28, 1); }
-.nv-gills-l { transform-origin: 100% 50%; transform: rotate(calc(var(--nv-gill-l, 0deg) - var(--nv-lift, 0deg))); }
-.nv-gills-r { transform-origin: 0% 50%; transform: rotate(calc(var(--nv-gill-r, 0deg) + var(--nv-lift, 0deg))); }
-.nv-st-fading .nv-gills-l { --nv-gill-l: -5deg; }
-.nv-st-fading .nv-gills-r { --nv-gill-r: 5deg; }
-.nv-st-fading .nv-gill-gold { fill: #A79B7D; opacity: 0.55; }
-.nv-st-asleep .nv-gills-l { --nv-gill-l: -3deg; }
-.nv-st-asleep .nv-gills-r { --nv-gill-r: 3deg; }
-.nv-st-worried .nv-gills-l { --nv-gill-l: 2.5deg; }
-.nv-st-worried .nv-gills-r { --nv-gill-r: -2.5deg; }
-.nv-st-pleased .nv-gill-gold { fill: #D8BC72; }
-.nv-gill-gold { transition: fill 0.6s ease, opacity 0.6s ease; }
-.nv-lid { animation: nvBlink 11.7s linear infinite; transform-box: fill-box; transform-origin: 50% 0%; }
-@keyframes nvBlink {
-  0%, 5.5%, 41%, 46.5%, 78%, 81%, 84.5%, 100% { transform: scaleY(var(--lid, 0.34)); }
-  3%, 44%, 79.5%, 83% { transform: scaleY(1); }
-}
-.nv-st-greeting { --lid: 0.34; }
-.nv-st-thinking { --lid: 0.26; }
-.nv-st-explaining { --lid: 0.22; }
-.nv-st-pleased { --lid: 0.48; }
-.nv-st-deadpan { --lid: 0.6; }
-.nv-st-worried { --lid: 0.14; }
-.nv-st-fading { --lid: 0.52; }
-.nv-st-asleep { --lid: 1; }
-.nv-st-asleep .nv-lid { animation: none; transform: scaleY(1); }
-.nv-pupils { transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1); }
-.nv-gaze { transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px)); transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
-/* Avatar art redesign (2026-10-14): the head is its own group so
-   a state can move the head itself. Asleep tips it a few degrees
-   down at the neck; every other state leaves it level. */
-.nv-head { transition: transform 0.7s cubic-bezier(0.22, 0.9, 0.28, 1); transform-box: fill-box; transform-origin: 50% 92%; }
-.nv-st-asleep .nv-head { transform: translateY(4px) rotate(2.2deg); }
-.nv-st-greeting .nv-pupils { animation: nvLook 15s ease-in-out infinite; }
-@keyframes nvLook {
-  0%, 30% { transform: translate(0px, 0px); }
-  36%, 46% { transform: translate(-4.5px, 0.5px); }
-  54%, 70% { transform: translate(0px, 0px); }
-  78%, 86% { transform: translate(4.5px, 0px); }
-  94%, 100% { transform: translate(0px, 0px); }
-}
-.nv-st-greeting .nv-head { animation: nvHeadTurn 15s ease-in-out infinite; }
-@keyframes nvHeadTurn {
-  0%, 32% { transform: rotate(0deg) translateX(0px); }
-  39%, 47% { transform: rotate(-1.1deg) translateX(-1.2px); }
-  55%, 71% { transform: rotate(0deg) translateX(0px); }
-  79%, 87% { transform: rotate(1deg) translateX(1.2px); }
-  95%, 100% { transform: rotate(0deg) translateX(0px); }
-}
-.nv-st-thinking .nv-pupils { transform: translate(0px, -4px); }
-.nv-st-explaining .nv-pupils { transform: translate(0px, -1px); }
-.nv-st-pleased .nv-pupils { transform: translate(0px, 1px); }
-.nv-st-deadpan .nv-pupils { transform: translate(0px, 0.5px); }
-.nv-st-worried .nv-pupils { transform: translate(0px, 2.5px); }
-.nv-st-fading .nv-pupils { transform: translate(0px, 2px); }
-.nv-mouth { display: none; }
-.nv-st-greeting .nv-m-line, .nv-st-thinking .nv-m-line, .nv-st-fading .nv-m-line { display: block; }
-.nv-st-deadpan .nv-m-flat { display: block; }
-.nv-st-pleased .nv-m-smile { display: block; }
-.nv-st-worried .nv-m-frown { display: block; }
-.nv-st-explaining .nv-m-open { display: block; }
-.nv-st-asleep .nv-m-short { display: block; }
+/* The living Nova (avatar replacement wave, 2026-10-14): the
+   persistent avatar is the generated character art itself, the
+   eight raster poses, cropped to a head and gills portrait
+   inside a cream disc. The hand drawn vector Nova that stood
+   here was rejected by the owner twice from live screenshots
+   (the face squished in its circle, the body reading as a bib,
+   the gill fan as sun rays), so the drawing and every rule that
+   animated its parts are gone. The art carries the character
+   now; the life is in transforms on the art: a slow breath and
+   sway on the figure wrapper, state changes as pose crossfades
+   of about 300ms with a slight scale breath, and the pointer
+   gaze as a few pixels of travel on the crop. No blink is faked
+   over raster art. The print treatment (.nv-print) breaks the
+   generated gloss: a warm grade in the filter chain on the
+   image and a fine static grain laid over the top, so she
+   reads as printed illustration. Reduced motion stills all of
+   it (the gate at the end of this stylesheet). */
+.nv-disc { position: relative; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: #F6E7C6; display: block; }
+.nv-panel { position: relative; border-radius: 18px; overflow: hidden; flex-shrink: 0; background: #F6E7C6; display: block; border: 1px solid rgba(58, 53, 44, 0.28); }
+.nv-figwrap { position: absolute; inset: 0; animation: nvFigBreath 5.4s ease-in-out infinite alternate; transform-origin: 50% 88%; }
+@keyframes nvFigBreath { from { transform: scale(1) rotate(0deg); } to { transform: scale(1.018) rotate(0.45deg); } }
+.nv-disc-asleep .nv-figwrap, .nv-panel-asleep .nv-figwrap { animation-duration: 7.5s; }
+.nv-layer { position: absolute; inset: 0; }
+.nv-layer-in { animation: nvLayerIn 0.32s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+@keyframes nvLayerIn { from { opacity: 0; transform: scale(1.035); } to { opacity: 1; transform: scale(1); } }
+.nv-img { position: absolute; max-width: none; height: auto; display: block; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px)); }
+.nv-panel-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px)); }
+/* The print treatment: one filter chain wherever the raster
+   Nova stands as avatar, egg, or bubble companion. Sepia pulls
+   the palette toward the house cream and gold, a small
+   brightness lift with settled contrast lifts the blacks a
+   touch and firms the ink, and the grain overlay (an SVG
+   turbulence tile, static, in overlay blend) darkens line
+   edges and breaks the smooth generated finish. The grain runs
+   finer on small discs so it never turns to noise. The egg
+   carries the same values in its own stylesheet (src/NovaEgg.jsx). */
+.nv-print .nv-img, .nv-print .nv-panel-img { filter: sepia(0.17) saturate(0.93) brightness(1.02) contrast(1.04); }
+.nv-grain { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0.34; mix-blend-mode: overlay; background-size: 132px 132px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.nv-print-sm .nv-grain { background-size: 88px 88px; opacity: 0.28; }
+.nv-print-lg .nv-grain { background-size: 190px 190px; opacity: 0.38; }
 /* The home section navigation (home restructure wave): a flat
    segmented row, gold underline for the current screen, nothing
    rounded beyond the foundation tokens. */
@@ -1378,16 +1318,12 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse, .lv-nova-live { animation: none !important; }
   .lv-btn, .lv-opt, .lv-fill, .lv-node, .lv-topic, .lv-chip { transition: none !important; }
-  /* The living Nova stills to its static expression: no breath,
-     no sway, no blink, no wandering gaze. The eyelids keep the
-     height the state sets, because the keyframes are what the
-     reduced motion gate removes, not the state classes. */
-  .nv-breath, .nv-fil, .nv-lid, .nv-pupils { animation: none !important; }
-  .nv-head { animation: none !important; }
-  .nv-gills-l, .nv-gills-r, .nv-pupils, .nv-head { transition: none !important; }
-  .nv-gill-gold { transition: none !important; }
-  .nv-gaze { transition: none !important; transform: none !important; }
-  .nv-lid { transform: scaleY(var(--lid, 0.34)); }
+  /* The avatar stills: no breath, no crossfade travel, no
+     pointer gaze travel. State changes are plain swaps of the
+     pose, and the print treatment stays (it is a finish, not
+     a motion). */
+  .nv-figwrap, .nv-layer-in { animation: none !important; }
+  .nv-img, .nv-panel-img { transition: none !important; transform: none !important; }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
 .lv-topic { transition: transform .15s, border-color .15s; }
@@ -1519,40 +1455,63 @@ function CharacterPose({ pose, size = 54, live = false }) {
   );
 }
 
-/* ── the living Nova (home restructure wave, 2026-10-14) ─────────
-   The persistent avatar is this vector character, drawn in the
-   house flat style: warm ink outlines, matte ivory body, gold
-   tipped gill filaments, one thin gold spine line, and the dry
-   half lidded gaze of the raster set, so the two read as one
-   character. The raster poses stay as artwork for lesson starts,
-   completions, and the share card; everywhere Nova simply
-   accompanies the learner (the header, the bench, reminders,
-   empty states, the feedback sheet), this is the face, and it
-   is alive: the animation lives in the CSS above (nvBreath,
-   nvSway, nvBlink, nvLook), articulated per part, with the
-   expression carried by the nv-st-* state classes. The state
-   names are the pose keys the product already uses. */
-/* Avatar art redesign (2026-10-14): the first vector drawing
-   (round egg head, petal gills, ringed dot eyes, stub body) read
-   as a placeholder next to the raster set, and the owner ruled
-   it undesigned. The drawing above is rebuilt on the raster
-   Nova's own construction: a wide flattened dome head turned a
-   touch off centre, gill ribbons layered shade copy, ivory
-   ribbon, seamed gold tip, fine centre vein, a body that flows
-   out of the head and curls into the tail fin with the mauve
-   wash under its inner curve and the gold spine line along the
-   sweep, and eyes built the way the raster draws them, a dark
-   half disc pupil hanging under a heavy lid line. The lid is an
-   ivory slab whose lower edge is that line; the blink keyframes
-   scale the slab from its top, so the line rides down over the
-   pupil, and each state's --lid value parks it at rest. The
-   component contract is unchanged: same state prop and eight
-   states, same CSS animation system, same call sites. */
-const NV_INK = "#3A352C";
-const NV_IVORY = "#F1EADA";
-const NV_SOCKET = "#FBF7EC";
-const NV_GOLD = "#C4A35A";
-const NV_SHADE = "#D2BFB2";
+/* ── the living Nova (avatar replacement wave, 2026-10-14) ────
+   The persistent avatar is the generated character art itself.
+   The hand drawn vector Nova that stood here was rejected by
+   the owner twice from live screenshots: in the real header the
+   face read squished inside its circle, the body read as a bib,
+   the gill fan as sun rays, and the whole thing read childish
+   next to the pose art the owner had already approved. The
+   drawing route is closed. What stands here now is a portrait
+   built from the eight raster poses: a head and gills crop of
+   the pose art fills a cream disc (the art's own cream ground
+   fills the disc, so no square edge ever shows), larger
+   placements use the same disc bigger or the full figure in a
+   cream panel, and state changes are pose crossfades. Her life
+   is transforms on the art (the CSS at .nv-disc): a slow breath
+   and sway on the figure wrapper, the pointer gaze as a few
+   pixels of travel on the crop, tap beats as pose crossfades.
+   No blink is faked over raster art. The Player, lessons, and
+   share card already used this art and do not change. */
+const NOVA_AVATAR_SRC = {
+  greeting: CHARACTER_POSES.greeting,
+  explaining: CHARACTER_POSES.explain,
+  pleased: CHARACTER_POSES.pleased,
+  thinking: CHARACTER_POSES.think,
+  worried: CHARACTER_POSES.worried,
+  fading: CHARACTER_POSES.fading,
+  deadpan: CHARACTER_POSES.deadpan,
+  asleep: CHARACTER_POSES.asleep,
+};
+
+/* The portrait crop per pose, as fractions of the square art:
+   s is the side of the square window the disc shows, x and y
+   its top left corner. The window takes the head and the gill
+   fan and leaves the body curl below the frame. The eight poses
+   share one composition (measured: the figure spans x 9 to 91
+   percent, y 16 to 90 percent in every pose), so the crops sit
+   within a point or two of each other; each was set against the
+   harness sheet, not assumed. */
+const NOVA_CROPS = {
+  greeting: { s: 0.76, x: 0.09, y: 0.06 },
+  explaining: { s: 0.76, x: 0.09, y: 0.06 },
+  pleased: { s: 0.76, x: 0.09, y: 0.06 },
+  thinking: { s: 0.76, x: 0.09, y: 0.06 },
+  worried: { s: 0.76, x: 0.09, y: 0.06 },
+  fading: { s: 0.76, x: 0.09, y: 0.06 },
+  deadpan: { s: 0.76, x: 0.09, y: 0.06 },
+  asleep: { s: 0.76, x: 0.10, y: 0.06 },
+};
+
+let novaPosesPreloaded = false;
+function preloadNovaPoses() {
+  if (novaPosesPreloaded || typeof Image === "undefined") return;
+  novaPosesPreloaded = true;
+  for (const key of Object.keys(NOVA_AVATAR_SRC)) {
+    const im = new Image();
+    im.src = NOVA_AVATAR_SRC[key];
+  }
+}
 
 export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false, returned = false } = {}) {
   if (streakAtRisk) return "worried";
@@ -1562,98 +1521,62 @@ export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false
   return "greeting";
 }
 
-function NovaAvatar({ state = "greeting", size = 48 }) {
+/* The avatar itself: a cream disc (or, with framing "panel",
+   a cream rounded panel holding the full figure) carrying the
+   current pose, crossfading to the next pose when the state
+   changes. The incoming pose only starts its fade once its
+   image has loaded, so a slow network never shows a hole; the
+   outgoing pose leaves a beat after the fade lands. Under
+   reduced motion the fade class is stilled by the CSS gate and
+   the swap is plain. */
+function NovaAvatar({ state = "greeting", size = 48, framing = "disc" }) {
+  const pose = NOVA_AVATAR_SRC[state] ? state : "greeting";
+  const [shown, setShown] = useState(pose);
+  const [incoming, setIncoming] = useState(null);
+  const [incomingOn, setIncomingOn] = useState(false);
+  useEffect(() => { preloadNovaPoses(); }, []);
+  useEffect(() => {
+    if (pose === shown) {
+      if (incoming) { setIncoming(null); setIncomingOn(false); }
+      return;
+    }
+    if (incoming !== pose) { setIncoming(pose); setIncomingOn(false); }
+  }, [pose, shown, incoming]);
+  useEffect(() => {
+    if (!incoming || !incomingOn) return;
+    const t = setTimeout(() => { setShown(incoming); setIncoming(null); setIncomingOn(false); }, 330);
+    return () => clearTimeout(t);
+  }, [incoming, incomingOn]);
+
+  const layer = (p, isIn) => {
+    const onLoad = isIn ? () => setIncomingOn(true) : undefined;
+    if (framing === "panel") {
+      return (
+        <span key={p} className={"nv-layer" + (isIn ? " nv-layer-in" : "")}>
+          <img className="nv-panel-img" src={NOVA_AVATAR_SRC[p]} alt="" aria-hidden="true" draggable="false" onLoad={onLoad} />
+        </span>
+      );
+    }
+    const c = NOVA_CROPS[p] || NOVA_CROPS.greeting;
+    return (
+      <span key={p} className={"nv-layer" + (isIn ? " nv-layer-in" : "")}>
+        <img className="nv-img" src={NOVA_AVATAR_SRC[p]} alt="" aria-hidden="true" draggable="false"
+          style={{ width: (100 / c.s) + "%", left: (-(c.x / c.s) * 100) + "%", top: (-(c.y / c.s) * 100) + "%" }}
+          onLoad={onLoad} />
+      </span>
+    );
+  };
+
+  const printSize = size <= 52 ? " nv-print-sm" : size >= 100 ? " nv-print-lg" : "";
+  const frameCls = (framing === "panel" ? "nv-panel nv-panel-" : "nv-disc nv-disc-") + shown;
   return (
-    <svg className={"nv-avatar nv-st-" + state} width={size} height={size} viewBox="-14 -10 268 260"
-      aria-hidden="true" focusable="false" style={{ display: "block", flexShrink: 0 }}>
-      <g className="nv-breath">
-        {/* the body: one streamlined mass flowing out of the head
-            and curling into the tail fin, the mauve wash riding its
-            inner curve and the gold spine line along its back */}
-        <path d="M96,120 C72,140 54,166 48,192 C76,220 134,234 186,222 C212,215 230,200 236,182 C214,168 194,168 180,178 C150,162 118,158 98,166 C86,171 85,148 90,128 C92,124 94,121 96,120 Z"
-          fill={NV_IVORY} stroke={NV_INK} strokeWidth="4.5" strokeLinejoin="round" />
-        <path d="M94,168 C116,160 150,164 182,180 C152,176 120,174 100,180 C93,177 91,172 94,168 Z" fill={NV_SHADE} />
-        <path className="nv-spine" d="M96,206 C126,218 162,220 196,208" fill="none" stroke={NV_GOLD} strokeWidth="3" strokeLinecap="round" opacity="0.9" />
-        {/* the far gills, right side: shorter, tucked, drooping
-            beside the head. Each ribbon is drawn in layers: a shade
-            copy offset behind, the ivory ribbon, the gold tip as its
-            own seamed section, and a fine centre vein. */}
-        <g className="nv-gills-r">
-          <g className="nv-fil nv-fil-r nv-f1">
-            <path d="M202,56 C220,44 240,44 253,54 C241,65 221,71 205,72 C202,67 201,61 202,56 Z" fill={NV_SHADE} transform="translate(3 5)" />
-            <path d="M202,56 C220,44 240,44 253,54 C241,65 221,71 205,72 C202,67 201,61 202,56 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <path className="nv-gill-gold" d="M232,47.5 C240,49 247,51.5 253,56.5 C246,61.5 238,64 231,64.5 C233,59 233,53 232,47.5 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-            <path d="M204,63 C220,55 236,53 250,57" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
-          </g>
-          <g className="nv-fil nv-fil-r nv-f2">
-            <path d="M208,82 C226,76 244,82 254,96 C243,108 223,111 209,104 C207,97 206,89 208,82 Z" fill={NV_SHADE} transform="translate(3 5)" />
-            <path d="M208,82 C226,76 244,82 254,96 C243,108 223,111 209,104 C207,97 206,89 208,82 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <path className="nv-gill-gold" d="M235,85.5 C242,88 248,92 252.5,98.5 C246,104 238,106.5 231,106 C232.5,99.5 233.5,92.5 235,85.5 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-            <path d="M210,94 C224,89 240,90 252,97" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
-          </g>
-          <g className="nv-fil nv-fil-r nv-f3">
-            <path d="M205,108 C221,108 235,118 241,135 C229,144 212,141 205,130 C203,123 203,115 205,108 Z" fill={NV_SHADE} transform="translate(3 5)" />
-            <path d="M205,108 C221,108 235,118 241,135 C229,144 212,141 205,130 C203,123 203,115 205,108 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <path className="nv-gill-gold" d="M226,118.5 C232,123.5 236.5,130 239,138 C232.5,142 225,142.5 219.5,140 C221,132.5 222.5,125.5 226,118.5 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-            <path d="M207,119 C218,120.5 230,127 238,136" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
-          </g>
-        </g>
-        {/* the near gills, left side: the long flowing ribbons of
-            the raster set, sweeping back off the head */}
-        <g className="nv-gills-l">
-          <g className="nv-fil nv-fil-l nv-f1">
-            <path d="M88,60 C64,42 32,34 0,44 C-6,46 -9,52 -6,57 C22,67 56,76 86,80 C89,74 89,66 88,60 Z" fill={NV_SHADE} transform="translate(3 5)" />
-            <path d="M88,60 C64,42 32,34 0,44 C-6,46 -9,52 -6,57 C22,67 56,76 86,80 C89,74 89,66 88,60 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <path className="nv-gill-gold" d="M26,43 C14,43.5 3,46 -6,57 C4,62 16,66 27,68.5 C23,60.5 23,51 26,43 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-            <path d="M86,68 C64,57 46,54 31,55.5" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
-          </g>
-          <g className="nv-fil nv-fil-l nv-f2">
-            <path d="M84,86 C54,78 22,82 -2,96 C-7,99 -7,104 -3,107 C24,114 56,114 82,108 C85,101 85,93 84,86 Z" fill={NV_SHADE} transform="translate(3 5)" />
-            <path d="M84,86 C54,78 22,82 -2,96 C-7,99 -7,104 -3,107 C24,114 56,114 82,108 C85,101 85,93 84,86 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <path className="nv-gill-gold" d="M22,88 C12,90 3,93 -3,103 C7,108 17,110 25,110.5 C21,103.5 20,95.5 22,88 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-            <path d="M82,97 C58,91 42,92.5 28,95.5" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
-          </g>
-          <g className="nv-fil nv-fil-l nv-f3">
-            <path d="M86,112 C58,110 30,118 8,136 C3,140 3,145 7,147 C34,152 62,146 86,134 C88,127 88,119 86,112 Z" fill={NV_SHADE} transform="translate(3 5)" />
-            <path d="M86,112 C58,110 30,118 8,136 C3,140 3,145 7,147 C34,152 62,146 86,134 C88,127 88,119 86,112 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
-            <path className="nv-gill-gold" d="M30,122 C20,126 12,131 7,141 C16,145 26,146 34,145 C31,137.5 29.5,129.5 30,122 Z" fill={NV_GOLD} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
-            <path d="M84,123 C62,121.5 46,124.5 36,129.5" fill="none" stroke={NV_INK} strokeWidth="1.6" opacity="0.45" />
-          </g>
-        </g>
-        {/* the head: a wide flattened dome, the face set a touch
-            right of centre so the head reads turned, not stamped */}
-        <g className="nv-head">
-          <path d="M84,124 C70,108 66,84 76,64 C84,45 106,34 136,33 C168,32 199,43 212,62 C222,78 224,98 216,114 C206,134 182,144 148,144 C120,144 96,138 84,124 Z"
-            fill={NV_IVORY} stroke={NV_INK} strokeWidth="4.5" strokeLinejoin="round" />
-          <g className="nv-pupils">
-            <g className="nv-gaze">
-              <path d="M112,84 L140,84 C140,98 134,112 126,112 C118,112 112,98 112,84 Z" fill={NV_INK} />
-              <path d="M156,84 L184,84 C184,98 178,112 170,112 C162,112 156,98 156,84 Z" fill={NV_INK} />
-              <circle cx="121.5" cy="103" r="2.1" fill={NV_SOCKET} />
-              <circle cx="165.5" cy="103" r="2.1" fill={NV_SOCKET} />
-            </g>
-          </g>
-          {/* each lid is an ivory slab whose lower edge is the lid
-              line: the blink keyframes scale the slab from its top,
-              so the line rides down over the pupil to close the eye,
-              and the state's --lid value parks it at resting height */}
-          <g className="nv-lid">
-            <path d="M104,120 L104,85 L148,85 L148,120 Q126,127 104,120 Z" fill={NV_IVORY} />
-            <path d="M104,120 Q126,127 148,120" fill="none" stroke={NV_INK} strokeWidth="4.2" strokeLinecap="round" />
-          </g>
-          <g className="nv-lid">
-            <path d="M156,120 L156,85 L184,85 L184,120 Q170,127 156,120 Z" fill={NV_IVORY} />
-            <path d="M156,120 Q170,127 184,120" fill="none" stroke={NV_INK} strokeWidth="4.2" strokeLinecap="round" />
-          </g>
-          <path className="nv-mouth nv-m-line" d="M106,128 Q136,131.5 168,130" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
-          <path className="nv-mouth nv-m-flat" d="M107,130 L167,130" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
-          <path className="nv-mouth nv-m-smile" d="M108,128 Q137,136.5 166,128" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
-          <path className="nv-mouth nv-m-frown" d="M108,132.5 Q137,125.5 166,132.5" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
-          <ellipse className="nv-mouth nv-m-open" cx="148" cy="130" rx="6" ry="4.5" fill={NV_INK} />
-          <path className="nv-mouth nv-m-short" d="M130,130 L166,130" fill="none" stroke={NV_INK} strokeWidth="4" strokeLinecap="round" />
-        </g>
-      </g>
-    </svg>
+    <span className={frameCls + " nv-print" + printSize} style={{ width: size, height: size }} aria-hidden="true">
+      <span className="nv-figwrap">
+        {layer(shown, false)}
+        {incoming && incoming !== shown ? layer(incoming, true) : null}
+      </span>
+      <span className="nv-grain" />
+    </span>
   );
 }
 
@@ -1667,37 +1590,49 @@ function NovaAvatar({ state = "greeting", size = 48 }) {
    timers only change which state class renders; the motion
    itself is the avatar's CSS. A new sheet mounts a new Nova, so
    the beats always start clean and never queue across cards. */
-function SheetNova({ good, streak = 0 }) {
+function SheetNova({ good, streak = 0, face = null }) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     const t1 = setTimeout(() => setPhase(1), 650);
     const t2 = setTimeout(() => setPhase(2), 2350);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
-  const face = phase === 0 ? "thinking"
-    : phase === 1 ? (good ? "pleased" : streak >= 2 ? "worried" : "deadpan")
+  /* An opinion from the quirks engine (a genuinely hard card
+     answered well, a very fast clean answer, a long easy streak)
+     can name the verdict face; without one the sheet's own
+     reading of the answer stands. */
+  const shown = phase === 0 ? "thinking"
+    : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
     : "explaining";
-  return <NovaAvatar state={face} size={48} />;
+  return <NovaAvatar state={shown} size={48} />;
 }
 
-/* ── the reactive Nova (presence wave, 2026-10-14) ───────────────
+/* ── the reactive Nova (presence wave, 2026-10-14; avatar
+   replacement and quirks, later the same day) ────────────────
    NovaLive wraps the avatar where Nova is present at size: the
-   header, the bench, the empty states. She notices the pointer:
-   her gaze follows it a few pixels (the values ride in as CSS
-   custom properties on the wrapper and land on the avatar's
-   gaze group), her gills lift a little while it is near, and a
-   click or tap earns one short beat, pleased in good standing,
-   deadpan when the current mood is low, before she settles back
-   to the state the product asked for. A second tap restarts the
-   beat; nothing queues, and unmounting clears the timer. Under
-   reduced motion the gaze is stilled by the CSS gate and the
-   beat is a plain expression change. */
-function NovaLive({ state = "greeting", size = 48 }) {
+   header, the bench, the empty states, the speech bubbles. She
+   notices the pointer: her gaze follows it a few pixels (the
+   values ride in as CSS custom properties and land on the
+   crop's transform), and the whole portrait lifts a touch while
+   the pointer is near. Taps are pokes, and she dislikes being
+   poked (quirks engine, below): the first taps amuse her, the
+   third earns the deadpan and a line, the fifth turns her away
+   (asleep, taps ignored) for an hour. The counts live in the
+   quirks store, outside the profile and the export. A second
+   tap restarts the beat; nothing queues, and unmounting clears
+   the timers. Under reduced motion the gaze travel is stilled
+   by the CSS gate and a beat is a plain pose swap. */
+function NovaLive({ state = "greeting", size = 48, framing = "disc" }) {
   const [gaze, setGaze] = useState(null);
   const [lift, setLift] = useState(false);
   const [beat, setBeat] = useState(null);
+  const [pokeLine, setPokeLine] = useState(null);
   const beatTimer = useRef(null);
-  useEffect(() => () => { if (beatTimer.current) clearTimeout(beatTimer.current); }, []);
+  const lineTimer = useRef(null);
+  useEffect(() => () => {
+    if (beatTimer.current) clearTimeout(beatTimer.current);
+    if (lineTimer.current) clearTimeout(lineTimer.current);
+  }, []);
   const onMove = (e) => {
     const r = e.currentTarget.getBoundingClientRect();
     if (!r.width) return;
@@ -1708,19 +1643,40 @@ function NovaLive({ state = "greeting", size = 48 }) {
   };
   const onLeave = () => { setGaze(null); setLift(false); };
   const onTap = () => {
+    const step = pokeStep(loadNovaQuirks(), Date.now());
+    saveNovaQuirks(step.quirks);
+    if (step.ignore) return;
     if (beatTimer.current) clearTimeout(beatTimer.current);
-    setBeat(["worried", "fading", "deadpan", "asleep"].includes(state) ? "deadpan" : "pleased");
+    setBeat(step.face);
     beatTimer.current = setTimeout(() => setBeat(null), 1100);
+    if (step.line) {
+      if (lineTimer.current) clearTimeout(lineTimer.current);
+      setPokeLine(step.line);
+      lineTimer.current = setTimeout(() => setPokeLine(null), 3600);
+    }
   };
   const vars = {
     "--nv-gx": (gaze ? gaze.x : 0).toFixed(2) + "px",
     "--nv-gy": (gaze ? gaze.y : 0).toFixed(2) + "px",
-    "--nv-lift": lift ? "1.6deg" : "0deg",
   };
   return (
-    <span style={{ display: "inline-flex", ...vars }}
+    <span style={{
+      display: "inline-flex", position: "relative", ...vars,
+      transform: lift ? "translateY(-2px)" : "translateY(0px)",
+      transition: "transform 0.3s cubic-bezier(0.22, 0.9, 0.28, 1)",
+    }}
       onPointerMove={onMove} onPointerLeave={onLeave} onClick={onTap}>
-      <NovaAvatar state={beat || state} size={size} />
+      <NovaAvatar state={beat || state} size={size} framing={framing} />
+      {pokeLine && (
+        <span role="status" style={{
+          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+          background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: 10,
+          padding: "7px 11px", fontSize: FONT_SIZES.body, lineHeight: 1.35, whiteSpace: "nowrap",
+          pointerEvents: "none", zIndex: 30, boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+        }}>
+          {pokeLine}
+        </span>
+      )}
     </span>
   );
 }
@@ -1836,6 +1792,292 @@ function NovaTip({ id, state = "greeting", size = 44, bare = false, tail = "left
       <NovaSpeech state={state} size={size} bare={bare} tail={tail} onDismiss={dismiss}>{children}</NovaSpeech>
     </div>
   );
+}
+
+/* ── Nova's character: the lines library and the quirks engine ──
+   Nova is a character, not a notification system. The load
+   bearing rules (the full sheet lives beside the design spec at
+   goals/askcerebrum-org-debug-and-update/files/nova-character.md):
+   calm, dry, quietly funny, hard to impress, curious, remembers
+   everything, secretly fond of the learner and would never admit
+   it plainly. Speech rules for every line below: short, plain,
+   one idea each; no hype, no baby talk, no exclamation; no
+   dashes of any kind; she never says she is an AI or a mascot;
+   when the data behind a line is thin, she says less or nothing.
+   The quirks, each with its own cooldown so character never
+   becomes nagging: she remembers out loud (memory lines computed
+   from the real profile and progress, never invented), she has
+   opinions (attached to answer events through opinionForEvent),
+   she collects (the shelf is hers; shelfCommentFor), she
+   dislikes being poked (pokeStep), she runs one gag about not
+   being a fish (the longest cooldown in the system, egg visits
+   and the Library rotation only), and the hours are hers (late
+   night and early morning line sets in pickEggLine). Everything
+   she remembers about the learner's habits lives in the quirks
+   store, its own storage key, outside the profile and outside
+   the export document, on the same pattern as the seen tips. */
+const QUIRKS_KEY = "cerebrum-learn2-quirks";
+const QUIRK_GAG_COOLDOWN_MS = 30 * 24 * 3600 * 1000;
+const QUIRK_SHELF_COOLDOWN_MS = 14 * 24 * 3600 * 1000;
+const QUIRK_FAST_MS = 4000;
+const QUIRK_FAST_COOLDOWN_MS = 30 * 60 * 1000;
+const QUIRK_HARD_COOLDOWN_MS = 2 * 3600 * 1000;
+const QUIRK_BROW_COOLDOWN_MS = 24 * 3600 * 1000;
+const QUIRK_PERFECT_COOLDOWN_MS = 20 * 3600 * 1000;
+const QUIRK_POKE_GAP_MS = 60 * 1000;
+const QUIRK_POKE_LOCK_MS = 3600 * 1000;
+const QUIRK_EASY_STREAK = 6;
+
+const NOVA_EGG_LINES = [
+  "Rounds done. Everything checks out. Carry on.",
+  "Ask something hard. I like those.",
+  "Still here. Still watching the sources.",
+  "Nothing needed me. I came anyway.",
+  "Quiet site. Good. Loud ones are usually selling something.",
+];
+export const NOVA_SUMMON_LINES = [
+  "You found the secret. There is no prize. The prize is me.",
+  "Three clicks on the name. You are either lost or family now.",
+  "Summoned. State your business. Make it interesting.",
+];
+export const NOVA_CELEBRATE_LINES = [
+  "A whole path, finished. That one I felt.",
+  "Done, all of it. I am putting this on the shelf of my mind.",
+];
+const NOVA_GAG_LINES = [
+  "Axolotl. Not a fish. We go through this every month.",
+  "For the record: axolotl. The fish thing is slander.",
+];
+const NOVA_LATE_LINES = [
+  "It is late. Even the gills are tired. One more question, then bed.",
+  "Night hours. I keep my voice down out of respect for no one in particular.",
+];
+const NOVA_MORNING_LINES = [
+  "Morning. I am almost cheerful. It will pass.",
+  "Up early. Fine. We can be pleased about it exactly once.",
+];
+const NOVA_MORNING_DENIAL = "I already did cheerful. You were here. It happened.";
+const NOVA_POKE_LINE_THREE = "We have talked about this.";
+const NOVA_POKE_LINE_FIVE = "We are done here.";
+const NOVA_SHELF_LINE = "That one earns its spot. Do not touch it.";
+const NOVA_SHELF_FAVORITE_LINE = "Space. My favorite shelf gets another. Try to look unsurprised.";
+const NOVA_OPINION_HARD_LINE = "That one was genuinely hard. Respect, quietly given.";
+const NOVA_OPINION_FAST_LINE = "Fine. That one was clean.";
+const NOVA_OPINION_BROW_LINE = "Six in a row on the gentle ones. Brave. Try a checkpoint.";
+const NOVA_OPINION_PERFECT_LINE = "Perfect. Every card. I am not easily impressed, so keep this.";
+
+export function loadNovaQuirks() { return loadJSON(QUIRKS_KEY, {}); }
+export function saveNovaQuirks(q) { saveJSON(QUIRKS_KEY, q && typeof q === "object" ? q : {}); }
+
+export function pickNovaLine(lines, seed) {
+  if (!Array.isArray(lines) || !lines.length) return null;
+  return lines[Math.abs(Math.floor(seed || 0)) % lines.length];
+}
+
+/* Which of her hour sets applies, on the same hours the mood
+   logic already uses: asleep hours are hers to be dry in, and
+   the early morning is when she is briefly almost cheerful. */
+export function hourLineSet(hour) {
+  if (typeof hour !== "number") return null;
+  if (hour >= 23 || hour < 5) return "late";
+  if (hour >= 5 && hour < 9) return "morning";
+  return null;
+}
+
+/* What she actually knows about this learner, computed from the
+   profile and the builtin progress and nothing else: how long
+   she has known them (the profile's first active day), the
+   current streak, the path they are furthest into, and the
+   subjects their own scores separate into strong and weak. The
+   subject reading needs at least three finished lessons in each
+   of two subjects and a real gap between them; anything thinner
+   and she holds her tongue (memoryLineFor returns less). */
+export function computeNovaMemory(profile, progress, now = Date.now()) {
+  const p = profile && typeof profile === "object" ? profile : {};
+  const prog = progress && typeof progress === "object" ? progress : { lessons: {} };
+  const days = Array.isArray(p.days) ? p.days.filter((d) => typeof d === "string") : [];
+  let daysKnown = 0;
+  if (days.length) {
+    const t0 = Date.parse(days.slice().sort()[0] + "T00:00:00");
+    if (!Number.isNaN(t0)) daysKnown = Math.max(0, Math.floor((now - t0) / 86400000));
+  }
+  const streak = typeof p.streak === "number" ? p.streak : 0;
+  let furthest = null;
+  const byCategory = {};
+  for (const path of [...LEARNING_PATHS, ...TOPIC_COURSES]) {
+    const pp = pathProgress(path, prog);
+    if (pp.done > 0 && !pp.complete && (!furthest || pp.pct > furthest.pct)) {
+      furthest = { title: path.title, pct: pp.pct };
+    }
+    for (const l of flattenPathLessons(path)) {
+      const rec = (prog.lessons || {})[l.id];
+      if (rec && rec.done && typeof rec.best === "number") {
+        const cat = path.category || "General";
+        const slot = byCategory[cat] || (byCategory[cat] = { total: 0, n: 0 });
+        slot.total += rec.best;
+        slot.n += 1;
+      }
+    }
+  }
+  let subjects = null;
+  const cats = Object.keys(byCategory).filter((c) => byCategory[c].n >= 3);
+  if (cats.length >= 2) {
+    const avgs = cats.map((c) => ({ category: c, avg: byCategory[c].total / byCategory[c].n }));
+    avgs.sort((a, b) => b.avg - a.avg);
+    const strong = avgs[0];
+    const weak = avgs[avgs.length - 1];
+    if (strong.avg >= 70 && weak.avg < 85 && strong.avg - weak.avg >= 10) {
+      subjects = { strong: strong.category, weak: weak.category, strongAvg: Math.round(strong.avg), weakAvg: Math.round(weak.avg) };
+    }
+  }
+  return { daysKnown, streak, furthest, subjects };
+}
+
+/* The memory line itself, strongest fact first. Thin data earns
+   a shorter line or none at all; she never guesses. */
+export function memoryLineFor(facts) {
+  if (!facts) return null;
+  if (facts.subjects) {
+    return "Your " + facts.subjects.strong + " answers hold up. Your " + facts.subjects.weak + " ones wander off.";
+  }
+  if (facts.furthest && facts.furthest.pct >= 25) {
+    return "Furthest along: " + facts.furthest.title + ", " + facts.furthest.pct + " percent in. I notice these things.";
+  }
+  if (facts.daysKnown >= 7 && facts.streak >= 2) {
+    return "Day " + (facts.daysKnown + 1) + " of knowing you. The streak is " + facts.streak + ". Both respectable numbers.";
+  }
+  if (facts.streak >= 5) return facts.streak + " days in a row. I counted. I count everything.";
+  return null;
+}
+
+export function loadNovaMemoryFacts() {
+  try {
+    const profile = loadJSON(PROFILE_KEY, null);
+    const progress = loadJSON(BUILTIN_PROGRESS_KEY, null);
+    if (!profile && !progress) return null;
+    return computeNovaMemory(profile || cortexEmptyProfile(), progress || cortexEmptyBuiltinProgress());
+  } catch { return null; }
+}
+
+/* Her opinions, attached to answer events. One opinion at a
+   time, the strongest first (a perfect lesson, then a hard card
+   answered well, then a genuinely fast clean answer, then the
+   raised brow at a long easy streak), and every opinion carries
+   its own cooldown in the quirks store so praise and needling
+   both stay rare. Returns the line, the face the sheet should
+   show, and the updated quirks; null when she has nothing to
+   say, which is most of the time. */
+export function opinionForEvent(evt, quirks, now) {
+  const q = { ...(quirks && typeof quirks === "object" ? quirks : {}) };
+  const e = evt || {};
+  const due = (key, cd) => !(typeof q[key] === "number" && now - q[key] < cd);
+  if (e.perfectLesson && due("opinionPerfectAt", QUIRK_PERFECT_COOLDOWN_MS)) {
+    q.opinionPerfectAt = now;
+    return { line: NOVA_OPINION_PERFECT_LINE, face: "pleased", quirks: q };
+  }
+  if (e.good && e.hard && due("opinionHardAt", QUIRK_HARD_COOLDOWN_MS)) {
+    q.opinionHardAt = now;
+    return { line: NOVA_OPINION_HARD_LINE, face: "explaining", quirks: q };
+  }
+  if (e.good && typeof e.ms === "number" && e.ms > 0 && e.ms <= QUIRK_FAST_MS && due("opinionFastAt", QUIRK_FAST_COOLDOWN_MS)) {
+    q.opinionFastAt = now;
+    return { line: NOVA_OPINION_FAST_LINE, face: "pleased", quirks: q };
+  }
+  if (e.good && (e.easyStreak || 0) >= QUIRK_EASY_STREAK && due("opinionBrowAt", QUIRK_BROW_COOLDOWN_MS)) {
+    q.opinionBrowAt = now;
+    return { line: NOVA_OPINION_BROW_LINE, face: "deadpan", quirks: q };
+  }
+  return null;
+}
+
+/* The poke ladder. Pokes inside a minute stack; a quiet minute
+   resets her patience. One and two amuse her (pleased), three
+   and four draw the deadpan (three also draws the line), five
+   turns her away: asleep, taps ignored for an hour. Pure: the
+   caller loads and saves the quirks store. */
+export function pokeStep(quirks, now) {
+  const q = { ...(quirks && typeof quirks === "object" ? quirks : {}) };
+  const pokes = q.pokes && typeof q.pokes === "object" ? { ...q.pokes } : { count: 0, lastAt: 0, lockUntil: 0 };
+  if (pokes.lockUntil && now < pokes.lockUntil) {
+    return { face: "asleep", line: null, ignore: true, quirks: q };
+  }
+  const gap = now - (pokes.lastAt || 0);
+  let count = gap > QUIRK_POKE_GAP_MS ? 0 : (pokes.count || 0);
+  count += 1;
+  pokes.count = count;
+  pokes.lastAt = now;
+  let face = "pleased";
+  let line = null;
+  if (count >= 5) {
+    face = "asleep";
+    line = NOVA_POKE_LINE_FIVE;
+    pokes.lockUntil = now + QUIRK_POKE_LOCK_MS;
+    pokes.count = 0;
+  } else if (count >= 3) {
+    face = "deadpan";
+    if (count === 3) line = NOVA_POKE_LINE_THREE;
+  }
+  q.pokes = pokes;
+  return { face, line, ignore: false, quirks: q };
+}
+
+/* The gag and the shelf, her two slowest voices. */
+export function gagDue(quirks, now) {
+  const at = quirks && typeof quirks.gagAt === "number" ? quirks.gagAt : 0;
+  return now - at >= QUIRK_GAG_COOLDOWN_MS;
+}
+
+export function recordGag(quirks, now) {
+  return { ...(quirks && typeof quirks === "object" ? quirks : {}), gagAt: now };
+}
+
+/* A new object on her shelf gets one comment, ever, the first
+   time she is seen after it lands, and comments as a class rest
+   a fortnight between landings. Space is her favorite category
+   and earns the warmer line. Returns the updated quirks whether
+   or not a line came out, so the seen mark always lands. */
+export function shelfCommentFor(obj, quirks, now) {
+  if (!obj || !obj.pathId) return null;
+  const q = { ...(quirks && typeof quirks === "object" ? quirks : {}) };
+  const seen = Array.isArray(q.shelfSeen) ? q.shelfSeen.slice() : [];
+  if (seen.includes(obj.pathId)) return null;
+  seen.push(obj.pathId);
+  q.shelfSeen = seen;
+  const at = typeof q.shelfAt === "number" ? q.shelfAt : 0;
+  if (now - at < QUIRK_SHELF_COOLDOWN_MS) return { line: null, quirks: q };
+  q.shelfAt = now;
+  const favorite = obj.glyph === "planet" || obj.category === "Space and Physics";
+  return { line: favorite ? NOVA_SHELF_FAVORITE_LINE : NOVA_SHELF_LINE, quirks: q };
+}
+
+/* The egg's line picker, shared by the egg and tested here:
+   the gag first when it is due and the seed allows (it stays
+   the rarest), then the hour sets, then a memory line when the
+   facts carry one, then the plain egg set. A morning line that
+   would repeat her last line is denied, in character. */
+export function pickEggLine(opts, quirks, now) {
+  const o = opts || {};
+  const q = { ...(quirks && typeof quirks === "object" ? quirks : {}) };
+  const seed = typeof o.seed === "number" ? o.seed : now;
+  if (o.allowGag && gagDue(q, now) && seed % 4 === 0) {
+    q.gagAt = now;
+    const gag = pickNovaLine(NOVA_GAG_LINES, seed);
+    q.lastEggLine = gag;
+    return { line: gag, quirks: q };
+  }
+  const set = hourLineSet(typeof o.hour === "number" ? o.hour : 12);
+  let line = null;
+  if (set === "morning") {
+    line = pickNovaLine(NOVA_MORNING_LINES, seed);
+    if (line && q.lastEggLine === line) line = NOVA_MORNING_DENIAL;
+  } else if (set === "late") {
+    line = pickNovaLine(NOVA_LATE_LINES, seed);
+  } else if (o.facts) {
+    line = memoryLineFor(o.facts);
+  }
+  if (!line) line = pickNovaLine(NOVA_EGG_LINES, seed);
+  q.lastEggLine = line;
+  return { line, quirks: q };
 }
 
 /* ── wave 3 (2026-10-14): the Nova home discipline ─────────────────
@@ -9594,6 +9836,17 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      point. Any right answer clears it; a new lesson starts it
      over. */
   const [missStreak, setMissStreak] = useState(0);
+  /* Nova's opinions (quirks wave, 2026-10-14): a card timer so
+     answer speed is a fact, an easy streak so her raised brow
+     has a count, and the opinion the quirks engine returned for
+     the current sheet. The perfect lesson line waits here for
+     the lesson complete screen. */
+  const cardShownAtRef = useRef(0);
+  const easyStreakRef = useRef(0);
+  const opinionKeyRef = useRef("");
+  const celebrateSentRef = useRef(false);
+  const [sheetOpinion, setSheetOpinion] = useState(null);
+  const [perfectLine, setPerfectLine] = useState(null);
   const [reviewCards, setReviewCards] = useState(null);
   const [reviewForId, setReviewForId] = useState(null);
   const [attempt, setAttempt] = useState(0);
@@ -9686,6 +9939,45 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     : picked === displayCorrect
   );
   const lessonPct = lesson ? Math.round(((cardIdx + (checked ? 1 : 0)) / lesson.cards.length) * 100) : 0;
+
+  /* The opinion beat (quirks wave, 2026-10-14): the card timer
+     restarts whenever a fresh unchecked card is on screen, and
+     when the sheet lands the quirks engine reads the event once
+     per card (speed, whether the lesson is a checkpoint or
+     capstone, the running easy streak) and answers with a line
+     and a face, or with silence. Battle cards are discussions,
+     not answers, and earn no opinion. */
+  useEffect(() => {
+    if (!checked) {
+      cardShownAtRef.current = Date.now();
+      setSheetOpinion(null);
+      return;
+    }
+    if (!card || card.kind === "battle") return;
+    const key = lessonIdx + ":" + cardIdx + ":" + attempt;
+    if (opinionKeyRef.current === key) return;
+    opinionKeyRef.current = key;
+    const hard = !!(lesson && (lesson.checkpoint || /checkpoint|capstone/i.test(lesson.title || "")));
+    const ms = cardShownAtRef.current ? Date.now() - cardShownAtRef.current : null;
+    if (isRight) easyStreakRef.current = hard ? 0 : easyStreakRef.current + 1;
+    else easyStreakRef.current = 0;
+    const res = opinionForEvent(
+      { good: !!isRight, ms, hard, easyStreak: easyStreakRef.current },
+      loadNovaQuirks(), Date.now()
+    );
+    if (res) { saveNovaQuirks(res.quirks); setSheetOpinion({ line: res.line, face: res.face }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checked, cardIdx, lessonIdx, attempt]);
+
+  /* A finished builtin path is the egg's celebration cue
+     (quirks wave, 2026-10-14): the egg listens app wide, so the
+     Player only says it happened, once per completion. */
+  useEffect(() => {
+    if (finished && course && course.builtin && !celebrateSentRef.current) {
+      celebrateSentRef.current = true;
+      try { window.dispatchEvent(new CustomEvent("nova-egg-celebrate")); } catch { /* the egg is optional */ }
+    }
+  }, [finished]);
 
   /* Display orders for the tap activities, shuffled per attempt so
      the right column and the item pool are not just the answer key
@@ -9839,8 +10131,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         xpCompletionsRef.current[activeLessonId] = (xpCompletionsRef.current[activeLessonId] || 0) + 1;
       }
       say("Lesson complete. Plus " + bonus + " XP for finishing.");
+      const pct = answered ? Math.round((right / answered) * 100) : 100;
+      if (pct === 100) {
+        const res = opinionForEvent({ perfectLesson: true }, loadNovaQuirks(), Date.now());
+        if (res) { saveNovaQuirks(res.quirks); setPerfectLine(res.line); }
+      }
       if (onLessonDone) {
-        onLessonDone(lesson, answered ? Math.round((right / answered) * 100) : 100);
+        onLessonDone(lesson, pct);
       }
     }
     setShowLessonDone(true);
@@ -10082,6 +10379,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 6px" }}>
             <CharacterPose pose="celebrate" size={128} live />
           </div>
+          {perfectLine && (
+            <p style={{ color: P.ink, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>{perfectLine}</p>
+          )}
           {rankSummary && (
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>
               Your rank: <span style={{ color: P.ink, fontWeight: 700 }}>{rankSummary.name}</span>
@@ -10184,7 +10484,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} streak={missStreak} />
+          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Two readings, honestly held. That is the point."
@@ -10229,6 +10529,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </p>
             )}
           </>
+        )}
+        {sheetOpinion && (
+          <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "12px 0 0", color: P.ink }}>{sheetOpinion.line}</p>
         )}
         {!sheetGood && (
           <NovaTip id="streak" state="worried" size={36} armed={missStreak >= 2} repeatAfterMs={7 * 24 * 3600 * 1000} style={{ marginTop: 16 }}>
@@ -11683,6 +11986,49 @@ export default function LearnView({ P, accent, at, onNavigate }) {
      else the first path as an invitation. All three read state
      the home already holds; nothing new is stored. */
   const shelf = shelfObjects(allBuiltinSets, builtinProgress);
+
+  /* Nova remembers, out loud (quirks wave, 2026-10-14): the
+     memory facts are computed from this learner's real profile
+     and progress, and the line she speaks on Today comes from
+     them. Thin data earns silence. */
+  const novaFacts = useMemo(() => computeNovaMemory(profile, builtinProgress), [profile, builtinProgress]);
+  const novaMemoryLine = memoryLineFor(novaFacts);
+
+  /* Her shelf commentary (quirks wave): the shelf is hers, so
+     when a new object has landed since she last looked, she
+     comments on it once, through the tip gate, on her own long
+     cooldown. The seen mark lands whether or not the gate has
+     room to show the comment. */
+  const [shelfLine, setShelfLine] = useState(null);
+  useEffect(() => {
+    const q0 = loadNovaQuirks();
+    const seenIds = Array.isArray(q0.shelfSeen) ? q0.shelfSeen : [];
+    const unseen = shelf.find((o) => !seenIds.includes(o.pathId));
+    if (!unseen) return;
+    const path = allBuiltinSets.find((p) => p.id === unseen.pathId);
+    const res = shelfCommentFor({ ...unseen, category: path ? path.category : "" }, q0, Date.now());
+    if (res) {
+      saveNovaQuirks(res.quirks);
+      if (res.line) setShelfLine(res.line);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shelf]);
+
+  /* The Library rotation carries her running gag (quirks wave):
+     when the gag's long cooldown is up, the library tip tells it
+     instead of the standard line. The telling is recorded either
+     way, so the gag stays rare even when the gate is busy. */
+  const [libraryGagLine, setLibraryGagLine] = useState(null);
+  useEffect(() => {
+    if (homeTab !== "library") return;
+    const q = loadNovaQuirks();
+    if (gagDue(q, Date.now())) {
+      setLibraryGagLine(pickNovaLine(NOVA_GAG_LINES, Date.now()));
+      saveNovaQuirks(recordGag(q, Date.now()));
+    } else {
+      setLibraryGagLine(null);
+    }
+  }, [homeTab]);
   const bandPath = lastPath || null;
   const bandCourse = !bandPath ? nextCourse : null;
   const bandList = bandPath ? flattenPathLessons(bandPath)
@@ -11932,6 +12278,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <NovaTip id="today" state="greeting" style={{ marginTop: 18 }}>
         Right. Start with today's practice. The rest can wait.
       </NovaTip>
+      {novaMemoryLine && (
+        <NovaTip id="memory" state="explaining" armed={!!novaMemoryLine} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}>
+          {novaMemoryLine}
+        </NovaTip>
+      )}
 
       {/* The return greeting: Nova notices an absence of two days
           or more, once, in its own voice. */}
@@ -12175,6 +12526,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   </div>
                 ))}
               </div>
+            )}
+            {shelfLine && (
+              <NovaTip id="shelf" state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}>
+                {shelfLine}
+              </NovaTip>
             )}
           </div>
         </div>
@@ -12495,7 +12851,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {courses.length > 0 && (
         <NovaTip id="library" state="greeting" style={{ margin: "0 0 18px" }}>
-          Everything you build waits here. Courses keep your place between visits.
+          {libraryGagLine || "Everything you build waits here. Courses keep your place between visits."}
         </NovaTip>
       )}
 
@@ -12506,7 +12862,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               surface, now the living avatar): an empty state is a
               Nova moment, and nothing here needs Nova awake. */}
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-            <NovaLive state="asleep" size={120} />
+            <NovaLive state="asleep" size={120} framing="panel" />
           </div>
           <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
