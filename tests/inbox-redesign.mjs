@@ -14,7 +14,8 @@
 import { strict as assert } from "node:assert";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { parse } from "@babel/parser";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const inboxSrc = await readFile(join(root, "src/inbox.jsx"), "utf8");
@@ -615,6 +616,102 @@ await test("the inbox root fills its parent instead of hardcoding the viewport",
     assert.equal(other.json.results.length, 0, "search reached a conversation the caller is not part of");
   });
 }
+
+/* ── Every notify path, enumerated (wave seven) ─────────────────
+   The sixth audit panel's rule for every path claims: check the
+   claim against every poll that can notify, not the ones already
+   known. Wave six guarded both inbox polls, and the mute still
+   failed on the app shell's poll in CerebrumApp.jsx, which nobody
+   had enumerated. The registry below is that enumeration: every
+   cbNotify call site in src, classified. A new call site fails the
+   counts until it is classified here, and each thread message path
+   additionally gets a structural pin that its guard is present in
+   the condition that fires it. */
+function collectNotifySites(source) {
+  const ast = parse(source, { sourceType: "module", plugins: ["jsx"], allowReturnOutsideFunction: true });
+  const sites = [];
+  const walk = (node) => {
+    if (!node || typeof node.type !== "string") return;
+    if (node.type === "CallExpression" && node.callee && node.callee.type === "Identifier" && node.callee.name === "cbNotify") {
+      sites.push(node.loc ? node.loc.start.line : 0);
+    }
+    for (const key of Object.keys(node)) {
+      if (key === "loc" || key === "range" || key === "__clone") continue;
+      const child = node[key];
+      if (Array.isArray(child)) for (const c of child) walk(c);
+      else walk(child);
+    }
+  };
+  walk(ast.program);
+  return sites;
+}
+
+async function* notifySrcFiles(dir) {
+  for (const entry of await readdir(dir)) {
+    const p = join(dir, entry);
+    if ((await stat(p)).isDirectory()) yield* notifySrcFiles(p);
+    else if (/\.jsx?$/.test(entry)) yield p;
+  }
+}
+
+await test("every cbNotify call site in src is enumerated and classified", async () => {
+  // The registry, by file, in source order:
+  //   src/inbox.jsx — the list poll (thread mute guarded) and the
+  //     open thread poll (thread mute guarded).
+  //   src/CerebrumApp.jsx — the watchlist digest (a subscribed
+  //     alert: it names a topic, not a thread, so no thread mute
+  //     exists to apply), the app shell inbox poll (thread mute
+  //     guarded, wave seven), and the incoming call ring (call
+  //     ringing: whether per thread Mute silences ringing is the
+  //     owner's open ruling, intentionally unchanged until he
+  //     rules).
+  //   src/settings.jsx — the test notification button (the user's
+  //     own action feedback).
+  const registry = new Map([
+    ["src/inbox.jsx", 2],
+    ["src/CerebrumApp.jsx", 3],
+    ["src/settings.jsx", 1],
+  ]);
+  const found = new Map();
+  for await (const file of notifySrcFiles(join(root, "src"))) {
+    const sites = collectNotifySites(await readFile(file, "utf8"));
+    if (sites.length) found.set(file.slice(root.length + 1), sites.length);
+  }
+  assert.deepEqual(
+    [...found.entries()].sort(),
+    [...registry.entries()].sort(),
+    `cbNotify call sites no longer match the classified registry (found ${JSON.stringify([...found.entries()])}): ` +
+      "a new notify path must be classified in this test before it ships"
+  );
+});
+
+await test("the app shell notifier is mute guarded, like both inbox polls", () => {
+  // The shell poll's notify: the muted term sits in the same firing
+  // condition, the inbox list poll's shape.
+  const shellAt = appSrc.indexOf('"cb-inbox-" + t.id');
+  assert.ok(shellAt > 0, "the app shell inbox poll no longer notifies");
+  const shellBefore = appSrc.slice(Math.max(0, shellAt - 1600), shellAt);
+  assert.match(
+    shellBefore,
+    /lastSeenIds\.get\(t\.id\) && lastSeenIds\.get\(t\.id\) !== lid && !t\.muted/,
+    "the app shell poll fires cbNotify without the thread's muted flag in its condition"
+  );
+  // The inbox list poll keeps its guard (with its dedupe term).
+  const listAt = inboxSrc.indexOf('"cb-inbox-" + t.id');
+  assert.ok(listAt > 0, "the inbox list poll no longer notifies");
+  const listBefore = inboxSrc.slice(Math.max(0, listAt - 1600), listAt);
+  assert.match(
+    listBefore,
+    /lastSeenIds\.get\(t\.id\) && lastSeenIds\.get\(t\.id\) !== lid && !t\.muted && !notifiedMsgIds\.current\.has\(lid\)/,
+    "the inbox list poll lost its muted guard"
+  );
+  // The open thread poll wraps its notify in the threadMuted check.
+  assert.match(inboxSrc, /const threadMuted = next && next\.muted != null/, "the open thread poll no longer computes threadMuted");
+  const openAt = inboxSrc.indexOf('"cb-msg-" + activeId');
+  assert.ok(openAt > 0, "the open thread poll no longer notifies");
+  const openBefore = inboxSrc.slice(Math.max(0, openAt - 2000), openAt);
+  assert.match(openBefore, /if \(!threadMuted\) \{/, "the open thread poll's notify is not inside its muted guard");
+});
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

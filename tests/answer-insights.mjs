@@ -390,7 +390,9 @@ await test("timeline modal is Arc-only with year-strips in era headers", () => {
   assert.match(appSrc, /<AnswerArc turn=\{turn\}/, "AnswerArc not rendered in the timeline modal");
   assert.match(appSrc, /function EraYearStrip/, "EraYearStrip missing");
   assert.match(appSrc, /turn=\{timelineSources\}/, "timeline no longer receives the turn");
-  assert.match(appSrc, /<ModalChrome label="The arc of this literature"/, "timeline not on the shared modal chrome");
+  // Wave seven: the arc is a media surface, so its chrome carries
+  // the media opt in; the pin follows the corrected shape.
+  assert.match(appSrc, /<ModalChrome media label="The arc of this literature"/, "timeline not on the shared modal chrome");
 });
 
 await test("open-questions button renders only when gaps surface", () => {

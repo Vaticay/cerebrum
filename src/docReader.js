@@ -264,6 +264,34 @@ export function canAddHighlight(highlights, start, end) {
   return !(highlights || []).some((h) => start < h.end && end > h.start);
 }
 
+/* Rebase a saved Q&A history onto the trimmed text basis.
+   The durable store keeps the document text TRIMMED, while a live
+   session's evidence offsets index the text exactly as pasted,
+   leading whitespace included. Highlights are rebased by the trim
+   delta at save time; the Q&A history's evidence entries need the
+   same treatment, or a reopened document's trail prints offsets
+   into a basis the reader no longer shows (every offset too large
+   by the paste's leading whitespace). Only verified entries carry
+   real offsets (unverified ones are -1, and stay -1); each offset
+   shifts by leadTrim and clamps into the stored text, the same
+   arithmetic the highlight rebase uses. Entries and evidence are
+   copied, never mutated. */
+export function rebaseQaHistoryOffsets(qaHistory, leadTrim, textLength) {
+  const lead = Number.isFinite(leadTrim) && leadTrim > 0 ? leadTrim : 0;
+  const len = Number.isFinite(textLength) && textLength >= 0 ? textLength : 0;
+  if (!lead) return qaHistory;
+  return (qaHistory || []).map((h) => {
+    if (!h || !Array.isArray(h.evidence) || h.evidence.length === 0) return h;
+    return {
+      ...h,
+      evidence: h.evidence.map((e) => {
+        if (!e || !e.verified || !Number.isFinite(e.start) || !Number.isFinite(e.end) || e.start < 0 || e.end < 0) return e;
+        return { ...e, start: Math.max(0, e.start - lead), end: Math.max(0, Math.min(e.end - lead, len)) };
+      }),
+    };
+  });
+}
+
 /* A human title for a document: the first substantial line, capped. */
 export function docTitleOf(text) {
   const line = String(text || "")

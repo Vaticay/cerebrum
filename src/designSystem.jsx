@@ -413,7 +413,7 @@ export function UIField({ value, onChange, placeholder, P = null, accent, multil
   const pal = P || PALETTES.Dark;
   const base = {
     width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: RADIUS.md,
-    background: pal.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+    background: pal.surface,
     border: `1px solid ${pal.line}`, color: pal.ink, outline: "none",
     /* 16px floor: iOS Safari zooms the viewport on focus for anything
        smaller, so every text input holds 16px on all viewports. */

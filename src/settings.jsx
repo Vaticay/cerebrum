@@ -521,7 +521,7 @@ function RestorePhrasePanel({ P, accent, backups, restoreDeviceId, setRestoreDev
         onChange={(e) => setRestorePhrase(e.target.value)}
         rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
         placeholder="Enter the 24 words in order, separated by spaces"
-        style={{ width: "100%", padding: "12px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, outline: "none", resize: "vertical", marginBottom: 10 }}
+        style={{ width: "100%", padding: "12px 12px", fontSize: 16, fontFamily: "var(--cb-font)", color: P.ink, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, outline: "none", resize: "vertical", marginBottom: 10 }}
       />
       <button onClick={doRestore} disabled={!restorePhrase.trim() || busy === "restore"} style={{ ...pillBtn, opacity: !restorePhrase.trim() ? 0.45 : 1 }}>
         {busy === "restore" ? "Restoring…" : "Restore encrypted messaging"}
@@ -793,7 +793,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
                 autoComplete="off" autoCapitalize="off" spellCheck={false}
                 style={{
                   flex: 1, padding: "9px 12px", fontSize: 16, fontFamily: "var(--cb-font)",
-                  color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff",
+                  color: P.ink, background: P.surface,
                   border: `1px solid ${P.line}`, borderRadius: RADIUS.md, outline: "none",
                 }}
               />
@@ -953,7 +953,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   };
   const textArea = {
     width: "100%", padding: "12px 12px", fontSize: 16, fontFamily: "var(--cb-font)",
-    color: P.ink, background: P.dark ? "rgba(255,255,255,0.06)" : "#fff",
+    color: P.ink, background: P.surface,
     border: `1px solid ${P.line}`, borderRadius: RADIUS.md, outline: "none", resize: "vertical", marginBottom: 10,
   };
 
@@ -2330,7 +2330,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 aria-label="Search settings"
                 style={{
                   width: "100%", padding: "9px 12px 9px 34px", minHeight: 44, borderRadius: RADIUS.viewport,
-                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                  background: P.surface,
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none",
                   fontSize: 16, fontFamily: "var(--cb-font)",
                 }}

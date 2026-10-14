@@ -48,6 +48,7 @@ const {
   parseDocSseLine,
   streamDocumentApi,
   canAddHighlight,
+  rebaseQaHistoryOffsets,
   docTitleOf,
   loadDocStore,
   saveDocStore,
@@ -841,6 +842,28 @@ await test("the comparison keeps answerTruncated and renders the cut short note"
   assert.match(src, /answerTruncatedNote\(compareResult\.answerTruncated, "comparison"\)/, "compare view does not render the cut short note");
 });
 
+await test("the comparison states plainly that its quotes were not checked", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The backend computes an evidence trail and a stage record for
+  // comparisons, but the compare view keeps neither (setCompareResult
+  // carries text and flags only, and a trail entry's offsets index
+  // one document, not the pair). Until a per document mapping
+  // exists, the view must say its quotes were not checked, in the
+  // open, whenever a finished comparison shows: the sixth panel's
+  // finding was the silence, not the missing mapping.
+  const notice = "The quotes in this comparison were not checked against the documents.";
+  assert.ok(src.includes(notice), "compare view carries no not checked notice");
+  assert.ok(!/[-\u2010-\u2015]/.test(notice), "the compare notice must contain no dash characters");
+  const at = src.indexOf(notice);
+  const around = src.slice(Math.max(0, at - 400), at);
+  assert.match(around, /!compareResult\.streaming && compareResult\.text/, "the notice is not gated on a finished comparison with text");
+  // And it renders inside the compare result block, after the answer
+  // it qualifies (the last renderAnswer before it belongs to the
+  // comparison when the notice follows it in the same block).
+  const blockAt = src.indexOf("{compareResult && (");
+  assert.ok(blockAt > 0 && at > blockAt, "the notice does not render inside the compare result block");
+});
+
 // ── Edited documents: reading state goes stale, never resurrects ────
 group("edited documents — analysis state is flagged stale and never saved under a new fingerprint");
 
@@ -881,6 +904,50 @@ await test("the durable save writes state only under the fingerprint it belongs 
   assert.match(saveBlock, /qaHistory: analysisText === documentText \?/, "Q&A saved without checking its text");
   assert.match(saveBlock, /highlights: marksText === documentText \? storedHighlights : \[\]/, "marks saved without checking their text");
   assert.match(saveBlock, /compareResult: compareResult && !compareResult\.streaming && comparePair === compareKeyOf\(text, docB\.trim\(\)\) \? compareResult : null/, "comparison saved without checking its pair");
+});
+
+// ── Saved trails index the displayed (trimmed) text ──────────────
+group("saved evidence offsets — the Q&A trail is rebased with the text");
+
+await test("a padded document saved and restored keeps its trail offsets on the same characters", () => {
+  // The paste arrives with leading whitespace; the store keeps the
+  // trimmed text, and the reader displays the trimmed text. An
+  // evidence entry verified against the pasted basis must be
+  // rebased by the trim lead or its printed offsets index a text
+  // the reader no longer shows.
+  const pasted = "\n\n   The mitochondria is the powerhouse of the cell, and it makes most of the ATP.";
+  const displayed = pasted.trim();
+  const quote = "the powerhouse of the cell";
+  const start = pasted.indexOf(quote);
+  assert.ok(start > 0 && displayed.indexOf(quote) === start - (pasted.length - pasted.trimStart().length));
+  const history = [
+    { query: "What makes ATP?", answer: "…", evidence: [{ quote, start, end: start + quote.length, verified: true, match: "exact" }] },
+    { query: "Unrelated?", answer: "…", evidence: [{ quote: "never checked", start: -1, end: -1, verified: false, match: null, note: "over-cap" }] },
+    { query: "No trail", answer: "…" },
+  ];
+  const leadTrim = pasted.length - pasted.trimStart().length;
+  const saved = rebaseQaHistoryOffsets(history, leadTrim, displayed.length);
+  const e = saved[0].evidence[0];
+  assert.equal(displayed.slice(e.start, e.end), quote, "the rebased offsets no longer point at the quoted characters in the displayed text");
+  assert.equal(e.start, displayed.indexOf(quote));
+  // Unverified entries carry no offsets and stay untouched.
+  assert.deepEqual(saved[1].evidence[0], history[1].evidence[0], "an unverified entry was rewritten");
+  // Entries without a trail pass through, and nothing is mutated.
+  assert.equal(saved[2], history[2]);
+  assert.equal(history[0].evidence[0].start, start, "the live history was mutated by the rebase");
+  // No lead, no change: a document pasted without leading
+  // whitespace saves its history as the same array.
+  assert.equal(rebaseQaHistoryOffsets(history, 0, displayed.length), history);
+});
+
+await test("the durable save rebases the Q&A history by the same lead as the highlights", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const saveAt = src.indexOf("store.docs[fp] = {");
+  assert.ok(saveAt > 0, "durable save assignment missing");
+  const before = src.slice(Math.max(0, saveAt - 2600), saveAt);
+  assert.match(before, /const storedQaHistory = rebaseQaHistoryOffsets\(\(qaHistory \|\| \[\]\)\.filter\(\(h\) => !h\.streaming\)\.slice\(-30\), leadTrim, text\.length\);/, "the save does not rebase the Q&A history by the trim lead");
+  const saveBlock = src.slice(saveAt, saveAt + 1200);
+  assert.match(saveBlock, /qaHistory: analysisText === documentText \? storedQaHistory : \[\]/, "the saved Q&A history is not the rebased copy");
 });
 
 await test("analysis records its text, and resume digests are offered only for that text", async () => {

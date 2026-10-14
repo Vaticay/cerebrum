@@ -553,10 +553,16 @@ await test("the page flow alpha inputs and rows are solid palette values", () =>
 });
 await test("--cb-surface is set wherever --cb-solid-bg is set, and reaches the portals", () => {
   // Fifth panel, Frontend medium: the Dialog primitive's default
-  // panel background reads var(--cb-surface, #141416) and the
-  // variable was defined nowhere, so dialogs without a panelStyle
-  // rendered near black under Light palettes' dark text.
-  assert.match(flowchartsSrc, /var\(--cb-surface, #141416\)/, "the Dialog default no longer reads --cb-surface");
+  // panel background reads var(--cb-surface, ...) and the variable
+  // was defined nowhere, so dialogs without a panelStyle rendered
+  // on the fallback alone. Sixth panel follow up: the fallback
+  // constant itself was near black #141416, which only stays
+  // readable under a dark theme's ink; it is now a mid neutral
+  // that keeps both ink colors legible if the variable ever goes
+  // missing. This pin previously asserted the #141416 literal: it
+  // encoded the defect, and wave seven updated it with the fix.
+  assert.match(flowchartsSrc, /var\(--cb-surface, #767676\)/, "the Dialog default no longer reads --cb-surface with the mid neutral fallback");
+  assert.ok(!flowchartsSrc.includes("var(--cb-surface, #141416)"), "the near black Dialog fallback is back");
   // The app root sets it from the active palette alongside
   // --cb-solid-bg, in the same style object.
   assert.match(appSrc, /"--cb-solid-bg": P\.bg, "--cb-surface": P\.surface/, "the app root does not set --cb-surface alongside --cb-solid-bg");
@@ -564,6 +570,35 @@ await test("--cb-surface is set wherever --cb-solid-bg is set, and reaches the p
   // value is mirrored onto <html> in the palette effect; without the
   // mirror the definition would never reach a portaled dialog.
   assert.match(appSrc, /document\.documentElement\.style\.setProperty\("--cb-surface", P\.surface\)/, "the palette effect does not mirror --cb-surface onto the document element");
+});
+await test("ModalChrome centered panels take the palette, and only media surfaces keep the dark treatment", () => {
+  // Sixth panel, Frontend medium: centered ModalChrome panels were
+  // hard coded #0f1115 in every palette including Light while the
+  // drawers beside them honored the theme. The chrome now derives
+  // its centered background, ink, and border from the palette when
+  // one is passed, and the dark constants survive only behind the
+  // media opt in (the citation network and the literature arc,
+  // whose bodies force a dark palette in every theme).
+  const at = flowchartsSrc.indexOf("function ModalChrome");
+  assert.ok(at > 0, "ModalChrome missing");
+  const mc = flowchartsSrc.slice(at, flowchartsSrc.indexOf("export { ChromeHeader, ModalChrome }", at));
+  assert.match(mc, /media = false/, "ModalChrome has no media opt in");
+  assert.match(mc, /const themed = !!P && !media;/, "ModalChrome does not derive its themed state from the palette and the media flag");
+  assert.match(mc, /themed \? P\.surface : "#0f1115"/, "centered panels do not take the palette surface");
+  assert.match(mc, /themed \? P\.ink : "#f2f4f2"/, "centered panels do not take the palette ink");
+  assert.match(mc, /border: `1px solid \$\{panelBorder\}`/, "the centered panel border does not follow panelBorder");
+  assert.match(mc, /P=\{drawer \|\| themed \? P : null\}/, "the chrome header does not receive the palette on themed centered panels");
+  // Every centered ModalChrome call site in the app either passes
+  // the palette or opts into the media treatment by name: a site
+  // doing neither would silently keep the dark panel.
+  for (const [marker, ok] of [
+    ["<ModalChrome media label=\"Citation network\"", true],
+    ["<ModalChrome media label=\"The arc of this literature\"", true],
+    ["<ModalChrome label=\"Sign in to Cerebrum\" P={P}", true],
+    ["<ModalChrome label=\"Command palette\" P={P}", true],
+  ]) {
+    assert.equal(appSrc.includes(marker), ok, `ModalChrome call site changed shape: ${marker}`);
+  }
 });
 await test("the New Search FAB icon takes accentText(accent), a colour, not a function", () => {
   assert.match(appSrc, /background: accent, color: accentText\(accent\),/, "the FAB span does not colour its icon with accentText(accent)");

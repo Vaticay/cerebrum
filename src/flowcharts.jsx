@@ -170,9 +170,14 @@ export function Dialog({
           ...basePanel,
           // Default panel treatment: every dialog gets a visible panel even
           // when the caller forgets panelStyle. Uses theme CSS variables
-          // with dark-mode fallbacks (Dialog portals to body, so variables
-          // may not be inherited).
-          background: "var(--cb-surface, #141416)",
+          // (Dialog portals to body; the app mirrors --cb-surface onto
+          // the document element so the variable does reach here). The
+          // fallback constant is a mid neutral, not near black: if the
+          // variable ever does go missing, the surface value is the
+          // only thing left deciding readability, and a mid gray keeps
+          // both the light and the dark ink colors legible on it
+          // where #141416 silently assumed a dark theme.
+          background: "var(--cb-surface, #767676)",
           border: "1px solid var(--cb-line, rgba(255,255,255,0.12))",
           borderRadius: RADIUS.lg,
           boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
@@ -1244,7 +1249,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
                   onBlur={pushHistory}
                   style={{
-                    width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                    width: "100%", boxSizing: "border-box", background: P.surface,
                     border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
                     fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", resize: "vertical",
                   }} />
@@ -1265,7 +1270,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     <select id="fc-source-pick" value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
                       onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
                       style={{
-                        width: "100%", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                        width: "100%", background: P.surface,
                         border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 30px 8px 12px",
                         fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P),
                       }}>
@@ -1302,7 +1307,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
                 <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
                   style={{
-                    width: "100%", boxSizing: "border-box", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                    width: "100%", boxSizing: "border-box", background: P.surface,
                     border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
                     fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
                   }} />
@@ -2293,8 +2298,8 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
 
 
 function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, P = null }) {
-  // P provided (drawers) → theme-aware ink; otherwise the dark
-  // instrument-glass treatment of centered modals.
+  // P provided (drawers and themed centered panels) → theme-aware
+  // ink; otherwise the dark instrument treatment of media surfaces.
   const ink = P ? P.ink : "#f2f4f2";
   const subInk = P ? P.ink2 : "rgba(242,244,242,0.75)";
   return (
@@ -2347,12 +2352,19 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
   );
 }
 
-function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex = 220, width = 640, ticks = false, tall = false, drawer = false, P = null, children }) {
-  // Drawers are theme-aware (they read like a document); centered modals
-  // keep the dark instrument-glass treatment.
-  const panelBg = drawer && P ? P.bg : "#0f1115";
-  const panelInk = drawer && P ? P.ink : "#f2f4f2";
-  const panelBorder = drawer && P ? P.line : "rgba(255,255,255,0.10)";
+function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex = 220, width = 640, ticks = false, tall = false, drawer = false, media = false, P = null, children }) {
+  // Panels that carry text follow the active palette: drawers read
+  // P.bg, centered panels read P.surface, both with the palette's own
+  // ink and line. Only media surfaces keep the deliberate dark
+  // instrument treatment, and they opt in with the media flag (the
+  // citation network and the literature arc force a dark palette for
+  // their bodies in every theme). Until 2026-10-14 every centered
+  // panel was hard coded #0f1115 in every palette, Light included,
+  // while the drawers beside them honored the theme.
+  const themed = !!P && !media;
+  const panelBg = drawer && P ? P.bg : themed ? P.surface : "#0f1115";
+  const panelInk = drawer && P ? P.ink : themed ? P.ink : "#f2f4f2";
+  const panelBorder = drawer && P ? P.line : themed ? P.line : "rgba(255,255,255,0.10)";
   return (
     <Dialog
       label={label || title} onClose={onClose} zIndex={zIndex} drawer={drawer}
@@ -2364,12 +2376,12 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
       } : {
         ...(tall ? { height: "min(760px, 86dvh)" } : {}),
         background: panelBg,
-        border: "1px solid rgba(255,255,255,0.10)", borderRadius: RADIUS.lg,
+        border: `1px solid ${panelBorder}`, borderRadius: RADIUS.lg,
         boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
         padding: "24px 22px 22px", color: panelInk, fontFamily: "var(--cb-font)",
       }}
     >
-      <ChromeHeader eyebrow={eyebrow} title={title} onClose={onClose} accent={accent} label={label || title} drawer={drawer} P={drawer ? P : null} />
+      <ChromeHeader eyebrow={eyebrow} title={title} onClose={onClose} accent={accent} label={label || title} drawer={drawer} P={drawer || themed ? P : null} />
       {actions && <div style={{ margin: "6px 0 14px" }}>{actions}</div>}
       <div style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>{children}</div>
     </Dialog>

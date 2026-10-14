@@ -147,7 +147,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="Add context for the review team (optional)" placeholder="Add context for the review team" style={{
                 width: "100%", padding: "11px 13px", fontSize: 16, borderRadius: RADIUS.md,
-                border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff",
+                border: `1px solid ${P.line}`, background: P.surface,
                 color: P.ink, fontFamily: "var(--cb-font)", resize: "vertical", outline: "none",
               }} />
             </div>
@@ -1821,7 +1821,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 onChange={(e) => setThreadQuery(e.target.value)}
                 placeholder="Search conversations and messages"
                 aria-label="Search conversations and messages"
-                style={{ width: "100%", padding: "10px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, boxSizing: "border-box" }}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, boxSizing: "border-box" }}
               />
             </div>
           )}
@@ -2480,7 +2480,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     placeholder={`Message ${activeThread.name}…`}
                     aria-label="Reply"
                     rows={1}
-                    style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
+                    style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                   />
                   </>)}
@@ -2599,12 +2599,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         P={P} drawer={isMobile} width={560}
       >
         {(() => {
-          // ModalChrome's centered mode is dark instrument-glass; the
-          // mobile drawer follows the theme. Text colors follow suit.
-          const mInk = isMobile ? P.ink : "#f2f4f2";
-          const mDim = isMobile ? P.ink2 : "rgba(242,244,242,0.75)";
-          const mFaint = isMobile ? P.faint : "rgba(242,244,242,0.5)";
-          const mCard = isMobile ? (P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)") : "rgba(255,255,255,0.04)";
+          // ModalChrome panels follow the palette in both modes now
+          // (drawer and centered alike), so the text colors are the
+          // palette's own in both. They used to key off isMobile
+          // because centered mode was dark glass whatever the theme.
+          const mInk = P.ink;
+          const mDim = P.ink2;
+          const mFaint = P.faint;
+          const mCard = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
           const mLine = P.line;
           return safetyModal.loading ? (
             <div style={{ padding: "32px 0", textAlign: "center", color: mFaint, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
@@ -2678,7 +2680,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               autoFocus={!isMobile}
               style={{
                 width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
-                background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                background: P.surface,
                 border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
               }}
             />
@@ -2709,7 +2711,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               aria-label="Search people to add"
               style={{
                 width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
-                background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                background: P.surface,
                 border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
               }}
             />
@@ -2767,7 +2769,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 aria-label="Group name"
                 style={{
                   flex: 1, minWidth: 0, padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
-                  background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                  background: P.surface,
                   border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
                 }}
               />
@@ -2837,7 +2839,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               aria-label="Search people to add"
               style={{
                 width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16,
-                background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                background: P.surface,
                 border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)",
               }}
             />
