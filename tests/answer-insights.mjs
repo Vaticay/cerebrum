@@ -714,7 +714,10 @@ await test("fact check alignment covers Summary and reports zero checked claims 
     [paper]
   );
   assert.equal(empty.checked, false);
-  assert.match(empty.summary, /No cited claims were found to check/);
+  // Corrected contract (2026-10-14, sixth panel, Job 1): the
+  // extractive check is a wording trace, so its empty summary
+  // speaks of tracing, not checking.
+  assert.match(empty.summary, /No cited claims were found to trace/);
   // Pin updated 2026-10-13 (wave two part two) to the corrected
   // contract, not weakened: the old pin banned the literal
   // `name: "fact-check", ok: true` anywhere in the source, which was

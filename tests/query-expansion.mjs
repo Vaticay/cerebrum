@@ -548,6 +548,76 @@ await test("defaultValidationCall with no keys returns null and never fetches", 
   }
 });
 
+await test("the Workers AI leg answers when both fetch pools fail (sixth panel, Job 3c)", async () => {
+  // The panel's weather: OpenRouter capped and Groq down together,
+  // validation answering 0 of 3 probes. The third leg is a
+  // different provider family on the bound service, so its weather
+  // is not the fetch pools'.
+  const realFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  const aiCalls = [];
+  globalThis.fetch = async () => { fetchCalls++; throw new Error("fetch failed"); };
+  try {
+    const env = {
+      GROQ_KEY: "test-groq",
+      AI: { run: async (model, input) => {
+        aiCalls.push({ model, input });
+        return { response: JSON.stringify([{ id: 1, verdict: "RELEVANT" }]) };
+      } },
+    };
+    const out = await defaultValidationCall(
+      [{ role: "user", content: "validate" }], "test-openrouter", env);
+    assert.ok(out, "no leg answered");
+    assert.equal(out.via, "workers-ai", "the answering leg is not the Workers AI leg: " + JSON.stringify(out));
+    assert.equal(fetchCalls, 2, "the two fetch legs were not tried first");
+    assert.equal(aiCalls.length, 1, "the Workers AI leg did not fire exactly once");
+    assert.equal(aiCalls[0].model, "@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    assert.equal(aiCalls[0].input.max_tokens, 400, "the leg's completion budget is not the validation sizing");
+    assert.equal(aiCalls[0].input.temperature, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("the Workers AI leg stays inside the stage allowance, and a Workers AI only env validates", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("fetch failed"); };
+  try {
+    let aiCalls = 0;
+    const env = { AI: { run: async () => { aiCalls++; return { response: "[]" }; } } };
+    const capped = { remaining: () => 50, spend: () => {}, validationCapHit: () => true };
+    const out = await defaultValidationCall(
+      [{ role: "user", content: "validate" }], "", env, undefined, capped);
+    assert.equal(out, null, "the Workers AI leg answered although the phase allowance was spent");
+    assert.equal(aiCalls, 0, "the Workers AI leg fired although the phase allowance was spent");
+
+    // End to end, on the suite's own validation fixtures (both
+    // papers survive the programmatic passes): no OpenRouter
+    // token, no Groq key — the bound service alone runs PASS 2
+    // (llmValidatePapers' early return used to skip the pass
+    // entirely in this environment).
+    const env2 = {
+      AI: { run: async (model, input) => {
+        const joined = (input.messages || []).map((m) => String(m.content || "")).join("\n");
+        if (joined.includes("relevance validator")) {
+          return { response: JSON.stringify([
+            { id: 1, verdict: "RELEVANT" }, { id: 2, verdict: "IRRELEVANT" },
+          ]) };
+        }
+        return { response: "" };
+      } },
+    };
+    const diag = {};
+    const kept = await llmValidatePapers(VAL_QUERY, valPapers(), "", null, env2, diag);
+    assert.equal(diag.llmValidatedVia, "workers-ai",
+      "the validation pass did not run on the Workers AI leg: " + JSON.stringify(diag));
+    assert.deepEqual(kept.map((p) => p.url), ["https://example.com/val-a"],
+      "the rejected paper survived a Workers AI validation: " + JSON.stringify(kept.map((p) => p.title)));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════
 group("validation stage health — fail open must not read as healthy (2026-10-13)");
 
@@ -1436,8 +1506,17 @@ await test("fallback covers the uncovered central terms, in the model's own shap
   const groups = buildDeterministicFallbackGroups(CREATINE_Q, ["creatine", "hair", "fall"]);
   assert.deepEqual(groups.map((g) => g.term), ["creatine", "hair", "fall"]);
   for (const g of groups) {
-    assert.ok(Array.isArray(g.alternates) && g.alternates.length >= 1,
-      `group for ${g.term} carries no alternates`);
+    // Corrected contract (2026-10-14, sixth panel, wave seven):
+    // a group no longer has to carry a manufactured alternate.
+    // The old pin demanded at least one alternate per group,
+    // which is what forced the builder to mint a plural for
+    // every uncovered term — the generation path that produced
+    // the panel's non word alternates ("sinces", "looses",
+    // "runnies"). A group tests membership through its term
+    // (buildDynLookup carries the term in the set); alternates
+    // are present only when a table or a plausible noun form
+    // supplies one.
+    assert.ok(Array.isArray(g.alternates), `group for ${g.term} has no alternates array`);
     assert.ok(!g.alternates.includes(g.term), "a group never lists its own term as an alternate");
   }
   // The groups feed the same lookup the model groups feed, and

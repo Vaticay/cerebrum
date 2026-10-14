@@ -7,8 +7,11 @@
  *      claims" while the same response's fact check object reported
  *      claims checked. The body line is now composed with the
  *      check's outcome unknown (factCheckChecked null), and the
- *      pipeline appends the check's real result, counted from the
- *      same factCheckSupport the response level line uses.
+ *      pipeline appends the check's real result afterwards. Sixth
+ *      panel correction (Job 1): on the extractive path that result
+ *      is a wording TRACE, not a verification, so the appended
+ *      sentence states the trace as a trace and factCheckSupport
+ *      counts nothing from it.
  *   2. A long AI answer with zero citations shipped as is. Any
  *      uncited AI answer now retries once with the citation
  *      requirement restated, and a still uncited answer hands the
@@ -74,6 +77,7 @@ const {
   buildEvidenceGaps,
   verifyExtractiveAlignment,
   factCheckSupport,
+  factCheckProvenance,
   appendClaimCheckSentence,
   dedupePapers,
   deDash,
@@ -126,22 +130,41 @@ await test("an extractive body never claims the check checked nothing", () => {
     "the alignment check found nothing to check in a cited extractive answer");
 });
 
-await test("the check's real result is appended to the body from the same count", () => {
+await test("the trace's result is appended to the body as a trace, and counts as no support anywhere", () => {
+  // CORRECTED CONTRACT (2026-10-14, sixth panel, Job 1): this pin
+  // used to derive a "The claim check supports X of Y" sentence for
+  // the EXTRACTIVE body from factCheckSupport(aligned) — the exact
+  // circularity the panel scored: the alignment check verifies
+  // copying (the wording traces to the cited paper), and its marks
+  // were presented as verified support in the body, the confidence
+  // line, and the panel. The extractive check is provenance now:
+  // factCheckSupport returns null for it, the body states the
+  // trace as a trace, and a provenance only run ships thin.
   const md = buildExtractiveSynthesis(BSFL_PAPERS, null, { query: BSFL_QUERY, queryAnalysis: null });
   const aligned = verifyExtractiveAlignment(md, BSFL_PAPERS);
-  const sup = factCheckSupport(aligned);
-  assert.ok(sup && sup.checked > 0, "no support count to state");
-  const sentence = "The claim check supports " + sup.supported + " of " + sup.checked + " checked claims.";
+  assert.equal(aligned.checkKind, "provenance", "the extractive result is not labeled provenance");
+  assert.equal(factCheckSupport(aligned), null,
+    "provenance marks were counted as support: " + JSON.stringify(factCheckSupport(aligned)));
+  const prov = factCheckProvenance(aligned);
+  assert.ok(prov && prov.checked > 0, "no trace count to state");
+  const sentence = "The wording of " + prov.traced + " of " + prov.checked +
+    " cited claims traces to the papers they cite. A wording trace is not a verification.";
   const out = appendClaimCheckSentence(md, sentence);
   const section = out.slice(out.indexOf("## How solid is this?"));
   assert.ok(section.startsWith("## How solid is this?"), "confidence section lost");
   assert.ok(section.split("\n\n")[1].includes(sentence),
-    "the sentence did not land in the confidence paragraph: " + section.split("\n\n")[1]);
-  // And the response level wording for the same numbers is the same
-  // sentence shape (buildConfidenceLine's support clause).
-  const line = buildConfidenceLine(BSFL_PAPERS, { status: "settled" }, { support: sup });
-  assert.ok(line.line.includes("The claim check supports " + sup.supported + " of " + sup.checked + " checked claims."),
-    "response line and body sentence diverge: " + line.line);
+    "the trace sentence did not land in the confidence paragraph: " + section.split("\n\n")[1]);
+  assert.ok(!section.includes("claim check supports"),
+    "the body still presents trace marks as support: " + section);
+  // The shipped confidence for the same run: thin, always, with no
+  // support clause — provenance is not verification.
+  const line = buildConfidenceLine(BSFL_PAPERS, { status: "settled" },
+    { support: factCheckSupport(aligned), provenanceOnly: true });
+  assert.equal(line.level, "thin", "a provenance only run shipped above thin: " + line.line);
+  assert.ok(!line.line.includes("claim check supports"),
+    "the shipped line claims support from a trace: " + line.line);
+  assert.ok(line.line.includes("not a verification"),
+    "the shipped line does not name the trace cap: " + line.line);
 });
 
 await test("the definition body takes the sentence on its Evidence Strength line", () => {
@@ -262,8 +285,12 @@ await test("the ship paths run deDash: post process, run last, both cache serves
   assert.ok(searchSrc.includes("answer = deDash(answer);"), "postProcessAnswer does not deDash");
   assert.ok(searchSrc.includes("answer = deDash(answer);\n    answer = italicizeScientificTerms(answer, query);"),
     "the pipeline run last point does not deDash before italicizing");
-  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(earlyHit.answer), query)"), "the early cache serve does not deDash");
-  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(cachedAnswer.answer), query)"), "the late cache serve does not deDash");
+  // The cache serves deDash the trust builder's bound body
+  // (earlyTrust/laterTrust.answer, the stored text with its
+  // baked confidence line bound — 2026-10-14 cached serve
+  // parity), not the raw stored text.
+  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(earlyTrust.answer), query)"), "the early cache serve does not deDash its bound body");
+  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(laterTrust.answer), query)"), "the late cache serve does not deDash its bound body");
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -534,19 +561,47 @@ await test("the uncited winner is retried once, replaced by the extractive tier,
     assert.ok(synth && synth.ok === false && synth.skipReason === "answer had no citations",
       "the synthesis stage record does not name the fallback: " + JSON.stringify(synth));
 
-    // Defects 1 and 9: the fact check ran (it stands before the
-    // bookkeeping writes now), and the body states its real result.
+    // Defects 1 and 9, as corrected by the sixth panel's Job 1:
+    // the fact check ran (it stands before the bookkeeping writes
+    // now), and the body states its real result — as a TRACE, not
+    // as support. The extractive check verifies copying; the old
+    // pin here asserted a "The claim check supports X of Y"
+    // sentence counted from its marks, which is the circularity
+    // the panel scored.
     assert.ok(data.factCheck && Array.isArray(data.factCheck.claims) && data.factCheck.claims.length > 0,
       "the fact check did not run on the shipped answer");
     assert.equal(data.factCheck.mode, "extractive");
-    const supported = data.factCheck.claims.filter((c) => c.status === "supported").length;
+    assert.equal(data.factCheck.checkKind, "provenance",
+      "the shipped fact check is not labeled provenance");
+    const traced = data.factCheck.claims.filter((c) => c.status === "supported").length;
     const checkedN = data.factCheck.claims.length;
-    const sentence = "The claim check supports " + supported + " of " + checkedN + " checked claim" + (checkedN === 1 ? "" : "s") + ".";
+    const sentence = "The wording of " + traced + " of " + checkedN +
+      " cited claim" + (checkedN === 1 ? "" : "s") + " traces to the papers they cite. A wording trace is not a verification.";
     assert.ok(data.answer.includes(sentence),
-      "the body does not state the check's result (" + sentence + "): " + data.answer.slice(0, 400));
+      "the body does not state the trace's result (" + sentence + "): " + data.answer.slice(0, 400));
+    assert.ok(!data.answer.includes("claim check supports"),
+      "the body presents trace marks as verified support");
     assert.ok(!data.answer.includes("did not check any claims"), "the body contradicts its fact check object");
     assert.ok(!String((data.confidence && data.confidence.line) || "").includes("did not check any claims"),
       "the response confidence line contradicts its fact check object: " + (data.confidence && data.confidence.line));
+    // Job 1b: a run whose only check is the trace ships thin.
+    assert.equal(data.confidence && data.confidence.level, "thin",
+      "a provenance only run shipped above thin: " + JSON.stringify(data.confidence));
+    // Sixth panel follow up: the body's baked line agrees with
+    // the shipped level. The extractive builder composed its
+    // line before the check ran, from the pre check shelf, and
+    // asserted Moderate over the object that ships thin (its own
+    // cited count had already shrunk by ship time). The shipped
+    // line now stands in the body where the baked assertion
+    // stood; the trace sentence (asserted above) and the
+    // section's computed bullets survive beside it.
+    assert.ok(!data.answer.includes("Moderate confidence"),
+      "the body still asserts the builder's pre check Moderate line over a thin ship");
+    assert.ok(data.confidence && data.confidence.line && data.answer.includes(data.confidence.line),
+      "the shipped confidence line does not stand in the body");
+    const solidAt = data.answer.indexOf("## How solid is this?");
+    assert.ok(solidAt >= 0 && /\n- /.test(data.answer.slice(solidAt)),
+      "the binding emptied the How solid section's computed bullets");
   } finally {
     globalThis.fetch = realFetch;
     globalThis.caches = realCaches;

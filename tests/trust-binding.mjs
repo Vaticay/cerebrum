@@ -50,7 +50,14 @@ const {
   buildConfidenceLine,
   calibrateConfidenceScore,
   bindProseConfidenceToLevel,
+  bindBakedConfidenceLine,
   confidenceAssertionRank,
+  verifyExtractiveAlignment,
+  buildExtractiveSynthesis,
+  factCheckSupport,
+  factCheckKind,
+  factCheckProvenance,
+  dedupeFactCheckClaims,
   claimsNearDuplicates,
   extractLiteratureConflicts,
   detectSourceConflicts,
@@ -592,6 +599,281 @@ await test("extractLiteratureConflicts drops a mined pair built from near duplic
   const conflicts = extractLiteratureConflicts(answer, sources);
   assert.equal(conflicts.length, 0,
     "the text mining pass shipped a dispute from two copies of one claim: " + JSON.stringify(conflicts));
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("provenance, not verification — the extractive check's contract (sixth panel, Job 1)");
+
+await test("an extractive only run over a junk pool: every trace marked, no support counted, thin shipped", () => {
+  // The panel's shape: the shelf is junk for the question (cooking
+  // and cleaning papers under a carpet cleaning question), but the
+  // extractive body copies their sentences, so the old alignment
+  // check marked claim after claim "supported" and the run shipped
+  // them as verified support at a moderate line. The trace itself
+  // is honest — the wording DOES trace — so the fix is not to fail
+  // the trace but to stop calling it verification.
+  const junk = [
+    { title: "Beeswax and paraffin blends in candle manufacture",
+      abstract: "Beeswax candles burn with a warm glow and drip less than paraffin candles in draught free rooms. Paraffin wax melts at lower temperatures and holds fragrance oils well in container candles.",
+      year: 2024, relevance: 88 },
+    { title: "Solvent extraction of turpentine from pine resin",
+      abstract: "Turpentine extraction from pine resin yields a solvent used in varnish manufacture. The resin is heated and the volatile fraction condensed in water cooled coils over several hours.",
+      year: 2025, relevance: 86 },
+  ];
+  const md = buildExtractiveSynthesis(junk, null, { query: "how do I get candle wax out of a carpet" });
+  assert.ok(md, "expected an extractive synthesis over the junk pool");
+  const aligned = verifyExtractiveAlignment(md, junk);
+  assert.ok(aligned && aligned.checked && aligned.claims.length > 0,
+    "the trace found no claims to trace in a cited extractive answer");
+  assert.ok(aligned.claims.some((c) => c.status === "supported"),
+    "fixture broken: copied claims should trace (that is the circularity)");
+  // (a) Labeled provenance in the shipped object, and its summary
+  // speaks of traces, never of supported claims.
+  assert.equal(aligned.checkKind, "provenance");
+  assert.equal(factCheckKind(aligned), "provenance");
+  assert.match(aligned.summary, /not a verification/);
+  assert.ok(!/claim check supports/i.test(aligned.summary), "the summary still sells traces as support");
+  // The trace's own counts are available AS a trace...
+  const prov = factCheckProvenance(aligned);
+  assert.ok(prov && prov.checked === aligned.claims.length && prov.traced >= 1);
+  // ...but no support total anywhere counts them.
+  assert.equal(factCheckSupport(aligned), null,
+    "provenance marks fed a support total");
+  // (b) The shipped confidence for a provenance only run is thin,
+  // always — over this junk shelf and over a strong one alike.
+  const junkLine = buildConfidenceLine(junk, { status: "settled" },
+    { support: factCheckSupport(aligned), factCheckChecked: true, provenanceOnly: true });
+  assert.equal(junkLine.level, "thin", "a provenance only run shipped above thin: " + junkLine.line);
+  assert.ok(!junkLine.line.includes("claim check supports"), "the line claims support from a trace");
+  assert.match(junkLine.line, /not a verification/);
+  const strongShelf = Array.from({ length: 10 }, (_, i) => ({
+    title: "Cited paper " + (i + 1), year: 2026, relevance: 95,
+    abstract: "A detailed abstract reports a measured result with enough supporting detail for the answer.",
+  }));
+  const strongLine = buildConfidenceLine(strongShelf, { status: "settled" },
+    { support: factCheckSupport(aligned), factCheckChecked: true, provenanceOnly: true });
+  assert.equal(strongLine.level, "thin",
+    "a strong shelf lifted a provenance only run above thin: " + strongLine.line);
+  // A verification check's counts still count (the distinction is
+  // the kind, not a blanket refusal).
+  const deep = { mode: "claims", claims: [{ claim: "x", status: "supported" }] };
+  assert.equal(factCheckKind(deep), "verification");
+  assert.deepEqual(factCheckSupport(deep), { supported: 1, checked: 1 });
+  assert.equal(factCheckProvenance(deep), null);
+});
+
+await test("a duplicated claim counts once in the checked total (Job 1c)", () => {
+  // The same claim text checked against two citations: the deep
+  // check emits it twice (different quotes, different sources),
+  // and every total downstream used to count it twice.
+  const fc = {
+    mode: "claims",
+    overall: "partly",
+    summary: "Checked 3 claims against the cited sources: 2 supported, 1 thin, 0 unsupported.",
+    claims: [
+      { claim: "Creatine did not increase hair shedding in the trial.", source_index: 1, status: "supported", note: "\"...\" [1]" },
+      { claim: "Creatine did not increase hair shedding in the trial.", source_index: 2, status: "supported", note: "\"...\" [2]" },
+      { claim: "Dosing was five grams daily.", source_index: 1, status: "thin", note: "\"...\" [1]" },
+    ],
+  };
+  const out = dedupeFactCheckClaims(fc);
+  assert.equal(out.claims.length, 2, "the duplicate claim survived the fold");
+  assert.equal(out.claims[0].source_index, 1, "the first occurrence should stand");
+  assert.deepEqual(factCheckSupport(out), { supported: 1, checked: 2 },
+    "the support total still counts the duplicate");
+  assert.equal(out.summary,
+    "Checked 2 claims against the cited sources: 1 supported, 1 thin, 0 unsupported.",
+    "the summary was not recounted from the folded claims");
+  // The extractive trace folds too, and its summary recounts in
+  // provenance wording.
+  const trace = {
+    mode: "extractive", checkKind: "provenance", overall: "supported", checked: true,
+    summary: "Traced 3 cited claims against the wording of the papers they cite: 2 traced to the cited paper's wording, 1 overlap only weakly, 0 do not trace. A wording trace is not a verification of the claims.",
+    claims: [
+      { claim: "Beeswax candles burn with a warm glow in draught free rooms.", status: "supported", note: "The claim's wording traces to the cited paper's title/abstract." },
+      { claim: "Beeswax candles burn with a warm glow in draught free rooms.", status: "supported", note: "The claim's wording traces to the cited paper's title/abstract." },
+      { claim: "Paraffin wax melts at lower temperatures.", status: "thin", note: "Shares some wording with the cited paper's title/abstract." },
+    ],
+  };
+  const folded = dedupeFactCheckClaims(trace);
+  assert.equal(folded.claims.length, 2);
+  assert.equal(folded.summary,
+    "Traced 2 cited claims against the wording of the papers they cite: 1 traced to the cited paper's wording, 1 overlap only weakly, 0 do not trace. A wording trace is not a verification of the claims.",
+    "the trace summary was not recounted from the folded claims");
+  assert.equal(folded.checkKind, "provenance", "the fold lost the provenance label");
+  assert.equal(factCheckSupport(folded), null, "the folded trace fed a support total");
+  // The integrity flags object's narrative summary states no
+  // counts: its claims fold, its summary and overall stand as
+  // written.
+  const flags = {
+    mode: "claims", overall: "partly",
+    summary: "Counts are from a mechanical integrity pass over the answer as shipped.",
+    claims: [
+      { claim: "Same text.", status: "unsupported", note: "flags" },
+      { claim: "Same text.", status: "unsupported", note: "flags" },
+    ],
+  };
+  const foldedFlags = dedupeFactCheckClaims(flags);
+  assert.equal(foldedFlags.claims.length, 1);
+  assert.equal(foldedFlags.summary, flags.summary, "a narrative summary was rewritten by the fold");
+  assert.equal(foldedFlags.overall, "partly", "a non count overall was recomputed by the fold");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("solidity vocabulary — the prose gate learns the strength family (sixth panel, Job 2)");
+
+await test("the panel's specimen sentence is bound under a thin ship", () => {
+  // Verbatim from the sixth panel's Trust specimen (prose
+  // confidence defect 2): a "How solid is this?" section asserting
+  // high solidity while the computed line under it read Low
+  // confidence with a claim check supporting 0 of 5. The old
+  // detection keyed on the word "confidence" and never saw it.
+  const shelf = Array.from({ length: 8 }, (_, i) => ({
+    title: "Textbook myth paper " + (i + 1), year: 2024, relevance: 80,
+    abstract: "A detailed abstract reports a measured result with enough supporting detail for the answer.",
+  }));
+  const canonical = buildConfidenceLine(shelf.slice(0, 1), { status: "settled" }).line;
+  assert.match(canonical, /^Low confidence: this answer rests on/,
+    "fixture broken: the canonical thin line is not what the binder would ship: " + canonical);
+  const text =
+    "## How solid is this?\n\n" +
+    "The evidence is highly solid for bacterial pathogens but limited for viruses/fungi.";
+  const boundThin = bindProseConfidenceToLevel(text, "thin", canonical);
+  assert.ok(!boundThin.includes("highly solid"),
+    "the specimen's solidity assertion shipped untouched under thin: " + boundThin);
+  assert.ok(boundThin.includes(canonical),
+    "the canonical thin line did not take the section: " + boundThin);
+});
+
+await test("the solidity family ranks on the confidence ladder", () => {
+  assert.equal(confidenceAssertionRank("The evidence is highly solid."), 2);
+  assert.equal(confidenceAssertionRank("The evidence is firmly established."), 2);
+  assert.equal(confidenceAssertionRank("The evidence base is robust."), 2);
+  assert.equal(confidenceAssertionRank("The evidence is conclusive."), 3);
+  assert.equal(confidenceAssertionRank("The strength of the evidence is high."), 2);
+  assert.equal(confidenceAssertionRank("This conclusion rests on solid ground."), 2);
+  assert.equal(confidenceAssertionRank("The evidence is thin."), 0);
+  assert.equal(confidenceAssertionRank("The evidence is moderate at best."), 1);
+});
+
+await test("strength words about methods, effects, and doses are not assertions", () => {
+  // The contextual guard, same philosophy as the confidence word:
+  // the rank word must predicate THIS answer's evidence. A robust
+  // method and a strong coffee predicate something else entirely
+  // and ship verbatim at any level.
+  assert.equal(confidenceAssertionRank("The assay used a robust internal standard, and the method was validated across three laboratories."), -1);
+  assert.equal(confidenceAssertionRank("Strong coffee was provided to the control group each morning."), -1);
+  assert.equal(confidenceAssertionRank("The treatment effect was strong and dose dependent."), -1);
+  const body =
+    "## What the research shows\n\n" +
+    "The assay used a robust internal standard, and the method was validated across three laboratories. " +
+    "Strong coffee was provided to the control group each morning.";
+  const thinLine = buildConfidenceLine([{ title: "One paper", year: 2024, relevance: 80 }], { status: "settled" }).line;
+  const bound = bindProseConfidenceToLevel(body, "thin", thinLine);
+  assert.equal(bound, body, "a methods sentence was rewritten by the solidity gate");
+});
+
+await test("a solidity assertion in free prose is replaced under a moderate ship", () => {
+  const shelf = Array.from({ length: 8 }, (_, i) => ({
+    title: "Cited paper " + (i + 1), year: 2024, relevance: 85,
+    abstract: "A detailed abstract reports a measured result with enough supporting detail for the answer.",
+  }));
+  const moderateLine = buildConfidenceLine(shelf, { status: "settled" }, { extractive: true }).line;
+  assert.match(moderateLine, /^Moderate confidence:/, "fixture broken: " + moderateLine);
+  const text =
+    "## Summary\n\n" +
+    "Overall, the evidence is firmly established on this point. Creatine did not increase hair shedding in the trial [1].";
+  const out = bindProseConfidenceToLevel(text, "moderate", moderateLine);
+  assert.ok(!out.includes("firmly established"),
+    "a high rank solidity assertion survived a moderate ship: " + out);
+  assert.ok(out.includes("did not increase hair shedding"), "the factual sentence was harmed: " + out);
+  assert.ok(out.includes(moderateLine), "the canonical line did not take the assertion's place: " + out);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("baked line binding — the extractive body's pre check line meets the shipped level (sixth panel follow up)");
+
+// The extractive builder composes this paragraph BEFORE the claim
+// check runs, from a wide shelf: a Moderate assertion, its non
+// asserting remainder, then the pipeline appends the trace's real
+// result to the same paragraph. The shipped object, computed
+// after the check, caps at thin because the only check that ran
+// is the provenance trace. Before this binding the body shipped
+// the Moderate assertion untouched over the thin object.
+const BAKED_THIN_LINE = "Low confidence: this answer rests on 8 cited sources, and the available checks do not support a stronger claim. Treat this answer as provisional. Confidence is capped because the only check that ran traced claim wording to the cited papers, which is not a verification.";
+const BAKED_TRACE = "The wording of 6 of 7 cited claims traces to the papers they cite. A wording trace is not a verification.";
+const BAKED_BODY =
+  "## Summary\n\n" +
+  "Germs in the gut change across the first year of life [1].\n\n" +
+  "## How solid is this?\n\n" +
+  "Moderate confidence: this answer rests on 8 cited sources. " +
+  "No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim. " +
+  "Confidence is capped because the answer was assembled from source excerpts. " +
+  BAKED_TRACE + "\n\n" +
+  "- Only 8 sources cleared the relevance bar. Treat this as a starting point, not a settled answer.\n" +
+  "- 3 more papers were found but withheld: they didn't clear the relevance bar for this question.\n\n" +
+  "## What would change this\n\n" +
+  "- A direct replication in a second cohort.\n";
+
+await test("a Moderate baked line is bound to the shipped thin line, trace and bullets intact", () => {
+  const out = bindBakedConfidenceLine(BAKED_BODY, "thin", BAKED_THIN_LINE);
+  assert.ok(!out.includes("Moderate confidence"),
+    "the baked Moderate assertion shipped over a thin level: " + out);
+  assert.ok(out.includes(BAKED_THIN_LINE),
+    "the shipped line does not stand where the baked assertion stood: " + out);
+  assert.ok(out.includes(BAKED_TRACE),
+    "the appended trace sentence was harmed: " + out);
+  assert.ok(out.includes("No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim."),
+    "the baked line's non asserting remainder was removed: " + out);
+  assert.ok(out.includes("- Only 8 sources cleared the relevance bar."),
+    "the section's gap bullets were removed: " + out);
+  assert.ok(out.includes("- 3 more papers were found but withheld"),
+    "the section's gap bullets were removed: " + out);
+  assert.ok(out.includes("## What would change this\n\n- A direct replication in a second cohort."),
+    "the following section was harmed: " + out);
+});
+
+await test("a baked line asserting at the shipped level ships byte identical", () => {
+  // Moderate baked, moderate shipped: the builder and the ship
+  // agree, so nothing may move.
+  const moderateLine = "Moderate confidence: this answer rests on 8 cited sources. No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim.";
+  assert.equal(bindBakedConfidenceLine(BAKED_BODY, "moderate", moderateLine), BAKED_BODY,
+    "a baked line at the shipped level was rewritten");
+  // Thin baked, thin shipped: same agreement at the low band.
+  const thinBody = BAKED_BODY.replace(
+    "Moderate confidence: this answer rests on 8 cited sources. " +
+    "No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim. " +
+    "Confidence is capped because the answer was assembled from source excerpts. ",
+    "Low confidence: this answer rests on only 1 cited source. Treat this answer as provisional. ");
+  assert.equal(bindBakedConfidenceLine(thinBody, "thin", BAKED_THIN_LINE), thinBody,
+    "a thin baked line under a thin ship was rewritten");
+});
+
+await test("the definition shape binds on its Evidence Strength line", () => {
+  const defBody =
+    "## What is a biofilm?\n\n" +
+    "A biofilm is a structured community of microbes [1].\n\n" +
+    "**Evidence Strength** Moderate confidence: this answer rests on 2 cited sources. " +
+    "The wording of 1 of 1 cited claim traces to the papers they cite. A wording trace is not a verification.\n";
+  const out = bindBakedConfidenceLine(defBody, "thin", BAKED_THIN_LINE);
+  assert.ok(!out.includes("Moderate confidence"),
+    "the definition body's baked assertion shipped over thin: " + out);
+  assert.ok(out.includes("**Evidence Strength** " + BAKED_THIN_LINE),
+    "the shipped line does not stand behind the Evidence Strength marker: " + out);
+  assert.ok(out.includes("The wording of 1 of 1 cited claim traces to the papers they cite."),
+    "the trace sentence on the definition line was harmed: " + out);
+  assert.equal(bindBakedConfidenceLine(defBody, "moderate",
+    "Moderate confidence: this answer rests on 2 cited sources."), defBody,
+    "a definition line at the shipped level was rewritten");
+});
+
+await test("a body with no baked line shape is returned untouched", () => {
+  const plain = "## Summary\n\nConfidence is high here, in the model's own words [1].\n";
+  assert.equal(bindBakedConfidenceLine(plain, "thin", BAKED_THIN_LINE), plain,
+    "a body without a baked span was rewritten (that is the prose binder's job, not this pass)");
+  assert.equal(bindBakedConfidenceLine("", "thin", BAKED_THIN_LINE), "");
+  assert.equal(bindBakedConfidenceLine(BAKED_BODY, "thin", ""), BAKED_BODY,
+    "a missing shipped line rewrote the body");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

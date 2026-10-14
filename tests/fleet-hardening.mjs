@@ -45,6 +45,8 @@ const {
   planDelayedRescue,
   cfLegTimeoutMs,
   cfCompletionBudget,
+  compatLegTimeoutMs,
+  COMPAT_LEG_TIMEOUT_OVERRIDES,
   LEG_PARK_DAILY_CAP_MS,
   LEG_PARK_RATE_LIMIT_MS,
   LEG_PARK_TIMEOUT_MS,
@@ -318,6 +320,42 @@ await test("gpt-oss legs get double the completion budget for reasoning", () => 
   assert.equal(cfCompletionBudget("@cf/meta/llama-4-scout-17b-16e-instruct", 6000), 2048, "non reasoning legs keep 2048");
   assert.equal(cfCompletionBudget("@cf/meta/llama-4-scout-17b-16e-instruct", 1000), 1000);
   assert.ok(src.includes("max_tokens: cfCompletionBudget(model, maxTok)"), "callCF must use the per-model budget");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("compat tail — the long timeout legs capped (sixth panel, Job 3a)");
+
+await test("the three long timeout compat legs get a 3s cap, others keep the wave timeout", () => {
+  // The wave six demotion pattern, applied to the compat roster:
+  // gemini-3.8-flash timed out at the full wave 1 timeout
+  // (10,000 ms) in the panel's probes, and gemini-3.5-flash-lite
+  // and mistral:open-mistral-nemo at the wave 2 timeout (8,000 ms).
+  assert.equal(compatLegTimeoutMs("gemini:gemini-3.8-flash", 10000), 3000);
+  assert.equal(compatLegTimeoutMs("gemini:gemini-3.5-flash-lite", 8000), 3000);
+  assert.equal(compatLegTimeoutMs("mistral:open-mistral-nemo", 8000), 3000);
+  assert.equal(compatLegTimeoutMs("gemini:gemini-3.8-flash", 2000), 2000, "never raises a smaller wave timeout");
+  assert.equal(compatLegTimeoutMs("gemini:gemini-2.5-flash", 10000), 10000, "unlisted legs keep the wave timeout");
+  assert.equal(compatLegTimeoutMs("mistral:mistral-small-latest", 8000), 8000, "unlisted legs keep the wave timeout");
+  assert.deepEqual(Object.keys(COMPAT_LEG_TIMEOUT_OVERRIDES).sort(),
+    ["gemini:gemini-3.5-flash-lite", "gemini:gemini-3.8-flash", "mistral:open-mistral-nemo"],
+    "the override table names legs other than the three panel specimens");
+});
+
+await test("the caps bind where the wave descriptors are built, and the seats are as placed", () => {
+  // Applied in compatLegDescriptors, so every wave a listed leg
+  // races in — including the bulletproof wave, which reuses the
+  // w1 rosters — inherits the cap.
+  assert.ok(src.includes('compatLegTimeoutMs(p.id + ":" + m, timeoutMs)'),
+    "compatLegDescriptors does not apply the per leg timeout overrides");
+  // Placement, by the wave six reasoning: gemini-3.8-flash is the
+  // family's quality leg and keeps its wave 1 seat (capped);
+  // flash-lite and nemo are diversity legs whose seat is already
+  // the late wave 2, capped in place rather than duplicated into
+  // the bulletproof roster (wave 3 draws the w1 lists).
+  assert.ok(src.includes('gemini:   { w1: ["gemini-3.8-flash"],        w2: ["gemini-3.5-flash-lite"] }'),
+    "the gemini seats moved: 3.8-flash must hold w1 and 3.5-flash-lite w2");
+  assert.ok(src.includes('mistral:  { w1: ["mistral-small-latest"],    w2: ["open-mistral-nemo"] }'),
+    "the mistral seats moved: open-mistral-nemo must hold w2");
 });
 
 // ═══════════════════════════════════════════════════════════════════

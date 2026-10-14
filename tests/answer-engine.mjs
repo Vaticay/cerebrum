@@ -484,23 +484,24 @@ test("fingerprintClaim normalizes case, bold, citations, punctuation", () => {
 // ══════════════════════════════════════════════════════════════════════════
 group("structural — the gate and the counts are wired end to end");
 
-test("selection applies the gate, then the guaranteed-evidence cascade", () => {
-  // 2026-10-12 (b501e98): the gate is real, but zero sources is
-  // unacceptable — when the gate keeps fewer than 3 papers, selection
-  // falls back to the top 3 ranked papers flagged thinEvidence, and the
-  // synthesis renders that honestly. Name search and follow-up modes
-  // stay exempt (handled by their own branch).
-  assert.ok(searchSrc.includes("const gated = applyRelevanceGate(papers);"), "gate not applied in selection");
-  assert.ok(searchSrc.includes("if (gated.length >= 3)"), "gated fast path missing");
-  // 2026-10-14 (fourth panel, JOB 2): the slice is taken from the
-  // gated pool ordered by concept group coverage ahead of raw
-  // score (orderCitedSliceByCoverage), on both the fast path and
-  // the cascade — the gate itself and the cascade contract are
-  // unchanged, only the pool's order into the slice is.
-  assert.ok(searchSrc.includes("const citedPool = orderCitedSliceByCoverage(gated, query, _dynForValidation);"), "gated pool not coverage ordered");
-  assert.ok(searchSrc.includes("evidencePapers = citedPool.slice(0, maxEvidence)"), "gated papers not selected");
-  assert.ok(searchSrc.includes("evidencePapers = orderCitedSliceByCoverage(ranked, query, _dynForValidation).slice(0, 3)"), "cascade top-3 fallback missing");
-  assert.ok(searchSrc.includes("p.thinEvidence = true"), "cascade papers not flagged thinEvidence");
+test("selection binds every cited paper individually; the cascade never promotes into the cited set", () => {
+  // Corrected contract (2026-10-14, sixth panel, wave seven, Job
+  // 1a), superseding the 2026-10-12 cascade pin below in history:
+  // the guaranteed evidence cascade admitted the top 3 ranked
+  // papers into the cited set flagged thinEvidence whenever the
+  // gated pool ran short, and the panel measured the result —
+  // cited papers at relevance 10, 24, 26, 45 against a floor of
+  // 50. Selection now computes the citable set per paper through
+  // paperIsCitable (citation gate standard AND relevance floor),
+  // orders it by concept coverage as before, and an empty citable
+  // set is the serve gate's no evidence state. Name search and
+  // follow-up modes stay exempt (handled by their own branch).
+  assert.ok(searchSrc.includes("citablePapers = papers.filter((p, i) => paperIsCitable(p, i + 1, gateCtx));"), "per paper citable selection missing");
+  assert.ok(searchSrc.includes("const citedPool = orderCitedSliceByCoverage(citablePapers, query, _dynForValidation);"), "citable pool not coverage ordered");
+  assert.ok(searchSrc.includes("evidencePapers = citedPool.slice(0, maxEvidence);"), "citable papers not selected");
+  assert.ok(searchSrc.includes("serveGateNoEvidence = citablePapers.length === 0;"), "empty citable set must raise the serve gate");
+  assert.ok(!searchSrc.includes("p.thinEvidence = true"), "cascade thinEvidence stamping still present");
+  assert.ok(!searchSrc.includes("evidencePapers = orderCitedSliceByCoverage(ranked, query, _dynForValidation).slice(0, 3)"), "cascade top-3 promotion still present");
   assert.ok(!searchSrc.includes("papers.slice(0, 8)"), "old ungated top-8 fallback still present");
 });
 

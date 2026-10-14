@@ -116,6 +116,7 @@ await test("converts the internal diag funnel to the public shape", () => {
     gathered: 88,
     deduped: 61,
     excludedWeak: 49,
+    excludedWeakTitles: [],
     excludedNonEnglish: 2,
     excludedRetracted: 0,
     cited: 2,
@@ -128,7 +129,7 @@ await test("accepts the public _funnel shape directly", () => {
     funnel: { gathered: 10, deduped: 8, excludedWeak: 3, excludedNonEnglish: 1, excludedRetracted: 0, cited: 2 },
     sources: [{ title: "A", year: 2020 }, { title: "B", year: 2022 }],
   });
-  assert.deepEqual(rec.funnel, { gathered: 10, deduped: 8, excludedWeak: 3, excludedNonEnglish: 1, excludedRetracted: 0, cited: 2 });
+  assert.deepEqual(rec.funnel, { gathered: 10, deduped: 8, excludedWeak: 3, excludedWeakTitles: [], excludedNonEnglish: 1, excludedRetracted: 0, cited: 2 });
   assert.equal(rec.databases, null, "no outcome list means databases stay null, not invented");
 });
 
@@ -532,8 +533,10 @@ group("cached serves carry recomputed trust artifacts (wave two part two, 2026-1
 // no coverage, no record, no confidence, no stage health. The trust
 // features switched off exactly where repeat traffic lands. The
 // standing rule: a cached answer is served with its trust artifacts
-// recomputed under current rules; nothing about the answer text
-// changes. These fixtures run the exact builder both cache returns
+// recomputed under current rules; the answer text changes only
+// where a stored extractive body's baked confidence line is bound
+// to the recomputed level (sixth panel follow up, 2026-10-14).
+// These fixtures run the exact builder both cache returns
 // call, on the exact payload shape the cache stores (answer text +
 // source list), and the pipeline smoke suite runs the early return
 // end to end through the handler.
@@ -565,7 +568,7 @@ await test("a cached serve rebuilds coverage, funnel, and record from the stored
   // proves, null for every count the original run produced but the
   // cache did not store.
   assert.deepEqual(trust.funnel, {
-    gathered: null, deduped: null, excludedWeak: null,
+    gathered: null, deduped: null, excludedWeak: null, excludedWeakTitles: null,
     excludedNonEnglish: null, excludedRetracted: null, cited: 2,
   });
   // Coverage denominators stay on the cited set: the uncited 2015
@@ -589,8 +592,16 @@ await test("a cached serve rebuilds coverage, funnel, and record from the stored
   assert.equal(trust.record.executedQueries, null);
   assert.deepEqual(trust.record.sources.map((s) => s.cited), [true, true, false]);
   assert.equal(trust.record.sources[0].authors, "Storey KB, Storey JM");
-  // The builder never touches the answer text.
-  assert.ok(!("answer" in trust), "the trust builder must not carry or mutate the answer");
+  // The served body rides along as `answer`. Corrected contract
+  // (2026-10-14, sixth panel follow up): this pin used to assert
+  // the builder carries no answer at all, under the wave two rule
+  // that a cache serve never touches the text — the rule that let
+  // a stored extractive body's baked line disagree with the
+  // recomputed level. The builder now returns the body with its
+  // baked span bound to that level; this payload has no baked
+  // span, so it must come through byte for byte.
+  assert.equal(trust.answer, STORED_ANSWER,
+    "a stored body with no baked span must come through byte identical");
 });
 
 await test("a cached serve keeps stored further reading tail entries uncited, with counts agreeing", () => {
@@ -636,6 +647,128 @@ await test("a cached serve's confidence is recomputed under current caps, not se
   assert.equal(trust.confidence.cap, 59);
   assert.match((trust.confidence.capReasons || []).join(" "), /fact checking did not check/);
   assert.equal(trust.confidence.verdictStatus, null);
+});
+
+// ── Cached serve baked line parity (sixth panel follow up,
+// 2026-10-14): the ship gate binds a fresh extractive shipment's
+// baked confidence line to the shipped level, but the cached
+// serve recomputed the level for a stored answer and shipped the
+// stored body untouched, so the body versus object disagreement
+// the gate prevents crossed here instead. The stored payload
+// below is an extractive shipment: a wide, recent shelf its
+// builder saw before the claim check ran, a baked Moderate line,
+// and the trace sentence the pipeline appended to the same
+// paragraph. The payload's own fact check is the provenance
+// trace — the only check that ran on the original run.
+const BAKED_STORED_SOURCES = Array.from({ length: 8 }, (_, i) => ({
+  title: "Infant gut colonization study " + (i + 1),
+  authors: "Researcher " + (i + 1),
+  journal: "Journal of Infant Microbiology",
+  year: 2025,
+  relevance: 90,
+  type: "journal article",
+  abstract: "A cohort study of how the infant gut community assembles across the first year of life, with feeding mode and delivery mode recorded for every participant.",
+  url: "https://doi.org/10.1000/gut" + (i + 1),
+}));
+const BAKED_STORED_ANSWER =
+  "## Summary\n\n" +
+  "Germs in the gut change across the first year of life [1], and feeding shapes which germs take hold [2]. " +
+  "The gut community steadies as solid foods arrive [3], and delivery mode leaves an early mark [4]. " +
+  "By the first birthday the community looks more adult [5], though it keeps changing [6]. " +
+  "Antibiotic courses interrupt the pattern [7], and recovery takes weeks [8].\n\n" +
+  "## How solid is this?\n\n" +
+  "Moderate confidence: this answer rests on 8 cited sources. " +
+  "No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim. " +
+  "Confidence is capped because the answer was assembled from source excerpts. " +
+  "The wording of 6 of 7 cited claims traces to the papers they cite. A wording trace is not a verification.\n\n" +
+  "- Only 8 sources cleared the relevance bar. Treat this as a starting point, not a settled answer.\n" +
+  "- 3 more papers were found but withheld: they didn't clear the relevance bar for this question.\n\n" +
+  "## What would change this\n\n" +
+  "- A direct replication in a second cohort.\n";
+const STORED_PROVENANCE_CHECK = {
+  mode: "extractive",
+  checkKind: "provenance",
+  checked: true,
+  overall: "supported",
+  claims: Array.from({ length: 7 }, (_, i) => ({
+    claim: "Stored claim " + (i + 1),
+    status: i < 6 ? "supported" : "thin",
+    note: "The claim's wording traces to the cited paper's title/abstract.",
+  })),
+};
+
+await test("a cached extractive serve binds its baked line to the recomputed level, provenance cap included", () => {
+  const trust = buildCachedServeTrust({
+    answer: BAKED_STORED_ANSWER,
+    sources: BAKED_STORED_SOURCES,
+    question: "what happens to a baby's gut germs in the first year",
+    askedAt: STORED_AT,
+    degraded: false,
+    factCheck: STORED_PROVENANCE_CHECK,
+    synthesisMode: "extractive",
+  });
+  assert.equal(trust.funnel.cited, 8, "the stored markers cite all eight sources");
+  // The provenance cap binds the recomputed level: the shelf
+  // alone would carry the unchecked cap (59, moderate), but the
+  // only check the payload carries is the wording trace, which
+  // verified nothing — the same thin a fresh run of this answer
+  // ships.
+  assert.equal(trust.confidence.level, "thin");
+  assert.equal(trust.confidence.cap, 45);
+  assert.match((trust.confidence.capReasons || []).join(" "), /traced claim wording/);
+  // The body agrees with the object: the baked Moderate
+  // assertion is replaced by the recomputed line, in place, and
+  // the trace sentence, the non asserting remainder, and the
+  // gap bullets survive.
+  assert.ok(trust.answer !== BAKED_STORED_ANSWER, "the baked body shipped unbound");
+  assert.ok(!trust.answer.includes("Moderate confidence"),
+    "the baked Moderate assertion shipped over a thin level: " + trust.answer);
+  assert.ok(trust.answer.includes(trust.confidence.line),
+    "the recomputed line does not stand where the baked assertion stood: " + trust.answer);
+  assert.ok(trust.answer.includes("The wording of 6 of 7 cited claims traces to the papers they cite."),
+    "the appended trace sentence was harmed: " + trust.answer);
+  assert.ok(trust.answer.includes("No opposing findings were detected among them"),
+    "the baked line's non asserting remainder was removed: " + trust.answer);
+  assert.ok(trust.answer.includes("- Only 8 sources cleared the relevance bar."),
+    "the section's gap bullets were removed: " + trust.answer);
+});
+
+await test("a cached extractive serve already at the recomputed level passes byte identical", () => {
+  // No stored fact check: the recomputed level is the unchecked
+  // moderate, which is exactly what the baked line asserts, so
+  // the builder and the serve agree and nothing may move.
+  const trust = buildCachedServeTrust({
+    answer: BAKED_STORED_ANSWER,
+    sources: BAKED_STORED_SOURCES,
+    question: "what happens to a baby's gut germs in the first year",
+    askedAt: STORED_AT,
+    degraded: false,
+    synthesisMode: "extractive",
+  });
+  assert.equal(trust.confidence.level, "moderate");
+  assert.equal(trust.answer, BAKED_STORED_ANSWER,
+    "a baked line at the recomputed level was rewritten");
+});
+
+await test("a stored AI answer is not bound by the extractive span pass", () => {
+  // The payload is recorded as an AI answer: its prose was the
+  // prose binder's charge on the fresh run, and the baked span
+  // pass is extractive only, exactly as at the ship gate. The
+  // provenance cap still binds its recomputed level (the cap is
+  // mode independent, as on a fresh run), but the body ships
+  // byte for byte.
+  const trust = buildCachedServeTrust({
+    answer: BAKED_STORED_ANSWER,
+    sources: BAKED_STORED_SOURCES,
+    question: "what happens to a baby's gut germs in the first year",
+    askedAt: STORED_AT,
+    degraded: false,
+    factCheck: STORED_PROVENANCE_CHECK,
+    synthesisMode: "ai",
+  });
+  assert.equal(trust.confidence.level, "thin");
+  assert.equal(trust.answer, BAKED_STORED_ANSWER,
+    "a stored AI answer's body was rewritten by the extractive span pass");
 });
 
 await test("the later cache path recomputes against this run's real retrieval", () => {

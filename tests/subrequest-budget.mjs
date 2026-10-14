@@ -1086,6 +1086,14 @@ await test("all three planner stamp sites mark their trims plannedSkip, and the 
     "the synthesis record's failedLegs does not exclude planner stamps");
   assert.ok(src.includes("budgetSkippedLegs: synthLegs.filter((a) => a.plannedSkip === true).length"),
     "the synthesis record does not count the trims as budgetSkippedLegs");
+  // Parked stamps ride the same separation (sixth panel, Job 3b):
+  // a leg the per leg health store parked never raced either, and
+  // its 0 ms "parked (...)" entries were still mixed into
+  // failedLegs after the planner fix above.
+  assert.ok(src.includes("a.parked !== true"),
+    "the synthesis record's failedLegs does not exclude parked stamps");
+  assert.ok(src.includes("parkedLegs: synthLegs.filter((a) => a.parked === true).length"),
+    "the synthesis record does not count the parks as parkedLegs");
   // The delayed rescue's inner wave plan must not shadow the
   // rescue plan's name: the same named const put the wait branch
   // in its temporal dead zone and the branch threw on every run
@@ -1107,6 +1115,25 @@ await test("publicStageHealth ships budgetSkippedLegs and leaves failedLegs as b
   ]);
   assert.equal(shipped[0].budgetSkippedLegs, 4, "the trim count did not ship");
   assert.deepEqual(shipped[0].failedLegs, [{ model: "groq:openai/gpt-oss-120b", ms: 1200, error: "HTTP 500" }]);
+});
+
+await test("publicStageHealth ships parkedLegs like budgetSkippedLegs, and omits it at zero (Job 3b)", () => {
+  const shipped = publicStageHealth([
+    {
+      name: "synthesis", ok: false, ms: 9000, skipReason: "all legs failed", winner: null, winnerMs: null,
+      legs: 8, budgetSkippedLegs: 1, parkedLegs: 3,
+      failedLegs: [{ model: "groq:openai/gpt-oss-120b", ms: 1200, error: "HTTP 500" }],
+    },
+    {
+      name: "synthesis", ok: true, ms: 800, winner: "groq:openai/gpt-oss-120b", winnerMs: 700,
+      legs: 8, failedLegs: [],
+    },
+  ]);
+  assert.equal(shipped[0].parkedLegs, 3, "the parked count did not ship");
+  assert.equal(shipped[0].budgetSkippedLegs, 1, "the trim count changed shape beside it");
+  assert.deepEqual(shipped[0].failedLegs, [{ model: "groq:openai/gpt-oss-120b", ms: 1200, error: "HTTP 500" }],
+    "failedLegs changed shape beside the parked count");
+  assert.ok(!("parkedLegs" in shipped[1]), "a zero parked count shipped anyway");
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -2162,12 +2189,27 @@ await test("NL net: full concept coverage ranks ahead of the surface match", asy
   assert.ok(counts.epmcVerbatim >= 1,
     `the NL net never fired (verbatim Europe PMC calls: ${counts.epmcVerbatim})`);
   const titles = (data.sources || []).map((s) => s.title || "");
-  const surfaceIdx = titles.findIndex((t) => t.includes("Belly germs in daily life"));
+  const citedTitles = (data.sources || []).filter((s) => !s.uncited).map((s) => s.title || "");
   const fullIdx = titles.findIndex((t) => t.includes("Yogurt, gut germs and the infant belly"));
-  assert.ok(surfaceIdx >= 0, "the surface paper did not ship at all: " + JSON.stringify(titles));
   assert.ok(fullIdx >= 0, "the full coverage paper did not ship at all: " + JSON.stringify(titles));
-  assert.ok(fullIdx < surfaceIdx,
-    `the full coverage paper must rank ahead of the surface match (full coverage at ${fullIdx}, surface at ${surfaceIdx})`);
+  assert.ok(citedTitles.some((t) => t.includes("Yogurt, gut germs and the infant belly")),
+    "the full coverage paper must ship cited: " + JSON.stringify(data.sources));
+  // Corrected contract (2026-10-14, sixth panel, wave seven, Job
+  // 1a): the pre wave seven pin expected the surface match to
+  // ship alongside, ranked behind — it reached the shipped list
+  // through the guaranteed evidence cascade at relevance 20
+  // (the ladder paper at 40), the panel's specimen failure in
+  // miniature. Under per paper binding neither sub floor paper
+  // can cite, and the relevance gated further reading tail does
+  // not carry them either, so the full coverage paper ships
+  // alone. The ranking this scenario exists to prove is what
+  // put it there: its three group coverage (nlGroupHits 3
+  // against the surface match's 2) is what carried it over the
+  // floor while the surface match's term frequency could not.
+  assert.ok(!citedTitles.some((t) => t.includes("Belly germs in daily life")),
+    "the surface match shipped as cited under per paper binding");
+  assert.ok(!citedTitles.some((t) => t.includes("The infant belly and its germs")),
+    "the ladder paper shipped as cited under per paper binding");
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -2638,15 +2680,20 @@ async function runEmptyShelfScenario() {
       // Only ONE call site in the whole pipeline asks this way:
       // the fallback cascade's raw net, which prefixes the
       // organism's binomial to the cleaned question and asks the
-      // resulting stemmed bag plainly, so its query opens with
-      // the binomial followed by the question's first stems in
-      // order ("illucens chang diet impact"). The ladder asks in
-      // structured booleans (quoted phrases, AND/OR groups), and
-      // the natural language net asks the verbatim question,
-      // which carries no binomial. That call answers with the
-      // scenario's only two papers; everything else is empty.
+      // resulting bag plainly, so its query opens with the
+      // binomial followed by the question's first words in order
+      // ("illucens changing diets impact"). Corrected contract
+      // (2026-10-14, sixth panel, wave seven, Job 2a/2d): fetcher
+      // queries carry unstemmed surface terms — the pre wave
+      // seven stub keyed on the stemmed bag ("illucens chang diet
+      // impact"), which was the stem leakage itself. The ladder
+      // asks in structured booleans (quoted phrases, AND/OR
+      // groups), and the natural language net asks the verbatim
+      // question, which carries no binomial. That call answers
+      // with the scenario's only two papers; everything else is
+      // empty.
       const qs = new URL(u).searchParams.get("query") || "";
-      if (qs.includes("illucens chang diet impact")) {
+      if (qs.includes("illucens changing diets impact")) {
         const mk = (n) => ({
           title: "Diet and gut microbial community assembly in black soldier fly larvae study " + n,
           doi: "10.1000/yield" + n,

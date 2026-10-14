@@ -303,7 +303,7 @@ await test("a binomial anchored paper is exempt even on one group", () => {
   assert.ok(out.text.includes("[1]"), "the anchored paper keeps its marker");
 });
 
-await test("thinEvidence papers are exempt (the cascade is never defeated)", () => {
+await test("thinEvidence papers are NOT exempt (per paper binding has no cascade exception)", () => {
   const q = "Do the germs in a baby's belly change how well the baby grows?";
   const papers = [
     { title: "Anything at all", abstract: "belly only, nothing else", thinEvidence: true, url: "https://example.com/thin" },
@@ -311,8 +311,15 @@ await test("thinEvidence papers are exempt (the cascade is never defeated)", () 
   ];
   const answer = "Thin [1]. On point [2].";
   const out = applyConceptCoverageGate(answer, papers, q, null);
-  assert.ok(out.text.includes("[1]"), "the cascade paper keeps its marker");
-  assert.deepEqual(out.demoted, []);
+  // Corrected contract (2026-10-14, sixth panel, wave seven, Job
+  // 1a): the cascade flag exempts nothing. The flagged paper
+  // touches one concept group against a two group standard and
+  // loses its marker like any other failing paper; the clearing
+  // paper's marker survives. (The pre wave seven pin asserted
+  // the opposite: the flag kept the marker unconditionally.)
+  assert.ok(!out.text.includes("[1]"), "the flagged paper kept its marker: " + out.text);
+  assert.ok(out.text.includes("[2]"), "the clearing paper lost its marker: " + out.text);
+  assert.equal(out.demoted.length, 1, "exactly the flagged paper is demoted");
 });
 
 await test("single concept questions: the degraded standard judges, the floor protects (frog controls)", () => {
@@ -556,11 +563,18 @@ await test("the cache schema carries the wave two bump", () => {
   // broad terms rung, the serve gate, the title twin dedupe,
   // prose bound to the shipped confidence level, and the
   // Detailed acceptance floor — cited sets, shelf composition,
-  // serve shapes, and answer text all predate the contract).
+  // serve shapes, and answer text all predate the contract),
+  // then to v40 by the sixth panel wave seven (2026-10-14: per
+  // paper citation binding in every mode, gerund subject
+  // identification, the scorer phrase carry rule, surface terms
+  // for fetchers and reformulations, ladder continuation on the
+  // citable count, anchor discipline, and restricted fallback
+  // inflection — cited sets, serve shapes, queries, and answer
+  // text all predate the contract).
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v39"'), "CACHE_SCHEMA_VERSION must be v39");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v40"'), "CACHE_SCHEMA_VERSION must be v40");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -779,7 +793,11 @@ group("reorder — the cheap validation passes run before the evidence cut");
 await test("the handler runs the programmatic passes on the shelf before the gate and cut", () => {
   const applyIdx = src.indexOf("papers = programmaticValidationPasses(query, papers, _dynForValidation);");
   assert.ok(applyIdx > 0, "the pre cut application is missing from the handler");
-  const gateIdx = src.indexOf("const gated = applyRelevanceGate(papers);");
+  // Wave seven: the selection gate is the per paper binding —
+  // citablePapers computed through paperIsCitable over the post
+  // passes shelf (the old "const gated = applyRelevanceGate"
+  // line and the cascade below it are gone).
+  const gateIdx = src.indexOf("serveGateNoEvidence = citablePapers.length === 0;");
   assert.ok(gateIdx > applyIdx, "the passes must run before the selection gate");
   assert.ok(
     src.includes("let survivors = programmaticValidationPasses(rawQuery, papers, dynLookup);"),

@@ -3026,7 +3026,7 @@ export const MESH_BULK = {
   "fleas": ["Siphonaptera","Aphaniptera"],
   "flecatab": ["Flecainide","Flecainide Acetate","Apocard","Flecadura"],
   "flegamin": ["Bromhexine","Aparsonin","Bisolvon","Bromhexin"],
-  "flies": ["Diptera","Dipteras","True Flies","True Fly"],
+  "flies": ["Diptera","Dipterans","True Flies","True Fly"],
   "flip-l": ["CASP8 and FADD-Like Apoptosis Regulating Protein","Casper Protein","FLICE-Inhibitory Protein","FLICE-Inhibitory Protein Long Form"],
   "flip-s": ["CASP8 and FADD-Like Apoptosis Regulating Protein","Casper Protein","FLICE-Inhibitory Protein","FLICE-Inhibitory Protein Long Form"],
   "flodil": ["Felodipine","Agon","Felobeta","Felo Biochemie"],

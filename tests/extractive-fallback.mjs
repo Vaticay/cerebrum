@@ -532,32 +532,40 @@ await test("the extractive shipped list obeys the caps and carries no collisions
     assert.ok(!shipped.some((p) => p.title.includes(t)), `collision must not ship in any position: ${t}`);
   }
   for (const p of shipped) {
-    assert.ok(p.thinEvidence || paperConceptGroupHits(p, tailCtx.groups) >= 2,
+    assert.ok(paperConceptGroupHits(p, tailCtx.groups) >= 2,
       `every shipped paper meets the gate standard: ${p.title}`);
   }
 });
 
-await test("thin shelf control: the cascade still answers when nothing clears the standard", () => {
-  // A genuinely thin shelf: the only retrieved papers are two
-  // case reports the relevance cascade flagged thinEvidence. They
-  // touch one concept group at most, but the cascade guarantee
-  // outranks the standard — the prune must stand down and the
-  // builder must still answer.
+await test("thin shelf control: nothing citable means the extractive pool is empty and no answer is built", () => {
+  // Corrected contract (2026-10-14, sixth panel, wave seven, Job
+  // 1a): the extractive pool is built ONLY from papers that
+  // individually clear the citation gate and the relevance floor.
+  // The pre wave seven pin expected the guaranteed cascade to
+  // outrank the standard — thinEvidence flagged papers stood the
+  // prune down and still answered — which is the mechanism that
+  // shipped ungated extractive answers in production. The flag
+  // exempts nothing now: both case reports below sit above the
+  // relevance floor (59 and 67) but touch one concept group at
+  // most against a two group standard, so both prune away, the
+  // pool is empty, and the builder returns null — the run takes
+  // the no evidence path, which is the only outcome.
   const thin = [
     { ...PRUNE_PAPER(), thinEvidence: true },
     { ...BIG_BELLY_PAPER(), thinEvidence: true },
   ];
   const pruned = pruneExtractiveEvidence(thin, BELLY_Q, null);
-  assert.ok(!pruned.changed, "cascade papers must not be pruned away");
+  assert.ok(pruned.changed && pruned.papers.length === 0,
+    "flagged papers that clear nothing must prune away entirely: " + JSON.stringify(pruned.papers.map((p) => p.title)));
   const md = buildExtractiveSynthesis(pruned.papers, null, { query: BELLY_Q });
-  assert.ok(md && md.length > 0, "a thin shelf still produces an honest answer, never zero sources");
-  // Floor rule without cascade flags: when NO paper clears the
-  // standard and none is flagged, the set also stands — a
-  // mechanical pass must never manufacture zero sources.
+  assert.ok(md === null || md.length === 0, "an empty extractive pool must not produce an answer");
+  // Same outcome without any flags: two above floor papers that
+  // clear no gate between them leave an empty pool.
   const floor = pruneExtractiveEvidence([DANCE_PAPER(), PRUNE_PAPER()], BELLY_Q, null);
-  assert.ok(!floor.changed && floor.papers.length === 2, "the floor rule keeps the set when nothing clears");
+  assert.ok(floor.changed && floor.papers.length === 0,
+    "an ungated set must prune to empty, not stand as a floor set");
   const md2 = buildExtractiveSynthesis(floor.papers, null, { query: BELLY_Q });
-  assert.ok(md2 && md2.length > 0, "the floor set still answers");
+  assert.ok(md2 === null || md2.length === 0, "the empty pool builds no answer");
 });
 
 // ── GATE GROUP PRECEDENCE (2026-10-13) ──────────────────────────
@@ -625,7 +633,7 @@ await test("the extractive tail standard holds under an adversarial expansion lo
     assert.ok(!tail.some((p) => p.title.includes(t)), `collision must not ride the tail: ${t}`);
   }
   for (const p of tail) {
-    assert.ok(p.thinEvidence || paperConceptGroupHits(p, tailCtx.groups) >= 2,
+    assert.ok(paperConceptGroupHits(p, tailCtx.groups) >= 2,
       `every tail entry meets the gate standard: ${p.title}`);
   }
 });

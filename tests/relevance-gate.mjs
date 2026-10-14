@@ -34,7 +34,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { onRequest, createSubrequestLedger } = await import(join(root, "functions/api/search.js"));
+const { onRequest, createSubrequestLedger, recordLegOutcome, resetLegHealth } = await import(join(root, "functions/api/search.js"));
 const { getBreaker, resetBreakers } = await import(join(root, "functions/lib/llmCircuit.js"));
 
 let passed = 0;
@@ -324,7 +324,7 @@ group("subject touch standard (2026-10-14) — the creatine shape, one layer dee
 // DOES cite. Under the old any group standard the subject only
 // paper was barred (one group touch), and the effect only paper
 // was the kind of citation that shipped.
-await test("an effect only top scorer never cites; a subject only paper cites", async () => {
+await test("an effect only top scorer never cites; a below floor subject only paper cannot cite either", async () => {
   scenPapers = [
     epmc(11, "Hair in the schoolyard: hair policies and belonging in English schools",
       "This sociology paper examines how school hair rules shape pupils' sense of identity and belonging. Hair is treated as culture and self expression throughout, and hair length rules are traced through school policy documents and pupil interviews about hair.", 900),
@@ -344,18 +344,34 @@ await test("an effect only top scorer never cites; a subject only paper cites", 
   assert.equal(data.synthesisMode, "ai", "the scenario must ship the AI answer, got: " + data.synthesisMode);
   assert.equal(data._expansion && data._expansion.via, "fallback",
     "the expansion via must name the fallback: " + JSON.stringify(data._expansion));
+  // Corrected contract (2026-10-14, sixth panel, wave seven, Job
+  // 1a): EVERY cited paper must individually clear the citation
+  // gate AND the relevance floor — no cascade promotion, no
+  // exceptions. The renal safety study touches the subject group
+  // (creatine) and nothing else, so it reached the shelf only
+  // through the emergency relaxation at a coverage score far
+  // below the floor; the pre wave seven pin expected it cited as
+  // marker [2] at relevance 8, which is precisely the panel's
+  // specimen failure (cited papers at 10, 24, 26, 45 against a
+  // floor of 50). Under binding it cannot cite: the draft's [2]
+  // marker is stripped by the uncited handling, and only the
+  // subject covering trial — gate clearing and above the floor —
+  // ships cited.
   const citedTitles = (data.sources || []).filter((s) => !s.uncited).map((s) => s.title);
   assert.deepEqual(citedTitles, [
     "Creatine monohydrate supplementation and hair shedding: a randomized controlled trial",
-    "Creatine supplementation and renal function in healthy adults: a two year safety study",
-  ], "the cited set must be the subject covering trial and the subject only safety study, in that order: " + JSON.stringify(citedTitles));
-  assert.ok(data.answer.includes("[1]") && data.answer.includes("[2]"),
-    "both creatine markers must survive in the shipped answer");
+  ], "the cited set must be the subject covering trial alone: " + JSON.stringify(citedTitles));
+  assert.ok(data.answer.includes("[1]"), "the trial's marker must survive in the shipped answer");
+  assert.ok(!data.answer.includes("[2]"),
+    "a marker resolving to a below floor paper survived in the answer: " + data.answer.slice(0, 300));
   (data.sources || []).forEach((s, i) => {
     if (s.title.startsWith("Hair in the schoolyard")) {
       assert.equal(s.uncited, true, "the effect only top scorer shipped as cited: " + s.title);
       assert.ok(!data.answer.includes("[" + (i + 1) + "]"),
         "the effect only top scorer's marker survived in the answer: " + s.title);
+    }
+    if (s.title.startsWith("Creatine supplementation and renal")) {
+      assert.equal(s.uncited, true, "the below floor subject only paper shipped as cited: " + s.title);
     }
   });
 });
@@ -601,7 +617,7 @@ await test("a sugar shaped run over a galaxy and fibre pool ships no results, no
     "an irrelevant paper shipped as cited: " + JSON.stringify(data.sources));
 });
 
-await test("a thin but gated in pool still ships its thin answer (the serve gate stands down)", async () => {
+await test("a thin pool whose only subject paper sits below the floor ships no evidence (the serve gate stands)", async () => {
   scenPapersFn = null;
   scenPapers = [
     epmc(63, "Creatine and kidney safety in healthy adults: a controlled trial",
@@ -613,12 +629,21 @@ await test("a thin but gated in pool still ships its thin answer (the serve gate
     "Creatine did not change kidney filtration markers in healthy adults over twelve weeks [1]. " +
     "No adverse renal events occurred in the creatine group [1].";
   const data = await runScenario("does creatine make your hair fall out");
-  assert.notEqual(data.responseKind, "no-results",
-    "a pool with one citable paper was served as no evidence");
-  assert.ok(!data.noResults, "the thin answer shipped with a no results flag");
-  const cited = (data.sources || []).filter((s) => !s.uncited);
-  assert.ok(cited.some((s) => s.title.startsWith("Creatine and kidney")),
-    "the gated in paper did not cite: " + JSON.stringify(data.sources));
+  // Corrected contract (2026-10-14, sixth panel, wave seven, Job
+  // 1a): the kidney trial clears the concept gate (it touches the
+  // creatine subject group) but reaches the shelf only through
+  // the emergency relaxation, far below the relevance floor. The
+  // pre wave seven pin expected the serve gate to stand down and
+  // the thin answer to ship with this paper cited — the exact
+  // mechanism that put sub floor papers into the panel's cited
+  // sets. Under per paper binding there is nothing citable in
+  // this pool, so the honest no evidence state is the only
+  // outcome.
+  assert.equal(data.responseKind, "no-results",
+    "a pool with no citable paper shipped an answer instead of the no evidence state: " + data.responseKind);
+  assert.ok(data.noResults, "the no results flag is missing");
+  assert.ok(!(data.sources || []).some((s) => !s.uncited),
+    "a below floor paper shipped as cited: " + JSON.stringify(data.sources));
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -702,6 +727,47 @@ await test("an all fail run ships the extractive tier with an honest synthesis r
   for (const leg of synth.failedLegs || []) {
     assert.ok(!/subrequest budget exhausted/i.test(leg.error || ""),
       "a planner stamp leaked into failedLegs: " + JSON.stringify(leg));
+  }
+});
+
+await test("a parked leg counts as parkedLegs on the record, never as a failed leg (sixth panel, Job 3b)", async () => {
+  // The wave 1 OpenRouter leg is parked by the per leg health
+  // store (two consecutive timeouts) before the run starts. It
+  // never races: the synthesis record must count it under
+  // parkedLegs and keep it out of failedLegs — the panel still
+  // found 0 ms "parked (rate limit cooldown)" entries mixed into
+  // failedLegs on half its probes, the same misclassification the
+  // planner stamps were separated for.
+  scenPapersFn = null;
+  scenPapers = [
+    epmc(81, "Creatine monohydrate supplementation and hair shedding: a randomized controlled trial",
+      "Adults taking creatine monohydrate at five grams daily were followed for twelve weeks against placebo. Hair shedding counts and scalp hair density did not increase on creatine, and dihydrotestosterone remained within the normal range in both groups throughout the trial.", 500),
+    epmc(82, "Creatine supplementation in athletes: a systematic review of safety outcomes",
+      "Across forty one trials of creatine supplementation in athletes, adverse events were uncommon and mild. Hair outcomes were reported in three trials, none of which found increased hair shedding or hair loss on creatine compared with placebo at standard doses.", 400),
+  ];
+  scenAnswer = "creatine is fine and does not affect hair at all";
+  resetLegHealth();
+  const t0 = Date.now();
+  recordLegOutcome("nvidia/nemotron-3-ultra-550b-a55b:free", false,
+    "nvidia/nemotron-3-ultra-550b-a55b:free: timed out", t0);
+  recordLegOutcome("nvidia/nemotron-3-ultra-550b-a55b:free", false,
+    "nvidia/nemotron-3-ultra-550b-a55b:free: timed out", t0 + 1000);
+  let data;
+  try {
+    data = await runScenario("does creatine make your hair fall out");
+  } finally {
+    resetLegHealth();
+  }
+  assert.equal(data.synthesisMode, "extractive", "the parked run should still fall to the extractive tier");
+  const synth = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synth, "the synthesis stage record is missing");
+  assert.ok((synth.parkedLegs || 0) >= 1,
+    "the parked leg was not counted as parkedLegs: " + JSON.stringify(synth));
+  for (const leg of synth.failedLegs || []) {
+    assert.ok(!/^parked \(/i.test(leg.error || ""),
+      "a parked stamp leaked into failedLegs: " + JSON.stringify(leg));
+    assert.ok(leg.model !== "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "the parked leg is listed as a raced failure: " + JSON.stringify(leg));
   }
 });
 
