@@ -24927,11 +24927,13 @@ const CSS = `
      tracking, never a second family: long-form prose (policy pages, the
      answer body) is set in Inter Tight like everything else — a reading
      serif at these sizes read as a magazine, and Cerebrum is software. */
-  --cb-font:  'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
-  --cb-ease-in: cubic-bezier(0.16, 1, 0.3, 1);
-  --cb-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --cb-spring:  cubic-bezier(0.16, 1, 0.3, 1);
+  /* 2026-10-14, wave 1 foundation: the plan now sets Inter as the UI face with the self hosted Inter Tight as its guaranteed local face, Source Serif 4 exists for answer body and lesson text only via --cb-serif, weights are 400 and 500 only. */
+  --cb-font:  'Inter', 'Inter Tight', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
+  --cb-ease:    cubic-bezier(0, 0, 0.58, 1);
+  --cb-ease-in: cubic-bezier(0, 0, 0.58, 1);
+  --cb-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --cb-spring:  cubic-bezier(0, 0, 0.58, 1);
 }
 
 *, *::before, *::after {
@@ -27409,7 +27411,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 
 /* Shared action treatment: solid, no decorative gradients. */
-.cb-glass-action, .cb-intro-go, .cb-intro-chip, .cb-hbtn {
+/* 2026-10-14, wave 1: .cb-glass-action is split out on its own. Its hover feedback now comes from the primitives own background shift, not lift or shadow. The grouped rules below keep applying to .cb-intro-go, .cb-intro-chip, and .cb-hbtn. */
+.cb-glass-action { box-shadow: none; transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out; }
+.cb-intro-go, .cb-intro-chip, .cb-hbtn {
   box-shadow: 0 2px 5px rgba(0,0,0,.10);
   transition: box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease;
 }
@@ -27417,7 +27421,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   border-top-color: rgba(160,175,165,.24);
 }
 @media (hover: hover) {
-  .cb-glass-action:not(:disabled):hover, .cb-intro-go:hover, .cb-intro-chip:hover,
+  .cb-glass-action:not(:disabled):hover { box-shadow: none !important; transform: none; }
+  .cb-intro-go:hover, .cb-intro-chip:hover,
   .cb-hbtn:not(:disabled):hover {
     box-shadow: 0 4px 12px rgba(0,0,0,.14) !important;
     transform: translateY(-1px);

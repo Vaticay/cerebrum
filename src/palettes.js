@@ -22,7 +22,8 @@ const PALETTES = {
   // "cyberpunk terminal" rather than "premium research software," tuned to
   // sit at the lightness Apple/Linear/Notion's own dark surfaces use. That
   // reasoning didn't survive contact with actual use — hence this reversal.
-  Dark:  { dark: true,  bg: "#09090b", surface: "#131316", raised: "#1c1c21", ink: "#ffffff", ink2: "#d4d4d8", faint: "#a1a1aa", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.15)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #131316 25%, #1c1c21 50%, #131316 75%)" },
+  // 2026-10-14: wave 1 foundation aligns the default dark palette to the overhaul plan tokens (text #E8E6E3, secondary #A8A49E, tertiary #6B6762, Surface 1 #1C1B19, Surface 2 #242320, borders #2E2C29 and #252422) on the unchanged background.
+  Dark:  { dark: true,  bg: "#09090b", surface: "#1c1b19", raised: "#242320", ink: "#e8e6e3", ink2: "#a8a49e", faint: "#6b6762", line: "#252422", line2: "#2e2c29", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #1c1b19 25%, #242320 50%, #1c1b19 75%)" },
   // Slate: a cooler, blue-leaning dark surface (the Discord/Linear
   // register) for anyone who wants dark without Dark's neutral-grey cast —
   // kept deliberately cool rather than folded into the warm pair above, so
@@ -79,6 +80,7 @@ const isProPalette = (pn) => PRO_PALETTE_NAMES.indexOf(pn) !== -1;
 // Amber, Rose) kept for real per-user customization but tuned a shade
 // cooler/harder so none of them reads as a pastel accent next to the new
 // obsidian base.
-const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888", Amber: "#d9a441" };
+// 2026-10-14: Amber moves to the plan gold, desaturated.
+const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888", Amber: "#c4a35a" };
 
 export { PALETTES, PRO_PALETTE_NAMES, isProPalette, ACCENTS };

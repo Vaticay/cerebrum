@@ -315,9 +315,10 @@ await test("the tab button speaks the unread count and the badge numeral clears 
   // sidebar Inbox button and the inbox thread pill already use.
   assert.ok(appSrc.includes("aria-label={t.badge > 0 ? `${t.label}, ${t.badge} unread` : t.label}"),
     "the tab button's accessible name drops the unread count");
-  /* The badge radius now comes from the design token (RADIUS.md === 8):
+  /* The badge radius now comes from the design token (RADIUS.md === 2):
      the frontend audit migrated raw radius literals to tokens, so this
-     pin follows the token instead of the literal it replaced. */
+     pin follows the token instead of the literal it replaced.
+     Note, 2026-10-14: wave 1 set RADIUS.md to 2. */
   const badgeAt = appSrc.indexOf("minWidth: 16, height: 16, borderRadius: RADIUS.md");
   assert.ok(badgeAt > 0, "the tab badge span is gone");
   const badgeSpan = appSrc.slice(badgeAt, badgeAt + 340);
@@ -730,11 +731,15 @@ await test("no style color property anywhere in the app is assigned a bare impor
     assert.match(appSrc, /"--cb-ask-ink": accentInkOn\(P, accent, mixHex\(P\.bg, accent, 0\.22\)\)/, "the composer does not set --cb-ask-ink from the hover ground");
     assert.match(appSrc, /color: var\(--cb-ask-ink, var\(--cb-accent-ink, var\(--cb-acc\)\)\);/, "the Ask label does not read --cb-ask-ink");
   });
+  // 2026-10-14, design overhaul wave 1: ACCENTS.Amber moved from #d9a441
+  // to the plan gold #c4a35a, so the pinned arithmetic below was
+  // recomputed from the shipped helpers. The defect story is unchanged:
+  // the old correction still fails on the hover ground (3.99 to 1).
   await test("the old correction provably fails on the tinted ground (the defect, pinned)", () => {
     const L = PALETTES.Light, amber = ACCENTS.Amber;
     const ink = accentInk(L, amber);
-    assert.equal(ink, "#86672f", "accentInk's Light Amber correction changed; recompute the pinned arithmetic");
-    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.14)).toFixed(2), "4.20", "the old ink no longer computes to 4.20 at rest");
+    assert.equal(ink, "#7d693f", "accentInk's Light Amber correction changed; recompute the pinned arithmetic");
+    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.14)).toFixed(2), "4.22", "the old ink no longer computes to 4.22 at rest");
     assert.equal(ratio(ink, mixHex(L.bg, amber, 0.22)).toFixed(2), "3.99", "the old ink no longer computes to 3.99 on hover");
   });
   await test("the calibrated Ask ink clears 4.5 to 1 on its real ground, rest and hover, every palette and accent", () => {
@@ -747,12 +752,13 @@ await test("no style color property anywhere in the app is assigned a bare impor
         assert.ok(hover >= 4.5, `${pn} with ${an}: Ask ink ${ink} is ${hover.toFixed(2)} to 1 on hover`);
       }
     }
-    // The headline cases, exact: Light Amber ships #795e2c (4.87 rest,
-    // 4.62 hover); Mid Sage ships #9cb599 (5.38 rest, 4.60 hover).
+    // The headline cases, exact: Light Amber ships #71603b (4.87 rest,
+    // 4.60 hover; recomputed 2026-10-14 for the plan gold, see the note
+    // above the defect pin); Mid Sage ships #9cb599 (5.38 rest, 4.60 hover).
     const li = accentInkOn(PALETTES.Light, ACCENTS.Amber, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22));
-    assert.equal(li, "#795e2c");
+    assert.equal(li, "#71603b");
     assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.14)).toFixed(2), "4.87");
-    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22)).toFixed(2), "4.62");
+    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22)).toFixed(2), "4.60");
     const ms = accentInkOn(PALETTES.Mid, ACCENTS.Sage, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22));
     assert.equal(ms, "#9cb599");
     assert.equal(ratio(ms, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22)).toFixed(2), "4.60");

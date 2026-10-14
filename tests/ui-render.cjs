@@ -22,7 +22,10 @@ const fcFunctions = fcAst.program.body
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
 assert.equal(functions.length + dsFunctions.length + fcFunctions.length,18);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
-const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c});
+const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
+/* 2026-10-14, design overhaul wave 1: UIButton and UICard now close over
+   the COLOR foundation tokens, so the sandbox carries the real values. */
+COLOR:{ink:'#E8E6E3',ink2:'#A8A49E',faint:'#6B6762',accent:'#C4A35A',accentInk:'#121110',surface1:'#1C1B19',surface2:'#242320',field:'#161513',line:'#2E2C29',lineSubtle:'#252422',support:'#7A9E7E',caution:'#B08B4F'}});
 /* Extra stubs for the dialog-semantics renders below: the real React
    state/ref hooks (rendering is real; only effects are inert under a
    server renderer), the Dialog stack/scroll-lock module state, and the
@@ -41,7 +44,8 @@ Object.assign(context,{
   useCallTone:()=>{},
 });
 context.FONT_SIZES.body=15; context.FONT_SIZES.label=13; context.FONT_SIZES.title=18;
-context.RADIUS.md=8; context.RADIUS.sm=6; context.RADIUS.viewport=2; context.RADIUS.xl=16;
+/* 2026-10-14, wave 1: the radius scale is capped at 2, stubs follow. */
+context.RADIUS.md=2; context.RADIUS.sm=2; context.RADIUS.viewport=2; context.RADIUS.xl=2;
 /* TrendingHero stubs: no media (the resolver found nothing honest),
    no persistence label, and the helpers its provenance line closes
    over. Rendering is the real component; only these data seams are
@@ -73,7 +77,15 @@ for(const dark of [true,false])for(const isMobile of [true,false]){
  assert.match(modes,/aria-pressed="true"/); assert.match(modes,/Compare/);
  for(const variant of ['primary','secondary','ghost','destructive']){
   const button=renderToStaticMarkup(React.createElement(context.UIButton,{P,accent:'#A3B899',at:'#111',variant},'Continue'));
-  assert.match(button,new RegExp('cb-glass-action--'+variant));
+  /* 2026-10-14, design overhaul wave 1: the glass action treatment is
+     deleted, so the pin now checks the flat contract instead of the old
+     cb-glass-action--<variant> class: every variant renders as a flat
+     cb-press button with no glass class and no shadow, and the primary
+     variant carries the flat accent as its background. */
+  assert.match(button,/cb-press/);
+  assert.doesNotMatch(button,/cb-glass-action/);
+  assert.match(button,/box-shadow:none/);
+  if(variant==='primary') assert.match(button,/background:#A3B899/);
  }
  assert.match(renderToStaticMarkup(React.createElement(context.UICard,{P},'Evidence')),/Evidence/);
 }

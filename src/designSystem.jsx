@@ -10,6 +10,12 @@
  * color helpers (STATUS, accentText, relLuminance, withAlpha), Icon,
  * and the primitive components (UIButton, UICard, UIRow, UIField,
  * UISelect, S_toolbarBtnBase, VerifiedCheck, FounderFrame, BADGE_*).
+ *
+ * Wave 1 foundation, 2026-10-14: foundation tokens now follow the
+ * overhaul plan, with the plan type scale, flat surfaces, and borders
+ * over shadows. The learning art palette, Paper Cream #F5EFE2 and
+ * friends in docs/cortex-style-guide.md, governs artwork only and is
+ * deliberately NOT flattened by these UI tokens.
  */
 
 import { useState, useRef, useEffect, useId } from "react";
@@ -17,25 +23,49 @@ import { createPortal } from "react-dom";
 import { PALETTES } from "./palettes.js";
 
 export const FONT_SIZES = {
-  // The 6-role editorial scale (DESIGN_RESEARCH.md §7.1): every size in
-  // the product maps to one of these roles. Near-duplicates were merged
-  // (micro 11→caption 12, subhead 17→title 18; sectionHead 20 is gone).
-  // Mono-for-data is a treatment, not a second family — tabular numerals
-  // in --cb-font (standing law: one unified typeface). Weight contract
-  // (§11): body 450–500, controls/labels 600, headings 650–700.
-  caption: 12,      // caption/meta — timestamps, metadata, badges, eyebrows
-  label: 13,        // label/control — form inputs, chips, tab labels, buttons
-  body: 15,         // body — primary prose everywhere, 45–75ch, leading 1.5–1.65
-  title: 18,        // title — section headings, ledes, card titles
-  display: 24,      // display — mastheads, callouts, mobile hero titles
-  hero: 34,         // display, large step — desktop hero titles, stat numbers
-  // Legacy aliases — new code uses the six role names above.
-  micro: 12, small: 13, subhead: 18, heading: 18,
+  // Plan scale, 2026-10-14: display 32/1.2/500, section 22/1.3/500,
+  // subhead 17/1.4/500, body 15/1.55/400, label 13/1.4/400, caption
+  // 12/1.3/400. Weights 400 and 500 only.
+  caption: 12,      // caption and meta, timestamps, metadata, badges
+  label: 13,        // label and control, form inputs, chips, buttons
+  body: 15,         // body, primary prose everywhere
+  title: 18,        // title, legacy lede and card title alias
+  section: 22,      // section, plan role for section headings
+  subhead: 17,      // subhead, card subheads
+  display: 32,      // display, mastheads, callouts, hero titles
+  hero: 32,         // hero, legacy alias of display
+  // Legacy aliases. New code uses the plan role names above, and
+  // surface waves migrate call sites to section 22 for section
+  // headings, since title stays as the legacy lede and card title
+  // alias.
+  micro: 12, small: 13, heading: 18,
+};
+
+// Plan palette on the existing dark backgrounds, 2026-10-14.
+export const COLOR = {
+  ink: "#E8E6E3",
+  ink2: "#A8A49E",
+  faint: "#6B6762",
+  accent: "#C4A35A",
+  accentInk: "#121110",
+  surface1: "#1C1B19",
+  surface2: "#242320",
+  field: "#161513",
+  line: "#2E2C29",
+  lineSubtle: "#252422",
+  support: "#7A9E7E",
+  caution: "#B08B4F",
 };
 
 // Raw status hues. For status TEXT on a themed surface, never use these
 // directly: the light theme variants live with statusBad/statusWarn/
 // statusGood in appUtils.js (the raw warn and good fail 4.5:1 on light).
+// Wave 1 arbitration, 2026-10-14: the plan support and caution tokens
+// live on COLOR above for non text accents. These raw text hues stay at
+// their contrast proven values on purpose: the plan caution and support
+// compute to about 4.1 and 4.3 to 1 on the Mid palette surface, under
+// the 4.5 to 1 status text law pinned in tests/core-identity.mjs, so
+// unifying STATUS onto them would ship failing status text.
 export const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 
 // Pro brand color: the deliberate emerald used for Pro surfaces (upgrade
@@ -71,10 +101,10 @@ export function withAlpha(hex, a) {
   const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`;
 }
 
-export function Icon({ name, size = 17, className, style }) {
+export function Icon({ name, size = 18, className, style }) {
   const common = {
     width: size, height: size, viewBox: "0 0 24 24", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round",
+    stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round",
     strokeLinejoin: "round", className, style,
     "aria-hidden": true, focusable: false,
   };
@@ -219,12 +249,12 @@ export function Icon({ name, size = 17, className, style }) {
   }
 }
 
-export function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, background: "transparent", border: "none", borderRadius: 8, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 0.15s ease, color 0.15s ease" }; }
+export function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, background: "transparent", border: "none", borderRadius: 2, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 150ms ease-out, color 150ms ease-out" }; }
 
-/* TRACKING scale: semantic letter-spacing for uppercase/label treatments.
-   Use TRACKING.* instead of raw em values. The negative trackings live in
-   TYPE (display/heading/body/label); these are the positive ones for
-   eyebrows, badges, and small caps labels. */
+/* TRACKING scale: tracking tokens now exist only for single word
+   status labels, the one all caps case the plan allows. Headings and
+   body carry no letterSpacing. Other files import these values, so
+   the export and values stay. */
 export const TRACKING = {
   eyebrow: "0.12em",      // uppercase section headers, eyebrows
   eyebrowWide: "0.2em",   // large/wide uppercase treatments
@@ -234,14 +264,26 @@ export const TRACKING = {
 };
 
 export const TYPE = {
-  display: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.025em", lineHeight: 1.15 },
-  heading: { fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "-0.015em", lineHeight: 1.25 },
-  body:    { fontFamily: "var(--cb-font)", fontWeight: 450, letterSpacing: "0", lineHeight: 1.6 },
-  label:   { fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: TRACKING.tight, lineHeight: 1.35 },
-  mono:    { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: TRACKING.tight, lineHeight: 1.4 },
+  display: { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.2 },
+  heading: { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
+  subhead: { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  body:    { fontFamily: "var(--cb-font)", fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
+  reading: { fontFamily: "var(--cb-serif)", fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only
+  label:   { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  mono:    { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
 };
 
-export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
+// 4px grid, rhythm 8/12/16/24/32/48.
+export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 48 };
+
+export const LAYOUT = {
+  prose: 720,
+  answer: 1080,
+  reader: 680,
+  sidebar: 220,
+  sidebarCollapsed: 56,
+  sources: 280,
+};
 
 /* Z-index scale: every stacking layer in the app, named.
    Rules: use Z.* instead of raw numbers. Layers are ordered;
@@ -292,54 +334,44 @@ export function UIButton({
   // so variant skins never crash on pal.dark / pal.ink2.
   const pal = P || PALETTES.Dark;
   const pad = size === "sm" ? "6px 13px" : size === "lg" ? "12px 22px" : "9px 17px";
-  const fs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.small;
-  /* Every skin gets a lit top edge and a shadow that belongs to it.
-     Primary is a rich gradient, not a flat block — the gradient runs from
-     a lifted highlight at the top to the true accent at the bottom, with
-     an inset hairline for the moulded edge and a tinted drop shadow that
-     ties it to the palette. Ghost and destructive got the same depth
-     language (2026-10-07): ghost lifts on hover via the shared shadow
-     scale, destructive carries a red-tinted moulded edge so danger reads
-     as crafted, not as an afterthought. */
+  const fs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.label;
+  /* Flat skins, 2026-10-14: no gradients, no shadows, borders carry
+     the edge. Primary is the flat accent, destructive is a flat tint. */
   const skins = {
     primary: {
-      background: `linear-gradient(180deg, ${withAlpha(accent, 0.92)} 0%, ${accent} 55%, ${withAlpha(accent, 0.88)} 100%)`,
+      background: accent,
       color: at, border: "1px solid transparent",
-      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.12), 0 4px 14px -4px ${withAlpha(accent, 0.55)}, 0 1px 3px rgba(0,0,0,0.2)`,
-      textShadow: "0 1px 2px rgba(0,0,0,0.18)",
+      boxShadow: "none",
     },
     secondary: {
-      background: pal.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
-      color: pal.ink, border: `1px solid ${pal.line2}`,
-      boxShadow: pal.dark
-        ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"
-        : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px -2px rgba(15,23,42,0.12)",
+      background: pal.dark ? COLOR.surface1 : pal.surface,
+      color: pal.ink, border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
+      boxShadow: "none",
     },
     ghost: {
-      background: "transparent", color: pal.ink2, border: "1px solid transparent",
-      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+      background: "transparent", color: pal.ink2, border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
+      boxShadow: "none",
     },
     destructive: {
       background: pal.dark
-        ? `linear-gradient(180deg, ${withAlpha(STATUS.bad, 0.16)} 0%, ${withAlpha(STATUS.bad, 0.10)} 100%)`
-        : `linear-gradient(180deg, ${withAlpha(STATUS.bad, 0.08)} 0%, ${withAlpha(STATUS.bad, 0.04)} 100%)`,
+        ? withAlpha(STATUS.bad, 0.16)
+        : withAlpha(STATUS.bad, 0.08),
       color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
-      boxShadow: pal.dark
-        ? `inset 0 1px 0 ${withAlpha(STATUS.bad, 0.18)}, 0 2px 8px -2px ${withAlpha(STATUS.bad, 0.25)}`
-        : `inset 0 1px 0 rgba(255,255,255,0.5), 0 2px 8px -2px ${withAlpha(STATUS.bad, 0.18)}`,
+      boxShadow: "none",
     },
   };
   return (
     <button
       type={type} onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}
-      className={("cb-press cb-glass-action cb-glass-action--" + variant + " " + className).trim()}
+      className={("cb-press " + className).trim()}
       {...rest}
       style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: SP.sm,
+        // Keep minHeight 44: the standing touch target floor outranks the plan's 36 to 40px visual height.
         minHeight: 44,
-        padding: pad, borderRadius: RADIUS.pill, cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: fs, ...TYPE.label, fontWeight: 600, letterSpacing: "-0.005em",
-        transition: "transform 0.32s var(--cb-ease), box-shadow 0.32s var(--cb-ease), background 0.32s var(--cb-ease), border-color 0.32s var(--cb-ease), filter 0.32s var(--cb-ease)",
+        padding: pad, borderRadius: RADIUS.md, cursor: disabled ? "not-allowed" : "pointer",
+        fontSize: fs, ...TYPE.label, fontWeight: 500,
+        transition: "background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out",
         width: full ? "100%" : undefined,
         opacity: disabled ? 0.5 : 1,
         ...skins[variant],
@@ -364,20 +396,14 @@ export function UICard({ children, P = null, pad = true, className = "", style, 
       className={"cb-card cb-material-panel " + (specimen ? "cb-specimen " : "") + className}
       style={{
         borderRadius: RADIUS.lg,
-        /* Solid surface with a whisper of depth: one soft shadow lifts the
-           card off the page. Clickable cards get a gentle hover lift.
-           Uses the SHADOW scale (md) — theme-aware. */
-        background: pal.surface,
-        border: pal.dark ? "1px solid rgba(255,255,255,0.09)" : `1px solid ${pal.line2}`,
-        boxShadow: SHADOW.md(pal),
-        transition: onClick ? "transform 0.25s var(--cb-ease), box-shadow 0.25s var(--cb-ease)" : undefined,
-        padding: pad ? SP.lg : 0,
+        background: pal.dark ? COLOR.surface1 : pal.surface,
+        border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
+        boxShadow: "none",
+        padding: pad ? "20px 24px" : 0,
         overflow: "hidden", minWidth: 0,
         cursor: onClick ? "pointer" : undefined,
         ...style,
       }}
-      onMouseEnter={onClick ? (e) => { e.currentTarget.style.transform = "translateY(-2px)"; } : undefined}
-      onMouseLeave={onClick ? (e) => { e.currentTarget.style.transform = ""; } : undefined}
     >{children}</div>
   );
 }
@@ -396,12 +422,12 @@ export function UIRow({ label, desc, control, onClick, P = null, accent, last, t
         display: "flex", alignItems: "center", gap: SP.md,
         padding: `${SP.md}px ${SP.lg}px ${SP.md}px ${SP.lg - 2}px`,
         minHeight: 46,
-        borderBottom: last ? "none" : `1px solid ${pal.line}`,
+        borderBottom: last ? "none" : `1px solid ${pal.dark ? COLOR.lineSubtle : pal.line}`,
         cursor: onClick ? "pointer" : "default", minWidth: 0, ...style,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 600, color: tone === "bad" ? (pal.dark ? (paletteName === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31") : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
+        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 500, color: tone === "bad" ? (pal.dark ? (paletteName === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31") : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
         {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: pal.faint, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
@@ -413,8 +439,8 @@ export function UIField({ value, onChange, placeholder, P = null, accent, multil
   const pal = P || PALETTES.Dark;
   const base = {
     width: "100%", padding: `${SP.md - 2}px ${SP.md}px`, borderRadius: RADIUS.md,
-    background: pal.surface,
-    border: `1px solid ${pal.line}`, color: pal.ink, outline: "none",
+    background: pal.dark ? COLOR.field : pal.surface,
+    border: `1px solid ${pal.dark ? COLOR.line : pal.line}`, color: pal.ink, outline: "none",
     /* 16px floor: iOS Safari zooms the viewport on focus for anything
        smaller, so every text input holds 16px on all viewports. */
     fontSize: 16, ...TYPE.body, minWidth: 0, ...style,
@@ -426,14 +452,10 @@ export function UIField({ value, onChange, placeholder, P = null, accent, multil
 }
 
 export const RADIUS = {
-  // The de facto radius set (2026-10-07): every radius in the product maps
-  // to one of these. sm/md were both 6 (legacy duplicate); md is now 8,
-  // the most-used control radius (164 usages), and xl: 16 covers the hero
-  // surfaces from the polish pass. The lone radius-18 was migrated to 16.
-  sm: 6, md: 8, lg: 12, xl: 16, pill: 100,
-  // Viewports (answer card, composer, evidence drawers, specimen frames)
-  // use near-sharp corners: the corner ticks do the visual work, so the
-  // frame itself stays quiet. See TICKS and TickFrame below.
+  // Plan radius, 2026-10-14: the plan caps radius at 2px everywhere.
+  // Token names are retained so call sites do not churn, and pill no
+  // longer means round.
+  sm: 2, md: 2, lg: 2, xl: 2, pill: 2,
   viewport: 2,
 };
 
@@ -498,31 +520,16 @@ export function TickFrame({ children, P = null, accent, tickColor, className = "
   );
 }
 
-/* SHADOW scale: theme-aware depth tokens. Pass the palette P.
-   The polish pass added ~12 ad-hoc shadow patterns; these five roles
-   collapse them. Every new shadow should use one of these — never a raw
-   boxShadow string on a primitive.
-   xs:  tiny controls — buttons, chips, small popovers
-   sm:  cards at rest, related-question buttons, small panels
-   md:  cards on hover, composer at rest, dropdowns, drawers
-   lg:  answer card, large panels, composer on focus
-   xl:  dialogs, modals, bottom sheets — the top of the stack */
+/* SHADOW scale: pass the palette P. Plan rule, 2026-10-14: borders
+   carry depth, shadows are gone except the modal line. xs, sm, md,
+   and lg return none for both dark and light, and xl returns the
+   one allowed modal shadow. */
 export const SHADOW = {
-  xs: (P) => P.dark
-    ? "0 1px 3px rgba(0,0,0,0.3)"
-    : "0 1px 3px rgba(15,23,42,0.12)",
-  sm: (P) => P.dark
-    ? "0 4px 14px -6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04)"
-    : "0 4px 14px -8px rgba(15,23,42,0.15), inset 0 1px 0 rgba(255,255,255,0.6)",
-  md: (P) => P.dark
-    ? "0 10px 30px -12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)"
-    : "0 10px 30px -14px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.6)",
-  lg: (P) => P.dark
-    ? "0 24px 64px -16px rgba(0,0,0,0.5), 0 4px 16px -4px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)"
-    : "0 24px 64px -20px rgba(15,23,42,0.25), 0 4px 16px -6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.7)",
-  xl: (P) => P.dark
-    ? "0 40px 100px -12px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4)"
-    : "0 40px 100px -20px rgba(15,23,42,0.3), 0 0 0 1px rgba(15,23,42,0.08)",
+  xs: (P) => "none",
+  sm: (P) => "none",
+  md: (P) => "none",
+  lg: (P) => "none",
+  xl: (P) => "0 1px 0 rgba(0,0,0,0.4)",
 };
 
 export const BADGE_DISPLAY = {
@@ -736,7 +743,7 @@ export function UISelect({
         aria-activedescendant={open && active >= 0 ? `${listId}-opt-${active}` : undefined}
         onClick={() => { if (open) close(false); else openMenu(); }}
         onKeyDown={onKeyDown}
-        className={("cb-press cb-glass-action " + className).trim()}
+        className={("cb-press " + className).trim()}
         style={{
           display: "inline-flex", alignItems: "center", justifyContent: "space-between",
           /* 44px floor at every size (2026-10-14): the sm trigger used
@@ -744,18 +751,10 @@ export function UISelect({
           gap: SP.sm, minHeight: 44,
           padding: size === "sm" ? "6px 10px" : "9px 12px",
           borderRadius: RADIUS.md,
-          /* UIButton secondary skin — the select reads as family, not as
-             a browser control. */
-          /* The trigger carries text, so its background is the solid
-             palette surface the menu renders on, never a wash: the
-             0.06 white tint it replaced composed over whatever sat
-             behind the control in dark palettes. */
-          background: pal.surface,
-          color: pal.ink, border: `1px solid ${pal.line2}`,
-          boxShadow: pal.dark
-            ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"
-            : "inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 8px -2px rgba(15,23,42,0.12)",
-          fontSize: triggerFs, fontWeight: 600, letterSpacing: "-0.005em",
+          background: pal.dark ? COLOR.surface1 : pal.surface,
+          color: pal.ink, border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
+          boxShadow: "none",
+          fontSize: triggerFs, fontWeight: 500, letterSpacing: "-0.005em",
           fontFamily: "var(--cb-font)", textAlign: "left",
           cursor: disabled ? "not-allowed" : "pointer",
           opacity: disabled ? 0.5 : 1, minWidth: 0,
@@ -768,7 +767,7 @@ export function UISelect({
         <Icon name="chevronDown" size={14} style={{
           flexShrink: 0, color: pal.faint,
           transform: open ? "rotate(180deg)" : "none",
-          transition: "transform 0.2s var(--cb-ease)",
+          transition: "transform 150ms ease-out",
         }} />
       </button>
       {open && pos && createPortal(
@@ -781,9 +780,9 @@ export function UISelect({
             position: "fixed", zIndex: Z.selectMenu,
             left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width,
             maxHeight: 280, overflowY: "auto",
-            background: pal.dark ? "#14161c" : "#ffffff",
-            border: `1px solid ${pal.line}`, borderRadius: RADIUS.lg, padding: 6,
-            boxShadow: SHADOW.md(P),
+            background: pal.dark ? COLOR.surface1 : "#ffffff",
+            border: `1px solid ${pal.dark ? COLOR.line : pal.line}`, borderRadius: RADIUS.lg, padding: 6,
+            boxShadow: SHADOW.xl(P),
             ...menuStyle,
           }}
         >
@@ -805,7 +804,7 @@ export function UISelect({
                   background: isActive
                     ? (accent ? withAlpha(accent, 0.12) : pal.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)")
                     : "transparent",
-                  color: pal.ink, fontSize: FONT_SIZES.label, fontWeight: isSel ? 700 : 500,
+                  color: pal.ink, fontSize: FONT_SIZES.label, fontWeight: 500,
                   fontFamily: "var(--cb-font)",
                 }}
               >
