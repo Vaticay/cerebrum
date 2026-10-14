@@ -36,6 +36,7 @@ import { contextRequestId } from "../lib/requestLog.js";
 import { getBreaker, isTransientError, CircuitOpenError, withBackoff, callWithCircuit } from "../lib/llmCircuit.js";
 import { clampMessages, MAX_PROMPT_CHARS, messagesChars, UNTRUSTED_SYSTEM_NOTE } from "../lib/inputGuard.js";
 import { recordCacheLookup } from "../lib/aiCacheStats.js";
+import { recordStageHealthAggregate } from "../lib/stageHealthAggregate.js";
 import { authorizeLlmCall, spendTokens, CHEAP_MODEL, checkEmbeddingBudget, spendEmbeddingNeurons, EMBEDDING_NEURON_COST_PER_RERANK } from "../lib/costControl.js";
 import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
 import { semanticRerank } from "../lib/semanticRerank.js";
@@ -63,7 +64,16 @@ const OR_FREE_MODELS = [
   "google/gemma-4-31b-it:free",
   "thinkingmachines/inkling:free",
   "google/gemma-4-26b-a4b-it:free",
-  "thinkingmachines/inkling-small:free",
+  // 2026-10-14: thinkingmachines/inkling-small:free removed. Live
+  // production probes (the saved stageHealth trails) show it failing
+  // every race it enters with HTTP 403 in ~26ms, OpenRouter's own
+  // error text beginning "thinkingmachines/inkling-small:free is
+  // only availab..." — a model side restriction, not a key problem:
+  // the same key answers and 429s sibling models in the same races,
+  // and the full size inkling above shows no such failure. A leg
+  // rejected at the edge before inference can never answer; it only
+  // burned a wave seat and polluted the attempt trail. 403s classify
+  // as "other" in the leg health store, so it never parked either.
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
   // 2026-10-12: nex-agi/nex-n2.5-pro:free and nex-n2.5-mini:free removed.
   // Live probe returned HTTP 404 "This model is unavailable for free" for
@@ -20180,11 +20190,13 @@ async function runSearchPipeline(pctx) {
     // both simply timed out on the full prompt. Wave 1 now races the
     // primary alone . its second OpenRouter seat is the fastpath leg
     // (the cheap router model, gemma-4-31b), which is fast enough to
-    // actually finish. Wave 2 is capped at four names instead of the
-    // whole remaining catalog: every leg is a subrequest, and retrieval
-    // has already spent most of the invocation's budget by now.
+    // actually finish. Wave 2 is capped at three names instead of the
+    // whole remaining catalog (four until 2026-10-14, when the
+    // restricted inkling-small leg came out of OR_FREE_MODELS): every
+    // leg is a subrequest, and retrieval has already spent most of
+    // the invocation's budget by now.
     const OR_WAVE1 = [OR_FREE_MODELS[0]];
-    const OR_WAVE2 = [OR_FREE_MODELS[1], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]];
+    const OR_WAVE2 = [OR_FREE_MODELS[1], OR_FREE_MODELS[3], OR_FREE_MODELS[4]];
     /* Commit 86 . four of the seven Workers AI models listed here were
        dead weight. Cloudflare has since marked llama-3.1-8b-instruct,
        mistral-7b-instruct-v0.2 and phi-2 DEPRECATED, and
@@ -20619,9 +20631,11 @@ async function runSearchPipeline(pctx) {
         // raceBest falls through to the other legs.
         ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
         // Pro depth: wave 3 only fires after total failure, so the extra legs
-        // are cheap . Pro races four OpenRouter models here instead of two,
-        // in case the wave 1-2 throttle has cleared by now.
-        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4], OR_FREE_MODELS[5]] : [OR_FREE_MODELS[4], OR_FREE_MODELS[5]]).map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 3, fire: () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
+        // are cheap . Pro races three OpenRouter models here instead of one,
+        // in case the wave 1-2 throttle has cleared by now. (Was four and
+        // two until 2026-10-14: the fourth Pro seat and the second regular
+        // seat were the restricted inkling-small leg, now out of the list.)
+        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3], OR_FREE_MODELS[4]] : [OR_FREE_MODELS[4]]).map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 3, fire: () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
       ]);
       try {
         // raceBest with a short grace: this is the last-resort tier so speed
@@ -21960,6 +21974,26 @@ async function runSearchPipeline(pctx) {
       applyRecordStoreOutcome(searchRecord, recordStored);
     }
 
+    /* Aggregate stage health (2026-10-14, infrastructure wave):
+     * roll this run's stage outcomes into the hourly server side
+     * buckets the fleet alarm reads (../lib/stageHealthAggregate.js).
+     * Until now stageHealth existed only per request, so a fleet
+     * wide synthesis outage was invisible until a human probed.
+     * Post response bookkeeping in the record store's pattern,
+     * exactly: fired via waitUntil so it never delays the response,
+     * and the writer charges this request's ledger per platform
+     * attempt (the cold table ensure, the one batch) — charges
+     * that land after the _ledger snapshot above, like the record
+     * store's, so the shipped numbers are untouched and the
+     * invocation total still counts what the platform counts.
+     * The writer swallows its own failures; this try is belt and
+     * braces in its pattern. */
+    try {
+      const aggWrite = recordStageHealthAggregate(env, stageHealth, Date.now(), ledger);
+      if (typeof waitUntil === "function") waitUntil(aggWrite);
+      else await aggWrite;
+    } catch (cbErr) { console.error("[Cerebrum] search.js catch: recordStageHealthAggregate:", cbErr); }
+
     // Final subrequest ledger snapshot onto the diag (operator view
     // only, like the rest of _diag): the whole invocation's spend by
     // stage, so a budget incident is provable from one response.
@@ -22240,6 +22274,16 @@ async function runSearchPipeline(pctx) {
     } catch {
       nrAnswer = "## No citable literature surfaced\n\nCerebrum hit an internal error on this run before it could finish searching. Nothing was fabricated . please try again in a moment.";
     }
+    /* The total failure feeds the stage health aggregate too: the
+     * synthetic "request" record below is the fleet alarm's total
+     * failure signal, the one shape the main assembly hook can
+     * never see. Same waitUntil, swallowed failure, per attempt
+     * ledger charge pattern as the assembly hook. */
+    try {
+      const aggWrite = recordStageHealthAggregate(env, [{ name: "request", ok: false }], Date.now(), ledger);
+      if (typeof waitUntil === "function") waitUntil(aggWrite);
+      else await aggWrite;
+    } catch (cbErr) { console.error("[Cerebrum] search.js catch: recordStageHealthAggregate (total failure):", cbErr); }
     return new Response(
       JSON.stringify({
         answer: nrAnswer,

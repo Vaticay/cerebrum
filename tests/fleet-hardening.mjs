@@ -254,6 +254,33 @@ await test("wave 2 no longer trims the roster with firstOnly", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("OpenRouter roster — the restricted inkling-small leg is out (2026-10-14)");
+
+await test("the 403 restricted model is not an entry in OR_FREE_MODELS", () => {
+  // Evidence (live production stageHealth trails, saved probe
+  // responses): thinkingmachines/inkling-small:free failed every
+  // race it entered with HTTP 403 in ~26ms, OpenRouter's error text
+  // beginning "is only availab..." — a model side restriction. The
+  // same key answered sibling models in the same races, so it was
+  // never a missing key problem, and the full size inkling shows
+  // no such failure and stays.
+  const orBlock = src.slice(src.indexOf("const OR_FREE_MODELS = ["), src.indexOf("const OR_FREE_MODELS = [") + 1800);
+  assert.ok(!orBlock.includes('"thinkingmachines/inkling-small:free"'), "inkling-small is back in OR_FREE_MODELS");
+  assert.ok(orBlock.includes('"thinkingmachines/inkling:free"'), "the healthy full size inkling must stay");
+});
+
+await test("no wave or rescue roster references the removed list position", () => {
+  // OR_WAVE2 and the wave 3 bulletproof seats named the dead leg
+  // by list index (OR_FREE_MODELS[5]); the delayed rescue iterates
+  // the whole list, so the list removal covers it too.
+  assert.ok(!src.includes("OR_FREE_MODELS[5]"), "a roster still references OR_FREE_MODELS[5]");
+  assert.ok(
+    src.includes("const OR_WAVE2 = [OR_FREE_MODELS[1], OR_FREE_MODELS[3], OR_FREE_MODELS[4]];"),
+    "OR_WAVE2 changed shape"
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════
 group("Workers AI tail — timeout caps and the reasoning completion budget");
 
 await test("the two flaky-slow wave 1 legs get a 6s cap, others keep the wave timeout", () => {

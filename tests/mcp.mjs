@@ -453,6 +453,38 @@ await test("POST round trips initialize and tools/call", async () => {
   assert.ok((await call.json()).result.content[0].text.includes("Trending in Science"));
 });
 
+await test("a throwing rate limit store fails bounded, not open: the memory limiter still refuses past the limit", async () => {
+  // The durable store stubbed to throw on any access — the shape
+  // that used to sail through the endpoint's catch with no limit
+  // applied at all. The endpoint must fall back to the per isolate
+  // in memory limiter: MCP_RATE_LIMIT requests pass, the next is a
+  // 429, and a different client is unaffected (per key bounding,
+  // so legitimate low volume traffic is untouched).
+  const throwingDb = {};
+  Object.defineProperty(throwingDb, "prepare", {
+    get() { throw new Error("store unavailable"); },
+  });
+  const env = { DB: throwingDb };
+  const post = (ip) => onRequest({
+    request: new Request("https://askcerebrum.org/api/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
+      body: JSON.stringify(rpc("initialize", {}, 9)),
+    }),
+    env,
+    runners: fakeRunners,
+  });
+  for (let i = 0; i < mcp.MCP_RATE_LIMIT; i++) {
+    const res = await post("203.0.113.77");
+    assert.equal(res.status, 200, `request ${i + 1} within the limit was refused`);
+  }
+  const over = await post("203.0.113.77");
+  assert.equal(over.status, 429, "the request past the limit was allowed through with the store down");
+  assert.equal((await over.json()).error.code, -32000);
+  const other = await post("203.0.113.78");
+  assert.equal(other.status, 200, "a different client was caught by the first client's fallback bucket");
+});
+
 await test("POST malformed JSON returns -32700 and a notification returns 202 with no body", async () => {
   const bad = await onRequest({
     request: new Request("https://askcerebrum.org/api/mcp", { method: "POST", body: "{oops" }),

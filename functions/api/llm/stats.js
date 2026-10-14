@@ -7,10 +7,13 @@
 //   byProvider: [{ model_used, races_won, avg_quality }],
 //   byPromptVersion: [{ system_prompt_version, count, avg_quality }],
 //   totalRows, highQualityRows (score >= 70),
+//   stageHealth: the aggregate stage health alarm read (see
+//     functions/lib/stageHealthAggregate.js), or null,
 // }
 
 import { corsHeaders, readOriginAllowed, forbiddenOrigin, errorResponse, unauthorized } from "../../lib/http.js";
 import { getSessionUser } from "../../lib/authHelpers.js";
+import { readStageHealthAggregate } from "../../lib/stageHealthAggregate.js";
 
 function isFounder(user, env) {
   const founderEmail = (env.FOUNDER_EMAIL || "").trim().toLowerCase();
@@ -51,12 +54,21 @@ export async function onRequest(context) {
       "FROM llm_training_data"
     ).first();
 
+    // Aggregate stage health (2026-10-14): the fleet alarm's read
+    // surface. Hourly buckets rolled up server side by the search
+    // pipeline (functions/lib/stageHealthAggregate.js); `alarms`
+    // names any stage failing a majority of its runs over the
+    // trailing two hours. Null when the aggregate is unreadable —
+    // never a fabricated healthy zero.
+    const stageHealth = await readStageHealthAggregate(env).catch(() => null);
+
     return new Response(JSON.stringify({
       byProvider: byProvider.results || [],
       byPromptVersion: byPromptVersion.results || [],
       totalRows: (totals && totals.total) || 0,
       highQualityRows: (totals && totals.high_quality) || 0,
       systemPromptVersion: "v1",
+      stageHealth,
     }), {
       status: 200,
       headers: { ...cors, "Content-Type": "application/json" },

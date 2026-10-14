@@ -22,7 +22,7 @@
 // limit, body parse, dispatch.
 
 import { corsHeaders, clientIp, privacyKey, json } from "../lib/http.js";
-import { checkRateLimit } from "../lib/rateLimit.js";
+import { checkRateLimit, checkRateLimitMemoryOnly } from "../lib/rateLimit.js";
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_INFO = { name: "cerebrum", version: "1.0.0" };
@@ -500,6 +500,22 @@ export function mcpServerDescription() {
 
 // ── HTTP entry point ─────────────────────────────────────────────────
 
+/* FNV-1a hash of a client IP, used ONLY to key a per isolate memory
+ * rate limit bucket when the privacy hash itself could not be
+ * computed (see the fail bounded block in onRequest). It is never
+ * stored anywhere durable and never leaves the isolate's memory;
+ * it exists so the fallback bucket is per client rather than one
+ * shared bucket every caller would exhaust together. */
+function memoryFallbackKey(value) {
+  let h = 0x811c9dc5;
+  const s = String(value || "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
 export async function onRequest(context) {
   const { request, env } = context || {};
   const cors = corsHeaders(request, env, { credentials: false, methods: "GET, POST, OPTIONS" });
@@ -516,16 +532,34 @@ export async function onRequest(context) {
   // Rate limit before any upstream work. The key is hashed by privacyKey
   // and the counting itself reuses the shared limiter, which prefers the
   // D1 backed counter and falls back to per isolate memory without D1.
+  //
+  // Fail bounded, never open (2026-10-14): the catch here used to log
+  // and let the request through, so ANY failure in the block — the
+  // privacy hash, a malformed DB binding, the limiter itself — turned
+  // the limit off entirely for that request. Now a failure falls back
+  // to the shared in memory limiter (the same per isolate fallback the
+  // limiter documents for its own D1 failures), keyed on the derived
+  // key when there is one and on a non crypto hash of the client IP
+  // when even the key could not be derived. The limit is cruder in
+  // that mode (per isolate, like every limiter here used to be), but
+  // it is a limit.
+  const rateLimited = () =>
+    json(rpcError(null, -32000, "Too many requests. Wait a moment and try again."), 429, {
+      ...cors,
+      "Retry-After": "30",
+    });
+  let rlKey = null;
   try {
-    const rlKey = await privacyKey("mcp", clientIp(request), env);
+    rlKey = await privacyKey("mcp", clientIp(request), env);
     if (!(await checkRateLimit(env, rlKey, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS))) {
-      return json(rpcError(null, -32000, "Too many requests. Wait a moment and try again."), 429, {
-        ...cors,
-        "Retry-After": "30",
-      });
+      return rateLimited();
     }
   } catch (e) {
-    console.error("Cerebrum MCP rate limit check failed:", e);
+    console.error("Cerebrum MCP rate limit check failed, falling back to the in memory limiter:", e);
+    const fallbackKey = rlKey || "mcp:mem:" + memoryFallbackKey(clientIp(request));
+    if (!checkRateLimitMemoryOnly(fallbackKey, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS)) {
+      return rateLimited();
+    }
   }
 
   let text;

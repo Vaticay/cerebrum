@@ -563,6 +563,23 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 -- ============================================================
+-- 2026-10-14 — Aggregate stage health (the fleet alarm's data).
+-- One row per (stage, hour bucket): runs that ran, failures, and
+-- did-not-runs from each completed search's stageHealth, rolled
+-- up post response by functions/lib/stageHealthAggregate.js,
+-- which also creates this table on first use, so deploys
+-- self-heal. Read on the founder only /api/llm/stats surface.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS stage_health_buckets (
+  stage   TEXT NOT NULL,
+  bucket  INTEGER NOT NULL,  -- hour bucket start, ms epoch
+  total   INTEGER NOT NULL DEFAULT 0,
+  failed  INTEGER NOT NULL DEFAULT 0,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (stage, bucket)
+);
+
+-- ============================================================
 -- 2026-10-07 — Pro API keys. Pro members can mint bearer keys
 -- (cbk_…) that authenticate /api/search like a session. Only the
 -- sha256 hash is stored; the raw key is shown once at creation.

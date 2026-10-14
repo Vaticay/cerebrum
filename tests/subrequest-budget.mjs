@@ -1008,23 +1008,28 @@ function assertLedgerShips(data, counts, ledger) {
   // which the snapshot's own documentation names as post
   // assembly. The post assembly spend is read off the final
   // snapshot's stage deltas rather than assumed, and no stage
-  // outside those two may differ. (The release joined the
+  // outside those named may differ. (The release joined the
   // reconciliation in the overhead audit: on the tighter draw
   // the rich scenario's release is the third post assembly
   // subrequest, where the looser draw's totals had coincidentally
-  // reconciled without naming it.)
+  // reconciled without naming it. The stage health aggregate
+  // joined it in the 2026-10-14 infrastructure wave, the same
+  // way and for the same reason: it is post response bookkeeping
+  // in the record store's pattern — a cold table ensure plus one
+  // batch, charged under "health" — and a ledger that must count
+  // what the platform counts has to name it rather than hide it.)
   const view = data._ledger;
   assert.ok(view && typeof view === "object", "the response carries no _ledger");
   const finalSnap = ledger.snapshot();
-  const postAssembly = ["record", "queue"]
+  const postAssembly = ["record", "queue", "health"]
     .reduce((sum, k) => sum + ((finalSnap.byStage[k] || 0) - (view.byStage[k] || 0)), 0);
   assert.equal(view.used + postAssembly, counts.attempts + counts.cache,
     `shipped _ledger.used ${view.used} + post assembly spend ${postAssembly} ` +
     `!= stubbed platform attempts ${counts.attempts + counts.cache}`);
   const laterStages = Object.keys(finalSnap.byStage)
     .filter((k) => (finalSnap.byStage[k] || 0) !== (view.byStage[k] || 0));
-  assert.ok(laterStages.every((k) => k === "record" || k === "queue"),
-    `a stage other than the record store or the slot release spent after the _ledger snapshot: ${laterStages}`);
+  assert.ok(laterStages.every((k) => k === "record" || k === "queue" || k === "health"),
+    `a stage other than the record store, the slot release, or the stage health aggregate spent after the _ledger snapshot: ${laterStages}`);
   // Internal consistency: the total is the sum of its stage map,
   // and the record's copy is the identical object.
   assert.equal(Object.values(view.byStage).reduce((a, b) => a + b, 0), view.used,

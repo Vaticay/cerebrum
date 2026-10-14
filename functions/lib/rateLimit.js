@@ -153,6 +153,19 @@ export async function checkRateLimit(env, key, limit, windowMs, ledger = null) {
 }
 
 /**
+ * The in memory check on its own, exported for callers whose durable
+ * check could not run AT ALL — their own code around the limiter
+ * threw (key derivation, a malformed binding) before checkRateLimit
+ * could reach its internal D1 to memory fallback. Such a caller
+ * fails bounded on this per isolate limiter instead of failing open
+ * with no limit at all. Same bucket store the fallback above uses,
+ * so a key counts the same whichever path served the request.
+ */
+export function checkRateLimitMemoryOnly(key, limit, windowMs) {
+  return checkMemory(key, limit, windowMs);
+}
+
+/**
  * Run SEVERAL limit checks for one request as two batched D1 calls
  * (2026-10-14, overhead audit). The search handler gates every
  * request on a sustained AND a burst check back to back; run

@@ -896,9 +896,12 @@ test("no 'Unable To Synthesize' or 'Momentarily At Capacity' state remains", () 
 
 test("top-level catch returns a 200 degraded research response, not a 5xx", () => {
   // The catch builds a no-results payload and answers 200.
+  // Window widened 2000 → 3000 (2026-10-14): the stage health
+  // aggregate hook now sits between the payload build and the
+  // return in this catch; the shape being pinned is unchanged.
   const catchIdx = searchSrc.indexOf("top-level error:");
   assert.ok(catchIdx > 0);
-  const after = searchSrc.slice(catchIdx, catchIdx + 2000);
+  const after = searchSrc.slice(catchIdx, catchIdx + 3000);
   assert.ok(after.includes('status: 200'), "catch no longer answers 200");
   assert.ok(after.includes('responseKind: "no-results"'), "catch not shaped as no-results");
   assert.ok(!after.includes("status = 500") && !after.includes("status = 503"), "5xx statuses still present");
