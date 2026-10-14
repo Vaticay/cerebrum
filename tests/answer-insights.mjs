@@ -177,7 +177,7 @@ await test("anchor falls back to relevance with no citation data", () => {
 await test("era line follows the deterministic format", () => {
   const eras = groupSourcesIntoEras(arcSources([1998, 2000, 2015, 2020], { citations: [10, 3, 50, 7] }));
   const line = describeEra(eras[0], true);
-  assert.match(line, /^\d{4}(–\d{4})? · \d+ papers? · anchored by .+ \(\d+ citations?\) · \d+ back core claims — based on cited sources only\.$/);
+  assert.match(line, /^\d{4}( to \d{4})? · \d+ papers? · anchored by .+ \(\d+ citations?\) · \d+ back core claims, based on cited sources only\.$/);
 });
 
 await test("single-paper eras are labeled honestly", () => {
@@ -302,7 +302,7 @@ await test("thin and unsupported claims become single-study fragility cards", ()
   const cards = extractOpenQuestions("## A\nNothing hedged here at all, just a plain answer with no gaps.", factCheck, oqSources, null);
   const fragile = cards.filter((c) => c.kind === "fragile");
   assert.equal(fragile.length, 2, `expected 2 fragile cards, got ${fragile.length}`);
-  assert.ok(/Single-study claim/.test(fragile[0].whyOpen), "thin claim not labeled single-study");
+  assert.ok(/Single study claim/.test(fragile[0].whyOpen), "thin claim not labeled single study");
   assert.ok(/reaches past its sources/.test(fragile[1].whyOpen), "unsupported claim mislabeled");
   assert.ok(!cards.some((c) => /X cures Y/.test(c.question)), "supported claim leaked into gaps");
 });

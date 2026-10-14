@@ -11,7 +11,7 @@ const fcSource = fs.readFileSync('src/flowcharts.jsx','utf8');
 const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote'];
+const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -20,7 +20,7 @@ const dsFunctions = dsAst.program.body
 const fcFunctions = fcAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length,9);
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length,11);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c});
 /* Extra stubs for the dialog-semantics renders below: the real React
@@ -161,4 +161,26 @@ console.log('Actual search-mode, shared-button and card components render in dar
  assert.equal(context.answerTruncatedNote(true,'answer'),'This answer was cut short at the length limit, so it may end abruptly.');
  assert.equal(context.answerTruncatedNote(true,'summary'),'This summary was cut short at the length limit, so it may end abruptly.');
  console.log('Cut short note is null when the flag is off and plain when it is on.');
+
+ /* The REAL DocStageHealth: the document backend's per stage record
+    (functions/api/document.js, docStageEntry) rendered as one quiet
+    line per stage through the search answer's own stageState
+    classification. A failed stage shows its state and its detail
+    (the disclosures that live only in the record, like sections
+    that could not be read), a skipped stage shows its skip reason
+    in the line, and an empty or absent record renders nothing. */
+ const health=renderToStaticMarkup(React.createElement(context.DocStageHealth,{P,stageHealth:[
+  {name:'digest',ok:false,ms:3200,detail:'2 of 5 sections could not be read'},
+  {name:'synthesis',ok:true,ms:1500},
+  {name:'summary',ok:null,ms:0,skipReason:'token budget exhausted'},
+ ]}));
+ assert.match(health,/Pipeline health/);
+ assert.match(health,/digest · failed · 3\.2s\. 2 of 5 sections could not be read/);
+ assert.match(health,/synthesis · ok · 1\.5s/);
+ assert.match(health,/summary · skipped \(token budget exhausted\)/);
+ console.log('Stage health renders passed, failed with detail, and skipped with reason.');
+ assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P,stageHealth:[]})),'');
+ assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P,stageHealth:undefined})),'');
+ assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P})),'');
+ console.log('Stage health renders nothing when the record is empty or absent.');
 }

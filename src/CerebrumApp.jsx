@@ -2456,7 +2456,10 @@ function SignalComposer({
         "--cb-faint": P.faint,
         "--cb-line": P.line,
         "--cb-line2": P.line2,
-        "--cb-ph": P.dark ? "rgba(242,244,242,0.52)" : "rgba(34,37,42,0.55)",
+        /* Light placeholder alpha: 0.55 computed to 3.46 to 1 against the
+           field, under the 4.5 body text bar; 0.66 computes to about
+           4.8 to 1. The dark value already passes (about 5.2 to 1). */
+        "--cb-ph": P.dark ? "rgba(242,244,242,0.52)" : "rgba(34,37,42,0.66)",
         "--cb-bg": P.bg,
       }}
     >
@@ -3619,7 +3622,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
            as a transform, because the entrance animation owns transform and
            the two would cancel each other out. */
         position: "fixed", left: pos.left, top: pos.top, width: pos.width, zIndex: Z.sheet,
-        background: P.dark ? "rgba(14, 16, 20, 0.97)" : "rgba(255,255,255,0.98)",
+        background: P.dark ? "#0e1014" : "#ffffff",
         border: "1px solid " + (P.dark ? "rgba(255,255,255,0.11)" : P.line2),
         borderRadius: RADIUS.lg,
         boxShadow: P.dark
@@ -3905,18 +3908,17 @@ function CitationThreads({ data, P, accent }) {
         </span>
       </button>
       {open ? (
-        <div role="dialog" aria-modal="true" aria-label="Citation threads"
-          onClick={() => setOpen(false)}
-          style={{
-            position: "fixed", inset: 0, zIndex: Z.modal, background: "rgba(0,0,0,0.78)",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        /* Routed through the Dialog primitive (2026-10-14): this overlay
+           used to hand roll role dialog and aria-modal with no focus
+           move, no Tab containment, no Escape, and no focus restore.
+           Dialog supplies that whole contract; content and styling are
+           unchanged. */
+        <Dialog label="Citation threads" onClose={() => setOpen(false)} zIndex={Z.modal} width={640}
+          panelStyle={{
+            maxHeight: "84dvh",
+            background: P.bg, border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport,
+            padding: 28, color: P.ink,
           }}>
-          <div onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "min(640px, 94vw)", maxHeight: "84vh", overflowY: "auto",
-              background: P.bg, border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport,
-              padding: 28, color: P.ink,
-            }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
               <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "-0.01em" }}>
                 Citation threads
@@ -3964,8 +3966,7 @@ function CitationThreads({ data, P, accent }) {
             <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 16, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
               Only direct citations between papers in this answer are shown. Papers with no in-set citation links are omitted.
             </div>
-          </div>
-        </div>
+        </Dialog>
       ) : null}
     </div>
   );
@@ -5342,7 +5343,7 @@ function SelectionAsk({ onAsk, P, accent, containerRef }) {
         padding: "8px 16px", borderRadius: RADIUS.pill, cursor: "pointer",
         fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
         color: P.ink, whiteSpace: "nowrap",
-        background: P.dark ? "rgba(20,24,22,0.94)" : "rgba(255,255,255,0.96)",
+        background: P.dark ? "#141816" : "#ffffff",
         border: `1px solid ${withAlpha(accent, 0.45)}`,
         boxShadow: P.dark ? "0 8px 26px rgba(0,0,0,0.55)" : "0 8px 26px rgba(0,0,0,0.16)",
       }}
@@ -5910,7 +5911,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
             <span onClick={() => setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: Z.popover }} aria-hidden="true" />
             <span role="menu" aria-label="Export formats" onKeyDown={menuArrowKeys} style={{
               position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: Z.popoverMenu, minWidth: 240,
-              background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
+              background: P.dark ? "#14161c" : "#fff",
               border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
               boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
             }}>
@@ -6379,7 +6380,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
   return (
     <Dialog label="Cerebrum Pro" onClose={onClose} zIndex={220} width={640}
       panelStyle={{
-        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        background: P.dark ? "#0f111a" : "#ffffff",
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, maxHeight: "90dvh", overflowY: "auto",
         padding: "28px", outline: "none", fontFamily: "var(--cb-font)",
@@ -6752,7 +6753,7 @@ function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] 
   return (
     <Dialog label="Report data issue" onClose={onClose} zIndex={220} width={440}
       panelStyle={{
-        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        background: P.dark ? "#0f111a" : "#ffffff",
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.md, padding: "28px", outline: "none", fontFamily: "var(--cb-font)",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -7786,7 +7787,7 @@ function JumpRail({ items, P, accent, onJump, isMobile, onFollowUp = null }) {
                    edge, so a left-anchored menu runs off the viewport on a
                    phone. Right-anchoring keeps the whole panel on screen. */
                 position: "absolute", right: 0, left: "auto", top: "calc(100% + 6px)", minWidth: 200, zIndex: Z.menu,
-                background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
+                background: P.dark ? "#14161a" : "#ffffff",
                 border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
                 boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
               }}>
@@ -7873,7 +7874,7 @@ function ToolbarOverflow({ P, accent, items }) {
         <div role="menu" aria-label="More answer actions" className="cb-fade" onKeyDown={menuArrowKeys}
           style={{
             position: "absolute", right: 0, top: "calc(100% + 8px)", minWidth: 224, zIndex: Z.menu,
-            background: P.dark ? "rgba(20,22,26,0.98)" : "rgba(255,255,255,0.98)",
+            background: P.dark ? "#14161a" : "#ffffff",
             border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
             boxShadow: "0 16px 48px rgba(0,0,0,0.28)",
           }}>
@@ -8852,7 +8853,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
   return (
     <Dialog label={video.title || "Video"} onClose={close} zIndex={217} width={880}
       panelStyle={{
-        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        background: P.dark ? "#0f111a" : "#ffffff",
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
@@ -10093,7 +10094,7 @@ const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
    hype, no dashes, nothing that sounds generated. */
 function Beta2Announcement({ P, accent, at, onClose, onTryLearn }) {
   const items = [
-    { title: "Cortex is new", body: "Any search can become a short course built from the papers it found, with quick quizzes and XP as you go. It lives in the sidebar, and on phones it has its own tab." },
+    { title: "Cortex is new", body: "Pick a topic and Cortex teaches it in short lessons, with quick quizzes on what was taught and XP as you go. It lives in the sidebar, and on phones it has its own tab." },
     { title: "Search got tougher", body: "Questions with several parts used to come back with no sources at all. They return real sources now, and an answer is never built on zero papers." },
     { title: "Answers read easier", body: "Wider pages, calmer backgrounds, and plainer wording across the whole site." },
     { title: "One intro clip is gone", body: "A background clip that should never have shipped was still playing behind the door. It is out, and every remaining clip has been checked frame by frame." },
@@ -10105,14 +10106,14 @@ function Beta2Announcement({ P, accent, at, onClose, onTryLearn }) {
     >
       <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>PUBLIC BETA 2</div>
       <h2 style={{ margin: "0 0 6px", fontSize: 21, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>What changed</h2>
-      <p style={{ margin: "0 0 20px", fontSize: 13.5, color: P.muted, lineHeight: 1.55 }}>Four things since Beta 1.</p>
+      <p style={{ margin: "0 0 20px", fontSize: 13.5, color: P.ink2, lineHeight: 1.55 }}>Four things since Beta 1.</p>
       <div style={{ display: "flex", flexDirection: "column", marginBottom: 24 }}>
         {items.map((it, i) => (
           <div key={it.title} style={{ display: "flex", gap: 14, padding: "12px 0", borderTop: i === 0 ? "none" : `1px solid ${P.line}` }}>
             <div aria-hidden="true" style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, paddingTop: 2, minWidth: 18 }}>{String(i + 1).padStart(2, "0")}</div>
             <div>
               <div style={{ fontSize: 14.5, fontWeight: 600, color: P.ink, marginBottom: 3 }}>{it.title}</div>
-              <div style={{ fontSize: 13.5, color: P.muted, lineHeight: 1.6 }}>{it.body}</div>
+              <div style={{ fontSize: 13.5, color: P.ink2, lineHeight: 1.6 }}>{it.body}</div>
             </div>
           </div>
         ))}
@@ -11480,7 +11481,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
   return (
     <Dialog label={(item.title || "Article").replace(/\*/g, "")} onClose={close} zIndex={217} width={640}
       panelStyle={{
-        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        background: P.dark ? "#0f111a" : "#ffffff",
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, maxHeight: "88dvh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
@@ -12299,7 +12300,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                 Edition
                 <select aria-label="Choose an edition" value={viewingEdition || ""}
                   onChange={(e) => { const v = e.target.value; if (v) openEdition(v); else backToCurrent(); }}
-                  style={{ minHeight: 36, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, cursor: "pointer" }}>
+                  style={{ minHeight: 44, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, cursor: "pointer" }}>
                   <option value="">Current edition</option>
                   {editions.slice(1).map((e) => (
                     <option key={e.id} value={e.id}>{fmtEditionDay(e.generatedAt)}</option>
@@ -12313,7 +12314,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <span>You are reading a past edition, as it was gathered on {fmtEditionDay(generatedAt)}. It does not update.</span>
               <button type="button" onClick={backToCurrent}
-                style={{ minHeight: 36, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, cursor: "pointer" }}>
+                style={{ minHeight: 44, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, cursor: "pointer" }}>
                 Back to the current edition
               </button>
             </div>
@@ -12915,7 +12916,7 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
 function FcNodeShape({ n, P, accent, selected, pending }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
-  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.85)");
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "#ffffff");
   const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.20)" : "rgba(20,30,20,0.24)");
   const sw = selected || pending ? 2.6 : 1.5;
   const shape = (() => {
@@ -13308,7 +13309,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
           ? { top: 12, left: 12, right: 12 }
           : { bottom: 24, right: 24, width: 340 }),
         padding: 20, borderRadius: RADIUS.lg,
-        background: P.dark ? "rgba(18,19,24,0.96)" : "rgba(255,255,255,0.98)",
+        background: P.dark ? "#121318" : "#ffffff",
         border: `1px solid ${P.line2}`,
         boxShadow: "0 18px 60px rgba(0,0,0,0.4)",
       }}
@@ -14066,7 +14067,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         </div>
       ) : (<>
       {/* Top bar: who you're calling, reachable even before the call connects */}
-      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 6px 6px", borderRadius: RADIUS.viewport, background: "rgba(0,0,0,0.85)", }}>
+      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 6px 6px", borderRadius: RADIUS.viewport, background: "#000000", }}>
         <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.micro, fontWeight: 700, fontFamily: "var(--cb-font)" }}>{(name || "?")[0]?.toUpperCase()}</span>
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
         {dataSaver && <span title="Data saver is on: video quality lowered" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
@@ -14111,7 +14112,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         <div style={{
           position: "absolute", bottom: isMobile ? 20 : 32, left: "50%", transform: "translateX(-50%)",
           display: "flex", alignItems: "center", gap: 14, padding: 10, borderRadius: RADIUS.viewport,
-          background: "rgba(20,20,24,0.92)",
+          background: "#141418",
           border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 14px 40px rgba(0,0,0,0.45)",
         }}>
           {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
@@ -14482,7 +14483,7 @@ function SuggestInput({ value, onChange, placeholder, ariaLabel, matches, P, acc
       {show && (
         <div id={listId.current} role="listbox" aria-label={ariaLabel + " suggestions"} style={{
           position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: Z.float, textAlign: "left",
-          background: P.dark ? "rgba(20,22,32,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
+          background: P.dark ? "#141620" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
           overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
         }}>
           {matches.map((m, i) => (
@@ -14878,7 +14879,7 @@ function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro })
                     onKeyDown={(e) => { if (e.key === "Enter") go(t); if (e.key === "Escape") setTopicFor(null); }}
                     style={{ flex: 1 }}
                   />
-                  <UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => go(t)} style={{ minHeight: 40, flexShrink: 0 }}>
+                  <UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => go(t)} style={{ minHeight: 44, flexShrink: 0 }}>
                     Go
                   </UIButton>
                 </div>
@@ -14886,7 +14887,7 @@ function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro })
                 <UIButton
                   P={P} accent={accent} at={at} variant={isPro ? "primary" : "ghost"}
                   onClick={() => begin(t)}
-                  style={{ width: "100%", minHeight: 40 }}
+                  style={{ width: "100%", minHeight: 44 }}
                 >
                   {isPro ? "Start investigation" : "Unlock with Pro"}
                 </UIButton>
@@ -15020,7 +15021,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
         <div style={{
           position: "fixed", left: Math.min(Math.max(tip.x - 110, 8), window.innerWidth - 228), top: Math.max(tip.y - 66, 8),
           width: 220, zIndex: Z.tooltip, pointerEvents: "none",
-          background: P.dark ? "rgba(16,18,26,0.97)" : "rgba(255,255,255,0.97)",
+          background: P.dark ? "#10121a" : "#ffffff",
           border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, padding: "8px 12px",
           boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
         }}>
@@ -15946,7 +15947,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
   return (
     <Dialog label="Find researchers" onClose={close} zIndex={214} width={440}
       panelStyle={{
-        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        background: P.dark ? "#0f111a" : "#ffffff",
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, maxHeight: "80dvh", display: "flex", flexDirection: "column",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden", outline: "none",
@@ -16547,6 +16548,39 @@ function DocEvidenceTrail({ evidence, P }) {
     </div>
   );
 }
+/* The per stage record the backend ships on every document payload
+   (functions/api/document.js, docStageEntry, in the search fleet's
+   shape): [{ name, ok, ms, skipReason?, detail?, skippedLegs? }] with
+   ok tri state: true ran and passed, false ran and failed, null did
+   not run. Until 2026-10-14 the reader rendered none of it, so the
+   disclosures that live only in a stage's detail (sections that could
+   not be read, prompt clamp omissions, a winning leg that cannot say
+   whether it stopped at its length limit) never reached the reader.
+   Rendered the way the search answer renders its stage health: one
+   quiet line per stage through the same stageState classification,
+   the skip reason in the line rather than behind a tooltip, and the
+   detail printed whenever the backend supplied one. Renders nothing
+   when the record is empty or absent (older saved results), so a
+   result without a record carries no empty section. */
+function DocStageHealth({ stageHealth, P }) {
+  if (!Array.isArray(stageHealth) || stageHealth.length === 0) return null;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 2 }}>Pipeline health</div>
+      {stageHealth.map((s, i) => {
+        const state = stageState(s);
+        const reason = typeof s.skipReason === "string" && s.skipReason ? s.skipReason : null;
+        const detail = typeof s.detail === "string" && s.detail ? s.detail : null;
+        const stateWord = state === "passed" ? "ok" : state === "failed" ? "failed" : "skipped";
+        return (
+          <div key={i} style={{ fontSize: FONT_SIZES.caption, color: state === "failed" ? (P.warn || "#b98a2f") : P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+            {s.name} · {stateWord}{typeof s.ms === "number" && s.ms > 0 ? ` · ${(s.ms / 1000).toFixed(1)}s` : ""}{reason ? ` (${reason})` : ""}{detail ? `. ${detail}` : ""}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
@@ -16954,8 +16988,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // the backend's `done` event arrives, so a cleanly-ended-but-incomplete
   // stream can never leave a partial answer looking final.
   const analyze = async () => {
-    const text = documentText.trim();
-    if (!text || analyzing) return;
+    /* The text sent is the text displayed, untrimmed (2026-10-14): the
+       backend no longer trims what it receives, and the evidence
+       offsets it returns index the exact text it was sent, which the
+       reader renders and highlights as documentText itself. Trimming
+       here would shift every offset by the paste's leading whitespace.
+       The guard still rejects a whitespace only document. */
+    const text = documentText;
+    if (!text.trim() || analyzing) return;
     // Resume: if the standing summary of this document is partial and
     // carries its section digests, hand them back so the backend re
     // digests only the missing chunks instead of the whole paper. The
@@ -17076,7 +17116,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const qaGen = docGen.current;
     try {
       const result = await streamDocumentApi(
-        { documentText: documentText.trim(), query: q, history: historyForRequest, stream: true },
+        { documentText, query: q, history: historyForRequest, stream: true },
         {
           signal: ctrl.signal,
           // The backend budgets Q&A past 60s; the client's old fixed
@@ -17092,7 +17132,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       if (qaGen !== docGen.current) return;
       const finalText = result && result.answer ? result.answer : "";
-      const entry = { query: q, answer: finalText, model: (result && result.model) || null, promptTruncation: (result && result.promptTruncation) || null, budgetExhausted: !!(result && result.budgetExhausted), answerTruncated: !!(result && result.answerTruncated), evidence: (result && Array.isArray(result.evidence)) ? result.evidence : [] };
+      const entry = { query: q, answer: finalText, model: (result && result.model) || null, promptTruncation: (result && result.promptTruncation) || null, budgetExhausted: !!(result && result.budgetExhausted), answerTruncated: !!(result && result.answerTruncated), evidence: (result && Array.isArray(result.evidence)) ? result.evidence : [], stageHealth: (result && Array.isArray(result.stageHealth)) ? result.stageHealth : [] };
       setQaHistory((h) => (retireStaleQa ? [entry] : h.map((x, i) => (i === h.length - 1 ? entry : x))));
       if (retireStaleQa) setAnalysisText(srcText);
     } catch (e) {
@@ -17134,12 +17174,18 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     if (!a || !b || compareBusy) return;
     if (!docGate()) return;
     // Same paste cap as analysis: two large documents must not sail into
-    // an oversized request that the backend rejects with a 413.
-    if (a.length > DOCMODE_MAX_TEXT || b.length > DOCMODE_MAX_TEXT) { setCompareError("Those documents are too long to compare. Try shorter excerpts under about 200,000 characters each."); return; }
+    // an oversized request that the backend rejects with a 413. The caps
+    // measure the texts as sent (untrimmed, like analysis and Q&A: the
+    // evidence offsets the backend returns index the exact text it
+    // receives, and the reader displays documentText and docB as they
+    // are). The trimmed a and b still serve the guards above and the
+    // pair key below, whose basis the staleness and storage contracts
+    // are written against.
+    if (documentText.length > DOCMODE_MAX_TEXT || docB.length > DOCMODE_MAX_TEXT) { setCompareError("Those documents are too long to compare. Try shorter excerpts under about 200,000 characters each."); return; }
     // The backend caps the combined payload, not each document: two
     // individually legal documents could silently lose the second
     // one's tail server side. Refuse up front instead.
-    if (a.length + b.length > 240000) { setCompareError("Together these documents are too long to compare in one pass (about 240,000 characters combined). Trim one of them and try again."); return; }
+    if (documentText.length + docB.length > 240000) { setCompareError("Together these documents are too long to compare in one pass (about 240,000 characters combined). Trim one of them and try again."); return; }
     setCompareBusy(true);
     setCompareError("");
     setCompareResult({ streaming: true, text: "" });
@@ -17148,8 +17194,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     compareAbort.current = ctrl;
     const cmpGen = docGen.current;
     const combined =
-      "DOCUMENT A:\n" + a +
-      "\n\n========================================\nDOCUMENT B:\n" + b;
+      "DOCUMENT A:\n" + documentText +
+      "\n\n========================================\nDOCUMENT B:\n" + docB;
     try {
       const result = await streamDocumentApi(
         {
@@ -17952,6 +17998,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{answerTruncatedNote(h.answerTruncated, "answer")}</div>
                     ) : null}
                     {h.answer ? <DocEvidenceTrail evidence={h.evidence} P={P} /> : null}
+                    {h.answer ? <DocStageHealth stageHealth={h.stageHealth} P={P} /> : null}
                   </div>
                 ))}
                 <div style={{ display: "flex", gap: 8, marginTop: qaHistory.length ? 16 : 0, alignItems: "flex-end" }}>
@@ -18057,6 +18104,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               {summary.promptTruncation && summary.promptTruncation.documentShortened ? (
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 10 }}>{promptTruncationNote(summary.promptTruncation, "summary")}</div>
               ) : null}
+              {/* The run's per stage record (digest, synthesis, or the
+                  single summary stage): failures, skips with their
+                  reasons, and the details only the stages can tell,
+                  such as sections that could not be read. */}
+              <DocStageHealth stageHealth={summary.stageHealth} P={P} />
               {/* The report's table of contents: every section the read
                   promises, marked present or honestly missing, each one
                   a jump to its tab. */}
@@ -18236,6 +18288,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{answerTruncatedNote(h.answerTruncated, "answer")}</div>
                       ) : null}
                       {h.answer ? <DocEvidenceTrail evidence={h.evidence} P={P} /> : null}
+                      {h.answer ? <DocStageHealth stageHealth={h.stageHealth} P={P} /> : null}
                     </div>
                   ))}
                 </>
@@ -18463,9 +18516,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
   const isCompact = density === "compact";
   const font = "var(--cb-font)";
   const pad = isMobile ? 20 : 32;
-  const glass = P.dark 
-    ? `${withAlpha(P.surface, 0.88)}` 
-    : P.surface;
+  /* Solid in every palette (2026-10-14): the dark variant used to be the
+     surface at 0.88 alpha, which let the footage show through any text
+     sitting on a glass surface. Dusty's rule is that text sits on a
+     solid opaque background, so glass is simply the surface token. */
+  const glass = P.surface;
   const glassBorder = P.dark
     ? `1px solid ${withAlpha(P.ink2, 0.08)}`
     : `1px solid ${P.line2}`;
@@ -18577,10 +18632,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // the `Ctrl+K` shortcut chip both set the body face; the chip keeps
     // its key-cap border and padding, which is what makes it read as a
     // key, not the typeface.
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, border: glassBorder, color: P.ink2, padding: "7px 12px 7px 16px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, boxShadow: P.shadowSm, marginRight: 4 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: glassBorder, color: P.ink2, padding: "7px 12px 7px 16px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.small, fontFamily: font, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, padding: "2px 6px", fontWeight: 500 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: font },
-    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 38, minWidth: isMobile ? 40 : 38, padding: isMobile ? "0 8px" : "0 12px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", position: "relative" },
+    iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 44, minWidth: 44, padding: isMobile ? "0 8px" : "0 12px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", position: "relative" },
     iconBtnLabel: { lineHeight: 1 },
     countPill: { fontSize: FONT_SIZES.micro, fontWeight: 700, lineHeight: 1, background: accent, color: at, padding: "2px 6px", borderRadius: RADIUS.md, minWidth: 16, textAlign: "center", marginLeft: isMobile ? 0 : -2, position: isMobile ? "absolute" : "static", top: isMobile ? 1 : undefined, right: isMobile ? 1 : undefined },
 
@@ -18695,10 +18750,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100dvh", position: "relative", zIndex: Z.content },
     /* Reading panels: stable surfaces for profiles, bibliography, inbox,
        and long answers. The footage stays visible around them; the text
-       sits on a surface that doesn't compete with it.
-       Dark: rgba(15,17,21,0.94). Light: rgba(250,251,249,0.97). */
+       sits on a solid surface that doesn't compete with it.
+       Dark: #0f1115. Light: #fafbf9. (They were 0.94 and 0.97 alpha
+       until 2026-10-14; text bearing panels are solid now.) */
     readingPanel: {
-      background: P.dark ? "rgba(15,17,21,0.94)" : "rgba(250,251,249,0.97)",
+      background: P.dark ? "#0f1115" : "#fafbf9",
       borderRadius: RADIUS.lg, padding: isMobile ? 18 : 28,
       border: `1px solid ${P.line}`,
     },
@@ -18987,11 +19043,12 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        field without any translucency. */
     answerCard: {
       position: "relative",
-      /* 2026-10-05: a whisper of translucency (0.94) — the cinematic
-         backdrop breathes through faintly without costing readability.
-         Light mode stays solid: translucency over footage hurts dark text
-         far more than it hurts light text. */
-      background: P.dark ? withAlpha(P.surface, 0.94) : P.surface,
+      /* Solid in every palette (2026-10-14). This card carried a whisper
+         of translucency (0.94 in dark mode) from 2026-10-05 so the
+         cinematic backdrop could breathe through it. Dusty's standing
+         rule overrides that: any surface carrying text sits on a solid
+         opaque background, so the answer card is the surface token. */
+      background: P.surface,
       border: `1px solid ${P.line}`,
       borderRadius: RADIUS.xl,
       /* Premium depth: layered soft shadow lifts the answer off the page,
@@ -19028,7 +19085,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     relatedBtn: {
       display: "flex", alignItems: "center", justifyContent: "space-between",
       gap: 12, textAlign: "left", padding: "16px 18px",
-      fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.surface, 0.88) : P.surface, color: P.ink2,
+      fontSize: FONT_SIZES.small, background: P.surface, color: P.ink2,
       border: glassBorder, borderRadius: RADIUS.lg,
       cursor: "pointer", fontFamily: font,
       transition: "background-color 280ms ease, border-color 280ms ease, box-shadow 280ms ease, transform 280ms var(--cb-ease)", letterSpacing: TYPE.heading.letterSpacing,
@@ -19287,7 +19344,7 @@ function ToastHost({ P, accent }) {
     <div role="status" aria-live="polite" style={{ position: "fixed", bottom: "max(24px, env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: Z.toast, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
       {toasts.map((t) => (
         <div key={t.id} className="cb-toast-pop" style={{
-          background: "rgba(18,20,32,0.96)", color: "#fff", padding: "12px 16px", borderRadius: RADIUS.md,
+          background: "#121420", color: "#fff", padding: "12px 16px", borderRadius: RADIUS.md,
           fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", boxShadow: "0 8px 28px rgba(0,0,0,0.3)",
           border: `1px solid ${t.tone === "error" ? STATUS.bad : withAlpha(accent, 0.45)}`,
           display: "flex", alignItems: "center", gap: 8, maxWidth: "min(90vw, 420px)",
@@ -24196,7 +24253,7 @@ function App() {
                                       {historyMenuId === h.id && (
                                         <div style={{
                                           position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: Z.sticky,
-                                          background: P.dark ? "rgba(20,22,28,0.98)" : "#fff",
+                                          background: P.dark ? "#14161c" : "#fff",
                                           border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
                                           boxShadow: "0 8px 24px rgba(0,0,0,0.25)", minWidth: 140,
                                           overflow: "hidden",
@@ -24342,7 +24399,7 @@ function App() {
       )}
       {started && isMobile && mobilePanel && (
         <Dialog label="Sources" onClose={() => setMobilePanel(false)} zIndex={30} drawer={true}
-          panelStyle={{ width: "min(400px, 88vw)", background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)", border: `1px solid ${P.line}`, padding: "24px", boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" }}
+          panelStyle={{ width: "min(400px, 88vw)", background: P.dark ? "#0f111a" : "#ffffff", border: `1px solid ${P.line}`, padding: "24px", boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" }}
         >
           <button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}
         </Dialog>
@@ -25388,7 +25445,10 @@ summary::-webkit-details-marker { display: none; }
   border: 1px solid color-mix(in srgb, var(--cb-acc) 40%, transparent);
   background: color-mix(in srgb, var(--cb-acc) 14%, transparent);
   border-radius: 12px; cursor: pointer;
-  color: var(--cb-acc);
+  /* The label sits on a faint accent tint over the field, so it takes
+     the accent ink correction (accentInk() on the app shell), not the
+     raw accent: raw Amber on the Light palette computed to 1.97 to 1. */
+  color: var(--cb-accent-ink, var(--cb-acc));
   font-family: var(--cb-font); font-size: 15px; font-weight: 650;
   display: inline-flex; align-items: center; justify-content: center;
   transition: background 280ms ease, border-color 280ms ease, opacity 280ms ease;

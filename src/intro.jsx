@@ -259,7 +259,7 @@ function FilmCreditsDialog({ onClose, accent }) {
     <Dialog
       label="Background film credits" onClose={onClose} zIndex={400} width={680}
       panelStyle={{
-        background: "rgba(15, 17, 21, 0.96)",
+        background: "#0f1115",
         border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
         boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
         padding: "26px 26px 22px", color: "#f2f4f2", fontFamily: "var(--cb-font)",
@@ -449,7 +449,7 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
   return (
     <Dialog label={label} onClose={onClose} zIndex={400} width={width}
       panelStyle={{
-        background: "rgba(15, 17, 21, 0.96)",
+        background: "#0f1115",
         border: "1px solid rgba(255,255,255,0.10)", borderRadius: RADIUS.xl,
         boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
         padding: "22px 22px 24px", color: "#f2f4f2", fontFamily: "var(--cb-font)",
@@ -516,7 +516,7 @@ function SourcesDialog({ onClose, accent }) {
       <p style={{ margin: "0 0 16px", fontSize: 14, lineHeight: 1.65, color: "rgba(242,244,242,0.68)" }}>
         Cerebrum queries these {SCHOLARLY_SOURCES.length} sources and merges the results, removing the
         same paper when it appears in more than one. Preprints are included and are labelled as
-        preprints — they have not been peer-reviewed.
+        preprints. They have not been peer-reviewed.
       </p>
       {GROUPS.map(([key, heading]) => {
         const rows = SCHOLARLY_SOURCES.filter((x) => x.category === key);

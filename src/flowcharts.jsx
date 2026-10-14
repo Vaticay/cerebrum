@@ -536,7 +536,7 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
 function FcNodeShape({ n, P, accent, selected, pending }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
-  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.85)");
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "#ffffff");
   const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.20)" : "rgba(20,30,20,0.24)");
   const sw = selected || pending ? 2.6 : 1.5;
   const shape = (() => {
@@ -2217,7 +2217,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               {diagError && (
                 <div style={{
                   position: "absolute", top: 12, left: 12, right: 12, padding: "12px 16px", borderRadius: RADIUS.lg,
-                  background: dark ? "rgba(60,16,16,0.92)" : "rgba(254,226,226,0.96)",
+                  background: dark ? "#3c1010" : "#fee2e2",
                   border: "1px solid rgba(248,113,113,0.5)", zIndex: Z.float,
                 }}>
                   <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
@@ -2350,7 +2350,7 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
 function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex = 220, width = 640, ticks = false, tall = false, drawer = false, P = null, children }) {
   // Drawers are theme-aware (they read like a document); centered modals
   // keep the dark instrument-glass treatment.
-  const panelBg = drawer && P ? P.bg : "rgba(15,17,21,0.97)";
+  const panelBg = drawer && P ? P.bg : "#0f1115";
   const panelInk = drawer && P ? P.ink : "#f2f4f2";
   const panelBorder = drawer && P ? P.line : "rgba(255,255,255,0.10)";
   return (

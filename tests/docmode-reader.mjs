@@ -527,7 +527,21 @@ await test("frontend sends the backend's field names (no phantom mode field)", a
   // be ignored and analysis would 400 as "missing_document".
   assert.match(src, /documentText:\s*text,\s*stream:\s*true/, "analyze must send documentText and stream: true");
   assert.match(src, /priorSections:\s*resumeSections/, "analyze must carry priorSections on a resume");
-  assert.match(src, /documentText:\s*documentText\.trim\(\),\s*query:\s*q,\s*history:\s*historyForRequest,\s*stream:\s*true/, "Q&A must send { documentText, query, history, stream: true }");
+  // Corrected contract (2026-10-14): the text sent is the text
+  // displayed, untrimmed, at all three send sites. The backend no
+  // longer trims what it receives and the evidence offsets it returns
+  // index the exact text it was sent, which the reader renders as
+  // documentText itself; a send time trim shifted every offset by the
+  // paste's leading whitespace. This assertion used to pin the trimmed
+  // Q&A shape (documentText: documentText.trim()); it now pins the
+  // untrimmed one, and the analyze and compare sites are pinned with
+  // it. The whitespace only guards are untouched: analyze still
+  // refuses on !text.trim() and Q&A on !documentText.trim().
+  assert.match(src, /documentText,\s*query:\s*q,\s*history:\s*historyForRequest,\s*stream:\s*true/, "Q&A must send { documentText, query, history, stream: true } with the text untrimmed");
+  assert.ok(!/documentText:\s*documentText\.trim\(\)/.test(src), "a send site still trims documentText at send time");
+  assert.match(src, /const text = documentText;\s*\n\s*if \(!text\.trim\(\) \|\| analyzing\) return;/, "analyze must bind its payload text untrimmed and keep the whitespace only guard");
+  assert.match(src, /"DOCUMENT A:\\n" \+ documentText/, "compare must build its payload from the untrimmed first document");
+  assert.match(src, /DOCUMENT B:\\n" \+ docB/, "compare must build its payload from the untrimmed second document");
   assert.match(src, /documentText:\s*combined,\s*stream:\s*true,\s*query:/, "compare must send { documentText, stream: true, query }");
   assert.ok(!/streamDocumentApi\(\s*\{\s*document:/.test(src), "phantom `document` field sent to /api/document");
   assert.ok(!/mode:\s*"(qa|analyze)"/.test(src), "phantom `mode` field sent to /api/document");
@@ -726,6 +740,50 @@ await test("the trail component is honest: empty renders nothing, unverified nev
   // The rendered output of this component, including that the
   // unverified arm prints no offsets and the empty trail prints
   // nothing at all, is pinned at render level in tests/ui-render.cjs.
+});
+
+// ── stageHealth: the run's per stage record reaches the reader ─────
+group("stageHealth — the desk renders the backend's per stage record");
+
+await test("Q&A entries carry stageHealth off the result", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The backend ships stageHealth on Q&A results too (one "answer"
+  // stage). The history entry must keep it the way it keeps evidence,
+  // or the record dies at the state boundary.
+  assert.ok(src.includes("stageHealth: (result && Array.isArray(result.stageHealth)) ? result.stageHealth : []"),
+    "askFollowUp entry drops stageHealth");
+});
+
+await test("the summary masthead renders the stage record off the stored result", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // setSummary(result) stores the payload whole, so the record is in
+  // state already; the masthead must render it next to the other
+  // completeness disclosures.
+  assert.match(src, /<DocStageHealth stageHealth=\{summary\.stageHealth\}/, "summary masthead does not render the stage record");
+});
+
+await test("the stage record renders under Q&A answers in both reader surfaces", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const hits = src.split("<DocStageHealth stageHealth={h.stageHealth}").length - 1;
+  assert.equal(hits, 2, "both Q&A render sites must render the stage record; found " + hits);
+  const gates = src.split("h.answer ? <DocStageHealth").length - 1;
+  assert.equal(gates, 2, "both Q&A stage record renders must gate on the entry's answer; found " + gates);
+});
+
+await test("the stage health component is honest: empty renders nothing, skips and details are printed", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const at = src.indexOf("function DocStageHealth");
+  assert.ok(at > 0, "DocStageHealth component missing");
+  const fn = src.slice(at, src.indexOf("\nfunction NotebookMode", at));
+  assert.match(fn, /if \(!Array\.isArray\(stageHealth\) \|\| stageHealth\.length === 0\) return null;/, "stage health must render nothing for an empty or absent record");
+  // The classification is the search answer's own helper, so the
+  // three states cannot drift apart between the two products.
+  assert.match(fn, /stageState\(s\)/, "stage health must classify through stageState");
+  assert.match(fn, /s\.skipReason/, "skipped stages must show their skip reason");
+  assert.match(fn, /s\.detail/, "stage details must be printed, not dropped");
+  // The rendered output of this component, including the empty
+  // record printing nothing at all, is pinned at render level in
+  // tests/ui-render.cjs.
 });
 
 // ── Edited documents: reading state goes stale, never resurrects ────

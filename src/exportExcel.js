@@ -19,7 +19,7 @@ import ExcelJS from "exceljs";
 
 const MAX_PAPERS = 20;
 const DEFAULT_FILENAME = "cerebrum-papers.xlsx";
-const DEFAULT_TITLE = "Cerebrum — Top papers";
+const DEFAULT_TITLE = "Cerebrum: Top papers";
 const DEFAULT_ACCENT = "#475569"; // slate; the app passes the user's accent via opts.accent
 
 const COLUMNS = [

@@ -389,12 +389,15 @@ await test("question is an instrument query strip, not a serif hero", () => {
   assert.ok(!/>Inquiry</.test(code), "Inquiry label still rendered");
 });
 
-await test("answer card is barely translucent (0.94) in dark mode", () => {
+await test("answer card is solid in every palette", () => {
   const start = appSrc.indexOf("answerCard: {");
   const block = appSrc.slice(start, appSrc.indexOf("},", start));
-  // 2026-10-05: Dusty asked for a whisper of translucency — 0.94 lets the
-  // backdrop breathe through faintly without costing readability.
-  assert.ok(/withAlpha\(P\.surface, 0\.94\)/.test(block), "answer card not at 0.94 translucency");
+  // Corrected contract (2026-10-14): this test used to pin the 0.94 dark
+  // mode translucency Dusty asked for on 2026-10-05. His standing rule
+  // now overrides it: any surface carrying text sits on a solid opaque
+  // background, so the card is the plain surface token in both modes.
+  assert.ok(/background: P\.surface,/.test(block), "answer card is not the solid surface token");
+  assert.ok(!/withAlpha\(P\.surface/.test(block), "answer card still translucent");
 });
 
 await test("no bare Degraded chip — pipeline honesty lives in diagnostics", () => {

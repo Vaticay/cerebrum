@@ -131,7 +131,7 @@ function cleanSpaceSummary(a) {
   const siteNameRepeat = /^([a-z]{2,}\s*){3,}/i.test(s) && new Set(s.toLowerCase().split(/\s+/).filter(Boolean)).size <= 3;
   if (chromeHits >= 2 || siteNameRepeat) {
     const site = (a && a.news_site || "Spaceflight News").trim() || "Spaceflight News";
-    return `${site} story — full text at the source link.`;
+    return `${site} story. Full text at the source link.`;
   }
   return s;
 }

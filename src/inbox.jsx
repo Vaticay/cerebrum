@@ -109,7 +109,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
   return (
     <Dialog label={title} onClose={onClose} zIndex={310} width={420}
       panelStyle={{
-        background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
+        background: P.dark ? "#0f111a" : "#ffffff",
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.md, padding: "26px", outline: "none", fontFamily: "var(--cb-font)",
         boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -2046,7 +2046,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       <div onClick={() => setMenuOpen(false)} aria-hidden="true" style={{ position: "fixed", inset: 0, zIndex: Z.dropdown }} />
                       <div style={{
                         position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: Z.dropdownMenu, minWidth: 200,
-                        background: P.dark ? "rgba(22,24,34,0.98)" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
+                        background: P.dark ? "#161822" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
                         boxShadow: "0 12px 32px rgba(0,0,0,0.22)", padding: 6, display: "flex", flexDirection: "column",
                       }}>
                         <UIButton P={P} variant="ghost" onClick={markThreadUnread} disabled={markUnreadBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: markUnreadBusy ? "default" : "pointer", textAlign: "left" }}>

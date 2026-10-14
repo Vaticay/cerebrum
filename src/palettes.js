@@ -28,7 +28,9 @@ const PALETTES = {
   // kept deliberately cool rather than folded into the warm pair above, so
   // it stays a real alternative and not a fourth near-duplicate. Ink
   // softened off pure white to match the other three's restraint.
-  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#a1a1aa", faint: "#aaabaf", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
+  // ink2 was #a1a1aa until 2026-10-14: on raised (#3b3f46) that computed
+  // to 4.13 to 1, under the 4.5 body text bar. #adaeb4 computes to 4.78.
+  Mid:   { dark: true,  bg: "#25262b", surface: "#303339", raised: "#3b3f46", ink: "#e8e7e5", ink2: "#adaeb4", faint: "#aaabaf", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #303339 25%, #3b3f46 50%, #303339 75%)" },
   /* Light — designed as its own material, not as dark mode inverted.
      Archival paper rather than white: a warm, slightly cool-shadowed stock
      at #f1f0ec, the colour of a journal offprint. Ink is graphite (#22252a)

@@ -451,7 +451,7 @@ export async function encryptMessage({ apiAction, peerUserId, plaintext }) {
       }
       const otk = c.oneTimeKey?.pubkey || c.fallbackKey;
       if (!otk) {
-        throw new Error("Couldn't start an encrypted session with one of their devices — no keys available.");
+        throw new Error("Couldn't start an encrypted session with one of their devices. No keys are available.");
       }
       session = gAccount.createOutboundSession(c.identityKey, otk);
       list = [session];
@@ -624,7 +624,7 @@ async function decryptOne(m, myDeviceId, peerUserId) {
     }
   }
 
-  return fail("Couldn't decrypt this message — the sender may have reset their keys.");
+  return fail("Couldn't decrypt this message. The sender may have reset their keys.");
 }
 
 function okWithText(m, plaintext, tag) {
@@ -655,7 +655,7 @@ function okWithText(m, plaintext, tag) {
 export async function restoreFromPhrase(apiAction, phrase, deviceId = null) {
   await initCrypto();
   if (!isValidRecoveryPhrase(phrase)) {
-    throw new Error("That recovery phrase doesn't look right — check each of the 24 words and try again.");
+    throw new Error("That recovery phrase doesn't look right. Check each of the 24 words and try again.");
   }
   const res = await apiAction("e2ee-backup-get", {});
   const all = (res && res.backups) || [];

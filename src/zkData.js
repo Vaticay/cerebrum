@@ -644,7 +644,7 @@ export class ZkSession {
     }
     const existing = await this.getVaultState();
     if (existing.exists) {
-      throw new Error("zkData: a vault already exists (dek " + existing.dekId + ") — unlock it instead of enabling a new one");
+      throw new Error("zkData: a vault already exists (dek " + existing.dekId + "). Unlock it instead of enabling a new one");
     }
     const dek = generateDEK();
     const dekId = makeDekId();
@@ -771,7 +771,7 @@ export class ZkSession {
       res = await this._post("zk-put-items", { items: serverRows });
     } catch (err) {
       if (err && (err.code === "stale_dek" || err.status === 409)) {
-        const typed = new Error("zkData: vault key rotated — re-enable the vault to continue syncing");
+        const typed = new Error("zkData: vault key rotated. Enable the vault again to continue syncing");
         typed.code = "STALE_DEK";
         throw typed;
       }

@@ -49,7 +49,7 @@ export const MARKETING_PAGES = {
           "Diagram Studio: turn a pathway, method, or mechanism into an editable Mermaid diagram with SVG, PNG, and .mmd export.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
           "Watched topics: watch a subject from the end of an answer, and your home screen counts the new papers indexed on it since you last looked.",
-          "Cortex: courses built from real papers on a topic, with practice activities, daily practice, and progress you can export as a file you keep.",
+          "Cortex: taught lessons on a topic you pick, with practice activities, daily practice, and progress you can export as a file you keep.",
           "Private Vault: optional end to end encrypted sync for your saved work, with a 24 word recovery phrase only you hold.",
         ],
       },
@@ -84,8 +84,8 @@ export const MARKETING_PAGES = {
         ],
       },
       {
-        h: "Cortex: learn the papers, not just read them",
-        p: "Cortex turns the literature into courses. Pick a topic from six shelves of science, or start from a subject you care about, and Cortex builds a path of short lessons from real papers on it. The practice comes from the papers themselves: quizzes whose options are real findings, fill in the blank cards, true or false checks, matching and ordering activities, and battles between claims. A daily practice session brings back what is due for review, and a forgiving streak, with two freezes and no lives to lose, keeps the habit going.",
+        h: "Cortex: learn the topic, lesson by lesson",
+        p: "Cortex teaches the topic itself, in plain language, and never asks you to read a paper. Pick a topic from six shelves of science, or start from a subject you care about, and Cortex lays out a path of short lessons that teach the ideas first. The practice then checks what the lessons taught: quizzes, fill in the blank cards, true or false checks, and matching and ordering activities. A daily practice session brings back what is due for review, and a forgiving streak, with two freezes and no lives to lose, keeps the habit going.",
         list: [
           "Progress lives in this browser only: your courses, streak, and practice history are stored on your device, not in an account, and there is no cloud copy.",
           "Export saves your Cortex progress as one file you keep. Import that file in another browser and your progress comes with you.",
@@ -151,7 +151,7 @@ export const MARKETING_PAGES = {
           "Every free answer carries the coverage line and the full Search record, permanent link and JSON form included, the same as any other answer.",
           "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
           "A free account can watch up to 40 topics, and the home screen counts the new papers indexed on each one.",
-          "Cortex is included: courses built from real papers, daily practice, and progress stored in your browser that exports as a file you keep.",
+          "Cortex is included: taught lessons on the topics you pick, daily practice, and progress stored in your browser that exports as a file you keep.",
         ],
       },
       {
@@ -159,7 +159,7 @@ export const MARKETING_PAGES = {
         list: [
           "$20 per month or $144 per year, renewing automatically until you cancel.",
           "Unlimited AI answers, document reads, and flowcharts.",
-          "The Pro badge, four exclusive Pro themes, deeper Pro search, and priority rendering.",
+          "The Pro badge, four exclusive Pro themes, and deeper Pro search.",
           "Investigation templates exclusive to Pro, priority search queue, and API access with personal keys.",
           "Cancel anytime from the billing portal. A 7 day money back guarantee covers the first charge of a new subscription. Email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
         ],

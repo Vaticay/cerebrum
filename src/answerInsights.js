@@ -54,7 +54,7 @@ export function funnelExclusions(f) {
     {
       reason: "Duplicates",
       count: Math.max(0, f.gathered - f.deduped),
-      note: "Same paper returned by more than one database — includes dataset and deposit records removed before ranking",
+      note: "Same paper returned by more than one database, including dataset and deposit records removed before ranking",
     },
     {
       reason: "Weak match",
@@ -71,7 +71,7 @@ export function funnelExclusions(f) {
       count: f.excludedRetracted,
       note: f.excludedRetracted > 0
         ? "Removed before synthesis"
-        : "Flagged on the paper instead — never silently dropped",
+        : "Flagged on the paper instead, never silently dropped",
     },
   ];
 }
@@ -237,7 +237,7 @@ const HEDGE = "based on cited sources only";
 /* One deterministic line per era:
  * "{range} · {n} papers · anchored by {title} ({c} citations) · {k} back core claims{; 2 cited in disagreements}" */
 export function describeEra(era, hasFactCheck) {
-  const range = era.startYear === era.endYear ? String(era.startYear) : `${era.startYear}–${era.endYear}`;
+  const range = era.startYear === era.endYear ? String(era.startYear) : `${era.startYear} to ${era.endYear}`;
   const n = era.papers.length;
   const bits = [`${range}`, `${n} paper${n === 1 ? "" : "s"}`];
   const title = truncateTitle(era.anchor.source.title);
@@ -249,7 +249,7 @@ export function describeEra(era, hasFactCheck) {
   if (hasFactCheck) bits.push(`${era.claimCount} back core claim${era.claimCount === 1 ? "" : "s"}`);
   if (era.claimFirstYear !== null) bits.push(`first evidence for a core claim appears in ${era.claimFirstYear}`);
   if (era.disagreementCount > 0) bits.push(`${era.disagreementCount} cited in disagreements`);
-  return bits.join(" · ") + ` — ${HEDGE}.`;
+  return bits.join(" · ") + `, ${HEDGE}.`;
 }
 
 export function describeConvergence(convergence, newestEra) {
@@ -259,7 +259,7 @@ export function describeConvergence(convergence, newestEra) {
   const read = convergence.share >= 0.5
     ? "the literature converges on recent work"
     : "the core claims still rest on earlier work";
-  return `${base} — ${read}, ${HEDGE}.`;
+  return `${base}, ${read}, ${HEDGE}.`;
 }
 
 /* ── Open questions: research gap finder ──────────────────────────── */
@@ -377,8 +377,8 @@ export function extractOpenQuestions(answer, factCheck, sources, selfReasoning) 
       kind: "fragile",
       question: cleanCiteText(text),
       whyOpen: thin
-        ? "Single-study claim — only thinly backed by the cited literature."
-        : "Not backed by any cited paper — the answer reaches past its sources here.",
+        ? "Single study claim, only thinly backed by the cited literature."
+        : "Not backed by any cited paper. The answer reaches past its sources here.",
       whatWouldCloseIt: thin
         ? "An independent replication in a second study."
         : "A cited source that actually states this.",

@@ -523,7 +523,7 @@ await check("session: pushItems under a stale dek -> STALE_DEK", async () => {
     session.pushItems([{ id: makeItemId("zk"), kind: "paper", payload: { title: "x" } }]),
     (err) => {
       assert.equal(err.code, "STALE_DEK");
-      assert.match(err.message, /re-enable the vault/);
+      assert.match(err.message, /vault key rotated\. Enable the vault again to continue syncing/);
       return true;
     }
   );

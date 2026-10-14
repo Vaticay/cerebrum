@@ -739,7 +739,9 @@ export function UISelect({
         className={("cb-press cb-glass-action " + className).trim()}
         style={{
           display: "inline-flex", alignItems: "center", justifyContent: "space-between",
-          gap: SP.sm, minHeight: size === "sm" ? 36 : 44,
+          /* 44px floor at every size (2026-10-14): the sm trigger used
+             to be 36px, an interactive target under the floor. */
+          gap: SP.sm, minHeight: 44,
           padding: size === "sm" ? "6px 10px" : "9px 12px",
           borderRadius: RADIUS.md,
           /* UIButton secondary skin — the select reads as family, not as
@@ -775,7 +777,7 @@ export function UISelect({
             position: "fixed", zIndex: Z.selectMenu,
             left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width,
             maxHeight: 280, overflowY: "auto",
-            background: pal.dark ? "rgba(20,22,28,0.98)" : "#ffffff",
+            background: pal.dark ? "#14161c" : "#ffffff",
             border: `1px solid ${pal.line}`, borderRadius: RADIUS.lg, padding: 6,
             boxShadow: SHADOW.md(P),
             ...menuStyle,
@@ -794,7 +796,7 @@ export function UISelect({
                 onClick={() => choose(i)}
                 onMouseEnter={() => setActive(i)}
                 style={{
-                  minHeight: 40, display: "flex", alignItems: "center", gap: SP.sm,
+                  minHeight: 44, display: "flex", alignItems: "center", gap: SP.sm,
                   padding: "8px 10px", borderRadius: RADIUS.md, cursor: "pointer",
                   background: isActive
                     ? (accent ? withAlpha(accent, 0.12) : pal.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)")
