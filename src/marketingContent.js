@@ -42,7 +42,7 @@ export const MARKETING_PAGES = {
     blocks: [
       {
         h: "The promise",
-        p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full text, OpenAIRE and more in parallel, scores the results for genuine relevance, and writes a summary constrained by what those papers actually say.",
+        p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, CORE, BASE, PMC full text, OpenAIRE and more in parallel, scores the results for genuine relevance, and writes a summary constrained by what those papers actually say.",
       },
       {
         h: "What you get",
@@ -54,7 +54,7 @@ export const MARKETING_PAGES = {
           "Diagram Studio: turn a pathway, method, or mechanism into an editable Mermaid diagram with SVG, PNG, and .mmd export.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
           "Watched topics: watch a subject from the end of an answer, and your home screen counts the new papers indexed on it since you last looked.",
-          "Cortex: taught lessons on a topic you pick, with practice activities, daily practice, and progress you can export as a file you keep.",
+          "Wick: taught lessons on a topic you pick, with practice activities, daily practice, and progress you can export as a file you keep.",
           "Private Vault: optional end to end encrypted sync for your saved work, with a 24 word recovery phrase only you hold.",
         ],
       },
@@ -93,11 +93,11 @@ export const MARKETING_PAGES = {
         ],
       },
       {
-        h: "Cortex: learn the topic, lesson by lesson",
-        p: "Cortex teaches the topic itself, in plain language, and never asks you to read a paper. Pick a topic from six shelves of science, or start from a subject you care about, and Cortex lays out a path of short lessons that teach the ideas first. The practice then checks what the lessons taught: quizzes, fill in the blank cards, true or false checks, and matching and ordering activities. A daily practice session brings back what is due for review, and a forgiving streak, with two freezes and no lives to lose, keeps the habit going.",
+        h: "Wick: learn the topic, lesson by lesson",
+        p: "Wick teaches the topic itself, in plain language, and never asks you to read a paper. Pick a topic from six shelves of science, or start from a subject you care about, and Wick lays out a path of short lessons that teach the ideas first. The practice then checks what the lessons taught: quizzes, fill in the blank cards, true or false checks, and matching and ordering activities. A daily practice session brings back what is due for review, and a forgiving streak, with two freezes and no lives to lose, keeps the habit going.",
         list: [
           "Progress lives in this browser only: your courses, streak, and practice history are stored on your device, not in an account, and there is no cloud copy.",
-          "Export saves your Cortex progress as one file you keep. Import that file in another browser and your progress comes with you.",
+          "Export saves your Wick progress as one file you keep. Import that file in another browser and your progress comes with you.",
         ],
       },
       {
@@ -160,7 +160,7 @@ export const MARKETING_PAGES = {
           "Every free answer carries the coverage line and the full Search record, permanent link and JSON form included, the same as any other answer.",
           "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
           "A free account can watch up to 40 topics, and the home screen counts the new papers indexed on each one.",
-          "Cortex is included: taught lessons on the topics you pick, daily practice, and progress stored in your browser that exports as a file you keep.",
+          "Wick is included: taught lessons on the topics you pick, daily practice, and progress stored in your browser that exports as a file you keep.",
         ],
       },
       {

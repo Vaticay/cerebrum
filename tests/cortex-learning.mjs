@@ -859,7 +859,7 @@ await test("export and import controls render in the home progress surface", () 
   assert.ok(learnSrc.includes("buildCortexExport({ courses, claims, profile, builtinProgress, sound: soundOn }"), "export button does not build from the live state");
   assert.ok(learnSrc.includes("parseCortexImport(String(reader.result"), "import does not validate through the parser");
   assert.ok(learnSrc.includes('accept=".json"'), "import file input does not limit itself to json files");
-  assert.ok(learnSrc.includes("Replace the Cortex progress in this browser"), "import replaces without asking first");
+  assert.ok(learnSrc.includes("Replace the Wick progress in this browser"), "import replaces without asking first");
   assert.ok(learnSrc.includes("not a cloud copy"), "the copy does not say plainly that the export is a kept file");
   assert.ok(learnSrc.includes('a.download = "cerebrum-cortex-progress-" + todayKey() + ".json"'), "export file is not named with the date");
 });
@@ -1096,7 +1096,7 @@ await test("the tour describes taught lessons and real quizzes, with no paper ta
 });
 
 await test("builtin lessons carry an honest source note, with no invented citation", () => {
-  const hits = learnSrc.match(/for Cortex from standard textbook material/g) || [];
+  const hits = learnSrc.match(/for Wick from standard textbook material/g) || [];
   assert.ok(hits.length >= 3, `the textbook source note should appear in the tour, the path view, and the lesson intro; found ${hits.length}`);
   assert.ok(learnSrc.includes("quote no single paper"), "the source note does not say plainly that no paper is quoted");
 });
@@ -1897,11 +1897,15 @@ await test("build error strings speak plain product language, with no paper mach
 // ─═════════════════════════════════════════════════════════════════
 group("Redesign wave two: tagline, new card kinds, ranks, the map, onboarding");
 
-await test("the tagline is the new line, and the old one is nowhere", () => {
-  assert.equal(CORTEX_TAGLINE, "Science you will actually remember.");
-  assert.ok(learnSrc.includes("Science you will actually remember."), "the new tagline is not in the source");
+await test("the tagline is the Wick line, and the old ones are nowhere", () => {
+  // Rename pin (2026-10-14): the owner ordered the learning product
+  // renamed from Cortex to Wick, with the tagline "One idea a day."
+  // Both earlier taglines must stay absent from the source.
+  assert.equal(CORTEX_TAGLINE, "One idea a day.");
+  assert.ok(learnSrc.includes("One idea a day."), "the Wick tagline is not in the source");
   assert.ok(learnSrc.includes("{CORTEX_TAGLINE}"), "the home does not render the tagline constant");
-  assert.ok(!learnSrc.includes("Where papers become memory"), "the old tagline survived somewhere");
+  assert.ok(!learnSrc.includes("Where papers become memory"), "the oldest tagline survived somewhere");
+  assert.ok(!learnSrc.includes("Science you will actually remember"), "the pre rename tagline survived somewhere");
 });
 
 await test("the four new card kinds are authored in the paths and count as interactive", () => {
@@ -2160,8 +2164,15 @@ await test("the Player renders every second version kind and the character slot"
   // celebrate.png, which no art deliverable ever produced). The poses now
   // point at the art wave's real files, and this pin names them so a
   // future rename on either side fails loudly instead of rendering air.
-  assert.ok(learnSrc.includes("/cortex/character/pip-celebrating.webp") && learnSrc.includes("/cortex/character/pip-greeting.webp"),
+  // Rename pin (2026-10-14): the owner ordered the product renamed
+  // to Wick and the character is now Wick the flame, so the poses
+  // point at the wick files under the same character asset root,
+  // including the worried and fading poses the loop surfaces use.
+  assert.ok(learnSrc.includes("/cortex/character/wick-celebrating.webp") && learnSrc.includes("/cortex/character/wick-greeting.webp"),
     "the character poses are not declared under the character asset root");
+  assert.ok(learnSrc.includes("/cortex/character/wick-thinking.webp") && learnSrc.includes("/cortex/character/wick-worried.webp") && learnSrc.includes("/cortex/character/wick-fading.webp") && learnSrc.includes("/cortex/character/wick-explaining.webp"),
+    "the thinking, worried, fading, or explaining Wick poses are not declared");
+  assert.ok(!learnSrc.includes("pip-"), "a live Pip pose path survived the rename");
   assert.ok(learnSrc.includes("<DiagramArt"), "the diagram renderer is not used");
 });
 
@@ -2443,7 +2454,7 @@ await test("the home carries quests, the Sparks shop, reminders, leagues, share 
     "REMINDERS", "Reminders live here for now", "LEAGUES", "Leagues are not open yet",
     "You are in for opening day. Your place is saved.",
     "function ShareCardButton", "Share card", "shareCardModel(",
-    "When should Cortex remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
+    "When should Wick remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
     "Tomorrow, one quest is still open: ",
   ]) {
     assert.ok(learnSrc.includes(needle), `the loop surface is missing: ${needle}`);

@@ -1,5 +1,7 @@
 # Cortex Style Guide
 
+Rename note (2026-10-14): the owner ordered the learning product renamed, and it is now called Wick. The character is Wick the flame. Pip is retired as the wired face of the product but is kept on disk, and no Pip file was deleted. Routes and storage are unchanged by the rename, so learners keep their progress, Sparks, quests, and streaks. The historical guide text below is retained where it explains the prior art system, including the sections that describe Pip and the mark the character grew from.
+
 The complete art direction for Cortex, the learning section of Cerebrum. Phase 0 of the Cortex redesign, written October 14, 2026. Every illustration, animation, key visual, and character pose made for Cortex follows this guide. If an asset disagrees with this guide, the asset is wrong, not the guide. Changes to this guide happen in one place, here, and every surface inherits them.
 
 ## 1. What the art is for

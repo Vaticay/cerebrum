@@ -1,7 +1,7 @@
 # Cerebrum
 
 > Cerebrum is a free scientific literature search engine. Ask a research
-> question and get an answer assembled from 15 open scholarly databases,
+> question and get an answer assembled from 14 open scholarly databases,
 > with every claim linked to a real paper you can open. Free, no ads, no
 > tracking, and an account is optional.
 
@@ -17,10 +17,10 @@
   no sale of personal information. Searching and AI answers work without an
   account; document reads, saved flowcharts, and watched topics need a free
   account.
-- Searches 15 open scholarly databases: PubMed (36M articles), Europe PMC
-  (43M articles), OpenAlex (250M works), Semantic Scholar (220M papers),
-  Crossref (150M works), arXiv, bioRxiv/medRxiv, DOAJ, PLOS, Zenodo, CORE,
-  BASE, PubMed Central full text, and OpenAIRE.
+- Searches 14 open scholarly databases: Europe PMC (43M articles),
+  PubMed (36M articles), OpenAlex (250M works), Crossref (150M works),
+  arXiv, Semantic Scholar (220M papers), DOAJ, bioRxiv, PLOS, CORE,
+  BASE, PMC Full Text, OpenAIRE, and Preprint index.
 - Every citation is a real DOI or record you can open and check. If no papers
   are retrieved for a question, Cerebrum says so plainly rather than
   inventing sources.
@@ -35,7 +35,7 @@
 - Features: saved sources and collections, side by side comparison of
   investigations, views of how sources relate to each other, diagram studio,
   bibliography export (Excel, BibTeX, APA, MLA, Chicago, Vancouver).
-- Cortex: a learning companion that builds courses from real papers on a
+- Wick: a learning companion that builds courses from real papers on a
   topic, with practice activities drawn from the papers and daily practice.
   Progress is stored in the visitor's own browser and can be exported and
   imported as a file the visitor keeps. There is no account sync and no

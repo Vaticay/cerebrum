@@ -78,12 +78,11 @@ function saveProfile(p) { saveJSON(PROFILE_KEY, p); }
 export const CORTEX_EXPORT_FORMAT = "cerebrum-cortex-progress";
 export const CORTEX_EXPORT_VERSION = 1;
 
-/* The Cortex tagline (redesign, 2026-10-14). The old line, "Where
-   papers become memory.", described a product that referenced
-   papers in its learning flow; that flow was removed by the
-   owner's own order, so the line now promises what Cortex does:
-   taught science that stays with the learner. */
-export const CORTEX_TAGLINE = "Science you will actually remember.";
+/* The Wick tagline (rename, 2026-10-14). The owner ordered the
+   learning product renamed from Cortex to Wick the same day, and
+   its line set to the new promise: one idea a day. The constant
+   name stays CORTEX_TAGLINE because it is internal only. */
+export const CORTEX_TAGLINE = "One idea a day.";
 
 function cortexIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 function cortexIsFiniteNumber(v) { return typeof v === "number" && Number.isFinite(v); }
@@ -213,13 +212,13 @@ export function parseCortexImport(text) {
   try { data = JSON.parse(String(text == null ? "" : text)); }
   catch { return cortexImportFailure("That file could not be read. It is not valid JSON."); }
   if (!cortexIsPlainObject(data) || data.format !== CORTEX_EXPORT_FORMAT) {
-    return cortexImportFailure("That file is not a Cortex progress file. Nothing was imported.");
+    return cortexImportFailure("That file is not a Wick progress file. Nothing was imported.");
   }
   if (typeof data.version !== "number" || data.version < 1) {
-    return cortexImportFailure("That Cortex progress file has no readable version. Nothing was imported.");
+    return cortexImportFailure("That Wick progress file has no readable version. Nothing was imported.");
   }
   if (data.version > CORTEX_EXPORT_VERSION) {
-    return cortexImportFailure("That file was made by a newer version of Cortex. Update Cerebrum, then import it again.");
+    return cortexImportFailure("That file was made by a newer version of Wick. Update Cerebrum, then import it again.");
   }
   if (!Array.isArray(data.courses)) {
     return cortexImportFailure("That file is missing its courses section. Nothing was imported.");
@@ -247,13 +246,13 @@ export function parseCortexImport(text) {
     || (data.profile.bridged != null && !cortexIsStringArray(data.profile.bridged))
     || (data.profile.freezes != null && !cortexIsFiniteNumber(data.profile.freezes))
     || (data.profile.freezeMilestone != null && !cortexIsFiniteNumber(data.profile.freezeMilestone))) {
-    return cortexImportFailure("That file's profile section is not shaped like a Cortex profile. Nothing was imported.");
+    return cortexImportFailure("That file's profile section is not shaped like a Wick profile. Nothing was imported.");
   }
   if ((data.profile.sparks != null && (!cortexIsFiniteNumber(data.profile.sparks) || data.profile.sparks < 0))
     || (data.profile.loopDay != null && typeof data.profile.loopDay !== "string")
     || (data.profile.reminderHour != null && (!Number.isInteger(data.profile.reminderHour) || data.profile.reminderHour < 0 || data.profile.reminderHour > 23))
     || (data.profile.leaguesOptIn != null && typeof data.profile.leaguesOptIn !== "boolean")) {
-    return cortexImportFailure("That file's profile section is not shaped like a Cortex profile. Nothing was imported.");
+    return cortexImportFailure("That file's profile section is not shaped like a Wick profile. Nothing was imported.");
   }
   if (data.profile.loop != null) {
     const loopProblem = cortexLoopProblem(data.profile.loop);
@@ -1258,10 +1257,13 @@ function CardVisual({ src, P, accent, height = 190 }) {
 }
 
 const CHARACTER_POSES = {
-  wave: "/cortex/character/pip-greeting.webp",
-  cheer: "/cortex/character/pip-celebrating.webp",
-  think: "/cortex/character/pip-thinking.webp",
-  celebrate: "/cortex/character/pip-celebrating.webp",
+  wave: "/cortex/character/wick-greeting.webp",
+  cheer: "/cortex/character/wick-celebrating.webp",
+  think: "/cortex/character/wick-thinking.webp",
+  celebrate: "/cortex/character/wick-celebrating.webp",
+  worried: "/cortex/character/wick-worried.webp",
+  fading: "/cortex/character/wick-fading.webp",
+  explain: "/cortex/character/wick-explaining.webp",
 };
 
 function CharacterPose({ pose, size = 54 }) {
@@ -6055,7 +6057,7 @@ export function reminderFor({ profile, quests, loop, now } = {}) {
   }) || list[0] || null;
   return {
     kind: "daily",
-    title: "Time for Cortex",
+    title: "Time for Wick",
     body: "Your streak is " + streak + (streak === 1 ? " day" : " days") + "." + (open ? " Still open today: " + open.title + "." : " Finish today's session to keep it going."),
   };
 }
@@ -6159,7 +6161,7 @@ function ShareCardButton({ model, P, accent }) {
       ctx.textAlign = "center";
       ctx.fillStyle = accent;
       ctx.font = "700 30px Georgia, serif";
-      ctx.fillText("Cortex", 540, 110);
+      ctx.fillText("Wick", 540, 110);
       ctx.fillStyle = (P && P.ink2) || "#d4d4d8";
       ctx.font = "400 26px Georgia, serif";
       ctx.fillText(CORTEX_TAGLINE, 540, 150);
@@ -6182,17 +6184,17 @@ function ShareCardButton({ model, P, accent }) {
       (model.lines || []).slice(0, 5).forEach((ln, i) => ctx.fillText(String(ln), 540, 790 + i * 52));
       ctx.fillStyle = (P && P.faint) || "#a1a1aa";
       ctx.font = "400 26px Georgia, serif";
-      ctx.fillText("Cortex · askcerebrum.org", 540, 1010);
+      ctx.fillText("Wick · askcerebrum.org", 540, 1010);
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) return;
-      const file = typeof File !== "undefined" ? new File([blob], "cortexshare.png", { type: "image/png" }) : null;
+      const file = typeof File !== "undefined" ? new File([blob], "wickshare.png", { type: "image/png" }) : null;
       if (file && typeof navigator !== "undefined" && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: "Cortex" }); } catch { /* the download still follows */ }
+        try { await navigator.share({ files: [file], title: "Wick" }); } catch { /* the download still follows */ }
       }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "cortexshare.png";
+      a.download = "wickshare.png";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -6677,7 +6679,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>ABOUT THESE LESSONS</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
-                Written for Cortex from standard textbook material. The checks explain the ideas in plain words and quote no single paper. Courses built from a search on the Cortex home teach the same way: plain statements first, then quizzes on the ideas.
+                Written for Wick from standard textbook material. The checks explain the ideas in plain words and quote no single paper. Courses built from a search on the Wick home teach the same way: plain statements first, then quizzes on the ideas.
               </p>
             </div>
           )}
@@ -6723,7 +6725,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>SET YOUR DAILY GOAL</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>
-                One win in. How many minutes a day should Cortex ask of you? Small and daily beats big and rare.
+                One win in. How many minutes a day should Wick ask of you? Small and daily beats big and rare.
               </p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {[5, 10, 15, 20].map((m) => (
@@ -7223,7 +7225,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 <p style={{ fontSize: FONT_SIZES.title, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               </div>
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "16px 0 0" }}>
-                This lesson stands on its own. The catalog on the Cortex home teaches more subjects in this same style.
+                This lesson stands on its own. The catalog on the Wick home teaches more subjects in this same style.
               </p>
             </div>
           )}
@@ -7392,7 +7394,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
       <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
-        ← Cortex home
+        ← Wick home
       </button>
       <div className="lv-rise">
         <Cover title={path.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === path.category) || null} />
@@ -7402,7 +7404,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
           {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · taught directly, no papers needed
         </p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "6px 0 0" }}>
-          Written for Cortex from standard textbook material. These lessons teach the ideas directly and quote no single paper. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas.
+          Written for Wick from standard textbook material. These lessons teach the ideas directly and quote no single paper. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas.
         </p>
         <div style={{ margin: "16px 0 6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>
@@ -7413,7 +7415,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
           </div>
         </div>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.55, margin: "10px 0 0" }}>
-          Filled stops are ground you own. A stop marked fading is a finished lesson whose review has come due: it is still yours, and a short review session from the Cortex home brings it back to full strength.
+          Filled stops are ground you own. A stop marked fading is a finished lesson whose review has come due: it is still yours, and a short review session from the Wick home brings it back to full strength.
         </p>
       </div>
 
@@ -7563,7 +7565,7 @@ const TOUR_STEPS = [
   },
   {
     title: "The catalog is twenty four taught topics",
-    body: "The catalog courses are written for Cortex from standard textbook material, the same plain teaching as the paths. A course built from a search works the same way: its lessons state the ideas plainly and quiz the ideas, never the reading.",
+    body: "The catalog courses are written for Wick from standard textbook material, the same plain teaching as the paths. A course built from a search works the same way: its lessons state the ideas plainly and quiz the ideas, never the reading.",
   },
   {
     title: "Review makes it stick",
@@ -7593,7 +7595,7 @@ function CortexTour({ P, accent, at, onClose }) {
           <Icon name={s.icon} size={26} />
         </div>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>
-          HOW CORTEX WORKS · {step + 1} OF {TOUR_STEPS.length}
+          HOW WICK WORKS · {step + 1} OF {TOUR_STEPS.length}
         </div>
         <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{s.title}</h2>
         <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.65, color: P.ink2, margin: "0 0 24px" }}>{s.body}</p>
@@ -7668,11 +7670,11 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
           <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={30} /></span>
           <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint }}>
-            WELCOME TO CORTEX · {step + 1} OF 3
+            WELCOME TO WICK · {step + 1} OF 3
           </span>
           <span style={{ marginLeft: 2 }}><CharacterPose pose="wave" size={40} /></span>
         </div>
-        <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 8px", lineHeight: 1.2 }}>Cortex</h1>
+        <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 8px", lineHeight: 1.2 }}>Wick</h1>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
         {step === 0 ? (
           <>
@@ -7720,9 +7722,9 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           </>
         ) : (
           <>
-            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Cortex remind you?</h2>
+            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Wick remind you?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Pick a time and Cortex will have your streak and your open quest waiting when you come back. You can change this later on the home page.
+              Pick a time and Wick will have your streak and your open quest waiting when you come back. You can change this later on the home page.
             </p>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
               {[{ label: "No reminder", value: null }, { label: "Morning 8 AM", value: 8 }, { label: "Midday 1 PM", value: 13 }, { label: "Evening 7 PM", value: 19 }].map((opt) => (
@@ -7814,7 +7816,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     reader.onload = () => {
       const parsed = parseCortexImport(String(reader.result || ""));
       if (!parsed.ok) { setProgressMsg(parsed.error); return; }
-      if (!window.confirm("Replace the Cortex progress in this browser with the progress in this file? This can't be undone.")) return;
+      if (!window.confirm("Replace the Wick progress in this browser with the progress in this file? This can't be undone.")) return;
       /* The write itself is transactional: success is announced
          only after all five sections are stored and read back, and
          any failure leaves the previous record exactly as it was. */
@@ -7854,7 +7856,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
   const grantCreator = async () => {
     const d = await cortexApi("grant-creator", { email: creatorEmail });
-    if (d && d.ok) { setCreators(d.creators || []); setCreatorEmail(""); setOwnerMsg(d.email + " can now create for Cortex."); }
+    if (d && d.ok) { setCreators(d.creators || []); setCreatorEmail(""); setOwnerMsg(d.email + " can now create for Wick."); }
     else setOwnerMsg("That did not go through. Check the email and try again.");
   };
   const revokeCreator = async (email) => {
@@ -8302,7 +8304,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </div>
           <button className="lv-btn lv-btn-primary" onClick={() => setScreen({ name: "home" })}
             style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
-            Back to Cortex home
+            Back to Wick home
           </button>
         </div>
       </div>
@@ -8327,7 +8329,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ color: accent, display: "inline-flex", flexShrink: 0 }}><Icon name="cortex" size={36} /></span>
-            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Cortex</h1>
+            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Wick</h1>
           </div>
           <p className="lv-tagline" style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: FONT_SIZES.title, color: P.ink, margin: "0 0 8px" }}>{CORTEX_TAGLINE}</p>
           <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
@@ -8335,7 +8337,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </p>
           <button onClick={() => setTourOpen(true)}
             style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "8px 0 0", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            How Cortex works <Icon name="arrowRight" size={13} />
+            How Wick works <Icon name="arrowRight" size={13} />
           </button>
         </div>
         <button onClick={() => { const v = !soundOn; setSoundOn(v); saveJSON(SOUND_KEY, v); }}
@@ -8355,7 +8357,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {reminder && (
         <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", background: P.raised, border: "1px solid " + accent, borderRadius: 20, padding: "16px 20px", margin: "0 0 26px" }}>
-          <CharacterPose pose={reminder.kind === "atrisk" ? "think" : "wave"} size={52} />
+          <CharacterPose pose={reminder.kind === "atrisk" ? "worried" : "wave"} size={52} />
           <span style={{ flex: "1 1 260px", minWidth: 0 }}>
             <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, display: "block" }}>{reminder.title}</span>
             <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 3, lineHeight: 1.5 }}>{reminder.body}</span>
@@ -8440,7 +8442,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REMINDERS</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-          Reminders live here for now: pick an hour and Cortex will have your streak and your open quest waiting at the top of this page when you come back.
+          Reminders live here for now: pick an hour and Wick will have your streak and your open quest waiting at the top of this page when you come back.
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {[{ label: "None", value: null }, { label: "7 AM", value: 7 }, { label: "9 AM", value: 9 }, { label: "1 PM", value: 13 }, { label: "6 PM", value: 18 }, { label: "9 PM", value: 21 }].map((opt) => {
@@ -8649,7 +8651,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* the review bench: review as a place, with its due count
           on the door */}
       <div style={{ border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24, background: P.raised }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REVIEW BENCH</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent }}>REVIEW BENCH</span>
+          {reviewDueCount > 0 && <CharacterPose pose="fading" size={40} />}
+        </div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
           {reviewDueCount > 0
             ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due for review: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
@@ -8863,7 +8868,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          Ask about anything in Search, or name a topic below, and Cortex turns it into taught lessons with checks. The courses you build live here, under the journey, where they belong.
+          Ask about anything in Search, or name a topic below, and Wick turns it into taught lessons with checks. The courses you build live here, under the journey, where they belong.
         </p>
       </div>
 
@@ -8948,7 +8953,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Cortex builds the course on the spot, same as every course here.
+            You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Wick builds the course on the spot, same as every course here.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={studio.title} onChange={(e) => setStudio({ ...studio, title: e.target.value })}
@@ -8996,7 +9001,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CREATORS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            Type an email and that account can create for Cortex: publishing catalog courses from the studio above. Creators also receive the Cortex Contributor badge on their profile.
+            Type an email and that account can create for Wick: publishing catalog courses from the studio above. Creators also receive the Wick Contributor badge on their profile.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={creatorEmail} onChange={(e) => setCreatorEmail(e.target.value)}

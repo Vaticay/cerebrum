@@ -158,7 +158,7 @@ async function handleCatalogCreate(request, env, cors, body) {
   await ensureTables(env);
   const email = String(user.email || "").trim().toLowerCase();
   if (!isFounder && !(await isCreator(env, email))) {
-    return errorResponse(403, "not_a_creator", "This account is not a Cortex creator.", cors);
+    return errorResponse(403, "not_a_creator", "This account is not a Wick creator.", cors);
   }
   const rlKey = await privacyKey("cortex-catalog", user.id, env);
   if (!(await checkRateLimit(env, rlKey, 10, 60000))) return tooManyRequests(cors, 60);

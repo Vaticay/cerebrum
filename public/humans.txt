@@ -5,7 +5,7 @@ Site: https://askcerebrum.org
 
 /* THANKS */
 Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv,
-medRxiv, DOAJ, PLOS, Zenodo — for maintaining free, open access to the
+medRxiv, DOAJ, PLOS — for maintaining free, open access to the
 scientific literature.
 
 /* SITE */

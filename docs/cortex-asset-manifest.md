@@ -10,7 +10,20 @@ Assets carry one of three cast marks.
 * WORLD: scenes of the domain worlds, with no guide present. The key art and the openers carry this mark.
 * CAMEO APPEARANCE: a scene in which a domain cameo appears inside its own domain. Cameos are specified in the style guide, section 8.3. No standalone cameo files exist in this wave; cameos appear inside world scenes, and the register at the end of this manifest records where.
 
-## Lead guide assets: Pip poses
+## Lead guide assets: Wick poses (live, 2026-10-14)
+
+Rename (2026-10-14): the owner ordered the learning product renamed from Cortex to Wick, and the lead guide is now Wick the flame. The six poses below are the live wired face of the product. They live in public/cortex/character/ beside the retired Pip files, which stay on disk. Routes and storage did not change in the rename.
+
+* public/cortex/character/wick-greeting.webp. LEAD GUIDE. Wick facing the learner, greeting. Surfaces: the Wick home header beside the streak, the daily return greeting, and the review warmup moment at the start of a review session. Wired as the wave pose.
+* public/cortex/character/wick-celebrating.webp. LEAD GUIDE. Wick celebrating. Surfaces: the lesson complete celebration, unit finale wins, streak saves, and level ups. Wired as the cheer and celebrate poses.
+* public/cortex/character/wick-thinking.webp. LEAD GUIDE. Wick thinking. Surfaces: inside lessons at hard questions, the predict card pause, and the topic builder while a course is being made. Wired as the think pose.
+* public/cortex/character/wick-explaining.webp. LEAD GUIDE. Wick explaining, with an open oval mouth and an empty speech bubble beside it; the pose has no arms and no palm. Surfaces: the feedback sheet and every WHY explanation moment, plus the explainer beats in unit opener videos when those are built. Declared as the explain pose for feedback and WHY moments.
+* public/cortex/character/wick-worried.webp. LEAD GUIDE. Wick worried. Surfaces: the streak at risk moment on the home screen and the map banner. One beat of care per the tone law in the style guide; it never appears twice in a row and never beside a demand. Wired as the worried pose, used by the at risk reminder on the home screen.
+* public/cortex/character/wick-fading.webp. LEAD GUIDE. Wick lower in the frame, with soft half lowered eyes and a smaller muted pale taupe cream chest light; the pose has no arms and no dots. Surfaces: the review due state, beside due counts in the review place (wired at the Review Bench on the home screen), and with the map's fading state for reviews that are coming due. Wired as the fading pose. Known note: the fading light sits at Wick's chest, smaller and muted, and that dimming is the point of the pose: the memory is pictured as a chest light that reviewing gathers back to full strength, so nobody should file the dim chest light as an error.
+
+## Lead guide assets: Pip poses (retired as the wired face, kept on disk)
+
+Retired (2026-10-14): the Pip poses below are no longer the wired face of the product and no live code path references them. The files are kept on disk, not deleted, because they remain the record of the prior art system described in the style guide.
 
 All six live in public/cortex/character/, are square at 1600 by 1600, and sit between 43 KB and 52 KB each. Pip in every pose: one Paper Cream pebble body, two Canopy Green arc tufts echoing the Cortex mark, one Amber Glow belly dot, one Clay Coral scarf, Warm Ink outlines, on a Paper Cream ground.
 
