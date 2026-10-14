@@ -62,9 +62,14 @@ function checkMemory(key, limit, windowMs) {
 
 // Lazily created once per isolate; a failure resets the flag so the next
 // request retries instead of caching a broken state forever.
+// `ledger` is the search handler's subrequest ledger (optional; other
+// endpoints pass nothing): every D1 execution below is a bound service
+// call and is charged to it, including this exec on the cold request
+// that triggers it.
 let tableReady = null;
-function ensureTable(db) {
+function ensureTable(db, ledger) {
   if (!tableReady) {
+    if (ledger) ledger.spendBinding("ratelimit", 1);
     tableReady = db
       .exec(
         "CREATE TABLE IF NOT EXISTS rate_limits (" +
@@ -83,7 +88,7 @@ function ensureTable(db) {
   return tableReady;
 }
 
-async function checkD1(db, key, limit, windowMs) {
+async function checkD1(db, key, limit, windowMs, ledger) {
   const now = Date.now();
   const bucket = Math.floor(now / windowMs);
   const dbKey = `rl:${key}:${bucket}`;
@@ -91,7 +96,8 @@ async function checkD1(db, key, limit, windowMs) {
   // quietly reset the count to zero for stragglers still inside it.
   const expiresAt = now + windowMs + 30000;
   try {
-    await ensureTable(db);
+    await ensureTable(db, ledger);
+    if (ledger) ledger.spendBinding("ratelimit", 1);
     const row = await db
       .prepare("SELECT count FROM rate_limits WHERE k = ?")
       .bind(dbKey)
@@ -101,6 +107,7 @@ async function checkD1(db, key, limit, windowMs) {
     // hot path, and skipping the write both saves D1 write budget and keeps
     // the counter from growing without bound on a hammered key.
     if (count >= limit) return false;
+    if (ledger) ledger.spendBinding("ratelimit", 1);
     await db
       .prepare(
         "INSERT INTO rate_limits(k, count, expires_at) VALUES (?, 1, ?) " +
@@ -112,6 +119,7 @@ async function checkD1(db, key, limit, windowMs) {
     // Prune dead buckets probabilistically — every request doing a DELETE
     // would double the write budget for no benefit.
     if (Math.random() < 0.01) {
+      if (ledger) ledger.spendBinding("ratelimit", 1);
       await db
         .prepare("DELETE FROM rate_limits WHERE expires_at < ?")
         .bind(now)
@@ -137,9 +145,9 @@ async function checkD1(db, key, limit, windowMs) {
  * `search:${ip}` or `login:${emailLower}` — since all callers across every
  * endpoint share the same D1 table/in-memory map.
  */
-export async function checkRateLimit(env, key, limit, windowMs) {
+export async function checkRateLimit(env, key, limit, windowMs, ledger = null) {
   if (env && env.DB && typeof env.DB.prepare === "function") {
-    return checkD1(env.DB, key, limit, windowMs);
+    return checkD1(env.DB, key, limit, windowMs, ledger);
   }
   return checkMemory(key, limit, windowMs);
 }

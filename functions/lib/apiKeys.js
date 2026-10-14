@@ -30,10 +30,17 @@ export const MAX_KEYS_PER_USER = 5;
 export const API_KEY_RATE_LIMIT = 60; // requests
 export const API_KEY_RATE_WINDOW_MS = 60000; // per minute
 
+/* `ledger` params in this module are the search handler's
+ * subrequest ledger (optional; other callers pass nothing). The two
+ * ensure execs below each carry several DDL statements in ONE exec
+ * call, which is one bound service call however many statements
+ * the string holds. Every other D1 execution is charged at its
+ * site. */
 let tableReady = null;
-export function ensureApiKeyTable(env) {
+export function ensureApiKeyTable(env, ledger = null) {
   if (!env || !env.DB) return Promise.resolve(false);
   if (!tableReady) {
+    if (ledger) ledger.spendBinding("apikey", 1);
     tableReady = env.DB.exec(
       "CREATE TABLE IF NOT EXISTS api_keys (" +
         "id TEXT PRIMARY KEY, " +
@@ -106,19 +113,21 @@ export async function revokeApiKey(env, userId, keyId) {
  * Returns null for missing/malformed/revoked keys. Touches last_used_at
  * on success (best-effort: a failed touch never fails auth).
  */
-export async function resolveApiKey(request, env) {
+export async function resolveApiKey(request, env, ledger = null) {
   try {
     const authz = request.headers.get("Authorization") || "";
     const m = /^Bearer\s+(cbk_[A-Za-z0-9_-]{20,})$/i.exec(authz.trim());
     if (!m) return null;
     if (!env || !env.DB) return null;
-    await ensureApiKeyTable(env);
+    await ensureApiKeyTable(env, ledger);
     const keyHash = await sha256Hex(m[1]);
+    if (ledger) ledger.spendBinding("apikey", 1);
     const row = await env.DB.prepare(
       "SELECT id, user_id AS userId FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL"
     ).bind(keyHash).first();
     if (!row) return null;
     try {
+      if (ledger) ledger.spendBinding("apikey", 1);
       await env.DB.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
         .bind(Date.now(), row.id).run();
     } catch (cbErr) { console.error("[Cerebrum] apiKeys.js resolveApiKey: last_used_at touch:", cbErr); }
@@ -134,9 +143,10 @@ export async function resolveApiKey(request, env) {
 // pipeline outcomes). No query content is stored — counts only.
 
 let usageTableReady = null;
-export function ensureUsageTable(env) {
+export function ensureUsageTable(env, ledger = null) {
   if (!env || !env.DB) return Promise.resolve(false);
   if (!usageTableReady) {
+    if (ledger) ledger.spendBinding("apikey", 1);
     usageTableReady = env.DB.exec(
       "CREATE TABLE IF NOT EXISTS api_key_usage (" +
         "key_id TEXT NOT NULL, " +
@@ -163,11 +173,12 @@ function utcDay(ts) {
  * accounting must never fail the request it measures. Callers should
  * run this via waitUntil so it never delays the response.
  */
-export async function recordApiKeyUsage(env, keyId, isError) {
+export async function recordApiKeyUsage(env, keyId, isError, ledger = null) {
   try {
     if (!env || !env.DB || !keyId) return;
-    await ensureUsageTable(env);
+    await ensureUsageTable(env, ledger);
     const day = utcDay(Date.now());
+    if (ledger) ledger.spendBinding("apikey", 1);
     await env.DB.prepare(
       "INSERT INTO api_key_usage (key_id, day, calls, errors) VALUES (?, ?, 1, ?) " +
       "ON CONFLICT(key_id, day) DO UPDATE SET calls = calls + 1, errors = errors + ?"

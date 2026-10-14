@@ -31,6 +31,40 @@
  *      the 50 cap while expansion and validation still fire and the
  *      synthesis race still produces an AI answer.
  *
+ * THE CORRECTION (2026-10-13, same day, live follow up): the first
+ * version counted fetch() calls only and costed Workers AI legs at
+ * zero. Production on that build still starved synthesis: expansion
+ * and validation fired, but the legs died on the runtime's own
+ * "Too many subrequests" while stage health said "subrequest
+ * budget exhausted" — because the platform ALSO draws D1 statement
+ * executions and Workers AI runs from the same 50, and the handler
+ * path spends 25 or more of those on a hard request (rate limit
+ * checks, entitlement gate, priority slot, cache reads, the rerank
+ * block's vector cache traffic, metering and learning writes).
+ * The ledger now counts bound service calls through spendBinding()
+ * at every execution site in this file's handler path and the lib
+ * modules it calls, Workers AI legs cost 1 in the wave planner,
+ * and the constants were re derived from the corrected totals.
+ * Batch assumption, stated in search.js and mirrored by the stub
+ * below: db.batch() is ONE subrequest (a single round trip to the
+ * D1 service) however many statements it carries.
+ *
+ * What the correction adds here:
+ *   5. spendBinding: bound service calls count against the same
+ *      ledger, under their own stage labels, and retrievalRoom()
+ *      answers for total spend, not fetch spend.
+ *   6. Handler level with a COUNTING fake env: the D1 stub counts
+ *      every statement execution (and each exec, and each batch as
+ *      one call), the AI stub counts every run, a cache stub counts
+ *      operations (the path uses none), and the stubs REFUSE any
+ *      attempt past 50 with the runtime's own error, like the
+ *      platform. Each scenario supplies its own ledger through the
+ *      request context and asserts the ledger's final total equals
+ *      the total platform attempts the stubs recorded — any missed
+ *      call site anywhere in the handler path breaks the equality —
+ *      and that on warm draws expansion and validation still fire
+ *      and synthesis still gets funded legs.
+ *
  * Run with: node tests/subrequest-budget.mjs
  */
 
@@ -136,6 +170,64 @@ await test("two ledgers are independent (no module state across requests)", () =
   assert.equal(b.remaining(), SUBREQUEST_LIMIT);
 });
 
+await test("spendBinding counts bound service calls under their own labels", () => {
+  const ledger = createSubrequestLedger();
+  ledger.setStage("retrieval");
+  ledger.spend();
+  // A lib module spends under its functional label, in bulk.
+  ledger.spendBinding("ratelimit", 4);
+  ledger.spendBinding("queue", 3);
+  // A null label attributes to the current pipeline stage.
+  ledger.spendBinding(null, 2);
+  assert.equal(ledger.used(), 10);
+  assert.equal(ledger.remaining(), SUBREQUEST_LIMIT - 10);
+  const snap = ledger.snapshot();
+  assert.deepEqual(snap.byStage, { retrieval: 3, ratelimit: 4, queue: 3 });
+  // Zero and negative spends are no-ops, never refunds.
+  ledger.spendBinding("queue", 0);
+  ledger.spendBinding("queue", -2);
+  assert.equal(ledger.used(), 10);
+});
+
+await test("retrievalRoom answers for total spend, bindings included", () => {
+  const ledger = createSubrequestLedger();
+  // Spend the whole pre-retrieval fixed cost in bindings alone:
+  // with fetch only counting this request would look untouched.
+  ledger.spendBinding("ratelimit", 4);
+  ledger.spendBinding("entitlement", 1);
+  ledger.spendBinding("queue", 3);
+  ledger.spendBinding("cache", 3);
+  assert.equal(ledger.used(), 11);
+  assert.equal(ledger.retrievalRoom(), true, "reserve still intact at fixed cost alone");
+  // Bindings keep spending through retrieval (the rerank block):
+  // once total spend reaches the reserve line, retrieval trims —
+  // the exact behavior the fetch only count could not produce.
+  ledger.spendBinding("rerank", SUBREQUEST_LIMIT - SUBREQUEST_ANSWER_RESERVE - 11);
+  assert.equal(ledger.remaining(), SUBREQUEST_ANSWER_RESERVE);
+  assert.equal(ledger.retrievalRoom(), false);
+});
+
+await test("the retention sweep charges every statement it executes", async () => {
+  const { sweepExpiredData } = await import(join(root, "functions/lib/retention.js"));
+  let executions = 0;
+  const stmt = () => {
+    const s = {
+      bind: () => s,
+      run: async () => { executions++; return { meta: { changes: 0 } }; },
+    };
+    return s;
+  };
+  const env = { DB: { prepare: () => stmt() } };
+  const ledger = createSubrequestLedger();
+  const before = ledger.used();
+  await sweepExpiredData(env, ledger);
+  // 12 statements in the sweep list (RAW_QUERY_PURGE unset), each
+  // one a D1 execution: the stub's count and the ledger's must agree.
+  assert.equal(executions, 12);
+  assert.equal(ledger.used() - before, executions);
+  assert.equal(ledger.snapshot().byStage.sweep, 12);
+});
+
 // ═══════════════════════════════════════════════════════════════
 group("planWaveLegs — breadth first across buckets, allowance bound");
 
@@ -149,11 +241,32 @@ await test("a tight allowance funds one leg per bucket before any bucket's secon
     leg("wai-1", "workers-ai", 0), leg("wai-2", "workers-ai", 0), leg("wai-3", "workers-ai", 0),
   ];
   const { selected, skipped } = planWaveLegs(descriptors, 3);
-  // Round robin: or-1, groq-1, wai-1 (free), then or-2 spends the
-  // last unit; wai-2 and wai-3 are free and still fire; groq-2 and
-  // the remaining OpenRouter legs do not fit.
+  // Round robin: or-1, groq-1, wai-1 (zero cost), then or-2 spends
+  // the last unit; wai-2 and wai-3 cost nothing and still fire;
+  // groq-2 and the remaining OpenRouter legs do not fit. (The
+  // zero cost legs here pin the planner's contract for genuinely
+  // free legs; production descriptors no longer cost Workers AI
+  // legs at zero — see the next test.)
   assert.deepEqual(selected.map((d) => d.label), ["or-1", "or-2", "groq-1", "wai-1", "wai-2", "wai-3"]);
   assert.deepEqual(skipped.map((d) => d.label), ["or-3", "or-4", "groq-2"]);
+});
+
+await test("Workers AI legs costed at the platform truth (1) trim like fetch legs", () => {
+  // The correction: a Workers AI run spends a subrequest exactly
+  // like a fetch, so production wave descriptors carry fetchCost 1
+  // for the workers-ai bucket. Under a tight allowance those legs
+  // now trim breadth first instead of all firing "free" and dying
+  // at the runtime cap.
+  const descriptors = [
+    leg("groq-1", "compat:groq", 1), leg("groq-2", "compat:groq", 1),
+    leg("wai-1", "workers-ai", 1), leg("wai-2", "workers-ai", 1), leg("wai-3", "workers-ai", 1),
+  ];
+  const { selected, skipped } = planWaveLegs(descriptors, 2);
+  assert.deepEqual(selected.map((d) => d.label), ["groq-1", "wai-1"]);
+  assert.deepEqual(skipped.map((d) => d.label), ["groq-2", "wai-2", "wai-3"]);
+  const plenty = planWaveLegs(descriptors, 50);
+  assert.equal(plenty.selected.length, 5, "a plentiful allowance still fires every leg");
+  assert.deepEqual(plenty.skipped, []);
 });
 
 await test("a plentiful allowance fires every leg in construction order (behavior unchanged)", () => {
@@ -238,15 +351,34 @@ await test("the delayed rescue planner refuses a budget failure set", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-group("handler level — retrieval trims before synthesis can starve");
+group("handler level — the ledger's total is the platform's total");
 
-// A counting fetch stub driving the real onRequest. Two scenarios
-// share it: "rich" returns two papers per Europe PMC call and an
-// empty PubMed (the ladder stops after two rungs on plenty); "lean"
-// returns one paper per call and PubMed ids that cost three fetches
-// per call for zero papers (the ladder wants all three rungs, and
-// without the ledger this scenario spends past the 50 cap before
-// validation ever fires: 1 + 3 rungs x 16 + fallbacks).
+// A COUNTING fake env driving the real onRequest. The fetch stub
+// counts outbound calls; the D1 stub counts every statement
+// execution (first/all/run), every exec as one call, and every
+// batch as ONE call (the stated assumption); the AI stub counts
+// every run; a cache stub counts operations (this handler path
+// uses no Cache API, so it must stay at zero). Every stub refuses
+// attempts past the 50 cap with the runtime's own error text, the
+// way the platform does. Each scenario supplies its own ledger via
+// the request context (data.ledger — the seam onRequest documents
+// for exactly this) and the assertions compare the ledger's final
+// total against the stubs' recorded attempts: if any call site in
+// the handler path spends a platform call the ledger does not
+// count, or counts one the platform does not make, the equality
+// breaks and names both totals.
+//
+// Scenarios: the first rich run is a COLD isolate (every module
+// level table ensure pays its DDL into this request, as the
+// platform charges it); the rich and lean runs after it are warm.
+// "rich" returns two papers per Europe PMC call and an empty
+// PubMed; "lean" returns one paper per call and PubMed ids that
+// cost three fetches per call for zero papers — the draw that
+// spent past the cap before validation ever fired under fetch only
+// counting. Math.random is pinned high for the scenario block so
+// the probabilistic branches (the 1% retention sweep, the 1% rate
+// limit prune) take their no-op side deterministically; the sweep's
+// counting is pinned directly in the unit test above.
 const QUERY = "Do the germs in a baby belly change how well the baby grows";
 const queryWords = QUERY.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((w) => w.length > 3);
 const richAbstract = (n) =>
@@ -264,25 +396,74 @@ function jsonRes(obj, status = 200) {
 function chatRes(content) {
   return jsonRes({ choices: [{ message: { content } }] });
 }
-function fakeDb() {
+
+function makeCounts() {
+  return { fetch: 0, d1: 0, ai: 0, cache: 0, attempts: 0, refused: 0 };
+}
+// One platform attempt. Past the cap the attempt still counts (the
+// ledger charged it before firing) and the stub refuses it with
+// the runtime's own wording, like the platform.
+function attempt(counts, kind) {
+  counts[kind]++;
+  counts.attempts++;
+  if (counts.attempts > SUBREQUEST_LIMIT) {
+    counts.refused++;
+    throw new Error("Too many subrequests by single Worker invocation");
+  }
+}
+function countingDb(counts) {
   const st = () => {
     const s = {
       bind: () => s,
-      first: async () => null,
-      all: async () => ({ results: [] }),
-      run: async () => ({ success: true, meta: { changes: 0 } }),
+      first: async () => { attempt(counts, "d1"); return null; },
+      all: async () => { attempt(counts, "d1"); return { results: [] }; },
+      run: async () => { attempt(counts, "d1"); return { success: true, meta: { changes: 1 } }; },
     };
     return s;
   };
-  return { prepare: () => st(), batch: async () => [], exec: async () => ({ results: [] }) };
+  return {
+    prepare: () => st(),
+    batch: async (arr) => { attempt(counts, "d1"); return (arr || []).map(() => ({ success: true })); },
+    exec: async () => { attempt(counts, "d1"); return { results: [] }; },
+  };
+}
+function countingAi(counts) {
+  return {
+    run: async (model, input) => {
+      attempt(counts, "ai");
+      if (model === "@cf/baai/bge-small-en-v1.5") {
+        // The rerank's batched embedding call: one vector per text.
+        const texts = (input && input.text) || [];
+        return { data: texts.map((_, i) => [1, 0.01 * (i + 1), 0.5, 0.25]) };
+      }
+      const msgs = (input && input.messages) || [];
+      const joined = msgs.map((m) => String(m.content || "")).join("\n");
+      // The fact check's tier 1 returns unparseable text on purpose:
+      // with no OpenRouter key configured, tier 2 is skipped and the
+      // stage falls back to its zero network heuristic, at a cost of
+      // exactly this one run.
+      if (joined.includes("ANSWER TO FACT-CHECK:")) return { response: "not json" };
+      return { response: SYNTH_ANSWER };
+    },
+  };
 }
 
 async function runScenario(mode) {
-  let fetchCount = 0;
+  const counts = makeCounts();
   let epmcCalls = 0;
   const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => { counts.cache++; return undefined; },
+      put: async () => { counts.cache++; },
+      delete: async () => { counts.cache++; return false; },
+    },
+  };
+  Math.random = () => 0.99;
   globalThis.fetch = async (url, opts = {}) => {
-    fetchCount++;
+    attempt(counts, "fetch");
     const u = String(url);
     const body = typeof opts.body === "string" ? opts.body : "";
     if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
@@ -325,8 +506,10 @@ async function runScenario(mode) {
     return jsonRes({});
   };
   try {
+    const ledger = createSubrequestLedger();
     const env = {
-      DB: fakeDb(),
+      DB: countingDb(counts),
+      AI: countingAi(counts),
       GROQ_KEY: "ledger-test-groq-key-123456",
       GEMINI_KEY: "ledger-test-gemini-key-123456",
       MISTRAL_KEY: "ledger-test-mistral-key-123456",
@@ -337,19 +520,34 @@ async function runScenario(mode) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: QUERY }),
     });
-    const res = await onRequest({ request, env, waitUntil: () => {}, data: {} });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
     assert.equal(res.status, 200);
-    return { data: await res.json(), fetchCount };
+    const data = await res.json();
+    // Let fire and forget work (the vector cache store, telemetry)
+    // finish spending before the totals are compared: both sides of
+    // the equality count the same events whenever they land.
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger };
   } finally {
     globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
   }
 }
 
-function assertAnswerStagesFunded(data, fetchCount, minFetches) {
-  assert.ok(fetchCount <= SUBREQUEST_LIMIT,
-    `the invocation spent ${fetchCount} subrequests, past the ${SUBREQUEST_LIMIT} cap`);
-  assert.ok(fetchCount >= minFetches,
-    `only ${fetchCount} fetches: retrieval did not really run`);
+function assertLedgerEqualsPlatform(counts, ledger) {
+  const platform = counts.attempts + counts.cache;
+  assert.equal(counts.cache, 0, "the handler path used the Cache API, which the ledger audit says it never does");
+  assert.equal(ledger.used(), platform,
+    `ledger counted ${ledger.used()} but the stubs recorded ${platform} platform attempts ` +
+    `(fetch ${counts.fetch}, d1 ${counts.d1}, ai ${counts.ai}) — a call site is uncounted or double counted`);
+  assert.ok(counts.attempts - counts.refused <= SUBREQUEST_LIMIT,
+    "accepted platform calls exceeded the cap the ledger is sized against");
+}
+
+function assertAnswerStagesFunded(data, counts) {
+  assert.ok(counts.fetch >= 15,
+    `only ${counts.fetch} fetches: retrieval did not really run`);
   // Expansion fired and validated, inside the reserve.
   assert.equal(data._expansion && data._expansion.via, "groq", "expansion did not fire on its Groq leg");
   assert.ok(Array.isArray(data._expansion.groups) && data._expansion.groups.length >= 1,
@@ -366,17 +564,43 @@ function assertAnswerStagesFunded(data, fetchCount, minFetches) {
   assert.equal(synthesis.ok, true, "synthesis stage not ok");
   assert.ok(synthesis.winner, "synthesis record has no winner");
   assert.equal(data.synthesisMode, "ai", "the extractive tier served instead of a synthesis win");
+  // Past cap attempts are bounded and confined to the post answer
+  // tail (accounting writes and the record store, each individually
+  // caught): the stages above were all funded inside the cap.
+  assert.ok(counts.refused <= 5,
+    `${counts.refused} attempts were refused past the cap; only a small post answer tail may overflow`);
 }
 
-await test("rich retrieval: expansion and validation fire, synthesis wins, spend inside the cap", async () => {
-  const { data, fetchCount } = await runScenario("rich");
-  assertAnswerStagesFunded(data, fetchCount, 40);
+await test("cold isolate: every cold DDL execution counts, and the draw degrades honestly", async () => {
+  const { data, counts, ledger } = await runScenario("rich");
+  assertLedgerEqualsPlatform(counts, ledger);
+  // The cold request pays every ensure's DDL, so its budget is the
+  // tightest of the three runs: expansion and validation still
+  // fire, papers still ship, and if synthesis cannot be funded the
+  // stage record names our budget — never a fake provider failure.
+  assert.equal(data._expansion && data._expansion.via, "groq", "cold: expansion did not fire");
+  const validation = (data.stageHealth || []).find((s) => s.name === "validation");
+  assert.ok(validation && validation.ok, "cold: validation did not answer");
+  assert.ok((data.sources || []).length >= 3, "cold: the draw should still ship its papers");
+  const synthesis = (data.stageHealth || []).find((s) => s.name === "synthesis");
+  assert.ok(synthesis, "cold: no synthesis stage record shipped");
+  if (!synthesis.ok) {
+    assert.equal(synthesis.skipReason, SUBREQUEST_EXHAUSTED_REASON,
+      "cold: a starved synthesis must name the budget, not an outage");
+  }
+});
+
+await test("rich retrieval (warm): expansion and validation fire, synthesis wins, ledger equals platform", async () => {
+  const { data, counts, ledger } = await runScenario("rich");
+  assertLedgerEqualsPlatform(counts, ledger);
+  assertAnswerStagesFunded(data, counts);
   assert.ok((data.sources || []).length >= 8, "the rich scenario should ship its papers");
 });
 
-await test("lean retrieval: later rungs and fallbacks trim, the answer stages stay funded", async () => {
-  const { data, fetchCount } = await runScenario("lean");
-  assertAnswerStagesFunded(data, fetchCount, 35);
+await test("lean retrieval (warm): rungs and fallbacks trim, synthesis still gets funded legs", async () => {
+  const { data, counts, ledger } = await runScenario("lean");
+  assertLedgerEqualsPlatform(counts, ledger);
+  assertAnswerStagesFunded(data, counts);
   assert.ok((data.sources || []).length >= 3, "the lean scenario should still ship its papers");
 });
 

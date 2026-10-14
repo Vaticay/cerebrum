@@ -17,8 +17,12 @@
 import { jsonLog } from "./requestLog.js";
 
 let tableReady = null;
-function ensureTable(db) {
+function ensureTable(db, ledger = null) {
   if (!tableReady) {
+    // One exec, once per isolate. `ledger` is the search handler's
+    // subrequest ledger (optional everywhere else): D1 executions
+    // are bound service calls and are charged at their sites.
+    if (ledger) ledger.spendBinding("cache", 1);
     tableReady = db.exec(
       "CREATE TABLE IF NOT EXISTS ai_cache_stats (" +
         "cache TEXT NOT NULL PRIMARY KEY, " +
@@ -39,8 +43,9 @@ function memRecord(cache, hit) {
   return s;
 }
 
-async function d1Record(db, cache, hit) {
-  await ensureTable(db);
+async function d1Record(db, cache, hit, ledger = null) {
+  await ensureTable(db, ledger);
+  if (ledger) ledger.spendBinding("cache", 1);
   const col = hit ? "hits" : "misses";
   await db.prepare(
     `INSERT INTO ai_cache_stats (cache, hits, misses, updated_at) VALUES (?, 0, 0, ?) ` +
@@ -49,11 +54,11 @@ async function d1Record(db, cache, hit) {
 }
 
 /** Record a cache lookup outcome. Never throws. */
-export async function recordCacheLookup(env, cache, hit) {
+export async function recordCacheLookup(env, cache, hit, ledger = null) {
   const name = String(cache || "answer");
   try {
     if (env && env.DB && typeof env.DB.prepare === "function") {
-      await d1Record(env.DB, name, !!hit);
+      await d1Record(env.DB, name, !!hit, ledger);
     } else {
       memRecord(name, !!hit);
     }

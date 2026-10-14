@@ -19,10 +19,15 @@ export const MAX_CONCURRENT_SEARCHES = 20;
 export const PRO_RESERVED_SLOTS = 4;
 export const STALE_SLOT_MS = 120000;
 
+/* `ledger` params in this module are the search handler's
+ * subrequest ledger (optional; other callers pass nothing). Every
+ * D1 execution here is a bound service call drawn from the same
+ * platform allowance as fetches, so each is charged at its site. */
 let tableReady = null;
-export function ensureSlotTable(env) {
+export function ensureSlotTable(env, ledger = null) {
   if (!env || !env.DB) return Promise.resolve(false);
   if (!tableReady) {
+    if (ledger) ledger.spendBinding("queue", 1);
     tableReady = env.DB.exec(
       "CREATE TABLE IF NOT EXISTS search_slots (" +
         "k TEXT PRIMARY KEY, " +
@@ -42,27 +47,31 @@ export function ensureSlotTable(env) {
  * Fail-open: any DB problem allows the search (priority is a feature,
  * not a gate — it must never 500 a search).
  */
-export async function acquireSearchSlot(env, isPro) {
+export async function acquireSearchSlot(env, isPro, ledger = null) {
   const fallback = { allowed: true, priority: isPro ? "pro" : "standard", active: 0 };
   try {
     if (!env || !env.DB) return fallback;
-    await ensureSlotTable(env);
+    await ensureSlotTable(env, ledger);
     const now = Date.now();
     // Self-heal: no acquire in STALE_SLOT_MS means every holder crashed.
     try {
+      if (ledger) ledger.spendBinding("queue", 1);
       await env.DB.prepare("UPDATE search_slots SET n = 0 WHERE k = 'active' AND expires_at < ?")
         .bind(now - STALE_SLOT_MS).run();
     } catch (cbErr) { console.error("[Cerebrum] searchPriority.js acquireSearchSlot: stale reset:", cbErr); }
+    if (ledger) ledger.spendBinding("queue", 1);
     await env.DB.prepare(
       "INSERT INTO search_slots (k, n, expires_at) VALUES ('active', 1, ?) " +
       "ON CONFLICT(k) DO UPDATE SET n = n + 1, expires_at = ?"
     ).bind(now, now).run();
+    if (ledger) ledger.spendBinding("queue", 1);
     const row = await env.DB.prepare("SELECT n FROM search_slots WHERE k = 'active'").first();
     const active = (row && row.n) || 1;
     const cap = isPro ? MAX_CONCURRENT_SEARCHES : MAX_CONCURRENT_SEARCHES - PRO_RESERVED_SLOTS;
     if (active > cap) {
       // Over capacity for this tier — give the slot back.
       try {
+        if (ledger) ledger.spendBinding("queue", 1);
         await env.DB.prepare("UPDATE search_slots SET n = MAX(n - 1, 0) WHERE k = 'active'").run();
       } catch (cbErr) { console.error("[Cerebrum] searchPriority.js acquireSearchSlot: release on deny:", cbErr); }
       return { allowed: false, priority: isPro ? "pro" : "standard", active };
@@ -75,9 +84,10 @@ export async function acquireSearchSlot(env, isPro) {
 }
 
 /** Release a held slot. Never throws. */
-export async function releaseSearchSlot(env) {
+export async function releaseSearchSlot(env, ledger = null) {
   try {
     if (!env || !env.DB) return;
+    if (ledger) ledger.spendBinding("queue", 1);
     await env.DB.prepare("UPDATE search_slots SET n = MAX(n - 1, 0) WHERE k = 'active'").run();
   } catch (cbErr) {
     console.error("[Cerebrum] searchPriority.js releaseSearchSlot:", cbErr);
@@ -90,9 +100,10 @@ export async function releaseSearchSlot(env) {
 // feature's real-world bite is measurable instead of assumed.
 
 let denialTableReady = null;
-export function ensureDenialTable(env) {
+export function ensureDenialTable(env, ledger = null) {
   if (!env || !env.DB) return Promise.resolve(false);
   if (!denialTableReady) {
+    if (ledger) ledger.spendBinding("queue", 1);
     denialTableReady = env.DB.exec(
       "CREATE TABLE IF NOT EXISTS search_denials (" +
         "day TEXT PRIMARY KEY, " +
@@ -110,15 +121,17 @@ function utcDay(ts) {
 }
 
 /** Record one queue denial. Never throws. Returns today's denial count. */
-export async function recordSlotDenial(env) {
+export async function recordSlotDenial(env, ledger = null) {
   try {
     if (!env || !env.DB) return 0;
-    await ensureDenialTable(env);
+    await ensureDenialTable(env, ledger);
     const day = utcDay(Date.now());
+    if (ledger) ledger.spendBinding("queue", 1);
     await env.DB.prepare(
       "INSERT INTO search_denials (day, denials) VALUES (?, 1) " +
       "ON CONFLICT(day) DO UPDATE SET denials = denials + 1"
     ).bind(day).run();
+    if (ledger) ledger.spendBinding("queue", 1);
     const row = await env.DB.prepare("SELECT denials FROM search_denials WHERE day = ?").bind(day).first();
     return (row && row.denials) || 1;
   } catch (cbErr) {
@@ -128,12 +141,13 @@ export async function recordSlotDenial(env) {
 }
 
 /** Today's + last-7-days denial counts. Never throws. */
-export async function getDenialStats(env) {
+export async function getDenialStats(env, ledger = null) {
   const fallback = { today: 0, last7d: 0 };
   try {
     if (!env || !env.DB) return fallback;
-    await ensureDenialTable(env);
+    await ensureDenialTable(env, ledger);
     const weekAgo = utcDay(Date.now() - 6 * 86400000);
+    if (ledger) ledger.spendBinding("telemetry", 1);
     const r = await env.DB.prepare(
       "SELECT day, denials FROM search_denials WHERE day >= ? ORDER BY day DESC"
     ).bind(weekAgo).all();

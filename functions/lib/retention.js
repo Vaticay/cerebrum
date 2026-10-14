@@ -74,7 +74,7 @@ function dayCutoff(ts) {
  * are logged rather than swallowed, because a sweep that silently stopped
  * working looks exactly like one that is working.
  */
-export async function sweepExpiredData(env) {
+export async function sweepExpiredData(env, ledger = null) {
   if (!env || !env.DB) return { swept: 0, failed: [] };
   const now = Date.now();
   const statements = [
@@ -117,6 +117,10 @@ export async function sweepExpiredData(env) {
   const failed = [];
   for (const [label, sql, bound] of statements) {
     try {
+      // One D1 execution per statement. The sweep runs inside this
+      // invocation's waitUntil, so its spend draws on the same
+      // subrequest allowance as the search that triggered it.
+      if (ledger) ledger.spendBinding("sweep", 1);
       const stmt = env.DB.prepare(sql);
       const res = bound === null ? await stmt.run() : await stmt.bind(bound).run();
       swept += (res && res.meta && res.meta.changes) || 0;
@@ -133,10 +137,10 @@ export async function sweepExpiredData(env) {
  * Fire-and-forget sweep for a request handler.
  * Uses waitUntil where available so the response is never delayed.
  */
-export function maybeSweep(context) {
+export function maybeSweep(context, ledger = null) {
   try {
     if (!shouldSweep()) return;
-    const p = sweepExpiredData(context.env);
+    const p = sweepExpiredData(context.env, ledger);
     if (context.waitUntil) context.waitUntil(p);
   } catch (e) {
     console.error("maybeSweep:", e && e.message);

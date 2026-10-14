@@ -358,14 +358,60 @@ export function planDelayedRescue(attempts, opts = {}) {
 // "other", the fleet hardening never even saw it.
 //
 // The ledger is the fix's bookkeeping. One ledger per request,
-// created in runSearchPipeline and threaded the way dynLookup is
-// threaded (an opts field into gatherPapers, a trailing parameter
-// into the stage helpers). Module state is forbidden: isolates serve
-// concurrent requests, so a shared counter would be a race. Every
-// outbound fetch on the handler path increments it at its choke
-// point (getJSON/getText for the database legs, the stage adapters
-// for the model calls), retries included: a leg with 3 attempts
-// costs 3.
+// created in onRequest and threaded the way dynLookup is threaded
+// (an opts field into gatherPapers, a trailing parameter into the
+// stage helpers and the lib modules). Module state is forbidden:
+// isolates serve concurrent requests, so a shared counter would be
+// a race. Every outbound fetch on the handler path increments it at
+// its choke point (getJSON/getText for the database legs, the stage
+// adapters for the model calls), retries included: a leg with 3
+// attempts costs 3.
+//
+// CORRECTION (2026-10-13, same day, live follow up): the first
+// version counted fetch() calls only and costed Workers AI legs at
+// zero, on the theory that a binding call is not a fetch. The
+// platform does not agree: a subrequest is any request a Worker
+// makes with the Fetch API OR to a Cloudflare service (D1, KV,
+// Workers AI), so every bound service call spends from the same
+// 50. The live probe on the first version proved the gap: expansion
+// and validation fired (the protection works), but synthesis still
+// starved with stage health reporting "subrequest budget
+// exhausted" while the legs died on the runtime's own "Too many
+// subrequests" — the ledger believed budget remained because the
+// handler path's bound service spend was invisible to it. That
+// spend is not small: two D1 rate limit checks (2 executions
+// each), the entitlement gate and priority slot (4), cache and
+// query intelligence reads (3), the rerank block inside retrieval
+// (embedding budget check, vector cache read and store, neuron
+// spend, telemetry: up to 10), and the post answer writes (quota
+// metering, token spend, usage record, paper learning at one
+// insert per cited paper, cache write, training row, confidence
+// telemetry, the record store, the slot release: up to ~20). On a
+// hard request the uncounted spend runs to 25 or more — half the
+// allowance. The ledger now counts bound service calls through
+// spendBinding() at the execution site, in this file and in every
+// lib module the handler path calls, so the count the planner
+// trusts is the count the platform enforces.
+//
+// Counting assumptions, stated once:
+//   - One D1 statement execution (prepare().first()/all()/run())
+//     is one subrequest. db.exec() is one call however many
+//     statements its string carries, so it counts once.
+//   - db.batch() counts as ONE subrequest however many statements
+//     it carries: it is a single round trip to the D1 service.
+//     The only batch user on this path is the embedding cache
+//     store (chunked at 50 statements), so the exposure if the
+//     platform ever counted per statement is bounded and known.
+//   - Table ensuring DDL (the ensure* helpers) executes once per
+//     isolate behind a memo and is charged to the request that
+//     triggers it, exactly as the platform charges that request.
+//     Steady state cost per request is zero; the reserve derivation
+//     below carries margin for cold isolates instead of pretending
+//     the DDL is free.
+//   - The Cache API is not used anywhere on this path (verified:
+//     no caches.default call site exists in this file or the lib
+//     modules it calls), and no KV binding is referenced. If
+//     either appears, it must spend here too.
 //
 // Two rules spend against it:
 //   1. A protected reserve for the answer stages. Retrieval work
@@ -374,19 +420,51 @@ export function planDelayedRescue(attempts, opts = {}) {
 //      rounds must clear the reserve PLUS one rung's cost, so as
 //      the budget tightens the lowest value rounds are cut first,
 //      then the extra ladder rungs, and the primary rung never.
-//   2. The synthesis waves trim to the fetches that remain (minus a
-//      small tail reserve for the fact check and evidence structure
-//      calls), breadth across provider buckets first, so a tight
-//      budget degrades a race to fewer legs instead of every leg
-//      dying at zero. Validation, expansion, and fact check check
-//      the budget before firing and record a named skipReason when
-//      the budget, not the provider, is why they did not run.
+//   2. The synthesis waves trim to the calls that remain (minus a
+//      small tail reserve for the fact check and the writes that
+//      ride a served answer), breadth across provider buckets
+//      first, so a tight budget degrades a race to fewer legs
+//      instead of every leg dying at zero. Validation, expansion,
+//      and fact check check the budget before firing and record a
+//      named skipReason when the budget, not the provider, is why
+//      they did not run.
 // When the budget is plentiful none of this binds and behavior is
 // exactly as before.
+//
+// The constants are derived from the handler's own stage costs
+// under the corrected accounting:
+//   SUBREQUEST_ANSWER_RESERVE (16) — what must still be free after
+//     retrieval: validation attempts in the realistic worst case
+//     (4), a synthesis race worth firing (8: at least two legs per
+//     live bucket), the fact check's Workers AI call (1), and the
+//     writes that ride a served answer and must not be the calls
+//     that discover the wall (quota metering 2, record store 1).
+//   SUBREQUEST_RUNG_COST (25) — one primary rung's worst case
+//     TOTAL platform cost: the fan out observed before (17
+//     fetches: Europe PMC in several formulations, PubMed esearch
+//     + efetch + esummary, OpenAlex, Crossref, Semantic Scholar,
+//     arXiv, CORE, DOAJ, Openaire, BASE, Lens, NASA ADS, plus a
+//     DOI resolution) trimmed to its realistic worst case, plus
+//     the rung's own bound service spend (~8 of: embedding budget
+//     check 1, vector cache read 3, the batched embedding call 1,
+//     neuron spend 2, rerank telemetry 2, topic recall 1).
+//   SUBREQUEST_TAIL_RESERVE (7) — what wave planning holds back
+//     for after the wave: the fact check (1), quota metering (2),
+//     the token spend write (2), the usage record (1), and the
+//     record store (1). The priority slot release is deliberately
+//     not reserved: the queue's stale slot sweep reclaims a leaked
+//     slot on its own.
 export const SUBREQUEST_LIMIT = 50;
-export const SUBREQUEST_ANSWER_RESERVE = 18;
-export const SUBREQUEST_RUNG_COST = 17;
-export const SUBREQUEST_TAIL_RESERVE = 2;
+export const SUBREQUEST_ANSWER_RESERVE = 16;
+export const SUBREQUEST_RUNG_COST = 25;
+export const SUBREQUEST_TAIL_RESERVE = 7;
+// The rerank block that runs between the retrieval ladder and the
+// answer stages, priced so ladder rungs beyond the first must
+// clear it on top of the reserve (otherwise the block itself eats
+// the reserve the rung gate just protected): embedding budget
+// check 2, vector cache read 1, the batched embedding call 1,
+// neuron spend 2, the divergence read 1, slack 1.
+export const SUBREQUEST_RERANK_COST = 8;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 
@@ -401,6 +479,22 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     spend() {
       usedCount++;
       byStage[stage] = (byStage[stage] || 0) + 1;
+      return usedCount;
+    },
+    /* Record bound service calls: D1 statement executions,
+     * db.exec, db.batch (one call however many statements it
+     * carries), Workers AI runs. The platform draws them from the
+     * same allowance as fetches. Spend BEFORE the call executes:
+     * a call the platform rejects for budget still spent the
+     * subrequest. `label` names the spending site (lib modules
+     * spend under their own functional label); pass null to
+     * attribute to the current pipeline stage, as spend() does. */
+    spendBinding(label, n = 1) {
+      const count = Math.max(0, Math.floor(Number(n) || 0));
+      if (count === 0) return usedCount;
+      usedCount += count;
+      const s = label || stage;
+      byStage[s] = (byStage[s] || 0) + count;
       return usedCount;
     },
     /* Label subsequent spends (the audit tally in _diag). */
@@ -424,16 +518,21 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
 
 /* Breadth-first wave trimming. `descriptors` is a wave's legs as
  * { label, bucket, fetchCost, fire } in construction order (fire is
- * a thunk: constructing a leg starts its fetch, so an unselected
+ * a thunk: constructing a leg starts its call, so an unselected
  * leg must never be fired). Selection walks the legs round robin by
  * bucket, first appearance order: one leg per bucket before any
  * bucket's second leg, so a trimmed race still spans every provider
  * bucket instead of collapsing onto whichever provider happened to
- * be listed first. Zero cost legs (Workers AI binding calls spend
- * no fetch) are always selected. Selection stops when the next
- * fetch leg would exceed `fetchAllowance`; every unselected leg is
- * returned in `skipped` so the caller can record the skip by name.
- * Pure over its inputs: the caller owns the ledger and the firing. */
+ * be listed first. A leg's fetchCost is its platform cost in
+ * subrequests: 1 for a fetch leg AND 1 for a Workers AI leg (a
+ * binding call spends from the same allowance; the first version
+ * of this planner costed Workers AI legs at 0, which is the bug
+ * the ledger correction fixes). A genuinely zero cost leg (pure
+ * local computation, none on today's roster) is always selected.
+ * Selection stops when the next leg would exceed the allowance;
+ * every unselected leg is returned in `skipped` so the caller can
+ * record the skip by name. Pure over its inputs: the caller owns
+ * the ledger and the firing. */
 export function planWaveLegs(descriptors, fetchAllowance) {
   const legs = Array.isArray(descriptors) ? descriptors : [];
   const allowance = Math.max(0, Math.floor(Number(fetchAllowance) || 0));
@@ -917,7 +1016,16 @@ export function isNonLiterature(p) {
 // rather than all legs dying at the runtime cap. Cached payloads
 // written before the ledger existed must not be served as though
 // they were produced under it.
-const CACHE_SCHEMA_VERSION = "v28";
+// v29 (2026-10-13, subrequest ledger correction): the v28 ledger
+// counted fetch() calls only; the platform also draws D1
+// executions and Workers AI runs from the same allowance, so the
+// corrected ledger counts every bound service call, costs Workers
+// AI legs at 1, prices the rerank block into the ladder gate, and
+// lets deferrable writes yield to the reserve. For the same stored
+// inputs the corrected pipeline trims earlier and funds the answer
+// stages the v28 count starved, so payloads cached under v28's
+// undercount must not be served as though produced under it.
+const CACHE_SCHEMA_VERSION = "v29";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -1070,13 +1178,18 @@ async function flagRetractions(papers, topN = 8, ledger = null) {
     const doi = extractDoi(p.url);
     return !!doi;
   });
-  // Subrequest budget: each check is a fetch. When the invocation
-  // allowance is nearly spent, check only what fits above the tail
-  // reserve . the title marker screen upstream already caught the
-  // declared retractions; this Crossref round is the second net,
-  // and it must not eat the fact check's budget.
+  // Subrequest budget: each check is a fetch. This runs BEFORE the
+  // synthesis waves (on the validated evidence list, so the flags
+  // can inform the answer), which prices its cap against the full
+  // answer reserve, not just the tail: check only what fits above
+  // the reserve . the title marker screen upstream already caught
+  // the declared retractions; this Crossref round is the second
+  // net, and it must not eat the synthesis race's or the fact
+  // check's budget. (The first version of the ledger capped this
+  // at the tail reserve, which let it spend the race's room on
+  // exactly the tight draws the reserve exists for.)
   if (ledger) {
-    const fits = Math.max(0, ledger.remaining() - SUBREQUEST_TAIL_RESERVE);
+    const fits = Math.max(0, ledger.remaining() - SUBREQUEST_ANSWER_RESERVE);
     if (fits < targets.length) targets = targets.slice(0, fits);
   }
   await Promise.allSettled(targets.map(async (p) => {
@@ -4426,10 +4539,12 @@ async function ensureCorrectionLogTable(db) {
 // waitUntil where available) when the verification step finds that none of
 // the retrieved papers satisfy the query's key constraints. This is the
 // system's memory: "this query pattern failed this way before."
-export async function logConstraintFailure(env, analysis, verification) {
+export async function logConstraintFailure(env, analysis, verification, ledger = null) {
   try {
     const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
     if (!db || !analysis) return;
+    // The ensure runs its CREATE on every call (not memoized).
+    if (ledger) ledger.spendBinding("learning", 1);
     await ensureCorrectionLogTable(db);
     const sig = normalizeConstraintText(analysis.originalQuery).split(" ")
       .filter((t) => t.length > 2 && !QUERY_FRAMING_WORDS.has(t))
@@ -4444,6 +4559,7 @@ export async function logConstraintFailure(env, analysis, verification) {
         .map((v) => v.missing).flat()
         .filter((m, i, a) => a.indexOf(m) === i),
     }).slice(0, 2000);
+    if (ledger) ledger.spendBinding("learning", 1);
     await db.prepare(
       "INSERT INTO correction_patterns (pattern, query_signature, detail, created_at) VALUES (?, ?, ?, ?)"
     ).bind("constraint_failure", sig, detail, Date.now()).run();
@@ -6349,6 +6465,9 @@ async function deepFactCheck(answer, papers, env, ledger = null) {
   // heuristic, so a faster miss costs nuance, not correctness.
   if (env.AI && typeof env.AI.run === "function") {
     try {
+      // A Workers AI run spends a subrequest like any bound service
+      // call; the first version of the ledger left this one free.
+      if (ledger) ledger.spendBinding("factcheck", 1);
       const out = await Promise.race([
         env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", { messages, max_tokens: 1900 }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 3500)),
@@ -8407,7 +8526,7 @@ export function reconcileDisagreementVerdict(detected, textMined) {
 // pass missed, then applies the existing claimsOppose check to their
 // extracted claims. Uses cached vectors only (zero new embedding spend).
 // Returns conflicts in the same shape as detectSourceConflicts.
-export async function detectSemanticConflicts(papers, env, existingConflicts = []) {
+export async function detectSemanticConflicts(papers, env, existingConflicts = [], ledger = null) {
   const list = Array.isArray(papers) ? papers : [];
   if (list.length < 2) return [];
   try {
@@ -8416,7 +8535,7 @@ export async function detectSemanticConflicts(papers, env, existingConflicts = [
     const texts = list.map(paperEmbedText);
     const keys = [];
     for (const t of texts) keys.push(await sha256hex(t));
-    const cached = await getCachedPaperVectors(env, keys);
+    const cached = await getCachedPaperVectors(env, keys, ledger);
     const vecs = [];
     for (let i = 0; i < list.length; i++) {
       const v = cached.get(keys[i]);
@@ -9385,10 +9504,12 @@ export function calibrateConfidenceScore(conf, ctx = {}) {
 
 // Best-effort D1 logging of confidence calibrations for future curve
 // fitting. Never throws, never blocks.
-export async function logConfidenceTelemetry(env, entry) {
+export async function logConfidenceTelemetry(env, entry, ledger = null) {
   try {
     const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
     if (!db) return;
+    // Two statement executions (the CREATE runs on every call).
+    if (ledger) ledger.spendBinding("telemetry", 2);
     await db.prepare(
       "CREATE TABLE IF NOT EXISTS confidence_telemetry (" +
       "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -9687,9 +9808,12 @@ export function mintSearchRecordId() {
  * for the isolate's lifetime. */
 const searchRecordsTableByDb = new WeakMap();
 
-function ensureSearchRecordsTable(db) {
+function ensureSearchRecordsTable(db, ledger = null) {
   let ready = searchRecordsTableByDb.get(db);
   if (!ready) {
+    // The CREATE executes once per DB binding (cold isolate): one
+    // bound service call, charged to the request that triggers it.
+    if (ledger) ledger.spendBinding("record", 1);
     ready = (async () => {
       await db.prepare(
         "CREATE TABLE IF NOT EXISTS search_records (" +
@@ -9720,11 +9844,12 @@ function ensureSearchRecordsTable(db) {
  * and never throws, so a storage failure still costs the record its
  * page and never the user their answer. A record without an id is
  * not stored at all: there would be no address to store it under. */
-export async function storeSearchRecord(env, record) {
+export async function storeSearchRecord(env, record, ledger = null) {
   try {
     if (!env || !env.DB || !record || typeof record !== "object") return false;
     if (typeof record.id !== "string" || !record.id) return false;
-    await ensureSearchRecordsTable(env.DB);
+    await ensureSearchRecordsTable(env.DB, ledger);
+    if (ledger) ledger.spendBinding("record", 1);
     await env.DB.prepare(
       "INSERT OR IGNORE INTO search_records " +
       "(id, question, asked_at, record, created_at) " +
@@ -10258,7 +10383,7 @@ export function detectAmbiguity(query) {
 // senses = genuinely ambiguous → flag it. Runs only when the cheap table
 // pass is inconclusive (0 or 2+ context hits), so the common resolved case
 // costs zero neurons. Falls back to the table result on any failure.
-export async function detectAmbiguitySemantic(query, env) {
+export async function detectAmbiguitySemantic(query, env, ledger = null) {
   const tableResult = detectAmbiguity(query);
   const q = String(query || "");
   if (!tableResult.term) return tableResult;
@@ -10272,17 +10397,17 @@ export async function detectAmbiguitySemantic(query, env) {
   try {
     const { getEmbeddings, cosineSimilarity } = await import("../lib/semanticRerank.js");
     const { checkEmbeddingBudget, spendEmbeddingNeurons } = await import("../lib/costControl.js");
-    const budget = await checkEmbeddingBudget(env).catch(() => ({ allowed: false }));
+    const budget = await checkEmbeddingBudget(env, ledger).catch(() => ({ allowed: false }));
     if (!budget || !budget.allowed) return tableResult;
     const senseTexts = entry.senses.map((s) => s.label + ". " + s.query);
-    const vectors = await getEmbeddings(env, [q, ...senseTexts], { timeoutMs: 2500 });
+    const vectors = await getEmbeddings(env, [q, ...senseTexts], { timeoutMs: 2500, ledger });
     if (!vectors || vectors.length !== senseTexts.length + 1) return tableResult;
     const qVec = vectors[0];
     const scored = entry.senses.map((s, i) => ({
       sense: s,
       sim: cosineSimilarity(qVec, vectors[i + 1]),
     })).sort((a, b) => b.sim - a.sim);
-    await spendEmbeddingNeurons(env, 5).catch(() => {});
+    await spendEmbeddingNeurons(env, 5, ledger).catch(() => {});
     const top = scored[0], second = scored[1];
     const margin = top.sim - (second ? second.sim : 0);
     // A decisive semantic winner resolves the ambiguity; a close race
@@ -10319,7 +10444,7 @@ export async function detectAmbiguitySemantic(query, env) {
 //
 // Returns { ambiguous: true, term, interpretations: [{label, query}] } or
 // { ambiguous: false }.
-export async function detectSemanticDivergence(papers, env) {
+export async function detectSemanticDivergence(papers, env, ledger = null) {
   const list = (Array.isArray(papers) ? papers : []).slice(0, 10);
   if (list.length < 4) return { ambiguous: false };
   try {
@@ -10328,7 +10453,7 @@ export async function detectSemanticDivergence(papers, env) {
     const texts = list.map(paperEmbedText);
     const keys = [];
     for (const t of texts) keys.push(await sha256hex(t));
-    const cached = await getCachedPaperVectors(env, keys);
+    const cached = await getCachedPaperVectors(env, keys, ledger);
     const vecs = [];
     const validPapers = [];
     for (let i = 0; i < list.length; i++) {
@@ -11990,9 +12115,10 @@ async function describeImage(dataUrl, question, token, ledger = null) {
 // D1-backed query intelligence: check if we've seen a similar query before
 // and know its resolved form. This makes the system faster over time . cached
 // resolutions are instant and don't need an LLM call.
-async function checkQueryIntelligence(queryKey, db) {
+async function checkQueryIntelligence(queryKey, db, ledger = null) {
   if (!db) return null;
   try {
+    if (ledger) ledger.spendBinding("preflight", 1);
     const row = await db
       .prepare(
         "SELECT resolved_query, intent, topic, entities, success_count " +
@@ -12030,9 +12156,10 @@ async function checkQueryIntelligence(queryKey, db) {
  * The column still exists in the table so an older row is readable; nothing
  * new goes into it, and the retention sweep clears the old ones out.
  */
-async function storeQueryIntelligence(queryKey, resolvedQuery, intent, topic, entities, db) {
+async function storeQueryIntelligence(queryKey, resolvedQuery, intent, topic, entities, db, ledger = null) {
   if (!db || !queryKey) return;
   try {
+    if (ledger) ledger.spendBinding("learning", 1);
     await db
       .prepare(
         "INSERT INTO query_intelligence (query_hash, raw_query, resolved_query, intent, topic, entities, success_count, created_at) " +
@@ -12048,11 +12175,12 @@ async function storeQueryIntelligence(queryKey, resolvedQuery, intent, topic, en
 }
 
 // Store topic co-occurrence data for smarter related-query suggestions
-async function updateTopicMemory(topic, searchTerms, paperCount, db) {
+async function updateTopicMemory(topic, searchTerms, paperCount, db, ledger = null) {
   if (!db || !topic) return;
   const topicKey = topic.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
   if (!topicKey) return;
   try {
+    if (ledger) ledger.spendBinding("learning", 1);
     await db
       .prepare(
         "INSERT INTO topic_memory (topic_key, related_terms, best_search_terms, avg_paper_count, search_count, updated_at) " +
@@ -12072,11 +12200,12 @@ async function updateTopicMemory(topic, searchTerms, paperCount, db) {
 // This is the READ side of the topic_memory system . previously write-only.
 // When a user searches for a topic we've seen before, we can supplement their
 // query with the search terms that produced the most results last time.
-async function recallTopicMemory(topic, db) {
+async function recallTopicMemory(topic, db, ledger = null) {
   if (!db || !topic) return null;
   const topicKey = topic.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
   if (!topicKey) return null;
   try {
+    if (ledger) ledger.spendBinding(null, 1);
     const row = await db
       .prepare(
         "SELECT best_search_terms, avg_paper_count, search_count " +
@@ -12682,7 +12811,12 @@ async function gatherPapers(rawQuery, opts) {
     // (the minimum results guarantee re-asks, a follow up deep
     // search) the shared ledger carries the earlier spend, so a
     // later gather inherits the trim instead of restarting the count.
-    if (ledger && i > 0 && !ledger.retrievalRoom()) {
+    // Corrected accounting (same day): the rung must ALSO clear the
+    // rerank block's cost (SUBREQUEST_RERANK_COST) — the block runs
+    // between the ladder and validation, and under fetch only
+    // counting its ~8 bound service calls silently ate the reserve
+    // this gate exists to protect.
+    if (ledger && i > 0 && !ledger.retrievalRoom(SUBREQUEST_RERANK_COST)) {
       budgetTrims.push("ladder-rung-" + (i + 1));
       break;
     }
@@ -12900,7 +13034,7 @@ async function gatherPapers(rawQuery, opts) {
     const topicForRecall = orgInfo.hasOrganism
       ? orgInfo.orgPhrases[0] + " " + ranked.slice(0, 3).join(" ")
       : ranked.slice(0, 4).join(" ");
-    const recalled = await recallTopicMemory(topicForRecall, opts.db).catch(() => null);
+    const recalled = await recallTopicMemory(topicForRecall, opts.db, ledger).catch(() => null);
     if (recalled && recalled.bestTerms && recalled.bestTerms.length > 0) {
       const recalledQueries = recalled.bestTerms.slice(0, 4);
       const memResults = await Promise.allSettled(
@@ -13838,14 +13972,14 @@ async function gatherPapers(rawQuery, opts) {
       else if (cv < 0.15) rerankAlpha = 0.65;
     } catch { rerankAlpha = 0.5; }
     try {
-      const embBudget = await checkEmbeddingBudget(opts.env);
+      const embBudget = await checkEmbeddingBudget(opts.env, ledger);
       if (embBudget.allowed) {
         // Pro depth: rerank twice the candidate pool. The neuron cost is flat
         // (one batched embedding call either way), so this is free depth.
         const rerankTopN = opts && opts.isPro ? 40 : 20;
-        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: rerankTopN, alpha: rerankAlpha });
+        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: rerankTopN, alpha: rerankAlpha, ledger });
         if (rr.semanticApplied) {
-          await spendEmbeddingNeurons(opts.env, EMBEDDING_NEURON_COST_PER_RERANK);
+          await spendEmbeddingNeurons(opts.env, EMBEDDING_NEURON_COST_PER_RERANK, ledger);
           rerankedFinal = rr.papers;
           // ALPHA TELEMETRY (2026-10-07): log the adaptive alpha and the
           // score deltas so the blend weight can be tuned from production
@@ -13866,9 +14000,14 @@ async function gatherPapers(rawQuery, opts) {
           } catch { /* telemetry is best-effort */ }
           diag.semanticRerank = { applied: true, latencyMs: rr.latencyMs, alpha: rerankAlpha, meanAbsDelta, rankChanges };
           // Fire-and-forget D1 log for alpha tuning dataset.
+          // Telemetry is the lowest value spend in the request: when
+          // the answer reserve is no longer intact it is skipped, not
+          // paid for out of the stages the reserve protects.
           try {
             const db = opts.env.DB;
-            if (db && typeof db.prepare === "function") {
+            if (db && typeof db.prepare === "function" && (!ledger || ledger.retrievalRoom(0))) {
+              // Two statement executions (the CREATE is not memoized).
+              if (ledger) ledger.spendBinding("telemetry", 2);
               db.prepare(
                 "CREATE TABLE IF NOT EXISTS rerank_telemetry (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, alpha REAL, mean_abs_delta REAL, rank_changes INTEGER, paper_count INTEGER)"
               ).run().catch(() => {});
@@ -14240,12 +14379,12 @@ function makeFence() {
   };
 }
 
-async function operatorDiagnostics(request, env, payload) {
+async function operatorDiagnostics(request, env, payload, ledger = null) {
   try {
     const founderEmail = String(env.FOUNDER_EMAIL || "").trim().toLowerCase();
     if (!founderEmail) return {};
     const { getSessionUser } = await import("../lib/authHelpers.js");
-    const viewer = await getSessionUser(request, env);
+    const viewer = await getSessionUser(request, env, ledger);
     if (!viewer || String(viewer.email || "").trim().toLowerCase() !== founderEmail) return {};
     return { _aiAttempts: payload.aiAttempts || null, _diag: payload.diag || null };
   } catch {
@@ -14473,9 +14612,22 @@ async function evidenceStructure(papers, ledger = null) {
 }
 
 export async function onRequest(context) {
+  // The subrequest ledger for this invocation is created HERE, not
+  // in the pipeline: the rate limit checks and the retention sweep
+  // spend platform subrequests before the pipeline starts, and the
+  // first version of the ledger (created inside runSearchPipeline)
+  // never saw them. A caller may supply a pre created ledger on
+  // context.data (the handler tests do, to assert the ledger's
+  // total against the platform calls their stubs recorded);
+  // production Pages contexts carry an empty data object, so the
+  // ledger is created fresh here on every real request.
+  const ledger =
+    context.data && context.data.ledger && typeof context.data.ledger.spendBinding === "function"
+      ? context.data.ledger
+      : createSubrequestLedger();
   // Opportunistic retention sweep. See lib/retention.js for why this is
   // not a cron. Runs in the background; never delays this response.
-  maybeSweep(context);
+  maybeSweep(context, ledger);
   const { request, env, waitUntil } = context;
 
   // ════════════════════════════════════════════════════════════════════
@@ -14532,7 +14684,7 @@ export async function onRequest(context) {
    * long-lived rows do not become a log of who searched when. */
   const { clientIp: _clientIp, privacyKey: _privacyKey } = await import("../lib/http.js");
   const rlKey = await _privacyKey("search", _clientIp(request), env);
-  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS))) {
+  if (!(await checkRateLimit(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS, ledger))) {
     return new Response(
       JSON.stringify({ error: "Too many requests. Wait a moment and try again." }),
       { status: 429, headers: { ...secureCors, "Retry-After": "30" } }
@@ -14541,7 +14693,7 @@ export async function onRequest(context) {
   // Nuance #25 . burst window on top of the sustained 20/min: search is the
   // most LLM-costly route, and a scripted burst of parallel searches burns
   // provider quota far faster than the per-minute cap alone suggests.
-  if (!(await checkRateLimit(env, rlKey + ":burst", 6, 10000))) {
+  if (!(await checkRateLimit(env, rlKey + ":burst", 6, 10000, ledger))) {
     return new Response(
       JSON.stringify({ error: "Too many searches at once. Give it a few seconds and try again." }),
       { status: 429, headers: { ...secureCors, "Retry-After": "10" } }
@@ -14555,7 +14707,7 @@ export async function onRequest(context) {
   // POST /api/search?stream=1 returns text/event-stream emitting the
   // pipeline's real stage transitions as they happen. The single-fetch
   // path below is unchanged and remains the default + fallback.
-  const shared = { requestDeadline, msLeft, secureCors, requestT0 };
+  const shared = { requestDeadline, msLeft, secureCors, requestT0, ledger };
   if (wantsStream(request)) {
     const sse = createSseStream({ resumeFrom: parseLastEventId(request) });
     const requestId = contextRequestId(context);
@@ -14596,13 +14748,15 @@ async function runSearchPipeline(pctx) {
   const hooks = (pctx && pctx.hooks) || {};
   const emitStage = hooks.onStage || null;
   const requestId = contextRequestId(pctx && pctx.context);
-  // Subrequest ledger for this invocation (created fresh per
-  // request; isolates serve concurrent requests, so nothing about
-  // the budget may live in module state). Every outbound fetch in
-  // this handler's path spends from it through getJSON/getText, the
-  // chat helpers, or a direct spend at the fetch site, and every
-  // stage checks it before firing . see createSubrequestLedger.
-  const ledger = createSubrequestLedger();
+  // Subrequest ledger for this invocation, created in onRequest
+  // (which already spent on the rate limit checks) and carried in
+  // on `shared`; the fallback create only serves a direct pipeline
+  // caller. Every outbound fetch in this handler's path spends from
+  // it through getJSON/getText, the chat helpers, or a direct spend
+  // at the fetch site, every bound service call spends through
+  // spendBinding, and every stage checks it before firing . see
+  // createSubrequestLedger.
+  const ledger = (pctx && pctx.shared && pctx.shared.ledger) || createSubrequestLedger();
   ledger.setStage("pre");
 
   // Priority queue slot, held for the whole pipeline run and released in
@@ -14681,14 +14835,14 @@ async function runSearchPipeline(pctx) {
       const authz = request.headers.get("Authorization") || "";
       if (/^Bearer\s+cbk_/i.test(authz.trim())) {
         const { resolveApiKey } = await import("../lib/apiKeys.js");
-        apiKeyIdentity = await resolveApiKey(request, env);
+        apiKeyIdentity = await resolveApiKey(request, env, ledger);
         if (!apiKeyIdentity) {
           return new Response(JSON.stringify({ error: "Invalid API key." }), {
             status: 401, headers: secureCors,
           });
         }
         // Per-key rate limit: 60 searches/min, independent of the IP bucket.
-        if (!(await checkRateLimit(env, "apikey:" + apiKeyIdentity.keyId, 60, 60000))) {
+        if (!(await checkRateLimit(env, "apikey:" + apiKeyIdentity.keyId, 60, 60000, ledger))) {
           apiKeyRequestErrored = true;
           return new Response(
             JSON.stringify({ error: "API key rate limit exceeded. Slow down and try again." }),
@@ -14696,7 +14850,7 @@ async function runSearchPipeline(pctx) {
           );
         }
       }
-      const sessionUser = apiKeyIdentity ? { id: apiKeyIdentity.userId } : await proSessionUser(request, env);
+      const sessionUser = apiKeyIdentity ? { id: apiKeyIdentity.userId } : await proSessionUser(request, env, ledger);
       // The anonymous metering identity is the rate limiter's hashed-IP
       // key, recomputed here: the limiter's own rlKey is scoped to
       // onRequest and does not exist inside this pipeline function.
@@ -14707,7 +14861,7 @@ async function runSearchPipeline(pctx) {
         const { clientIp: _gateIp, privacyKey: _gateKey } = await import("../lib/http.js");
         anonGateId = "anon:" + (await _gateKey("search", _gateIp(request), env));
       } catch { anonGateId = null; }
-      aiGate = await proLib.resolveAiGate(env, sessionUser, anonGateId);
+      aiGate = await proLib.resolveAiGate(env, sessionUser, anonGateId, ledger);
     } catch {
       proLib = null;
     }
@@ -14742,11 +14896,11 @@ async function runSearchPipeline(pctx) {
     // bite is observable . exposed in the 429 body and search _diag.
     {
       const { acquireSearchSlot, recordSlotDenial } = await import("../lib/searchPriority.js");
-      searchSlot = await acquireSearchSlot(env, isProSearch);
+      searchSlot = await acquireSearchSlot(env, isProSearch, ledger);
       if (!searchSlot.allowed) {
         if (apiKeyIdentity) apiKeyRequestErrored = true;
         let denialsToday = 0;
-        try { denialsToday = await recordSlotDenial(env); } catch (cbErr) { console.error("[Cerebrum] search.js deny: recordSlotDenial:", cbErr); }
+        try { denialsToday = await recordSlotDenial(env, ledger); } catch (cbErr) { console.error("[Cerebrum] search.js deny: recordSlotDenial:", cbErr); }
         return new Response(
           JSON.stringify({
             error: "Search is busy right now. Pro members skip the line . upgrade to jump the queue.",
@@ -14773,10 +14927,10 @@ async function runSearchPipeline(pctx) {
           if (aiGate.kind === "pro") {
             // Pro is unlimited, but the answer is still counted so the
             // Usage page shows real numbers. No cap check, ever.
-            const n = await proLib.recordAiAnswer(env, aiGate.userId);
+            const n = await proLib.recordAiAnswer(env, aiGate.userId, ledger);
             if (typeof n === "number") aiGate.aiUsed = n;
           } else if (aiGate.kind === "free" || aiGate.kind === "lite" || aiGate.kind === "anonymous") {
-            const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGate.aiCap);
+            const consumed = await proLib.consumeAiAnswer(env, aiGate.userId, aiGate.aiCap, ledger);
             if (consumed && typeof consumed.used === "number") aiGate.aiUsed = consumed.used;
           }
         } catch (cbErr) { console.error("[Cerebrum] search.js meterAiAnswer:", cbErr); }
@@ -14828,7 +14982,7 @@ async function runSearchPipeline(pctx) {
           aiQuota: aiQuotaPayload(),
         }), { status: 200, headers: { ...cors, "Cache-Control": "no-store" } });
       }
-      const contextual = await answerFromContext(query, body.history, env, action);
+      const contextual = await answerFromContext(query, body.history, env, action, ledger);
       if (!contextual) return new Response(JSON.stringify({ error: "Couldn't process that follow-up. Try again, no new search ran." }), { status: 503, headers: { ...cors, "Cache-Control": "no-store" } });
       contextual.answer = cleanAIResponse(contextual.answer);
       if (burnsInference) {
@@ -15157,13 +15311,17 @@ async function runSearchPipeline(pctx) {
     if (env.DB && privacy.cacheable) {
       try {
         const earlyCacheKey = await derivedCacheKey(query, env);
+        ledger.spendBinding("cache", 1);
         const earlyHit = await env.DB.prepare(
           "SELECT answer, sources, created_at FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
         ).bind(earlyCacheKey, Date.now() - CACHE_TTL_MS).first();
         // Nuance #29: hit-rate telemetry for the D1 answer cache . a lookup
         // hit is "a row with an answer existed", regardless of whether the
-        // entitlement gate below serves it.
-        await recordCacheLookup(env, "answer", !!(earlyHit && earlyHit.answer));
+        // entitlement gate below serves it. The stats write is telemetry
+        // and yields when the answer reserve is no longer intact.
+        if (ledger.retrievalRoom(0)) {
+          await recordCacheLookup(env, "answer", !!(earlyHit && earlyHit.answer), ledger);
+        }
         // PRO TIER . the shared cache is an optimization, not an entitlement
         // bypass: a gated caller (anonymous, or a free account past its
         // monthly bucket) falls through to the normal pipeline below, which
@@ -15253,7 +15411,7 @@ async function runSearchPipeline(pctx) {
      * applied. A private question resolves from scratch. */
     const queryKey = privacy.persist ? await derivedCacheKey(query, env, "qi1") : null;
     const cachedIntelligence = queryKey
-      ? await checkQueryIntelligence(queryKey, env.DB).catch(() => null)
+      ? await checkQueryIntelligence(queryKey, env.DB, ledger).catch(() => null)
       : null;
 
     // Pronoun / continuation follow-up detection: "he has papers from...",
@@ -15713,7 +15871,7 @@ async function runSearchPipeline(pctx) {
       // inconclusive, resolve the sense with bge embeddings instead of
       // keyword luck. Falls back to the table result on any failure.
       try {
-        ambiguity = await detectAmbiguitySemantic(searchQuery, env);
+        ambiguity = await detectAmbiguitySemantic(searchQuery, env, ledger);
       } catch {
         ambiguity = detectAmbiguity(searchQuery);
       }
@@ -15892,7 +16050,7 @@ async function runSearchPipeline(pctx) {
       // above: if that already resolved or flagged, keep it.
       try {
         if (!ambiguity.ambiguous && !ambiguity.resolvedAs && (gResult.papers || []).length >= 4) {
-          const div = await detectSemanticDivergence(gResult.papers, env);
+          const div = await detectSemanticDivergence(gResult.papers, env, ledger);
           if (div && div.ambiguous) {
             ambiguity = { ...ambiguity, ...div };
             if (gResult._diag) gResult._diag.semanticDivergence = div._diag || true;
@@ -15905,7 +16063,7 @@ async function runSearchPipeline(pctx) {
       if (gResult._diag) {
         try {
           const { getDenialStats } = await import("../lib/searchPriority.js");
-          gResult._diag.queueDenials = await getDenialStats(env);
+          gResult._diag.queueDenials = await getDenialStats(env, ledger);
         } catch (cbErr) { console.error("[Cerebrum] search.js _diag: getDenialStats:", cbErr); }
       }
 
@@ -16082,6 +16240,7 @@ async function runSearchPipeline(pctx) {
     let learnedPapers = [];
     if (env.DB && learnKey) {
       try {
+        ledger.spendBinding("learning", 1);
         const rows = await env.DB.prepare(
           "SELECT title, url, journal, year, authors, abstract, times_confirmed FROM paper_cache WHERE query_key = ? ORDER BY times_confirmed DESC LIMIT 10"
         ).bind(learnKey).all();
@@ -17251,11 +17410,17 @@ async function runSearchPipeline(pctx) {
     let cachedAnswer = null;
     if (env.DB && cacheKey && sourceList.length > 0) {
       try {
+        ledger.spendBinding("cache", 1);
         const cached = await env.DB.prepare(
           "SELECT answer, sources, score, created_at FROM answer_cache WHERE query_key = ? AND score >= 0 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
         ).bind(cacheKey, Date.now() - CACHE_TTL_MS).first();
         // Nuance #29: same hit-rate telemetry on the second cache read.
-        await recordCacheLookup(env, "answer", !!(cached && cached.answer));
+        // The stats write is telemetry: it yields when the answer
+        // reserve is no longer intact (the read above is functional
+        // and always happens).
+        if (ledger.retrievalRoom(0)) {
+          await recordCacheLookup(env, "answer", !!(cached && cached.answer), ledger);
+        }
         if (cached && cached.answer) {
           cachedAnswer = cached;
         }
@@ -17310,7 +17475,7 @@ async function runSearchPipeline(pctx) {
           related: [],
           source: "Cached (verified)",
           aiQuota: aiQuotaPayload(),
-          ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag })),
+          ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag }, ledger)),
           _cached: true,
           _funnel: laterTrust.funnel,
           _coverage: laterTrust.coverage,
@@ -17650,6 +17815,10 @@ async function runSearchPipeline(pctx) {
       guardedLlmCall("workers-ai", () => callCFInner(model, msgs, maxTok, timeoutMs));
     const callCFInner = async (model, msgs, maxTok, timeoutMs = 12000) => {
       if (!env.AI || typeof env.AI.run !== "function") throw new Error(model + ": no Workers AI binding (env.AI missing)");
+      // A Workers AI run is a bound service call: it spends from the
+      // same subrequest allowance as a fetch. Charged here, at the
+      // call, so every retry through guardedLlmCall pays its own.
+      ledger.spendBinding("synthesis", 1);
       try {
         // callOR and pollinationsCall both bound their fetch to a 12s
         // AbortController; env.AI.run() has no signal/timeout option to hang
@@ -17823,6 +17992,7 @@ async function runSearchPipeline(pctx) {
     let preferredModel = null;
     if (env.DB && domainKey) {
       try {
+        ledger.spendBinding("routing", 1);
         const pref = await env.DB.prepare(
           "SELECT model, wins FROM model_perf WHERE domain = ? ORDER BY wins DESC LIMIT 1"
         ).bind(domainKey).first();
@@ -17896,7 +18066,7 @@ async function runSearchPipeline(pctx) {
     // DESCRIPTORS ({ label, bucket, fetchCost, wave, fire }) and fired
     // through here. planWaveLegs picks which legs the remaining
     // allowance can pay for . breadth first across provider buckets,
-    // zero cost Workers AI legs always . and the legs it cannot pay
+    // every leg costing 1 (fetch or Workers AI run alike) . and the legs it cannot pay
     // for are recorded in aiAttempts as budget skips carrying the
     // reserve reason, so the synthesis stage health can say plainly
     // that our own budget, not the fleet, is what shrank the wave.
@@ -17980,6 +18150,10 @@ async function runSearchPipeline(pctx) {
       // to remember. Match the provider prefix specifically.
       if (!env.DB || !domainKey || !model || model.startsWith("@cf/")) return;
       if (/^(?:pollinations|groq|cerebras|gemini|mistral|github|nvidia):/.test(model)) return;
+      // A learning write: it yields to the tail reserve like the
+      // other deferrable writes.
+      if (ledger.remaining() <= SUBREQUEST_TAIL_RESERVE) return;
+      ledger.spendBinding("routing", 1);
       env.DB.prepare(
         "INSERT INTO model_perf (domain, model, wins) VALUES (?, ?, 1) ON CONFLICT(domain, model) DO UPDATE SET wins = wins + 1"
       ).bind(domainKey, model).run().catch(() => {});
@@ -18163,6 +18337,7 @@ async function runSearchPipeline(pctx) {
           userId: (aiGate && aiGate.userId) || "anonymous",
           tier: (aiGate && aiGate.kind) || "anonymous",
           promptChars: messagesChars(compactMessages || messages),
+          ledger,
           complexity: {
             queryLength: query.length,
             historyTurns: Array.isArray(body.history) ? body.history.length : 0,
@@ -18228,7 +18403,7 @@ async function runSearchPipeline(pctx) {
         // wave, not as a fallback. A wave that is 80% OpenRouter is one
         // 429 away from being no wave at all.
         ...compatLegDescriptors(1, "w1", compactMessages, maxTokens, wave1Timeout, w1Abort.signal),
-        ...(cfBound ? CF_WAVE1.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 1, fire: () => callCF(m, compactMessages, maxTokens, cfLegTimeoutMs(m, wave1Timeout)) })) : []),
+        ...(cfBound ? CF_WAVE1.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 1, fire: () => callCF(m, compactMessages, maxTokens, cfLegTimeoutMs(m, wave1Timeout)) })) : []),
       ]);
       try {
         // raceBest (not Promise.any): wait for the first success, then give
@@ -18323,7 +18498,7 @@ async function runSearchPipeline(pctx) {
         // parked and skipped, so each of Groq's per-model pools gets
         // its real shot in this wave.
         ...compatLegDescriptors(2, "w2", wave2Messages, maxTokens, wave2Timeout, undefined),
-        ...(cfBound ? CF_WAVE2.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 2, fire: () => callCF(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
+        ...(cfBound ? CF_WAVE2.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 2, fire: () => callCF(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
       ]);
       if (wave2Calls.length > 0) {
         try {
@@ -18444,14 +18619,14 @@ async function runSearchPipeline(pctx) {
         // configured it does: each one below is a quota that had nothing to
         // do with whatever just failed.
         ...compatLegDescriptors(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
-        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
+        ...(cfBound ? ["@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
         // Pro depth: wave 3 only fires after total failure, so a stronger
         // model here is cheap . one extra leg, only on the rarest path.
         // Pro races a 70B Workers AI model alongside the small ones; a
         // last-resort answer from a stronger model beats the deterministic
         // fallback. Fail-safe: an unknown model ID just fails its leg and
         // raceBest falls through to the other legs.
-        ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 0, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
+        ...(cfBound && isProSearch ? ["@cf/meta/llama-3.3-70b-instruct-fp8-fast"].map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 3, fire: () => callCF(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
         // Pro depth: wave 3 only fires after total failure, so the extra legs
         // are cheap . Pro races four OpenRouter models here instead of two,
         // in case the wave 1-2 throttle has cleared by now.
@@ -18577,12 +18752,12 @@ async function runSearchPipeline(pctx) {
         // whose cooldown did not lapse is skipped and recorded,
         // never fired early. The subrequest plan runs first: after a
         // full all fail run the allowance may be at zero, in which
-        // case only the zero cost Workers AI legs can still fire and
-        // the rest are recorded as budget skips, not fired to die.
+        // case unaffordable legs are recorded as budget skips, not
+        // fired to die.
         const delayedDescriptors = chosen.map((label) => ({
           label,
           bucket: label,
-          fetchCost: label.startsWith("@cf/") ? 0 : 1,
+          fetchCost: 1,
           wave: 6,
           fire: () => callForLegLabel(label, compactMessages || messages, maxTokens, DELAYED_RESCUE_RETRY_MS),
         }));
@@ -18625,20 +18800,27 @@ async function runSearchPipeline(pctx) {
     // the spend); the actual burn is recorded here from the winning leg:
     // prompt estimate + ~4 chars/token on the answer. Best-effort by
     // design: accounting must never fail the search.
-    if (aiOK && llmBudget && llmBudget.ok) {
+    // Subrequest budget: both writes below are operator accounting,
+    // best effort by their own contracts. When the ledger knows the
+    // platform allowance is gone they are not fired at all — a call
+    // the runtime will refuse spends goodwill, not budget — and the
+    // room that remains is left for the record store.
+    if (aiOK && llmBudget && llmBudget.ok && ledger.remaining() > 1) {
       try {
         const winLeg = aiAttempts.find((a) => a && typeof a.wave === "number" && a.ok === true && typeof a.model === "string");
         const completionChars = typeof answer === "string" ? answer.length : 0;
         await spendTokens(
           env,
           (aiGate && aiGate.userId) || "anonymous",
-          estimateTokensFromChars(messagesChars(compactMessages || messages)) + estimateTokensFromChars(completionChars)
+          estimateTokensFromChars(messagesChars(compactMessages || messages)) + estimateTokensFromChars(completionChars),
+          ledger
         );
         await recordLlmUsage(env, {
           userId: (aiGate && aiGate.userId) || "anonymous",
           model: (winLeg && winLeg.model) || routedModel || "unknown",
           promptChars: messagesChars(compactMessages || messages),
           completionChars,
+          ledger,
         });
       } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
     }
@@ -18817,11 +18999,12 @@ async function runSearchPipeline(pctx) {
         // failure must never fail the search.
         try {
           if (queryAnalysis && queryAnalysis.constraints && queryAnalysis.constraints.length > 0
-              && !queryAnalysis.isNameSearch && typeof waitUntil === "function") {
+              && !queryAnalysis.isNameSearch && typeof waitUntil === "function"
+              && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
             const _verification = verifyPaperList(extPool || [], queryAnalysis);
             if (_verification.allMiss) {
               const _env = env, _qa = queryAnalysis, _v = _verification;
-              waitUntil(logConstraintFailure(_env, _qa, _v).catch(() => {}));
+              waitUntil(logConstraintFailure(_env, _qa, _v, ledger).catch(() => {}));
             }
           }
         } catch { /* learning must never break search */ }
@@ -19039,7 +19222,10 @@ async function runSearchPipeline(pctx) {
       // Next time this question (or an identically-worded one) is asked,
       // these papers get force-included at max relevance instead of being
       // rediscovered . this is the self-improving loop.
-      if (env.DB && learnKey) {
+      // Subrequest budget: up to 8 inserts, and they stand between the
+      // waves and the fact check / record store in execution order, so
+      // they may not eat the tail reserve those stages are promised.
+      if (env.DB && learnKey && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
         try {
           const citedIdx = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10)));
           const citedPapers = [...citedIdx]
@@ -19056,7 +19242,11 @@ async function runSearchPipeline(pctx) {
           // learnKey is null for a query the classifier declined to persist,
           // so this whole block is unreachable for those . but state it, so a
           // future edit cannot reintroduce the write by moving the guard.
-          await Promise.all((privacy.persist ? citedPapers : []).map((p) =>
+          const learnWrites = privacy.persist ? citedPapers : [];
+          // One D1 execution per cited paper (up to 8): charged as a
+          // batch of bound service calls before they fire.
+          if (learnWrites.length) ledger.spendBinding("learning", learnWrites.length);
+          await Promise.all(learnWrites.map((p) =>
             env.DB.prepare(
               "INSERT INTO paper_cache (query_key, title, url, journal, year, authors, abstract, times_confirmed, created_at) " +
               "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) " +
@@ -19072,13 +19262,13 @@ async function runSearchPipeline(pctx) {
     // can skip the LLM resolver entirely. This is how the system
     // "learns and grows" . every successful answer makes the next
     // similar query faster and more accurate.
-    if (env.DB && aiOK && answer.length > 100 && privacy.persist) {
+    if (env.DB && aiOK && answer.length > 100 && privacy.persist && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
       const resolvedTopic = llmResolvedTopic || (resolverResult && resolverResult.topic) || null;
       const finalSearchQuery = resolvedSearchQuery || query;
       const intentUsed = resolverResult ? resolverResult.intent : intent.kind;
       storeQueryIntelligence(
         queryKey, finalSearchQuery, intentUsed, resolvedTopic,
-        conversationCtx ? conversationCtx.entities : [], env.DB
+        conversationCtx ? conversationCtx.entities : [], env.DB, ledger
       ).catch(() => {});
 
       // Also update topic memory with search performance data
@@ -19086,7 +19276,7 @@ async function runSearchPipeline(pctx) {
         const searchTerms = selfReasonResult && selfReasonResult.key_terms
           ? selfReasonResult.key_terms
           : [];
-        updateTopicMemory(resolvedTopic, searchTerms, papers.length, env.DB).catch(() => {});
+        updateTopicMemory(resolvedTopic, searchTerms, papers.length, env.DB, ledger).catch(() => {});
       }
     }
 
@@ -19153,7 +19343,7 @@ async function runSearchPipeline(pctx) {
      * the ANSWER to it, because an answer to "my son's rash and Kawasaki
      * disease" is nearly as revealing as the question and would be served to
      * the next person who asked something similar. */
-    if (env.DB && aiOK && cacheKey && privacy.cacheable && sourceList.length > 0 && answer.length > 50) {
+    if (env.DB && aiOK && cacheKey && privacy.cacheable && sourceList.length > 0 && answer.length > 50 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
       // v37: this was a plain `await` . meaning every single non-cached
       // response paid for a full D1 round-trip AFTER the answer was already
       // computed, purely to help future requests, before the current one
@@ -19163,6 +19353,7 @@ async function runSearchPipeline(pctx) {
       // response goes out immediately. A write failure still can't take the
       // response down (own try/catch), it just no longer taxes the person
       // who's waiting on THIS answer for the benefit of a future one.
+      ledger.spendBinding("cache", 1);
       const cacheWrite = env.DB.prepare(
         "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
       ).bind(
@@ -19448,7 +19639,7 @@ async function runSearchPipeline(pctx) {
     // detected set before the verdict is computed, so the verdict reflects
     // all found conflicts. Zero new embedding spend (cached vectors only).
     try {
-      const semConflicts = await detectSemanticConflicts(citedConflictPapers, env, detectedSubset.conflicts);
+      const semConflicts = await detectSemanticConflicts(citedConflictPapers, env, detectedSubset.conflicts, ledger);
       if (semConflicts.length > 0) {
         detectedSubset.conflicts.push(...semConflicts);
         // Recompute the verdict with the merged conflict list.
@@ -19504,22 +19695,29 @@ async function runSearchPipeline(pctx) {
           integrityFlags: 0, // computed below; applied on next pass via telemetry
         });
         // Best-effort telemetry for future curve fitting (don't await).
-        logConfidenceTelemetry(env, {
-          queryHash: String(searchQuery || "").slice(0, 40),
-          rawScore: confidence.rawScore,
-          calibratedScore: confidence.score,
-          level: confidence.level,
-          adjustments: confidence.calibrationAdjustments,
-        }).catch(() => {});
+        // Telemetry yields to the tail reserve like the other
+        // deferrable writes.
+        if (ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+          logConfidenceTelemetry(env, {
+            queryHash: String(searchQuery || "").slice(0, 40),
+            rawScore: confidence.rawScore,
+            calibratedScore: confidence.score,
+            level: confidence.level,
+            adjustments: confidence.calibrationAdjustments,
+          }, ledger).catch(() => {});
+        }
       } catch (cbErr) { console.error("[Cerebrum] search.js confidence calibration:", cbErr); }
     }
     const coverageNote = buildCoverageNote(publicSourcesQueried());
 
     /* Computed, not generated. Runs only when there is enough to compare and
        never blocks the answer for more than its own deadline.
-       2026-09-12: also budget-gated . skipped when <2s remain. */
+       2026-09-12: also budget-gated . skipped when <2s remain.
+       Subrequest budget: it is an assembly enhancement, so it also
+       yields to the tail reserve (the record store below outranks
+       it on a tight draw). */
     ledger.setStage("post");
-    const evidenceMap = (useEvidence && sourceList.length >= 3 && msLeft() > 2000)
+    const evidenceMap = (useEvidence && sourceList.length >= 3 && msLeft() > 2000 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE)
       ? await evidenceStructure(sourceList, ledger).catch(() => null)
       : null;
 
@@ -19546,7 +19744,7 @@ async function runSearchPipeline(pctx) {
     // The dataset grows automatically; /api/llm/export pulls high-quality
     // rows as instruction-tuning JSONL when Dusty says "tune the model."
     try {
-      if (env.DB && answer && typeof answer === "string" && answer.length > 100) {
+      if (env.DB && answer && typeof answer === "string" && answer.length > 100 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
         const llmQuality = scoreAnswerQuality(answer, query);
         const llmModel = synthWinner ? String(synthWinner.model) : "unknown";
         const evSummary = (evidencePapers || []).slice(0, 5).map((p) => {
@@ -19555,6 +19753,9 @@ async function runSearchPipeline(pctx) {
         }).join(" ;; ").slice(0, 2000);
         const llmId = "llm_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
         // Ensure table exists (self-healing for deploys that haven't run schema.sql)
+        // Both statements execute on every answered search (the CREATE
+        // is not memoized), so both are charged.
+        ledger.spendBinding("learning", 2);
         env.DB.prepare(
           "CREATE TABLE IF NOT EXISTS llm_training_data (" +
           "id TEXT NOT NULL PRIMARY KEY, question TEXT NOT NULL, " +
@@ -19653,9 +19854,9 @@ async function runSearchPipeline(pctx) {
       recordId: searchRecordId,
     });
     if (searchRecord) {
-      let recordStored = await storeSearchRecord(env, searchRecord);
+      let recordStored = await storeSearchRecord(env, searchRecord, ledger);
       if (!recordStored) {
-        recordStored = await storeSearchRecord(env, searchRecord);
+        recordStored = await storeSearchRecord(env, searchRecord, ledger);
       }
       applyRecordStoreOutcome(searchRecord, recordStored);
     }
@@ -19888,7 +20089,7 @@ async function runSearchPipeline(pctx) {
          * Diagnostics are now operator-only: they require the founder
          * session, the same gate config.js uses. Everyone else gets the
          * honest per-source summary above and nothing about our upstreams. */
-        ...(await operatorDiagnostics(request, env, { aiAttempts, diag: gResult && gResult._diag })),
+        ...(await operatorDiagnostics(request, env, { aiAttempts, diag: gResult && gResult._diag }, ledger)),
       }),
       { status: 200, headers: cors }
     );
@@ -19951,19 +20152,25 @@ async function runSearchPipeline(pctx) {
   } finally {
     // Release the priority-queue slot on every exit path (returns inside
     // the try still run finally). A null slot means we never acquired one.
-    if (searchSlot) {
+    // Subrequest budget: when the allowance is spent the release call
+    // cannot succeed (the platform would refuse it), so it is not
+    // fired; the queue's stale slot sweep reclaims the slot, which is
+    // what the sweep exists for.
+    if (searchSlot && ledger.remaining() > 0) {
       try {
         const { releaseSearchSlot } = await import("../lib/searchPriority.js");
-        await releaseSearchSlot(env);
+        await releaseSearchSlot(env, ledger);
       } catch (cbErr) { console.error("[Cerebrum] search.js finally: releaseSearchSlot:", cbErr); }
       searchSlot = null;
     }
     // Per-key usage dashboard: record this API-key-authenticated request
     // in the background . accounting must never delay the response.
-    if (apiKeyIdentity) {
+    // Same budget rule as the slot release: not fired when the ledger
+    // knows the platform will refuse it.
+    if (apiKeyIdentity && ledger.remaining() > 0) {
       try {
         const { recordApiKeyUsage } = await import("../lib/apiKeys.js");
-        const p = recordApiKeyUsage(env, apiKeyIdentity.keyId, apiKeyRequestErrored);
+        const p = recordApiKeyUsage(env, apiKeyIdentity.keyId, apiKeyRequestErrored, ledger);
         if (typeof waitUntil === "function") waitUntil(p.catch(() => {}));
         else await p;
       } catch (cbErr) { console.error("[Cerebrum] search.js finally: recordApiKeyUsage:", cbErr); }

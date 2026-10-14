@@ -226,8 +226,15 @@ export async function consumeStudentVerification(env, verificationId) {
 // ── Schema ────────────────────────────────────────────────────────────────
 
 let _proTablesEnsured = false;
-export async function ensureProTables(env) {
+export async function ensureProTables(env, ledger = null) {
   if (_proTablesEnsured || !env || !env.DB) return;
+  // Five execs on the cold request that triggers them (CREATE
+  // pro_usage, two self healing ALTERs, CREATE stripe_events,
+  // CREATE student_verifications); zero in steady state. `ledger` is
+  // the search handler's subrequest ledger, optional elsewhere:
+  // D1 executions are bound service calls and are charged at their
+  // sites throughout this module.
+  if (ledger) ledger.spendBinding("entitlement", 1);
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS pro_usage (" +
       "user_id TEXT NOT NULL, " +
@@ -244,13 +251,15 @@ export async function ensureProTables(env) {
     "ALTER TABLE pro_usage ADD COLUMN doc_reads INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE pro_usage ADD COLUMN flowcharts INTEGER NOT NULL DEFAULT 0",
   ]) {
-    try { await env.DB.exec(ddl); } catch { /* already exists */ }
+    try { if (ledger) ledger.spendBinding("entitlement", 1); await env.DB.exec(ddl); } catch { /* already exists */ }
   }
+  if (ledger) ledger.spendBinding("entitlement", 1);
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS stripe_events (" +
       "event_id TEXT PRIMARY KEY, " +
       "received_at INTEGER NOT NULL)"
   );
+  if (ledger) ledger.spendBinding("entitlement", 1);
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS student_verifications (" +
       "id TEXT PRIMARY KEY, " +
@@ -314,11 +323,12 @@ export function quotaResetsInMs(nowMs = Date.now()) {
 // transparency read. Pro users have no caps, but their usage is still
 // counted so the Usage page can show what they burned. Fail-open: a DB
 // problem reads as zeros, never as an error.
-export async function getPeriodUsage(env, userId) {
+export async function getPeriodUsage(env, userId, ledger = null) {
   const zero = { ai_answers: 0, doc_reads: 0, flowcharts: 0 };
   if (!env || !env.DB || !userId) return zero;
   try {
-    await ensureProTables(env);
+    await ensureProTables(env, ledger);
+    if (ledger) ledger.spendBinding("entitlement", 1);
     const u = await env.DB.prepare(
       "SELECT ai_answers, doc_reads, flowcharts FROM pro_usage WHERE user_id = ? AND month = ?"
     ).bind(userId, periodKey()).first();
@@ -336,10 +346,11 @@ export function isProRow(row) {
   return !!row && row.plan === "pro";
 }
 
-export async function getUserProRow(env, userId) {
+export async function getUserProRow(env, userId, ledger = null) {
   if (!env || !env.DB || !userId) return null;
-  await ensureProTables(env);
+  await ensureProTables(env, ledger);
   try {
+    if (ledger) ledger.spendBinding("entitlement", 1);
     return await env.DB.prepare(
       "SELECT plan, pro_source, pro_interval, stripe_customer_id FROM users WHERE id = ?"
     ).bind(userId).first();
@@ -381,7 +392,7 @@ export function intervalToPlan(interval) {
 //                 aiUsed >= aiCap, same free cap as a signed-in free account.
 //                 With no identity available it stays synthesis-free, since
 //                 there is still nothing to meter against.
-export async function resolveAiGate(env, sessionUser, anonId) {
+export async function resolveAiGate(env, sessionUser, anonId, ledger = null) {
   const base = {
     kind: "anonymous",
     userId: null,
@@ -393,7 +404,8 @@ export async function resolveAiGate(env, sessionUser, anonId) {
     if (!anonId) return base;
     let anonUsed = 0;
     try {
-      await ensureProTables(env);
+      await ensureProTables(env, ledger);
+      if (ledger) ledger.spendBinding("entitlement", 1);
       const u = await env.DB.prepare(
         "SELECT ai_answers FROM pro_usage WHERE user_id = ? AND month = ?"
       ).bind(anonId, periodKey()).first();
@@ -403,11 +415,11 @@ export async function resolveAiGate(env, sessionUser, anonId) {
     }
     return { ...base, userId: anonId, aiUsed: anonUsed };
   }
-  const row = await getUserProRow(env, sessionUser.id);
+  const row = await getUserProRow(env, sessionUser.id, ledger);
   if (isProRow(row)) {
     // Pro has no caps, but usage is still counted (transparency, not
     // paywalling) so the Usage page shows real numbers for Pro members.
-    const proUsage = await getPeriodUsage(env, sessionUser.id);
+    const proUsage = await getPeriodUsage(env, sessionUser.id, ledger);
     return {
       kind: "pro",
       userId: sessionUser.id,
@@ -421,7 +433,8 @@ export async function resolveAiGate(env, sessionUser, anonId) {
   const lite = isLiteRow(row);
   let used = 0;
   try {
-    await ensureProTables(env);
+    await ensureProTables(env, ledger);
+    if (ledger) ledger.spendBinding("entitlement", 1);
     const u = await env.DB.prepare(
       "SELECT ai_answers FROM pro_usage WHERE user_id = ? AND month = ?"
     ).bind(sessionUser.id, periodKey()).first();
@@ -456,8 +469,9 @@ export function aiSynthesisAllowed(gate) {
 // itself never loses increments.
 // NOTE: quota-gated call sites now use consumeAiAnswer (cap check folded
 // into the increment); this remains for unconditional increments only.
-export async function recordAiAnswer(env, userId) {
-  await ensureProTables(env);
+export async function recordAiAnswer(env, userId, ledger = null) {
+  await ensureProTables(env, ledger);
+  if (ledger) ledger.spendBinding("metering", 1);
   const row = await env.DB.prepare(
     "INSERT INTO pro_usage (user_id, month, ai_answers) VALUES (?, ?, 1) " +
       "ON CONFLICT (user_id, month) DO UPDATE SET ai_answers = ai_answers + 1 " +
@@ -536,15 +550,16 @@ export async function recordFlowchart(env, userId) {
 // (allowed, used 0). Caps ≤ 0 are denied without touching the DB.
 const QUOTA_COLUMNS = { ai: "ai_answers", docs: "doc_reads", flowcharts: "flowcharts" };
 
-async function consumeQuota(env, kind, userId, cap) {
+async function consumeQuota(env, kind, userId, cap, ledger = null) {
   const column = QUOTA_COLUMNS[kind];
   if (!column || !env || !env.DB || !userId) return { allowed: false, used: 0 };
   if (cap == null || cap === Infinity) return { allowed: true, used: 0 };
   if (!(cap > 0)) return { allowed: false, used: 0 };
-  await ensureProTables(env);
+  await ensureProTables(env, ledger);
   const pk = periodKey();
   // Column names are internal constants, never caller input — the whitelist
   // above is the guard. The cap rides as a bound parameter.
+  if (ledger) ledger.spendBinding("metering", 1);
   const res = await env.DB.prepare(
     "INSERT INTO pro_usage (user_id, month, " + column + ") VALUES (?, ?, 1) " +
       "ON CONFLICT (user_id, month) DO UPDATE SET " + column + " = " + column + " + 1 " +
@@ -553,6 +568,7 @@ async function consumeQuota(env, kind, userId, cap) {
   const allowed = ((res && res.meta && res.meta.changes) || 0) === 1;
   let used = 0;
   try {
+    if (ledger) ledger.spendBinding("metering", 1);
     const row = await env.DB.prepare(
       "SELECT " + column + " FROM pro_usage WHERE user_id = ? AND month = ?"
     ).bind(userId, pk).first();
@@ -565,13 +581,13 @@ async function consumeQuota(env, kind, userId, cap) {
 
 // Atomically consume one AI answer from a metered bucket (free or Lite).
 // Pro passes cap null/Infinity and never touches the DB.
-export const consumeAiAnswer = (env, userId, cap) => consumeQuota(env, "ai", userId, cap);
+export const consumeAiAnswer = (env, userId, cap, ledger = null) => consumeQuota(env, "ai", userId, cap, ledger);
 
 // Atomically consume one Notebook Mode document read.
-export const consumeDocRead = (env, userId, cap) => consumeQuota(env, "docs", userId, cap);
+export const consumeDocRead = (env, userId, cap, ledger = null) => consumeQuota(env, "docs", userId, cap, ledger);
 
 // Atomically consume one Flowchart Studio save.
-export const consumeFlowchart = (env, userId, cap) => consumeQuota(env, "flowcharts", userId, cap);
+export const consumeFlowchart = (env, userId, cap, ledger = null) => consumeQuota(env, "flowcharts", userId, cap, ledger);
 
 // ── Stripe webhook signature (Web Crypto, no SDK) ─────────────────────────
 

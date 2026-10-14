@@ -867,7 +867,7 @@ await test("search.js gates all four AI waves on the Pro gate", async () => {
   // the pin now counts five and every one of them must stay gated.
   assert.equal(waveGuards.length, 5, `expected 5 gated wave guards, found ${waveGuards.length}`);
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");
-  assert.match(src, /consumeAiAnswer\(env, aiGate\.userId, aiGate\.aiCap\)/, "AI answers not metered atomically");
+  assert.match(src, /consumeAiAnswer\(env, aiGate\.userId, aiGate\.aiCap, ledger\)/, "AI answers not metered atomically");
   // Wave 4 (deterministic fallback) must stay ungated — everyone gets it.
   // The marker uses a spaced period since the dash sweep (ede6e38).
   assert.match(src, /WAVE 4 \. DETERMINISTIC EXTRACTIVE SYNTHESIS/, "wave 4 marker moved?");

@@ -215,8 +215,12 @@ export function estimateTokensFromChars(chars) {
 }
 
 let usageTableReady = null;
-function ensureUsageTable(db) {
+function ensureUsageTable(db, ledger = null) {
   if (!usageTableReady) {
+    // One exec, once per isolate. `ledger` is the search handler's
+    // subrequest ledger (optional everywhere else): D1 executions
+    // are bound service calls and are charged at their sites.
+    if (ledger) ledger.spendBinding("usage", 1);
     usageTableReady = db.exec(
       "CREATE TABLE IF NOT EXISTS llm_usage (" +
         "user_id TEXT NOT NULL, " +
@@ -253,7 +257,7 @@ function memoryKey(userId, period, model) {
  * Record one LLM call's token usage for a tenant. Never throws — telemetry
  * must not break the request it measures.
  */
-export async function recordLlmUsage(env, { userId, model, promptTokens, completionTokens, promptChars, completionChars }) {
+export async function recordLlmUsage(env, { userId, model, promptTokens, completionTokens, promptChars, completionChars, ledger = null }) {
   try {
     const uid = String(userId || "anonymous");
     const period = monthKey();
@@ -266,7 +270,8 @@ export async function recordLlmUsage(env, { userId, model, promptTokens, complet
     prev.calls += 1; prev.promptTokens += pt; prev.completionTokens += ct; prev.cost += cost;
     memoryUsage.set(k, prev);
     if (env && env.DB && typeof env.DB.prepare === "function") {
-      await ensureUsageTable(env.DB);
+      await ensureUsageTable(env.DB, ledger);
+      if (ledger) ledger.spendBinding("usage", 1);
       await env.DB.prepare(
         "INSERT INTO llm_usage (user_id, period_key, model, calls, prompt_tokens, completion_tokens, est_cost_usd, updated_at) " +
           "VALUES (?, ?, ?, 1, ?, ?, ?, ?) " +

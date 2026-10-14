@@ -221,8 +221,12 @@ export async function verifyJWT(token, env) {
  * that every token issued to it has expired on its own — and is swept after.
  */
 let _epochTableReady = false;
-async function ensureEpochTable(env) {
+async function ensureEpochTable(env, ledger = null) {
   if (_epochTableReady) return;
+  // One exec, once per isolate. `ledger` is the search handler's
+  // subrequest ledger (optional everywhere else): D1 executions are
+  // bound service calls and are charged to it at their sites.
+  if (ledger) ledger.spendBinding("session", 1);
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS session_epochs (user_id TEXT PRIMARY KEY, epoch INTEGER NOT NULL, tombstoned_at INTEGER)"
   );
@@ -269,10 +273,11 @@ export async function bumpSessionEpoch(env, userId, { tombstone = false } = {}) 
   }
 }
 
-export async function currentSessionEpoch(env, userId) {
+export async function currentSessionEpoch(env, userId, ledger = null) {
   if (!env || !env.DB || !userId) return { epoch: 0, tombstoned: false };
   try {
-    await ensureEpochTable(env);
+    await ensureEpochTable(env, ledger);
+    if (ledger) ledger.spendBinding("session", 1);
     const row = await env.DB.prepare("SELECT epoch, tombstoned_at FROM session_epochs WHERE user_id = ?")
       .bind(userId).first();
     if (!row) return { epoch: 0, tombstoned: false };
@@ -294,7 +299,7 @@ export function jwtCookieHeader(jwt, secure) {
 // Tries JWT verification first (stateless, no DB call). Falls back to
 // legacy DB session lookup for backward compatibility with older tokens.
 // Returns null (not a throw) for "not logged in."
-export async function getSessionUser(request, env) {
+export async function getSessionUser(request, env, ledger = null) {
   const raw = readSessionCookie(request);
   if (!raw) return null;
 
@@ -312,11 +317,12 @@ export async function getSessionUser(request, env) {
      *
      * One indexed lookup per request is a real cost, and it is the price of
      * being able to revoke a session at all. */
-    const { epoch, tombstoned } = await currentSessionEpoch(env, payload.sub);
+    const { epoch, tombstoned } = await currentSessionEpoch(env, payload.sub, ledger);
     if (tombstoned) return null;
     if ((Number(payload.epoch) || 0) < epoch) return null;
 
     if (!env.DB) return null;
+    if (ledger) ledger.spendBinding("session", 1);
     const row = await env.DB.prepare("SELECT id, email FROM users WHERE id = ?")
       .bind(payload.sub).first();
     if (!row) return null;
@@ -328,8 +334,9 @@ export async function getSessionUser(request, env) {
 
   // Legacy DB session fallback
   if (!env.DB) return null;
-  await ensureSessionTables(env);
+  await ensureSessionTables(env, ledger);
   const tokenHash = await sha256Hex(raw);
+  if (ledger) ledger.spendBinding("session", 1);
   const row = await env.DB.prepare(
     `SELECT s.user_id AS id, s.expires_at AS expires_at, u.email AS email
      FROM sessions s JOIN users u ON u.id = s.user_id
@@ -337,7 +344,7 @@ export async function getSessionUser(request, env) {
   ).bind(tokenHash).first();
   if (!row) return null;
   if (row.expires_at < Date.now()) {
-    try { await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run(); } catch (cbErr) { console.error("[Cerebrum] authHelpers.js: await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind:", cbErr); }
+    try { if (ledger) ledger.spendBinding("session", 1); await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run(); } catch (cbErr) { console.error("[Cerebrum] authHelpers.js: await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind:", cbErr); }
     return null;
   }
   return { id: row.id, email: row.email };
@@ -512,13 +519,15 @@ export async function ensureUserProfileColumns(env) {
 }
 
 let _sessionTablesEnsured = false;
-export async function ensureSessionTables(env) {
+export async function ensureSessionTables(env, ledger = null) {
   if (_sessionTablesEnsured) return;
   // Only reached by the legacy DB-session path (issueSession's non-JWT
   // branch) and the legacy magic-link actions — but reached unconditionally
   // by createSession() below whenever JWT_SECRET isn't configured, so a
   // missing `sessions` table would otherwise take down the very last step
   // of sign-in after everything else already succeeded.
+  // Four execs, once per isolate; charged when a ledger is supplied.
+  if (ledger) ledger.spendBinding("session", 4);
   await env.DB.exec(
     "CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT NOT NULL PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
   );

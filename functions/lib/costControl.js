@@ -48,9 +48,14 @@ export const DEFAULT_BUDGETS = {
 const CHEAP_MODEL = "google/gemma-4-31b-it:free";
 const PRIMARY_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
 
+/* `ledger` params throughout this module are the search handler's
+ * subrequest ledger (optional; other callers pass nothing). Every D1
+ * execution here is a bound service call drawn from the same
+ * platform allowance as fetches, so each is charged at its site. */
 let budgetTableReady = null;
-function ensureBudgetTable(db) {
+function ensureBudgetTable(db, ledger = null) {
   if (!budgetTableReady) {
+    if (ledger) ledger.spendBinding("budget", 1);
     budgetTableReady = db.exec(
       "CREATE TABLE IF NOT EXISTS tenant_budgets (" +
         "user_id TEXT NOT NULL, " +
@@ -74,13 +79,15 @@ export function defaultCapForTier(tier) {
   return DEFAULT_BUDGETS[tier] ?? DEFAULT_BUDGETS.anonymous;
 }
 
-async function readBudgetRow(db, userId, period, fallbackCap) {
+async function readBudgetRow(db, userId, period, fallbackCap, ledger = null) {
   if (!d1(db)) return { token_cap: fallbackCap, used_tokens: 0, ephemeral: true };
-  await ensureBudgetTable(db);
+  await ensureBudgetTable(db, ledger);
+  if (ledger) ledger.spendBinding("budget", 1);
   const row = await db.prepare(
     "SELECT token_cap, used_tokens FROM tenant_budgets WHERE user_id = ? AND period_key = ?"
   ).bind(userId, period).first();
   if (row) return { token_cap: row.token_cap | 0, used_tokens: row.used_tokens | 0, ephemeral: false };
+  if (ledger) ledger.spendBinding("budget", 1);
   await db.prepare(
     "INSERT OR IGNORE INTO tenant_budgets (user_id, period_key, token_cap, used_tokens, updated_at) VALUES (?, ?, ?, 0, ?)"
   ).bind(userId, period, fallbackCap, Date.now()).run();
@@ -93,13 +100,13 @@ async function readBudgetRow(db, userId, period, fallbackCap) {
  * Logs every rejection — a budget rejection is an operator-visible event,
  * not a silent fallback.
  */
-export async function checkTokenBudget(env, userId, estimatedTokens, tier = "anonymous") {
+export async function checkTokenBudget(env, userId, estimatedTokens, tier = "anonymous", ledger = null) {
   const uid = String(userId || "anonymous");
   const est = Math.max(0, Math.ceil(Number(estimatedTokens) || 0));
   try {
     const db = env && env.DB;
     const period = monthKey();
-    const row = await readBudgetRow(db, uid, period, defaultCapForTier(tier));
+    const row = await readBudgetRow(db, uid, period, defaultCapForTier(tier), ledger);
     const remaining = Math.max(0, row.token_cap - row.used_tokens);
     if (est > remaining) {
       jsonLog("warn", "budget_rejected", {
@@ -126,7 +133,7 @@ export async function checkTokenBudget(env, userId, estimatedTokens, tier = "ano
  * the cap so concurrent requests can't drive used_tokens past it.
  * Returns the new used total (best effort).
  */
-export async function spendTokens(env, userId, tokens) {
+export async function spendTokens(env, userId, tokens, ledger = null) {
   const uid = String(userId || "anonymous");
   const n = Math.max(0, Math.ceil(Number(tokens) || 0));
   if (n === 0) return 0;
@@ -134,11 +141,13 @@ export async function spendTokens(env, userId, tokens) {
     const db = d1(env && env.DB);
     if (!db) return 0;
     const period = monthKey();
-    await ensureBudgetTable(db);
+    await ensureBudgetTable(db, ledger);
+    if (ledger) ledger.spendBinding("budget", 1);
     await db.prepare(
       "UPDATE tenant_budgets SET used_tokens = used_tokens + ?, updated_at = ? " +
         "WHERE user_id = ? AND period_key = ? AND used_tokens + ? <= token_cap"
     ).bind(n, Date.now(), uid, period, n).run();
+    if (ledger) ledger.spendBinding("budget", 1);
     const row = await db.prepare(
       "SELECT used_tokens FROM tenant_budgets WHERE user_id = ? AND period_key = ?"
     ).bind(uid, period).first();
@@ -176,8 +185,9 @@ export const EMBEDDING_DAILY_CAP = 9000;
 export const EMBEDDING_NEURON_COST_PER_RERANK = 20;
 
 let embedTableReady = null;
-function ensureEmbedTable(db) {
+function ensureEmbedTable(db, ledger = null) {
   if (!embedTableReady) {
+    if (ledger) ledger.spendBinding("budget", 1);
     embedTableReady = db.exec(
       "CREATE TABLE IF NOT EXISTS embedding_neuron_usage (" +
         "day_key TEXT PRIMARY KEY, " +
@@ -193,12 +203,14 @@ function embeddingDayKey(nowMs) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-async function readEmbedRow(db, day) {
-  await ensureEmbedTable(db);
+async function readEmbedRow(db, day, ledger = null) {
+  await ensureEmbedTable(db, ledger);
+  if (ledger) ledger.spendBinding("budget", 1);
   const row = await db.prepare(
     "SELECT used_neurons FROM embedding_neuron_usage WHERE day_key = ?"
   ).bind(day).first();
   if (row) return row.used_neurons | 0;
+  if (ledger) ledger.spendBinding("budget", 1);
   await db.prepare(
     "INSERT OR IGNORE INTO embedding_neuron_usage (day_key, used_neurons, updated_at) VALUES (?, 0, ?)"
   ).bind(day, Date.now()).run();
@@ -210,12 +222,12 @@ async function readEmbedRow(db, day) {
  * Without D1: { allowed: false, reason: "no_ledger" } — conservative, the
  * keyword pipeline is the fallback so search quality is unchanged.
  */
-export async function checkEmbeddingBudget(env) {
+export async function checkEmbeddingBudget(env, ledger = null) {
   try {
     const db = d1(env && env.DB);
     if (!db) return { allowed: false, used: 0, cap: EMBEDDING_DAILY_CAP, reason: "no_ledger" };
     const day = embeddingDayKey();
-    const used = await readEmbedRow(db, day);
+    const used = await readEmbedRow(db, day, ledger);
     const remaining = Math.max(0, EMBEDDING_DAILY_CAP - used);
     if (EMBEDDING_NEURON_COST_PER_RERANK > remaining) {
       jsonLog("warn", "embedding_budget_exhausted", { day, used, cap: EMBEDDING_DAILY_CAP });
@@ -232,18 +244,20 @@ export async function checkEmbeddingBudget(env) {
  * Atomically consume neurons AFTER a successful rerank. The UPDATE guards on
  * the cap so concurrent requests can't overspend. Returns new used total.
  */
-export async function spendEmbeddingNeurons(env, n) {
+export async function spendEmbeddingNeurons(env, n, ledger = null) {
   const cost = Math.max(0, Math.ceil(Number(n) || 0));
   if (cost === 0) return 0;
   try {
     const db = d1(env && env.DB);
     if (!db) return 0;
     const day = embeddingDayKey();
-    await ensureEmbedTable(db);
+    await ensureEmbedTable(db, ledger);
+    if (ledger) ledger.spendBinding("budget", 1);
     await db.prepare(
       "UPDATE embedding_neuron_usage SET used_neurons = used_neurons + ?, updated_at = ? " +
         "WHERE day_key = ? AND used_neurons + ? <= " + EMBEDDING_DAILY_CAP
     ).bind(cost, Date.now(), day, cost).run();
+    if (ledger) ledger.spendBinding("budget", 1);
     const row = await db.prepare(
       "SELECT used_neurons FROM embedding_neuron_usage WHERE day_key = ?"
     ).bind(day).first();
@@ -284,9 +298,9 @@ export { CHEAP_MODEL, PRIMARY_MODEL };
  * { ok, model } or { ok: false, reason }. The caller routes to the
  * non-LLM fallback when ok is false.
  */
-export async function authorizeLlmCall(env, { userId, tier, promptChars, complexity }) {
+export async function authorizeLlmCall(env, { userId, tier, promptChars, complexity, ledger = null }) {
   const estimated = estimateTokensFromChars(promptChars || 0) + 2000; // + headroom for the completion
-  const budget = await checkTokenBudget(env, userId, estimated, tier);
+  const budget = await checkTokenBudget(env, userId, estimated, tier, ledger);
   if (!budget.allowed) return { ok: false, reason: budget.reason, budget };
   const model = pickModelFor(classifyComplexity(complexity || {}));
   return { ok: true, model, estimatedTokens: estimated, budget };

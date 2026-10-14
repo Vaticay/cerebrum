@@ -21,7 +21,13 @@ export function previousAnswer(history) {
   return Array.isArray(history) ? history.slice(-100).reverse().find(t => t && t.role === 'assistant' && typeof t.content === 'string' && t.content.trim()) : null;
 }
 
-export async function answerFromContext(query, history, env, action) {
+export async function answerFromContext(query, history, env, action, ledger = null) {
+  // `ledger` is the search handler's subrequest ledger (optional;
+  // other callers pass nothing). Every job below is a bound service
+  // call (a Workers AI run) or a raw fetch that bypasses the search
+  // handler's counted helpers — both draw on the same platform
+  // subrequest allowance, so each job is charged as it fires.
+  const charge = () => { if (ledger) ledger.spendBinding("context", 1); };
   const previous = previousAnswer(history);
   const base = { responseKind: 'context', sourcesQueried: [], videos: [], related: [], suggestions: [], source: 'Conversation context' };
   if (!previous) return { ...base, answer: 'Please send the text or ask a question first, then I can help with that response.', sources: [] };
@@ -46,6 +52,7 @@ export async function answerFromContext(query, history, env, action) {
   const jobs = [];
   // Use existing configured providers; no parallel model race for a short transformation.
   if (env.AI && typeof env.AI.run === 'function') jobs.push(async () => {
+    charge();
     const r = await env.AI.run(env.CONTEXT_CF_MODEL || '@cf/meta/llama-3.1-8b-instruct-fp8', { messages, max_tokens: action === 'summary' ? 500 : 1200, temperature: 0.2 });
     return r?.response;
   });
@@ -59,6 +66,7 @@ export async function answerFromContext(query, history, env, action) {
   ]) {
     if (!env[key]) continue;
     jobs.push(async () => {
+      charge();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 12000);
       try {
@@ -69,6 +77,7 @@ export async function answerFromContext(query, history, env, action) {
     });
   }
   if (env.OPENROUTER_KEY) jobs.push(async () => {
+    charge();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
     try {

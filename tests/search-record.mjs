@@ -835,7 +835,7 @@ await test("storeSearchRecord never rejects: no database, no id, and a throwing 
 await test("the handler mints, stamps, and stores at the one assembly point", () => {
   assert.match(searchSrc, /const searchRecordId = mintSearchRecordId\(\)/, "the handler does not mint a record id");
   assert.match(searchSrc, /recordId: searchRecordId/, "the minted id is not passed to buildSearchRecord");
-  assert.match(searchSrc, /storeSearchRecord\(env, searchRecord\)/, "the record is not stored under its id");
+  assert.match(searchSrc, /storeSearchRecord\(env, searchRecord, ledger\)/, "the record is not stored under its id");
   // Corrected contract (2026-10-13, third rescore fix): this pin
   // used to assert the store rides waitUntil off the response path.
   // That fire and forget shape is the defect the panel proved (2 of
@@ -843,9 +843,9 @@ await test("the handler mints, stamps, and stores at the one assembly point", ()
   // so a failed store shipped a permalink that 404'd. The store is
   // now awaited, retried once on failure, and its outcome stamped
   // onto the shipped record.
-  assert.match(searchSrc, /let recordStored = await storeSearchRecord\(env, searchRecord\)/,
+  assert.match(searchSrc, /let recordStored = await storeSearchRecord\(env, searchRecord, ledger\)/,
     "the store is not awaited, so its outcome cannot be known when the permalink is issued");
-  assert.match(searchSrc, /if \(!recordStored\) \{\s*recordStored = await storeSearchRecord\(env, searchRecord\);\s*\}/,
+  assert.match(searchSrc, /if \(!recordStored\) \{\s*recordStored = await storeSearchRecord\(env, searchRecord, ledger\);\s*\}/,
     "a failed store is not retried exactly once");
   assert.match(searchSrc, /applyRecordStoreOutcome\(searchRecord, recordStored\)/,
     "the store outcome is not stamped onto the shipped record");
@@ -1089,8 +1089,14 @@ await test("the panel shows the permalink with a copy action, and says when ther
   // whose store failed (stored false, permalink withdrawn server
   // side) must say the record could not be saved, in the panel and
   // in the Markdown export alike.
-  assert.match(panel, /sectionRow\("Link", record\.url \|\| \(record\.stored === false/,
-    "the panel does not split the link absence by the store outcome");
+  // Frontend audit (same day): when the URL exists the row renders it
+  // as a real anchor (it used to print as untappable plain text), so
+  // the row's shape is now a ternary on record.url; the absence split
+  // below it is unchanged and still pinned.
+  assert.match(panel, /sectionRow\("Link", record\.url \? \(/,
+    "the panel does not render the link row from the stored URL");
+  assert.ok(panel.includes('<a href={record.url}'), "the permalink is not a real link");
+  assert.ok(panel.includes('record.stored === false'), "the panel does not split the link absence by the store outcome");
   assert.ok(panel.includes("This record could not be saved, so it has no permanent link."),
     "the panel does not say a failed store could not be saved");
   assert.ok(panel.includes("No permanent link was stored for this record."),

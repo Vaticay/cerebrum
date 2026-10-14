@@ -64,32 +64,56 @@ export async function sha256hex(text) {
   return "fnv" + h1.toString(16) + h2.toString(16);
 }
 
-/** Self-healing DDL for the embedding cache (production DBs may predate schema.sql). */
-async function ensureEmbeddingCacheTable(db) {
-  await db.prepare(
-    "CREATE TABLE IF NOT EXISTS embedding_cache (" +
-    "key TEXT PRIMARY KEY, vector_json TEXT NOT NULL, created_at INTEGER NOT NULL)"
-  ).run();
-  await db.prepare(
-    "CREATE INDEX IF NOT EXISTS idx_embedding_cache_created ON embedding_cache(created_at)"
-  ).run();
+/* `ledger` params in this module are the search handler's
+ * subrequest ledger (optional; other callers pass nothing). Every
+ * bound service call here (D1 executions, the Workers AI embedding
+ * run) is drawn from the same platform allowance as fetches, so
+ * each is charged at its site. db.batch() counts as ONE call: it is
+ * a single round trip to the D1 service however many statements it
+ * carries. */
+let embeddingCacheTableReady = null;
+function ensureEmbeddingCacheTable(db, ledger = null) {
+  // Memoized per isolate like every other ensure helper in this
+  // codebase. It was the one exception: the CREATE pair ran on
+  // EVERY cache read and store (three calls per search, six D1
+  // executions), which the subrequest ledger's binding audit priced
+  // at ~6 subrequests per search for DDL alone. The two executions
+  // are charged once, to the request that triggers them; a failure
+  // resets the memo so the next call retries.
+  if (!embeddingCacheTableReady) {
+    if (ledger) ledger.spendBinding("rerank", 2);
+    embeddingCacheTableReady = (async () => {
+      await db.prepare(
+        "CREATE TABLE IF NOT EXISTS embedding_cache (" +
+        "key TEXT PRIMARY KEY, vector_json TEXT NOT NULL, created_at INTEGER NOT NULL)"
+      ).run();
+      await db.prepare(
+        "CREATE INDEX IF NOT EXISTS idx_embedding_cache_created ON embedding_cache(created_at)"
+      ).run();
+    })().then(
+      () => true,
+      (e) => { embeddingCacheTableReady = null; throw e; }
+    );
+  }
+  return embeddingCacheTableReady;
 }
 
 /**
  * Batch-lookup cached paper vectors. Returns Map(key -> vector).
  * Entries older than the TTL are treated as misses (and pruned lazily).
  */
-export async function getCachedPaperVectors(env, keys) {
+export async function getCachedPaperVectors(env, keys, ledger = null) {
   const out = new Map();
   try {
     const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
     if (!db || !keys || keys.length === 0) return out;
-    await ensureEmbeddingCacheTable(db);
+    await ensureEmbeddingCacheTable(db, ledger);
     const cutoff = Date.now() - EMBEDDING_CACHE_TTL_MS;
     // D1 limits bound variables; chunk at 50.
     for (let i = 0; i < keys.length; i += 50) {
       const chunk = keys.slice(i, i + 50);
       const placeholders = chunk.map(() => "?").join(",");
+      if (ledger) ledger.spendBinding("rerank", 1);
       const rows = await db.prepare(
         "SELECT key, vector_json FROM embedding_cache WHERE key IN (" + placeholders + ") AND created_at > ?"
       ).bind(...chunk, cutoff).all();
@@ -108,11 +132,11 @@ export async function getCachedPaperVectors(env, keys) {
  * Batch-store paper vectors. Best-effort: never throws.
  * Also prunes entries older than the TTL (one cheap DELETE per call).
  */
-export async function setCachedPaperVectors(env, entries) {
+export async function setCachedPaperVectors(env, entries, ledger = null) {
   try {
     const db = env && env.DB && typeof env.DB.prepare === "function" ? env.DB : null;
     if (!db || !entries || entries.length === 0) return;
-    await ensureEmbeddingCacheTable(db);
+    await ensureEmbeddingCacheTable(db, ledger);
     const now = Date.now();
     const stmts = entries
       .filter((e) => e && e.key && Array.isArray(e.vector) && e.vector.length > 0)
@@ -120,10 +144,13 @@ export async function setCachedPaperVectors(env, entries) {
         "INSERT OR REPLACE INTO embedding_cache (key, vector_json, created_at) VALUES (?, ?, ?)"
       ).bind(e.key, JSON.stringify(e.vector), now));
     // Chunked batches: D1 batch() handles arrays fine, but keep it modest.
+    // Each batch() call is ONE bound service call (single round trip).
     for (let i = 0; i < stmts.length; i += 50) {
+      if (ledger) ledger.spendBinding("rerank", 1);
       await db.batch(stmts.slice(i, i + 50));
     }
     // Lazy prune: one DELETE of expired rows per store call.
+    if (ledger) ledger.spendBinding("rerank", 1);
     await db.prepare(
       "DELETE FROM embedding_cache WHERE created_at < ?"
     ).bind(now - EMBEDDING_CACHE_TTL_MS).run().catch(() => {});
@@ -171,6 +198,9 @@ export async function getEmbeddings(env, texts, opts = {}) {
     if (!env?.AI || typeof env.AI.run !== "function") return null;
     const clean = (texts || []).map((t) => String(t || "").slice(0, MAX_EMBED_CHARS));
     if (clean.length === 0 || clean.every((t) => !t.trim())) return null;
+    // One batched Workers AI run for the whole array: one bound
+    // service call, charged when opts.ledger is supplied.
+    if (opts.ledger) opts.ledger.spendBinding("rerank", 1);
     const run = env.AI.run(model, { text: clean });
     const res = await Promise.race([
       run,
@@ -218,7 +248,7 @@ export async function semanticRerank(env, query, papers, opts = {}) {
   // overlapping result sets then cost ~1 embedding instead of ~21.
   const paperTexts = list.map(paperEmbedText);
   const paperKeys = await Promise.all(paperTexts.map((t) => sha256hex(t)));
-  const cached = await getCachedPaperVectors(env, paperKeys);
+  const cached = await getCachedPaperVectors(env, paperKeys, opts.ledger || null);
   const missIdx = [];
   for (let i = 0; i < list.length; i++) {
     if (!cached.has(paperKeys[i])) missIdx.push(i);
@@ -239,8 +269,15 @@ export async function semanticRerank(env, query, papers, opts = {}) {
     toStore.push({ key: paperKeys[missIdx[j]], vector: missVecs[j] });
   }
   // Store misses for future searches (best-effort, don't block).
+  // The store warms the cache for OTHER requests; this request's
+  // answer stages outrank it, so when a subrequest ledger is
+  // supplied and its answer reserve is no longer intact, the store
+  // is skipped rather than spending the reserve on a warmer.
   if (toStore.length > 0) {
-    setCachedPaperVectors(env, toStore).catch(() => {});
+    const lg = opts.ledger || null;
+    if (!lg || lg.retrievalRoom(0)) {
+      setCachedPaperVectors(env, toStore, lg).catch(() => {});
+    }
   }
 
   const pVecs = list.map((_, i) => cached.get(paperKeys[i]) || freshVectors.get(i));

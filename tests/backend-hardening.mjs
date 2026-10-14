@@ -486,7 +486,7 @@ await test("search: token spend + usage recorded once after the waves", async ()
   const spendAt = src.indexOf("await spendTokens(");
   const usageAt = src.indexOf("await recordLlmUsage(env,");
   assert.ok(meterAt !== -1 && spendAt > meterAt && usageAt > meterAt, "accounting sits with the per-search metering");
-  assert.match(src, /if \(aiOK && llmBudget && llmBudget\.ok\)/, "accounting only on authorized wins");
+  assert.match(src, /if \(aiOK && llmBudget && llmBudget\.ok && ledger\.remaining\(\) > 1\)/, "accounting only on authorized wins");
 });
 
 await test("document: exhausted budget degrades to honest extractive, never a 500", async () => {
@@ -1159,7 +1159,7 @@ group("#25 — rate limits: burst windows, vault/E2EE caps, Retry-After");
 
 await test("search.js has sustained + burst windows, both with Retry-After", async () => {
   const src = await readSrc("functions/api/search.js");
-  assert.match(src, /checkRateLimit\(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS\)/, "sustained window");
+  assert.match(src, /checkRateLimit\(env, rlKey, RATE_LIMIT, RATE_WINDOW_MS, ledger\)/, "sustained window");
   assert.match(src, /rlKey \+ ":burst"/, "burst window");
   const burstIdx = src.indexOf('rlKey + ":burst"');
   const burstBlock = src.slice(burstIdx, burstIdx + 400);
