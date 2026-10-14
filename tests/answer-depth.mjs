@@ -411,11 +411,14 @@ async function runDepthScenario({ answerLength, db, lean = false, limit = 50 }) 
   }
 }
 
-// The shipped AI answer's paragraph breaks are collapsed by the
-// pipeline's own post processing (stripLeakedMetaCommentary), so
-// sections are counted by their markers in the text, not by line
-// position. The extractive builder's output keeps its lines; the
-// same count works there.
+// Sections are counted by their markers in the text, not by line
+// position, so the same count works for both answer builders.
+// (Until 2026-10-14 this comment claimed the pipeline's post
+// processing collapsed the AI answer's paragraph breaks; that was
+// stripLeakedMetaCommentary's flattening bug, since fixed — the
+// cleanup now preserves paragraphs, pinned in answer-engine.mjs.
+// The marker count predates the fix and never depended on the
+// flattening, so it stands unchanged.)
 const sectionCount = (md) => (String(md || "").match(/## /g) || []).length;
 const boldLeadPassages = (md) => {
   const section = String(md || "").split("## What the research shows")[1] || "";

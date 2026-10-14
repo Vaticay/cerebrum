@@ -512,7 +512,7 @@ await test("the cache schema carries the wave two bump", () => {
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v31"'), "CACHE_SCHEMA_VERSION must be v31");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v32"'), "CACHE_SCHEMA_VERSION must be v32");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

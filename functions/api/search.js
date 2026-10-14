@@ -490,16 +490,78 @@ export const SUBREQUEST_NL_NET_COST = 5;
 export const SUBREQUEST_RELAXED_NET_COST = 8;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
+// The retrieval phase's HARD allowance (2026-10-14). The reserve
+// gates above price each retrieval ROUND before it starts, but a
+// round's real cost is only known after it runs: the fetchers
+// retry, PubMed and Europe PMC multiply calls internally per
+// source, and the rerank's binding spend scales with the shelf.
+// Live evidence on the priced build: Dusty's black soldier fly
+// question still reached synthesis with the budget spent, because
+// the multiplication happened inside rounds the gates had already
+// admitted. So retrieval as a PHASE gets an allowance it cannot
+// exceed, enforced at the ledger's grant points (spend and
+// spendBinding throw the budget error when a grant would cross
+// it; every fetcher already degrades to an empty result on a
+// failed call, and the rungs run under Promise.allSettled). The
+// allowance is derived in this ONE place from the constants: the
+// total limit minus what the answer stages must still hold when
+// retrieval is done (SUBREQUEST_ANSWER_RESERVE) minus what the
+// post answer tail needs (SUBREQUEST_TAIL_RESERVE) — 50 − 16 − 7
+// = 27. A ledger created with a custom limit derives its ceiling
+// from its own cap by the same formula. The phase runs for the
+// body of gatherPapers (the ladder, the fallback rounds, the
+// in-gather expansion call, the rerank) and the count is
+// cumulative across every gather in the request, so a repeated
+// gather (the minimum results guarantee) inherits the spent
+// allowance instead of restarting it. Answer phase spends are
+// never subject to this ceiling, only to the overall limit and
+// their existing guards. One exception, by design: the zero
+// sources cascade. If the shelf is still EMPTY when a fallback
+// round starts, gatherPapers arms a one round yield
+// (setRetrievalYield) so the cascade's first real attempt fires
+// even past the ceiling — an empty shelf is the one outcome
+// worse than a spent budget.
+export const SUBREQUEST_RETRIEVAL_ALLOWANCE =
+  SUBREQUEST_LIMIT - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE;
 
 export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
   const cap = Math.max(1, Math.floor(Number(limit) || SUBREQUEST_LIMIT));
+  const retrievalCeiling = Math.max(0,
+    cap - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
   let usedCount = 0;
   let stage = "other";
   const byStage = {};
+  /* Retrieval phase state (see SUBREQUEST_RETRIEVAL_ALLOWANCE):
+   * phaseDepth > 0 while a gatherPapers body is executing;
+   * retrievalUsed counts every grant made while the phase was
+   * active, cumulatively for the life of this ledger;
+   * retrievalRefused counts grants the ceiling turned away;
+   * yieldOn is the cascade's one round pass through the ceiling. */
+  let phaseDepth = 0;
+  let retrievalUsed = 0;
+  let retrievalRefused = 0;
+  let yieldOn = false;
+  const inRetrievalPhase = () => phaseDepth > 0;
+  /* The grant point every consumer inherits: while the retrieval
+   * phase is active, a grant that would push the phase past its
+   * allowance is refused BEFORE the platform call is made, with
+   * the budget error the failure classifier already reads as our
+   * own exhaustion (never a provider failure, never a park). The
+   * refused grant is NOT counted: no platform attempt happened,
+   * which keeps the ledger's total equal to the platform's. */
+  const grant = (n) => {
+    if (inRetrievalPhase() && !yieldOn && retrievalUsed + n > retrievalCeiling) {
+      retrievalRefused++;
+      throw new Error("Too many subrequests by single Worker invocation (retrieval phase budget)");
+    }
+  };
+  const countSpend = (n) => { if (inRetrievalPhase()) retrievalUsed += n; };
   return {
     limit: cap,
     /* Record one outbound fetch under the current stage label. */
     spend() {
+      grant(1);
+      countSpend(1);
       usedCount++;
       byStage[stage] = (byStage[stage] || 0) + 1;
       return usedCount;
@@ -515,6 +577,8 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     spendBinding(label, n = 1) {
       const count = Math.max(0, Math.floor(Number(n) || 0));
       if (count === 0) return usedCount;
+      grant(count);
+      countSpend(count);
       usedCount += count;
       const s = label || stage;
       byStage[s] = (byStage[s] || 0) + count;
@@ -524,17 +588,55 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     setStage(name) { stage = String(name || "other"); },
     used() { return usedCount; },
     remaining() { return Math.max(0, cap - usedCount); },
+    /* Retrieval phase brackets. gatherPapers opens the phase on
+     * entry and closes it on return (a depth counter, so a nested
+     * gather could never close an outer gather's phase early);
+     * the phase total is cumulative and never resets mid request. */
+    beginRetrievalPhase() { phaseDepth++; },
+    endRetrievalPhase() { if (phaseDepth > 0) phaseDepth--; },
+    inRetrievalPhase,
+    /* The phase's hard allowance for this ledger's limit, what
+     * the phase has spent against it, and how many grants the
+     * ceiling has refused so far. */
+    retrievalAllowance() { return retrievalCeiling; },
+    retrievalSpent() { return retrievalUsed; },
+    retrievalRefusals() { return retrievalRefused; },
+    /* True when a grant of `margin` more would cross the phase
+     * allowance right now (gatherPapers reads this to arm the
+     * cascade yield for an empty shelf). */
+    retrievalCapHit(margin = 0) {
+      return inRetrievalPhase() && retrievalUsed + Math.max(0, margin) > retrievalCeiling;
+    },
+    /* The cascade yield: while on, retrieval phase grants are
+     * honored (and still counted) past the ceiling. gatherPapers
+     * turns it on for exactly one fallback round on an empty
+     * shelf and off again when that round settles. */
+    setRetrievalYield(on) { yieldOn = !!on; },
     /* Retrieval beyond the primary rung may start only while what
      * remains exceeds the answer reserve plus `margin` extra
      * fetches (the speculative rounds pass one rung's cost, so they
-     * are cut before the rungs themselves are). */
+     * are cut before the rungs themselves are). While the retrieval
+     * phase is active the phase allowance binds too: a round whose
+     * priced cost would cross the ceiling does not start, so the
+     * trim is recorded by name instead of discovered mid round. */
     retrievalRoom(margin = 0) {
-      return cap - usedCount > SUBREQUEST_ANSWER_RESERVE + Math.max(0, margin);
+      const m = Math.max(0, margin);
+      if (inRetrievalPhase() && !yieldOn && retrievalUsed + m > retrievalCeiling) return false;
+      return cap - usedCount > SUBREQUEST_ANSWER_RESERVE + m;
     },
     /* Numbers only snapshot for the diag record: how much of the
-     * invocation allowance this request spent, and where. */
+     * invocation allowance this request spent, and where. The
+     * retrieval phase fields ride along once the phase has spent
+     * or refused anything (a ledger that never gathered keeps the
+     * original four field shape). */
     snapshot() {
-      return { used: usedCount, limit: cap, remaining: Math.max(0, cap - usedCount), byStage: { ...byStage } };
+      const snap = { used: usedCount, limit: cap, remaining: Math.max(0, cap - usedCount), byStage: { ...byStage } };
+      if (retrievalUsed > 0 || retrievalRefused > 0) {
+        snap.retrievalSpent = retrievalUsed;
+        snap.retrievalAllowance = retrievalCeiling;
+        snap.retrievalRefused = retrievalRefused;
+      }
+      return snap;
     },
   };
 }
@@ -1069,7 +1171,16 @@ export function isNonLiterature(p) {
 // synthesis budget and prompt also grew, and the extractive
 // builder assembles at the requested depth, so even rows of known
 // depth would misdescribe the depth that produced them.
-const CACHE_SCHEMA_VERSION = "v31";
+// v32 (2026-10-14, hard retrieval phase allowance): retrieval now
+// spends against a hard phase allowance (SUBREQUEST_RETRIEVAL_
+// ALLOWANCE, 27 at the production limit) enforced at the ledger's
+// grant points, so how deep a draw goes, which fallback rounds
+// fire, and when the rerank yields are decided by a ceiling the
+// earlier per round pricing could not impose on fetchers that
+// multiply internally. For the same stored inputs the gathered
+// set and its order can change, so payloads cached under v31 must
+// not be served as though produced under the cap.
+const CACHE_SCHEMA_VERSION = "v32";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -6940,13 +7051,24 @@ function deduplicateContent(text) {
 // notation like [Ca2+] or isotope labels like [14C] never contain these
 // words), so this is safe to strip outright rather than trying to
 // enumerate every way a model might phrase the leak.
-function stripLeakedMetaCommentary(text) {
+export function stripLeakedMetaCommentary(text) {
   if (!text) return text;
   let cleaned = text.replace(
     /\[[^\[\]]{0,400}?\b(mechanical(?:ly)?(?: enforcement)?|post-?processed?|banned phrase|will be (?:stripped|revised|removed)|to comply with (?:the )?rules?|enforcement note)\b[^\[\]]{0,400}?\]/gi,
     ""
   );
-  cleaned = cleaned.replace(/\s{2,}/g, " ").trim();
+  // Whitespace tidy, paragraph aware (2026-10-14): this used to
+  // collapse every run of 2+ whitespace to one space, which
+  // flattened every paragraph break in the shipped answer (the
+  // client's heading repair partially masked it downstream). The
+  // tidy now collapses horizontal whitespace only, removes spaces
+  // adjacent to newlines, caps 3+ newlines at a single blank line,
+  // and otherwise keeps the model's paragraph structure intact.
+  cleaned = cleaned
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ ?\n ?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   return cleaned;
 }
 
@@ -12603,7 +12725,31 @@ async function recallTopicMemory(topic, db, ledger = null) {
 // always fires first. This constant is a backstop for direct callers of
 // gatherPapers, not a guarantee the pipeline can honor.
 const GATHER_PAPERS_BUDGET_MS = 20000;
+/* Retrieval phase bracket (2026-10-14): the ledger's hard
+ * retrieval allowance (SUBREQUEST_RETRIEVAL_ALLOWANCE) is enforced
+ * for exactly the body of this function — the ladder, the
+ * fallback rounds, the in-gather expansion call, and the rerank,
+ * including every binding spend those paths trigger in the lib
+ * modules. The phase count is cumulative on the request's ledger,
+ * so the handler's repeated gathers (minimum results guarantee,
+ * deep search) share one allowance. Callers outside the pipeline
+ * pass no ledger and are unaffected. */
 async function gatherPapers(rawQuery, opts) {
+  const phaseLedger = (opts && opts.ledger) || null;
+  if (phaseLedger) phaseLedger.beginRetrievalPhase();
+  try {
+    return await gatherPapersBody(rawQuery, opts);
+  } finally {
+    if (phaseLedger) {
+      // A cascade yield must never outlive its gather: each round
+      // clears its own, and this is the guarantee behind them.
+      phaseLedger.setRetrievalYield(false);
+      phaseLedger.endRetrievalPhase();
+    }
+  }
+}
+
+async function gatherPapersBody(rawQuery, opts) {
   const _searchStart = Date.now();
   const _budgetLeft = () => GATHER_PAPERS_BUDGET_MS - (Date.now() - _searchStart) > 0;
   // Wrap the entire function so ANY thrown error still returns a diagnostic
@@ -13151,6 +13297,33 @@ async function gatherPapers(rawQuery, opts) {
     budgetTrims.push(name);
     return false;
   };
+  // Zero sources cascade yield (2026-10-14): the fallback rounds
+  // below ARE the cascade, and an empty shelf is the one outcome
+  // worse than a spent budget. If the shelf is still empty when a
+  // round would start and the retrieval phase ceiling is what
+  // would stop it, the ceiling yields for that round: the round
+  // runs without its budget gate (the gate exists to protect the
+  // budget, and on an empty shelf the budget has nothing left to
+  // protect — there is no answer to fund), and its grants are
+  // honored, and counted, past the allowance. One yield per
+  // gather: the first fallback round to start on an empty shelf
+  // takes it, and the flag is cleared as soon as that round
+  // settles (the gather wrapper clears it again on return, so it
+  // can never leak into another phase or gather). A repeated
+  // gather (the minimum results guarantee) gets its own yield,
+  // so a shelf that stays empty keeps its one real attempt per
+  // gather instead of dying on the first gather's spend.
+  let cascadeYieldSpent = false;
+  const beginCascadeYield = (shelfCount, margin) => {
+    if (!ledger || cascadeYieldSpent || shelfCount > 0) return false;
+    if (!ledger.retrievalCapHit(margin)) return false;
+    cascadeYieldSpent = true;
+    ledger.setRetrievalYield(true);
+    return true;
+  };
+  const endCascadeYield = (armed) => {
+    if (armed && ledger) ledger.setRetrievalYield(false);
+  };
   // The boolean query this run actually searches with, recorded so the
   // exportable search record (buildSearchRecord) can carry the exact
   // string a reader would re run. Recorded, not recomputed later: the
@@ -13279,7 +13452,9 @@ async function gatherPapers(rawQuery, opts) {
   // Priced at its real cost (2026-10-14): the net fires only when
   // the remaining budget covers its fetchers' internal fanout AND
   // leaves the answer reserve intact (see SUBREQUEST_RAW_NET_COST).
-  if (totalSoFar < 8 && _budgetLeft() && roomOrTrim("raw-fallback", SUBREQUEST_RAW_NET_COST)) {
+  const yieldRaw = beginCascadeYield(totalSoFar, SUBREQUEST_RAW_NET_COST);
+  if (totalSoFar < 8 && _budgetLeft() && (yieldRaw || roomOrTrim("raw-fallback", SUBREQUEST_RAW_NET_COST))) {
+    if (yieldRaw) diag.cascadeYield = "raw-fallback";
     // Include organism name in the raw fallback so we find species-specific papers
     const rawQ = organismTerm
       ? organismTerm.replace(/"/g, "") + " " + query
@@ -13299,6 +13474,7 @@ async function gatherPapers(rawQuery, opts) {
       count: r.status === "fulfilled" ? (r.value || []).length : 0,
     }));
   }
+  endCascadeYield(yieldRaw);
 
   // ═══════════════════════════════════════════════════════════════
   // CONCEPT-EXPANDED FALLBACK: if we STILL have too few papers, the problem
@@ -13317,7 +13493,9 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterRaw = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterRaw < 8 && _budgetLeft() && roomOrTrim("concept-expanded-fallback", SUBREQUEST_RUNG_COST)) {
+  const yieldConcept = beginCascadeYield(totalAfterRaw, SUBREQUEST_RUNG_COST);
+  if (totalAfterRaw < 8 && _budgetLeft() && (yieldConcept || roomOrTrim("concept-expanded-fallback", SUBREQUEST_RUNG_COST))) {
+    if (yieldConcept) diag.cascadeYield = "concept-expanded-fallback";
     // Build synonym-expanded queries from concept groups
     const topicTermsForExpansion = ranked.slice(0, 3);
     const expandedQueries = new Set();
@@ -13403,6 +13581,7 @@ async function gatherPapers(rawQuery, opts) {
       );
     }
   }
+  endCascadeYield(yieldConcept);
 
   // ═══════════════════════════════════════════════════════════════
   // TOPIC MEMORY RECALL: if concept expansion didn't help enough, check
@@ -13413,7 +13592,9 @@ async function gatherPapers(rawQuery, opts) {
   const totalAfterConcept = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
-  if (totalAfterConcept < 5 && opts.db && _budgetLeft() && roomOrTrim("topic-memory-recall", SUBREQUEST_RUNG_COST)) {
+  const yieldTopic = opts.db ? beginCascadeYield(totalAfterConcept, SUBREQUEST_RUNG_COST) : false;
+  if (totalAfterConcept < 5 && opts.db && _budgetLeft() && (yieldTopic || roomOrTrim("topic-memory-recall", SUBREQUEST_RUNG_COST))) {
+    if (yieldTopic) diag.cascadeYield = "topic-memory-recall";
     const topicForRecall = orgInfo.hasOrganism
       ? orgInfo.orgPhrases[0] + " " + ranked.slice(0, 3).join(" ")
       : ranked.slice(0, 4).join(" ");
@@ -13433,6 +13614,7 @@ async function gatherPapers(rawQuery, opts) {
       );
     }
   }
+  endCascadeYield(yieldTopic);
 
   // ═══════════════════════════════════════════════════════════════
   // NATURAL LANGUAGE FALLBACK: if STILL nearly empty, send the user's
@@ -13450,7 +13632,9 @@ async function gatherPapers(rawQuery, opts) {
   // reserve between them on exactly the starved draws that fire
   // every net, and validation and synthesis skipped as budget
   // exhausted (the live sleep and colds trace).
-  if (totalAfterExpand < 5 && _budgetLeft() && roomOrTrim("natural-language-fallback", SUBREQUEST_NL_NET_COST)) {
+  const yieldNl = beginCascadeYield(totalAfterExpand, SUBREQUEST_NL_NET_COST);
+  if (totalAfterExpand < 5 && _budgetLeft() && (yieldNl || roomOrTrim("natural-language-fallback", SUBREQUEST_NL_NET_COST))) {
+    if (yieldNl) diag.cascadeYield = "natural-language-fallback";
     const nlFallback = await Promise.allSettled([
       semanticScholar(rawQuery.slice(0, 200), 15, s2Key, ledger),
       europePMC(rawQuery.slice(0, 200), 12, ledger),
@@ -13476,6 +13660,7 @@ async function gatherPapers(rawQuery, opts) {
       (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
     );
   }
+  endCascadeYield(yieldNl);
 
   // ═══════════════════════════════════════════════════════════════
   // RELAXED BOOLEAN FALLBACK: every tier above loosens by dropping terms
@@ -13493,7 +13678,9 @@ async function gatherPapers(rawQuery, opts) {
   // Priced at its real cost (2026-10-14): europePMC's internal
   // formulations plus PubMed's five call worst case (see
   // SUBREQUEST_RELAXED_NET_COST).
-  if (totalAfterNL < 5 && _budgetLeft() && roomOrTrim("relaxed-boolean-fallback", SUBREQUEST_RELAXED_NET_COST)) {
+  const yieldRelaxed = beginCascadeYield(totalAfterNL, SUBREQUEST_RELAXED_NET_COST);
+  if (totalAfterNL < 5 && _budgetLeft() && (yieldRelaxed || roomOrTrim("relaxed-boolean-fallback", SUBREQUEST_RELAXED_NET_COST))) {
+    if (yieldRelaxed) diag.cascadeYield = "relaxed-boolean-fallback";
     const orgNames = [...new Set([
       organismTerm ? organismTerm.replace(/"/g, "") : null,
       ...(orgInfo.orgPhrases || []),
@@ -13514,6 +13701,7 @@ async function gatherPapers(rawQuery, opts) {
         (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0) };
     }
   }
+  endCascadeYield(yieldRelaxed);
 
   // Add results for each sub-question of a compound query. Not gated on
   // result count like the fallback stages above . a second clause with
@@ -13554,7 +13742,12 @@ async function gatherPapers(rawQuery, opts) {
   // This fires one targeted search per aspect (capped at 2 to respect
   // the subrequest budget), using the most reliable engines.
   // ═══════════════════════════════════════════════════════════════
-  if (_budgetLeft() && roomOrTrim("question-decomposition", SUBREQUEST_RUNG_COST)) {
+  const totalBeforeDecomp = results.reduce(
+    (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
+  );
+  const yieldDecomp = beginCascadeYield(totalBeforeDecomp, SUBREQUEST_RUNG_COST);
+  if (_budgetLeft() && (yieldDecomp || roomOrTrim("question-decomposition", SUBREQUEST_RUNG_COST))) {
+    if (yieldDecomp) diag.cascadeYield = "question-decomposition";
     try {
       const decomp = decomposeQuestion(rawQuery, ranked);
       if (decomp.decomposed && decomp.subQueries.length > 0) {
@@ -13581,6 +13774,7 @@ async function gatherPapers(rawQuery, opts) {
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js question decomposition:", cbErr); }
   }
+  endCascadeYield(yieldDecomp);
 
   // ═══════════════════════════════════════════════════════════════
   // SECONDARY ORGANISM RETRIEVAL: everything above only ever searched for

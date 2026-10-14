@@ -53,6 +53,8 @@ import {
   // Prompt-leak guard (2026-09-12 incident)
   isPromptLeak,
   assertValidProviderText,
+  // Answer cleanup: leaked meta commentary strip (paragraph aware)
+  stripLeakedMetaCommentary,
 } from "../functions/api/search.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1422,6 +1424,69 @@ test("extractive venue lines never print a raw year value", async () => {
   assert.ok(!src.includes("[p.journal, p.year]"), "weak/background venue still prints the raw year");
   assert.ok(!src.includes("[it.p.journal, it.p.year]"), "extractive venue still prints the raw year");
   assert.ok((src.match(/extractiveYearText\(/g) || []).length >= 4, "extractiveYearText definition and its three call sites must exist");
+});
+
+group("stripLeakedMetaCommentary — leaks stripped, paragraphs kept (2026-10-14)");
+
+// The cleanup used to collapse every run of 2+ whitespace to one
+// space after stripping, which flattened every paragraph break in
+// the shipped AI answer (the depth wave found it; the client's
+// heading repair partially masked it downstream). The strip must
+// keep doing its one job — leaked enforcement asides never ship —
+// while the model's paragraph structure survives: horizontal
+// whitespace collapses, 3+ newlines cap at one blank line, single
+// newlines stay.
+test("a multi paragraph model answer ships with its paragraphs intact", () => {
+  const model = [
+    "## Summary",
+    "",
+    "Diet changes reshape the gut community in black soldier fly larvae [1]. The microbial community shifts within days of a diet switch.",
+    "",
+    "A second paragraph opens here",
+    "and continues on the next line.",
+    "",
+    "- Larvae on bran carried more Lactobacillus [2]",
+    "- Larvae on oil carried fewer taxa overall [3]",
+  ].join("\n");
+  const out = stripLeakedMetaCommentary(model);
+  assert.ok(out.includes("## Summary\n\nDiet changes reshape"),
+    "the heading's paragraph break was flattened");
+  assert.ok(out.includes("diet switch.\n\nA second paragraph opens here"),
+    "the paragraph break between body paragraphs was flattened");
+  assert.ok(out.includes("opens here\nand continues"),
+    "a single newline inside a paragraph must survive");
+  assert.ok(out.includes("Lactobacillus [2]\n- Larvae on oil"),
+    "list lines keep their single newlines");
+});
+
+test("horizontal whitespace collapses and 3+ newlines cap at a blank line", () => {
+  const messy = "Words   with\truns\tof   space.\n\n\n\nNext paragraph after a gap.";
+  const out = stripLeakedMetaCommentary(messy);
+  assert.equal(out, "Words with runs of space.\n\nNext paragraph after a gap.");
+});
+
+test("a leaked enforcement aside is stripped and the paragraphs around it survive", () => {
+  const leaked = [
+    "The gut community tracks the diet closely [1].",
+    "",
+    "[MECHANICAL ENFORCEMENT NOTE: the banned phrase below will be stripped to comply with the rules]",
+    "",
+    "That is why diet trials report shifts within a single instar [2].",
+  ].join("\n");
+  const out = stripLeakedMetaCommentary(leaked);
+  assert.ok(!/MECHANICAL/i.test(out), "the leaked aside shipped");
+  assert.ok(!/banned phrase/i.test(out), "the leaked aside shipped");
+  assert.ok(out.includes("closely [1].\n\nThat is why diet trials"),
+    "stripping the aside must not fuse the surrounding paragraphs");
+});
+
+test("empty and leak only inputs stay safe", () => {
+  assert.equal(stripLeakedMetaCommentary(""), "");
+  assert.equal(stripLeakedMetaCommentary(null), null);
+  assert.equal(
+    stripLeakedMetaCommentary("[enforcement note: this will be removed]"),
+    "",
+    "an answer that is only a leak strips to empty, never ships the leak");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

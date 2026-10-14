@@ -64,6 +64,18 @@
  *      call site anywhere in the handler path breaks the equality —
  *      and that on warm draws expansion and validation still fire
  *      and synthesis still gets funded legs.
+ *   7. THE HARD ALLOWANCE (2026-10-14): pricing rounds at their
+ *      start could not stop in-round multiplication (retries,
+ *      multi call fetchers, the rerank's shelf scaled binding
+ *      spend) from eating the reserve — the live black soldier fly
+ *      draw still starved synthesis on the priced build. The
+ *      retrieval PHASE now has a hard allowance (limit − answer
+ *      reserve − tail reserve = 27) enforced at the ledger's grant
+ *      points, cumulative across a request's gathers, with one
+ *      exception: on an empty shelf the zero sources cascade's
+ *      first fallback round fires anyway under a one round yield,
+ *      because zero sources is worse than a spent budget. The
+ *      greedy and empty shelf scenarios below pin both halves.
  *
  * Run with: node tests/subrequest-budget.mjs
  */
@@ -103,6 +115,7 @@ const {
   SUBREQUEST_RAW_NET_COST,
   SUBREQUEST_NL_NET_COST,
   SUBREQUEST_RELAXED_NET_COST,
+  SUBREQUEST_RETRIEVAL_ALLOWANCE,
   classifyLegFailure,
   isSubrequestBudgetError,
   recordLegOutcome,
@@ -229,6 +242,133 @@ await test("the retention sweep charges every statement it executes", async () =
   assert.equal(executions, 12);
   assert.equal(ledger.used() - before, executions);
   assert.equal(ledger.snapshot().byStage.sweep, 12);
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("the retrieval phase allowance — a hard cap on the phase (2026-10-14)");
+
+// The reserve gates price each retrieval ROUND before it starts,
+// but a round's real cost lands after: fetchers retry, PubMed and
+// Europe PMC multiply calls internally, and the rerank's binding
+// spend scales with the shelf. The phase therefore gets a hard
+// allowance enforced at the ledger's grant points: inside
+// gatherPapers (the phase), grants that would push the phase past
+// its allowance are refused with the budget error BEFORE the
+// platform call is made, so the refused grant is never counted
+// and the ledger's total stays equal to the platform's attempts.
+await test("the allowance is derived in one place from the budget constants", () => {
+  assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE, 27,
+    "allowance = 50 limit − 16 answer reserve − 7 tail reserve");
+  assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    SUBREQUEST_LIMIT - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
+  const ledger = createSubrequestLedger();
+  assert.equal(ledger.retrievalAllowance(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  // A custom limit derives its ceiling by the same formula.
+  assert.equal(createSubrequestLedger(120).retrievalAllowance(), 120 - 16 - 7);
+});
+
+await test("outside the retrieval phase, grants are never refused by the ceiling", () => {
+  const ledger = createSubrequestLedger();
+  // Stage "other" (no gather running): spends count straight past
+  // the allowance, exactly as before the cap existed.
+  spendN(ledger, SUBREQUEST_RETRIEVAL_ALLOWANCE + 5);
+  assert.equal(ledger.used(), SUBREQUEST_RETRIEVAL_ALLOWANCE + 5);
+  assert.equal(ledger.retrievalSpent(), 0, "no phase, no phase spend");
+  assert.equal(ledger.retrievalRefusals(), 0);
+});
+
+await test("inside the phase, grants stop at the allowance and refusals are not counted", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginRetrievalPhase();
+  spendN(ledger, SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.equal(ledger.retrievalSpent(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.equal(ledger.used(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  // The next grant would cross the allowance: refused with the
+  // budget error (the class legs already read as our own
+  // exhaustion), and NOT counted — no platform attempt happened.
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  assert.equal(ledger.used(), SUBREQUEST_RETRIEVAL_ALLOWANCE, "a refused grant must not count");
+  assert.equal(ledger.retrievalSpent(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.equal(ledger.retrievalRefusals(), 1);
+  // A bulk binding grant that would cross is refused atomically:
+  // no partial count.
+  assert.throws(() => ledger.spendBinding("rerank", 2), /too many subrequests/i);
+  assert.equal(ledger.used(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.equal(ledger.retrievalRefusals(), 2);
+  // A zero spend is a no-op, never a refusal (existing contract).
+  ledger.spendBinding("rerank", 0);
+  assert.equal(ledger.retrievalRefusals(), 2);
+  ledger.endRetrievalPhase();
+});
+
+await test("the phase count is cumulative across gathers; the answer phase is not capped", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginRetrievalPhase();
+  spendN(ledger, SUBREQUEST_RETRIEVAL_ALLOWANCE - 2);
+  ledger.endRetrievalPhase();
+  // A repeated gather (minimum results guarantee) inherits the
+  // spent allowance instead of restarting it.
+  ledger.beginRetrievalPhase();
+  spendN(ledger, 2);
+  assert.equal(ledger.retrievalSpent(), SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  ledger.endRetrievalPhase();
+  // The answer stages spend against the overall limit and their
+  // own guards, never against the retrieval ceiling.
+  ledger.setStage("validation");
+  spendN(ledger, 10);
+  assert.equal(ledger.used(), SUBREQUEST_RETRIEVAL_ALLOWANCE + 10);
+  assert.equal(ledger.retrievalSpent(), SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    "answer phase spends are not retrieval phase spends");
+});
+
+await test("retrievalRoom binds the phase allowance while the phase is active", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginRetrievalPhase();
+  spendN(ledger, 20);
+  // Reserve rule alone: remaining 30 > 16 + 8, the round may start.
+  // Phase rule: 20 + 8 crosses the allowance of 27, it may not.
+  assert.equal(ledger.retrievalRoom(8), false, "the phase ceiling must trim the round by name");
+  assert.equal(ledger.retrievalRoom(5), true, "a round that fits the allowance still starts");
+  assert.equal(ledger.retrievalRoom(0), true);
+  ledger.endRetrievalPhase();
+  // Phase closed: the same totals answer by the reserve rule only.
+  assert.equal(ledger.retrievalRoom(8), true);
+});
+
+await test("the cascade yield lets grants past the ceiling, counted, until it closes", () => {
+  const ledger = createSubrequestLedger();
+  ledger.beginRetrievalPhase();
+  spendN(ledger, SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  // At the ceiling exactly: a zero cost grant still fits, any real
+  // grant crosses — which is what gatherPapers asks, with each
+  // fallback round's priced cost as the margin.
+  assert.equal(ledger.retrievalCapHit(0), false);
+  assert.equal(ledger.retrievalCapHit(1), true);
+  assert.equal(ledger.retrievalCapHit(5), true);
+  ledger.setRetrievalYield(true);
+  spendN(ledger, 4);
+  assert.equal(ledger.retrievalSpent(), SUBREQUEST_RETRIEVAL_ALLOWANCE + 4,
+    "yield grants are honored and still counted");
+  assert.equal(ledger.retrievalRefusals(), 0, "a yield grant is not a refusal");
+  ledger.setRetrievalYield(false);
+  assert.throws(() => ledger.spend(), /too many subrequests/i);
+  ledger.endRetrievalPhase();
+  assert.equal(ledger.retrievalCapHit(0), false, "no phase, no cap");
+});
+
+await test("the snapshot carries the phase tally once the phase has spent", () => {
+  const ledger = createSubrequestLedger();
+  assert.deepEqual(Object.keys(ledger.snapshot()).sort(),
+    ["byStage", "limit", "remaining", "used"],
+    "a ledger that never gathered keeps the original snapshot shape");
+  ledger.beginRetrievalPhase();
+  spendN(ledger, 3);
+  ledger.endRetrievalPhase();
+  const snap = ledger.snapshot();
+  assert.equal(snap.retrievalSpent, 3);
+  assert.equal(snap.retrievalAllowance, SUBREQUEST_RETRIEVAL_ALLOWANCE);
+  assert.equal(snap.retrievalRefused, 0);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1128,6 +1268,292 @@ await test("NL net: full concept coverage ranks ahead of the surface match", asy
   assert.ok(fullIdx >= 0, "the full coverage paper did not ship at all: " + JSON.stringify(titles));
   assert.ok(fullIdx < surfaceIdx,
     `the full coverage paper must rank ahead of the surface match (full coverage at ${fullIdx}, surface at ${surfaceIdx})`);
+});
+
+// ═══════════════════════════════════════════════════════════════
+group("the hard retrieval allowance, handler level (2026-10-14)");
+
+// GREEDY DRAW: the fetchers multiply like the real ones — Europe
+// PMC pays two empty formulations before answering, PubMed pays
+// its five call worst case, every other engine answers its call — the
+// shelf is deep (30 papers from one Europe PMC call), and the
+// rerank block spends its full binding cost against the shelf
+// (budget check, vector cache read, the batched embedding call,
+// neuron spend, the cache store, telemetry). Before the hard
+// allowance, this shape spent the phase's whole draw plus the
+// answer stages' share: the rerank and the late rounds ate what
+// the reserve was holding. Now the phase must end at or under
+// SUBREQUEST_RETRIEVAL_ALLOWANCE, with refusals recorded on the
+// ledger, and validation and synthesis must still run funded.
+async function runGreedyScenario() {
+  const counts = makeCounts();
+  const marks = [];
+  let epmcCalls = 0;
+  let esearchCalls = 0;
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => { counts.cache++; return undefined; },
+      put: async () => { counts.cache++; },
+      delete: async () => { counts.cache++; return false; },
+    },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = async (url, opts = {}) => {
+    attempt(counts, "fetch");
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
+        u.includes("api.mistral.ai") || u.includes("integrate.api.nvidia.com")) {
+      if (body.includes("literature search specialist")) {
+        return chatRes(JSON.stringify([{ term: "microbial", alternates: ["microbiota", "microbiome", "gut microbes"] }]));
+      }
+      if (body.includes("relevance validator")) {
+        return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      }
+      return chatRes(SYNTH_ANSWER);
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      epmcCalls++;
+      // Two formulations empty (the fetcher pays both internal
+      // retries), the third answers with the deep shelf.
+      if (epmcCalls !== 3) return jsonRes({ resultList: { result: [] } });
+      const rows = [];
+      for (let n = 1; n <= 30; n++) {
+        rows.push({
+          title: "Diet and gut microbial community assembly in black soldier fly larvae study " + n,
+          doi: "10.1000/greedy" + n,
+          pubYear: "2024",
+          citedByCount: 7,
+          authorString: "Doe J, Roe K",
+          journalTitle: "Journal of Insect Studies",
+          abstractText: heavyAbstract(n),
+        });
+      }
+      return jsonRes({ resultList: { result: rows } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) {
+        esearchCalls++;
+        // PubMed pays its multi formulation shape too: two
+        // esearch formulations miss before the third returns ids,
+        // then efetch and esummary follow (five calls, no papers
+        // the summary shape yields).
+        return jsonRes({ esearchresult: { idlist: esearchCalls >= 3 ? ["101", "102", "103", "104", "105"] : [] } });
+      }
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    if (u.includes("export.arxiv.org")) return new Response("", { status: 200 });
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const origSetStage = ledger.setStage.bind(ledger);
+    ledger.setStage = (name) => {
+      marks.push({ name, used: ledger.used(), retrievalSpent: ledger.retrievalSpent() });
+      origSetStage(name);
+    };
+    const env = {
+      DB: countingDb(counts),
+      AI: countingAi(counts),
+      GROQ_KEY: "ledger-test-groq-key-123456",
+      GEMINI_KEY: "ledger-test-gemini-key-123456",
+      MISTRAL_KEY: "ledger-test-mistral-key-123456",
+      NVIDIA_KEY: "ledger-test-nvidia-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: HEAVY_Q }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger, marks };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("greedy draw: the phase ends at or under its allowance, the answer stages run funded", async () => {
+  const { data, counts, ledger, marks } = await runGreedyScenario();
+  assertLedgerEqualsPlatform(counts, ledger);
+  // The draw really was greedy: the phase spent most of its
+  // allowance (the ladder's fanout plus the full rerank)…
+  assert.ok(ledger.retrievalSpent() >= 20,
+    `the greedy draw spent only ${ledger.retrievalSpent()} in the retrieval phase`);
+  // …but never past it, and the ceiling actually refused grants
+  // (the rerank's tail spend is where a deep shelf bleeds first).
+  assert.ok(ledger.retrievalSpent() <= SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    `retrieval phase spent ${ledger.retrievalSpent()} past its allowance ${SUBREQUEST_RETRIEVAL_ALLOWANCE}`);
+  assert.ok(ledger.retrievalRefusals() >= 1,
+    "the ceiling never refused a grant on the greedy draw");
+  // By the time the pipeline left retrieval, the phase tally was
+  // already inside the allowance.
+  const validationMark = marks.find((m) => m.name === "validation");
+  assert.ok(validationMark, "no validation stage mark recorded");
+  assert.ok(validationMark.retrievalSpent <= SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    `phase tally at validation was ${validationMark.retrievalSpent}`);
+  // And the stages the budget exists for ran: expansion,
+  // validation, and a winning synthesis (the shared funded
+  // assertions), over a real shelf.
+  assertAnswerStagesFunded(data, counts);
+  assert.ok((data.sources || []).length >= 8,
+    `greedy scenario shipped only ${(data.sources || []).length} sources`);
+});
+
+// EMPTY SHELF: every engine answers nothing to the ladder —
+// Europe PMC pays its formulation chain per call, PubMed pays
+// its five call worst case, and nine engines each pay a 503
+// retry — so the ladder's rungs burn the phase to its ceiling
+// (the second rung's tail is refused mid flight) with the shelf
+// still empty, and the raw net's price no longer fits. The one
+// thing worse than a spent budget is zero sources: the cascade
+// yield must let the raw net fire anyway (Europe PMC answers
+// its call with the scenario's only two papers), spending
+// counted grants past the allowance to do it.
+async function runEmptyShelfScenario() {
+  const counts = makeCounts();
+  let epmcFetches = 0;
+  let esearchCalls = 0;
+  let crossrefCalls = 0;
+  let arxivCalls = 0;
+  const retriedHosts = new Set();
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => { counts.cache++; return undefined; },
+      put: async () => { counts.cache++; },
+      delete: async () => { counts.cache++; return false; },
+    },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = async (url, opts = {}) => {
+    attempt(counts, "fetch");
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
+        u.includes("api.mistral.ai") || u.includes("integrate.api.nvidia.com")) {
+      if (body.includes("literature search specialist")) {
+        return chatRes(JSON.stringify([{ term: "microbial", alternates: ["microbiota", "microbiome", "gut microbes"] }]));
+      }
+      if (body.includes("relevance validator")) {
+        return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      }
+      return chatRes(SYNTH_ANSWER);
+    }
+    // Retry pressure, the real fetchers' shape: the scholarly
+    // engines below each refuse their first fetch with a 503 the
+    // JSON helper retries once, so every one of them pays two
+    // fetches for its empty answer. Together with Europe PMC's
+    // three formulations and PubMed's five calls, the ladder
+    // alone burns the phase to its ceiling before the cascade's
+    // first net is priced.
+    const retryHosts = ["api.semanticscholar.org", "api.openalex.org", "doaj.org",
+      "api.plos.org", "api.core.ac.uk", "api.base-search.net", "api.openaire.eu"];
+    const host = retryHosts.find((h) => u.includes(h));
+    if (host && !retriedHosts.has(host)) {
+      retriedHosts.add(host);
+      return new Response("busy", { status: 503 });
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      epmcFetches++;
+      // Only ONE call site in the whole pipeline asks this way:
+      // the fallback cascade's raw net, which prefixes the
+      // organism's binomial to the cleaned question and asks the
+      // resulting stemmed bag plainly, so its query opens with
+      // the binomial followed by the question's first stems in
+      // order ("illucens chang diet impact"). The ladder asks in
+      // structured booleans (quoted phrases, AND/OR groups), and
+      // the natural language net asks the verbatim question,
+      // which carries no binomial. That call answers with the
+      // scenario's only two papers; everything else is empty.
+      const qs = new URL(u).searchParams.get("query") || "";
+      if (qs.includes("illucens chang diet impact")) {
+        const mk = (n) => ({
+          title: "Diet and gut microbial community assembly in black soldier fly larvae study " + n,
+          doi: "10.1000/yield" + n,
+          pubYear: "2024",
+          citedByCount: 7,
+          authorString: "Doe J, Roe K",
+          journalTitle: "Journal of Insect Studies",
+          abstractText: heavyAbstract(n),
+        });
+        return jsonRes({ resultList: { result: [mk(1), mk(2)] } });
+      }
+      return jsonRes({ resultList: { result: [] } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) {
+        esearchCalls++;
+        // PubMed's worst case: two formulations miss before the
+        // third returns ids, then efetch and esummary follow.
+        return jsonRes({ esearchresult: { idlist: esearchCalls >= 3 ? ["101", "102", "103"] : [] } });
+      }
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    if (u.includes("api.crossref.org")) {
+      crossrefCalls++;
+      if (crossrefCalls === 1) return new Response("busy", { status: 503 });
+      return jsonRes({});
+    }
+    if (u.includes("export.arxiv.org")) {
+      arxivCalls++;
+      if (arxivCalls === 1) return new Response("busy", { status: 503 });
+      return new Response("", { status: 200 });
+    }
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const env = {
+      DB: countingDb(counts),
+      AI: countingAi(counts),
+      GROQ_KEY: "ledger-test-groq-key-123456",
+      GEMINI_KEY: "ledger-test-gemini-key-123456",
+      MISTRAL_KEY: "ledger-test-mistral-key-123456",
+      NVIDIA_KEY: "ledger-test-nvidia-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: HEAVY_Q }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("empty shelf: the cascade yield fires the first net past the ceiling", async () => {
+  const { data, counts, ledger } = await runEmptyShelfScenario();
+  assertLedgerEqualsPlatform(counts, ledger);
+  // The phase spent PAST its allowance, which only yield grants
+  // can do (every other grant refuses at the ceiling): proof the
+  // yielded net ran, and ran on budget the cap alone would have
+  // refused mid flight.
+  assert.ok(ledger.retrievalSpent() > SUBREQUEST_RETRIEVAL_ALLOWANCE,
+    `phase spent ${ledger.retrievalSpent()}, at or under the allowance ${SUBREQUEST_RETRIEVAL_ALLOWANCE}: no yield overshoot recorded`);
+  // And the papers only that net could find actually shipped:
+  // every other engine and round in this stub answers nothing,
+  // so a non-empty shelf is the net's own catch.
+  assert.ok((data.sources || []).length >= 2,
+    `the yielded net's papers did not ship (${(data.sources || []).length} sources) — the cap starved the cascade`);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
