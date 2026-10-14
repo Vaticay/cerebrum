@@ -2223,7 +2223,8 @@ export function isNonLiterature(p) {
 // lists, claim check panels, and search records all change
 // under this wave, so payloads cached under v47 predate the
 // shipped contract.
-const CACHE_SCHEMA_VERSION = "v48";
+// v49 (2026-10-14, wave fourteen): the search record now carries a bounded foundational fate diagnostic — for each paper the foundational lane admits as a primary (capped at five), the named pipeline step its path ended at (dedupe, language screen, quality floor, shelf cut, rerank, retraction screen, filters, programmatic passes, citation gate, evidence slice, LLM validation, final gate) or the list it presented in — so a founding paper's burial is provable from the record instead of inferred. The LLM validation pass can no longer remove a foundational primary that clears the citation gate standard: the gate's abstract aware topicality judgment is the standard for the lane's primaries, the same substitution wave thirteen made at the presented tail, because a strict validator judging direct address by title language is the category error that buries first descriptions whose titles name neither the product nor the protein. At the presented layer, a title announcing a device or apparatus class now earns placement only when its abstract engages the question's subject, the citation gate's own subject standard. Presented lists and search records change under this wave, so payloads cached under v48 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v49";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -6363,6 +6364,167 @@ export function paperIsFoundationalPrimary(paper, stats) {
   const citations = typeof p.citations === "number" && Number.isFinite(p.citations) ? p.citations : 0;
   if (!(citations > 0)) return false;
   return citations >= Math.max(1, s.medianCitations);
+}
+
+// WAVE FOURTEEN (2026-10-14, brief item 1): the gather level
+// fate of every foundational primary the lane admitted. Three
+// waves of fixes passed their fixtures while the 2012 CRISPR
+// founding paper still buried live, because no surface could
+// name the step that ended its path. This helper is pure and
+// exported so the harness can pin it directly: given the
+// pipeline's own lists at gather time (the pre dedupe pool,
+// the merged records, the scorer's full capture, the post
+// floor chain, the final shelf, and the returned shelf), it
+// returns one bounded fate per admitted primary work (cap
+// five, highest cited first), each naming the first gather
+// step its path ended at, or no ending when it was returned.
+// The language screen judged here is the chain's own test,
+// copied verbatim: the chain's copy is local to the gather
+// body, and the two must never drift, so any change to one is
+// a change to both.
+export function gatherFoundationalFates(input) {
+  const inp = input || {};
+  const preDedupe = Array.isArray(inp.preDedupe) ? inp.preDedupe : [];
+  const merged = Array.isArray(inp.merged) ? inp.merged : [];
+  const scoredAllCapture = Array.isArray(inp.scoredAllCapture) ? inp.scoredAllCapture : [];
+  const scoredPostFloor = Array.isArray(inp.scoredPostFloor) ? inp.scoredPostFloor : [];
+  const finalScored = Array.isArray(inp.finalScored) ? inp.finalScored : [];
+  const returnedShelf = Array.isArray(inp.returnedShelf) ? inp.returnedShelf : [];
+  const titlePassesLanguageScreen = (rawTitle) => {
+    const title = String(rawTitle || "").trim();
+    if (!title) return true;
+    const nonLatinRatio = (title.match(/[^\u0000-\u024F\u1E00-\u1EFF\s\d\-.,;:()[\]{}'"!?@#$%^&*+=/<>]/g) || []).length / title.length;
+    if (nonLatinRatio > 0.3) return false;
+    const lowerTitle = title.toLowerCase();
+    if (/^(les |une |des |étude |analyse |recherche |l'|la |le |du |de la )/.test(lowerTitle)) return false;
+    if (/^(die |das |ein |eine |zur |über )/.test(lowerTitle)) return false;
+    return true;
+  };
+  const keySetOf = (list) => {
+    const s = new Set();
+    for (const p of list) {
+      if (!p) continue;
+      for (const k of paperDedupeKeys(p)) s.add(k);
+    }
+    return s;
+  };
+  const mergedKeys = keySetOf(merged);
+  const scoredKeys = keySetOf(scoredAllCapture);
+  const postFloorKeys = keySetOf(scoredPostFloor);
+  const shelfKeys = keySetOf(finalScored);
+  const returnedKeys = keySetOf(returnedShelf);
+  const stats = foundationalPoolStats(scoredAllCapture);
+  const claimed = new Set();
+  const candidates = [];
+  for (const cand of preDedupe) {
+    if (!cand || !cand._foundationalLane) continue;
+    const keys = paperDedupeKeys(cand);
+    if (keys.some((k) => claimed.has(k))) continue;
+    for (const k of keys) claimed.add(k);
+    const judged = merged.find((p) => p && paperDedupeKeys(p).some((k) => keys.includes(k))) || cand;
+    if (!paperIsFoundationalPrimary(judged, stats)) continue;
+    candidates.push({ keys, judged });
+  }
+  candidates.sort((a, b) => ((Number(b.judged.citations) || 0) - (Number(a.judged.citations) || 0)));
+  return candidates.slice(0, 5).map(({ keys, judged }) => {
+    const hasAny = (set) => keys.some((k) => set.has(k));
+    const dedupe = hasAny(mergedKeys);
+    const scored = hasAny(scoredKeys);
+    const shelf = hasAny(shelfKeys);
+    const returned = hasAny(returnedKeys);
+    let shelfPosition = null;
+    for (let i = 0; i < finalScored.length; i++) {
+      if (paperDedupeKeys(finalScored[i] || {}).some((k) => keys.includes(k))) { shelfPosition = i; break; }
+    }
+    let endedAt = null;
+    let endedDetail = null;
+    if (!returned) {
+      if (!dedupe) {
+        endedAt = "dedupe";
+      } else if (!hasAny(postFloorKeys)) {
+        endedAt = titlePassesLanguageScreen(judged.title) ? "quality-floor" : "language-screen";
+      } else if (!shelf) {
+        endedAt = "shelf-cut";
+        endedDetail = String(judged.abstract || "").trim().length > 0
+          ? "below the shelf score cut and no rescue displaced for it"
+          : "no abstract: the shelf rescues require one";
+      } else {
+        endedAt = hasRetractedTitleMarker(judged.title) ? "retraction-screen" : "rerank";
+      }
+    }
+    return {
+      title: judged.title || "",
+      year: judged.year || "",
+      keys,
+      steps: { pool: true, dedupe, scored, shelf, returned },
+      shelfPosition,
+      endedAt,
+      endedDetail,
+    };
+  });
+}
+
+// The handler continuation of a gather fate (wave fourteen):
+// at each named checkpoint the fate records whether its paper
+// is still present in the list that checkpoint judges, and a
+// fate still open (endedAt null) that is absent ends there.
+// A fate that already ended keeps its gather ending; the step
+// is still recorded, so the record shows the full path.
+export function advanceFoundationalFates(fates, step, papers) {
+  if (!Array.isArray(fates) || fates.length === 0) return fates;
+  const keys = new Set();
+  if (Array.isArray(papers)) {
+    for (const p of papers) {
+      if (!p) continue;
+      for (const k of paperDedupeKeys(p)) keys.add(k);
+    }
+  }
+  for (const fate of fates) {
+    if (!fate || typeof fate !== "object") continue;
+    if (!fate.steps || typeof fate.steps !== "object") fate.steps = { pool: true };
+    const present = Array.isArray(fate.keys) && fate.keys.some((k) => keys.has(k));
+    fate.steps[step] = present;
+    if (!present && fate.endedAt == null) fate.endedAt = step;
+  }
+  return fates;
+}
+
+// The completion of a gather fate (wave fourteen): the final
+// shipped entry lists are the ground truth for presented. An
+// entry is a source list object, not a paper, so its keys are
+// built from the entry itself (its title key dominates, its
+// DOI URL when it carries one). A fate in neither list that
+// was still open ends as not-presented.
+export function completeFoundationalFates(fates, evidenceEntries, tailEntries) {
+  if (!Array.isArray(fates) || fates.length === 0) return fates;
+  const keySetOf = (entries) => {
+    const s = new Set();
+    if (Array.isArray(entries)) {
+      for (const e of entries) {
+        if (!e) continue;
+        for (const k of paperDedupeKeys(e)) s.add(k);
+      }
+    }
+    return s;
+  };
+  const evidenceKeys = keySetOf(evidenceEntries);
+  const tailKeys = keySetOf(tailEntries);
+  for (const fate of fates) {
+    if (!fate || typeof fate !== "object") continue;
+    const fk = Array.isArray(fate.keys) ? fate.keys : [];
+    if (fk.some((k) => evidenceKeys.has(k))) {
+      fate.presented = true;
+      fate.presentedVia = "evidence";
+    } else if (fk.some((k) => tailKeys.has(k))) {
+      fate.presented = true;
+      fate.presentedVia = "tail";
+    } else {
+      fate.presented = false;
+      fate.presentedVia = null;
+      if (fate.endedAt == null) fate.endedAt = "not-presented";
+    }
+  }
+  return fates;
 }
 
 // The cited shelf for a mechanism question: foundational
@@ -15313,12 +15475,47 @@ function recordFunnelOf(raw, diag, sourceCount) {
         admitted: typeof diag.foundationalLane.count === "number" ? n(diag.foundationalLane.count) : null,
       }
     : null;
+  // WAVE FOURTEEN (2026-10-14, brief item 1): the foundational
+  // fates ride the funnel beside the lane, bounded the same
+  // way: at most five entries, titles and years capped, the
+  // internal dedupe keys stripped, and only the steps the fate
+  // actually recorded. A burial is then provable from the
+  // record itself: endedAt names the step, endedDetail and
+  // passReason carry its reason where the pipeline stamped
+  // one, and presented says which shipped list it reached.
+  const foundationalFates = (() => {
+    if (!diag || !Array.isArray(diag.foundationalFates)) return null;
+    const out = [];
+    for (const f of diag.foundationalFates.slice(0, 5)) {
+      if (!f || typeof f !== "object") continue;
+      const title = String(f.title || "").slice(0, 120);
+      if (!title) continue;
+      const s = f.steps && typeof f.steps === "object" ? f.steps : {};
+      const steps = { pool: !!s.pool, dedupe: !!s.dedupe, scored: !!s.scored, shelf: !!s.shelf };
+      for (const k of ["filters", "passes", "gate", "slice", "validation", "final-gate"]) {
+        if (k in s) steps[k] = !!s[k];
+      }
+      out.push({
+        title,
+        year: String(f.year || "").slice(0, 12),
+        steps,
+        shelfPosition: typeof f.shelfPosition === "number" && Number.isFinite(f.shelfPosition) ? f.shelfPosition : null,
+        endedAt: f.endedAt ? String(f.endedAt).slice(0, 40) : null,
+        ...(f.endedDetail ? { endedDetail: String(f.endedDetail).slice(0, 160) } : {}),
+        ...(f.passReason ? { passReason: String(f.passReason).slice(0, 160) } : {}),
+        presented: !!f.presented,
+        presentedVia: f.presentedVia === "evidence" || f.presentedVia === "tail" ? f.presentedVia : null,
+      });
+    }
+    return out.length ? out : null;
+  })();
   const titleRescued = diag && diag.titleRescued && typeof diag.titleRescued.admitted === "number"
     ? n(diag.titleRescued.admitted) : null;
   return {
     gathered, deduped, excludedWeak, excludedWeakTitles, excludedNonEnglish,
     excludedRetracted: n(f.excludedRetracted), cited,
     ...(foundationalLane ? { foundationalLane } : {}),
+    ...(foundationalFates ? { foundationalFates } : {}),
     ...(titleRescued ? { titleRescued } : {}),
   };
 }
@@ -16974,6 +17171,61 @@ export function paperTitleEngagesConcepts(paper, query, dynLookup) {
     return true;
   } catch {
     return true;
+  }
+}
+
+/* paperTitleAnnouncesDevice(paper) (2026-10-14, wave
+ * fourteen, brief item 2): whether the paper's TITLE alone
+ * announces a device or apparatus class. Title text only,
+ * case insensitive, judged as title patterns rather than a
+ * specimen list. Bare "led" is deliberately not a pattern
+ * (it is also a verb), and bare "display" is deliberately
+ * not a pattern either (it is a biology word, as in
+ * courtship display); only the display compounds below
+ * count. Returns false on any error or empty title. */
+const DEVICE_TITLE_PATTERNS = [
+  /light[- ]emitting\s+diode/i,
+  /\b(?:oled|qled|amoled|microled)s?\b/i,
+  /\bphotovoltaic/i,
+  /\bsolar\s+cells?\b/i,
+  /\blaser\s+diode/i,
+  /\belectroluminescen\w*/i,
+  /\bquantum\s+dot\s+(?:display|led)/i,
+  /\b(?:micro[- ]?display|display\s+(?:panel|device))\b/i,
+];
+export function paperTitleAnnouncesDevice(paper) {
+  try {
+    const title = String((paper && paper.title) || "").trim();
+    if (!title) return false;
+    return DEVICE_TITLE_PATTERNS.some((re) => re.test(title));
+  } catch {
+    return false;
+  }
+}
+
+/* paperTailDeviceBarred(paper, query, dynLookup) (2026-10-14,
+ * wave fourteen, brief item 2): the presented list device
+ * rule, for the further reading tail only. A title that
+ * announces a device class earns presented placement only
+ * with subject engagement in the abstract, judged by the
+ * citation gate's own subject standard (the same abstract
+ * only subjectHit computation the wave thirteen company rule
+ * uses inside paperTitleEngagesConcepts). A device title is
+ * a label, not engagement: the live LED specimen's abstract
+ * engages generic concepts such as blue and light with no
+ * engagement with the question's subject at all. Questions
+ * resolving fewer than two central concepts are exempt,
+ * because they have no distinct subject to engage. Fails
+ * open on any error: this rule must never break the tail. */
+export function paperTailDeviceBarred(paper, query, dynLookup) {
+  try {
+    if (!paperTitleAnnouncesDevice(paper)) return false;
+    const concepts = questionCentralConcepts(query, dynLookup);
+    if (!Array.isArray(concepts) || concepts.length < 2) return false;
+    const abstractHits = centralConceptHits({ ...(paper || {}), title: "" }, concepts);
+    return !abstractHits.subjectHit;
+  } catch {
+    return false;
   }
 }
 
@@ -20410,7 +20662,7 @@ async function gatherPapersBody(rawQuery, opts) {
   // the shelf floor relaxation below re admits from this capture,
   // judging by the scorer's own scores, not by a second scoring.
   const scoredAllCapture = [];
-  const scoredMapped = merged
+  const scoredFiltered = merged
     .map((p) => {
       const title = p.title || "";
       const abstract = p.abstract || "";
@@ -20848,12 +21100,15 @@ async function gatherPapersBody(rawQuery, opts) {
         );
       }
       return true;
-    })
-    // NL net papers rank by concept group coverage ahead of raw
-    // score (2026-10-14, see nlGroupHits above); every other paper
-    // carries 0, so the rest of the shelf keeps its score order.
-    .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
-    .slice(0, limit);
+    });
+  // NL net papers rank by concept group coverage ahead of raw
+  // score (2026-10-14, see nlGroupHits above); every other paper
+  // carries 0, so the rest of the shelf keeps its score order.
+  // WAVE FOURTEEN (2026-10-14, brief item 1): the chain is split
+  // here so the post filter, pre slice array has a name
+  // (scoredFiltered) the foundational fate diagnostic can judge
+  // the floor against; the sort and slice below are unchanged.
+  const scoredMapped = scoredFiltered.sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score)).slice(0, limit);
   // The ranked set the quality floor kept. Emergency relaxation below may add
   // some back from `merged`; funnel.ranked is set after that, on finalScored.
   const scored = scoredMapped;
@@ -21388,6 +21643,14 @@ async function gatherPapersBody(rawQuery, opts) {
     if (finalScreenCut > 0) funnel.excludedRetracted += finalScreenCut;
   }
 
+  if (diag.foundationalLane) {
+    try {
+      diag.foundationalFates = gatherFoundationalFates({
+        preDedupe, merged, scoredAllCapture, scoredPostFloor: scoredFiltered,
+        finalScored, returnedShelf: rerankedFinal,
+      });
+    } catch { /* the diagnostic must never break retrieval */ }
+  }
   diag.funnel = funnel;
   if (ledger) diag.subrequests = ledger.snapshot();
   return { papers: rerankedFinal, _diag: diag };
@@ -23624,6 +23887,7 @@ async function runSearchPipeline(pctx) {
 
     // `let`, not `const` . the English-language filter below reassigns it.
     let papers = gResult.papers || [];
+    const foundationalFates = (gResult && gResult._diag && Array.isArray(gResult._diag.foundationalFates) && gResult._diag.foundationalFates.length > 0) ? gResult._diag.foundationalFates : null;
     // Counted for the public retrieval funnel (_funnel.excludedNonEnglish).
     let excludedNonEnglishOuter = 0;
 
@@ -23928,10 +24192,29 @@ async function runSearchPipeline(pctx) {
     // downstream can mutate the snapshot's membership; the paper
     // objects themselves are shared with the evidence pipeline by
     // design, the same references the gates read.
+    if (foundationalFates) advanceFoundationalFates(foundationalFates, "filters", papers);
+    const foundationalPrePassPapers = foundationalFates ? papers : null;
     let programmaticShelf = null;
     if (!isNameSearch && papers.length > 0) {
       papers = programmaticValidationPasses(query, papers, _dynForValidation);
       programmaticShelf = papers.slice();
+      if (foundationalFates) {
+        advanceFoundationalFates(foundationalFates, "passes", programmaticShelf);
+        try {
+          for (const fate of foundationalFates) {
+            if (!fate || !Array.isArray(fate.keys)) continue;
+            if (!(fate.endedAt === null || fate.endedAt === "passes")) continue;
+            let found = null;
+            for (const pool of [papers, foundationalPrePassPapers || []]) {
+              found = (pool || []).find((p) => p && paperDedupeKeys(p).some((k) => fate.keys.includes(k)));
+              if (found) break;
+            }
+            if (found && typeof found._filteredReason === "string" && found._filteredReason) {
+              fate.passReason = found._filteredReason;
+            }
+          }
+        } catch { /* the diagnostic must never break retrieval */ }
+      }
     }
 
     // METHOD INTENT (2026-10-14): detected once here, where the
@@ -24117,6 +24400,7 @@ async function runSearchPipeline(pctx) {
         }
       } catch { /* the audit must never break the serve gate; the pre wave ten behavior stands */ }
     }
+    if (foundationalFates) advanceFoundationalFates(foundationalFates, "gate", citablePapers);
     let evidencePapers;
     if (serveGateNoEvidence) {
       evidencePapers = [];
@@ -24144,6 +24428,7 @@ async function runSearchPipeline(pctx) {
     } else {
       evidencePapers = [];
     }
+    if (foundationalFates) advanceFoundationalFates(foundationalFates, "slice", evidencePapers);
     // Papers the binding withheld: reported in the answer envelope as
     // relevanceGatedOut so the UI can say so honestly ("3 more papers were
     // too tangential to cite") instead of silently dropping them. The
@@ -24215,12 +24500,55 @@ async function runSearchPipeline(pctx) {
       // prove the gate actually ran, and on which provider.
       validationHealthIdx = stageHealth.length;
       ledger.setStage("validation");
+      const evidenceBeforeValidation = evidencePapers;
       const validationStage = await runStage(
         "validation",
         () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag, undefined, ledger),
         { timeoutMs: 6000, fallback: evidencePapers, health: stageHealth }
       );
       evidencePapers = validationStage.value || evidencePapers;
+      // WAVE FOURTEEN (2026-10-14, brief item 1, the fix): the
+      // LLM validation pass can no longer remove a foundational
+      // primary that clears the citation gate standard. The
+      // citation gate is the pipeline's own abstract aware
+      // topicality standard and it already admitted these
+      // papers; a strict validator judging direct address, on a
+      // first description whose title names neither the product
+      // nor the protein, must not silently override that
+      // admission for the lane's primaries — the same
+      // substitution wave thirteen made at the presented tail.
+      // The restore is property based (primary under the shelf
+      // the passes returned, gate clearing, unstamped, not
+      // title retracted), preserves the pre validation order,
+      // and only ever returns papers the validator's leg
+      // dropped: papers the post validation list kept stand
+      // exactly as the validator left them.
+      try {
+        if (programmaticShelf) {
+          const postKeys = new Set();
+          for (const p of evidencePapers) {
+            if (!p) continue;
+            for (const k of paperDedupeKeys(p)) postKeys.add(k);
+          }
+          const restoreStats = foundationalPoolStats(programmaticShelf || papers);
+          const restoreStandard = citationGateStandard(query, _dynForValidation);
+          let restoredCount = 0;
+          const restoredList = evidenceBeforeValidation.filter((p) => {
+            if (!p) return false;
+            if (paperDedupeKeys(p).some((k) => postKeys.has(k))) return true;
+            const restorable = paperIsFoundationalPrimary(p, restoreStats)
+              && paperClearsCitationGate(p, restoreStandard)
+              && !p._filteredReason
+              && !hasRetractedTitleMarker(p.title);
+            if (restorable) restoredCount++;
+            return restorable;
+          });
+          if (restoredCount > 0) {
+            evidencePapers = restoredList;
+            validationDiag.primaryRestored = restoredCount;
+          }
+        }
+      } catch { /* the restore must never break the run */ }
     }
 
     // RETRACTION CHECK: flag any of the final evidence papers that have been
@@ -24258,6 +24586,7 @@ async function runSearchPipeline(pctx) {
     if (validationHealthIdx >= 0 && stageHealth[validationHealthIdx]) {
       finalizeValidationHealth(stageHealth[validationHealthIdx], validationDiag);
     }
+    if (foundationalFates) advanceFoundationalFates(foundationalFates, "validation", evidencePapers);
 
     // v6.3: FINAL DEDUPE + GATE . the last word before numbering.
     // Dedupe with the multi-key matcher (see paperDedupeKeys): a paper is
@@ -24407,6 +24736,7 @@ async function runSearchPipeline(pctx) {
     // withheld count still reaches the UI via relevanceGatedOut, and the
     // bibliography states it honestly.
     if (useEvidence && evidencePapers.length === 0) useEvidence = false;
+    if (foundationalFates) advanceFoundationalFates(foundationalFates, "final-gate", evidencePapers);
 
     // SSE stage 3/6: retrieval + validation + relevance gating are done .
     // this is the screened evidence set synthesis will work from.
@@ -24479,6 +24809,15 @@ async function runSearchPipeline(pctx) {
     const tailPrimaryTest = tailPrimaryStats
       ? (p) => paperIsFoundationalPrimary(p, tailPrimaryStats) : null;
     const tailGateStandard = citationGateStandard(query, _dynForValidation);
+    // WAVE FOURTEEN (2026-10-14, brief item 2): a device
+    // title is a label, not engagement. A non primary whose
+    // title announces a device class must also clear
+    // paperTailDeviceBarred: subject engagement in its
+    // abstract, judged by the citation gate's own subject
+    // standard. Single concept questions are exempt because
+    // they have no distinct subject to engage (the exemption
+    // lives inside paperTailDeviceBarred itself). Primaries
+    // keep the gate standard judgment above, untouched.
     const furtherReadingTailPapers = (useEvidence && !isNameSearch && !isFollowupMode && programmaticShelf)
       ? buildFurtherReadingTail(programmaticShelf, evidencePapers, tailPrimaryTest || undefined)
           .filter((p) => {
@@ -24486,7 +24825,8 @@ async function runSearchPipeline(pctx) {
               try { return paperClearsCitationGate(p, tailGateStandard); }
               catch { return paperTitleEngagesConcepts(p, query, _dynForValidation); }
             }
-            return paperTitleEngagesConcepts(p, query, _dynForValidation);
+            return paperTitleEngagesConcepts(p, query, _dynForValidation)
+              && !paperTailDeviceBarred(p, query, _dynForValidation);
           })
       : [];
     let furtherReadingTail = furtherReadingTailPapers.map(toSourceEntry);
@@ -28594,6 +28934,7 @@ async function runSearchPipeline(pctx) {
      * snapshot taken alongside the return. */
     const ledgerView = publicLedgerSnapshot(ledger);
     const searchRecordId = mintSearchRecordId();
+    if (foundationalFates) { try { completeFoundationalFates(foundationalFates, sourceList, furtherReadingTail); } catch {} }
     const searchRecord = buildSearchRecord({
       question: query,
       askedAt: new Date(),

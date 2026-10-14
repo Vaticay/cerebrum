@@ -632,7 +632,11 @@ await test("the cache schema carries the wave two bump", () => {
   // title rule requires topical company for every sighting,
   // and the claim check records a named tier trace with a
   // fallback model attempt and literature claim selection.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v48"'), "CACHE_SCHEMA_VERSION must be v48");
+  // PIN UPDATED (2026-10-14, wave fourteen): v49 — the
+  // search record carries the foundational fate diagnostic,
+  // and the LLM validation pass can no longer remove a gate
+  // cleared foundational primary.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v49"'), "CACHE_SCHEMA_VERSION must be v49");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

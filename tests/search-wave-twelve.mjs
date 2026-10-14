@@ -755,7 +755,7 @@ await test("at the production limit a spent tail refuses the retry and the recor
 // ═══════════════════════════════════════════════════════════════
 group("Wave twelve — the cache version pin");
 
-await test("CACHE_SCHEMA_VERSION is v48 with the wave thirteen chain entry, v47 kept as history", () => {
+await test("CACHE_SCHEMA_VERSION is v49 with the wave fourteen chain entry, v47 kept as history", () => {
   // PIN UPDATED (2026-10-14, wave thirteen): v48 —
   // foundational primaries get presentation priority, the
   // title rule requires topical company for every sighting,
@@ -763,8 +763,14 @@ await test("CACHE_SCHEMA_VERSION is v48 with the wave thirteen chain entry, v47 
   // fallback model attempt and literature claim selection.
   // The wave twelve entry stays as history; this pin follows
   // the constant.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v48";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v48");
+  // PIN UPDATED (2026-10-14, wave fourteen): v49 — the
+  // search record carries the foundational fate diagnostic,
+  // and the LLM validation pass can no longer remove a gate
+  // cleared foundational primary.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v49";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v49");
+  assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src),
+    "the v49 chain entry is missing its dated reason");
   assert.ok(/\/\/ v48 \(2026-10-14, wave thirteen\)/.test(src),
     "the v48 chain entry is missing its dated reason");
   assert.ok(/\/\/ v47 \(2026-10-14, wave twelve\)/.test(src),
