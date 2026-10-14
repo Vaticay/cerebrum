@@ -649,14 +649,21 @@ await test("CACHE_SCHEMA_VERSION is v43 with a dated wave nine chain entry", () 
   // v43 chain entry must remain as history, and the key
   // derivation is pinned here so a future bump cannot silently
   // decouple from the key again.
+  // PIN UPDATED (2026-10-14, wave eleven): the version moved
+  // to v45 (the compound title clause for the presented list),
+  // then to v46 by the same wave's live probe addendum (the
+  // mechanism detector hears plain copying words). The v44
+  // chain entry must likewise remain as history.
   const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
-  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v44\""),
-    "CACHE_SCHEMA_VERSION is not pinned to v44");
+  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v46\""),
+    "CACHE_SCHEMA_VERSION is not pinned to v46");
   const start = src.search(/\/\/ v43 \(/);
   assert.ok(start >= 0, "no dated v43 chain entry above the version constant");
   const entry = src.slice(start, start + 2500);
   assert.ok(/wave nine/i.test(entry), "the v43 chain entry does not mention wave nine");
   assert.ok(/\/\/ v44 \(2026-10-14, wave ten\)/.test(src), "the v44 chain entry is missing");
+  assert.ok(/\/\/ v45 \(2026-10-14, wave eleven\)/.test(src), "the v45 chain entry is missing");
+  assert.ok(/\/\/ v46 \(2026-10-14, wave eleven, live probe addendum\)/.test(src), "the v46 chain entry is missing");
   assert.ok(src.includes("const answerKeyVersion = CACHE_SCHEMA_VERSION + \"-\" + answerLength;"),
     "the answer cache key must derive from CACHE_SCHEMA_VERSION (wave ten)");
 });

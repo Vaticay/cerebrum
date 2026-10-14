@@ -616,7 +616,12 @@ await test("the cache schema carries the wave two bump", () => {
   assert.ok(src.includes('// v41 (2026-10-14, seventh panel wave eight)'), "the v41 chain entry must remain (schema history)");
   // PIN UPDATED (2026-10-14, wave ten): v44 — see the chain
   // comment above the constant for the wave ten reasons.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v44"'), "CACHE_SCHEMA_VERSION must be v44");
+  // PIN UPDATED (2026-10-14, wave eleven): v45 — the compound
+  // title clause for the presented list; see the chain comment
+  // above the constant for the wave eleven reasons.
+  // PIN UPDATED (2026-10-14, wave eleven addendum): v46 — the
+  // mechanism detector hears plain copying words.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v46"'), "CACHE_SCHEMA_VERSION must be v46");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

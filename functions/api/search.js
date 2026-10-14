@@ -2067,7 +2067,29 @@ export function isNonLiterature(p) {
 // is now DERIVED from this version (it was a hardcoded "v9-"
 // string the chain never reached, so bumps retired nothing).
 // Cached payloads under v43 predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v44";
+// v45 (2026-10-14, wave eleven): the presented list's title
+// rule learns compounds — a central concept a title engages
+// only in fused form (inside a hyphenated compound of words,
+// or as one half of an adjacent pair of the question's own
+// concept words) counts toward title engagement only when
+// the same concept also appears uncompounded in the paper's
+// abstract. The audit's OLED and theatre specimens on the
+// sky question leave the further reading tail under this
+// clause, while a compound title whose abstract genuinely
+// engages the concept stays. Presented list composition
+// changes under this wave, so payloads cached under v44
+// predate the shipped contract.
+// v46 (2026-10-14, wave eleven, live probe addendum): the
+// mechanism shape detector hears plain copying words — the
+// copying verb family (copy, replicate, duplicate, multiply)
+// and the phrase "make more" join the process verb set, so
+// "how does pcr make more copies of dna" fires the
+// foundational lane and the mechanism contract the way the
+// acceptance wording "how does pcr amplify dna" already did.
+// Retrieval composition and answer openings change for the
+// newly firing questions, so payloads cached under v45
+// predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v46";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -5995,8 +6017,22 @@ export function paperMechanismTier(paper) {
 // The process verbs a how question carries when it is asking
 // about a mechanism: the system DOES something (cuts, binds,
 // unwinds, detects, pumps), and the question asks how.
+// WAVE ELEVEN (2026-10-14, parent live probe on the wave ten
+// build): the set also carries the COPYING family and the
+// phrase "make more". The wave nine acceptance wording "how
+// does pcr amplify dna" fired the foundational lane live,
+// but the same question in plain mismatched words — "how
+// does pcr make more copies of dna" — did not: no listed
+// verb appears in it (make is not listed, copies is a noun
+// there, amplify is the papers' word the asker did not use).
+// The copying family (copy, replicate, duplicate, multiply)
+// and "make(s) more" are how a person phrases a copying
+// mechanism without the literature's vocabulary. Bare "make"
+// stays unlisted on purpose: "how does the council make
+// decisions" is not a mechanism question, and it still does
+// not fire.
 const MECHANISM_PROCESS_VERB_RE =
-  "works?|cuts?|cutting|amplif(?:y|ies|ied)|detect(?:s|ed)?|trigger(?:s|ed)?|cleave(?:s|d)?|breaks? down|binds?|unwinds?|anneals?|denatures?|activates?|produces?|releases?|converts?|opens?|closes?|pumps?|fires?";
+  "works?|cuts?|cutting|amplif(?:y|ies|ied)|detect(?:s|ed)?|trigger(?:s|ed)?|cleave(?:s|d)?|breaks? down|binds?|unwinds?|anneals?|denatures?|activates?|produces?|releases?|converts?|opens?|closes?|pumps?|fires?|makes? more|cop(?:y|ies|ied|ying)|replicat(?:e|es|ed|ing|ion)|duplicat(?:e|es|ed|ing|ion)|multipl(?:y|ies|ied|ying)";
 
 // Deterministic mechanism shape: true when the question is a
 // how question carrying a process verb ("how does crispr cas9
@@ -16361,12 +16397,137 @@ export const FURTHER_READING_TAIL_CAP = 10;
  * relevance floor alone admitted all of them. Fails open when
  * the question resolves no central concepts (nothing to judge
  * with) and on its own errors. */
+
+/* Compound clause (wave eleven, item 1): a title occurrence
+ * of a central concept counts as the paper claiming that
+ * concept only when the concept stands on its own in the
+ * title. An occurrence FUSED inside a compound is the
+ * compound's word, not the paper's topic claim: hyphenated
+ * ("Sky-Blue" inside an OLED device title — the paper is
+ * about a diode that emits at a wavelength) or spaced, as one
+ * half of an adjacent pair of the question's own concept
+ * words ("Whole Blue Sky" in a theatre paper — the title of
+ * a stage play). A concept whose title occurrences are ALL
+ * fused counts toward title engagement only when the same
+ * concept also appears UNCOMPOUNDED in the abstract,
+ * standing on its own the way a genuine scattering paper's
+ * abstract engages the sky and its blue outright. A
+ * hyphenated token counts as a compound only when it fuses
+ * at least two word parts of two or more letters: a term
+ * carrying a numeric or single letter suffix (COVID-19,
+ * X-ray) is the concept's own full name, not a fusion with
+ * another word, and its occurrences stand alone. The clause
+ * lives here, in the presented list rule, and deliberately
+ * NOT in centralConceptHits: the citation standard's title
+ * exception (subject plus a second concept in the title) is
+ * a separate contract, pinned by the gate suites, and this
+ * clause does not move it. Occurrences the classifier cannot
+ * see (a raw hit through a phrase or stem path it does not
+ * tokenize) keep the wave ten verdict, so the clause only
+ * ever removes engagement it can positively classify as
+ * fused and unconfirmed. */
+function wordTokensWithOffsets(lowText) {
+  const out = [];
+  const re = /\S+/g;
+  let m;
+  while ((m = re.exec(lowText)) !== null) {
+    const raw = m[0];
+    const lead = raw.length - raw.replace(/^[^a-z0-9]+/, "").length;
+    const text = raw.slice(lead).replace(/[^a-z0-9]+$/, "");
+    if (text) out.push({ text, start: m.index + lead, end: m.index + lead + text.length });
+  }
+  return out;
+}
+
+/* Per concept occurrence accounting over one field of text:
+ * whether the concept hits the field at all (rawHit, the
+ * centralConceptHits accounting), and whether its sighted
+ * occurrences stand free (hasFree: a standalone token, or a
+ * phrase occurrence, neither fused as above) or appear only
+ * fused (hasFused). seen is false when the raw hit came
+ * through a path the token accounting cannot sight. */
+function conceptOccurrencesInText(lowText, concepts) {
+  const tokens = wordTokensWithOffsets(lowText);
+  const perConcept = concepts.map((c) => {
+    const members = [c.term, ...(c.group ? [...c.group] : [])]
+      .map((x) => String(x || "").toLowerCase().trim())
+      .filter(Boolean);
+    const tokenIdxs = new Set();
+    for (const member of members) {
+      if (member.indexOf(" ") !== -1) continue;
+      tokens.forEach((tok, i) => {
+        if (tokenIdxs.has(i)) return;
+        if (tok.text.split("-").some((p) => p && termStemHitInText(p, member))) tokenIdxs.add(i);
+      });
+    }
+    const spans = [];
+    for (const member of members) {
+      if (member.indexOf(" ") === -1) continue;
+      let from = 0;
+      for (;;) {
+        const at = lowText.indexOf(member, from);
+        if (at < 0) break;
+        spans.push([at, at + member.length]);
+        from = at + member.length;
+      }
+    }
+    return { tokenIdxs, spans };
+  });
+  return concepts.map((c, ci) => {
+    const rawHit = termStemHitInText(lowText, c.term) || textTouchesConceptGroup(lowText, c.group);
+    if (!rawHit) return { rawHit, hasFree: false, hasFused: false, seen: false };
+    const { tokenIdxs, spans } = perConcept[ci];
+    const otherHitsAt = (i) => concepts.some((_, cj) => cj !== ci && perConcept[cj].tokenIdxs.has(i));
+    let hasFree = false, hasFused = false, seen = false;
+    for (const i of tokenIdxs) {
+      seen = true;
+      const tok = tokens[i];
+      const wordParts = tok.text.split("-").filter((p) => /^[a-z]{2,}$/.test(p));
+      if (tok.text.indexOf("-") !== -1 && wordParts.length >= 2) { hasFused = true; continue; }
+      if (otherHitsAt(i - 1) || otherHitsAt(i + 1)) hasFused = true;
+      else hasFree = true;
+    }
+    for (const [s, e] of spans) {
+      seen = true;
+      const first = tokens.findIndex((t) => t.end > s);
+      let last = -1;
+      tokens.forEach((t, i) => { if (t.start < e) last = i; });
+      if (lowText.slice(s, e).indexOf("-") !== -1) { hasFused = true; continue; }
+      if ((first > 0 && otherHitsAt(first - 1)) || (last >= 0 && last + 1 < tokens.length && otherHitsAt(last + 1))) hasFused = true;
+      else hasFree = true;
+    }
+    return { rawHit, hasFree, hasFused, seen };
+  });
+}
+
+/* Whether one concept counts toward the paper's title
+ * engagement under the compound clause: a free title
+ * occurrence counts outright; a concept sighted only fused
+ * in the title counts only when the concept also stands
+ * uncompounded in the abstract; a raw title hit the
+ * classifier cannot sight keeps the wave ten verdict and
+ * counts, so the clause never bars on a guess. */
+function conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci) {
+  const t = titleOcc[ci];
+  if (!t.rawHit) return false;
+  if (t.hasFree || !t.seen) return true;
+  const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
+  if (!absLow) return false;
+  const a = conceptOccurrencesInText(absLow, concepts)[ci];
+  if (!a.rawHit) return false;
+  return a.hasFree || !a.seen;
+}
+
 export function paperTitleEngagesConcepts(paper, query, dynLookup) {
   try {
     const concepts = questionCentralConcepts(query, dynLookup);
     if (!Array.isArray(concepts) || concepts.length === 0) return true;
-    const titleOnly = { ...(paper || {}), abstract: "", snippet: "" };
-    return centralConceptHits(titleOnly, concepts).inTitle >= 1;
+    const titleLow = String((paper && paper.title) || "").toLowerCase();
+    const titleOcc = conceptOccurrencesInText(titleLow, concepts);
+    for (let ci = 0; ci < concepts.length; ci++) {
+      if (conceptCountsForTitleEngagement(paper, concepts, titleOcc, ci)) return true;
+    }
+    return false;
   } catch {
     return true;
   }
