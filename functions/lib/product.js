@@ -37,6 +37,18 @@ export const PRODUCT = {
  * the total, as some copy once did, double counts a slot that is not there
  * and drops this one. The entry's name says what the slot is: an index of
  * preprint servers, not a server itself.
+ *
+ * Zenodo was on this list until 2026-10-14 (wave eight, round three) and
+ * is deliberately NOT here: the search fanout never called it, because
+ * every Zenodo record URL is hard rejected by the literature admission
+ * standard (BLOCKED_DOMAINS in functions/api/search.js) — the endpoint
+ * mixes genuine papers with posters, presentations, and raw deposits
+ * under depositor declared types, and a dataset was once cited as
+ * literature. Advertising a fifteenth source the fanout cannot admit
+ * made the count false and shifted every per source label from slot 9
+ * onward. The count is 14 because 14 fetchers are actually called; if
+ * Zenodo ever earns a slot back, it goes through the same admission
+ * standard as everything else and this list grows again.
  */
 export const SCHOLARLY_SOURCES = [
   { id: "europePMC",      name: "Europe PMC",       category: "biomedical",     peerReviewed: "mixed" },
@@ -47,7 +59,6 @@ export const SCHOLARLY_SOURCES = [
   { id: "semanticScholar",name: "Semantic Scholar", category: "multi",          peerReviewed: "mixed" },
   { id: "doaj",           name: "DOAJ",             category: "open-access",    peerReviewed: "yes" },
   { id: "biorxiv",        name: "bioRxiv",          category: "preprint",       peerReviewed: "no" },
-  { id: "zenodo",         name: "Zenodo",           category: "repository",     peerReviewed: "no" },
   { id: "plos",           name: "PLOS",             category: "open-access",    peerReviewed: "yes" },
   { id: "CORE",           name: "CORE",             category: "aggregator",     peerReviewed: "mixed" },
   { id: "BASE",           name: "BASE",             category: "aggregator",     peerReviewed: "mixed" },

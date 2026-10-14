@@ -2,7 +2,7 @@
 
 A scientific literature search engine at [askcerebrum.org](https://askcerebrum.org).
 
-Ask a question. Cerebrum searches 15 open scholarly databases in parallel, then writes an answer whose citations link to papers you can open and check.
+Ask a question. Cerebrum searches 14 open scholarly databases in parallel, then writes an answer whose citations link to papers you can open and check.
 
 The count is not typed here — it is derived from `SCHOLARLY_SOURCES` in `functions/lib/product.js`, and `npm run check` fails the build if any copy in the repository disagrees with it.
 

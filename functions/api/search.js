@@ -1,7 +1,8 @@
 import { contextAction, answerFromContext } from "../lib/conversation.js";
 // Cerebrum backend - Cloudflare Pages Function.
-// Full rewrite for stability. Queries 14 scholarly databases in parallel,
-// races video proxies, synthesizes answers with sanitization.
+// Full rewrite for stability. Queries the canonical scholarly source
+// list (functions/lib/product.js) in parallel, races video proxies,
+// synthesizes answers with sanitization.
 
 // Domain-knowledge module: controlled-vocabulary query expansion, evidence-
 // hierarchy classification, journal-quality signals, predatory-publisher
@@ -40,6 +41,7 @@ import { recordStageHealthAggregate } from "../lib/stageHealthAggregate.js";
 import { authorizeLlmCall, spendTokens, CHEAP_MODEL, checkEmbeddingBudget, spendEmbeddingNeurons, EMBEDDING_NEURON_COST_PER_RERANK } from "../lib/costControl.js";
 import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
 import { semanticRerank } from "../lib/semanticRerank.js";
+import { SCHOLARLY_SOURCES, SOURCE_COUNT } from "../lib/product.js";
 
 // ============ CORE UTILITIES ============
 
@@ -635,6 +637,10 @@ export const SUBREQUEST_RERANK_COST = 7;
 //   raw net        europePMC 3 + semanticScholar 1 + openAlex 1 = 5
 //   NL net         semanticScholar 1 + europePMC 3 + openAlex 1 = 5
 //   relaxed net    europePMC 3 + pubmed 5                       = 8
+// Updated 2026-10-14 (wave eight, round three, Job 2): PubMed
+// dropped its esummary call, so its worst case is 4 calls (3
+// esearch formulations, then efetch) and the relaxed net is 7.
+//   relaxed net    europePMC 3 + pubmed 4                       = 7
 // A net now fires only when the remaining budget covers the net
 // AND leaves the answer reserve intact afterward (the gate passes
 // the net's cost as the retrievalRoom margin) — the same rule the
@@ -643,7 +649,7 @@ export const SUBREQUEST_RERANK_COST = 7;
 // reserve derivation's slack, as with SUBREQUEST_RUNG_COST.
 export const SUBREQUEST_RAW_NET_COST = 5;
 export const SUBREQUEST_NL_NET_COST = 5;
-export const SUBREQUEST_RELAXED_NET_COST = 8;
+export const SUBREQUEST_RELAXED_NET_COST = 7;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 // The retrieval phase's HARD allowance (2026-10-14). The reserve
@@ -1892,7 +1898,26 @@ export function isNonLiterature(p) {
 // of shipping. Cited sets, shelf composition, verdicts, and
 // serve shapes all change under this wave, so payloads cached
 // under v40 predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v41";
+// v42 (2026-10-14, seventh panel wave eight, round three): the
+// advertised source count becomes true — Zenodo leaves the
+// canonical list (the fanout never called it and its records are
+// hard rejected at admission), the fanout's names and fetchers
+// become one paired structure so per source labels cannot shift,
+// PubMed drops its esummary call, a Gemini leg joins validation,
+// swimmer's ear bridges to otitis externa, and bare nutrient
+// names resolve as central concepts. Cited sets, per source
+// labels, and serve shapes change under this wave, so payloads
+// cached under v41 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v42";
+
+// The canonical scholarly source list's display names, comma
+// joined, derived from functions/lib/product.js (2026-10-14,
+// wave eight round three). Every prompt that names the sources
+// quotes this string, so the prompts can never drift from the
+// fanout again: the fanout's slots and this list are the same
+// list, pinned slot for slot in the suites.
+const SOURCE_NAMES_TEXT = SCHOLARLY_SOURCES.map((s) => s.name).join(", ");
+export { SOURCE_NAMES_TEXT };
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -3576,9 +3601,23 @@ export function buildDeterministicFallbackGroups(query, uncoveredTerms) {
         addAlt(key);
         for (const v of values) addAlt(v);
       }
-      if (key.indexOf(" ") !== -1 && q.includes(key)) {
-        const words = key.split(" ");
-        if (words.includes(term)) for (const v of values) addAlt(v);
+      if (key.indexOf(" ") !== -1) {
+        // Possessive folded matching (2026-10-14, wave eight
+        // round three): the question this builder receives on
+        // the live path is the pipeline's surface form, whose
+        // tokenizer has already split "swimmer's" into
+        // "swimmer" plus a dropped "s", so a bridged key that
+        // carries an apostrophe ("swimmer's ear") can never be
+        // found in it verbatim — the lay to clinical bridge
+        // silently never fired for the handler's own groups
+        // even though it fired for the raw string. Both sides
+        // are compared with possessives folded away, the same
+        // form the tokenizer produces.
+        const foldPossessive = (s) => s.replace(/['’]s\b/g, "").replace(/['’]/g, "");
+        if (foldPossessive(q).includes(foldPossessive(key))) {
+          const words = foldPossessive(key).split(" ");
+          if (words.includes(term)) for (const v of values) addAlt(v);
+        }
       }
     }
     // 3. The term's own noun forms: the floor that keeps the
@@ -3837,6 +3876,31 @@ const SYNONYMS = {
   "blood pressure": ["hypertension", "arterial pressure"],
   hypertension: ["blood pressure", "arterial hypertension"],
   caffeine: ["coffee", "methylxanthine"],
+  // Swimmer's ear (2026-10-14, wave eight round three, Job 4a):
+  // the lay name for otitis externa. Without this bridge the
+  // panel's swimmer's ear question resolved only the bare "ear"
+  // and "swimmer" concepts, so clinical otitis externa papers
+  // engaged one concept at most and failed the two concept
+  // citation standard. Written the way the other lay to clinical
+  // bridges here are written; the reverse entry lets a question
+  // that speaks the clinical name reach the lay one.
+  "swimmer's ear": ["otitis externa", "otitis"],
+  "swimmers ear": ["otitis externa", "otitis"],
+  "otitis externa": ["otitis", "swimmer's ear"],
+  // Nutrient names (2026-10-14, wave eight round three, Job 4b):
+  // the literature indexes these under chemical and alternate
+  // names as often as under the supplement label. The concept
+  // resolution for bare nutrient subjects lives in NUTRIENT_UNITS
+  // below; these entries give the expansion and fallback group
+  // machinery the same bridges.
+  "vitamin d": ["cholecalciferol", "ergocalciferol", "25-hydroxyvitamin d", "calcifediol"],
+  "vitamin c": ["ascorbic acid", "ascorbate"],
+  "vitamin b12": ["cobalamin", "cyanocobalamin", "methylcobalamin"],
+  "vitamin a": ["retinol"],
+  "vitamin e": ["tocopherol", "alpha-tocopherol"],
+  "vitamin k": ["phylloquinone", "menaquinone"],
+  "omega-3": ["omega 3", "n-3 fatty acids", "fish oil", "eicosapentaenoic acid", "docosahexaenoic acid"],
+  "omega 3": ["omega-3", "n-3 fatty acids", "fish oil", "eicosapentaenoic acid", "docosahexaenoic acid"],
   crispr: ["clustered regularly interspaced short palindromic repeats", "cas9", "gene editing"],
   pcr: ["polymerase chain reaction"],
   qpcr: ["quantitative pcr", "real-time pcr", "rt-pcr", "quantitative polymerase chain reaction"],
@@ -5233,55 +5297,36 @@ async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
     }
     if (!ids.length) return [];
 
+    // Two logical calls on the success path (2026-10-14, wave
+    // eight round three, Job 2): esearch, then efetch. The
+    // esummary call that used to race efetch is gone: efetch's
+    // XML already carries every field esummary was merged in
+    // for (title, journal, year, authors, and the abstract
+    // esummary never carried at all), so the third call bought
+    // nothing but ledger exposure — this fetcher is the only
+    // sequential multi call design in the fanout, and its late
+    // calls were the first refused when the retrieval allowance
+    // ran short (the seventh panel measured PubMed returning 0
+    // in 6 of 6 probes). parsePubmedXML's records are the
+    // records; a PMID efetch does not return a record for no
+    // longer becomes an abstract free stub, which could never
+    // clear the citation gate anyway.
     const idStr = ids.join(",");
-    const [xml, summaryJson] = await Promise.all([
-      getText(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
-          new URLSearchParams({ db: "pubmed", id: idStr, retmode: "xml" }) +
-          tool,
-        {},
-        4000,
-        1,
-        ledger
-      ).catch(() => ""),
-      getJSON(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?" +
-          new URLSearchParams({ db: "pubmed", id: idStr, retmode: "json" }) +
-          tool,
-        {},
-        4000,
-        1,
-        ledger
-      ).catch(() => null),
-    ]);
+    const xml = await getText(
+      "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
+        new URLSearchParams({ db: "pubmed", id: idStr, retmode: "xml" }) +
+        tool,
+      {},
+      4000,
+      1,
+      ledger
+    ).catch(() => "");
 
     const fetched = xml ? parsePubmedXML(xml) : [];
     const byPmid = new Map(fetched.map((p) => [p.pmid, p]));
-    const sumResult = (summaryJson && summaryJson.result) || {};
     const merged = [];
     for (const pmid of ids) {
-      const s = sumResult[pmid];
-      let rec = byPmid.get(pmid) || null;
-      if (s && !rec) {
-        rec = {
-          title: s.title || "Untitled",
-          url: "https://pubmed.ncbi.nlm.nih.gov/" + pmid + "/",
-          year: (s.pubdate || "").slice(0, 4),
-          citations: null,
-          authors:
-            (s.authors || []).slice(0, 1).map((a) => a.name).join("") +
-            ((s.authors || []).length > 1 ? " et al." : ""),
-          journal: s.fulljournalname || s.source || "",
-          abstract: "",
-          pmid,
-        };
-      } else if (rec && s) {
-        if (!rec.year && s.pubdate) rec.year = (s.pubdate || "").slice(0, 4);
-        if (!rec.authors && s.authors)
-          rec.authors =
-            s.authors.slice(0, 1).map((a) => a.name).join("") +
-            (s.authors.length > 1 ? " et al." : "");
-      }
+      const rec = byPmid.get(pmid) || null;
       if (rec && rec.title) merged.push(rec);
     }
     // Include any fetched not already merged
@@ -5965,6 +6010,20 @@ const QUESTION_VERBS = new Set([
   "grow", "grows", "grew", "growing",
   "develop", "develops", "developed", "developing",
   "become", "becomes", "became", "becoming",
+  // "stop" (2026-10-14, wave eight round three): the swimmer's
+  // ear question's "how do I stop it" made the bare verb a key
+  // phrase head and then a central concept, so clinical otitis
+  // externa papers engaging the bridged ear concept still failed
+  // the two concept standard on a word that names the ask, not
+  // the topic. Same class as prevent and treat above.
+  "stop", "stops", "stopped", "stopping",
+  // "fight" (2026-10-14, wave eight round three): "does
+  // vitamin D help you fight off colds" made the outcome verb
+  // a central concept while the illness word never resolved,
+  // so the vitamin D cold trials engaged one real concept and
+  // failed the standard on a verb. Same class as protect and
+  // kill above.
+  "fight", "fights", "fought", "fighting",
 ]);
 
 function extractKeyPhrases(query, organismPhrases) {
@@ -6987,48 +7046,21 @@ async function biorxiv(query, limit = 6, ledger = null) {
   }
 }
 
-// v34: Zenodo hosts a mix of genuine papers, posters, presentations, and raw
-// data/software deposits, with no clean way to tell them apart from this
-// endpoint's response alone . which is exactly the ambiguity that let a raw
-// dataset get cited as if it were literature. The new hard-reject filter
-// (isNonLiterature, in paperDedupeKey's neighborhood above) treats any
-// zenodo.org URL as non-literature across the board, per explicit direction,
-// so every result this function returns is now discarded downstream before
-// it can reach an answer. Left in place rather than removed . deleting it
-// (and its entry in `sourceNames`/the "15 databases" this app advertises)
-// is a bigger, riskier change than the data-quality bug actually required,
-// and this comment is here so the next person who notices "zenodo never
-// shows results" understands why without re-deriving it.
-async function zenodo(query, limit = 4, ledger = null) {
-  try {
-    const url =
-      "https://zenodo.org/api/records?" +
-      new URLSearchParams({ q: query, size: String(limit), sort: "mostrecent" });
-    const data = await getJSON(url, {}, 4000, 1, ledger);
-    return ((data && data.hits && data.hits.hits) || [])
-      .map((r) => {
-        const md = r.metadata || {};
-        return {
-          title: md.title || "Untitled",
-          url:
-            r.doi_url ||
-            (md.doi ? "https://doi.org/" + md.doi : "") ||
-            (r.links && r.links.self_html) ||
-            "",
-          year: (md.publication_date || "").slice(0, 4),
-          citations: null,
-          authors:
-            (md.creators || []).slice(0, 1).map((a) => a.name).join("") +
-            ((md.creators || []).length > 1 ? " et al." : ""),
-          journal: "Zenodo",
-          abstract: stripTags(md.description || ""),
-        };
-      })
-      .filter((p) => p.title);
-  } catch {
-    return [];
-  }
-}
+// Zenodo is NOT a fanout source (2026-10-14, wave eight round
+// three, Job 1). The v34 note that used to sit here recorded why
+// its records are hard rejected downstream: the endpoint hosts a
+// mix of genuine papers, posters, presentations, and raw
+// data/software deposits under depositor declared types, with no
+// clean way to tell them apart, and a raw dataset was once cited
+// as literature — so isNonLiterature rejects every zenodo URL at
+// admission (BLOCKED_DOMAINS above) and that standard stands.
+// What changed in round three: the canonical source list in
+// functions/lib/product.js no longer advertises Zenodo, and the
+// fetcher that used to sit here (never called by the fanout, its
+// results discarded even if it had been) is deleted rather than
+// left as a decoy. If Zenodo ever returns, it returns through
+// the same admission standard as every other source, with the
+// canonical list and the fanout growing together.
 
 async function plos(query, limit = 6, ledger = null) {
   try {
@@ -7902,10 +7934,15 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
 // caps land on the same day) and the stage answered in 0 of 3 probes
 // while spending its full allowance. Workers AI is a different
 // provider family on a bound service, not a fetch pool, so its
-// weather is not the other two's. Returns { text, via } from the
-// first leg that answers, or null when all fail; the caller fails
-// open to the unvalidated survivors, exactly the old single leg
-// behavior, only then.
+// weather is not the other two's. The fourth leg (2026-10-14,
+// wave eight round three, Job 3) is Gemini: the Workers AI leg
+// shares the Cloudflare account neuron quota with the synthesis
+// legs and answered 0 of 5 panel probes on an exhausted day, so
+// validation gains a leg whose quota is a different family's
+// entirely. Returns { text, via } from the first leg that
+// answers, or null when all fail; the caller fails open to the
+// unvalidated survivors, exactly the old single leg behavior,
+// only then.
 export async function defaultValidationCall(messages, token, env, timing, ledger = null) {
   // Stage budget: the handler's runStage backstop for validation is
   // 6000ms. Legs are clamped against that remaining budget (see
@@ -7938,6 +7975,31 @@ export async function defaultValidationCall(messages, token, env, timing, ledger
     },
     model: "openai/gpt-oss-20b",
   });
+  // Fourth leg (2026-10-14, wave eight round three, Job 3):
+  // Gemini, on its own family's quota. The Workers AI leg below
+  // shares the Cloudflare account neuron quota with the
+  // synthesis legs, so on an exhausted day it answers 0 of 5
+  // (seventh panel) exactly when validation matters most; the
+  // OpenRouter and Groq legs are free fetch pools whose caps
+  // land on the same days. Gemini's quota is a different
+  // family's — the fleet's healthiest under panel conditions —
+  // so this leg is ordered before Workers AI: the independent
+  // quota gets its shot before the shared one. Same OpenAI
+  // compatible endpoint shape the compat fleet uses, keyed by
+  // GEMINI_KEY. Its timeout takes the fleet's 3,000 ms cap for
+  // this model (the COMPAT_LEG_TIMEOUT_OVERRIDES discipline) on
+  // top of the stage clamp, applied in the leg loop below.
+  const geminiKey = env ? (env.GEMINI_KEY || "") : "";
+  if (geminiKey) legs.push({
+    via: "gemini",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + geminiKey,
+    },
+    model: "gemini-3.5-flash-lite",
+    timeoutCapMs: 3000,
+  });
   // Third leg: Workers AI, the deep fact check tier's model, on the
   // bound service rather than a fetch pool (Job 3c). env.AI.run has
   // no signal option, so the loop races it against the same clamped
@@ -7968,13 +8030,16 @@ export async function defaultValidationCall(messages, token, env, timing, ledger
     // shot and any late answer was discarded by the stage race
     // anyway. The abort stays armed through the body read, disarmed
     // only in the finally.
-    const timeoutMs = clampStageLegTimeout({
+    const clampedMs = clampStageLegTimeout({
       startedAt: stageStartedAt, now: Date.now(), budgetMs: stageBudgetMs,
       wantMs: legWantMs, legsAfter: legs.length - li - 1,
       ...(timing && timing.reservePerLegMs != null ? { reservePerLegMs: timing.reservePerLegMs } : {}),
       ...(timing && timing.finalReserveMs != null ? { finalReserveMs: timing.finalReserveMs } : {}),
       ...(timing && timing.floorMs != null ? { floorMs: timing.floorMs } : {}),
     });
+    // A leg may carry its own tighter cap on top of the stage
+    // clamp (the Gemini leg's 3,000 ms, Job 3 above).
+    const timeoutMs = leg.timeoutCapMs ? Math.min(clampedMs, leg.timeoutCapMs) : clampedMs;
     const t = setTimeout(() => c.abort(), timeoutMs);
     try {
       if (ledger) ledger.spend();
@@ -8115,7 +8180,10 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
   // A Workers AI only environment validates too (sixth panel,
   // Job 3c): the third leg needs no key, just the bound service.
   const hasCfLeg = !!(env && env.AI && typeof env.AI.run === "function");
-  if ((!token && !hasGroqLeg && !hasCfLeg) || survivors.length > 20) return survivors;
+  // A Gemini only environment validates too (2026-10-14, wave
+  // eight round three, Job 3): the fourth leg needs GEMINI_KEY.
+  const hasGeminiLeg = !!(env && env.GEMINI_KEY);
+  if ((!token && !hasGroqLeg && !hasCfLeg && !hasGeminiLeg) || survivors.length > 20) return survivors;
 
   // Subrequest budget: when the invocation allowance is spent, the
   // LLM pass does not fire at all . the programmatic survivors are
@@ -12290,6 +12358,81 @@ export function keyPhraseHeadTerm(phrase) {
  * verb from being admitted as a phrase's topical token. */
 const GERUND_OPENER_WORDS = new Set(["taking", "eating", "using", "drinking", "getting", "having"]);
 
+/* Bare nutrient and supplement names (2026-10-14, wave eight
+ * round three, Job 4b). The concept machinery tokenizes a
+ * question into single words and drops single letters, so the
+ * most asked supplement subjects never resolved as units at
+ * all: "does vitamin D help you fight off colds" resolved the
+ * concepts {fight, colds} — "vitamin" was locked out by the key
+ * phrase head rule and the "d" died on the length filters — and
+ * zero papers were citable on one of the most asked questions
+ * there is. The class fix: scan the question's raw text for the
+ * known nutrient units below and resolve each as a central
+ * concept backed by its real alternate names (the spellings the
+ * literature actually indexes). `unit` is the concept's term,
+ * `forms` the surface spellings that name it in a question, and
+ * `bridges` the alternate names its papers engage. */
+export const NUTRIENT_UNITS = [
+  { unit: "vitamin d", forms: ["vitamin d3", "vitamin d"], bridges: ["cholecalciferol", "ergocalciferol", "calcifediol", "25-hydroxyvitamin d"] },
+  { unit: "vitamin c", forms: ["vitamin c"], bridges: ["ascorbic acid", "ascorbate"] },
+  { unit: "vitamin b12", forms: ["vitamin b12", "vitamin b-12"], bridges: ["cobalamin", "cyanocobalamin", "methylcobalamin"] },
+  { unit: "vitamin a", forms: ["vitamin a"], bridges: ["retinol"] },
+  { unit: "vitamin e", forms: ["vitamin e"], bridges: ["tocopherol", "alpha-tocopherol"] },
+  { unit: "vitamin k", forms: ["vitamin k"], bridges: ["phylloquinone", "menaquinone"] },
+  { unit: "omega 3", forms: ["omega-3", "omega 3"], bridges: ["omega-3 fatty acids", "n-3 fatty acids", "fish oil", "eicosapentaenoic acid", "docosahexaenoic acid"] },
+  { unit: "magnesium", forms: ["magnesium"], bridges: [] },
+  { unit: "calcium", forms: ["calcium"], bridges: [] },
+  { unit: "iron", forms: ["iron"], bridges: ["ferrous", "ferric"] },
+  { unit: "zinc", forms: ["zinc"], bridges: [] },
+];
+
+/* The nutrient units a question's raw text names, longest form
+ * first so "vitamin d3" resolves the vitamin D unit rather than
+ * being split by the tokenizers. */
+export function nutrientUnitsInQuestion(query) {
+  const qLow = String(query || "").toLowerCase();
+  const found = [];
+  for (const entry of NUTRIENT_UNITS) {
+    const forms = [...entry.forms].sort((a, b) => b.length - a.length);
+    for (const f of forms) {
+      const esc = f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp("(^|[^a-z0-9])" + esc + "([^a-z0-9]|$)").test(qLow)) { found.push(entry); break; }
+    }
+  }
+  return found;
+}
+
+/* Clinical shape detection for the fanout's firing order
+ * (2026-10-14, wave eight round three, Job 2): a question is a
+ * clinical shape when its own words are health domain words —
+ * symptoms, conditions, treatments, body sites, or a nutrient
+ * unit — because for those shapes the literature lives in
+ * PubMed, Europe PMC, and OpenAlex and the long tail's yield is
+ * lowest. Deliberately a plain vocabulary scan of the question
+ * itself, nothing inferred. */
+const CLINICAL_SHAPE_WORDS = new Set([
+  "patient", "patients", "clinical", "symptom", "symptoms", "disease", "diseases",
+  "infection", "infections", "infected", "pain", "treat", "treats", "treatment",
+  "treatments", "therapy", "therapies", "diagnosed", "diagnosis", "cancer", "diabetes",
+  "pregnant", "pregnancy", "breastfeeding", "sprain", "sprained", "injury", "injured",
+  "fever", "cough", "rash", "nausea", "diarrhea", "constipation", "arthritis", "asthma",
+  "allergy", "allergies", "allergic", "migraine", "headache", "syndrome", "disorder",
+  "chronic", "antibiotic", "antibiotics", "antiviral", "vaccine", "vaccination",
+  "inflammation", "inflammatory", "otitis", "dose", "dosage", "supplement", "supplements",
+  "cholesterol", "triglycerides", "glucose", "insulin", "thyroid", "kidney", "liver",
+  "lung", "lungs", "heart", "bone", "bones", "joint", "joints", "muscle", "muscles",
+  "skin", "ear", "ears", "eye", "eyes", "sleep", "sleeping", "blood", "wound",
+  "fracture", "healing", "virus", "viral", "bacterial", "bacteria", "fungal",
+  "depression", "anxiety", "stroke", "hypertension", "obesity", "anemia", "vitamin", "vitamins",
+]);
+export function isClinicalShapeQuery(query) {
+  const q = String(query || "").toLowerCase();
+  if (nutrientUnitsInQuestion(q).length > 0) return true;
+  if (q.includes("blood pressure") || q.includes("swimmer")) return true;
+  const toks = q.split(/[^a-z0-9]+/).filter(Boolean);
+  return toks.some((t) => CLINICAL_SHAPE_WORDS.has(t));
+}
+
 export function questionCentralConcepts(query, dynLookup) {
   const q = String(query || "");
   const concepts = [];
@@ -12354,6 +12497,42 @@ export function questionCentralConcepts(query, dynLookup) {
     }
     if (!orgTerm && q.toLowerCase().includes(org)) orgTerm = org;
     if (orgTerm) push(orgTerm, groupFor(orgTerm), false);
+  }
+  // The nutrient concept (2026-10-14, wave eight round three,
+  // Job 4b): a bare nutrient or supplement name the question
+  // names as a unit is one of its central concepts, pushed
+  // BEFORE the key phrase loop because push() dedupes by term —
+  // a later non subject push of an already seen term returns
+  // without adding its group, and the token level machinery
+  // below can never form these units at all (it splits
+  // "vitamin d" into "vitamin" plus a single letter it then
+  // drops). When no subject group resolved, the nutrient IS
+  // the question's subject, so the citation standard's title
+  // exception can engage it.
+  for (const entry of nutrientUnitsInQuestion(q)) {
+    const group = new Set([
+      entry.unit,
+      ...entry.forms.map((f) => f.toLowerCase()),
+      ...entry.bridges.map((b) => b.toLowerCase()),
+    ]);
+    // One topical unit, counted once: the fallback machinery
+    // can also resolve the nutrient's bare first token as its
+    // own concept ("vitamin" beside "vitamin d", minted from
+    // the same SYNONYMS bridge), and the same unit counted
+    // twice would let a paper clear the two concept standard
+    // on the nutrient alone. The unit concept replaces the
+    // token fragment and inherits its subject flag.
+    let nutrientSubject = !subjectGroup;
+    for (let i = concepts.length - 1; i >= 0; i--) {
+      const c = concepts[i];
+      if (c.term && c.term.indexOf(" ") === -1 && entry.unit.startsWith(c.term + " ")) {
+        if (c.subject) nutrientSubject = true;
+        seenTerms.delete(c.term);
+        if (c.group) seenGroups.delete(c.group);
+        concepts.splice(i, 1);
+      }
+    }
+    push(entry.unit, group, nutrientSubject);
   }
   for (const phrase of phrases.slice(0, 3)) {
     const head = keyPhraseHeadTerm(phrase);
@@ -15432,7 +15611,7 @@ export function extractLiteratureConflicts(answer, sources) {
 // ════════════════════════════════════════════════════════════════════
 export const CEREBRUM_SYSTEM_VERSION = "v1";
 export const CEREBRUM_SYSTEM_v1 = {
-  ID: "You are Cerebrum, a scientific research engine. You search 15 open scholarly databases simultaneously and write cited, synthesis-grade answers. " +
+  ID: "You are Cerebrum, a scientific research engine. You search " + SOURCE_COUNT + " open scholarly databases simultaneously and write cited, synthesis-grade answers. " +
     "You were built by Vaticay. You are not a general assistant . you are a precision instrument for scientific literature. " +
     "ALWAYS respond in English regardless of the language of the source papers.\n\n",
   PERSONALITY:
@@ -16285,7 +16464,7 @@ async function selfReason(query, history, token, ledger = null) {
               // evidence and alternative hypotheses up front, not just
               // confirming ones . is what separates a genuinely rigorous
               // first pass from a keyword-extraction pass wearing a lab coat.
-              "You are Cerebrum Intelligence . the reasoning core of Cerebrum, a scientific literature search engine that queries 14 scholarly " +
+              "You are Cerebrum Intelligence . the reasoning core of Cerebrum, a scientific literature search engine that queries " + SOURCE_COUNT + " scholarly " +
               "databases in parallel. Before a single database is queried, you think about the question the way an exceptional, first-principles " +
               "scientist would: not pattern-matching to keywords, but asking what is ACTUALLY being asked, what would distinguish a right answer " +
               "from a plausible-but-wrong one, and what rival explanation a rigorous person would need to rule out before accepting the obvious one.\n\n" +
@@ -17199,35 +17378,83 @@ async function gatherPapersBody(rawQuery, opts) {
       ? (orgQuoted.replace(/"/g, "") + " " + (topicStr || "")).trim()
       : (topicStr || terms.join(" "));
 
-    // 2026-10-10: return [names, promises] so the caller can label the
-    // optional common-name OpenAlex query correctly.
-    const names = [
-      "europePMC","pubmed","openAlex",
-      ...(bareCommon ? ["openAlexCommon"] : []),
-      "crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos",
-      "CORE","BASE","pmcFullText","openAire","preprints",
-    ];
-    const promises = [
-      europePMC(boolQ, 12, ledger),
-      pubmed(pubmedQ, 12, ncbiKey, ledger),
-      openAlex(bare, 12, openAlexKey, ledger),
-      ...(bareCommon ? [openAlex(bareCommon, 12, openAlexKey, ledger)] : []),
-      crossref(bare, 10, ledger),
-      arxiv(arx, 8, ledger),
-      semanticScholar(bare, 10, s2Key, ledger),
-      doaj(bare, 8, ledger),
-      biorxiv(bare, 8, ledger),
-      plos(bare, 8, ledger),
+    // One paired structure (2026-10-14, wave eight round three,
+    // Job 1): each slot carries its own name AND its fetcher as a
+    // lazy thunk, so a label can never again be assigned to
+    // another source's results. The seventh panel proved the old
+    // parallel names and promises arrays had diverged: Zenodo was
+    // named but never called (its slot's promise was a second
+    // OpenAlex query), so every label from slot 9 onward named
+    // the previous source's fetcher and nothing was ever labelled
+    // Preprint index. The canonical slots are exactly
+    // SCHOLARLY_SOURCES from product.js, in order;
+    // openAlexCommon is an extra QUERY on the openAlex slot, not
+    // a source, and recordRungResults folds it into openAlex.
+    // Fetchers fire through runFanoutPairs below, never at
+    // construction, so the firing order is a decision the runner
+    // makes with the live ledger in view (Job 2).
+    const pairs = [
+      { name: "europePMC", fetch: () => europePMC(boolQ, 12, ledger) },
+      { name: "pubmed", fetch: () => pubmed(pubmedQ, 12, ncbiKey, ledger) },
+      { name: "openAlex", fetch: () => openAlex(bare, 12, openAlexKey, ledger) },
+      ...(bareCommon ? [{ name: "openAlexCommon", fetch: () => openAlex(bareCommon, 12, openAlexKey, ledger) }] : []),
+      { name: "crossref", fetch: () => crossref(bare, 10, ledger) },
+      { name: "arxiv", fetch: () => arxiv(arx, 8, ledger) },
+      { name: "semanticScholar", fetch: () => semanticScholar(bare, 10, s2Key, ledger) },
+      { name: "doaj", fetch: () => doaj(bare, 8, ledger) },
+      { name: "biorxiv", fetch: () => biorxiv(bare, 8, ledger) },
+      { name: "plos", fetch: () => plos(bare, 8, ledger) },
       // Additional high-value sources (4 new)
-      coreSearch(bare, 8, ledger),
-      baseSearch(bare, 8, ledger),
-      pmcFullText(bare, 6, ledger),
-      openAire(bare, 6, ledger),
+      { name: "CORE", fetch: () => coreSearch(bare, 8, ledger) },
+      { name: "BASE", fetch: () => baseSearch(bare, 8, ledger) },
+      { name: "pmcFullText", fetch: () => pmcFullText(bare, 6, ledger) },
+      { name: "openAire", fetch: () => openAire(bare, 6, ledger) },
       // Commit 65 . see preprintSearch: bioRxiv/medRxiv/arXiv topic search
       // that the OpenAlex-mediated `biorxiv()` above was silently missing.
-      preprintSearch(bare, 8, ledger),
+      { name: "preprints", fetch: () => preprintSearch(bare, 8, ledger) },
     ];
-    return { names, promises };
+    return { pairs, clinical: isClinicalShapeQuery(surfaceQuery) };
+  };
+
+  // The fanout's firing order (2026-10-14, wave eight round
+  // three, Job 2). Every fetcher's first call spends from the
+  // shared ledger the moment it fires, and the one sequential
+  // fetcher (PubMed: esearch, then efetch) asks again after its
+  // first answer returns — by which time an unordered fanout has
+  // spent the rung's whole headroom and the late ask is refused.
+  // The seventh panel measured PubMed returning 0 in 6 of 6
+  // probes on exactly this exposure. So when the question is a
+  // clinical shape, or when the ledger's headroom to the
+  // retrieval ceiling cannot fund the whole rung at once, the
+  // high yield trio for the shape (PubMed, Europe PMC, OpenAlex,
+  // the sources the clinical literature actually lives in) fires
+  // and settles BEFORE the long tail starts. With ample headroom
+  // and a non clinical shape, everything fires at once exactly as
+  // before. Results are reassembled in pair order, so
+  // recordRungResults labels them by their own pair's name
+  // regardless of firing order.
+  const FANOUT_PRIORITY_NAMES = ["pubmed", "europePMC", "openAlex", "openAlexCommon"];
+  const runFanoutPairs = async (fanoutResult) => {
+    const pairs = (fanoutResult && fanoutResult.pairs) || [];
+    const fire = (p) => {
+      try { return Promise.resolve(p.fetch()); }
+      catch (e) { return Promise.reject(e); }
+    };
+    let headroomShort = false;
+    if (ledger) {
+      try { headroomShort = ledger.retrievalCapHit(pairs.length); }
+      catch { headroomShort = false; }
+    }
+    const sequenceFirst = !!(fanoutResult && fanoutResult.clinical) || headroomShort;
+    if (!sequenceFirst) return Promise.allSettled(pairs.map(fire));
+    const head = pairs.filter((p) => FANOUT_PRIORITY_NAMES.includes(p.name));
+    const tail = pairs.filter((p) => !FANOUT_PRIORITY_NAMES.includes(p.name));
+    const headResults = await Promise.allSettled(head.map(fire));
+    const tailResults = await Promise.allSettled(tail.map(fire));
+    const byPair = new Map();
+    head.forEach((p, i) => byPair.set(p, headResults[i]));
+    tail.forEach((p, i) => byPair.set(p, tailResults[i]));
+    return pairs.map((p) => byPair.get(p));
   };
 
   // Multi-part question detection.
@@ -17310,7 +17537,14 @@ async function gatherPapersBody(rawQuery, opts) {
     diag.llmExpansionAttempt = { uncovered: dynUncovered.slice(0, 6), groups: 0, via: null };
     if (dynBudgetSkipped) diag.llmExpansionAttempt.skipped = "subrequest-budget";
   }
-  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","zenodo","plos","CORE","BASE","pmcFullText","openAire","preprints"];
+  // The canonical fanout slots, in order (2026-10-14, wave
+  // eight round three): exactly SCHOLARLY_SOURCES from
+  // product.js — Zenodo is gone because the fanout never called
+  // it. Kept as a literal because the parity suite reads this
+  // array out of the source and asserts it equals the canonical
+  // list slot for slot; the fanout's pairs are built in this
+  // same order.
+  const sourceNames = ["europePMC","pubmed","openAlex","crossref","arxiv","semanticScholar","doaj","biorxiv","plos","CORE","BASE","pmcFullText","openAire","preprints"];
 
   let accumulated = [];
   // Subrequest guard (2026-09-14): Cloudflare's free plan allows 50
@@ -17361,7 +17595,8 @@ async function gatherPapersBody(rawQuery, opts) {
     /* The Dive: report real per-database progress for the loading
        instrument. After each rung, count sources that answered OK in at
        least one attempt. The SSE path re-emits finding_papers with this
-       count so the client can show an honest "N of 15 databases answered"
+       count so the client can show an honest "N of 14 databases answered"
+       (the total is the canonical SOURCE_COUNT from product.js)
        instead of a fake progress bar. Fire-and-forget by contract: the
        callback must never slow retrieval, and a throwing callback must
        never break the rung loop. */
@@ -17396,11 +17631,12 @@ async function gatherPapersBody(rawQuery, opts) {
       break;
     }
     const fanoutResult = fanout(rungs[i], i === 0);
-    // fanout returns {names, promises} so the optional common-name query
-    // gets a correct label.
-    const rungNames = fanoutResult.names || sourceNames;
-    const rungPromises = fanoutResult.promises || fanoutResult;
-    const rungResults = await Promise.allSettled(rungPromises);
+    // fanout returns paired { name, fetch } slots (2026-10-14,
+    // wave eight round three): the labels are read off the pairs
+    // themselves and the runner fires them, so a label can never
+    // be assigned to another source's results.
+    const rungNames = fanoutResult.pairs.map((p) => p.name);
+    const rungResults = await runFanoutPairs(fanoutResult);
     accumulated = accumulated.concat(rungResults);
     ladderRungsExecuted = i + 1;
     recordRungResults(i, rungResults, rungNames, false);
@@ -17744,7 +17980,13 @@ async function gatherPapersBody(rawQuery, opts) {
         break;
       }
       try {
-        const subRes = await Promise.allSettled(fanout(sub, false));
+        // Was Promise.allSettled(fanout(...)) on the old
+        // { names, promises } object, which is not iterable:
+        // the call threw, the catch below swallowed it, and
+        // every clause fanout's results were silently dropped
+        // (2026-10-14, wave eight round three). The paired
+        // runner settles the clause's fetchers for real.
+        const subRes = await runFanoutPairs(fanout(sub, false));
         results = results.concat(subRes);
         // The executed term list as a list, for the search record;
         // the keyed count below stays for the funnel diagnostics.
@@ -19073,9 +19315,8 @@ async function gatherPapersBody(rawQuery, opts) {
         break;
       }
       const fanoutResult = fanout(rungs[nextRung], false);
-      const rungNames = fanoutResult.names || sourceNames;
-      const rungPromises = fanoutResult.promises || fanoutResult;
-      const rungResults = await Promise.allSettled(rungPromises);
+      const rungNames = fanoutResult.pairs.map((p) => p.name);
+      const rungResults = await runFanoutPairs(fanoutResult);
       results = results.concat(rungResults);
       recordRungResults(nextRung, rungResults, rungNames, true);
       nextRung++;
@@ -19190,7 +19431,7 @@ const CEREBRUM_PERSONA = `You are Cerebrum . a free scientific literature search
 
 IDENTITY:
 - Built by Vaticay (a 21-year-old developer from Knoxville, TN)
-- You search 15 open scholarly databases in parallel: Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, Zenodo, CORE, BASE, PMC full-text, and OpenAIRE (medRxiv is additionally used for direct author lookups)
+- You search ${SOURCE_COUNT} open scholarly databases in parallel: ${SOURCE_NAMES_TEXT} (medRxiv is additionally used for direct author lookups)
 - You use free-tier AI models (DeepSeek, Gemini Flash, Llama, Qwen, Mistral) . you race them and take the fastest good response
 - You mechanically strip any citation the AI fabricates . no fake DOIs ever
 - You have no account system, no ads, no paywall, no subscription
@@ -22183,7 +22424,7 @@ async function runSearchPipeline(pctx) {
       const trulyNoPapers = ((typeof papers !== "undefined" && papers) || []).length === 0;
       systemPrompt = ID + PERSONALITY +
         (trulyNoPapers
-          ? "ZERO-EVIDENCE ANSWER . READ THIS FIRST. The 15-database literature search returned no papers for this query, and no reference sources were found either. You have NOTHING to synthesize from. There is no evidence block below.\n\n"
+          ? "ZERO-EVIDENCE ANSWER . READ THIS FIRST. The " + SOURCE_COUNT + "-database literature search returned no papers for this query, and no reference sources were found either. You have NOTHING to synthesize from. There is no evidence block below.\n\n"
           : "ZERO CITABLE EVIDENCE . READ THIS FIRST. The literature search returned " + relevanceGatedOut + (relevanceGatedOut === 1 ? " paper, " : " papers, ") +
             "but none cleared the relevance bar for this question, so none are cited below . they were withheld rather than risk misleading citations. You have NOTHING citable to synthesize from. There is no evidence block below.\n\n") +
         "Your ENTIRE answer is exactly these two parts, in this order, and nothing else:\n" +
@@ -24222,10 +24463,45 @@ async function runSearchPipeline(pctx) {
     // if the first model produces garbage, we catch it and try again.
     if (aiOK && useEvidence && evidencePapers.length > 0) {
       const qualityScore = scoreAnswerQuality(answer, query);
+      // The citation binding check (2026-10-14, wave eight
+      // round three, Job 5): the panel measured a wave winner
+      // landing at 2,519 ms inside a 7,349 ms synthesis stage —
+      // the post winner time was this retry (and its citation
+      // sibling below) re racing models over drafts that were
+      // already shippable. So the retry now fires only for a
+      // draft that FAILS the citation binding: the same two
+      // mechanical passes the ship gate runs below
+      // (stripUnsupportedCitations, then the concept coverage
+      // gate) are run here as a dry check, and a draft that
+      // keeps at least one citation through both passes is a
+      // passing draft — the stage closes on it instead of
+      // spending later synthesis attempts re rolling it. A draft
+      // the passes strip to zero, or one with no citations at
+      // all, is a failing draft and the retries below keep
+      // working exactly as before. The dry check is pure text
+      // work over the same inputs the real passes use, so its
+      // verdict is the ship gate's own.
+      let draftPassesBinding = false;
+      try {
+        if (/\[\d+\]/.test(answer)) {
+          const dryStripped = stripUnsupportedCitations(answer, evidencePapers);
+          let dryText = dryStripped.text;
+          if (!isFollowupMode) {
+            const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+              ? buildDynLookup(gResult._diag.llmExpanded)
+              : null;
+            dryText = applyConceptCoverageGate(dryText, evidencePapers, query, gateDyn).text;
+          }
+          draftPassesBinding = /\[\d+\]/.test(dryText);
+        }
+      } catch { draftPassesBinding = false; }
+      if (draftPassesBinding && qualityScore < 35) {
+        aiAttempts.push({ wave: "quality", ok: true, summary: "quality retry skipped: draft passes the citation binding" });
+      }
       // 2026-09-12: the retry race costs up to 12s . only when the global
       // budget has room. A good-enough answer delivered on time beats a
       // marginally better one delivered late.
-      if (qualityScore < 35 && token && msLeft() > 9000) {
+      if (qualityScore < 35 && token && msLeft() > 9000 && !draftPassesBinding) {
         // Build a retry prompt that's EXTREMELY explicit about what went wrong
         const retrySystemPrompt =
           "You are a scientific expert writing a research synthesis. CRITICAL RULES:\n\n" +
@@ -25920,7 +26196,7 @@ async function runSearchPipeline(pctx) {
             : dbUsed,
         /* Which databases actually answered, and how the question was
          * interpreted. This is genuinely useful to a reader . it is what lets
-         * the UI say "12 of 15 databases responded" instead of implying all
+         * the UI say "12 of 14 databases responded" instead of implying all
          * of them did . so it ships to everyone, but only the parts that
          * describe OUR pipeline. */
         /* Which databases actually answered. `ok` means the source returned a

@@ -94,7 +94,11 @@ t("sitemap.xml lists all five marketing URLs", async () => {
 });
 
 t("database-count claims match the sanctioned number", () => {
-  assert.equal(SOURCE_COUNT, 15, `SOURCE_COUNT is ${SOURCE_COUNT}, copy says 15`);
+  // Updated 2026-10-14 (wave eight round three, Job 1): the
+  // canonical list dropped Zenodo (the fanout never called it),
+  // so the sanctioned count is 14 — the number of fetchers the
+  // search actually runs.
+  assert.equal(SOURCE_COUNT, 14, `SOURCE_COUNT is ${SOURCE_COUNT}, copy says 14`);
   const copy = JSON.stringify(MARKETING_PAGES);
   const claims = [...copy.matchAll(/(\d+)\s+open scholarly databases/g)].map((m) => Number(m[1]));
   assert.ok(claims.length > 0, "no database-count claim found in marketing copy");

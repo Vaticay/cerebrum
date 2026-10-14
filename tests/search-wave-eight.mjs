@@ -558,10 +558,16 @@ await test("handler: an AI answer the claim check supports on nothing falls to t
 // ═══════════════════════════════════════════════════════════════
 group("cache — the wave eight schema version");
 
-await test("CACHE_SCHEMA_VERSION is v41 with the wave eight entry in its chain", () => {
+await test("CACHE_SCHEMA_VERSION is v42 with the wave eight entry in its chain", () => {
   const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v41";'),
-    "the cache schema version was not bumped to v41");
+  // Updated 2026-10-14 (wave eight round three): round three
+  // bumped the schema to v42 (source list truth, PubMed two
+  // calls, Gemini validation leg, swimmer's ear and nutrient
+  // concepts), superseding the v41 pin from rounds one and two.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v42";'),
+    "the cache schema version was not bumped to v42");
+  assert.ok(/v42 \(2026-10-14, seventh panel wave eight, round three\)/.test(src),
+    "the v42 chain entry is missing its dated reason");
   assert.ok(/v41 \(2026-10-14, seventh panel wave eight\)/.test(src),
     "the v41 chain entry is missing its dated reason");
 });

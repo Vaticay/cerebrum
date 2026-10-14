@@ -1636,9 +1636,12 @@ await test("the net prices are the fetchers' real internal fanout", () => {
   // result (given query, structured rebuild, organism form);
   // PubMed up to 5 calls (3 esearch formulations, efetch, esummary);
   // Semantic Scholar and OpenAlex cost 1 each.
+  // Updated 2026-10-14 (wave eight round three, Job 2): PubMed
+  // dropped esummary, so its worst case is 4 calls and the
+  // relaxed net is europePMC 3 + pubmed 4 = 7.
   assert.equal(SUBREQUEST_RAW_NET_COST, 5, "raw net = europePMC 3 + semanticScholar 1 + openAlex 1");
   assert.equal(SUBREQUEST_NL_NET_COST, 5, "NL net = semanticScholar 1 + europePMC 3 + openAlex 1");
-  assert.equal(SUBREQUEST_RELAXED_NET_COST, 8, "relaxed net = europePMC 3 + pubmed 5");
+  assert.equal(SUBREQUEST_RELAXED_NET_COST, 7, "relaxed net = europePMC 3 + pubmed 4");
 });
 
 await test("a net may start only when the reserve survives it", () => {

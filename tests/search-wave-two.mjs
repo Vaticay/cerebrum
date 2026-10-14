@@ -597,10 +597,18 @@ await test("the cache schema carries the wave two bump", () => {
   // causative frame, the settled verdict guard, and the zero
   // support serve degrade — cited sets, shelf composition,
   // verdicts, and serve shapes all predate the contract).
+  // then to v42 by the seventh panel wave eight round three
+  // (2026-10-14: the source count made true — Zenodo removed
+  // from the canonical list so the advertised count is 14 and
+  // the fanout's paired name and fetch structure can never
+  // mislabel a source again — and the nutrient concept class
+  // resolving bare supplement names as central concepts, so
+  // served answers and cited sets predate the contract).
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v41"'), "CACHE_SCHEMA_VERSION must be v41");
+  assert.ok(src.includes('// v41 (2026-10-14, seventh panel wave eight)'), "the v41 chain entry must remain (schema history)");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v42"'), "CACHE_SCHEMA_VERSION must be v42");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
