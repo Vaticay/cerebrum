@@ -1876,7 +1876,23 @@ export function isNonLiterature(p) {
 // forms. Cited sets, shelf composition, and serve shapes all
 // change under this wave, so payloads cached under v39 predate
 // the shipped contract.
-const CACHE_SCHEMA_VERSION = "v40";
+// v41 (2026-10-14, seventh panel wave eight): the citation
+// standard in substance — a citable paper must engage at least
+// two of the question's central concepts with an abstract
+// engagement (or carry the subject and a second concept in its
+// title); closed class groups never gate; the coverage gate's
+// floor rule is removed, so an all failing cited set falls
+// through to the extractive tier or the no evidence state; the
+// scorer caps a paper engaging zero central concepts below the
+// floor; rungs carry the subject and lead key phrase heads with
+// no closed class slots; the causative frame learns will, shall,
+// should, fix, treat, and hurt; a settled verdict over a junk
+// cited set is guarded to thin; and an AI answer the final fact
+// check supports on none of its checked claims degrades instead
+// of shipping. Cited sets, shelf composition, verdicts, and
+// serve shapes all change under this wave, so payloads cached
+// under v40 predate the shipped contract.
+const CACHE_SCHEMA_VERSION = "v41";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -3286,6 +3302,13 @@ export function validateExpansionGroups(raw, query) {
     if (!term || seenTerms.has(term)) continue;
     if (term.split(" ").length > 4 || !isCleanWording(term)) continue;
     if (EXPANSION_FRAMING_WORDS.has(term)) continue;
+    // WAVE EIGHT (2026-10-14, Job 3a): a group whose term is
+    // closed class scaffolding (every content token a gate
+    // function word) is not a concept group: the model proposing
+    // one for "while" gets the same refusal the deterministic
+    // paths give, so no group of its own exists for it anywhere
+    // it would gate.
+    if (term.split(" ").every((w) => isGateFunctionWord(w))) continue;
     // An absence is not a searchable concept: a negation led group
     // can never become a boolean requirement (see hasNegationLead).
     if (hasNegationLead(term)) continue;
@@ -3388,7 +3411,11 @@ export function inflectionVariants(term) {
     const pluralBlocked = /(nce|rce)$/.test(t)
       || STOPWORDS.has(t)
       || EXPANSION_FRAMING_WORDS.has(t)
-      || CENTRAL_TERM_CLOSED_CLASS.has(t);
+      || CENTRAL_TERM_CLOSED_CLASS.has(t)
+      // WAVE EIGHT (2026-10-14, Job 3a): the closed class list
+      // is the full gate function predicate now — "while" passed
+      // every list above and grew "whiles".
+      || GATE_FUNCTION_WORDS.has(t);
     if (!pluralBlocked) {
       const consonantY = t.endsWith("y") && !/[aeiou]y$/.test(t);
       // Plural formation, same guard: a sibilant final (s, x, z, ch,
@@ -3473,6 +3500,9 @@ export function pluralFormOf(term) {
   // the panel's specimen non words in context).
   if (PLURAL_NUMBER_WORDS.has(t)) return null;
   if (STOPWORDS.has(t) || EXPANSION_FRAMING_WORDS.has(t) || CENTRAL_TERM_CLOSED_CLASS.has(t)) return null;
+  // WAVE EIGHT (2026-10-14, Job 3a): "whiles" — the full gate
+  // function predicate bars the rest of the closed class.
+  if (GATE_FUNCTION_WORDS.has(t)) return null;
   if (t.endsWith("y") && !/[aeiou]y$/.test(t)) return t.slice(0, -1) + "ies";
   if (/(s|x|z|ch|sh)$/.test(t)) return t + "es";
   return t + "s";
@@ -4675,7 +4705,7 @@ export function buildStructuredQuery(query, dynLookup) {
   // never be one. The loose OR fallback below still ranks unfiltered:
   // those terms are a recall aid, not a gate.
   const eligible = ranked.filter(
-    (x) => x.spec >= 0.5 && !QUERY_FRAMING_WORDS.has(x.t)
+    (x) => x.spec >= 0.5 && !QUERY_FRAMING_WORDS.has(x.t) && !isGateFunctionWord(x.t)
   );
   const anchors = eligible.slice(0, 4).map((x) => x.t);
   // 2026-10-13 (rescore panel, Search retrieval 635 to 545): subject
@@ -4729,6 +4759,30 @@ export function buildStructuredQuery(query, dynLookup) {
         if (!boostReliant(anchors[i])) continue;
         if (hasNegationLead(anchors[i])) { victim = i; break; }
         if (victim === -1) victim = i;
+      }
+      // WAVE EIGHT (2026-10-14, Job 3a arbitration): among the
+      // remaining boost reliant victims, evict the one whose
+      // specificity is HIGHEST, the last in race order on a tie.
+      // The pure race order rule seated the subject by evicting
+      // whichever reliant word happened to hold the final slot;
+      // once closed class words stopped occupying slots (Job 3a),
+      // that slot held a genuinely weak word ("prey") and the
+      // displacement left "whole" — a boost reliant everyday
+      // word, one of the panel's named rung squatters — LEADING
+      // the snake query while "snakes" sat last. The boost
+      // reliant word with the highest score is the one
+      // masquerading as an anchor; it is the correct eviction.
+      // On a tie the last in race order goes, as before: the sea
+      // turtle race ties sandy and crawl at 0.75, and crawl (the
+      // later, weaker standing word) is the one that must yield.
+      if (victim === -1 || !hasNegationLead(anchors[victim])) {
+        let bestSpec = -1;
+        for (let i = 0; i < anchors.length; i++) {
+          if (!boostReliant(anchors[i]) || hasNegationLead(anchors[i])) continue;
+          const entry = ranked.find((r) => r.t === anchors[i]);
+          const aSpec = entry ? entry.spec : 0;
+          if (aSpec >= bestSpec) { bestSpec = aSpec; victim = i; }
+        }
       }
       if (victim === -1) break;
       anchored.delete(anchors[victim]);
@@ -4814,7 +4868,22 @@ export function buildStructuredQuery(query, dynLookup) {
   if (!usablePhraseAnchors.length && anchors.length < 2) {
     // Not enough specific terms to build groups . OR the best few so we still
     // get recall rather than an over-narrow AND.
-    return ranked.slice(0, 4).map((x) => x.t).join(" OR ");
+    // WAVE EIGHT (2026-10-14, Job 3a): the loose OR path obeys
+    // the same rung discipline as the anchor race — closed class
+    // words hold no slot, and the question's subject and lead key
+    // phrase head terms lead the list, so a thin question's only
+    // rung still carries what the question is about.
+    const looseTerms = ranked.filter((x) => !isGateFunctionWord(x.t)).map((x) => x.t);
+    const leadTerms = [];
+    try {
+      for (const c of questionCentralConcepts(query, dynLookup)) {
+        if (c && c.term && c.term.indexOf(" ") === -1 && looseTerms.includes(c.term) && !leadTerms.includes(c.term)) {
+          leadTerms.push(c.term);
+        }
+      }
+    } catch { /* race order stands */ }
+    const leadSet = new Set(leadTerms);
+    return [...leadTerms, ...looseTerms.filter((t) => !leadSet.has(t))].slice(0, 4).join(" OR ");
   }
 
   const tokenAnchors = anchors
@@ -7633,13 +7702,44 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
     // only paper would be filtered out of the pool before the
     // gate's corrected standard could ever admit it.
     const subjectGroup = subjectConceptGroup(rawQuery, resolvedGroups, dynLookup);
+    // WAVE EIGHT (2026-10-14, seventh panel, Job 1): the touch
+    // counting itself. paperConceptGroupHits matches whole
+    // tokens, so a paper saying "sprain" never touched the
+    // question's "sprained" group, and the ankle sprain shelf
+    // died here before any gate could judge it (the panel's live
+    // shape: 22 gathered, 0 cited). The citation standard now
+    // counts a concept engaged on a stem variant (centralConcept
+    // Hits), and this accounting — whose own header promises it
+    // mirrors the gate's standard — counts a group touched the
+    // same way: the term, a stem variant, or an f/v alternation
+    // of any member, in title or abstract. The survival RULE is
+    // unchanged (two groups, or the subject group); only what
+    // counts as a touch follows the corrected standard.
+    const groupTouches = (p, gs) => {
+      const hay = ((p.title || "") + " " + (usableAbstract(p) || p.abstract || "")).toLowerCase();
+      return gs.filter((g) => textTouchesConceptGroup(hay, g)).length;
+    };
+    // WAVE EIGHT (2026-10-14, Job 1b): the concept path. The
+    // citation standard counts CENTRAL CONCEPTS, and a concept
+    // can engage through the SYNONYMS bridge with no gating
+    // group behind it at all (yogurt has no hand group; its
+    // reviews engage it by saying "probiotic"). A filter that
+    // counts only groups kills exactly those papers before the
+    // gate can judge them — the panel's yogurt shape, where the
+    // reviews sat in the excluded pile. So a paper engaging at
+    // least two central concepts by the gate's own counting
+    // (centralConceptHits) is on topic here exactly as it is
+    // citable at the gate: the invariant this accounting has
+    // always claimed, now true in both directions.
+    const filterConcepts = strongCentralConcepts(questionCentralConcepts(rawQuery, dynLookup));
     const survivors = papers.filter((p) => {
-      const hits = paperConceptGroupHits(p, resolvedGroups);
-      if (hits === 0) {
+      const hits = groupTouches(p, resolvedGroups);
+      const conceptHits = filterConcepts.length > 0 ? centralConceptHits(p, filterConcepts).total : 0;
+      if (hits === 0 && conceptHits === 0) {
         p._filteredReason = "Paper touches none of the query's resolved concept groups . likely a different research field entirely";
         return false;
       }
-      if (hits < 2 && !(subjectGroup && paperConceptGroupHits(p, [subjectGroup]) >= 1)) {
+      if (hits < 2 && conceptHits < 2 && !(subjectGroup && groupTouches(p, [subjectGroup]) >= 1)) {
         p._filteredReason = `Paper touches only ${hits} of the query's ${resolvedGroups.length} resolved concept groups (needs 2, or a touch of the question's subject group) . one concept in common is a phrase collision, not the question's subject`;
         return false;
       }
@@ -7735,7 +7835,15 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
   const survivors = papers.filter((p) => {
     const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
     const hitCount = acceptSets.filter((set) => {
-      for (const term of set) if (hay.includes(term)) return true;
+      for (const term of set) {
+        if (hay.includes(term)) return true;
+        // WAVE EIGHT (2026-10-14, Job 1): a stem variant of the
+        // set's term is the same touch (the "sprain" paper on the
+        // "sprained" question), counted the way the citation
+        // standard counts concept engagement. Substring matching
+        // alone could never see it.
+        if (termStemHitInText(hay, term)) return true;
+      }
       return false;
     }).length;
     if (hitCount === 0) {
@@ -10671,6 +10779,47 @@ export function buildDisagreementVerdict(conflicts, nCitedSources) {
   };
 }
 
+/* WAVE EIGHT (2026-10-14, seventh panel, Job 4a): a SETTLED
+ * verdict asserts the cited sources were checked and none
+ * opposed — an assertion that needs a cited set worth checking.
+ * The panel's specimen shipped "settled" over a poem and three
+ * disappearing mass papers at relevance 50 to 62: under the wave
+ * eight standard those papers are not cited at all, so the fresh
+ * path never builds this state — but cached and legacy records
+ * can still carry a settled verdict over a junk cited set, and
+ * the verdict must not stand there. The guard: a settled verdict
+ * whose cited set contains NO citable paper, or whose mean
+ * relevance sits below the floor, is replaced by the thin shape
+ * — the verdict that says the evidence could not be weighed —
+ * and the caller adds the gap line naming the pool's irrelevance
+ * plainly. Divided and thin verdicts pass through untouched: a
+ * divided verdict over weak papers is still a true statement
+ * about disagreement, and thin is already the honest shape. */
+export function guardSettledVerdict(verdict, citedPapers, gateCtx) {
+  if (!verdict || verdict.status !== "settled") return { verdict, guarded: false };
+  const list = (Array.isArray(citedPapers) ? citedPapers : []).filter(Boolean);
+  if (list.length === 0) return { verdict, guarded: false };
+  let anyCitable = false;
+  try {
+    anyCitable = list.some((p, i) => paperIsCitable(p, i + 1, gateCtx));
+  } catch { anyCitable = false; }
+  const meanRelevance = list.reduce((s, p) => {
+    const r = Number(p && p.relevance) || Number(p && p.relevanceScore) || Number(p && p.blendedScore) || 0;
+    return s + r;
+  }, 0) / list.length;
+  if (anyCitable && meanRelevance >= RELEVANCE_FLOOR) return { verdict, guarded: false };
+  return {
+    verdict: {
+      status: "thin",
+      conflictCount: 0,
+      summary: "No opposing findings were detected, but the cited sources do not clear the citation standard " +
+        "for this question, so there was no settled evidence to weigh. That is thin evidence, not a consensus.",
+    },
+    guarded: true,
+    reason: !anyCitable ? "no citable paper in the cited set" : "mean cited relevance below the floor",
+  };
+}
+
 // Merge the source-level pass with the text-mining recall pass and compute
 // the ONE verdict both the "Where researchers disagree" section and the
 // Flashpoints panel agree on. Exported so the reconciliation itself is
@@ -11190,6 +11339,44 @@ function joinAnswerSections(blocks) {
   return parts.join("\n\n").trim();
 }
 
+/* WAVE EIGHT (2026-10-14, seventh panel, Job 4b): the short
+ * answer's central claim — the first substantive sentence under
+ * the "The short answer" heading, or, when the answer carries no
+ * such section, the first substantive sentence of the body. The
+ * zero support degrade asks whether THIS claim is among the
+ * claims the fact check refused: an answer whose peripheral
+ * claims failed can be repaired by stripping them, but an answer
+ * whose central claim failed has no answer left in it, and the
+ * serve must degrade rather than ship the husk as a research
+ * answer. */
+export function shortAnswerCentralClaim(answer) {
+  const text = String(answer || "");
+  if (!text) return null;
+  const substantive = (s) => {
+    const t = String(s || "").trim();
+    return t.length >= 40 && /[a-z]/i.test(t) && !/^#{1,6}\s/.test(t);
+  };
+  try {
+    const blocks = sectionizeAnswer(answerBodyBeforeBibliography(text));
+    const shortBlock = blocks.find((b) => b.headingText && /short answer/i.test(b.headingText));
+    if (shortBlock) {
+      for (const line of shortBlock.lines) {
+        for (const s of splitBodySentences(line)) {
+          if (substantive(s)) return s;
+        }
+      }
+    }
+    for (const block of blocks) {
+      for (const line of block.lines) {
+        for (const s of splitBodySentences(line)) {
+          if (substantive(s)) return s;
+        }
+      }
+    }
+  } catch { /* fall through to null */ }
+  return null;
+}
+
 /* JOB 3(b): a claim the fact check marks unsupported leaves the
  * shipped text, not just its citation. Targets come in two
  * strengths. HARD targets are the deep check's own unsupported
@@ -11548,16 +11735,18 @@ export function bindBakedConfidenceLine(answer, level, line) {
 // reading only; the cited set is bound per paper at selection
 // (paperIsCitable), so this gate re judges a slice that already
 // cleared and the flag carries no exemption anywhere.
-// And the floor: if NO cited paper clears the gate, the answer is
-// returned untouched. An answer that would cite nothing keeps its
-// best available papers rather than citing none; zero sources is
-// unacceptable and a mechanical pass must never manufacture it.
-// In the handler flow the floor is a drift guard only: the
-// evidence slice is bound before synthesis, so a draft can cite
-// a failing paper only if the gate's resolution moved between
-// selection and this pass, and in that case keeping the draft's
-// citations beats stripping the answer to nothing on a
-// bookkeeping disagreement.
+// And the floor is RETIRED (2026-10-14, seventh panel, wave
+// eight, Job 2): the wave seven text here held that if NO cited
+// paper clears the gate, the answer is returned untouched,
+// because zero sources is unacceptable and a mechanical pass
+// must never manufacture it. The panel measured the outcome:
+// drafts citing only junk survived precisely because they cited
+// only junk. The gate now demotes an all failing cited set like
+// any other, and the handler's own flip (an answer with no
+// citation markers left does not ship as an AI answer) routes
+// the run to the extractive tier over citable papers, or to the
+// honest no evidence state when that set is empty — which is
+// the state zero sources belongs in: stated, not padded over.
 
 // The question's distinct resolved concept groups: the canonical
 // group Sets its content words resolve to (conceptSetFor, so model
@@ -11637,6 +11826,49 @@ export function questionConceptGroups(query, dynLookup) {
 // when the curated groups already carry the standard. Consumers
 // that judge through a lookup rather than a group list (the
 // extractive instruments, via extractiveTermHit) gate through this.
+/* WAVE EIGHT (2026-10-14, seventh panel, Job 1a and Job 3a):
+ * the CLOSED CLASS words that are neither STOPWORDS nor framing
+ * words — subordinators, temporal connectives, frequency and
+ * modal adverbs, and their kin. A concept group keyed on one of
+ * these is not a concept group at all: "while" grew the alternate
+ * "whiles" through the fallback builder, resolved as a gating
+ * group, let the coffee question's subject identification land on
+ * "drinking", and occupied a retrieval rung while "coffee" fell
+ * out of it. The exclusion is one predicate used by every site
+ * that must not treat scaffolding as content: the gate's group
+ * set, the central term construction, the rung construction, and
+ * the expansion generators (a function word grows no alternates).
+ * It deliberately does NOT include QUERY_FRAMING_WORDS: that list
+ * carries topical words in some questions ("diet", "feed",
+ * "evidence"), and barring groups keyed on them would damage real
+ * questions; the framing list already has its own consumers. */
+const GATE_FUNCTION_WORDS = new Set([
+  // subordinators and temporal connectives
+  "while", "whilst", "when", "whenever", "whereas", "whereby",
+  "although", "though", "because", "unless", "until", "once",
+  "twice", "if", "as",
+  // frequency and degree adverbs
+  "always", "never", "often", "sometimes", "rarely", "seldom",
+  "usually", "generally", "frequently", "occasionally", "hardly",
+  "barely", "nearly", "almost", "quite", "rather", "instead",
+  "also", "just", "even", "still", "already", "yet", "ago",
+  // modal and likelihood adverbs
+  "likely", "unlikely", "probably", "possibly", "perhaps",
+  "maybe", "certainly", "definitely", "actually", "really",
+  // quantity words the closed class list stops short of
+  "many", "much", "few", "several", "another", "either",
+  "neither", "both", "each", "every", "any", "none",
+]);
+
+export function isGateFunctionWord(word) {
+  const w = String(word || "").toLowerCase();
+  if (!w) return true;
+  return STOPWORDS.has(w)
+    || EXPANSION_FRAMING_WORDS.has(w)
+    || CENTRAL_TERM_CLOSED_CLASS.has(w)
+    || GATE_FUNCTION_WORDS.has(w);
+}
+
 export function gateDynLookup(query, dynLookup) {
   if (!dynLookup) return null;
   return questionConceptGroups(query, null).length >= 2 ? null : dynLookup;
@@ -11644,7 +11876,25 @@ export function gateDynLookup(query, dynLookup) {
 
 // The groups that count for gating, per the precedence rule above.
 export function gateConceptGroups(query, dynLookup) {
-  return questionConceptGroups(query, gateDynLookup(query, dynLookup));
+  const effective = gateDynLookup(query, dynLookup);
+  let groups = questionConceptGroups(query, effective);
+  // WAVE EIGHT (2026-10-14, seventh panel, Job 1a): a group the
+  // model or fallback lookup keys on a closed class word is not a
+  // concept group for gating, however the group arrived. The
+  // exclusion matches on the lookup entry itself (the Set object
+  // the gating resolution would hand back for that key), so a
+  // curated group that merely CONTAINS a function word as a
+  // member is untouched — only groups keyed on one are dropped.
+  // The groups may still exist for expansion bookkeeping through
+  // questionConceptGroups; they simply never gate.
+  if (effective) {
+    const banned = new Set();
+    for (const [key, set] of effective) {
+      if (isGateFunctionWord(key)) banned.add(set);
+    }
+    if (banned.size > 0) groups = groups.filter((g) => !banned.has(g));
+  }
+  return groups;
 }
 
 // How many of the given groups a paper touches, by membership: a
@@ -11838,8 +12088,16 @@ function earliestGroupInText(text, groups) {
   return bestGroup;
 }
 
+// WAVE EIGHT (2026-10-14, seventh panel, Job 3b): the frame
+// learns the starters will, shall, should (can was already here)
+// and the verbs fix and treat (help, reduce, prevent, cause were
+// already here), plus hurt — the coffee fixture's verb ("will
+// drinking coffee while pregnant hurt the baby"): without it the
+// frame cannot close on that question at all, and route 3 named
+// the gerund "drinking" the subject while the rung dropped
+// "coffee" and kept "while".
 const SUBJECT_CAUSATIVE_FRAME =
-  /^(?:does|do|did|can|could|is|are|was|were)\s+(.+?)\s+(?:make|makes|made|cause|causes|caused|lead|leads|led|change|changes|changed|affect|affects|affected|increase|increases|increased|decrease|decreases|decreased|reduce|reduces|reduced|prevent|prevents|prevented|improve|improves|improved|trigger|triggers|triggered|help|helps|helped)\b/;
+  /^(?:does|do|did|can|could|will|shall|should|is|are|was|were)\s+(.+?)\s+(?:make|makes|made|cause|causes|caused|lead|leads|led|change|changes|changed|affect|affects|affected|increase|increases|increased|decrease|decreases|decreased|reduce|reduces|reduced|prevent|prevents|prevented|improve|improves|improved|trigger|triggers|triggered|help|helps|helped|fix|fixes|fixed|treat|treats|treated|hurt|hurts|hurting)\b/;
 
 // The question's subject concept group (one of `groups`), or null
 // when the question names no identifiable subject entity. See the
@@ -11920,11 +12178,357 @@ export function subjectConceptGroup(query, groups, dynLookup) {
   return null;
 }
 
+/* ── WAVE EIGHT (2026-10-14, seventh panel, Job 1b): THE
+ * TOPICALITY STANDARD ──────────────────────────────────────────
+ * The seventh panel's verdict on the wave seven binding: "the
+ * standard is vacuous — a single group touch clears regardless
+ * of the question's other concepts, and junk cleared in both
+ * modes at scale (cited papers at relevance 57 to 92 that engage
+ * none of the question's concepts)." The subject touch standard
+ * was the defect in its purest form: one touch of one group, and
+ * the paper was citable whatever the question's other concepts
+ * were and wherever the touch landed.
+ *
+ * The corrected standard judges TOPICALITY: the question's
+ * CENTRAL concepts — its subject (when identified) plus the head
+ * terms of its lead key phrases — and what a paper must engage
+ * of them. A concept is judged as the term together with its
+ * gating concept group, so the vocabulary bridge still applies
+ * (a yogurt paper that says "probiotic" engages the yogurt
+ * concept); what changed is that ONE concept is no longer
+ * enough, and a title alone is no longer enough. The rule, in
+ * paperClearsCitationGate below:
+ *
+ *   - the paper engages at least TWO central concepts across
+ *     title and abstract, with at least one engagement in the
+ *     abstract body; OR
+ *   - the paper's TITLE carries the subject concept AND a second
+ *     central concept (the one case where title only engagement
+ *     is topicality: a title is a paper's own claim about its
+ *     subject, and a title naming both of the question's
+ *     concepts is on the question even before its abstract is
+ *     read).
+ *
+ * A question resolving a single central concept is judged on
+ * that concept with an abstract engagement required. A question
+ * resolving none keeps the legacy group accounting below, which
+ * is also what questions the decomposition cannot read (no key
+ * phrases, no groups) fall back to. */
+function subjectTermInQuestion(query, group) {
+  const q = String(query || "").toLowerCase();
+  let best = null;
+  let bestPos = Infinity;
+  for (const member of group || []) {
+    const m = String(member || "").toLowerCase().trim();
+    if (!m) continue;
+    let idx = -1;
+    if (m.indexOf(" ") !== -1) {
+      idx = q.indexOf(m);
+    } else {
+      const mm = new RegExp("\\b" + m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b").exec(q);
+      if (mm) idx = mm.index;
+    }
+    if (idx >= 0 && idx < bestPos) { bestPos = idx; best = m; }
+  }
+  return best;
+}
+
+/* The head term of a lead key phrase: its last CONTENT word.
+ * The codebase's own head convention (fallbackKeyPhraseHeads)
+ * takes the phrase's last word; the wave eight correction is
+ * that closed class words are never heads — "drinking coffee
+ * while" heads on "coffee", not on the scaffolding the glue
+ * happened to leave last. */
+export function keyPhraseHeadTerm(phrase) {
+  const toks = String(phrase || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  for (let i = toks.length - 1; i >= 0; i--) {
+    const t = toks[i];
+    if (t.length > 2 && !isGateFunctionWord(t)) return t;
+  }
+  return null;
+}
+
+/* Gerund openers (the wave seven subject frame's set): verbs
+ * that open a phrase as scaffolding ("drinking coffee",
+ * "taking creatine"). They frame a concept; they are never
+ * one. Used by the central concept resolution to keep a frame
+ * verb from being admitted as a phrase's topical token. */
+const GERUND_OPENER_WORDS = new Set(["taking", "eating", "using", "drinking", "getting", "having"]);
+
+export function questionCentralConcepts(query, dynLookup) {
+  const q = String(query || "");
+  const concepts = [];
+  const seenTerms = new Set();
+  const seenGroups = new Set();
+  const push = (term, group, subject) => {
+    const t = term ? String(term).toLowerCase() : null;
+    if (t && seenTerms.has(t)) {
+      if (subject) {
+        const ex = concepts.find((c) => c.term === t);
+        if (ex) { ex.subject = true; if (group) ex.group = group; }
+      }
+      return;
+    }
+    if (group && seenGroups.has(group) && !subject) return;
+    if (t) seenTerms.add(t);
+    if (group) seenGroups.add(group);
+    concepts.push({ term: t, group: group || null, subject: !!subject });
+  };
+  const gateLookup = gateDynLookup(q, dynLookup);
+  const groups = gateConceptGroups(q, dynLookup);
+  const subjectGroup = subjectConceptGroup(q, groups, dynLookup);
+  if (subjectGroup) push(subjectTermInQuestion(q, subjectGroup), subjectGroup, true);
+  let phrases = [];
+  let analysis = null;
+  try {
+    analysis = analyzeQuery(q);
+    phrases = (analysis && analysis.keyPhrases) || [];
+  } catch { phrases = []; }
+  // A concept's group: the gating group when one resolves, and
+  // otherwise the term's SYNONYMS set — the codebase's own
+  // vocabulary bridge, the same one the structured query builder
+  // and the scorer consult (yogurt -> probiotic, lactobacillus,
+  // fermented milk). The hand concept table has no yogurt group
+  // at all; without the synonyms bridge the concept would judge
+  // on the bare word while every other stage bridges it.
+  const groupFor = (term) => {
+    const g = conceptSetFor(term, gateLookup);
+    if (g) return g;
+    const syns = term ? SYNONYMS[String(term).toLowerCase()] : null;
+    if (Array.isArray(syns) && syns.length > 0) {
+      return new Set([String(term).toLowerCase(), ...syns.map((x) => String(x).toLowerCase())]);
+    }
+    return null;
+  };
+  // The organism concept: when the question names an organism,
+  // the organism is one of its central concepts whether or not
+  // a key phrase head carries it. The yogurt question's phrases
+  // glue "yogurt" out entirely ("eating fix upset",
+  // "antibiotics"), and its subject route lands on the gut group
+  // through the organism name's "milk" — so without this, the
+  // concept the question is actually about never enters the
+  // standard. The concept's term is the question's own word for
+  // the organism (the SYNONYMS key that names it), so the bridge
+  // above applies to it in full.
+  if (analysis && analysis.organism) {
+    const org = String(analysis.organism).toLowerCase();
+    let orgTerm = null;
+    for (const tok of q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)) {
+      const syns = SYNONYMS[tok];
+      if (Array.isArray(syns) && syns.some((x) => String(x).toLowerCase() === org)) { orgTerm = tok; break; }
+    }
+    if (!orgTerm && q.toLowerCase().includes(org)) orgTerm = org;
+    if (orgTerm) push(orgTerm, groupFor(orgTerm), false);
+  }
+  for (const phrase of phrases.slice(0, 3)) {
+    const head = keyPhraseHeadTerm(phrase);
+    if (head) push(head, groupFor(head), false);
+    // The phrase's topical word is not always its head: in
+    // "creatine powder" the head is the form word and the topic
+    // rides first, and in "hair out men" the head is the
+    // population word. A standard built from heads alone judged
+    // the creatine gerund question on {powder, men} and the one
+    // on point trial engaged neither — the wave seven gerund
+    // specimen, which the legacy central terms path used to
+    // clear. So when a lead phrase's head is WEAK (specificity
+    // under 0.7: form words, population words, scaffolding),
+    // the phrase also admits its most specific remaining content
+    // token when that token outranks the head — creatine 0.7
+    // over powder 0.5, hair 0.65 over men 0.4. A strong head
+    // (checkout 0.7, grocery, cold) admits nothing: a token
+    // beside it ("store" beside "checkout") is the same topical
+    // unit counted twice, and the grocery collisions cleared on
+    // exactly that double count. Gerund openers and question
+    // verbs are never admitted (drinking beside coffee is the
+    // frame, not a concept). Group backedness cannot arbitrate
+    // here: the expansion fallback mints a group for any
+    // uncovered word, powder included, while leaving checkout
+    // bare in the deterministic table — specificity can.
+    if (head) {
+      const headSpec = termSpecificity(head);
+      if (headSpec < 0.7) {
+        let best = null;
+        let bestSpec = headSpec;
+        for (const tok of String(phrase).toLowerCase().split(/[^a-z0-9]+/)) {
+          if (!tok || tok.length < 3 || tok === head || isGateFunctionWord(tok)) continue;
+          if (QUESTION_VERBS.has(tok) || GERUND_OPENER_WORDS.has(tok)) continue;
+          const sp = termSpecificity(tok);
+          // A tie with the weak head admits (hair ties men at
+          // 0.65, and the lead word is the topic); a later token
+          // must strictly beat the current best, so the earliest
+          // of equals — the phrase's lead — is the one admitted.
+          if (sp >= 0.5 && sp >= headSpec && (best === null || sp > bestSpec)) { best = tok; bestSpec = sp; }
+        }
+        if (best) push(best, groupFor(best), false);
+      }
+    }
+  }
+  // Phrase concepts: a gating group the question's own text
+  // names by one of its multi word members (the phrase scan
+  // questionConceptGroups runs) is one of the question's central
+  // concepts even when no key phrase head carries it — the
+  // mimosa question's "fold their leaves" names the touch
+  // response group outright, and a standard built from heads
+  // alone would never credit a paper for engaging the very
+  // concept the question spelled out.
+  {
+    const qLow = q.toLowerCase();
+    for (const g of groups) {
+      if (seenGroups.has(g)) continue;
+      for (const member of g) {
+        const m = String(member || "").toLowerCase();
+        if (m.indexOf(" ") !== -1 && qLow.includes(m)) {
+          push(m, g, false);
+          break;
+        }
+      }
+    }
+  }
+  // Top up from the phrases' own words when the heads alone leave
+  // fewer than two concepts: a concept that is not a phrase head
+  // (the sleep question's "cold" rides behind "likely" in its
+  // phrase) is still one of the question's central concepts, and
+  // a standard built without it would judge the question on half
+  // its meaning.
+  if (concepts.length < 2) {
+    for (const phrase of phrases.slice(0, 3)) {
+      if (concepts.length >= 2) break;
+      const toks = String(phrase || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      for (const t of toks) {
+        if (concepts.length >= 2) break;
+        if (t.length > 2 && !isGateFunctionWord(t)) push(t, groupFor(t), false);
+      }
+    }
+  }
+  return concepts;
+}
+
+/* Term engagement inside one field of text: the term itself, a
+ * stem variant of it (the extractiveTermHit stem discipline —
+ * grows/growth, sprained/sprain/sprains), or, for a multi word
+ * term, the phrase. No concept group here: the group is judged
+ * separately, against the concept's own resolved group, so a hit
+ * is never credited through a different group than the one the
+ * concept carries. The f/v alternation (leaf/leaves, life/lives,
+ * knife/knives) is a real inflection class the s strip stemmer
+ * cannot see — "leaves" stems to "leave", which shares no prefix
+ * with "leaf" — so stem families carry it explicitly, for
+ * MATCHING only (generation stays restricted to plausible noun
+ * forms, as nounFormVariants and pluralFormOf keep it). */
+function stemFamilyOf(w) {
+  const fam = new Set([extractiveStem(w)]);
+  if (w.endsWith("ves") && w.length > 4) {
+    fam.add(w.slice(0, -3) + "f");
+    fam.add(w.slice(0, -3) + "fe");
+  }
+  if (w.endsWith("f") && w.length > 3) fam.add(w.slice(0, -1) + "ves");
+  if (w.endsWith("fe") && w.length > 3) fam.add(w.slice(0, -2) + "ves");
+  return fam;
+}
+
+function termStemHitInText(lowText, term) {
+  const t = String(term || "").toLowerCase().trim();
+  if (!t || !lowText) return false;
+  if (t.indexOf(" ") !== -1) return lowText.indexOf(t) >= 0;
+  const stem = extractiveStem(t);
+  const fam = stemFamilyOf(t);
+  for (const tok of lowText.split(/[^a-z0-9]+/)) {
+    if (!tok) continue;
+    if (tok === t) return true;
+    if (stem.length >= 3) {
+      const ts = extractiveStem(tok);
+      if (ts === stem) return true;
+      if (stem.length >= 4 && ts.startsWith(stem)) return true;
+      // The term carrying an inflection the text's base form
+      // lacks ("sprained" the term, "sprain" in the text) is
+      // a hit — but only when the term's remainder after the
+      // token's stem is an inflectional suffix. A bare prefix
+      // is a different word: "zorb" prefixes "zorblaxin" with
+      // remainder "laxin", which is no suffix, and the
+      // alternate only paper in the query expansion suite
+      // survived on exactly that false bridge (2026-10-14
+      // arbitration, both directions pinned by the suites that
+      // caught each).
+      if (ts.length >= 4 && stem.startsWith(ts) &&
+          /^(ed|ing|es|s|d|en|er|est)$/.test(stem.slice(ts.length))) return true;
+    }
+    if (fam.size > 1 || tok.endsWith("ves") || tok.endsWith("f") || tok.endsWith("fe")) {
+      const tokFam = stemFamilyOf(tok);
+      for (const f of fam) {
+        if (f.length >= 3 && tokFam.has(f)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function textTouchesConceptGroup(lowText, group) {
+  if (!group || !lowText) return false;
+  for (const member of group) {
+    const m = String(member || "").toLowerCase().trim();
+    if (!m) continue;
+    if (m.indexOf(" ") !== -1) {
+      if (lowText.indexOf(m) >= 0) return true;
+    } else if (termStemHitInText(lowText, m)) return true;
+  }
+  return false;
+}
+
+/* centralConceptHits(paper, concepts): which of the question's
+ * central concepts the paper engages, and where. A concept is
+ * engaged in a field when the field carries the term (or a stem
+ * variant) or any member of the concept's gating group — the
+ * bridge is the concept's own group, resolved the gating way, so
+ * "probiotic" in an abstract engages the yogurt concept exactly
+ * as the group accounting always counted it, and nothing looser. */
+/* The concepts the citation standard JUDGES on. A central
+ * concept backed by a vocabulary group (curated, model, or the
+ * SYNONYMS bridge), or the subject itself, is a topical unit. A
+ * BARE head word with no group behind it ("baby" in the belly
+ * question) is a loose word, and wave two's collision set is the
+ * standing proof of what loose words admit: the labor dance and
+ * surrogacy papers engage "belly" plus "baby" and are about
+ * neither germs nor growth. So when at least one backed concept
+ * resolves, the standard judges on the backed set alone; bare
+ * words decide only when nothing backed resolves at all (a
+ * question whose vocabulary the tables do not know, where the
+ * bare heads are all the standard has). Exported for the topic
+ * filter, which must apply the same judging set or it admits
+ * what the gate demotes. */
+export function strongCentralConcepts(concepts) {
+  const list = Array.isArray(concepts) ? concepts : [];
+  const strong = list.filter((c) => c && (c.subject || (c.group && c.group.size > 0)));
+  return strong.length > 0 ? strong : list;
+}
+
+export function centralConceptHits(paper, concepts) {
+  const list = Array.isArray(concepts) ? concepts : [];
+  const titleLow = String((paper && paper.title) || "").toLowerCase();
+  const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
+  let total = 0, inTitle = 0, inAbstract = 0;
+  let subjectHit = false, subjectInTitle = false;
+  for (const c of list) {
+    if (!c) continue;
+    const th = termStemHitInText(titleLow, c.term) || textTouchesConceptGroup(titleLow, c.group);
+    const ah = termStemHitInText(absLow, c.term) || textTouchesConceptGroup(absLow, c.group);
+    if (th || ah) total++;
+    if (th) inTitle++;
+    if (ah) inAbstract++;
+    if (c.subject) {
+      if (th || ah) subjectHit = true;
+      if (th) subjectInTitle = true;
+    }
+  }
+  return { total, inTitle, inAbstract, subjectHit, subjectInTitle };
+}
+
 // The citation standard for one question: its gating groups, the
 // central terms that stand in when groups run thin, the group
 // touches a cited paper needs while groups carry the standard,
 // and the question's subject group (subject touch standard,
-// 2026-10-14) when one is identified.
+// 2026-10-14) when one is identified. Wave eight (2026-10-14)
+// adds the central concepts: the topicality standard
+// paperClearsCitationGate judges first whenever they resolve.
 export function citationGateStandard(query, dynLookup) {
   const groups = gateConceptGroups(query, dynLookup);
   return {
@@ -11932,17 +12536,63 @@ export function citationGateStandard(query, dynLookup) {
     centralTerms: groups.length >= 2 ? [] : centralContentTerms(query),
     minHits: groups.length >= 2 ? 2 : 1,
     subjectGroup: subjectConceptGroup(query, groups, dynLookup),
+    centralConcepts: questionCentralConcepts(query, dynLookup),
   };
 }
 
-// Whether one paper clears the standard (exemptions — cascade,
-// anchor, existence — are the callers', applied before this).
-// Subject identified: the paper must touch the subject group or
-// touch at least two groups in total — a lone touch of a non
-// subject group, or a bare central term, no longer clears. No
-// subject identified: the standard is unchanged.
+// Whether one paper clears the standard (exemptions — anchor,
+// existence — are the callers', applied before this).
+// WAVE EIGHT (2026-10-14, seventh panel, Job 1b): when the
+// question's central concepts resolve, the TOPICALITY standard
+// judges: at least two central concepts engaged with at least
+// one engagement in the abstract body, or the title carrying the
+// subject concept and a second central concept. The wave seven
+// subject touch rule (one touch of the subject group clears) is
+// superseded — it was the vacuous standard the panel measured.
+// The legacy group accounting below stands only for questions
+// whose central concepts do not resolve at all.
 export function paperClearsCitationGate(paper, standard) {
   const std = standard || { groups: [], centralTerms: [], minHits: 1 };
+  const concepts = Array.isArray(std.centralConcepts) ? std.centralConcepts : null;
+  if (concepts && concepts.length > 0) {
+    // The degraded case (2026-10-14 arbitration): when the
+    // question resolves fewer than two gating groups, the
+    // standard itself carries central terms — the founding
+    // vocabulary for exactly the questions the tables barely
+    // know (the wood frog resolves no group at all, and its
+    // concept candidates came out as {time, frozen} while the
+    // question is about a frog). Those terms join the judged
+    // set as bare concepts, so the two concept rule runs on
+    // the question's actual vocabulary instead of starving.
+    // And the backed subset judges only when at least two
+    // backed concepts resolve: with a single backed concept
+    // (the mimosa question's one group), judging on it alone
+    // would bar papers the founding degraded standard admitted
+    // for sharing the question's central terms (touch, leaves).
+    let judged = concepts;
+    if ((std.centralTerms || []).length > 0) {
+      const have = new Set(concepts.map((c) => c.term));
+      const extra = std.centralTerms
+        .map((t) => String(t || "").toLowerCase())
+        .filter((t) => t && !have.has(t))
+        .map((t) => ({ term: t, group: null, subject: false }));
+      if (extra.length > 0) judged = [...concepts, ...extra];
+    }
+    // The title exception (Job 1b) reads the FULL judged set:
+    // the subject plus a second central term in the title is
+    // the one title only engagement that clears, and the
+    // second term may be a bare head word (the baby in the
+    // coffee question) — the title is the paper's own claim
+    // about its topic, judged as a whole. The belly collisions
+    // cannot use it: their titles never name the subject.
+    const allHits = centralConceptHits(paper, judged);
+    if (allHits.subjectInTitle && allHits.inTitle >= 2) return true;
+    const strong = strongCentralConcepts(judged);
+    const useSet = strong.length >= 2 ? strong : judged;
+    const hits = centralConceptHits(paper, useSet);
+    if (useSet.length === 1) return hits.total >= 1 && hits.inAbstract >= 1;
+    return hits.total >= 2 && hits.inAbstract >= 1;
+  }
   const groups = std.groups || [];
   const hits = paperConceptGroupHits(paper, groups);
   if (std.subjectGroup) {
@@ -11961,8 +12611,12 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
   const standard = citationGateStandard(query, dynLookup);
   const groups = standard.groups;
   // The gate can only judge when the question yields a standard:
-  // no groups and no central terms leaves nothing to judge with.
-  if (groups.length === 0 && standard.centralTerms.length === 0) return { text, demoted: [] };
+  // no groups, no central terms, and no central concepts leaves
+  // nothing to judge with.
+  if (groups.length === 0 && standard.centralTerms.length === 0
+      && (!Array.isArray(standard.centralConcepts) || standard.centralConcepts.length === 0)) {
+    return { text, demoted: [] };
+  }
 
   const citedIdx = new Set();
   for (const m of text.matchAll(/\[(\d{1,3})\]/g)) {
@@ -12009,9 +12663,22 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
     if (paperClearsCitationGate(p, standard)) keep.add(idx);
     else failing.push({ idx, hits, groups: groups.length });
   }
-  // The floor: nothing cited may remain is the one outcome this gate
-  // may never produce (see the header). Keep the answer as written.
-  if (keep.size === 0) return { text, demoted: [] };
+  // WAVE EIGHT (2026-10-14, seventh panel, Job 2): THE FLOOR IS
+  // GONE. The wave seven floor rule returned the answer untouched
+  // whenever NO cited paper cleared, on the theory that the gate
+  // may judge papers but never the answer. The panel measured
+  // what that theory shipped: drafts citing only junk survived
+  // precisely because they cited only junk — the worse the cited
+  // set, the safer it was. Now an all failing cited set demotes
+  // every marker like any other failing set. The handler's flip
+  // (an answer with no citation markers left does not ship as an
+  // AI answer) then does its work: the run falls through to the
+  // extractive tier over citable papers, and to the honest no
+  // evidence state when that set is empty too. The wave two frog
+  // control the floor protected was re examined under this rule:
+  // its papers genuinely share nothing with those questions, so
+  // its corrected expectation is the fall through, pinned as
+  // such in tests/search-wave-two.mjs with a dated comment.
   if (failing.length === 0) return { text, demoted: [] };
 
   const failSet = new Set(failing.map((f) => f.idx));
@@ -12084,16 +12751,18 @@ export function paperIsCitable(paper, idx, gateCtx) {
   const ctx = gateCtx || {};
   const groups = ctx.groups || [];
   const centralTerms = ctx.centralTerms || [];
-  // No resolvable standard (no groups, no central terms): the
-  // gate has nothing to judge with, exactly its own early
-  // return, and the relevance floor alone binds.
-  if (groups.length === 0 && centralTerms.length === 0) return true;
+  const centralConcepts = Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [];
+  // No resolvable standard (no groups, no central terms, no
+  // central concepts): the gate has nothing to judge with,
+  // exactly its own early return, and the relevance floor alone
+  // binds.
+  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return true;
   if (idx && ctx.existenceIdx && idx === ctx.existenceIdx) return true;
   if (Array.isArray(ctx.anchorNeedles) && ctx.anchorNeedles.length > 0) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
     if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
   }
-  return paperClearsCitationGate(p, { groups, centralTerms, subjectGroup: ctx.subjectGroup || null });
+  return paperClearsCitationGate(p, { groups, centralTerms, subjectGroup: ctx.subjectGroup || null, centralConcepts });
 }
 
 export function conceptGateContext(papers, query, dynLookup) {
@@ -12119,7 +12788,7 @@ export function conceptGateContext(papers, query, dynLookup) {
       if (support && support.idx) existenceIdx = support.idx;
     } catch { /* best effort, mirroring the gate */ }
   }
-  return { groups, centralTerms: standard.centralTerms, subjectGroup: standard.subjectGroup || null, anchorNeedles, existenceIdx };
+  return { groups, centralTerms: standard.centralTerms, subjectGroup: standard.subjectGroup || null, centralConcepts: standard.centralConcepts || [], anchorNeedles, existenceIdx };
 }
 
 export function conceptGateKeeps(paper, idx, gateCtx) {
@@ -12132,7 +12801,7 @@ export function conceptGateKeeps(paper, idx, gateCtx) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
     if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
   }
-  return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [], subjectGroup: ctx.subjectGroup || null });
+  return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [], subjectGroup: ctx.subjectGroup || null, centralConcepts: Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [] });
 }
 
 // The extractive evidence prune: the papers an extractive answer
@@ -12639,7 +13308,13 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
 
   let level;
   if (cap <= 45 || score < 50) level = "thin";
-  else if (cap <= 59 || status === "divided" || score < 60) level = "moderate";
+  // WAVE EIGHT (2026-10-14, Job 4a): a "thin" verdict means the
+  // cited evidence could not be weighed (too few sources checked,
+  // or the cited set failed the citation standard under the
+  // verdict guard). Strong confidence asserts the opposite, so a
+  // thin verdict caps the level at moderate exactly as a divided
+  // verdict does.
+  else if (cap <= 59 || status === "divided" || status === "thin" || score < 60) level = "moderate";
   else level = "strong";
 
   // The user facing line states the level and the real basis with no
@@ -16025,6 +16700,16 @@ async function gatherPapersBody(rawQuery, opts) {
     .map((t) => ({ t, spec: termSpecificity(t) }))
     .sort((a, b) => b.spec - a.spec)
     .map((x) => x.t);
+  // WAVE EIGHT (2026-10-14, seventh panel, Job 3a): closed class
+  // words never occupy rung slots. "while" is in no stopword list
+  // here, so it survived into `ranked`, sorted by specificity into
+  // the coffee question's rung, and pushed "coffee" out of the
+  // slice the databases were queried with — the panel read the
+  // live rung: it dropped "coffee" and kept "while". The same
+  // filter keeps function words out of the expansion targets
+  // below (dynUncovered reads ranked): a function word is never
+  // an expansion target and never grows alternates.
+  ranked = ranked.filter((t) => !isGateFunctionWord(t));
   // 2026-10-10: prioritize constraint words in retrieval ordering. A verbose
   // query like "Studies involving BSFL waste oil substrates" ranked
   // "substrates" above "waste"/"oil" by specificity, so the OpenAlex query
@@ -16122,6 +16807,33 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     } catch { /* aliases are a bridge, never a requirement */ }
   }
+  // WAVE EIGHT (2026-10-14, seventh panel, Job 3a): the rung
+  // guarantee. The rungs below are slices of `ranked`, and
+  // specificity order alone let the question's subject fall out
+  // of the slice whenever three more specific words outranked it
+  // (the coffee rung). The subject term and the lead key phrase
+  // head terms — the question's central concepts, single token
+  // forms — lead `ranked` from here on, subject first, so every
+  // rung built from it carries the question's subject by
+  // construction. Organism subjects are carried separately (the
+  // organismTerm prepend), and their words are already out of
+  // ranked via orgFragments.
+  try {
+    const leadConcepts = questionCentralConcepts(rawQuery, dynLookup);
+    const leadTerms = [];
+    for (const c of leadConcepts) {
+      if (c && c.term && c.term.indexOf(" ") === -1 && !leadTerms.includes(c.term)) {
+        leadTerms.push(c.term);
+      }
+    }
+    if (leadTerms.length > 0) {
+      const inRanked = leadTerms.filter((t) => ranked.some((r) => r.toLowerCase() === t));
+      if (inRanked.length > 0) {
+        const leadSet = new Set(inRanked);
+        ranked = [...inRanked, ...ranked.filter((t) => !leadSet.has(t.toLowerCase()))];
+      }
+    }
+  } catch { /* specificity order stands */ }
   // STILL UNCOVERED (2026-10-14, fifth panel, Job 2a): a group
   // whose alternates are only the term's own inflections
   // (blood -> bloods, fix -> fixes) adds no vocabulary the
@@ -17187,7 +17899,24 @@ async function gatherPapersBody(rawQuery, opts) {
     const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const t = esc(term);
     const s = esc(stem(term));
-    const group = conceptSetFor(term, dynLookup);
+    let group = conceptSetFor(term, dynLookup);
+    // WAVE EIGHT (2026-10-14, seventh panel, Job 1): when no
+    // concept group resolves, the SYNONYMS set is the term's
+    // group — the same bridge the citation standard's central
+    // concepts use (questionCentralConcepts' groupFor) and the
+    // structured query builder has always used. The expansion
+    // machinery treats a SYNONYMS covered term as already
+    // bridged (it is never an expansion target), but the scorer
+    // never consulted the table, so a review saying "probiotic"
+    // scored 25 on the yogurt question while a paper saying
+    // "yogurt" scored 89 — the panel's yogurt shape, where the
+    // reviews sat excluded and the critique cited.
+    if (!group) {
+      const syns = SYNONYMS[String(term).toLowerCase()];
+      if (Array.isArray(syns) && syns.length > 0) {
+        group = new Set([String(term).toLowerCase(), ...syns.map((x) => String(x).toLowerCase())]);
+      }
+    }
     const alts = new Set([t]);
     if (s !== t) alts.add(s + "(?:s|es|ing|ed|al)?");
     else alts.add(t + "(?:s|es|ing|ed)?");
@@ -17294,6 +18023,20 @@ async function gatherPapersBody(rawQuery, opts) {
   // (tagged _nlNet at the net) are ranked by them; every other
   // paper's group hit count stays 0 and its order is untouched.
   const nlShelfGroups = questionConceptGroups(surfaceQuery, dynLookup);
+
+  // WAVE EIGHT (2026-10-14, seventh panel, Job 1c): the question's
+  // central concepts, resolved the gating way, for the scorer's
+  // topicality cap below. Relevance was lexical: a paper engaging
+  // NONE of the question's central concepts still scored 57 to
+  // 92 on generic vocabulary overlap (function words, peripheral
+  // terms, quality signals), and the floor at 50 let it stand as
+  // citable. The cap is computed once here; the scorer applies it
+  // per paper. When no central concepts resolve, no cap applies —
+  // the scorer cannot judge topicality the gate cannot either.
+  let scorerCentralConcepts = [];
+  try {
+    scorerCentralConcepts = questionCentralConcepts(rawQuery, dynLookup);
+  } catch { scorerCentralConcepts = []; }
 
   // The language screen's title test, shared verbatim between the
   // chain's language filter and the shelf floor relaxation (Job
@@ -17600,7 +18343,27 @@ async function gatherPapersBody(rawQuery, opts) {
       const rigor = detectStatisticalRigor(abstract);
       quality += rigor.rigorBonus;
 
-      const score = match + quality;
+      let score = match + quality;
+
+      // WAVE EIGHT (2026-10-14, seventh panel, Job 1c): the
+      // topicality cap. A paper engaging ZERO of the question's
+      // central concepts is capped below RELEVANCE_FLOOR no
+      // matter how much generic vocabulary it shares with the
+      // question — its score was carried by non central hits
+      // (function words, peripheral terms) and quality signals,
+      // none of which are topicality. The cap sits at 45, the
+      // same sub floor resting place the chain's other caps use,
+      // so the paper stays on the shelf for further reading and
+      // out of every cited set. Papers engaging even one central
+      // concept are untouched: the citation gate, not the
+      // scorer, judges whether one engagement is enough.
+      if (scorerCentralConcepts.length > 0) {
+        try {
+          if (centralConceptHits(p, scorerCentralConcepts).total === 0) {
+            score = Math.min(score, 45);
+          }
+        } catch { /* the cap must never break scoring */ }
+      }
 
       // Natural language net ranking (2026-10-14): how many of the
       // question's concept groups this paper actually engages. The
@@ -17702,8 +18465,24 @@ async function gatherPapersBody(rawQuery, opts) {
       // been silently killing every retrieval for weeks (ReferenceError inside
       // a Promise.allSettled callback, swallowed by the outer catch).
       if (gateTerms.length > 0) {
-        const coreHits = p.gateCoreHits || 0;
         const coreTitleHits = p.gateCoreTitleHits || 0;
+        // WAVE EIGHT (2026-10-14, seventh panel, Job 1): the
+        // subject's own word is classified NEUTRAL whenever it is
+        // a SYNONYMS key (yogurt, frog), so it never appears in
+        // gateTerms and a paper engaging the subject through the
+        // vocabulary bridge plus one gate term scored coreHits 1
+        // and died here — the panel's yogurt shape, where the
+        // probiotic reviews were floor casualties and the
+        // fermentation critique (which names the organism's own
+        // words and nothing else) survived on other paths. The
+        // subject IS one of the question's core concepts: a paper
+        // carrying the organism counts it as one core hit, the
+        // same accounting the citation standard applies. An
+        // organism only paper still fails (1 < required 2 on a
+        // mid size gate set, and the organism branch below still
+        // demands a content hit), so the floor's precision is
+        // unchanged for papers that merely name the organism.
+        const coreHits = (p.gateCoreHits || 0) + ((neutralWords.size > 0 && p.organismPresent) ? 1 : 0);
         let required;
         if (gateTerms.length <= 2) required = 1;
         else if (gateTerms.length <= 4) required = 2;
@@ -23715,6 +24494,17 @@ async function runSearchPipeline(pctx) {
             : null;
           const gated = applyConceptCoverageGate(answer, evidencePapers, query, gateDyn);
           if (gated.demoted.length > 0) answer = gated.text;
+          // WAVE EIGHT (2026-10-14, Job 2): with the floor gone, a
+          // gate resolution drift can strip an extractive answer
+          // of every marker. The pool it was built from was pruned
+          // by the same standard, so this should be unreachable —
+          // but an uncited extractive answer must not ship as a
+          // research answer if it happens: the run takes the no
+          // evidence state below instead.
+          if (gated.demoted.length > 0 && !/\[\d+\]/.test(answer)) {
+            extractiveOK = false;
+            answerTier = null;
+          }
         } catch { /* a mechanical pass must never break the answer */ }
       }
       if (!extractiveOK) {
@@ -24087,6 +24877,122 @@ async function runSearchPipeline(pctx) {
     // totals, the body sentence, and the record alike.
     if (factCheckResult) factCheckResult = dedupeFactCheckClaims(factCheckResult);
 
+    // WAVE EIGHT (2026-10-14, seventh panel, Job 4b): THE ZERO
+    // SUPPORT SERVE. The panel's checkout probe shipped an AI
+    // answer whose own confidence field recorded "supports 0 of
+    // 1 checked claim" — the check had refused every claim it
+    // read and the answer shipped anyway, solidity prose and
+    // all. The serve now degrades on that verdict:
+    //   . every unsupported claim is stripped (the existing
+    //     removal machinery, hard targets);
+    //   . if the short answer's CENTRAL claim is among the
+    //     refused, the answer has nothing left to stand on: the
+    //     run falls through to the extractive tier over citable
+    //     papers, or to the no evidence state when that set is
+    //     empty — it does not ship as a research answer.
+    // The condition is the fact check STAGE's own result
+    // (factCheckAttempted): the stage's tiers are the deep
+    // claim check and its terms fallback, and their verdicts
+    // are removal grade by the removal point's settled contract
+    // above. The integrity flags panel that forms when the
+    // stage never ran (the fact check toggle off, or the budget
+    // gone) is NOT the stage's result: those mechanical flags
+    // are flag only by that same contract — they fire on
+    // ordinary paraphrase, and an earlier draft that removed on
+    // them gutted the answer depth fixtures. Provenance traces
+    // return null from factCheckSupport and never trigger this
+    // either — the extractive tiers are judged by their own
+    // alignment machinery.
+    if (aiOK && useEvidence && !isFollowupMode && factCheckResult && factCheckAttempted) {
+      try {
+        const zeroSupport = factCheckSupport(factCheckResult);
+        if (zeroSupport && zeroSupport.checked >= 1 && zeroSupport.supported === 0) {
+          const unsupportedClaims = (factCheckResult.claims || [])
+            .filter((c) => c && c.status === "unsupported" && typeof c.claim === "string" && c.claim.trim().length > 0);
+          const centralClaim = shortAnswerCentralClaim(answer);
+          const centralRefused = !!(centralClaim && unsupportedClaims.some((u) =>
+            claimNamesSentence(u.claim, centralClaim, u.sourceIndex != null ? u.sourceIndex : u.source_index)));
+          if (unsupportedClaims.length > 0) {
+            const rm = removeUnsupportedClaimsFromAnswer(answer,
+              unsupportedClaims.map((c) => ({ claim: c.claim, hard: true })));
+            if (rm.removed > 0) answer = rm.text;
+          }
+          if (centralRefused) {
+            const gateDynZ = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+              ? buildDynLookup(gResult._diag.llmExpanded)
+              : null;
+            const prunedZ = pruneExtractiveEvidence(evidencePapers, query, gateDynZ);
+            let fellToExtractive = false;
+            if (prunedZ.papers.length > 0) {
+              evidencePapers = prunedZ.papers;
+              sourceList = evidencePapers.map(toSourceEntry);
+              const extZ = buildExtractiveSynthesis(prunedZ.papers, prunedZ.papers, {
+                query: searchQuery,
+                queryAnalysis: analyzeQuery(searchQuery),
+                answerLength,
+                dynLookup: gateDynZ,
+                isNameSearch,
+                isFollowupMode,
+                sourcesQueried: publicSourcesQueried(),
+                relevanceGatedOut,
+                ambiguity,
+                aiGateReason: null,
+              });
+              if (extZ) {
+                answer = extZ;
+                answerTier = getLastExtractiveTier();
+                extractiveOK = true;
+                fellToExtractive = true;
+                // The shipped answer is extractive now: its check
+                // is the wording trace over the new text, exactly
+                // as the wave 4 extractive path computes it, so
+                // the body sentence and the confidence line below
+                // describe the shipped answer, not the discarded
+                // draft.
+                factCheckResult = null;
+                try {
+                  if (ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+                    const alignZ = verifyExtractiveAlignment(answer, evidencePapers);
+                    if (alignZ && alignZ.checked) factCheckResult = alignZ;
+                  }
+                } catch { /* the trace is best effort */ }
+              }
+            }
+            if (!fellToExtractive) {
+              noResultsPayload = buildNoResultsPayload({
+                query: searchQuery,
+                sourcesQueried: publicSourcesQueried(),
+                rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
+                gatedOut: useEvidence ? relevanceGatedOut : 0,
+                gatedExamples: useEvidence ? gatedOutTitles : [],
+                filteredOut: useEvidence ? evidenceFilteredOut : 0,
+                filterLabel: evidenceFilterApplied,
+              });
+              answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
+              responseKind = "no-results";
+              factCheckResult = null;
+            }
+            aiOK = false;
+            // The discarded draft's strip bookkeeping must not be
+            // consumed against the shipped answer (the wave 4 flip
+            // clears it the same way), and the synthesis stage
+            // record must not name a winning leg for an answer
+            // that did not ship (the wave 6 winner honesty rule).
+            unsupportedStripped = [];
+            conceptDemoted = [];
+            try {
+              const synthEntry = stageHealth.find((s) => s && s.name === "synthesis");
+              if (synthEntry) {
+                synthEntry.ok = false;
+                synthEntry.winner = null;
+                synthEntry.skipReason = "the claim check supported none of the checked claims";
+              }
+            } catch { /* the record amendment is best effort */ }
+          }
+        }
+      } catch { /* the degrade must never break the serve */ }
+    }
+
     // The body's claim check sentence (2026-10-14, answer package
     // defect 1): an extractive or definition answer printed its
     // confidence line before the claim check ran, with the check's
@@ -24301,9 +25207,34 @@ async function runSearchPipeline(pctx) {
     // renders (source-level pairs + the recall pass) . computing it from
     // the source-level pass alone is how "1 conflicting claim pair" once
     // sat next to "No opposing findings surfaced".
-    const { conflicts: literatureConflicts, verdict: disagreementVerdict } =
+    const { conflicts: literatureConflicts, verdict: disagreementVerdict0 } =
       reconcileDisagreementVerdict(detected, textMined);
+    let disagreementVerdict = disagreementVerdict0;
     stageHealth.push({ name: "disagreement", ok: true, ms: Date.now() - disagreementT0 });
+
+    // WAVE EIGHT (2026-10-14, seventh panel, Job 4a): the verdict
+    // guard. A settled verdict over a cited set with no citable
+    // paper, or a mean relevance below the floor, is not a
+    // verdict — the cited set was never evidence the question was
+    // answered from. The guard swaps in the thin shape, and the
+    // evidence gaps below name the pool's irrelevance plainly.
+    // Fresh runs under the wave eight standard rarely reach this
+    // (junk is not cited at all); cached and legacy paths can.
+    let verdictGuarded = false;
+    if (useEvidence && disagreementVerdict && disagreementVerdict.status === "settled"
+        && citedEvidencePapers.length > 0 && !isNameSearch && !isFollowupMode) {
+      try {
+        const verdictGateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+          ? buildDynLookup(gResult._diag.llmExpanded)
+          : null;
+        const verdictGateCtx = conceptGateContext(citedEvidencePapers, query, verdictGateDyn);
+        const guarded = guardSettledVerdict(disagreementVerdict, citedEvidencePapers, verdictGateCtx);
+        if (guarded.guarded) {
+          disagreementVerdict = guarded.verdict;
+          verdictGuarded = true;
+        }
+      } catch { /* the guard must never break the answer */ }
+    }
 
     // PROSE BOUND TO THE VERDICT (2026-10-14, fourth panel, JOB
     // 3a): when the verdict says no conflicts and the conflicts
@@ -24339,6 +25270,13 @@ async function runSearchPipeline(pctx) {
     const evidenceGaps = (useEvidence && evidencePapers.length > 0)
       ? buildEvidenceGaps({ papers: evidencePapers, sourcesQueried: publicSourcesQueried(), relevanceGatedOut, intent: measurementIntent ? "measurement" : null, citedCount: citedEvidencePapers.length })
       : [];
+    // WAVE EIGHT (Job 4a): when the verdict guard fired, the gaps
+    // name the pool's irrelevance plainly, ahead of every softer
+    // limit — it is the reason the verdict is thin.
+    if (verdictGuarded) {
+      evidenceGaps.unshift("The cited sources did not clear the citation standard for this question: the gathered pool was largely off this question's topic, so the answer's evidence base is thin whatever the verdict line says.");
+      if (evidenceGaps.length > 4) evidenceGaps.length = 4;
+    }
     // CALIBRATED CONFIDENCE (2026-10-07): the heuristic score is adjusted
     // for what actually happened to the answer . stripped citations and
     // integrity flags discount it. The calibration is logged to D1 so the

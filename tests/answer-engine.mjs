@@ -1320,7 +1320,15 @@ test("every source count in the answer derives from the cited pool", () => {
   assert.ok(disagree, "disagreement source count missing");
   assert.ok(conf, "confidence source count missing");
   assert.equal(disagree[1], conf[1], `count mismatch: disagree=${disagree[1]} confidence=${conf[1]}`);
-  assert.equal(disagree[1], "8", "expected the 8 cited sources, got " + disagree[1]);
+  // 2026-10-14 (wave eight arbitration): the count was 8 under
+  // the old standard, when the PVC papers cleared on gut plus
+  // degradation group touches and the drift demotion merely
+  // reordered them inside the pool. Under the wave eight
+  // citation standard they engage one central term (gut) and
+  // never enter the excerpt pool, so the cited pool is the 4
+  // on substrate papers. The contract — every count derives
+  // from the cited pool and the counts agree — is unchanged.
+  assert.equal(disagree[1], "4", "expected the 4 cited sources, got " + disagree[1]);
   const nums = [...md.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10));
   for (const n of nums) assert.ok(n >= 1 && n <= 12, `citation [${n}] out of bounds`);
 });
@@ -1339,7 +1347,15 @@ test("drifted-substrate papers cannot dominate a lignocellulose answer", () => {
 test("withheld count is distinguished from retrieved-but-uncited count", () => {
   const md = buildExtractiveSynthesis(incidentPapers(), [], { query: INCIDENT_QUERY, relevanceGatedOut: 4 });
   assert.ok(md, "expected a synthesis");
-  assert.ok(/4 of the 12 relevant papers aren't cited in this summary/.test(md), "uncited-count line missing");
+  // 2026-10-14 (wave eight arbitration): the uncited line
+  // ("4 of the 12 relevant papers aren't cited") keyed on the
+  // old pool of 12 admitted papers with 8 cited. Under the
+  // wave eight standard the admitted pool is the 4 on
+  // substrate papers and all 4 are cited, so no uncited line
+  // is owed — and none may be invented. The withheld line,
+  // the distinction this test exists to pin, still prints
+  // with its own count.
+  assert.ok(!/aren't cited in this summary/.test(md), "uncited-count line appeared though every admitted paper is cited");
   assert.ok(/4 more papers were found but withheld/.test(md), "relevance-gated line missing");
 });
 

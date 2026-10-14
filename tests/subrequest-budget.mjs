@@ -1256,6 +1256,22 @@ const SYNTH_ANSWER =
   "Studies show that **gut microbes** influence how nutrients are absorbed and how weight is gained over time [2]. " +
   "When the microbial community is disturbed early, growth can slow until the community recovers [1].";
 
+// 2026-10-14 (wave eight, Job 4b arbitration): the HEAVY_Q
+// scenarios (heavy draw, greedy draw, greedy validation, and
+// the live shaped replay over runHeavyScenario) shipped the
+// infant answer above against black soldier fly papers — a
+// draft about a different subject entirely. Nothing acted on
+// that until Job 4b: a final fact check supporting 0 of its
+// checked claims now degrades the serve, so those scenarios'
+// synthesis stages recorded the degrade and their budget
+// contracts (validation runs, the race fires) failed on a
+// fixture defect, not a budget one. Their stubs now answer
+// their own question, with claims the heavy abstracts support
+// word for word; every budget assertion is unchanged.
+const HEAVY_SYNTH_ANSWER =
+  "Changing the diet strongly shaped the **gut microbial community** of the black soldier fly larvae across treatments [1]. " +
+  "Larvae reared on different diets had their **larval gut microbiota** and microbial community assembly measured in every study [2].";
+
 function jsonRes(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -1336,6 +1352,15 @@ function countingAi(counts) {
       // stage falls back to its zero network heuristic, at a cost of
       // exactly this one run.
       if (joined.includes("ANSWER TO FACT-CHECK:")) return { response: "not json" };
+      // 2026-10-14 (wave eight, Job 4b arbitration): the stub
+      // answers the question in its prompt. It previously returned
+      // the infant gut answer to every question, including the
+      // black soldier fly scenarios — invisible until Job 4b made
+      // a zero support fact check degrade the serve, at which
+      // point those scenarios' synthesis stages recorded the
+      // degrade. A stub that answers its own question is the
+      // honest fixture; the budget assertions are unchanged.
+      if (joined.includes("black soldier fly")) return { response: HEAVY_SYNTH_ANSWER };
       return { response: SYNTH_ANSWER };
     },
   };
@@ -1805,7 +1830,7 @@ async function runHeavyScenario() {
       if (body.includes("relevance validator")) {
         return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
       }
-      return chatRes(SYNTH_ANSWER);
+      return chatRes(HEAVY_SYNTH_ANSWER);
     }
     if (u.includes("ebi.ac.uk/europepmc")) {
       epmcCalls++;
@@ -2255,7 +2280,7 @@ async function runGreedyScenario() {
       if (body.includes("relevance validator")) {
         return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
       }
-      return chatRes(SYNTH_ANSWER);
+      return chatRes(HEAVY_SYNTH_ANSWER);
     }
     if (u.includes("ebi.ac.uk/europepmc")) {
       epmcCalls++;
@@ -2417,7 +2442,7 @@ async function runGreedyValidationScenario() {
       if (body.includes("relevance validator")) {
         return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
       }
-      return chatRes(SYNTH_ANSWER);
+      return chatRes(HEAVY_SYNTH_ANSWER);
     }
     if (u.includes("ebi.ac.uk/europepmc")) {
       epmcCalls++;

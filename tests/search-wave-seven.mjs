@@ -356,8 +356,16 @@ await test("30 junk papers and zero clearing papers do not end retrieval; the lo
     // The first ladder rung's structured boolean (the full
     // anchor set) gathers junk only. The continuation's looser
     // rung asks the plain bag the fanout sends for a non boolean
-    // rung, which Europe PMC wraps as "(creatine your hair) ...".
-    if (q.startsWith("(creatine your hair)")) return [HAIR_TRIAL()];
+    // rung, which Europe PMC wraps as "(creatine hair) ...".
+    // 2026-10-14 (wave eight, Job 3a): the bag no longer
+    // contains "your" — closed class words never occupy rung
+    // slots under the wave eight rung discipline, so the
+    // looser rung's text lost the possessive the old key
+    // "(creatine your hair)" was keyed to. The contract this
+    // test pins is unchanged: zero clearing papers on the
+    // strict rung do not end retrieval, the continuation's
+    // looser rung executes, and its clearing paper ships cited.
+    if (q.startsWith("(creatine hair)")) return [HAIR_TRIAL()];
     return junk;
   };
   scenAnswer =
@@ -369,7 +377,7 @@ await test("30 junk papers and zero clearing papers do not end retrieval; the lo
   // stubbed engine answers and retries.
   const { data, queries } = await runScenario("does creatine make your hair fall out", { limit: 200 });
   scenPapersFn = null;
-  assert.ok(queries.some((q) => q.startsWith("(creatine your hair)")),
+  assert.ok(queries.some((q) => q.startsWith("(creatine hair)")),
     "the looser continuation rung never executed: " + JSON.stringify(queries.slice(0, 8)));
   const citedTitles = (data.sources || []).filter((s) => !s.uncited).map((s) => s.title);
   assert.ok(citedTitles.includes("Creatine monohydrate supplementation and hair shedding: a randomized controlled trial"),

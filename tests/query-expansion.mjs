@@ -1399,10 +1399,18 @@ await test("with the sleep group resolved too, the rebuild carries both concepts
 await test("when no group resolves, the failed rungs drop and the survivors ship", () => {
   // No expansion at all: the deterministic build itself anchors the
   // light verb, the comparative, and the quantity word.
+  // 2026-10-14 (wave eight, Job 3a): the authored order is now
+  // "sleep AND catch AND enough AND easier". The old order
+  // ("...easier AND enough") was an artifact of the negation word
+  // "not" winning a race slot and the displacement pass recycling
+  // that slot in place; closed class words no longer occupy rung
+  // slots at all, so the tail keeps race order (specificity, then
+  // question order). The contract is unchanged: the three filler
+  // rungs fail the screen and drop, the survivor ships.
   const authored = buildStructuredQuery(SLEEP_CLEANED, null);
-  assert.equal(authored, "sleep AND catch AND easier AND enough");
+  assert.equal(authored, "sleep AND catch AND enough AND easier");
   const screen = screenStructuredQuery(authored);
-  assert.deepEqual(screen.failedRungs, ["catch", "easier", "enough"]);
+  assert.deepEqual(screen.failedRungs, ["catch", "enough", "easier"]);
   assert.equal(rebuildStructuredQueryFromGroups(SLEEP_CLEANED, null), null,
     "no hand group resolves sleep or cold, so there is nothing to rebuild from");
   assert.equal(dropFailedRungs(authored, screen.failedRungs), "sleep");
@@ -1645,12 +1653,21 @@ await test("the subject group is the creatine group, under fallback and under mo
     "with the production model groups the subject is still the creatine group");
 });
 
-await test("a subject only paper clears; an effect only paper does not; two non subject groups clear", () => {
+await test("a subject only paper no longer clears; an effect only paper does not; two non subject groups clear", () => {
+  // 2026-10-14 (wave eight, Job 1b): the subject touch standard
+  // this test pinned (one touch of the subject group clears) IS
+  // the vacuous standard the seventh panel measured — a paper
+  // engaging only the subject, and nothing else the question
+  // asks, is a one concept paper, and the corrected standard
+  // requires two central concepts (or the subject plus a second
+  // in the title). The subject only safety paper therefore no
+  // longer clears, and the gate demotes it beside the effect
+  // only paper. The two group limb stands exactly as before.
   const standard = citationGateStandard(CREATINE_Q, CREATINE_FALLBACK_DYN());
   assert.equal(paperConceptGroupHits(CREATINE_SUBJECT_ONLY(), standard.groups), 1,
     "control: the safety paper touches exactly one group");
-  assert.ok(paperClearsCitationGate(CREATINE_SUBJECT_ONLY(), standard),
-    "a paper touching only the subject group must clear the standard");
+  assert.ok(!paperClearsCitationGate(CREATINE_SUBJECT_ONLY(), standard),
+    "a paper touching only the subject group must not clear the corrected standard");
   assert.ok(!paperClearsCitationGate(CREATINE_PAPERS()[1], standard),
     "the hair only sociology paper must not clear the standard");
   assert.ok(paperClearsCitationGate(CREATINE_HAIR_FALL(), standard),
@@ -1658,18 +1675,24 @@ await test("a subject only paper clears; an effect only paper does not; two non 
   const papers = [CREATINE_PAPERS()[1], CREATINE_SUBJECT_ONLY(), CREATINE_PAPERS()[0]];
   const answer = "Hair rules shape belonging [1]. Creatine was well tolerated for two years [2]. Creatine did not change shedding [3].";
   const out = applyConceptCoverageGate(answer, papers, CREATINE_Q, CREATINE_FALLBACK_DYN());
-  assert.deepEqual(out.demoted.map((d) => d.idx), [1],
-    "the gate demotes the effect only paper alone; the subject only paper keeps its marker");
-  assert.ok(out.text.includes("[2]") && out.text.includes("[3]"), "both creatine papers keep their markers");
+  assert.deepEqual(out.demoted.map((d) => d.idx), [1, 2],
+    "the gate demotes the effect only paper and the subject only paper; the two concept trial keeps its marker");
+  assert.ok(out.text.includes("[3]") && !out.text.includes("[2]"), "only the trial keeps its marker");
 });
 
-await test("the topic filter holds the same subject standard, one layer earlier", () => {
+await test("the topic filter still admits the subject only paper to the pool, one layer earlier", () => {
+  // 2026-10-14 (wave eight, Job 1b): the filter's subject rule is
+  // now a POOL admission rule, not the citation standard — the
+  // subject only paper may sit in the pool as further reading,
+  // but the corrected gate no longer cites it (pinned above).
+  // The effect only paper still dies here, as it may neither be
+  // cited nor shipped.
   const dyn = CREATINE_FALLBACK_DYN();
   const out = topicOverlapFilter(CREATINE_Q,
     [CREATINE_SUBJECT_ONLY(), CREATINE_PAPERS()[1], CREATINE_HAIR_FALL()].map((p) => ({ ...p })), dyn);
   const urls = out.map((p) => p.url);
   assert.ok(urls.includes("https://example.com/creatine-kidney"),
-    "the subject only paper must survive retrieval, or the gate's standard could never admit it");
+    "the subject only paper must survive retrieval into the pool");
   assert.ok(!urls.includes("https://example.com/hair-sociology"),
     "the effect only paper must die in the filter, as it may not be cited");
 });
@@ -1764,7 +1787,15 @@ await test("no resolved groups: central terms alone carry the standard", () => {
     `gate output: ${out.text}`);
 });
 
-await test("the floor holds below two groups too: nothing clearing ships the answer untouched", () => {
+await test("the floor is retired below two groups too: nothing clearing empties the cited set (wave eight)", () => {
+  // 2026-10-14 (wave eight, Job 2): the floor rule this test
+  // pinned (when no cited paper clears, the gate returns the
+  // answer untouched) is retired — it was the mechanism that
+  // shipped drafts citing only junk precisely because they
+  // cited only junk. The corrected expectation is the full
+  // demotion; the handler's fall through to the extractive tier
+  // or the no evidence state is pinned in
+  // tests/search-wave-eight.mjs.
   const q = "What lets a wood frog survive being frozen for months at a time?";
   const papers = [
     { title: "Thigmonastic leaf movement in Mimosa pudica", abstract: "Leaflets fold within seconds of touch." },
@@ -1772,8 +1803,8 @@ await test("the floor holds below two groups too: nothing clearing ships the ans
   ];
   const answer = "One [1]. Two [2].";
   const out = applyConceptCoverageGate(answer, papers, q, null);
-  assert.equal(out.text, answer, "when no cited paper clears, the gate must not empty the cited set");
-  assert.deepEqual(out.demoted, []);
+  assert.equal(out.text, "One. Two.", "an all failing cited set is demoted in full under the corrected contract");
+  assert.deepEqual(out.demoted.map((d) => d.idx), [1, 2]);
 });
 
 // ═══════════════════════════════════════════════════════════════════

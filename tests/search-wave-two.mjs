@@ -249,11 +249,21 @@ await test("one concept citations are demoted, two concept citations kept", () =
   assert.equal(labeled.length, 3);
 });
 
-await test("the floor: an answer citing only a one concept paper is left untouched", () => {
+await test("an answer citing only a one concept paper is demoted in full (the floor rule is retired)", () => {
+  // Corrected contract (2026-10-14, seventh panel, wave eight,
+  // Job 2): the wave seven floor rule returned an answer
+  // untouched whenever NO cited paper cleared, which is what let
+  // drafts citing only junk ship precisely because they cited
+  // only junk. The gate now demotes an all failing cited set
+  // like any other; the handler's zero citation flip then routes
+  // the run to the extractive tier over citable papers, or to
+  // the no evidence state when that set is empty too. (The pre
+  // wave eight pin asserted the opposite: the answer and the
+  // empty demotion list stood.)
   const answer = "Weekend catch up sleep helps BMI [2].";
   const out = applyConceptCoverageGate(answer, SLEEP_PAPERS(), SLEEP_Q, SLEEP_DYN());
-  assert.equal(out.text, answer);
-  assert.deepEqual(out.demoted, []);
+  assert.ok(!out.text.includes("[2]"), "the one concept citation kept its marker: " + out.text);
+  assert.deepEqual(out.demoted.map((d) => d.idx), [2]);
 });
 
 await test("hand groups alone drive the gate (the germs and belly collisions)", () => {
@@ -322,18 +332,25 @@ await test("thinEvidence papers are NOT exempt (per paper binding has no cascade
   assert.equal(out.demoted.length, 1, "exactly the flagged paper is demoted");
 });
 
-await test("single concept questions: the degraded standard judges, the floor protects (frog controls)", () => {
+await test("single concept questions: the topicality standard judges (frog controls)", () => {
   // Corrected contract, 2026-10-14 (fourth panel, JOB 2): the gate
   // no longer sits out below two groups — it judges by the degraded
   // standard (one group touch, or a shared central content term).
-  // What the frog controls protect is unchanged in effect: an on
-  // point paper on a single concept question keeps its marker, and
-  // when NO cited paper shares the question's terms at all, the
-  // floor returns the answer untouched rather than stripping it to
-  // zero citations. The mimosa question is the third shape: its on
-  // point paper shares the question's terms and keeps its marker,
-  // while the unrelated gut paper — citable under the old sit out
-  // rule on a bare keyword collision class — is demoted.
+  // Corrected again (2026-10-14, seventh panel, wave eight, Jobs 1
+  // and 2): the standard is now TOPICALITY over the question's
+  // central concepts, and the floor rule that returned an all
+  // failing cited set untouched is retired. The two frog questions
+  // below cite a mimosa paper and a gut microbe paper, and NEITHER
+  // paper shares the frog questions' terms — under the corrected
+  // standard neither is citable for them, so the corrected
+  // expectation is the fall through: both citations demote, and in
+  // the handler the run lands on the extractive tier or the no
+  // evidence state. (The pre wave eight pin asserted the floor
+  // left both answers untouched.) The mimosa question is the third
+  // shape, and it still holds: its on point paper engages the
+  // question's concepts (leaves, and the touch response group the
+  // question names by its "fold their leaves" phrase) and keeps
+  // its marker, while the unrelated gut paper is demoted.
   for (const q of [
     "What lets a wood frog survive being frozen for months at a time?",
     "How can a frog turn into ice all winter and not die?",
@@ -342,8 +359,9 @@ await test("single concept questions: the degraded standard judges, the floor pr
     const papers = [MIMOSA_PAPER(), GUT_MICROBE_PAPER()];
     const answer = "One [1]. Two [2].";
     const out = applyConceptCoverageGate(answer, papers, q, null);
-    assert.equal(out.text, answer, `the floor must leave the answer untouched for: ${q}`);
-    assert.deepEqual(out.demoted, []);
+    assert.ok(!/\[\d+\]/.test(out.text), `the fall through must strip every marker for: ${q}`);
+    assert.deepEqual(out.demoted.map((d) => d.idx), [1, 2],
+      `both unrelated papers must demote for: ${q}`);
   }
   const q = "why do some plants fold their leaves when you touch them";
   assert.ok(questionConceptGroups(q, null).length < 2, "expected a thin resolution for the mimosa question");
@@ -570,11 +588,19 @@ await test("the cache schema carries the wave two bump", () => {
   // for fetchers and reformulations, ladder continuation on the
   // citable count, anchor discipline, and restricted fallback
   // inflection — cited sets, serve shapes, queries, and answer
-  // text all predate the contract).
+  // text all predate the contract),
+  // then to v41 by the seventh panel wave eight (2026-10-14: the
+  // citation standard in substance — topicality over the
+  // question's central concepts, closed class groups never gate,
+  // the coverage gate's floor rule removed, the scorer's zero
+  // central concept cap, rung subject discipline, the widened
+  // causative frame, the settled verdict guard, and the zero
+  // support serve degrade — cited sets, shelf composition,
+  // verdicts, and serve shapes all predate the contract).
   // CORRECTED CONTRACT (2026-10-13): the pin moves with the schema;
   // it exists to force this comment chain to be written, not to
   // freeze the version.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v40"'), "CACHE_SCHEMA_VERSION must be v40");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v41"'), "CACHE_SCHEMA_VERSION must be v41");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

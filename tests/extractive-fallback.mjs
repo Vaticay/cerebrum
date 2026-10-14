@@ -330,7 +330,15 @@ await test("alignment checker still verifies the reframed limited answer end to 
   const md = buildExtractiveSynthesis(LIMITED_BEES, null, { query: "How do bees stay warm in winter?" });
   const res = verifyExtractiveAlignment(md, LIMITED_BEES);
   assert.equal(res.checked, true, "reframed answer escaped alignment checking");
-  assert.equal(res.claims.length, 3, "lead plus both supporting passages must be checked, bibliography excluded");
+  // 2026-10-14 (wave eight arbitration): the count was 3 when
+  // this pin was written. The parasite loads paper engages only
+  // one of the question's central terms ("winter") and no longer
+  // enters the excerpt pool under the wave eight citation
+  // standard, so the built answer quotes the cluster paper
+  // alone: the lead plus its one supporting passage is what
+  // the checker must verify, bibliography still excluded. The
+  // contract — every quoted passage is checked — is unchanged.
+  assert.equal(res.claims.length, 2, "lead plus the supporting passage must be checked, bibliography excluded");
   assert.equal(res.overall, "supported");
 });
 
