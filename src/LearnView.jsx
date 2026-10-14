@@ -29,6 +29,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Icon, STATUS, FONT_SIZES, RADIUS, withAlpha, accentText } from "./designSystem.jsx";
+import { accentInk } from "./appUtils.js";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -1257,6 +1258,80 @@ const CSS = `
   0%, 100% { transform: rotate(-0.6deg) scale(1, 1); }
   50% { transform: rotate(0.6deg) scale(1.008, 1.016); }
 }
+/* The living Nova (home restructure wave, 2026-10-14): the
+   persistent avatar is a layered vector character, and its life
+   is articulated, not a transform on a still picture. The breath
+   moves the whole figure, each gill filament sways on its own
+   phase, the eyelids carry the expression through the --lid
+   custom property and close fully on a slow blink cycle, and
+   the pupils hold a gaze per state with an occasional slow look
+   to the side at rest. State classes (nv-st-*) set the eyelid
+   height, the gaze, the mouth, the gill posture, and the gill
+   gold brightness. All of it is CSS on vector parts: no canvas,
+   no per frame JavaScript, transforms and opacity only. */
+.nv-breath { animation: nvBreath 4.6s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 50% 100%; }
+@keyframes nvBreath { from { transform: scale(1, 1); } to { transform: scale(1.006, 1.02); } }
+.nv-st-asleep .nv-breath { animation-duration: 7.5s; }
+.nv-fil { animation: nvSway ease-in-out infinite alternate; transform-box: fill-box; }
+.nv-fil-l { transform-origin: 100% 50%; }
+.nv-fil-r { transform-origin: 0% 50%; }
+.nv-f1 { animation-duration: 3.9s; animation-delay: -0.6s; }
+.nv-f2 { animation-duration: 4.5s; animation-delay: -1.9s; }
+.nv-f3 { animation-duration: 5.1s; animation-delay: -3.1s; }
+@keyframes nvSway { from { transform: rotate(-1.3deg); } to { transform: rotate(1.3deg); } }
+.nv-gills-l, .nv-gills-r { transform-box: fill-box; transition: transform 0.6s ease; }
+.nv-gills-l { transform-origin: 100% 50%; }
+.nv-gills-r { transform-origin: 0% 50%; }
+.nv-st-fading .nv-gills-l { transform: rotate(-5deg); }
+.nv-st-fading .nv-gills-r { transform: rotate(5deg); }
+.nv-st-fading .nv-gill-gold { fill: #A79B7D; opacity: 0.55; }
+.nv-st-asleep .nv-gills-l { transform: rotate(-3deg); }
+.nv-st-asleep .nv-gills-r { transform: rotate(3deg); }
+.nv-st-worried .nv-gills-l { transform: rotate(2.5deg); }
+.nv-st-worried .nv-gills-r { transform: rotate(-2.5deg); }
+.nv-st-pleased .nv-gill-gold { fill: #D8BC72; }
+.nv-lid { animation: nvBlink 7.3s linear infinite; transform-box: fill-box; transform-origin: 50% 0%; }
+@keyframes nvBlink {
+  0%, 6%, 44%, 50%, 100% { transform: scaleY(var(--lid, 0.34)); }
+  3%, 47% { transform: scaleY(1); }
+}
+.nv-st-greeting { --lid: 0.34; }
+.nv-st-thinking { --lid: 0.26; }
+.nv-st-explaining { --lid: 0.22; }
+.nv-st-pleased { --lid: 0.48; }
+.nv-st-deadpan { --lid: 0.6; }
+.nv-st-worried { --lid: 0.14; }
+.nv-st-fading { --lid: 0.52; }
+.nv-st-asleep { --lid: 1; }
+.nv-st-asleep .nv-lid { animation: none; transform: scaleY(1); }
+.nv-pupils { transition: transform 0.5s ease; }
+.nv-st-greeting .nv-pupils { animation: nvLook 13s ease-in-out infinite; }
+@keyframes nvLook {
+  0%, 30% { transform: translate(0px, 0px); }
+  38%, 46% { transform: translate(-4.5px, 0.5px); }
+  54%, 70% { transform: translate(0px, 0px); }
+  78%, 86% { transform: translate(4.5px, 0px); }
+  94%, 100% { transform: translate(0px, 0px); }
+}
+.nv-st-thinking .nv-pupils { transform: translate(0px, -4px); }
+.nv-st-explaining .nv-pupils { transform: translate(0px, -1px); }
+.nv-st-pleased .nv-pupils { transform: translate(0px, 1px); }
+.nv-st-deadpan .nv-pupils { transform: translate(0px, 0.5px); }
+.nv-st-worried .nv-pupils { transform: translate(0px, 2.5px); }
+.nv-st-fading .nv-pupils { transform: translate(0px, 2px); }
+.nv-mouth { display: none; }
+.nv-st-greeting .nv-m-line, .nv-st-thinking .nv-m-line, .nv-st-fading .nv-m-line { display: block; }
+.nv-st-deadpan .nv-m-flat { display: block; }
+.nv-st-pleased .nv-m-smile { display: block; }
+.nv-st-worried .nv-m-frown { display: block; }
+.nv-st-explaining .nv-m-open { display: block; }
+.nv-st-asleep .nv-m-short { display: block; }
+/* The home section navigation (home restructure wave): a flat
+   segmented row, gold underline for the current screen, nothing
+   rounded beyond the foundation tokens. */
+.lv-nav { scrollbar-width: none; }
+.lv-nav::-webkit-scrollbar { display: none; }
+.lv-tab { transition: color 0.15s, border-color 0.15s; }
 /* The wave 3 home layout: band, status row, and the two column
    body are grid zones on desktop and a single column on mobile. */
 .lv-band { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: stretch; }
@@ -1271,6 +1346,13 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse, .lv-nova-live { animation: none !important; }
   .lv-btn, .lv-opt, .lv-fill, .lv-node, .lv-topic, .lv-chip { transition: none !important; }
+  /* The living Nova stills to its static expression: no breath,
+     no sway, no blink, no wandering gaze. The eyelids keep the
+     height the state sets, because the keyframes are what the
+     reduced motion gate removes, not the state classes. */
+  .nv-breath, .nv-fil, .nv-lid, .nv-pupils { animation: none !important; }
+  .nv-gills-l, .nv-gills-r, .nv-pupils { transition: none !important; }
+  .nv-lid { transform: scaleY(var(--lid, 0.34)); }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
 .lv-topic { transition: transform .15s, border-color .15s; }
@@ -1400,6 +1482,108 @@ function CharacterPose({ pose, size = 54, live = false }) {
       onLoad={() => setOk(true)} onError={() => setOk(false)}
       style={{ display: ok ? "block" : "none", width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
   );
+}
+
+/* ── the living Nova (home restructure wave, 2026-10-14) ─────────
+   The persistent avatar is this vector character, drawn in the
+   house flat style: warm ink outlines, matte ivory body, gold
+   tipped gill filaments, one thin gold spine line, and the dry
+   half lidded gaze of the raster set, so the two read as one
+   character. The raster poses stay as artwork for lesson starts,
+   completions, and the share card; everywhere Nova simply
+   accompanies the learner (the header, the bench, reminders,
+   empty states, the feedback sheet), this is the face, and it
+   is alive: the animation lives in the CSS above (nvBreath,
+   nvSway, nvBlink, nvLook), articulated per part, with the
+   expression carried by the nv-st-* state classes. The state
+   names are the pose keys the product already uses. */
+const NV_INK = "#3A352C";
+const NV_IVORY = "#F1EADA";
+const NV_SOCKET = "#FBF7EC";
+const NV_GOLD = "#C4A35A";
+
+export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false, returned = false } = {}) {
+  if (streakAtRisk) return "worried";
+  if (reviewDue) return "fading";
+  if (hour >= 23 || hour < 5) return "asleep";
+  if (returned) return "greeting";
+  return "greeting";
+}
+
+function NovaAvatar({ state = "greeting", size = 48 }) {
+  const lidL = "M82,108 A14,12 0 0 1 110,108 Q96,116 82,108 Z";
+  const lidR = "M130,108 A14,12 0 0 1 158,108 Q144,116 130,108 Z";
+  return (
+    <svg className={"nv-avatar nv-st-" + state} width={size} height={size} viewBox="-14 -10 268 260"
+      aria-hidden="true" focusable="false" style={{ display: "block", flexShrink: 0 }}>
+      <g className="nv-breath">
+        <g className="nv-gills-l">
+          <g className="nv-fil nv-fil-l nv-f1">
+            <path d="M78,78 C56,60 30,54 12,62 C26,76 52,84 76,92 C80,88 80,82 78,78 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <ellipse className="nv-gill-gold" cx="15" cy="63" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(-18 15 63)" />
+          </g>
+          <g className="nv-fil nv-fil-l nv-f2">
+            <path d="M72,96 C46,88 20,90 4,100 C18,112 48,116 72,112 C75,107 74,101 72,96 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <ellipse className="nv-gill-gold" cx="8" cy="101" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(-6 8 101)" />
+          </g>
+          <g className="nv-fil nv-fil-l nv-f3">
+            <path d="M76,120 C52,118 28,126 14,140 C30,150 56,148 76,138 C78,132 78,126 76,120 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <ellipse className="nv-gill-gold" cx="17" cy="142" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(24 17 142)" />
+          </g>
+        </g>
+        <g className="nv-gills-r">
+          <g className="nv-fil nv-fil-r nv-f1">
+            <path d="M162,78 C184,60 210,54 228,62 C214,76 188,84 164,92 C160,88 160,82 162,78 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <ellipse className="nv-gill-gold" cx="225" cy="63" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(18 225 63)" />
+          </g>
+          <g className="nv-fil nv-fil-r nv-f2">
+            <path d="M168,96 C194,88 220,90 236,100 C222,112 192,116 168,112 C165,107 166,101 168,96 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <ellipse className="nv-gill-gold" cx="232" cy="101" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(6 232 101)" />
+          </g>
+          <g className="nv-fil nv-fil-r nv-f3">
+            <path d="M164,120 C188,118 212,126 226,140 C210,150 184,148 164,138 C162,132 162,126 164,120 Z" fill={NV_IVORY} stroke={NV_INK} strokeWidth="3.5" strokeLinejoin="round" />
+            <ellipse className="nv-gill-gold" cx="223" cy="142" rx="6" ry="4.5" fill={NV_GOLD} transform="rotate(-24 223 142)" />
+          </g>
+        </g>
+        <path d="M84,158 C80,186 88,214 104,222 L136,222 C152,214 160,186 156,158 C140,168 100,168 84,158 Z"
+          fill={NV_IVORY} stroke={NV_INK} strokeWidth="4" strokeLinejoin="round" />
+        <path className="nv-spine" d="M120,182 L120,207" stroke={NV_GOLD} strokeWidth="3.5" strokeLinecap="round" opacity="0.9" />
+        <path d="M120,44 C152,44 176,70 176,106 C176,142 152,166 120,166 C88,166 64,142 64,106 C64,70 88,44 120,44 Z"
+          fill={NV_IVORY} stroke={NV_INK} strokeWidth="4" strokeLinejoin="round" />
+        <ellipse cx="96" cy="108" rx="14" ry="12" fill={NV_SOCKET} stroke={NV_INK} strokeWidth="3.5" />
+        <ellipse cx="144" cy="108" rx="14" ry="12" fill={NV_SOCKET} stroke={NV_INK} strokeWidth="3.5" />
+        <g className="nv-pupils">
+          <circle cx="96" cy="110" r="6.2" fill={NV_INK} />
+          <circle cx="144" cy="110" r="6.2" fill={NV_INK} />
+          <circle cx="93.8" cy="107.4" r="1.9" fill={NV_SOCKET} />
+          <circle cx="141.8" cy="107.4" r="1.9" fill={NV_SOCKET} />
+        </g>
+        <path className="nv-lid" d={lidL} fill={NV_IVORY} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+        <path className="nv-lid" d={lidR} fill={NV_IVORY} stroke={NV_INK} strokeWidth="3" strokeLinejoin="round" />
+        <path className="nv-mouth nv-m-line" d="M105,143 Q120,146 135,143" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
+        <path className="nv-mouth nv-m-flat" d="M106,144 L134,144" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
+        <path className="nv-mouth nv-m-smile" d="M104,141 Q120,150 136,141" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
+        <path className="nv-mouth nv-m-frown" d="M106,146 Q120,140 134,146" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
+        <ellipse className="nv-mouth nv-m-open" cx="120" cy="144" rx="5.5" ry="4" fill={NV_INK} />
+        <path className="nv-mouth nv-m-short" d="M110,143 L130,143" fill="none" stroke={NV_INK} strokeWidth="3.5" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
+/* The feedback sheet's Nova (home restructure wave): the sheet
+   is where Nova reacts. A correct answer flashes pleased, a
+   wrong one lands deadpan, and after a couple of seconds the
+   face settles to explaining, which is what the sheet itself is
+   doing. The timer only changes which state class renders; the
+   motion itself is the avatar's CSS. */
+function SheetNova({ good }) {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(true), 2100);
+    return () => clearTimeout(t);
+  }, []);
+  return <NovaAvatar state={settled ? "explaining" : good ? "pleased" : "deadpan"} size={48} />;
 }
 
 /* ── wave 3 (2026-10-14): the Nova home discipline ─────────────────
@@ -9013,8 +9197,11 @@ function ShareCardButton({ model, P, accent }) {
         im.src = src;
       }) : null;
       ctx.textAlign = "center";
+      /* Panel 8 fix (2026-10-14): the product name is the serif
+         wordmark, not a sans; the tagline sits directly under it
+         in gold sans, the spec's lockup, above everything else. */
       ctx.fillStyle = INK;
-      ctx.font = "600 68px 'Inter Tight', 'Segoe UI', sans-serif";
+      ctx.font = "600 68px 'Source Serif 4', Georgia, 'Times New Roman', serif";
       ctx.fillText("Nova", 540, 138);
       ctx.fillStyle = GOLD;
       ctx.font = "400 34px 'Inter Tight', 'Segoe UI', sans-serif";
@@ -9736,7 +9923,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <CharacterPose pose={sheetGood ? "cheer" : "deadpan"} size={48} />
+          <SheetNova good={sheetGood} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Two readings, honestly held. That is the point."
@@ -10492,6 +10679,7 @@ const TOUR_STEPS = [
 ];
 function CortexTour({ P, accent, at, onClose }) {
   const [step, setStep] = useState(0);
+  const ink = accentInk(P, accent);
   const s = TOUR_STEPS[step];
   const last = step === TOUR_STEPS.length - 1;
   return (
@@ -10507,13 +10695,13 @@ function CortexTour({ P, accent, at, onClose }) {
       }}>
         <div style={{
           width: 56, height: 56, borderRadius: "50%", marginBottom: 18,
-          background: "rgba(255,255,255,0.06)", color: accent,
+          background: "rgba(255,255,255,0.06)", color: ink,
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           <Icon name={s.icon} size={26} />
         </div>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>
-          HOW WICK WORKS · {step + 1} OF {TOUR_STEPS.length}
+          HOW NOVA WORKS · {step + 1} OF {TOUR_STEPS.length}
         </div>
         <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{s.title}</h2>
         <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.65, color: P.ink2, margin: "0 0 24px" }}>{s.body}</p>
@@ -10572,6 +10760,7 @@ const ONBOARDING_FIRST_LESSON = {
 
 function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
   const [step, setStep] = useState(0);
+  const ink = accentInk(P, accent);
   const [curiosity, setCuriosity] = useState("everything");
   const [minutes, setMinutes] = useState(5);
   const [reminderHour, setReminderHour] = useState(null);
@@ -10586,11 +10775,11 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
       <style>{CSS}</style>
       <div className="lv-rise">
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-          <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={30} /></span>
+          <span style={{ color: ink, display: "inline-flex" }}><Icon name="cortex" size={30} /></span>
           <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint }}>
-            WELCOME TO WICK · {step + 1} OF 3
+            WELCOME TO NOVA · {step + 1} OF 3
           </span>
-          <span style={{ marginLeft: 2 }}><CharacterPose pose="wave" size={40} /></span>
+          <span style={{ marginLeft: 2 }}><NovaAvatar state="greeting" size={40} /></span>
         </div>
         <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
@@ -10672,12 +10861,37 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
   );
 }
 
+/* The Nova home's screens (home restructure wave, 2026-10-14).
+   Today is the day itself and nothing else; every other section
+   of the old stacked home has exactly one home here, one tap
+   from the navigation that sits under the header. */
+const HOME_TABS = [
+  { id: "today", label: "Today" },
+  { id: "paths", label: "Paths" },
+  { id: "library", label: "Library" },
+  { id: "create", label: "Create" },
+  { id: "shop", label: "Shop" },
+  { id: "leagues", label: "Leagues" },
+];
+
 export default function LearnView({ P, accent, at, onNavigate }) {
+  /* Panel 8 fix (2026-10-14): the home's accent coloured text ran
+     in the raw accent, which computes at 1.00 to 2.61 to 1 against
+     Light palette grounds. Every accent TEXT use in this view
+     (tagline, section labels, action labels) goes through ink, the
+     app shell's accentInk correction; fills, borders, and progress
+     bars keep the raw accent. */
+  const ink = accentInk(P, accent);
   const [courses, setCourses] = useState([]);
   const [claims, setClaims] = useState({});
   const [profile, setProfile] = useState(null);
   const [builtinProgress, setBuiltinProgress] = useState(() => loadBuiltinProgress());
   const [screen, setScreen] = useState({ name: "home" }); // home | path | player
+  /* The home is focused screens now (home restructure wave,
+     2026-10-14): Today holds the day itself, and everything that
+     used to stack below it lives behind this one navigation. The
+     tab is view state only; no learner data hangs off it. */
+  const [homeTab, setHomeTab] = useState("today"); // today | paths | library | create | shop | leagues
   const [topic, setTopic] = useState("");
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
@@ -11231,6 +11445,19 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       : () => setScreen({ name: "bpath", pathId: LEARNING_PATHS[0].id });
   const showReturnGreeting = !!profile && lastGapDays >= 2;
 
+  /* The header Nova's mood (home restructure wave): the living
+     avatar reflects the learner's real state, in the bible's
+     priority. A streak at risk worries it; review coming due
+     fades its gills; late at night it sleeps; a return after an
+     absence greets. Nothing here performs on a timer: the mood
+     is read off the same state the home already holds. */
+  const novaMood = novaMoodFor({
+    hour: new Date().getHours(),
+    streakAtRisk: !!(reminder && reminder.kind === "atrisk"),
+    reviewDue: reviewDueCount > 0,
+    returned: showReturnGreeting,
+  });
+
   /* The bundle payoff: rank progress, the streak, mastery so far,
      and one hook for tomorrow. Shown only at the end of a full
      daily session bundle, never for a stage left early. */
@@ -11253,14 +11480,14 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
             <CharacterPose pose="celebrate" size={128} live />
           </div>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: ink, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
           <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 26px", maxWidth: 440 }}>
             Warmup, new ground, and a clear head to end on. Here is where today leaves you.
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 26, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
-              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: accent }}>{rank.name}</div>
+              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: ink }}>{rank.name}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
                 {rank.atTop ? "Top rank" : rank.xpToNext + " XP to " + rank.nextName}
               </div>
@@ -11275,7 +11502,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </div>
           </div>
           <div style={{ background: P.raised, border: "1px solid " + accent, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440, textAlign: "left" }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 7 }}>TOMORROW</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 7 }}>TOMORROW</div>
             <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>{hook}</p>
           </div>
           <div style={{ margin: "0 auto 24px" }}>
@@ -11307,7 +11534,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 26px", lineHeight: 1.2 }}>Nova settings</h2>
 
         <div style={{ marginBottom: 30 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REMINDERS</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>REMINDERS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             Reminders live here for now: pick an hour and Nova will have your streak and your open quest waiting at the top of this page when you come back.
           </p>
@@ -11325,7 +11552,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
 
         <div style={{ marginBottom: 30 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>SOUND</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SOUND</div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button onClick={toggleSound} aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"} aria-pressed={soundOn}
               style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -11338,7 +11565,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
 
         <div>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>YOUR PROGRESS</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>YOUR PROGRESS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             Your progress is stored in this browser only. Export saves a file you keep, not a cloud copy. Import replaces the progress in this browser with the file you pick.
           </p>
@@ -11372,7 +11599,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   return (
-    <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "30px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink }}>
+    <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "26px 24px 48px", fontFamily: "var(--cb-font)", color: P.ink }}>
       <style>{CSS}</style>
       {tourOpen && <CortexTour P={P} accent={accent} at={at} onClose={closeTour} />}
 
@@ -11384,16 +11611,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, minHeight: 56 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
           <span aria-hidden="true" style={{ width: 48, height: 48, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "1px solid " + P.line, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <CharacterPose pose="greeting" size={48} live />
+            <NovaAvatar state={novaMood} size={46} />
           </span>
           <div style={{ minWidth: 0 }}>
             <h1 className="lv-wordmark" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
-            <p style={{ fontSize: FONT_SIZES.body, color: accent, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
+            <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <button onClick={() => setTourOpen(true)}
-            style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            style={{ background: "none", border: "none", color: ink, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}>
             How Nova works <Icon name="arrowRight" size={13} />
           </button>
           <button onClick={() => setScreen({ name: "settings" })}
@@ -11407,6 +11634,32 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </button>
         </div>
       </div>
+
+      {/* The section navigation (home restructure wave): one
+          flat segmented row under the header. The header and
+          this row are the home's only permanent chrome; every
+          screen below them is focused, and nothing stacks. */}
+      <nav className="lv-nav" role="tablist" aria-label="Nova sections"
+        style={{ display: "flex", gap: 2, borderBottom: "1px solid " + P.line, marginTop: 16, overflowX: "auto" }}>
+        {HOME_TABS.map((t) => {
+          const active = homeTab === t.id;
+          return (
+            <button key={t.id} role="tab" aria-selected={active} onClick={() => setHomeTab(t.id)}
+              className="lv-tab"
+              style={{
+                background: "none", border: "none", borderBottom: "2px solid " + (active ? accent : "transparent"),
+                color: active ? P.ink : P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)",
+                fontSize: FONT_SIZES.label, fontWeight: active ? 700 : 600,
+                padding: "10px 14px", minHeight: 44, whiteSpace: "nowrap", marginBottom: -1, flexShrink: 0,
+              }}>
+              {t.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {homeTab === "today" && (
+        <>
       <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "14px 0 0", maxWidth: 620 }}>
         Lessons that teach you a subject in small steps, with quizzes on what you just learned. Follow a path, pick a catalog topic, or build a course from any question. What you answer comes back later, right before you forget, so it stays.
       </p>
@@ -11415,7 +11668,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           or more, once, in its own voice. */}
       {showReturnGreeting && (
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 22 }}>
-          <CharacterPose pose="greeting" size={40} live />
+          <NovaAvatar state="greeting" size={40} />
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink, margin: 0, lineHeight: 1.5 }}>
             {reviewDueCount > 0 ? "There you are. Your reviews waited." : "There you are. All quiet, and everything held."}
           </p>
@@ -11427,10 +11680,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           The reminder, when Nova has one, speaks from the top of
           the band; it gets no button of its own, because the band's
           button is the action it is pointing at. */}
-      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, margin: "26px 0 24px" }}>
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, margin: "20px 0 20px" }}>
         {reminder && (
           <div style={{ display: "flex", gap: 14, alignItems: "center", paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
-            <CharacterPose pose={reminder.kind === "atrisk" ? "worried" : "wave"} size={44} live />
+            <NovaAvatar state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={44} />
             <span style={{ minWidth: 0 }}>
               <span style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, display: "block" }}>{reminder.title}</span>
               <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
@@ -11439,7 +11692,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         )}
         <div className="lv-band">
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>DAILY PRACTICE</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>DAILY PRACTICE</div>
             <button onClick={bandGo}
               style={{ display: "block", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 4 }}>
               <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.subhead, fontWeight: 600, lineHeight: 1.3 }}>{bandTitle}</span>
@@ -11496,7 +11749,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           count is quiet text inside the streak card, per the
           reconciliation: freezes are real, they just get no card
           of their own. */}
-      <div className="lv-status" style={{ marginBottom: 32 }}>
+      <div className="lv-status" style={{ marginBottom: 24 }}>
         <div style={{ background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: 16 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: FONT_SIZES.section, fontWeight: 500 }}>{profile ? profile.streak || 0 : 0}</span>
@@ -11540,10 +11793,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           {/* the review bench: review as a place, with its due
               count on the door. Due items are cream rows; each row
               starts the bench, and so does the button under them. */}
-          <div style={{ marginBottom: 32 }}>
+          <div style={{ marginBottom: 26 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent }}>REVIEW BENCH</span>
-              {reviewDueCount > 0 && <CharacterPose pose="fading" size={40} live />}
+              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>REVIEW BENCH</span>
+              {reviewDueCount > 0 && <NovaAvatar state="fading" size={40} />}
             </div>
             <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
@@ -11580,7 +11833,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </p>
             <button className="lv-btn" onClick={startReview} disabled={reviewDueCount === 0}
               style={{
-                background: "transparent", color: accent, border: "1px solid " + accent, borderRadius: RADIUS.lg,
+                background: "transparent", color: ink, border: "1px solid " + accent, borderRadius: RADIUS.lg,
                 padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 700,
                 cursor: reviewDueCount > 0 ? "pointer" : "default", fontFamily: "var(--cb-font)",
                 opacity: reviewDueCount > 0 ? 1 : 0.5,
@@ -11593,12 +11846,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               hairline each, no card chrome competing with the
               bench above it */}
           <div>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>TODAY'S QUESTS</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TODAY'S QUESTS</div>
             {questCheer.length > 0 && questCheer.map((slot) => {
               const cheerQuest = todayQuests.find((q) => q.slot === slot);
               return (
                 <div key={slot} style={{ display: "flex", alignItems: "center", gap: 12, border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "12px 14px", marginBottom: 12 }}>
-                  <CharacterPose pose="celebrate" size={44} />
+                  <NovaAvatar state="pleased" size={44} />
                   <span style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
                     {"+5 Sparks · " + (cheerQuest ? cheerQuest.title : "Quest done")}
                   </span>
@@ -11629,11 +11882,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               objects stay. It is the learner's history at a
               glance, kept where Nova sits. */}
           <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, marginBottom: 16, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12 }}>NOVA'S SHELF</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
             {shelf.length === 0 ? (
               <div>
                 <div style={{ marginBottom: 10 }}>
-                  <CharacterPose pose="asleep" size={56} />
+                  <NovaAvatar state="asleep" size={56} />
                 </div>
                 <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
                   Nothing on the shelf yet. Finish a path and its object lands here, and stays.
@@ -11652,10 +11905,27 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               </div>
             )}
           </div>
+        </div>
+      </div>
 
-          {/* sparks: streak protection only, earned by the loop */}
+      {/* Zone 5, the footer line (wave 3): one quiet line, and the
+          controls it names live in Nova settings now. It closes
+          the Today screen; the screens below are reached from
+          the navigation, never by scrolling past this line. */}
+      <p style={{ fontSize: FONT_SIZES.label, color: P.faint, margin: "26px 0 0" }}>
+        Progress stays in this browser. Export to keep a copy.
+      </p>
+        </>
+      )}
+
+      {homeTab === "shop" && (
+        <div style={{ maxWidth: 720, marginTop: 24 }}>
+          {/* sparks: streak protection only, earned by the loop.
+              Its own screen now (home restructure wave): the shop
+              used to sit in Today's rail, where it competed with
+              the day itself. */}
           <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, marginBottom: 16, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>SPARKS</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SPARKS</div>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
               You hold {profile ? profile.sparks || 0 : 0} Sparks.
             </p>
@@ -11710,10 +11980,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               {"Sparks never buy " + SPARKS_NEVER_BUYS.join(", ") + "."}
             </p>
           </div>
+        </div>
+      )}
 
-          {/* leagues: not open yet, joining is a saved choice only */}
+      {homeTab === "leagues" && (
+        <div style={{ maxWidth: 720, marginTop: 24 }}>
+          {/* leagues: not open yet, joining is a saved choice only.
+              Its own screen now (home restructure wave), beside
+              the shop it used to share a rail with. */}
           <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEAGUES</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEAGUES</div>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
               Leagues open once enough learners are active each week. Groups of 30, ranked on league points earned from first time lessons and review accuracy, capped each day. Replays earn nothing, and joining is always your choice.
             </p>
@@ -11729,14 +12005,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             )}
           </div>
         </div>
-      </div>
+      )}
 
+      {homeTab === "paths" && (
+        <>
       {/* the journey: paths as places, units as regions, lessons
           as stops. Filled ground is knowledge the learner owns;
           a dashed, dimmed stop is finished ground whose review
           has come due, so review due shows on the map itself. */}
       <div style={{ marginBottom: 30 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>LEARNING PATHS</div>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
         <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 10px" }}>
           Whole subjects, taught step by step, laid out as places to travel. Every lesson teaches first, then checks what stuck, and nothing here needs a search to start.
@@ -11754,7 +12032,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--cb-font)", color: P.ink }}>
                 <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                   <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, lineHeight: 1.3 }}>{path.title}</span>
-                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, flexShrink: 0 }}>
+                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: ink, flexShrink: 0 }}>
                     {pp.complete ? "Complete" : pp.done > 0 ? pp.done + " of " + pp.total + " stops" : pp.total + " stops"}
                   </span>
                 </span>
@@ -11835,7 +12113,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {/* courses from searches: heading for everything below */}
       <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>TOPIC COURSES</div>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TOPIC COURSES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
           Twenty four topics, each a full course of taught lessons and quizzes. Pick one and start learning it right away, no searching needed.
         </p>
@@ -11874,13 +12152,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{t.t}</span>
                   <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
                   {mastery > 0 && (
-                    <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, marginTop: 8 }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 700, color: ink, marginTop: 8 }}>
                       Mastery level {mastery} of 5
                     </span>
                   )}
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
                     <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", color: P.faint }}>{cat.name.toUpperCase()}</span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>{tpp && tpp.complete ? "Complete" : tpp && tpp.done > 0 ? tpp.done + " of " + tpp.total : "Start"}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: ink }}>{tpp && tpp.complete ? "Complete" : tpp && tpp.done > 0 ? tpp.done + " of " + tpp.total : "Start"}</span>
                   </span>
                 </span>
               </button>
@@ -11904,10 +12182,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{e.blurb || e.query}</span>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
                     <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={12} /></span>
+                      <span style={{ color: ink, display: "inline-flex" }}><Icon name="cortex" size={12} /></span>
                       by {String(e.createdBy || "").split("@")[0]}
                     </span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: ink }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
                   </span>
                 </span>
               </button>
@@ -11919,63 +12197,44 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <p style={{ color: "#FF8A8A", fontSize: FONT_SIZES.body, margin: "14px 0 0" }}>{buildError}</p>
         )}
       </div>
+        </>
+      )}
 
-      {/* courses from your searches: the builder, and the library
-          of courses it has built for you */}
-      <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
+      {homeTab === "library" && (
+        <>
+      {/* courses from your searches: the library of courses the
+          builder has made for you. Its own screen now (home
+          restructure wave); building lives on Create. */}
+      <div style={{ marginBottom: 4, marginTop: 24 }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          Ask about anything in Search, or name a topic below, and Nova turns it into taught lessons with checks. The courses you build live here, under the journey, where they belong.
+          Ask about anything in Search, or name a topic on the Create screen, and Nova turns it into taught lessons with checks. The courses you build live here.
         </p>
-      </div>
-
-      {/* topic builder */}
-      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>BUILD A COURSE</div>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-          Name a topic. Cerebrum searches for what is known and turns the answer's ideas into taught lessons with quizzes, on the spot.
-        </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <input
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") buildCourse(); }}
-            placeholder="e.g. black soldier fly larvae gut microbiome"
-            aria-label="Course topic"
-            style={{
-              flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg,
-              padding: "14px 16px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
-            }}
-          />
-          <button className="lv-btn lv-btn-primary" onClick={buildCourse} disabled={building || !topic.trim()}
-            style={{
-              background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
-              padding: "14px 26px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: building ? "wait" : "pointer",
-              fontFamily: "var(--cb-font)", minHeight: 54, opacity: building || !topic.trim() ? 0.55 : 1,
-            }}>
-            {building ? "Searching..." : "Build course"}
-          </button>
-        </div>
-        {buildError && <p style={{ color: "#FF8A8A", fontSize: FONT_SIZES.body, margin: "12px 0 0" }}>{buildError}</p>}
       </div>
 
       {/* library */}
       {courses.length === 0 ? (
         <div style={{ border: "1px dashed " + P.line, borderRadius: RADIUS.xl, padding: "38px 28px", textAlign: "center" }}>
-          {/* The asleep pose's first surface (wave 3): an empty
-              state is a Nova moment, and nothing here needs Nova
-              awake. */}
+          {/* The asleep Nova's empty state (wave 3's first asleep
+              surface, now the living avatar): an empty state is a
+              Nova moment, and nothing here needs Nova awake. */}
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-            <CharacterPose pose="asleep" size={96} />
+            <NovaAvatar state="asleep" size={96} />
           </div>
           <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
-            Quiet in here. Build one above, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
+            Quiet in here. Build one on the Create screen, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
           </p>
-          <button onClick={() => onNavigate && onNavigate("search")}
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-            Go to Search
-          </button>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={() => setHomeTab("create")}
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              Build a course
+            </button>
+            <button onClick={() => onNavigate && onNavigate("search")}
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              Go to Search
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -12010,11 +12269,48 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </div>
         </>
       )}
+        </>
+      )}
+
+      {homeTab === "create" && (
+        <>
+      {/* topic builder: the Create screen's front door (home
+          restructure wave). It sat above the library on the old
+          stacked home; building is its own place now, and what
+          it builds lands on Library. */}
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24, marginTop: 24 }}>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>BUILD A COURSE</div>
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
+          Name a topic. Cerebrum searches for what is known and turns the answer's ideas into taught lessons with quizzes, on the spot.
+        </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <input
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") buildCourse(); }}
+            placeholder="e.g. black soldier fly larvae gut microbiome"
+            aria-label="Course topic"
+            style={{
+              flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg,
+              padding: "14px 16px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
+            }}
+          />
+          <button className="lv-btn lv-btn-primary" onClick={buildCourse} disabled={building || !topic.trim()}
+            style={{
+              background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
+              padding: "14px 26px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: building ? "wait" : "pointer",
+              fontFamily: "var(--cb-font)", minHeight: 54, opacity: building || !topic.trim() ? 0.55 : 1,
+            }}>
+            {building ? "Searching..." : "Build course"}
+          </button>
+        </div>
+        {buildError && <p style={{ color: "#FF8A8A", fontSize: FONT_SIZES.body, margin: "12px 0 0" }}>{buildError}</p>}
+      </div>
 
       {/* contributor studio */}
       {access.isCreator && (
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Nova builds the course on the spot, same as every course here.
           </p>
@@ -12062,7 +12358,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* owner: creator access */}
       {access.isFounder && (
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CREATORS</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CREATORS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             Type an email and that account can create for Nova: publishing catalog courses from the studio above. Creators also receive the Nova Contributor badge on their profile.
           </p>
@@ -12081,7 +12377,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <div style={{ marginTop: 16, borderTop: "1px solid " + P.line, paddingTop: 12 }}>
               {creators.map((c) => (
                 <div key={c.email} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
-                  <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={15} /></span>
+                  <span style={{ color: ink, display: "inline-flex" }}><Icon name="cortex" size={15} /></span>
                   <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.body, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</span>
                   <button onClick={() => revokeCreator(c.email)}
                     style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink2, cursor: "pointer", padding: "6px 12px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
@@ -12093,12 +12389,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           )}
         </div>
       )}
-
-      {/* Zone 5, the footer line (wave 3): one quiet line, and the
-          controls it names live in Nova settings now. */}
-      <p style={{ fontSize: FONT_SIZES.label, color: P.faint, margin: "26px 0 0" }}>
-        Progress stays in this browser. Export to keep a copy.
-      </p>
+        </>
+      )}
 
     </div>
   );

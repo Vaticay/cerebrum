@@ -89,6 +89,7 @@ const WANTED = [
   "leagueDailyPoints", "leagueWeeklyPoints", "leagueGroupFor", "leaguesAreOpen",
   "shareCardModel",
   "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
+  "novaMoodFor",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -148,6 +149,7 @@ const {
   leagueDailyPoints, leagueWeeklyPoints, leagueGroupFor, leaguesAreOpen,
   shareCardModel,
   visitGapDays, shelfGlyphFor, shelfObjects,
+  novaMoodFor,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -769,6 +771,12 @@ await test("the tour opens with the learning paths", () => {
 });
 
 await test("home leads with learning and topic courses come after", () => {
+  // Reading note, 2026-10-14 (home restructure wave): these
+  // sections no longer stack on one page. Daily practice sits on
+  // the Today screen and the paths and topic courses sit on the
+  // Paths screen, in this order in the source and in the
+  // navigation alike; the ordering assertions below now pin that
+  // screen order, not a scroll order.
   const daily = learnSrc.indexOf("DAILY PRACTICE");
   const paths = learnSrc.indexOf("LEARNING PATHS");
   const shelves = learnSrc.indexOf("TOPIC COURSES");
@@ -2476,6 +2484,11 @@ await test("the home carries the journey, the bench, the bundle, ranks, and onbo
   const journey = learnSrc.indexOf("Your journey");
   const searches = learnSrc.indexOf("COURSES FROM YOUR SEARCHES");
   const studio = learnSrc.indexOf("CONTRIBUTOR STUDIO");
+  // Reading note, 2026-10-14 (home restructure wave): the journey
+  // is the Paths screen, courses from searches is the Library
+  // screen, and the studio sits on Create. The assertions now pin
+  // that the screens keep this order, Paths before Library before
+  // Create, in place of the old stacked page order.
   assert.ok(journey > 0 && searches > journey, "courses from searches should sit below the journey");
   assert.ok(studio > searches, "the contributor studio should sit below the journey too");
   assert.ok(!learnSrc.includes("out of hearts") && !learnSrc.includes("lives to lose"),
@@ -2775,11 +2788,17 @@ await test("the return greeting gap counts whole days and ignores a missing stam
 });
 
 await test("the wave 3 home carries its zones, its settings surface, and Nova's presence", () => {
+  // Pin updated 2026-10-14 (home restructure wave): this test used
+  // to require the raster asleep pose (pose="asleep") on the home.
+  // The persistent avatar is the living vector Nova now, so the
+  // asleep presence is pinned as the avatar's asleep state; the
+  // raster pose files themselves stay declared for the artwork
+  // surfaces, as the character slot test above still requires.
   for (const needle of [
     "NOVA'S SHELF", "Nothing on the shelf yet", "There you are. Your reviews waited.",
     "Due for review", "Nova settings", "lv-nova-live", "lv-band", "lv-status", "lv-cols",
     'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
-    'pose="asleep"', "Start daily practice", "LAST_VISIT_KEY",
+    'NovaAvatar state="asleep"', "Start daily practice", "LAST_VISIT_KEY",
   ]) {
     assert.ok(learnSrc.includes(needle), `the wave 3 home is missing: ${needle}`);
   }
@@ -2869,6 +2888,108 @@ await test("the search built course asks the search for a medium answer, the val
   // search does not accept (Nova content wave, 2026-10-14).
   assert.ok(learnSrc.includes('answerLength: "medium"'), "the course builder does not send the accepted medium answer length");
   assert.ok(!learnSrc.includes('answerLength: "standard"'), "the course builder still sends the unaccepted standard answer length");
+});
+
+group("Home restructure: focused screens and the living Nova");
+
+await test("the home is six focused screens behind one tablist, and Today holds only its own sections", () => {
+  // Home restructure wave (2026-10-14): the owner ruled the wave 3
+  // home was still one endless scroll with info people would miss.
+  // The home is now six screens behind a flat tablist; Today holds
+  // the band, the status row, review, quests, and the shelf only,
+  // and everything else lives on its own screen.
+  for (const entry of [
+    '{ id: "today", label: "Today" }', '{ id: "paths", label: "Paths" }',
+    '{ id: "library", label: "Library" }', '{ id: "create", label: "Create" }',
+    '{ id: "shop", label: "Shop" }', '{ id: "leagues", label: "Leagues" }',
+  ]) assert.ok(learnSrc.includes(entry), "HOME_TABS is missing " + entry);
+  assert.ok(learnSrc.includes('role="tablist"'), "the home navigation is not a tablist");
+  assert.ok(learnSrc.includes("aria-selected={active}"), "the tabs do not expose the selected screen");
+  assert.ok(learnSrc.includes("onClick={() => setHomeTab(t.id)}"), "the tabs do not switch screens");
+  const markers = ["today", "shop", "leagues", "paths", "library", "create"].map((id) => learnSrc.indexOf(`homeTab === "${id}"`));
+  assert.ok(markers.every((m) => m >= 0), "a home screen block is missing");
+  assert.ok(markers.every((m, i) => i === 0 || m > markers[i - 1]), "the home screen blocks are out of order");
+  const today = learnSrc.slice(markers[0], markers[1]);
+  for (const s of ["DAILY PRACTICE", "Due for review", "TODAY'S QUESTS", "NOVA'S SHELF"])
+    assert.ok(today.includes(s), "the Today screen is missing " + s);
+  for (const s of ["Your journey", "BUILD A COURSE", "Buy a streak freeze", "LEAGUES"])
+    assert.ok(!today.includes(s), "the Today screen still stacks " + s);
+  const shop = learnSrc.slice(markers[1], markers[2]);
+  const leagues = learnSrc.slice(markers[2], markers[3]);
+  const paths = learnSrc.slice(markers[3], markers[4]);
+  const library = learnSrc.slice(markers[4], markers[5]);
+  const create = learnSrc.slice(markers[5]);
+  assert.ok(shop.includes("Buy a streak freeze"), "the Shop screen lost the Sparks shop");
+  assert.ok(leagues.includes("LEAGUES"), "the Leagues screen lost the leagues panel");
+  assert.ok(paths.includes("Your journey") && paths.includes("TOPIC COURSES"), "the Paths screen lost the paths or the catalog");
+  assert.ok(library.includes("COURSES FROM YOUR SEARCHES"), "the Library screen lost the search courses");
+  assert.ok(create.includes("BUILD A COURSE") && create.includes("CONTRIBUTOR STUDIO"), "the Create screen lost the builder or the studio");
+});
+
+await test("the living Nova is a layered vector with a true blink, per state lids, and reduced motion stilling", () => {
+  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48 })'), "the vector Nova component is missing");
+  for (const k of ["@keyframes nvBlink", "@keyframes nvBreath", "@keyframes nvSway", "@keyframes nvLook"])
+    assert.ok(learnSrc.includes(k), "the avatar is missing " + k);
+  assert.ok(learnSrc.includes(".nv-lid { animation: nvBlink 7.3s linear infinite;"), "the eyelids do not run the blink cycle");
+  for (const s of ["greeting", "thinking", "explaining", "pleased", "deadpan", "worried", "fading", "asleep"])
+    assert.ok(learnSrc.includes(`.nv-st-${s} { --lid:`), "state " + s + " sets no eyelid height");
+  assert.ok(learnSrc.includes(".nv-st-fading .nv-gill-gold { fill: #A79B7D; opacity: 0.55; }"), "fading does not dim the gill gold");
+  assert.ok(learnSrc.includes(".nv-st-pleased .nv-gill-gold { fill: #D8BC72; }"), "pleased does not brighten the gill gold");
+  assert.ok(learnSrc.includes(".nv-breath, .nv-fil, .nv-lid, .nv-pupils { animation: none !important; }"), "reduced motion does not still the avatar");
+});
+
+await test("vector Nova stands at the persistent spots and the raster art keeps the artwork moments", () => {
+  assert.ok(learnSrc.includes("<NovaAvatar state={novaMood} size={46} />"), "the header does not render the mood driven Nova");
+  assert.ok(learnSrc.includes("<SheetNova good={sheetGood}"), "the feedback sheet lost its timed Nova reaction");
+  assert.ok(learnSrc.includes('state="fading" size={40}'), "the review bench greeter is not the fading vector Nova");
+  assert.ok(learnSrc.includes('pose="greeting" size={128}'), "the lesson intro lost its raster artwork");
+  assert.ok(learnSrc.includes("CHARACTER_POSES[model.pose]"), "the share card no longer reads the raster pose set");
+});
+
+await test("novaMoodFor ranks streak risk over overdue review over the late night hours", () => {
+  assert.equal(novaMoodFor({ streakAtRisk: true, reviewDue: true, hour: 2, returned: true }), "worried");
+  assert.equal(novaMoodFor({ reviewDue: true, hour: 2 }), "fading");
+  assert.equal(novaMoodFor({ hour: 23 }), "asleep");
+  assert.equal(novaMoodFor({ hour: 2 }), "asleep");
+  assert.equal(novaMoodFor({ hour: 14, returned: true }), "greeting");
+  assert.equal(novaMoodFor({ hour: 14 }), "greeting");
+});
+
+await test("no visible Wick survives: the first run eyebrows read Nova and Wick lives only in history comments", () => {
+  // Panel 8 fold in (2026-10-14): the rename missed the two highest
+  // visibility first run surfaces. User visible strings are zero
+  // tolerance; dated history comments may keep the old name.
+  assert.ok(learnSrc.includes("HOW NOVA WORKS"), "the tour eyebrow does not read Nova");
+  assert.ok(learnSrc.includes("WELCOME TO NOVA"), "the onboarding eyebrow does not read Nova");
+  assert.ok(!learnSrc.includes("HOW WICK WORKS"), "the tour eyebrow still reads Wick");
+  assert.ok(!learnSrc.includes("WELCOME TO WICK"), "the onboarding eyebrow still reads Wick");
+  const stripped = learnSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!stripped.includes("Wick"), "a Wick string survives outside comments");
+  assert.ok(!stripped.includes("WICK"), "a WICK string survives outside comments");
+});
+
+await test("the home's accent text runs through the shell's accentInk correction", () => {
+  // Panel 8 fold in (2026-10-14): raw accent text computed at 1.00
+  // to 2.61 to 1 on Light palette grounds. The home's tagline,
+  // section labels, and action labels now take ink, the corrected
+  // value; fills and borders keep the raw accent.
+  assert.ok(learnSrc.includes('import { accentInk } from "./appUtils.js";'), "LearnView does not import the shell correction");
+  assert.equal((learnSrc.match(/const ink = accentInk\(P, accent\);/g) || []).length, 3, "the home, the tour, and onboarding should each derive ink");
+  const homeRegion = learnSrc.slice(learnSrc.indexOf("export default function LearnView"));
+  assert.ok(!homeRegion.includes("color: accent"), "the home still colours text with the raw accent");
+  assert.ok(learnSrc.includes('color: ink, margin: "8px 0 0"'), "the header tagline does not take the corrected ink");
+});
+
+await test("the share card sets the name as the serif wordmark with the tagline under it", () => {
+  // Panel 8 fold in (2026-10-14): the card set the product name in
+  // a sans; the spec lockup is the serif wordmark with the tagline
+  // directly under it in gold sans, above everything else.
+  assert.ok(learnSrc.includes(`ctx.font = "600 68px 'Source Serif 4', Georgia, 'Times New Roman', serif";`), "the share card name is not set in the serif wordmark");
+  assert.ok(!learnSrc.includes("600 68px 'Inter Tight'"), "the share card name is still set in a sans");
+  assert.ok(
+    learnSrc.indexOf('ctx.fillText("Nova", 540, 138)') < learnSrc.indexOf("ctx.fillText(CORTEX_TAGLINE, 540, 188)"),
+    "the tagline does not sit under the name on the share card"
+  );
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
