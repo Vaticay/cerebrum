@@ -27,6 +27,16 @@ import { checkRateLimit, checkRateLimitMemoryOnly } from "../lib/rateLimit.js";
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_INFO = { name: "cerebrum", version: "1.0.0" };
 
+// Server identity surfaces beyond the name and version (2026-10-14,
+// MCP structured output wave): the icon is the site's own touch icon,
+// served from the same origin as the endpoint, and the documentation
+// address is the features page, which is the URL the directory
+// listing package already names as the documentation URL. Both ride
+// on the initialize result and on the human readable GET description
+// so a directory scanner and a person see the same identity.
+export const MCP_ICON_URL = "https://askcerebrum.org/apple-touch-icon.png";
+export const MCP_DOCUMENTATION_URL = "https://askcerebrum.org/features";
+
 // Aligned with anonymous search in functions/api/search.js, which allows
 // 20 requests per minute per client. MCP calls proxy that endpoint, so a
 // looser limit here would just move the same cost to a different door.
@@ -63,6 +73,65 @@ export const TOOLS = [
       required: ["query"],
       additionalProperties: false,
     },
+    // The structured twin of the text result (2026-10-14): every
+    // field the text block states in prose is also shipped as data
+    // in structuredContent, shaped exactly by this schema, so a host
+    // can read the sources, the coverage, and the record address
+    // without parsing sentences. The text block stays byte stable
+    // for clients that only read text.
+    outputSchema: {
+      type: "object",
+      properties: {
+        answer: { type: "string" },
+        synthesisMode: { type: ["string", "null"] },
+        degraded: { type: ["boolean", "null"] },
+        sources: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              authors: { type: ["string", "null"] },
+              year: { type: ["integer", "null"] },
+              doi: { type: ["string", "null"] },
+              url: { type: ["string", "null"] },
+              cited: { type: "boolean" },
+            },
+            required: ["title", "authors", "year", "doi", "url", "cited"],
+            additionalProperties: false,
+          },
+        },
+        sourceCount: { type: "integer" },
+        citedCount: { type: "integer" },
+        coverage: {
+          type: ["object", "null"],
+          properties: {
+            gathered: { type: ["integer", "null"] },
+            cited: { type: ["integer", "null"] },
+          },
+          required: ["gathered", "cited"],
+          additionalProperties: false,
+        },
+        coverageNote: { type: ["string", "null"] },
+        recordUrl: { type: ["string", "null"] },
+        record: {
+          type: ["object", "null"],
+          properties: {
+            id: { type: "string" },
+            url: { type: "string" },
+            question: { type: ["string", "null"] },
+            askedAt: { type: ["string", "null"] },
+            sourceCount: { type: ["integer", "null"] },
+            citedCount: { type: ["integer", "null"] },
+            databaseCount: { type: ["integer", "null"] },
+          },
+          required: ["id", "url", "question", "askedAt", "sourceCount", "citedCount", "databaseCount"],
+          additionalProperties: false,
+        },
+      },
+      required: ["answer", "synthesisMode", "degraded", "sources", "sourceCount", "citedCount", "coverage", "coverageNote", "recordUrl", "record"],
+      additionalProperties: false,
+    },
   },
   {
     name: "get_trending",
@@ -73,6 +142,41 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {},
+      additionalProperties: false,
+    },
+    // The structured twin of the text result (2026-10-14): the same
+    // sections and headlines the text block prints, as data.
+    outputSchema: {
+      type: "object",
+      properties: {
+        edition: { type: ["string", "null"] },
+        sections: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              items: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    source: { type: ["string", "null"] },
+                    url: { type: ["string", "null"] },
+                  },
+                  required: ["title", "source", "url"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["name", "items"],
+            additionalProperties: false,
+          },
+        },
+        itemCount: { type: "integer" },
+      },
+      required: ["edition", "sections", "itemCount"],
       additionalProperties: false,
     },
   },
@@ -216,12 +320,27 @@ function answerQualityLine(d) {
 // an id (a recomputed cache serve: nothing was stored, so there is
 // no page to point at) gets no block, and a payload without a record
 // stays byte identical to before.
-function searchRecordBlock(data) {
+// The one record lookup every surface shares: a payload record
+// counts only when it carries a permanent id (an unstored record's
+// id was withdrawn at the source, so there is no page to point at).
+// The permalink is the stored address when one rides along and is
+// derived from the id otherwise.
+function recordOf(data) {
   const rec = isObject(data && data._record) ? data._record : null;
-  if (!rec || typeof rec.id !== "string" || !rec.id) return "";
-  const url = typeof rec.url === "string" && rec.url
+  if (!rec || typeof rec.id !== "string" || !rec.id) return null;
+  return rec;
+}
+
+function recordUrlOf(rec) {
+  return typeof rec.url === "string" && rec.url
     ? rec.url
     : "https://askcerebrum.org/record/" + rec.id;
+}
+
+function searchRecordBlock(data) {
+  const rec = recordOf(data);
+  if (!rec) return "";
+  const url = recordUrlOf(rec);
   const lines = ["Search record: " + url];
   if (typeof rec.question === "string" && rec.question.trim()) {
     lines.push("Question: " + rec.question.trim());
@@ -237,6 +356,57 @@ function searchRecordBlock(data) {
     lines.push(`Databases queried: ${rec.databases.length}.`);
   }
   return lines.join("\n");
+}
+
+// ── Structured content ─────────────────────────────────────────────
+// The data twin of each text result (2026-10-14). Both are built from
+// the same payload fields in the same pass, so the two can never
+// drift apart: whatever the text states in prose, the structured
+// object states as data, and the outputSchema declared in TOOLS is
+// the contract the fixtures hold it to. Nulls are honest: a field
+// the payload does not carry ships as null, never as an invention.
+
+function structuredSource(source) {
+  const s = source && typeof source === "object" ? source : {};
+  const doi = doiLabel(s);
+  const url = urlLabel(s, doi);
+  const yearText = yearLabel(s);
+  return {
+    title: String(s.title || "").trim() || "Untitled",
+    authors: authorLabel(s) || null,
+    year: /^\d{4}$/.test(yearText) ? Number(yearText) : null,
+    doi: doi || null,
+    url: url || null,
+    cited: typeof s.cited === "boolean" ? s.cited : !s.uncited,
+  };
+}
+
+function structuredSearchContent(d, sources) {
+  const structuredSources = (Array.isArray(sources) ? sources : []).map(structuredSource);
+  const funnel = funnelOf(d);
+  const rec = recordOf(d);
+  return {
+    answer: typeof d.answer === "string" ? d.answer.trim() : "",
+    synthesisMode: typeof d.synthesisMode === "string" && d.synthesisMode ? d.synthesisMode : null,
+    degraded: typeof d.degraded === "boolean" ? d.degraded : null,
+    sources: structuredSources,
+    sourceCount: structuredSources.length,
+    citedCount: structuredSources.filter((s) => s.cited).length,
+    coverage: funnel ? { gathered: funnel.gathered, cited: funnel.cited } : null,
+    coverageNote: typeof d.coverageNote === "string" && d.coverageNote.trim() ? d.coverageNote.trim() : null,
+    recordUrl: rec ? recordUrlOf(rec) : null,
+    record: rec
+      ? {
+          id: rec.id,
+          url: recordUrlOf(rec),
+          question: typeof rec.question === "string" ? rec.question : null,
+          askedAt: typeof rec.askedAt === "string" ? rec.askedAt : null,
+          sourceCount: Array.isArray(rec.sources) ? rec.sources.length : null,
+          citedCount: Array.isArray(rec.sources) ? rec.sources.filter((s) => isObject(s) && s.cited).length : null,
+          databaseCount: Array.isArray(rec.databases) ? rec.databases.length : null,
+        }
+      : null,
+  };
 }
 
 // Shape a parsed /api/search payload into an MCP tool result. Pure and
@@ -270,7 +440,39 @@ export function formatSearchToolResult(data) {
   }
   const record = searchRecordBlock(d);
   if (record) text += "\n\n" + record;
-  return { content: [{ type: "text", text }], isError: false };
+  return { content: [{ type: "text", text }], structuredContent: structuredSearchContent(d, sources), isError: false };
+}
+
+// Group an edition's items into sections once, so the text result
+// and the structured result are two renderings of one grouping and
+// cannot disagree about membership, order, or the per section cap.
+function trendingSectionsOf(items) {
+  const sections = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || typeof item !== "object") continue;
+    const title = String(item.title || "").trim();
+    if (!title) continue;
+    const section = String(item.category || item.section || "").trim() || "General";
+    if (!sections.has(section)) sections.set(section, []);
+    const bucket = sections.get(section);
+    if (bucket.length < TRENDING_PER_SECTION) bucket.push(item);
+  }
+  return [...sections.entries()].map(([name, bucket]) => ({ name, items: bucket }));
+}
+
+function structuredTrendingContent(edition, sections) {
+  return {
+    edition: edition || null,
+    sections: sections.map(({ name, items }) => ({
+      name,
+      items: items.map((item) => ({
+        title: String(item.title || "").trim(),
+        source: String(item.source || "").trim() || null,
+        url: String(item.url || item.link || "").trim() || null,
+      })),
+    })),
+    itemCount: sections.reduce((n, s) => n + s.items.length, 0),
+  };
 }
 
 export function formatTrendingToolResult(data) {
@@ -282,35 +484,26 @@ export function formatTrendingToolResult(data) {
   else if (typeof d.generatedAt === "number" && Number.isFinite(d.generatedAt) && d.generatedAt > 0) {
     edition = new Date(d.generatedAt).toISOString().slice(0, 10);
   }
+  const sections = trendingSectionsOf(items);
 
   let text = edition ? `Trending in Science, edition ${edition}.` : "Trending in Science, current edition.";
   if (!items.length) {
     text += "\n\nNo headlines were returned for this edition.";
-    return { content: [{ type: "text", text }], isError: false };
+    return { content: [{ type: "text", text }], structuredContent: structuredTrendingContent(edition, sections), isError: false };
   }
-  const sections = new Map();
-  for (const item of items) {
-    if (!item || typeof item !== "object") continue;
-    const title = String(item.title || "").trim();
-    if (!title) continue;
-    const section = String(item.category || item.section || "").trim() || "General";
-    if (!sections.has(section)) sections.set(section, []);
-    const bucket = sections.get(section);
-    if (bucket.length < TRENDING_PER_SECTION) bucket.push(item);
-  }
-  for (const [section, bucket] of sections) {
+  for (const { name, items: bucket } of sections) {
     const lines = bucket.map((item, i) => {
       const title = String(item.title || "").trim();
       const source = String(item.source || "").trim();
       const url = String(item.url || item.link || "").trim();
       let line = `${i + 1}. ${title}`;
-      if (source && source !== section) line += ` (${source})`;
+      if (source && source !== name) line += ` (${source})`;
       if (url) line += ` ${url}`;
       return line;
     });
-    text += `\n\n${section}\n` + lines.join("\n");
+    text += `\n\n${name}\n` + lines.join("\n");
   }
-  return { content: [{ type: "text", text }], isError: false };
+  return { content: [{ type: "text", text }], structuredContent: structuredTrendingContent(edition, sections), isError: false };
 }
 
 // ── Runners ──────────────────────────────────────────────────────────
@@ -469,7 +662,12 @@ export async function handleRpcMessage(message, runners = {}, context = {}) {
       return rpcResult(id, {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: MCP_SERVER_INFO.name, version: MCP_SERVER_INFO.version },
+        serverInfo: {
+          name: MCP_SERVER_INFO.name,
+          version: MCP_SERVER_INFO.version,
+          icon: MCP_ICON_URL,
+          documentationUrl: MCP_DOCUMENTATION_URL,
+        },
       });
     case "ping":
       return rpcResult(id, {});
@@ -489,6 +687,8 @@ export function mcpServerDescription() {
     name: MCP_SERVER_INFO.name,
     version: MCP_SERVER_INFO.version,
     protocolVersion: MCP_PROTOCOL_VERSION,
+    icon: MCP_ICON_URL,
+    documentationUrl: MCP_DOCUMENTATION_URL,
     description:
       "Cerebrum is a free scientific literature search engine. This endpoint lets assistants call Cerebrum search as a tool.",
     transport: "Stateless HTTP transport using JSON RPC 2.0",

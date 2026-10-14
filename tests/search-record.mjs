@@ -975,6 +975,44 @@ await test("a stored outcome stamps stored true and keeps the permalink", async 
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("buildSearchRecord: the run health verdict (2026-10-14)");
+
+await test("a stage list with a failed stage stamps degraded true and names the stage", () => {
+  const rec = buildSearchRecord({
+    ...FULL_INPUT,
+    stageHealth: [
+      { name: "retrieval", ok: true, ms: 900 },
+      { name: "synthesis", ok: false, ms: 4000 },
+      { name: "fact-check", ok: null, skipReason: "nothing to verify", ms: 3 },
+    ],
+  });
+  assert.equal(rec.degraded, true);
+  assert.deepEqual(rec.failedStages, ["synthesis"], "only ok false stages are named; a skipped stage is not a failure");
+});
+
+await test("an all healthy stage list stamps degraded false with no failed stages", () => {
+  const rec = buildSearchRecord({
+    ...FULL_INPUT,
+    stageHealth: [{ name: "retrieval", ok: true }, { name: "synthesis", ok: true }],
+  });
+  assert.equal(rec.degraded, false);
+  assert.deepEqual(rec.failedStages, []);
+});
+
+await test("the caller's degraded expression outranks the stage list, and no signal stays null", () => {
+  const forced = buildSearchRecord({
+    ...FULL_INPUT,
+    degraded: true,
+    stageHealth: [{ name: "retrieval", ok: true }],
+  });
+  assert.equal(forced.degraded, true, "the no results terminal state must label its record degraded even with healthy stages");
+  assert.deepEqual(forced.failedStages, []);
+  const silent = buildSearchRecord(FULL_INPUT);
+  assert.equal(silent.degraded, null, "no stage list and no verdict means unknown, never a fabricated false");
+  assert.equal(silent.failedStages, null);
+});
+
+// ═══════════════════════════════════════════════════════════════════
 group("public record page: functions/record/[id].js");
 
 const ROUTE_RECORD = {
@@ -1060,6 +1098,63 @@ await test("the page escapes stored text instead of emitting it as markup", asyn
   assert.ok(!html.includes("<script>alert(1)</script>"), "stored question reached the page as live markup");
   assert.ok(html.includes("&lt;script&gt;"), "stored question was not escaped");
   assert.ok(html.includes("A &lt;b&gt;bold&lt;/b&gt; claim &amp; an &quot;quoted&quot; one"), "stored title was not escaped");
+});
+
+await test("a degraded record labels itself at the top of its page and names the failed stages", async () => {
+  const degraded = {
+    ...ROUTE_RECORD,
+    degraded: true,
+    failedStages: ["synthesis", "fact-check"],
+  };
+  const res = await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(degraded) }) });
+  const html = await res.text();
+  assert.ok(html.includes("This search ran degraded: part of the pipeline did not complete"),
+    "degraded record carries no banner");
+  assert.ok(html.includes("failed stages: synthesis, fact-check"), "the banner does not name the failed stages");
+  assert.ok(html.indexOf("This search ran degraded") < html.indexOf("<h2>Question</h2>"),
+    "the banner belongs at the top of the page, before the record body");
+});
+
+await test("a healthy record shows no health note, and a legacy record states only what it knows", async () => {
+  const healthy = { ...ROUTE_RECORD, degraded: false, failedStages: [] };
+  const healthyHtml = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(healthy) }) })).text();
+  assert.ok(!healthyHtml.includes("ran degraded"), "a healthy record was labelled degraded");
+  assert.ok(!healthyHtml.includes("predates run health recording"), "a healthy record got the legacy note");
+  // ROUTE_RECORD itself is the legacy shape: no degraded field, and
+  // a synthesis model that ran, so no note of either kind.
+  const legacyHtml = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(ROUTE_RECORD) }) })).text();
+  assert.ok(!legacyHtml.includes("ran degraded"), "a legacy record was labelled degraded on no evidence");
+  assert.ok(!legacyHtml.includes("No AI synthesis model ran"), "a legacy record whose model ran got the no synthesis note");
+  const legacyExtractive = { ...ROUTE_RECORD, synthesisModel: null };
+  const extractiveHtml = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(legacyExtractive) }) })).text();
+  assert.ok(extractiveHtml.includes("No AI synthesis model ran for this answer: it was assembled from source excerpts."),
+    "a legacy extractive record does not state its one known health fact");
+  assert.ok(extractiveHtml.includes("predates run health recording"),
+    "the legacy note does not disclose that no fuller verdict was stored");
+  assert.ok(!extractiveHtml.includes("ran degraded"),
+    "the legacy note must not claim the degraded verdict it cannot know");
+});
+
+await test("the budget line renders the record's own ledger, and only then", async () => {
+  const withLedger = {
+    ...ROUTE_RECORD,
+    ledger: {
+      used: 41, limit: 50, remaining: 9, refused: 3,
+      byStage: { ratelimit: 3, retrieval: 19, synthesis: 8, validation: 5, cache: 1 },
+    },
+  };
+  const html = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(withLedger) }) })).text();
+  assert.ok(html.includes("Subrequests: 41 used of a limit of 50."), "budget total missing or wrong");
+  assert.ok(html.includes("Largest spends: retrieval 19, synthesis 8, validation 5, ratelimit 3, cache 1."),
+    "stage spends missing, unsorted, or not capped at five");
+  assert.ok(html.includes("3 grants were refused at the budget ceiling."), "refusals not stated when nonzero");
+  const noRefusals = { ...withLedger, ledger: { ...withLedger.ledger, refused: 0 } };
+  const htmlNoRefusals = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(noRefusals) }) })).text();
+  assert.ok(!htmlNoRefusals.includes("refused at the budget ceiling"), "a refusal line printed when nothing was refused");
+  const bareHtml = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(ROUTE_RECORD) }) })).text();
+  assert.ok(bareHtml.includes("Budget counts were not recorded for this search."),
+    "a record without a ledger must say so, not print zeros");
+  assert.ok(!bareHtml.includes("Subrequests:"), "a record without a ledger printed a budget total");
 });
 
 await test("?format=json returns the stored record JSON verbatim", async () => {

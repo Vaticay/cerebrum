@@ -79,6 +79,7 @@ function pageShell(title, bodyHtml) {
     + "p,li{font-size:16px;line-height:1.6;}"
     + "ul,ol{padding-left:22px;margin:6px 0;}"
     + ".meta{color:#6b665e;font-size:14px;overflow-wrap:anywhere;}"
+    + ".note{border:1px solid #ddd6c9;border-left:4px solid #20503c;background:#ffffff;padding:10px 14px;}"
     + ".src{margin-bottom:8px;}"
     + ".tag{color:#6b665e;font-size:14px;}"
     + "a{color:#20503c;}"
@@ -99,10 +100,68 @@ function notFoundPage() {
   });
 }
 
+/* The health note that sits at the top of the page (2026-10-14,
+ * MCP and record wave). A record whose run degraded must say so
+ * where a reader lands, not read as a clean run: the fourth panel
+ * followed a permanently stored degraded record that carried no
+ * health signal and no banner. Records stored since the health
+ * verdict was added to buildSearchRecord carry `degraded` (and
+ * `failedStages`) and get the plain statement. Older records carry
+ * neither field; the only health fact they hold is whether an AI
+ * synthesis model ran, so the note states exactly that and says the
+ * record predates health recording, rather than guessing at a
+ * verdict nobody stored. A healthy record gets no note. */
+function recordHealthNote(record) {
+  if (record.degraded === true) {
+    const stages = Array.isArray(record.failedStages)
+      ? record.failedStages.filter((s) => typeof s === "string" && s)
+      : [];
+    return "This search ran degraded: part of the pipeline did not complete"
+      + (stages.length ? " (failed stages: " + stages.join(", ") + ")" : "")
+      + ". The record below is still the complete record of the run.";
+  }
+  if (typeof record.degraded !== "boolean" && !record.synthesisModel) {
+    const hasSources = Array.isArray(record.sources) && record.sources.length > 0;
+    return "No AI synthesis model ran for this answer"
+      + (hasSources ? ": it was assembled from source excerpts" : "")
+      + ". This record predates run health recording, so no fuller health verdict was stored for it.";
+  }
+  return "";
+}
+
+/* The budget line (2026-10-14): the record has carried the run's
+ * subrequest ledger since the observability wave, and the page
+ * rendered none of it. One compact paragraph: the total against
+ * the limit, the largest stage spends by name as recorded, and the
+ * refusal count only when grants were actually refused. Rendered
+ * only when the record carries a ledger with real totals; older
+ * records say the counts were not recorded, in the page's usual
+ * way. */
+function recordBudgetSection(record) {
+  const L = record.ledger;
+  if (!L || typeof L !== "object" || !Number.isFinite(L.used) || !Number.isFinite(L.limit)) {
+    return "<h2>Budget</h2>\n<p>Budget counts were not recorded for this search.</p>";
+  }
+  const stages = Object.entries(L.byStage && typeof L.byStage === "object" ? L.byStage : {})
+    .filter(([, v]) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  let line = "Subrequests: " + L.used + " used of a limit of " + L.limit + ".";
+  if (stages.length) {
+    line += " Largest spends: " + stages.map(([k, v]) => esc(k) + " " + v).join(", ") + ".";
+  }
+  if (Number.isFinite(L.refused) && L.refused > 0) {
+    line += " " + L.refused + " grant" + (L.refused === 1 ? " was" : "s were") + " refused at the budget ceiling.";
+  }
+  return "<h2>Budget</h2>\n<p>" + line + "</p>";
+}
+
 function recordPage(record, url) {
   const parts = [];
   parts.push("<h1>Search record</h1>");
   parts.push('<p class="meta">Permanent link: <a href="' + esc(url) + '">' + esc(url) + "</a></p>");
+  const healthNote = recordHealthNote(record);
+  if (healthNote) parts.push('<p class="note">' + esc(healthNote) + "</p>");
 
   parts.push("<h2>Question</h2>");
   parts.push("<p>" + esc(record.question || "") + "</p>");
@@ -173,6 +232,8 @@ function recordPage(record, url) {
   } else {
     parts.push("<p>Funnel counts were not recorded for this search.</p>");
   }
+
+  parts.push(recordBudgetSection(record));
 
   parts.push("<h2>Model</h2>");
   parts.push("<p>" + (record.synthesisModel

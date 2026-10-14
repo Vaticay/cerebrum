@@ -80,13 +80,23 @@ const rpc = (method, params, id = 1) => ({ jsonrpc: "2.0", id, method, ...(param
 group("Handshake and discovery");
 
 await test("initialize returns the pinned handshake shape", async () => {
+  // Pin updated 2026-10-14 (MCP structured output wave): the
+  // server identity now also carries the icon and the documentation
+  // address, so a directory scanner reads the same identity the
+  // listing package submits. Name, version, protocol, and
+  // capabilities are unchanged.
   const res = await handleRpcMessage(rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "0" } }, 7), fakeRunners);
   assert.equal(res.jsonrpc, "2.0");
   assert.equal(res.id, 7);
   assert.deepEqual(res.result, {
     protocolVersion: "2025-03-26",
     capabilities: { tools: {} },
-    serverInfo: { name: "cerebrum", version: "1.0.0" },
+    serverInfo: {
+      name: "cerebrum",
+      version: "1.0.0",
+      icon: "https://askcerebrum.org/apple-touch-icon.png",
+      documentationUrl: "https://askcerebrum.org/features",
+    },
   });
 });
 
@@ -371,6 +381,133 @@ await test("an edition can be derived from generatedAt and empty items stay hone
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("structuredContent: the data twin of each text result");
+
+// A small validator for the subset of JSON Schema the two
+// outputSchema declarations use (type as a string or a list,
+// properties, required, items, additionalProperties false). It
+// exists so the shipped structured content is held to the schema
+// the server advertises in tools/list, not just eyeballed.
+function schemaProblems(schema, value, path = "$") {
+  const problems = [];
+  if (!schema || typeof schema !== "object") return problems;
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+  const typeOf = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : Number.isInteger(v) ? "integer" : typeof v);
+  if (types.length && !types.includes(typeOf(value))) {
+    problems.push(`${path}: expected ${types.join(" or ")}, got ${typeOf(value)}`);
+    return problems;
+  }
+  if (typeOf(value) === "object") {
+    for (const key of schema.required || []) {
+      if (!(key in value)) problems.push(`${path}: missing required ${key}`);
+    }
+    const props = schema.properties || {};
+    for (const [key, v] of Object.entries(value)) {
+      if (key in props) problems.push(...schemaProblems(props[key], v, `${path}.${key}`));
+      else if (schema.additionalProperties === false) problems.push(`${path}: unexpected property ${key}`);
+    }
+  }
+  if (typeOf(value) === "array" && schema.items) {
+    value.forEach((v, i) => problems.push(...schemaProblems(schema.items, v, `${path}[${i}]`)));
+  }
+  return problems;
+}
+
+const toolByName = (name) => TOOLS.find((t) => t.name === name);
+
+await test("both tools declare an outputSchema in tools/list", async () => {
+  const res = await handleRpcMessage(rpc("tools/list"), fakeRunners);
+  for (const t of res.result.tools) {
+    assert.ok(t.outputSchema && t.outputSchema.type === "object", `${t.name} declares no outputSchema`);
+    assert.ok(Array.isArray(t.outputSchema.required) && t.outputSchema.required.length > 0,
+      `${t.name} outputSchema names no required fields`);
+  }
+});
+
+await test("a search result ships structuredContent that conforms to its declared schema", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "search_literature", arguments: { query: "how do wood frogs survive freezing" } }, 21), fakeRunners);
+  const sc = res.result.structuredContent;
+  assert.ok(sc, "structuredContent missing from the search result");
+  assert.deepEqual(schemaProblems(toolByName("search_literature").outputSchema, sc), []);
+  assert.equal(sc.answer, SEARCH_PAYLOAD.answer);
+  assert.equal(sc.sourceCount, 2);
+  assert.equal(sc.citedCount, 1, "the uncited source must not count as cited in the data twin either");
+  assert.deepEqual(sc.coverage, { gathered: 88, cited: 1 });
+  assert.deepEqual(sc.sources[0], {
+    title: "Freeze tolerance in the wood frog",
+    authors: "Storey KB et al.",
+    year: 2017,
+    doi: "10.1000/example.1",
+    url: "https://doi.org/10.1000/example.1",
+    cited: true,
+  });
+  assert.equal(sc.sources[1].cited, false, "further reading must carry cited false as data");
+  assert.equal(sc.sources[1].doi, null);
+  assert.equal(sc.sources[1].url, "https://example.org/cryo");
+  assert.equal(sc.record, null, "a payload without a record ships record null, not an invention");
+  assert.equal(sc.recordUrl, null);
+});
+
+await test("structuredContent leaves the text result byte stable", () => {
+  // The text block is the contract current clients read; adding the
+  // data twin must not move a byte of it. The formatter's text for
+  // the pinned payload is compared against a fresh format of the
+  // same payload with the structured field stripped back off.
+  const withStructured = formatSearchToolResult(RECORD_PAYLOAD);
+  const { structuredContent, ...textOnly } = withStructured;
+  assert.ok(structuredContent, "structuredContent missing");
+  assert.equal(textOnly.content[0].text, withStructured.content[0].text);
+  assert.ok(textOnly.content[0].text.includes("Search record: https://askcerebrum.org/record/"),
+    "the text block changed under the structured addition");
+});
+
+await test("a stored record arrives in structuredContent with its counts and address", () => {
+  const sc = formatSearchToolResult(RECORD_PAYLOAD).structuredContent;
+  assert.equal(sc.recordUrl, "https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef");
+  assert.deepEqual(sc.record, {
+    id: "r_0123456789abcdef0123456789abcdef",
+    url: "https://askcerebrum.org/record/r_0123456789abcdef0123456789abcdef",
+    question: "how do wood frogs survive freezing",
+    askedAt: "2026-10-13T14:00:00.000Z",
+    sourceCount: 3,
+    citedCount: 2,
+    databaseCount: 3,
+  });
+  const unstored = formatSearchToolResult({ ...SEARCH_PAYLOAD, _record: { stored: false, sources: [] } }).structuredContent;
+  assert.equal(unstored.record, null, "an id less record must not surface in the data twin either");
+  assert.equal(unstored.recordUrl, null);
+});
+
+await test("quality state ships as data: extractive mode and the degraded flag", () => {
+  const sc = formatSearchToolResult({
+    answer: "An answer assembled from excerpts [1].",
+    sources: [{ title: "Cited paper", year: 2024 }],
+    synthesisMode: "extractive",
+    degraded: true,
+  }).structuredContent;
+  assert.equal(sc.synthesisMode, "extractive");
+  assert.equal(sc.degraded, true);
+  const bare = formatSearchToolResult(SEARCH_PAYLOAD).structuredContent;
+  assert.equal(bare.synthesisMode, null, "an unrecorded mode ships null, not a guess");
+  assert.equal(bare.degraded, null, "an unrecorded degraded state ships null, not false");
+  assert.deepEqual(schemaProblems(toolByName("search_literature").outputSchema, sc), []);
+});
+
+await test("a trending result ships structuredContent mirroring its text grouping", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_trending", arguments: {} }, 22), fakeRunners);
+  const sc = res.result.structuredContent;
+  assert.ok(sc, "structuredContent missing from the trending result");
+  assert.deepEqual(schemaProblems(toolByName("get_trending").outputSchema, sc), []);
+  assert.equal(sc.edition, "2026-10-13");
+  assert.equal(sc.itemCount, 3);
+  assert.deepEqual(sc.sections.map((s) => s.name), ["Biology & Medicine", "Space"]);
+  assert.deepEqual(sc.sections[0].items[0], { title: "New frog species found", source: "Europe PMC", url: "https://example.org/frog" });
+  const empty = formatTrendingToolResult({ generatedAt: Date.UTC(2026, 0, 2), items: [] }).structuredContent;
+  assert.deepEqual(empty, { edition: "2026-01-02", sections: [], itemCount: 0 });
+  assert.deepEqual(schemaProblems(toolByName("get_trending").outputSchema, empty), []);
+});
+
+// ═══════════════════════════════════════════════════════════════════
 group("Protocol errors and notifications");
 
 await test("unknown method yields -32601", async () => {
@@ -432,6 +569,8 @@ await test("GET returns a human readable description naming both tools", async (
   const body = await res.json();
   assert.equal(body.name, "cerebrum");
   assert.equal(body.protocolVersion, "2025-03-26");
+  assert.equal(body.icon, "https://askcerebrum.org/apple-touch-icon.png", "GET description lost the server icon");
+  assert.equal(body.documentationUrl, "https://askcerebrum.org/features", "GET description lost the documentation address");
   assert.deepEqual(body.tools.map((t) => t.name), ["search_literature", "get_trending"]);
 });
 
