@@ -9274,7 +9274,8 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
 // ── Stage runner ────────────────────────────────────────────────
 // Runs fn with a hard timeout. Never throws: on timeout or error it
 // returns { ok: false, value: fallback }. Appends { name, ok, ms } to
-// `health` when an array is supplied . the request handler ships a
+// `health` when an array is supplied (a failure also records its
+// skipReason) . the request handler ships a
 // trimmed copy as stageHealth so the UI can say which stage degraded.
 export async function runStage(name, fn, opts = {}) {
   const { timeoutMs = 10000, fallback = null, health = null } = opts;
@@ -9297,6 +9298,15 @@ export async function runStage(name, fn, opts = {}) {
     if (timer) clearTimeout(timer);
     rec.ok = false;
     rec.ms = Date.now() - started;
+    // A failed stage record names why, in the same short reason
+    // vocabulary the hand built records use. The retrieval record
+    // ships from here, and an audited retrieval failure once reached
+    // the client with ok false and no reason at all (2026-10-14
+    // verdict correctness pass). publicStageHealth backstops the
+    // invariant for records built anywhere else.
+    rec.skipReason = e && typeof e.message === "string" && e.message.startsWith("stage-timeout:")
+      ? "stage timed out"
+      : "stage failed";
     return { ok: false, value: fallback, ms: rec.ms, error: e };
   }
 }
@@ -9318,6 +9328,12 @@ export function publicStageHealth(stageHealth) {
   return stageHealth.map((s) => {
     const o = { name: s.name, ok: s.ok, ms: s.ms };
     if (s.skipReason) o.skipReason = String(s.skipReason);
+    // Invariant: a stage that failed (ok === false) always ships a
+    // reason. Builders are expected to name their own; this is the
+    // backstop so no builder, present or future, can ship a bare
+    // failure again. Skipped stages (ok === null) already carry
+    // their reason from their builders and are untouched here.
+    else if (s.ok === false) o.skipReason = "stage failed";
     if (s.name === "validation") {
       o.via = s.via || null;
       // Stage allowance trim (2026-10-14): shipped only when the
@@ -9526,14 +9542,33 @@ export function buildDisagreementVerdict(conflicts, nCitedSources) {
   const list = Array.isArray(conflicts) ? conflicts : [];
   const n = nCitedSources || 0;
   if (list.length > 0) {
-    const topic = list[0] && list[0].topic ? " (" + list[0].topic + ")" : "";
-    const sharpest = list[0] && list[0].topic ? list[0].topic : "the pair below";
+    // The split, counted from the pairs themselves: how many distinct
+    // cited sources appear on each side. The summary states that split
+    // and nothing else. It used to name a "sharpest" point taken from
+    // the first pair's topic label, which is the longest shared words
+    // of two claims strung together . word salad that read as a finding
+    // (2026-10-14 verdict correctness pass).
+    const sideA = new Set();
+    const sideB = new Set();
+    for (const c of list) {
+      if (!c) continue;
+      if (c.idxA != null) sideA.add(c.idxA);
+      if (c.idxB != null) sideB.add(c.idxB);
+    }
+    const a = sideA.size;
+    const b = sideB.size;
+    const split = a > 0 && b > 0
+      ? " " + a + " cited source" + (a === 1 ? "" : "s") + " appear" + (a === 1 ? "s" : "") +
+        " on one side of " + (list.length === 1 ? "it" : "those points") +
+        " and " + b + " on the other."
+      : "";
     return {
       status: "divided",
       conflictCount: list.length,
+      sides: { a, b },
       summary: list.length === 1
-        ? "The cited sources genuinely split on one point" + topic + ". Both sides are cited below."
-        : "The cited sources genuinely split on " + list.length + " points . the sharpest is " + sharpest + ". Both sides are cited below.",
+        ? "The cited sources genuinely split on one point." + split + " Both sides are cited below."
+        : "The cited sources genuinely split on " + list.length + " points." + split + " Both sides are cited below.",
     };
   }
   if (n < 3) {
@@ -9560,6 +9595,29 @@ export function reconcileDisagreementVerdict(detected, textMined) {
   const conflicts = [...((detected && detected.conflicts) || []), ...(textMined || [])];
   const verdict = buildDisagreementVerdict(conflicts, (detected && detected.sourceCount) || 0);
   return { conflicts, verdict };
+}
+
+// Conflict indices are born 1 based into the cited subset the detector
+// read (detectSourceConflicts numbers its papers from 1). The panel
+// and every other consumer print and resolve them against the FULL
+// shipped source list, also 1 based. citedIndices holds the subset's
+// papers as 0 based positions in that full list, so the remap is
+// position + 1 . shipping the raw position printed [0] for the first
+// cited paper and pointed [3] at the third source when the pair named
+// the fourth (2026-10-14 verdict correctness pass). Exported so the
+// remap itself is testable against a known shelf.
+export function remapConflictIndices(conflicts, citedIndices) {
+  const positions = Array.isArray(citedIndices) ? citedIndices : [];
+  return (Array.isArray(conflicts) ? conflicts : []).map((c) => {
+    if (!c) return c;
+    const a = positions[c.idxA - 1];
+    const b = positions[c.idxB - 1];
+    return {
+      ...c,
+      idxA: typeof a === "number" ? a + 1 : c.idxA,
+      idxB: typeof b === "number" ? b + 1 : c.idxB,
+    };
+  });
 }
 // ── SEMANTIC CONFLICT DETECTION (2026-10-07) ────────────────────────
 // Systematic disagreement detection, second pass. detectSourceConflicts
@@ -10330,16 +10388,35 @@ export function buildEvidenceGaps({ papers, sourcesQueried, relevanceGatedOut, i
 
 // ── Confidence line (computed, not generated) ───────────────────
 // CALIBRATED CONFIDENCE (2026-10-07 upgrade): every answer now carries a
+// Support counts from a fact check result, or null when no check ran
+// (or it checked nothing). Every fact check mode ships claims with a
+// per claim status, so support is counted from those verdicts . the
+// number of claims the check marked supported over the number it
+// checked. Citation counts are NOT support: a cited paper is a paper
+// the answer used, not a paper that agreed with it, and the
+// confidence line may only claim support this count actually measured
+// (2026-10-14 verdict correctness pass).
+export function factCheckSupport(factCheck) {
+  const claims = factCheck && Array.isArray(factCheck.claims) ? factCheck.claims : null;
+  if (!claims || claims.length === 0) return null;
+  const supported = claims.filter((c) => c && c.status === "supported").length;
+  return { supported, checked: claims.length };
+}
+
 // 0-100 confidence score built from observable evidence signals . source
 // count, mean relevance, disagreement verdict, citation quality
 // (peer-reviewed vs preprint), recency, and abstract coverage . plus a
 // human-readable list of the factors behind it. Levels stay
 // strong ≥75 / moderate 50–74 / thin <50. The `line` copy is kept short
 // for the UI; `factors` explains the number for anyone who asks "why".
+// The score and factors are INTERNAL: calibration and telemetry read
+// them, and publicConfidence (below) is the only shape a response or
+// record may ship . the numeric score must never reach a reader
+// (Dusty's 2026-10-08 rule against pseudo precise confidence scores).
 export function buildConfidenceLine(papers, verdict, context = {}) {
   const n = (papers || []).length;
   const status = verdict && verdict.status;
-  if (n === 0) return { level: "thin", score: 0, line: "No cited evidence to check, so no confidence score.", factors: [], verdictStatus: status || null };
+  if (n === 0) return { level: "thin", score: 0, line: "No cited evidence to check.", factors: [], verdictStatus: status || null };
   const factors = [];
   let score = 0;
 
@@ -10450,25 +10527,48 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // allocations is not a measurement and must never be presented as
   // one. The numeric score stays in the return value for internal
   // calibration only.
+  // The line never calls cited papers "supporting": citation is use,
+  // not agreement. Support is claimed only from the fact check's own
+  // claim verdicts (context.support, from factCheckSupport); when no
+  // check ran, the line rests on the citation count and says nothing
+  // about support at all.
   const citedWord = n === 1 ? "cited source" : "cited sources";
+  const sup = context && context.support && typeof context.support.checked === "number" && context.support.checked > 0
+    ? context.support : null;
+  const supClause = sup
+    ? " The claim check supports " + sup.supported + " of " + sup.checked +
+      " checked claim" + (sup.checked === 1 ? "" : "s") + "."
+    : "";
   let line;
   if (level === "strong") {
-    line = "Strong confidence: " + n + " " + citedWord + " support this answer.";
+    line = "Strong confidence: this answer rests on " + n + " " + citedWord + "." + supClause;
   } else if (level === "moderate") {
-    line = status === "divided"
-      ? "Moderate confidence: " + n + " " + citedWord + " are cited, and they split on " +
-        (verdict.conflictCount || "some") + " point" + (verdict.conflictCount === 1 ? "" : "s") +
-        ". Treat conclusions as provisional."
-      : "Moderate confidence: this answer rests on " + n + " " + citedWord +
-        ". No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim.";
+    if (status === "divided") {
+      // The divided line states the split itself: how many cited
+      // sources sit on each side of the pairs. It used to read
+      // "N cited sources are cited, and they split on K points" .
+      // a tautology that never said what the split was.
+      const sides = verdict && verdict.sides;
+      const k = verdict.conflictCount || 0;
+      line = sides && sides.a > 0 && sides.b > 0
+        ? "Moderate confidence: the cited sources split on " + k + " point" + (k === 1 ? "" : "s") +
+          ": " + sides.a + " cited source" + (sides.a === 1 ? "" : "s") + " appear" + (sides.a === 1 ? "s" : "") +
+          " on one side and " + sides.b + " on the other. Treat conclusions as provisional."
+        : "Moderate confidence: the cited sources genuinely split on " + (k || "some") +
+          " point" + (k === 1 ? "" : "s") + ". Treat conclusions as provisional.";
+      line += supClause;
+    } else {
+      line = "Moderate confidence: this answer rests on " + n + " " + citedWord +
+        ". No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim." + supClause;
+    }
   } else {
     line = n <= 2
-      ? "Low confidence: only " + n + " " + citedWord + " support this answer. Treat this answer as provisional."
+      ? "Low confidence: this answer rests on only " + n + " " + citedWord + ". Treat this answer as provisional." + supClause
       : avgRelevance < 40
         ? "Low confidence: the " + n + " " + citedWord +
-          " are only tangentially related to this question. Treat this answer as provisional."
+          " are only tangentially related to this question. Treat this answer as provisional." + supClause
         : "Low confidence: this answer rests on " + n + " " + citedWord +
-          ", and the available checks do not support a stronger claim. Treat this answer as provisional.";
+          ", and the available checks do not support a stronger claim. Treat this answer as provisional." + supClause;
   }
   if (capReasons.length > 0 && level !== "strong") {
     line += " Confidence is capped because " + capReasons.join(" and ") + ".";
@@ -10555,6 +10655,25 @@ export function calibrateConfidenceScore(conf, ctx = {}) {
     calibrated: true,
     calibrationAdjustments: adjustments,
     rawScore: conf.score,
+  };
+}
+
+/* publicConfidence: the one public serialization of a confidence
+ * object, the same role publicStageHealth plays for stage records.
+ * Only the qualitative level and the reader facing line ship. The
+ * numeric score, its point factors, the cap arithmetic, and the
+ * calibration adjustments are internal (calibration and telemetry
+ * consume them inside the request) and must never appear in a
+ * response or a record: a heuristic point allocation presented as a
+ * number reads as a measurement, and Dusty's standing rule bans
+ * pseudo precise confidence scores outright. Every response that
+ * ships confidence goes through here so the shape cannot drift
+ * between the main assembly and the cached serve paths. */
+export function publicConfidence(conf) {
+  if (!conf || typeof conf !== "object") return null;
+  return {
+    level: typeof conf.level === "string" ? conf.level : null,
+    line: typeof conf.line === "string" ? conf.line : null,
   };
 }
 
@@ -12201,6 +12320,14 @@ export function extractLiteratureConflicts(answer, sources) {
   // Pattern 1: "however" / "in contrast" / "conversely" / "on the other hand"
   // bridging two cited claims, e.g. "Smith et al. [1] found X, however Jones
   // et al. [3] reported Y"
+  // A contrast word bridging two citations is NOT by itself a dispute:
+  // answers routinely contrast different findings about different things
+  // ("X raised A [1], but the effect vanished at high dose [2]"). The
+  // pair ships only when the two halves pass the same gate the
+  // source-level pass uses . same topic (claimsShareTopic) and opposing
+  // direction (claimsOppose) . so a mined pair is two claims about the
+  // same finding pushing opposite ways, never two claims paired across
+  // topics by a conjunction (2026-10-14 verdict correctness pass).
   const contrastRe = /\[(\d+)\][^.]*?(?:found|showed|reported|demonstrated|observed|suggested|concluded)[^.]*?[.;,]\s*(?:however|in contrast|conversely|on the other hand|yet|but|whereas|while|although|despite this|nonetheless|nevertheless)[,]?\s*(?:[^[]*?)\[(\d+)\][^.]*?(?:found|showed|reported|demonstrated|observed|suggested|concluded|indicated)[^.]*?\./gi;
   let m;
   while ((m = contrastRe.exec(answer)) !== null) {
@@ -12212,9 +12339,13 @@ export function extractLiteratureConflicts(answer, sources) {
       const splitRe = /(?:however|in contrast|conversely|on the other hand|yet|but|whereas|while|although|despite this|nonetheless|nevertheless)/i;
       const halves = fullMatch.split(splitRe);
       if (halves.length >= 2) {
+        const claimA = cleanMinedClaimText(halves[0].replace(/\[\d+\]/g, "").replace(/[,;]\s*$/, ""));
+        const claimB = cleanMinedClaimText(halves[1].replace(/\[\d+\]/g, "").replace(/^\s*,?\s*/, "").replace(/\.\s*$/, ""));
+        if (!claimA || !claimB) continue;
+        if (!claimsShareTopic(claimA, claimB) || !claimsOppose(claimA, claimB)) continue;
         conflicts.push({
-          claimA: cleanMinedClaimText(halves[0].replace(/\[\d+\]/g, "").replace(/[,;]\s*$/, "")),
-          claimB: cleanMinedClaimText(halves[1].replace(/\[\d+\]/g, "").replace(/^\s*,?\s*/, "").replace(/\.\s*$/, "")),
+          claimA,
+          claimB,
           sourceA: sources[idxA].title || `Source ${idxA + 1}`,
           sourceB: sources[idxB].title || `Source ${idxB + 1}`,
           idxA: idxA + 1,
@@ -12224,27 +12355,13 @@ export function extractLiteratureConflicts(answer, sources) {
     }
   }
 
-  // Pattern 2: explicit "conflicting" / "contradictory" / "inconsistent"
-  // language near citation brackets
-  const conflictTermRe = /(?:conflict(?:ing|s)?|contradict(?:ory|s|ed)?|inconsisten(?:t|cy|cies)|disagree(?:s|ment)?|at odds|opposing|diverge(?:nt|s)?)\s+(?:with\s+)?[^.]*?\[(\d+)\][^.]*?\[(\d+)\][^.]*?\./gi;
-  while ((m = conflictTermRe.exec(answer)) !== null) {
-    const idxA = parseInt(m[1], 10) - 1;
-    const idxB = parseInt(m[2], 10) - 1;
-    if (idxA >= 0 && idxA < sources.length && idxB >= 0 && idxB < sources.length && idxA !== idxB) {
-      const alreadyFound = conflicts.some((c) => (c.idxA === idxA + 1 && c.idxB === idxB + 1) || (c.idxA === idxB + 1 && c.idxB === idxA + 1));
-      if (!alreadyFound) {
-        const sentence = m[0].replace(/\[\d+\]/g, "").trim();
-        conflicts.push({
-          claimA: cleanMinedClaimText(sentence),
-          claimB: "",
-          sourceA: sources[idxA].title || `Source ${idxA + 1}`,
-          sourceB: sources[idxB].title || `Source ${idxB + 1}`,
-          idxA: idxA + 1,
-          idxB: idxB + 1,
-        });
-      }
-    }
-  }
+  // There is deliberately no Pattern 2. The old one paired any two
+  // citations that appeared near conflict vocabulary ("conflicting",
+  // "contradictory", "disagrees") and shipped the whole sentence as
+  // claimA with claimB empty . a dispute with only one side, assembled
+  // from prose that often merely mentioned disagreement in passing.
+  // Conflict language without two extracted opposing claims is not a
+  // pair, so it never reaches the panel (2026-10-14).
 
   // Pattern 3: "X found A [1]... Y found B [2]" without explicit contrast
   // words but with opposing qualifiers (increase vs decrease, positive vs
@@ -16804,6 +16921,15 @@ async function runSearchPipeline(pctx) {
               source: "Cached (verified)",
               aiQuota: aiQuotaPayload(),
               answerLength,
+              // The cache does not store which mode produced the
+              // answer (the record's synthesis model is honestly
+              // null), so the mode is unrecorded . and an unrecorded
+              // mode resolves to the extractive wording everywhere,
+              // never to AI. The header, the answer tag, and the
+              // record panel all read this one field and the
+              // record's model, so they cannot contradict each other
+              // (2026-10-14 verdict correctness pass).
+              synthesisMode: "extractive",
               _cached: true,
               _funnel: earlyTrust.funnel,
               /* This request's own ledger at serve time (the rate
@@ -16814,7 +16940,7 @@ async function runSearchPipeline(pctx) {
               _ledger: publicLedgerSnapshot(ledger),
               _coverage: earlyTrust.coverage,
               _record: earlyTrust.record,
-              confidence: earlyTrust.confidence,
+              confidence: publicConfidence(earlyTrust.confidence),
               degraded: false,
               stageHealth: [{ name: "cache", ok: true, ms: Math.max(0, Date.now() - (requestT0 || Date.now())) }],
             }),
@@ -18992,6 +19118,9 @@ async function runSearchPipeline(pctx) {
           source: "Cached (verified)",
           aiQuota: aiQuotaPayload(),
           answerLength,
+          // Unrecorded mode resolves to the extractive wording,
+          // never AI . see the early cache serve above.
+          synthesisMode: "extractive",
           ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag }, ledger)),
           _cached: true,
           _funnel: laterTrust.funnel,
@@ -19003,7 +19132,7 @@ async function runSearchPipeline(pctx) {
           _ledger: publicLedgerSnapshot(ledger),
           _coverage: laterTrust.coverage,
           _record: laterTrust.record,
-          confidence: laterTrust.confidence,
+          confidence: publicConfidence(laterTrust.confidence),
           degraded: stageHealthDegraded(stageHealth),
           stageHealth: publicStageHealth(stageHealth),
         }),
@@ -21208,11 +21337,9 @@ async function runSearchPipeline(pctx) {
     } catch (cbErr) { console.error("[Cerebrum] search.js semantic conflicts:", cbErr); }
     const detected = {
       ...detectedSubset,
-      conflicts: detectedSubset.conflicts.map((c) => ({
-        ...c,
-        idxA: citedIndices[c.idxA - 1],
-        idxB: citedIndices[c.idxB - 1],
-      })),
+      // Subset positions become full list positions, 1 based on both
+      // sides of the remap (see remapConflictIndices).
+      conflicts: remapConflictIndices(detectedSubset.conflicts, citedIndices),
     };
     const textMined = detected.conflicts.length === 0
       ? extractLiteratureConflicts(answerBodyBeforeBibliography(answer), sourceList)
@@ -21244,6 +21371,9 @@ async function runSearchPipeline(pctx) {
             factCheckResult.claims.length > 0 &&
             factCheckResult.checked !== false
           ),
+          // Support is the fact check's own count of claims it marked
+          // supported, never the citation count (see factCheckSupport).
+          support: factCheckSupport(factCheckResult),
         })
       : null;
     if (confidence) {
@@ -21479,7 +21609,7 @@ async function runSearchPipeline(pctx) {
         noResults: noResultsPayload, // structured no-results payload (null otherwise)
         disagreementVerdict,     // { status: divided|settled|thin, conflictCount, summary }
         evidenceGaps,            // [string]
-        confidence,              // { level: strong|moderate|thin, line } | null
+        confidence: publicConfidence(confidence), // { level, line } only . the numeric score never ships
         coverageNote,            // honest note when databases failed | null
         ambiguity,               // { ambiguous, term, resolvedAs, interpretations }
         queryAnalysis: queryAnalysisPayload, // { plainEnglish, keyPhrases, organism, questionType, isNameSearch } | null

@@ -48,6 +48,7 @@ const {
   extractLiteratureConflicts,
   buildDisagreementVerdict,
   reconcileDisagreementVerdict,
+  remapConflictIndices,
 } = await import(join(root, "functions/api/search.js"));
 
 const searchSrc = await readFile(join(root, "functions/api/search.js"), "utf8");
@@ -201,6 +202,131 @@ await test("frontend renders flashpoint claims through renderFlashpointClaim", (
 await test("renderFlashpointClaim strips block markers before inline rendering", () => {
   assert.ok(appSrc.includes('#{1,6}(?=\\s)'), "heading-strip regex missing from renderFlashpointClaim");
   assert.ok(appSrc.includes("renderInlineMdLite(stripped, P)"), "must delegate inline markdown to renderInlineMdLite");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Verdict correctness — no fabricated disputes (2026-10-14)");
+
+// A contrast word bridging two citations about DIFFERENT subjects is
+// how the miner used to fabricate a dispute: any "however" between two
+// cited claims became a conflicting pair. The pair now has to pass the
+// same gate as the source-level pass: same topic, opposing direction.
+await test("a contrast word across different topics produces no pair", () => {
+  const answer =
+    "One trial [1] found that biochar increased soil microbial activity and soil respiration in the field plots. " +
+    "However, a second trial [2] reported that spring rainfall decreased wheat yields across the northern region.";
+  const mined = extractLiteratureConflicts(answer, CALM_SOURCES);
+  assert.equal(mined.length, 0, "cross-topic contrast must not be a flashpoint");
+});
+
+await test("a contrast word on the same topic in opposite directions still produces a pair", () => {
+  const answer =
+    "One trial [1] found that biochar increased soil microbial activity and soil respiration in field plots. " +
+    "However, a second trial [2] reported that biochar decreased soil microbial activity and soil respiration in field plots.";
+  const mined = extractLiteratureConflicts(answer, CALM_SOURCES);
+  assert.equal(mined.length, 1, "same-topic opposing contrast must still surface");
+  assert.equal(mined[0].idxA, 1);
+  assert.equal(mined[0].idxB, 2);
+  assert.equal(mined[0].sourceA, CALM_SOURCES[0].title);
+  assert.equal(mined[0].sourceB, CALM_SOURCES[1].title);
+  assert.ok(mined[0].claimA.length > 0 && mined[0].claimB.length > 0, "both sides must carry a claim");
+});
+
+// The old Pattern 2 paired citations that merely stood near conflict
+// vocabulary and shipped one sentence as claimA with claimB empty: a
+// dispute with only one side. Conflict language alone is not a pair.
+await test("conflict vocabulary near two citations produces no one-sided pair", () => {
+  const answer =
+    "These findings conflict with the earlier reports [1] and contradict the later ones [2] in the literature.";
+  const mined = extractLiteratureConflicts(answer, CALM_SOURCES);
+  assert.equal(mined.length, 0, "conflict language without two opposing claims must not be a flashpoint");
+  assert.ok(!/claimB: ""/.test(searchSrc), "the one-sided Pattern 2 pair builder must stay gone");
+});
+
+// The divided summary states the split counted from the pairs. It used
+// to name a "sharpest" point built from the first pair's topic label .
+// the longest shared words of two claims strung together, which read
+// as word salad and could name fragments of unrelated claims.
+await test("divided summary states the split and never a sharpest topic salad", () => {
+  const v = buildDisagreementVerdict([
+    { idxA: 1, idxB: 2, topic: "memory consolidation performance" },
+    { idxA: 1, idxB: 3, topic: "sleep quality adults" },
+  ], 5);
+  assert.equal(v.status, "divided");
+  assert.deepEqual(v.sides, { a: 1, b: 2 });
+  assert.match(v.summary, /genuinely split on 2 points/);
+  assert.match(v.summary, /1 cited source appears on one side of those points and 2 on the other/);
+  assert.ok(!/sharpest/.test(v.summary), "summary still names a sharpest point");
+  assert.ok(!/consolidation/.test(v.summary), "summary leaked a pair's topic fragments");
+  const single = buildDisagreementVerdict([{ idxA: 2, idxB: 5, topic: "anything" }], 5);
+  assert.match(single.summary, /genuinely split on one point/);
+  assert.match(single.summary, /1 cited source appears on one side of it and 1 on the other/);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Verdict correctness — flashpoint indices are 1 based into the shipped list");
+
+// detectSourceConflicts numbers its own papers from 1, and every index
+// it ships must resolve to the paper the pair names.
+await test("detector indices resolve to the papers the pair names", () => {
+  const papers = [
+    {
+      title: "Fasting and insulin sensitivity trial",
+      abstract: "Intermittent fasting increased insulin sensitivity in adults with obesity. Insulin sensitivity improved after twelve weeks of fasting.",
+      year: 2024,
+    },
+    {
+      title: "Calm soil paper",
+      abstract: "Cracks were measured in depositional crusts. The crack network showed polygonal patterns across drying cycles.",
+      year: 2020,
+    },
+    {
+      title: "Fasting and insulin sensitivity study",
+      abstract: "Intermittent fasting decreased insulin sensitivity in adults with obesity. Insulin sensitivity declined after twelve weeks of fasting.",
+      year: 2023,
+    },
+  ];
+  const detected = detectSourceConflicts(papers);
+  assert.ok(detected.conflicts.length >= 1, "fixture should produce a genuine pair");
+  for (const c of detected.conflicts) {
+    assert.ok(c.idxA >= 1 && c.idxA <= papers.length, `idxA ${c.idxA} out of range`);
+    assert.ok(c.idxB >= 1 && c.idxB <= papers.length, `idxB ${c.idxB} out of range`);
+    assert.equal(papers[c.idxA - 1].title, c.sourceA, "idxA does not resolve to sourceA");
+    assert.equal(papers[c.idxB - 1].title, c.sourceB, "idxB does not resolve to sourceB");
+  }
+});
+
+// The pipeline remap: subset positions (1 based, from the detector)
+// become full list positions (1 based) via the cited papers' 0 based
+// positions in the full list. The audited defect shipped the raw
+// 0 based position, printing [0] and pointing [3] at the wrong paper.
+await test("remapConflictIndices maps subset positions to full list positions, 1 based", () => {
+  const shelf = [
+    { title: "Full 1" }, { title: "Full 2" }, { title: "Full 3" },
+    { title: "Full 4" }, { title: "Full 5" }, { title: "Full 6" },
+  ];
+  // The cited subset is full positions 1, 3, 5 (0 based [0, 2, 4]).
+  const subsetConflicts = [
+    { claimA: "x", claimB: "y", sourceA: "Full 1", sourceB: "Full 5", idxA: 1, idxB: 3 },
+    { claimA: "x", claimB: "y", sourceA: "Full 3", sourceB: "Full 5", idxA: 2, idxB: 3 },
+  ];
+  const remapped = remapConflictIndices(subsetConflicts, [0, 2, 4]);
+  assert.equal(remapped[0].idxA, 1);
+  assert.equal(remapped[0].idxB, 5);
+  assert.equal(remapped[1].idxA, 3);
+  assert.equal(remapped[1].idxB, 5);
+  for (const c of remapped) {
+    assert.ok(c.idxA >= 1 && c.idxB >= 1, "a 0 based index survived the remap");
+    assert.equal(shelf[c.idxA - 1].title, c.sourceA, "remapped idxA names a different paper");
+    assert.equal(shelf[c.idxB - 1].title, c.sourceB, "remapped idxB names a different paper");
+  }
+});
+
+await test("pipeline remaps through remapConflictIndices, never the raw 0 based position", () => {
+  assert.match(searchSrc, /remapConflictIndices\(detectedSubset\.conflicts, citedIndices\)/,
+    "pipeline must remap conflict indices through the tested helper");
+  assert.ok(!/idxA: citedIndices\[c\.idxA - 1\],/.test(searchSrc),
+    "the raw 0 based remap must stay gone");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

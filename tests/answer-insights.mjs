@@ -544,6 +544,10 @@ const {
   buildExtractiveSynthesis: backendExtractive,
   labelUncitedSources: backendLabelUncited,
   verifyExtractiveAlignment: backendVerifyAlignment,
+  publicConfidence: backendPublicConfidence,
+  factCheckSupport: backendFactCheckSupport,
+  publicStageHealth: backendPublicStageHealth,
+  runStage: backendRunStage,
 } = backend;
 
 const strongCitedPapers = Array.from({ length: 12 }, (_, i) => ({
@@ -566,11 +570,17 @@ await test("disagreement verdict counts only the cited set it was given", () => 
   assert.match(thin.summary, /not a consensus/);
 });
 
-await test("confidence counts cited papers and caps degraded or unchecked answers", () => {
+await test("confidence rests on cited papers (never calls them support) and caps degraded or unchecked answers", () => {
+  // Corrected contract (2026-10-14 verdict correctness pass): this pin
+  // used to assert the line "12 cited sources support this answer".
+  // Citation is use, not agreement . the line now rests on the cited
+  // count and claims support only from fact check claim verdicts.
   const clean = backendConfidence(strongCitedPapers, { status: "settled" }, { factCheckChecked: true });
   assert.equal(clean.level, "strong");
   assert.equal(clean.score, 100);
-  assert.match(clean.line, /12 cited sources support this answer/);
+  assert.match(clean.line, /this answer rests on 12 cited sources/);
+  assert.ok(!/cited sources? support this answer/.test(clean.line),
+    "line must not call cited papers supporting");
 
   const degraded = backendConfidence(strongCitedPapers, { status: "settled" }, { degraded: true, factCheckChecked: true });
   assert.ok(degraded.score <= 59, `degraded answer was not capped: ${degraded.score}`);
@@ -720,6 +730,123 @@ await test("fact check alignment covers Summary and reports zero checked claims 
     "the AI fact check push is not guarded by fcChecked");
   assert.match(searchSrc, /name: "fact-check", ok: null, skipReason: "nothing to verify"/,
     "an unchecked fact check must record a skip, never a healthy or failed stage");
+});
+
+// ══════════════════════════════════════════════════════════════════
+group("Verdict correctness — support, shipped shapes, and stage reasons (2026-10-14)");
+
+await test("support counts come from fact check claim verdicts, never citation counts", () => {
+  assert.deepEqual(
+    backendFactCheckSupport({ claims: [{ status: "supported" }, { status: "unsupported" }, { status: "thin" }, { status: "supported" }] }),
+    { supported: 2, checked: 4 });
+  assert.equal(backendFactCheckSupport(null), null);
+  assert.equal(backendFactCheckSupport({ claims: [] }), null);
+  assert.equal(backendFactCheckSupport({ overall: "supported" }), null);
+
+  // With check data, the strong line says what the check supports.
+  const withCheck = backendConfidence(strongCitedPapers, { status: "settled" },
+    { factCheckChecked: true, support: { supported: 9, checked: 10 } });
+  assert.equal(withCheck.level, "strong");
+  assert.match(withCheck.line, /The claim check supports 9 of 10 checked claims/);
+  assert.ok(!/cited sources? support/.test(withCheck.line),
+    "line must not describe cited papers as supporting");
+
+  // Without check data the line claims no support at all.
+  const noCheck = backendConfidence(strongCitedPapers, { status: "settled" }, { factCheckChecked: true });
+  assert.match(noCheck.line, /this answer rests on 12 cited sources/);
+  assert.ok(!/support/.test(noCheck.line), "line claims support with no check behind it");
+});
+
+await test("divided confidence line states the split, not a tautology", () => {
+  const papers5 = strongCitedPapers.slice(0, 5);
+  const verdict = backendVerdict([
+    { idxA: 1, idxB: 2 }, { idxA: 3, idxB: 2 },
+  ], 5);
+  assert.equal(verdict.status, "divided");
+  const conf = backendConfidence(papers5, verdict, { factCheckChecked: true });
+  assert.equal(conf.level, "moderate");
+  assert.match(conf.line, /split on 2 points: 2 cited sources appear on one side and 1 on the other/);
+  assert.ok(!/cited sources are cited/.test(conf.line), "the tautology must stay gone");
+  // A hand built verdict without sides still gets a meaningful line.
+  const bare = backendConfidence(papers5, { status: "divided", conflictCount: 2 }, { factCheckChecked: true });
+  assert.match(bare.line, /genuinely split on 2 points/);
+  assert.ok(!/are cited, and they split/.test(bare.line), "the old divided wording must stay gone");
+});
+
+await test("the numeric confidence score and its factors never ship", () => {
+  const full = {
+    level: "strong", line: "Strong confidence: this answer rests on 12 cited sources.",
+    score: 87, factors: ["12 cited sources (+15)"], cap: 59, capReasons: ["x"],
+    rawScore: 92, calibrated: true, calibrationAdjustments: ["y"], verdictStatus: "settled",
+  };
+  const pub = backendPublicConfidence(full);
+  assert.deepEqual(pub, { level: "strong", line: "Strong confidence: this answer rests on 12 cited sources." });
+  assert.deepEqual(Object.keys(pub).sort(), ["level", "line"]);
+  assert.equal(backendPublicConfidence(null), null);
+  // Every ship point serializes through publicConfidence.
+  assert.match(searchSrc, /confidence: publicConfidence\(confidence\)/,
+    "main response ships the raw confidence object");
+  assert.match(searchSrc, /confidence: publicConfidence\(earlyTrust\.confidence\)/,
+    "early cache serve ships the raw confidence object");
+  assert.match(searchSrc, /confidence: publicConfidence\(laterTrust\.confidence\)/,
+    "later cache serve ships the raw confidence object");
+});
+
+await test("cached serves resolve an unrecorded mode to extractive, never AI", () => {
+  // Both cache serve payloads name the mode explicitly, and the
+  // client's turn default agrees: a missing mode is extractive
+  // wording everywhere (header, answer tag, record panel).
+  assert.equal((searchSrc.match(/synthesisMode: "extractive",/g) || []).length, 2,
+    "both cached serve payloads must ship synthesisMode extractive");
+  assert.match(appSrc, /synthesisMode: data\.synthesisMode \|\| "extractive"/,
+    "the turn default for a missing mode must be extractive");
+  assert.ok(!/synthesisMode: data\.synthesisMode \|\| "ai"/.test(appSrc),
+    "a missing mode must never default to AI");
+});
+
+await test("a null fact check renders as did not run, never as nothing to verify", () => {
+  assert.ok(appSrc.includes('"Check did not run"'),
+    "the did not run kicker is missing from the fact check section");
+  assert.ok(appSrc.includes('state === "empty" ? "Nothing to verify"'),
+    "Nothing to verify must be gated to the ran-empty state");
+  assert.ok(!appSrc.includes('kicker={t.factCheck && t.factCheck.error ? "Check failed" : "Nothing to verify"}'),
+    "the old unconditional Nothing to verify kicker must stay gone");
+});
+
+await test("every failed stage record ships a skipReason (builder sweep)", async () => {
+  // The audited shape: a bare retrieval failure with no reason.
+  const swept = backendPublicStageHealth([
+    { name: "retrieval", ok: false, ms: 12 },
+    { name: "validation", ok: false, ms: 3, skipReason: "no leg answered" },
+    { name: "synthesis", ok: false, ms: 9, skipReason: "all legs failed" },
+    { name: "fact-check", ok: null, ms: 1, skipReason: "nothing to verify" },
+    { name: "retrieval", ok: true, ms: 5 },
+  ]);
+  for (const s of swept) {
+    if (s.ok === false) {
+      assert.ok(typeof s.skipReason === "string" && s.skipReason.length > 0,
+        `stage ${s.name} shipped failed with no skipReason`);
+    }
+  }
+  // Builders' own reasons survive verbatim; only the bare failure gains one.
+  assert.equal(swept[0].skipReason, "stage failed");
+  assert.equal(swept[1].skipReason, "no leg answered");
+  assert.equal(swept[2].skipReason, "all legs failed");
+  assert.equal(swept[3].skipReason, "nothing to verify");
+  assert.ok(!("skipReason" in swept[4]), "a healthy stage must not gain a reason");
+
+  // The runStage builders (retrieval, validation) record their reason
+  // at the source: a throw is a failure with a reason, a timeout is
+  // named as a timeout.
+  const failHealth = [];
+  const failRun = await backendRunStage("retrieval", async () => { throw new Error("boom"); }, { health: failHealth });
+  assert.equal(failRun.ok, false);
+  assert.equal(failHealth[0].ok, false);
+  assert.equal(failHealth[0].skipReason, "stage failed");
+  const slowHealth = [];
+  const slowRun = await backendRunStage("retrieval", () => new Promise(() => {}), { health: slowHealth, timeoutMs: 5 });
+  assert.equal(slowRun.ok, false);
+  assert.equal(slowHealth[0].skipReason, "stage timed out");
 });
 
 // ══════════════════════════════════════════════════════════════════

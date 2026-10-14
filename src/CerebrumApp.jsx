@@ -8298,7 +8298,10 @@ function searchRecordMarkdown(record) {
     lines.push("Excluded as weak matches: " + f.excludedWeak);
     lines.push("Excluded as non English: " + f.excludedNonEnglish);
     lines.push("Excluded as retracted: " + f.excludedRetracted);
-    lines.push("In the final source list: " + f.cited);
+    // The label names the final source list, so the number is that
+    // list's length, counted from the list itself . f.cited is the
+    // smaller set the answer actually cited (2026-10-14).
+    lines.push("In the final source list: " + (Array.isArray(record.sources) ? record.sources.length : "not recorded"));
   } else {
     lines.push("Funnel counts were not recorded for this search.");
   }
@@ -9751,29 +9754,46 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {done && (
         <ProvenanceColophon t={t} P={P} />
       )}
-      {/* Fact-check — always a section, never a silent gap. No result is an
-          honest empty state; an errored check is a failed shell with retry. */}
+      {/* Fact-check — always a section, never a silent gap. The states
+          are kept distinct because they mean different things: a null
+          factCheck means the check DID NOT RUN (a cached serve ships
+          null), a present check with no claims means it ran and found
+          nothing checkable, and an errored check failed. A null must
+          never render under "Nothing to verify" . that heading claims
+          a check ran and came back empty (2026-10-14). */}
       {done && (
         <div ref={fcSectionRef} style={{ scrollMarginTop: 130 }}>
-          {t.factCheck && !t.factCheck.error ? (
+          {t.factCheck && !t.factCheck.error && (t.factCheck.claims || []).length > 0 ? (
             <FactCheck fc={t.factCheck} P={P} accent={accent} />
           ) : (
             <AnswerSection eyebrow="Fact-check" P={P} accent={accent}>
-              <AnswerStateCard
-                kicker={t.factCheck && t.factCheck.error ? "Check failed" : "Nothing to verify"}
-                tone={t.factCheck && t.factCheck.error ? "bad" : "neutral"}
-                title={t.factCheck && t.factCheck.error
-                  ? "The verification pass didn't complete."
-                  : t.responseKind === "no-results" || (t.sources || []).length === 0
-                    ? "No scientific claims to verify."
-                    : "Verification didn't produce a result for this answer."}
-                body={t.factCheck && t.factCheck.error
-                  ? "The fact-check is a separate pass over the answer's claims. It didn't produce a result here."
-                  : t.responseKind === "no-results" || (t.sources || []).length === 0
-                    ? "This answer makes no claims about the literature. It reports what the search tried and why nothing citable surfaced, so there is nothing to check against sources."
-                    : "The mechanical claim check didn't return a verdict. The answer's citations still point at the papers they came from."}
-                actions={[{ label: "Retry search", onClick: retrySearch }]}
-                P={P} accent={accent} />
+              {(() => {
+                const fcError = !!(t.factCheck && t.factCheck.error);
+                const fcRanEmpty = !!t.factCheck && !t.factCheck.error;
+                const noClaimsPossible = t.responseKind === "no-results" || (t.sources || []).length === 0;
+                const state = fcError ? "failed"
+                  : fcRanEmpty || noClaimsPossible ? "empty"
+                  : "notrun";
+                return (
+                  <AnswerStateCard
+                    kicker={state === "failed" ? "Check failed" : state === "empty" ? "Nothing to verify" : "Check did not run"}
+                    tone={state === "failed" ? "bad" : "neutral"}
+                    title={state === "failed"
+                      ? "The verification pass didn't complete."
+                      : state === "empty"
+                        ? "No scientific claims to verify."
+                        : "The verification pass did not run for this answer."}
+                    body={state === "failed"
+                      ? "The fact-check is a separate pass over the answer's claims. It didn't produce a result here."
+                      : state === "empty"
+                        ? noClaimsPossible
+                          ? "This answer makes no claims about the literature. It reports what the search tried and why nothing citable surfaced, so there is nothing to check against sources."
+                          : "The verification pass ran over this answer and found no checkable claims in it. The answer's citations still point at the papers they came from."
+                        : "This answer was served without the verification pass, so no claim in it carries a checked verdict. The citations still point at the papers they came from, and a fresh search runs the check."}
+                    actions={[{ label: "Retry search", onClick: retrySearch }]}
+                    P={P} accent={accent} />
+                );
+              })()}
             </AnswerSection>
           )}
         </div>
@@ -21761,7 +21781,12 @@ function App() {
         }
       } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: record baseline pickup:", cbErr); }
       const turnId = Date.now() + Math.random();
-      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "ai", impact: data.impact || null, answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
+      // A response with no synthesisMode has an unrecorded mode (a
+      // cached serve), and unrecorded resolves to the extractive
+      // wording everywhere, never to AI . the header, the answer tag,
+      // and the record panel must not disagree about how the answer
+      // was produced (2026-10-14).
+      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "extractive", impact: data.impact || null, answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */

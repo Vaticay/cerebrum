@@ -146,7 +146,18 @@ try {
     assert.deepEqual(data._record.sources.map((s) => s.cited), [true, true, false]);
     // Confidence recomputed under current rules: strong papers, but
     // no fact check ran on a cache serve, so the unchecked cap binds.
-    assert.equal(data.confidence.score, 59);
+    // Corrected contract (2026-10-14 verdict correctness pass): this
+    // pin used to assert the response's numeric score (59). The
+    // numeric score and its point factors are internal only and never
+    // ship (Dusty's ban on pseudo precise confidence scores); the
+    // shipped shape is { level, line }, and the cap's observable
+    // effect is the moderate band plus the cap reason in the line.
+    // (The builder level cap itself stays pinned in search-record.)
+    assert.deepEqual(Object.keys(data.confidence).sort(), ["level", "line"]);
+    assert.equal(data.confidence.level, "moderate");
+    assert.match(data.confidence.line, /Confidence is capped because fact checking did not check any claims/);
+    assert.equal(data.confidence.score, undefined);
+    assert.equal(data.confidence.factors, undefined);
     // Stage health names the serve for what it is, and nothing failed.
     assert.equal(data.degraded, false);
     assert.equal(data.stageHealth.length, 1);

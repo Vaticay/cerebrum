@@ -149,7 +149,11 @@ function recordPage(record, url) {
       + "<li>Excluded as weak matches: " + num(f.excludedWeak) + "</li>"
       + "<li>Excluded as non English: " + num(f.excludedNonEnglish) + "</li>"
       + "<li>Excluded as retracted: " + num(f.excludedRetracted) + "</li>"
-      + "<li>In the final source list: " + num(f.cited) + "</li>"
+      // The label names the final source list, so the number is that
+      // list's length, counted from the list itself . f.cited is the
+      // smaller set the answer actually cited, and printing it here
+      // understated the list the label describes (2026-10-14).
+      + "<li>In the final source list: " + num(Array.isArray(record.sources) ? record.sources.length : null) + "</li>"
       + "</ul>");
   } else {
     parts.push("<p>Funnel counts were not recorded for this search.</p>");

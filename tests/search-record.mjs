@@ -1026,6 +1026,29 @@ await test("the page renders the record's readable half from the stored JSON", a
   assert.ok(html.includes("?format=json"), "the page does not say how to get the JSON");
 });
 
+await test("the funnel's final source list line counts the source list, not the cited set", async () => {
+  // ROUTE_RECORD discriminates the two sets on purpose: funnel.cited
+  // is 1 while the final source list holds 2 entries. The label names
+  // the final source list, so the number must be 2, counted from the
+  // list itself (2026-10-14 verdict correctness pass). The client's
+  // Markdown export of the same record follows the same rule.
+  const res = await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(ROUTE_RECORD) }) });
+  const html = await res.text();
+  assert.ok(html.includes("In the final source list: 2"),
+    "the page printed the cited count under the source list label");
+  assert.ok(!html.includes("In the final source list: 1"),
+    "the page still prints funnel.cited under the source list label");
+  assert.match(recordRouteSrc, /In the final source list: " \+ num\(Array\.isArray\(record\.sources\) \? record\.sources\.length : null\)/,
+    "the record page does not count the source list itself");
+  const mdAt = appSrc.indexOf("function searchRecordMarkdown");
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const md = appSrc.slice(mdAt, panelAt);
+  assert.match(md, /In the final source list: " \+ \(Array\.isArray\(record\.sources\) \? record\.sources\.length/,
+    "the Markdown export does not count the source list itself");
+  assert.ok(!md.includes('"In the final source list: " + f.cited'),
+    "the Markdown export still prints f.cited under the source list label");
+});
+
 await test("the page escapes stored text instead of emitting it as markup", async () => {
   const hostile = {
     ...ROUTE_RECORD,
