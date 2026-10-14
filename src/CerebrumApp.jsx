@@ -2231,9 +2231,9 @@ function SignalComposer({
   evidenceFilter = "all",
   setEvidenceFilter,
   sfx,
-  /* Plate II (2026-10-13): the stage variant stands taller, takes a
-     rotating specimen question as its placeholder, and submits from a
-     single round key. Default keeps the thread and bench behaviour. */
+  /* Plate II (2026-10-13): the stage variant takes a rotating
+     specimen question as its placeholder and submits from a single
+     round key. Default keeps the thread and bench behaviour. */
   variant = "default",
   specimenPlaceholders = null,
 }) {
@@ -2470,7 +2470,7 @@ function SignalComposer({
             aria-controls="cb-ask-recents"
             aria-activedescendant={showRecents && recentActive >= 0 ? `cb-ask-recent-opt-${recentActive}` : undefined}
             value={input}
-            rows={variant === "stage" ? 3 : 1}
+            rows={1}
             onChange={(e) => handleComposerChange(e.target.value)}
             onFocus={() => { setFocused(true); setRecentActive(-1); if (engageRef.current && recents.length > 0) setRecentOpen(true); }}
             onBlur={() => {
@@ -22863,7 +22863,7 @@ function App() {
   ].filter(Boolean).join(" ");
 
   return (
-    <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent)}} className={a11yClasses}>
+    <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent), "--cb-solid-bg": P.bg}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
       {/* Screen-reader search announcer: announces "Searching..." when a
@@ -23212,7 +23212,7 @@ function App() {
                     (the sidebar brand is the same pairing), nothing
                     under it, and no links: navigation lives in the
                     sidebar alone, so this is a name, not a nav. */}
-                <header style={{
+                <header className="cb-stage-masthead" style={{
                   display: "flex", alignItems: "center", gap: 11,
                   paddingBottom: 16, borderBottom: `1px solid ${P.line}`,
                 }}>
@@ -25300,13 +25300,16 @@ summary::-webkit-details-marker { display: none; }
 .cb-ask-spin--still { animation: none; }
 
 /* ── Plate II: the composer as an instrument (2026-10-13) ──
-   On the empty search stage the composer stands taller, its focus
-   state is a registration corner frame rather than a glow ring, and
-   the submit is a single round key. The standard composer above
-   keeps its own field for the bench and thread contexts. */
+   On the empty search stage the composer's focus state is a
+   registration corner frame rather than a glow ring, and the submit
+   is a single round key. The box itself is the standard one box
+   field — field and tools inside one border, one line tall,
+   growing only as the text wraps. An earlier stage treatment
+   stretched the field to three rows and docked the tools at its
+   bottom, which read as a tall empty rectangle with a second box
+   of controls beside the words. */
 .cb-ask--stage { max-width: none; }
 .cb-ask--stage .cb-ask-field {
-  align-items: stretch;
   background: color-mix(in srgb, var(--cb-bg) 88%, transparent);
 }
 .cb-ask--stage .cb-ask-field::before,
@@ -25325,10 +25328,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-ask--stage .cb-ask-field:focus-within::before,
 .cb-ask--stage .cb-ask-field:focus-within::after { opacity: 0.9; }
-.cb-ask--stage .cb-ask-input {
-  min-height: 96px; padding: 16px 6px 10px 18px; font-size: 17.5px;
-}
-.cb-ask--stage .cb-ask-tools { align-items: flex-end; padding-bottom: 8px; }
+.cb-ask--stage .cb-ask-input { font-size: 17.5px; }
 .cb-ask-go--round {
   width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 6px;
   border-radius: 50%; flex-shrink: 0;
@@ -26455,6 +26455,13 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   -webkit-backdrop-filter: none !important;
 }
 .cb-solid-panels header { background: var(--cb-solid-bg, #000000) !important; }
+/* The stage masthead is a name on the backdrop, not a panel: the rule
+   above painted it with the --cb-solid-bg fallback (never defined, so
+   pure black), a solid band from the top of the stage down to its
+   hairline rule, darker than the sidebar and darker than the film.
+   It stays transparent under solid panels too: the wordmark sits on
+   the same calm backdrop as the rest of the stage. */
+.cb-solid-panels .cb-stage-masthead { background: transparent !important; }
 
 /* ── Dyslexia-friendly font ── */
 .cb-dyslexic, .cb-dyslexic p, .cb-dyslexic li, .cb-dyslexic span,
