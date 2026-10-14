@@ -11,7 +11,7 @@ const fcSource = fs.readFileSync('src/flowcharts.jsx','utf8');
 const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure'];
+const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -20,7 +20,7 @@ const dsFunctions = dsAst.program.body
 const fcFunctions = fcAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length,17);
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length,18);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c});
 /* Extra stubs for the dialog-semantics renders below: the real React
@@ -278,6 +278,23 @@ console.log('Actual search-mode, shared-button and card components render in dar
  assert.doesNotMatch(ver,/Unverified image/,'a verified figure carried the unverified marking');
  assert.match(ver,/NIAID \/ Wikimedia Commons/);
  console.log('MediaFigure marks the unverified fallback (with or without credit) and never marks a verified figure.');
+}
+
+/* ── TrendThumb: the digest row marks its unverified thumb ───────
+   The REAL TrendThumb with the same fallback object: the hero and
+   article surfaces mark unverified media through MediaFigure, but
+   digest rows render TrendThumb, which carried no marking at all
+   until wave eight (seventh panel, Trending), so an unchecked photo
+   sat unlabeled in every digest row. The thumb now prints the same
+   "Unverified image" line under itself whenever the media object
+   carries verified: false, and never for verified media. */
+{
+ const P={dark:true,ink:'#eee',ink2:'#bbb',faint:'#999',line:'#444',line2:'#555'};
+ const unv=renderToStaticMarkup(React.createElement(context.TrendThumb,{P,media:{kind:'image',url:'https://example.com/apod.jpg',poster:null,credit:'NASA',creditUrl:null,license:null,source:'NASA',verified:false},title:'Desert Stairway to Heaven'}));
+ assert.match(unv,/Unverified image/,'the unverified digest thumb rendered without its marking');
+ const ver=renderToStaticMarkup(React.createElement(context.TrendThumb,{P,media:{kind:'image',url:'https://example.com/h5n1.jpg',poster:null,credit:'NIAID / Wikimedia Commons',creditUrl:null,license:'CC BY 2.0',source:'commons',verified:true},title:'H5N1 particles'}));
+ assert.doesNotMatch(ver,/Unverified image/,'a verified digest thumb carried the unverified marking');
+ console.log('TrendThumb marks the unverified digest thumb and never marks a verified one.');
 }
 
 /* ── Trending hero: species italics in summaries ───────────────────

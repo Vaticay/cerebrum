@@ -221,19 +221,46 @@ function* srcFiles(dir) {
   }
 }
 
-await test("no text field in CerebrumApp.jsx carries an inline fontSize below 16", () => {
-  const els = fieldElements(readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8"));
-  const text = els.filter((e) => !NON_TEXT_TYPES.has(e.type || ""));
-  const known = text.filter((e) => e.fontSize !== null);
-  // Counted floors, not quotas: the shell renders 37 fields today,
-  // 29 of them text fields, 27 of those with a resolvable inline
-  // size (the home composer's size lives in a stylesheet class).
-  // If these totals collapse, the resolver went blind and a pass
-  // would mean nothing.
-  assert.ok(els.length >= 35, `expected the shell's fields, found only ${els.length}`);
-  assert.ok(text.length >= 28, `expected the shell's text fields, found only ${text.length}`);
-  assert.ok(known.length >= 25, `expected resolvable inline sizes on the shell's text fields, found only ${known.length}`);
-  const bad = known.filter((e) => e.fontSize < 16).map((e) => `line ${e.line}: <${e.name}> at ${e.fontSize}px`);
+/* Per file counted floors for the 16px rule, set from the audit of
+ * 2026-10-14 (wave eight): els = every input, textarea, and select
+ * element in the file; text = those minus the non text types excluded
+ * by name; known = text fields whose inline size this resolver can
+ * see. A file missing from this table is still scanned and held to
+ * the rule; the table exists so a file that HAS fields cannot pass
+ * by the resolver going blind on it. */
+const FIELD_FLOORS = {
+  "src/CerebrumApp.jsx": { els: 35, text: 28, known: 25 },
+  "src/LearnView.jsx": { els: 7, text: 6, known: 6 },
+  "src/flowcharts.jsx": { els: 7, text: 6, known: 6 },
+  "src/inbox.jsx": { els: 8, text: 7, known: 7 },
+  "src/settings.jsx": { els: 11, text: 7, known: 7 },
+  "src/designSystem.jsx": { els: 2, text: 2, known: 1 },
+  "src/main.jsx": { els: 1, text: 1, known: 1 },
+};
+
+await test("no text field anywhere in src carries an inline fontSize below 16", () => {
+  let totalEls = 0;
+  const bad = [];
+  const seen = {};
+  for (const file of srcFiles(join(root, "src"))) {
+    const label = file.slice(root.length + 1);
+    const els = fieldElements(readFileSync(file, "utf8"));
+    const text = els.filter((e) => !NON_TEXT_TYPES.has(e.type || ""));
+    const known = text.filter((e) => e.fontSize !== null);
+    totalEls += els.length;
+    seen[label] = { els: els.length, text: text.length, known: known.length };
+    for (const e of known) {
+      if (e.fontSize < 16) bad.push(`${label}:${e.line}: <${e.name}> at ${e.fontSize}px`);
+    }
+  }
+  for (const [label, floor] of Object.entries(FIELD_FLOORS)) {
+    const got = seen[label] || { els: 0, text: 0, known: 0 };
+    assert.ok(got.els >= floor.els, `${label}: expected at least ${floor.els} fields, resolver found ${got.els}`);
+    assert.ok(got.text >= floor.text, `${label}: expected at least ${floor.text} text fields, resolver found ${got.text}`);
+    assert.ok(got.known >= floor.known, `${label}: expected at least ${floor.known} resolvable sizes, resolver found ${got.known}`);
+  }
+  // The whole tree carries 74 field elements today.
+  assert.ok(totalEls >= 70, `expected the fields of the whole src tree, found only ${totalEls}`);
   assert.deepEqual(bad, [], `fields under the 16px floor:\n${bad.join("\n")}`);
 });
 
@@ -284,6 +311,121 @@ await test("the background checker is not vacuous: it flags planted alpha and sp
   const spared = els.filter((e) => e.bgAlpha === false);
   assert.equal(flagged.length, 3, `expected the conditional, the withAlpha, and the identifier backgrounds flagged, got ${JSON.stringify(els)}`);
   assert.equal(spared.length, 2, `expected the palette token and the transparent field spared, got ${JSON.stringify(els)}`);
+});
+
+/* Stylesheet class rules in a source file: every string and template
+ * literal is scanned for CSS rule shapes. Interpolations split the
+ * CSS into quasis; joining them keeps whole rules parseable except
+ * the few a ${} lands inside, which the counted floors absorb. */
+function stylesheetRules(source) {
+  const ast = parseSrc(source);
+  const texts = [];
+  walk(ast.program, (n) => {
+    if (n.type === "TemplateLiteral") for (const q of n.quasis) texts.push(q.value.cooked || "");
+    else if (n.type === "StringLiteral" && /[.#][\w-]/.test(n.value)) texts.push(n.value);
+  });
+  const rules = [];
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  const css = texts.join("\n");
+  while ((m = re.exec(css))) rules.push({ selector: m[1].trim(), body: m[2] });
+  return rules;
+}
+
+/* A stylesheet rule whose selector puts it on a field: the ask field
+ * and ask input classes, the shared cb-field class, or a bare input,
+ * textarea, or select element selector. */
+const FIELD_SELECTOR = /ask-field|ask-input|cb-field|(^|[\s>+~.,#])input(?=[\s>+~.:#[]|$)|(^|[\s>+~.,#])textarea(?=[\s>+~.:#[]|$)|(^|[\s>+~.,#])select(?=[\s>+~.:#[]|$)/;
+function cssBackgroundIsAlpha(body) {
+  const m = body.match(/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/);
+  if (!m) return null;
+  const v = m[1].trim();
+  if (v === "transparent" || v === "none") return false;
+  return /rgba\s*\(|hsla\s*\(|color-mix\s*\(|withAlpha\s*\(/.test(v);
+}
+
+/* Button rendered select triggers: a <button> carrying
+ * aria-haspopup="listbox" is a select wearing a button's tag (the
+ * UISelect trigger), and the field rules apply to the text it carries
+ * exactly as they apply to a native select. */
+function selectTriggerElements(source) {
+  const ast = parseSrc(source);
+  const idx = buildIndex(ast);
+  const out = [];
+  walk(ast.program, (n) => {
+    if (n.type !== "JSXOpeningElement" || !n.name || n.name.name !== "button") return;
+    let isTrigger = false;
+    let styleExpr = null;
+    for (const attr of n.attributes || []) {
+      if (attr.type !== "JSXAttribute" || !attr.name) continue;
+      if (attr.name.name === "aria-haspopup" && attr.value && attr.value.type === "StringLiteral" && attr.value.value === "listbox") isTrigger = true;
+      if (attr.name.name === "style" && attr.value && attr.value.type === "JSXExpressionContainer") styleExpr = attr.value.expression;
+    }
+    if (!isTrigger) return;
+    const props = styleExpr ? resolveStyleProps(styleExpr, idx) : null;
+    out.push({
+      line: n.loc ? n.loc.start.line : 0,
+      bgAlpha: props && props.has("background") ? backgroundIsAlpha(props.get("background"), idx) : null,
+    });
+  });
+  return out;
+}
+
+await test("no stylesheet field rule or select trigger in src carries an alpha background", () => {
+  const appRules = stylesheetRules(readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8"));
+  const targeted = appRules.filter((r) => FIELD_SELECTOR.test(r.selector));
+  const withBg = targeted.filter((r) => cssBackgroundIsAlpha(r.body) !== null);
+  // Counted floors from the 2026-10-14 audit: the app stylesheet
+  // carries the ask field, ask input, and shared field rules (6
+  // targeted rules), two of which declare a background (the solid
+  // field and the transparent input inside it).
+  assert.ok(targeted.length >= 5, `expected the stylesheet's field rules, found only ${targeted.length}`);
+  assert.ok(withBg.length >= 2, `expected background bearing field rules, found only ${withBg.length}`);
+  const badCss = targeted.filter((r) => cssBackgroundIsAlpha(r.body) === true)
+    .map((r) => `${r.selector} { background lets the surface behind it show through }`);
+  assert.deepEqual(badCss, [], `alpha stylesheet field backgrounds:\n${badCss.join("\n")}`);
+
+  let triggers = 0;
+  let resolved = 0;
+  const badTrig = [];
+  for (const file of srcFiles(join(root, "src"))) {
+    const label = file.slice(root.length + 1);
+    for (const t of selectTriggerElements(readFileSync(file, "utf8"))) {
+      triggers++;
+      if (t.bgAlpha !== null) resolved++;
+      if (t.bgAlpha === true) badTrig.push(`${label}:${t.line}: select trigger background lets the surface behind it show through`);
+    }
+  }
+  // UISelect's trigger is the one listbox button in the tree today.
+  assert.ok(triggers >= 1, `expected the select triggers of src, found only ${triggers}`);
+  assert.ok(resolved >= 1, `expected a resolvable trigger background, found only ${resolved}`);
+  assert.deepEqual(badTrig, [], `alpha select trigger backgrounds:\n${badTrig.join("\n")}`);
+});
+
+await test("the stylesheet and trigger checkers are not vacuous", () => {
+  const plantedCss = [
+    "const CSS = `",
+    ".cb-ask-field { background: color-mix(in srgb, var(--cb-ink) 3%, transparent); }",
+    ".cb-ask-input { background: transparent; }",
+    ".cb-field:focus { border-color: rgba(0,0,0,0.4); }",
+    ".cb-other { background: rgba(0,0,0,0.5); }",
+    "`;",
+  ].join("\n");
+  const rules = stylesheetRules(plantedCss).filter((r) => FIELD_SELECTOR.test(r.selector));
+  assert.equal(rules.length, 3, `expected the three field rules, got ${JSON.stringify(rules)}`);
+  assert.equal(cssBackgroundIsAlpha(rules[0].body), true, "the color-mix field background was not flagged");
+  assert.equal(cssBackgroundIsAlpha(rules[1].body), false, "the transparent input background was flagged");
+  assert.equal(cssBackgroundIsAlpha(rules[2].body), null, "a rule with no background was not reported as undeclared");
+
+  const plantedTrig = [
+    `const a = <button aria-haspopup="listbox" style={{ background: "rgba(255,255,255,0.06)" }} />;`,
+    `const b = <button aria-haspopup="listbox" style={{ background: pal.surface }} />;`,
+    `const c = <button aria-haspopup="menu" style={{ background: "rgba(0,0,0,0.5)" }} />;`,
+  ].join("\n");
+  const trigs = selectTriggerElements(plantedTrig);
+  assert.equal(trigs.length, 2, `expected the two listbox triggers, got ${JSON.stringify(trigs)}`);
+  assert.equal(trigs[0].bgAlpha, true, "the rgba trigger background was not flagged");
+  assert.equal(trigs[1].bgAlpha, false, "the palette surface trigger background was flagged");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

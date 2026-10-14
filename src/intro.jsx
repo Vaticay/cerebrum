@@ -259,6 +259,11 @@ function FilmCreditsDialog({ onClose, accent }) {
     <Dialog
       label="Background film credits" onClose={onClose} zIndex={400} width={680}
       panelStyle={{
+        /* Media surface, marked the way ModalChrome marks its media
+           flag: this panel is the background film's own credits and
+           sits on the film, so it keeps the deliberate dark treatment
+           in every palette. Text panels do not get this exemption;
+           IntroModal below follows the palette like other dialogs. */
         background: "#0f1115",
         border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
         boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
@@ -445,21 +450,26 @@ function filmBestFile(el, mp4) {
   return mp4;
 }
 
-function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
+function IntroModal({ label, title, onClose, accent, P = null, children, width = 620 }) {
+  /* A text panel (How it works, Sources): it follows the active
+     palette like every other dialog, surface, ink, and line from P
+     when the caller passes it, and the Dialog default's own variable
+     treatment when it does not. The hard coded near black it carried
+     until 2026-10-14 ignored Light palettes entirely. */
   return (
     <Dialog label={label} onClose={onClose} zIndex={400} width={width}
       panelStyle={{
-        background: "#0f1115",
-        border: "1px solid rgba(255,255,255,0.10)", borderRadius: RADIUS.xl,
+        background: P ? P.surface : "var(--cb-surface, #767676)",
+        border: `1px solid ${P ? P.line : "rgba(255,255,255,0.10)"}`, borderRadius: RADIUS.xl,
         boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
-        padding: "22px 22px 24px", color: "#f2f4f2", fontFamily: "var(--cb-font)",
+        padding: "22px 22px 24px", color: P ? P.ink : "var(--cb-ink, #f4f4f2)", fontFamily: "var(--cb-font)",
       }}
     >
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, flex: 1, lineHeight: 1.25 }}>{title}</h2>
           <button onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
-            border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 2,
+            border: `1px solid ${P ? P.line : "rgba(255,255,255,0.12)"}`, background: P ? P.surface : "rgba(255,255,255,0.06)",
+            color: P ? P.ink2 : "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 2,
             padding: "7px 15px", fontSize: 13, fontFamily: "var(--cb-font)", flexShrink: 0,
           }}>Close</button>
         </div>
@@ -468,7 +478,7 @@ function IntroModal({ label, title, onClose, accent, children, width = 620 }) {
   );
 }
 
-function HowItWorksDialog({ onClose, accent }) {
+function HowItWorksDialog({ onClose, accent, P = null }) {
   const steps = [
     { n: "1", h: "Ask in plain language",
       b: "A question the way you would ask a colleague. No boolean operators, no field codes, no learning a query syntax first." },
@@ -478,12 +488,12 @@ function HowItWorksDialog({ onClose, accent }) {
       b: "The answer is written from those papers, and each statement is numbered to the paper it came from. Open a citation to see the passage it rests on." },
   ];
   return (
-    <IntroModal label="how Cerebrum works" title="How Cerebrum works" onClose={onClose} accent={accent}>
+    <IntroModal label="how Cerebrum works" title="How Cerebrum works" onClose={onClose} accent={accent} P={P}>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         {steps.map((st) => (
           <div key={st.n} style={{
             display: "grid", gridTemplateColumns: "26px 1fr", gap: 14,
-            padding: "16px 0", borderTop: "1px solid rgba(255,255,255,0.07)",
+            padding: "16px 0", borderTop: `1px solid ${P ? P.line : "rgba(255,255,255,0.07)"}`,
           }}>
             <span style={{
               fontFamily: "var(--cb-font)", fontSize: 12, color: withAlpha(accent, 0.9),
@@ -491,7 +501,7 @@ function HowItWorksDialog({ onClose, accent }) {
             }}>{st.n}</span>
             <div>
               <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 5 }}>{st.h}</div>
-              <div style={{ fontSize: 14, color: "rgba(242,244,242,0.68)", lineHeight: 1.6 }}>{st.b}</div>
+              <div style={{ fontSize: 14, color: P ? P.ink2 : "rgba(242,244,242,0.68)", lineHeight: 1.6 }}>{st.b}</div>
             </div>
           </div>
         ))}
@@ -501,7 +511,7 @@ function HowItWorksDialog({ onClose, accent }) {
   );
 }
 
-function SourcesDialog({ onClose, accent }) {
+function SourcesDialog({ onClose, accent, P = null }) {
   const GROUPS = [
     ["biomedical", "Biomedical"],
     ["multi", "Multidisciplinary"],
@@ -512,8 +522,8 @@ function SourcesDialog({ onClose, accent }) {
   ];
   const PEER = { yes: "Peer-reviewed", mostly: "Mostly peer-reviewed", mixed: "Mixed", no: "Not peer-reviewed" };
   return (
-    <IntroModal label="research sources" title="Research sources" onClose={onClose} accent={accent}>
-      <p style={{ margin: "0 0 16px", fontSize: 14, lineHeight: 1.65, color: "rgba(242,244,242,0.68)" }}>
+    <IntroModal label="research sources" title="Research sources" onClose={onClose} accent={accent} P={P}>
+      <p style={{ margin: "0 0 16px", fontSize: 14, lineHeight: 1.65, color: P ? P.ink2 : "rgba(242,244,242,0.68)" }}>
         Cerebrum queries these {SCHOLARLY_SOURCES.length} sources and merges the results, removing the
         same paper when it appears in more than one. Preprints are included and are labelled as
         preprints. They have not been peer-reviewed.
@@ -522,11 +532,11 @@ function SourcesDialog({ onClose, accent }) {
         const rows = SCHOLARLY_SOURCES.filter((x) => x.category === key);
         if (!rows.length) return null;
         return (
-          <div key={key} style={{ paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 4 }}>
+          <div key={key} style={{ paddingTop: 14, borderTop: `1px solid ${P ? P.line : "rgba(255,255,255,0.07)"}`, marginBottom: 4 }}>
             <div style={{
               /* Pass 3 (2026-09-17): Inter Tight label, not a tracked-out eyebrow. */
               fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption,
-              color: "rgba(242,244,242,0.44)", marginBottom: 9,
+              color: P ? P.faint : "rgba(242,244,242,0.44)", marginBottom: 9,
             }}>{heading}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
               {rows.map((r) => (
@@ -534,8 +544,8 @@ function SourcesDialog({ onClose, accent }) {
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   gap: 14, flexWrap: "wrap",
                 }}>
-                  <span style={{ fontSize: 15, color: "#f2f4f2" }}>{r.name}</span>
-                  <span style={{ fontSize: 12, color: "rgba(242,244,242,0.5)" }}>{PEER[r.peerReviewed] || ""}</span>
+                  <span style={{ fontSize: 15, color: P ? P.ink : "#f2f4f2" }}>{r.name}</span>
+                  <span style={{ fontSize: 12, color: P ? P.faint : "rgba(242,244,242,0.5)" }}>{PEER[r.peerReviewed] || ""}</span>
                 </div>
               ))}
             </div>
@@ -1259,8 +1269,8 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
       </footer>
 
-      {sourcesOpen && <SourcesDialog accent={introAccent} onClose={() => setSourcesOpen(false)} />}
-      {howOpen && <HowItWorksDialog accent={introAccent} onClose={() => setHowOpen(false)} />}
+      {sourcesOpen && <SourcesDialog P={P} accent={introAccent} onClose={() => setSourcesOpen(false)} />}
+      {howOpen && <HowItWorksDialog P={P} accent={introAccent} onClose={() => setHowOpen(false)} />}
 
     </div>
   );

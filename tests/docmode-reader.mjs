@@ -842,12 +842,35 @@ await test("the comparison keeps answerTruncated and renders the cut short note"
   assert.match(src, /answerTruncatedNote\(compareResult\.answerTruncated, "comparison"\)/, "compare view does not render the cut short note");
 });
 
+await test("the comparison keeps stageHealth and renders the pipeline health", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The backend computes a stage record for comparisons, and the Q&A
+  // surface renders its own through DocStageHealth; until wave eight
+  // setCompareResult dropped the field and the compare surface showed
+  // no pipeline health at all (seventh panel, Document Reader). The
+  // trail stays dropped on purpose: its offsets index the combined
+  // text, not either document, and the not checked notice above says
+  // so. Pin the field on the compare setter's own line, the way the
+  // answerTruncated pin above does.
+  assert.match(src, /setCompareResult\(\{ streaming: false,[^\n]*stageHealth: \(result && Array\.isArray\(result\.stageHealth\)\) \? result\.stageHealth : \[\]/, "setCompareResult drops stageHealth");
+  // And the compare view renders it through the same component the
+  // Q&A answers use, inside the compare result block, once streaming
+  // ends (DocStageHealth itself renders nothing for an empty record).
+  const render = "DocStageHealth stageHealth={compareResult.stageHealth}";
+  const at = src.indexOf(render);
+  assert.ok(at > 0, "compare view does not render DocStageHealth from the compare result");
+  const blockAt = src.indexOf("{compareResult && (");
+  assert.ok(blockAt > 0 && at > blockAt, "the stage health does not render inside the compare result block");
+  const around = src.slice(Math.max(0, at - 200), at);
+  assert.match(around, /!compareResult\.streaming/, "the stage health is not gated on a finished comparison");
+});
+
 await test("the comparison states plainly that its quotes were not checked", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   // The backend computes an evidence trail and a stage record for
-  // comparisons, but the compare view keeps neither (setCompareResult
-  // carries text and flags only, and a trail entry's offsets index
-  // one document, not the pair). Until a per document mapping
+  // comparisons. The stage record is kept and rendered (previous
+  // test); the trail is not, because a trail entry's offsets index
+  // one document, not the pair. Until a per document mapping
   // exists, the view must say its quotes were not checked, in the
   // open, whenever a finished comparison shows: the sixth panel's
   // finding was the silence, not the missing mapping.
@@ -980,9 +1003,11 @@ await test("the comparison keeps the model and budget fields and labels degradat
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   // This pin names the setter's field list exactly, so it was updated
   // when the answerTruncated field joined the shape (2026-10-14,
-  // fifth panel Document Reader remainder): the pin now covers the
-  // corrected contract, model, budget, and both truncation fields.
-  assert.match(src, /setCompareResult\(\{ streaming: false, text: result && result\.answer \? result\.answer : "", model: \(result && result\.model\) \|\| null, budgetExhausted: !!\(result && result\.budgetExhausted\), promptTruncation: \(result && result\.promptTruncation\) \|\| null, answerTruncated: !!\(result && result\.answerTruncated\) \}\);/, "compare result drops the model, budget, or truncation fields");
+  // fifth panel Document Reader remainder) and again when stageHealth
+  // joined it (wave eight, seventh panel): the pin covers the
+  // corrected contract, model, budget, both truncation fields, and
+  // the stage record.
+  assert.match(src, /setCompareResult\(\{ streaming: false, text: result && result\.answer \? result\.answer : "", model: \(result && result\.model\) \|\| null, budgetExhausted: !!\(result && result\.budgetExhausted\), promptTruncation: \(result && result\.promptTruncation\) \|\| null, answerTruncated: !!\(result && result\.answerTruncated\), stageHealth: \(result && Array\.isArray\(result\.stageHealth\)\) \? result\.stageHealth : \[\] \}\);/, "compare result drops the model, budget, truncation, or stage health fields");
   assert.match(src, /setComparePair\(compareKeyOf\(a, b\)\);/, "a finished comparison does not record its text pair");
   assert.match(src, /compareResult\.model === "extractive"/, "compare view never checks for an extractive result");
 });

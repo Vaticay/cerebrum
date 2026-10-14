@@ -1547,11 +1547,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
   };
 
-  // Mute and unmute: the conversation stays in the list with its
-  // unread count, but nothing notifies — the server leaves muted
-  // recipients out of its web push, and both of this client's polls
-  // (the list poll and the open thread poll) leave muted threads out
-  // of their notifications, announcements, and sounds.
+  // Mute and unmute: muting silences MESSAGE notifications for this
+  // conversation only. The conversation stays in the list with its
+  // unread count; the server leaves muted recipients out of its
+  // message web push, and both of this client's polls (the list poll
+  // and the open thread poll) leave muted threads out of their
+  // message notifications, announcements, and sounds. Call
+  // notifications for the thread are not message notifications and
+  // still arrive; the toast below claims exactly this scope, no more.
   const toggleThreadMuted = async () => {
     if (!activeId || prefBusy) return;
     const row = threads.find((t) => t.id === activeId);
@@ -1562,7 +1565,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       const res = await apiDataAction("set-thread-muted", { thread_id: activeId, muted: next });
       setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, muted: !!res.muted } : t)));
       setActiveThread((t) => (t && t.id === activeId ? { ...t, muted: !!res.muted } : t));
-      toast(res.muted ? "Notifications muted for this conversation." : "Notifications unmuted for this conversation.");
+      toast(res.muted ? "Message notifications muted for this conversation." : "Message notifications unmuted for this conversation.");
     } catch (e) {
       toast(e.message || "Couldn't mute that conversation.", { tone: "error" });
     } finally {

@@ -746,7 +746,11 @@ export function UISelect({
           borderRadius: RADIUS.md,
           /* UIButton secondary skin — the select reads as family, not as
              a browser control. */
-          background: pal.dark ? "rgba(255,255,255,0.06)" : "#ffffff",
+          /* The trigger carries text, so its background is the solid
+             palette surface the menu renders on, never a wash: the
+             0.06 white tint it replaced composed over whatever sat
+             behind the control in dark palettes. */
+          background: pal.surface,
           color: pal.ink, border: `1px solid ${pal.line2}`,
           boxShadow: pal.dark
             ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px -2px rgba(0,0,0,0.3)"

@@ -35,6 +35,20 @@ async function test(name, fn) {
   }
 }
 
+await test("the mute toast claims message notifications only, in both directions", () => {
+  // Mute silences message notifications for the thread; call
+  // notifications still arrive (ringing behavior is the owner's
+  // separate open ruling, and this copy must not wait for it to be
+  // honest). Until wave eight the toast read "Notifications muted
+  // for this conversation", claiming every kind (seventh panel,
+  // Inbox). The settings surface already scopes its copy this way;
+  // the toast now matches it.
+  assert.ok(inboxSrc.includes("\"Message notifications muted for this conversation.\""), "the mute toast is not scoped to message notifications");
+  assert.ok(inboxSrc.includes("\"Message notifications unmuted for this conversation.\""), "the unmute toast is not scoped to message notifications");
+  assert.ok(!inboxSrc.includes("\"Notifications muted for this conversation.\""), "the unscoped mute toast is back");
+  assert.ok(!inboxSrc.includes("\"Notifications unmuted for this conversation.\""), "the unscoped unmute toast is back");
+});
+
 await test("composer is a growing textarea, not a single line input", () => {
   assert.ok(inboxSrc.includes("<textarea"), "composer textarea missing");
   assert.ok(inboxSrc.includes("composerRef"), "composer auto grow ref missing");

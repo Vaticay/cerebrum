@@ -14,6 +14,7 @@ import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "@babel/parser";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { MARKETING_PAGES, MARKETING_SLUGS, SLOGAN, DEMO_QUESTIONS } = await import(join(root, "src/marketingContent.js"));
@@ -266,6 +267,31 @@ t("no page copy promises the free tier is permanent", () => {
   const copy = JSON.stringify(MARKETING_PAGES) + JSON.stringify(LEGAL_PAGES);
   assert.ok(!/free, forever/i.test(copy), "a page still promises 'Free, forever'");
   assert.ok(!/stays free/i.test(copy), "a page still says the core work 'stays free'");
+  // The same rule binds the app's own user visible copy: the Pro
+  // checkout modal promised permanence twice ("Everything free stays
+  // free" in its subheading, "Free stays free:" in its trust block)
+  // until wave eight (seventh panel, Product). The scan reads the
+  // app file's parsed string literals and template quasis, never a
+  // raw grep, so comments and identifiers cannot hide or fake a hit.
+  const appAst = parse(appSrc, { sourceType: "module", plugins: ["jsx"] });
+  const literals = [];
+  (function walk(node) {
+    if (!node || typeof node.type !== "string") return;
+    if (node.type === "StringLiteral") literals.push(node.value);
+    if (node.type === "JSXText") literals.push(node.value);
+    if (node.type === "TemplateLiteral") for (const q of node.quasis) literals.push(q.value.cooked || "");
+    for (const key of Object.keys(node)) {
+      if (key === "loc" || key === "range") continue;
+      const child = node[key];
+      if (Array.isArray(child)) for (const c of child) walk(c);
+      else walk(child);
+    }
+  })(appAst.program);
+  assert.ok(literals.length > 1000, `the app literal scan went blind: only ${literals.length} literals`);
+  const appCopy = literals.join("\n");
+  assert.ok(!/free, forever/i.test(appCopy), "app copy still promises 'Free, forever'");
+  assert.ok(!/stays free/i.test(appCopy), "app copy still says something 'stays free'");
+  assert.ok(!/free stays free/i.test(appCopy), "app copy still carries the 'Free stays free' line");
   const freeBlock = blockByHeading(MARKETING_PAGES.pricing, "Free");
   assert.ok(freeBlock, "pricing page lost its Free block");
   assert.ok(JSON.stringify(freeBlock).includes("50 AI answers"),

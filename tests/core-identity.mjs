@@ -578,19 +578,26 @@ await test("ModalChrome centered panels take the palette, and only media surface
   // its centered background, ink, and border from the palette when
   // one is passed, and the dark constants survive only behind the
   // media opt in (the citation network and the literature arc,
-  // whose bodies force a dark palette in every theme).
+  // whose bodies force a dark palette in every theme). Seventh
+  // panel follow up: the no palette fallback WAS the hard coded
+  // constant, safe only under caller discipline; wave eight makes
+  // it read the Dialog default's --cb-surface variable (mid neutral
+  // fallback) with the matching ink and line variables, so the
+  // constant survives only on the media branch. The two pins that
+  // asserted the old ternary encoded that defect and move with it.
   const at = flowchartsSrc.indexOf("function ModalChrome");
   assert.ok(at > 0, "ModalChrome missing");
   const mc = flowchartsSrc.slice(at, flowchartsSrc.indexOf("export { ChromeHeader, ModalChrome }", at));
   assert.match(mc, /media = false/, "ModalChrome has no media opt in");
   assert.match(mc, /const themed = !!P && !media;/, "ModalChrome does not derive its themed state from the palette and the media flag");
-  assert.match(mc, /themed \? P\.surface : "#0f1115"/, "centered panels do not take the palette surface");
-  assert.match(mc, /themed \? P\.ink : "#f2f4f2"/, "centered panels do not take the palette ink");
+  assert.match(mc, /media \? "#0f1115" : drawer && P \? P\.bg : themed \? P\.surface : "var\(--cb-surface, #767676\)"/, "centered panels do not take the palette surface, or the no palette fallback is not the surface variable");
+  assert.match(mc, /media \? "#f2f4f2" : P \? P\.ink : "var\(--cb-ink, #f4f4f2\)"/, "centered panels do not take the palette ink, or the no palette fallback is not the ink variable");
   assert.match(mc, /border: `1px solid \$\{panelBorder\}`/, "the centered panel border does not follow panelBorder");
   assert.match(mc, /P=\{drawer \|\| themed \? P : null\}/, "the chrome header does not receive the palette on themed centered panels");
   // Every centered ModalChrome call site in the app either passes
   // the palette or opts into the media treatment by name: a site
-  // doing neither would silently keep the dark panel.
+  // doing neither now lands on the surface variable rather than
+  // the dark panel, but the named discipline stays pinned.
   for (const [marker, ok] of [
     ["<ModalChrome media label=\"Citation network\"", true],
     ["<ModalChrome media label=\"The arc of this literature\"", true],
@@ -599,6 +606,27 @@ await test("ModalChrome centered panels take the palette, and only media surface
   ]) {
     assert.equal(appSrc.includes(marker), ok, `ModalChrome call site changed shape: ${marker}`);
   }
+});
+await test("the intro's text panels follow the palette and its film credits stay dark as a marked media surface", () => {
+  // Seventh panel, Frontend: intro.jsx carried two centered text
+  // panels hard coding #0f1115. The film credits panel sits on the
+  // intro film and keeps the dark treatment under the media
+  // exemption, marked the way ModalChrome marks its media flag;
+  // IntroModal (How it works, Sources) is a text panel and takes
+  // the palette surface treatment like other dialogs.
+  const creditsAt = introSrc.indexOf("function FilmCreditsDialog");
+  assert.ok(creditsAt > 0, "FilmCreditsDialog missing");
+  const credits = introSrc.slice(creditsAt, introSrc.indexOf("function IntroModal", creditsAt));
+  assert.match(credits, /Media surface, marked the way ModalChrome marks its media/, "the film credits panel is not marked as a media surface");
+  assert.match(credits, /background: "#0f1115"/, "the film credits panel lost its deliberate dark treatment");
+  const modalAt = introSrc.indexOf("function IntroModal");
+  assert.ok(modalAt > 0, "IntroModal missing");
+  const modal = introSrc.slice(modalAt, introSrc.indexOf("function HowItWorksDialog", modalAt));
+  assert.match(modal, /background: P \? P\.surface : "var\(--cb-surface, #767676\)"/, "IntroModal does not take the palette surface");
+  assert.ok(!modal.includes('background: "#0f1115"'), "IntroModal still hard codes the near black panel");
+  assert.match(introSrc, /<SourcesDialog P=\{P\} accent=\{introAccent\}/, "the intro's Sources dialog does not receive the palette");
+  assert.match(introSrc, /<HowItWorksDialog P=\{P\} accent=\{introAccent\}/, "the intro's How it works dialog does not receive the palette");
+  assert.match(appSrc, /<SourcesDialog P=\{P\} accent=\{accent\}/, "the app's Sources dialog does not receive the palette");
 });
 await test("the New Search FAB icon takes accentText(accent), a colour, not a function", () => {
   assert.match(appSrc, /background: accent, color: accentText\(accent\),/, "the FAB span does not colour its icon with accentText(accent)");

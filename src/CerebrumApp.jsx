@@ -6405,7 +6405,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
         </div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 20 }}>
-          For the researchers who live here. Everything free stays free.
+          For the researchers who live here. Free today means 50 AI answers every 5 days, and searching needs no account.
         </div>
 
         {proStatus == null ? (
@@ -6631,7 +6631,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 {[
                   "7 day money back guarantee: a full refund on your first charge, no questions asked.",
                   "Cancel anytime from the billing portal. You keep Pro until the end of the paid period.",
-                  "Free stays free: 50 AI answers, 3 document reads, 1 flowchart every 5 days with a free account. Searching needs no account.",
+                  "The free account today: 50 AI answers, 3 document reads, 1 flowchart every 5 days. Searching needs no account.",
                   "Secure checkout by Stripe. Your card details never touch Cerebrum's servers.",
                 ].map((line) => (
                   <li key={line} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
@@ -11356,7 +11356,12 @@ function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect
 }
 
 /* Small thumbnail for trending digest rows. A failed load removes the
-   thumb; the row reads fine without it. */
+   thumb; the row reads fine without it. An unverified thumb (the item's
+   own article image, the trendingMediaOf fallback) carries the same
+   "Unverified image" marking MediaFigure prints, in the row's credit
+   typography under the thumb: the digest surface must not let an
+   unchecked photo pass as a checked one by staying silent. Verified
+   media is never marked. */
 function TrendThumb({ P, media, title }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [media && media.url, media && media.poster]);
@@ -11364,20 +11369,25 @@ function TrendThumb({ P, media, title }) {
   const src = media.kind === "video" ? media.poster || null : media.url;
   if (!src) return null;
   return (
-    <span aria-hidden="true" style={{
-      position: "relative", width: 88, height: 66, flexShrink: 0, borderRadius: RADIUS.md,
-      overflow: "hidden", border: `1px solid ${P.line}`,
-      background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
-    }}>
-      <img src={safeHref(src)} alt="" loading="lazy" referrerPolicy="no-referrer"
-        onError={() => setFailed(true)}
-        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-      {media.kind === "video" && (
-        <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="#fff" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" /></svg>
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 4, flexShrink: 0, width: 88 }}>
+      <span aria-hidden="true" style={{
+        position: "relative", width: 88, height: 66, flexShrink: 0, borderRadius: RADIUS.md,
+        overflow: "hidden", border: `1px solid ${P.line}`,
+        background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
+      }}>
+        <img src={safeHref(src)} alt="" loading="lazy" referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        {media.kind === "video" && (
+          <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="#fff" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" /></svg>
+            </span>
           </span>
-        </span>
+        )}
+      </span>
+      {media.verified === false && (
+        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Unverified image</span>
       )}
     </span>
   );
@@ -16775,7 +16785,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [docB, setDocB] = useState(""); // second document, for comparison
   const [docBError, setDocBError] = useState("");
   const [showDocB, setShowDocB] = useState(false);
-  const [compareResult, setCompareResult] = useState(null); // {streaming, text, model, budgetExhausted, promptTruncation, answerTruncated}
+  const [compareResult, setCompareResult] = useState(null); // {streaming, text, model, budgetExhausted, promptTruncation, answerTruncated, stageHealth}
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState("");
   /* Which text each piece of reading state belongs to. The summary,
@@ -17345,9 +17355,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       if (cmpGen !== docGen.current) return;
       // The comparison keeps the same fields the Q&A answers keep
-      // (model, budget state, truncation), so a degraded comparison
-      // is labeled the same way a degraded answer is.
-      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "", model: (result && result.model) || null, budgetExhausted: !!(result && result.budgetExhausted), promptTruncation: (result && result.promptTruncation) || null, answerTruncated: !!(result && result.answerTruncated) });
+      // (model, budget state, truncation, stage health), so a degraded
+      // comparison is labeled the same way a degraded answer is. The
+      // evidence trail is the one field it does not keep: a compare
+      // entry's offsets index the combined text, not either document,
+      // so the surface says its quotes were not checked instead.
+      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "", model: (result && result.model) || null, budgetExhausted: !!(result && result.budgetExhausted), promptTruncation: (result && result.promptTruncation) || null, answerTruncated: !!(result && result.answerTruncated), stageHealth: (result && Array.isArray(result.stageHealth)) ? result.stageHealth : [] });
       setComparePair(compareKeyOf(a, b));
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
@@ -18364,19 +18377,20 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{answerTruncatedNote(compareResult.answerTruncated, "comparison")}</div>
                       ) : null}
                       {/* The backend computes an evidence trail and a
-                          stage record for comparisons too, but this
-                          surface keeps neither (setCompareResult
-                          carries text and flags only, and a trail
-                          entry's offsets index one document, not the
-                          pair). Until a per document mapping exists,
-                          the honest half is saying so in the open, in
-                          the same quiet style as the trail's own not
-                          checked entries, rather than letting the
-                          comparison borrow the Q&A trail's authority
-                          by silence. */}
+                          stage record for comparisons too. The stage
+                          record renders below (DocStageHealth, the same
+                          component the Q&A answers use); the trail does
+                          not, because a trail entry's offsets index the
+                          combined text, not either document. Until a per
+                          document mapping exists, the honest half is
+                          saying so in the open, in the same quiet style
+                          as the trail's own not checked entries, rather
+                          than letting the comparison borrow the Q&A
+                          trail's authority by silence. */}
                       {!compareResult.streaming && compareResult.text ? (
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>The quotes in this comparison were not checked against the documents.</div>
                       ) : null}
+                      {!compareResult.streaming ? <DocStageHealth stageHealth={compareResult.stageHealth} P={P} /> : null}
                       {!compareResult.streaming && (
                         <UIButton P={P} variant="ghost" onClick={runCompare}
                           style={{ minHeight: 44, marginTop: 14, padding: "12px 16px", borderRadius: RADIUS.viewport, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
@@ -23751,7 +23765,7 @@ function App() {
                     </p>
                   </div>
               </div>
-              {provenanceOpen && <SourcesDialog accent={accent} onClose={() => setProvenanceOpen(false)} />}
+              {provenanceOpen && <SourcesDialog P={P} accent={accent} onClose={() => setProvenanceOpen(false)} />}
             </Reveal>
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
@@ -25981,16 +25995,6 @@ summary::-webkit-details-marker { display: none; }
 /* The question well: an instrument input, not a floating card.
    Sharp corners, no lift, no glow — focus is a state change of the
    border, the way a physical input lights its bezel. */
-.cb-bench .cb-ask-field {
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--cb-ink) 3%, transparent);
-  box-shadow: none;
-}
-.cb-bench .cb-ask-field:focus-within {
-  transform: none;
-  box-shadow: none;
-  border-color: var(--cb-acc);
-}
 .cb-bench .cb-ask-go { border-radius: 3px; }
 .cb-bench .cb-ask-tool { border-radius: 6px; }
 

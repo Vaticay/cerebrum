@@ -1251,7 +1251,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.surface,
                     border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
-                    fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", resize: "vertical",
+                    fontSize: 16, fontFamily: "var(--cb-font)", resize: "vertical",
                   }} />
                 {/* The draft compresses answer sentences into terse labels;
                     the full source sentence lives here so the compression
@@ -1272,7 +1272,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       style={{
                         width: "100%", background: P.surface,
                         border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 30px 8px 12px",
-                        fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P),
+                        fontSize: 16, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P),
                       }}>
                       <option value="">No citation</option>
                       {sources.slice(0, 12).map((s, i) => (
@@ -1309,7 +1309,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.surface,
                     border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
-                    fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+                    fontSize: 16, fontFamily: "var(--cb-font)",
                   }} />
                 <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
                   {(() => { const a = fcNodeById(nodes, selEdge.from), b = fcNodeById(nodes, selEdge.to); return a && b ? `${a.label.slice(0, 24)} → ${b.label.slice(0, 24)}` : ""; })()}
@@ -1532,7 +1532,10 @@ export function MMCodeEditor({ P, accent, code, onChange }) {
           aria-label="Diagram source code" placeholder="flowchart TD&#10;    A --> B"
           style={{
             position: "absolute", inset: 0, width: "100%", height: "100%", padding: pad,
-            font: MM_FONT, whiteSpace: "pre", overflow: "auto", resize: "none",
+            /* The field carries an explicit 16px size like every text
+               field in the product (the 16px floor), set beside the
+               MM_FONT shorthand it keeps for its monospace family. */
+            font: MM_FONT, fontSize: 16, whiteSpace: "pre", overflow: "auto", resize: "none",
             background: "transparent", color: "transparent", caretColor: accent,
             border: 0, outline: "none",
           }} />
@@ -2360,11 +2363,15 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
   // citation network and the literature arc force a dark palette for
   // their bodies in every theme). Until 2026-10-14 every centered
   // panel was hard coded #0f1115 in every palette, Light included,
-  // while the drawers beside them honored the theme.
+  // while the drawers beside them honored the theme. A caller that
+  // forgets the palette entirely gets the Dialog default's own
+  // treatment (the --cb-surface variable with its mid neutral
+  // fallback, and the matching ink and line variables), never the
+  // near black constant: only the media flag earns that now.
   const themed = !!P && !media;
-  const panelBg = drawer && P ? P.bg : themed ? P.surface : "#0f1115";
-  const panelInk = drawer && P ? P.ink : themed ? P.ink : "#f2f4f2";
-  const panelBorder = drawer && P ? P.line : themed ? P.line : "rgba(255,255,255,0.10)";
+  const panelBg = media ? "#0f1115" : drawer && P ? P.bg : themed ? P.surface : "var(--cb-surface, #767676)";
+  const panelInk = media ? "#f2f4f2" : P ? P.ink : "var(--cb-ink, #f4f4f2)";
+  const panelBorder = media ? "rgba(255,255,255,0.10)" : P ? P.line : "var(--cb-line, rgba(255,255,255,0.12))";
   return (
     <Dialog
       label={label || title} onClose={onClose} zIndex={zIndex} drawer={drawer}
