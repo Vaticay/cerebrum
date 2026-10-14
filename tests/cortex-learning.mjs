@@ -1236,6 +1236,26 @@ await test("the attribution screen also catches yearless shapes and pre 1900 yea
   assert.equal(looksLikeFragment("Darwin (1859) proposed that species change slowly over generations as the world around them changes."), false);
 });
 
+await test("the attribution screen catches the sixth panel's three remaining shapes", () => {
+  // The verb list missed common attribution verbs, so these read
+  // as plain teaching to the old screen.
+  assert.equal(hasAttributionShape("Smith claimed that short sleep doubled the chance of catching a cold."), true);
+  assert.equal(hasAttributionShape("Smith stated that short sleep doubled the chance of catching a cold."), true);
+  assert.equal(hasAttributionShape("Garcia suggested that a short nap improved memory scores in older adults."), true);
+  assert.equal(hasAttributionShape("Lee estimated that short sleep raised next day sleepiness scores."), true);
+  assert.equal(hasAttributionShape("Smith published that short sleep doubled the chance of catching a cold."), true);
+  assert.equal(hasAttributionShape("Darwin wrote that species change over time as environments change."), true);
+  // A possessive name owning a research noun that governs a verb:
+  // the name never touches the verb directly, so the name and verb
+  // pattern above cannot see it.
+  assert.equal(hasAttributionShape("Smith's study found that adults who slept under six hours caught colds far more often."), true);
+  assert.equal(hasAttributionShape("Darwin's work suggested that species change over time as environments change."), true);
+  // A bare pre 1900 year attached to a study reference: the old
+  // final year check covered only 19xx and 20xx tokens.
+  assert.equal(hasAttributionShape("A widely repeated study in 1859 linked short sleep with next day sleepiness."), true);
+  assert.equal(hasAttributionShape("The claim traces to a trial in 1747 with sailors sleeping in short shifts."), true);
+});
+
 await test("near miss statements with no attribution shape stay admitted", () => {
   // The false positive bar: plain taught statements with
   // capitalised sentence starts and common nouns must still pass.
@@ -1512,6 +1532,48 @@ await test("learning path quizzes meet the same length band the topics are held 
   }
 });
 
+await test("the correct option's length rank stays near chance in both authored sets", () => {
+  // The band pins above constrain length ratios, not rank, and the
+  // sixth panel measured what that missed: picking the longest
+  // option won 201 of 237 authored quizzes (84.8 percent), because
+  // the correct option was longest or tied longest in 206 of 237
+  // (86.9 percent) and uniquely longest in 199. Wave seven lengthened
+  // distractors until the rank fell to chance: unique longest 53 of
+  // 237 (22.4 percent), longest or tied 58 of 237 (24.5 percent),
+  // picking the longest wins 55 of 237 (23.2 percent). These ceilings
+  // hold the fix per set and combined: unique longest at most 35
+  // percent, longest or tied at most 45 percent.
+  const rankStats = (sets) => {
+    let n = 0, uniq = 0, tied = 0;
+    for (const p of sets) {
+      for (const lesson of flattenPathLessons(p)) {
+        for (const card of lesson.cards) {
+          if (card.kind !== "quiz") continue;
+          n++;
+          const lens = card.options.map((o) => o.length);
+          const max = Math.max(...lens);
+          if (lens[card.correct] === max) {
+            tied++;
+            if (lens.filter((l) => l === max).length === 1) uniq++;
+          }
+        }
+      }
+    }
+    return { n, uniq, tied };
+  };
+  const groups = [
+    ["learning paths", LEARNING_PATHS, 45],
+    ["topic courses", TOPIC_COURSES, 192],
+    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 237],
+  ];
+  for (const [label, sets, expected] of groups) {
+    const { n, uniq, tied } = rankStats(sets);
+    assert.equal(n, expected, `${label}: expected ${expected} authored quizzes, found ${n}`);
+    assert.ok(uniq / n <= 0.35, `${label}: correct option uniquely longest in ${uniq} of ${n}, over the 35 percent ceiling`);
+    assert.ok(tied / n <= 0.45, `${label}: correct option longest or tied in ${tied} of ${n}, over the 45 percent ceiling`);
+  }
+});
+
 await test("the learning flow carries no paper machinery at all", () => {
   assert.ok(!learnSrc.includes("THE FINDING"), "the feedback sheet still has a finding label");
   assert.ok(!learnSrc.includes("FROM THE LITERATURE"), "a reading card label survived");
@@ -1644,6 +1706,45 @@ await test("topic true or false cards run within 40 to 60 percent true", () => {
   const share = trues / cards.length;
   assert.ok(share >= 0.4 && share <= 0.6,
     `topic true or false runs ${trues} true of ${cards.length} (${(share * 100).toFixed(0)} percent), outside 40 to 60`);
+});
+
+await test("learning path true or false cards run within 40 to 60 percent true", () => {
+  // The path set had no share pin at all before wave seven; it runs
+  // 10 true of 24 (41.7 percent), inside the band, so this pins the
+  // current balance rather than rebalancing it.
+  const cards = [];
+  for (const p of LEARNING_PATHS) {
+    for (const lesson of flattenPathLessons(p)) {
+      for (const card of lesson.cards) if (card.kind === "truefalse") cards.push(card);
+    }
+  }
+  assert.equal(cards.length, 24, `expected 24 path true or false cards, found ${cards.length}`);
+  const trues = cards.filter((c) => c.answer === true).length;
+  const share = trues / cards.length;
+  assert.ok(share >= 0.4 && share <= 0.6,
+    `path true or false runs ${trues} true of ${cards.length} (${(share * 100).toFixed(0)} percent), outside 40 to 60`);
+});
+
+await test("topic courses carry mixed true or false answers, not a single answer per course", () => {
+  // Before wave seven, 18 of the 24 topic courses were single
+  // answer courses (both cards true, or both false), so a learner
+  // who answered the first card could guess the second from the
+  // course's habit. Wave seven flipped one card in each of those
+  // 18 courses, rewriting the statement and keeping the teaching
+  // point, so every course now mixes. The ceiling allows at most
+  // 2 of 24 single answer courses if a future course's content
+  // genuinely cannot carry a mixed pair; the current count is 0.
+  let single = 0;
+  const names = [];
+  for (const course of TOPIC_COURSES) {
+    const answers = [];
+    for (const lesson of flattenPathLessons(course)) {
+      for (const card of lesson.cards) if (card.kind === "truefalse") answers.push(card.answer);
+    }
+    assert.equal(answers.length, 2, `${course.title}: expected 2 true or false cards, found ${answers.length}`);
+    if (answers.every((a) => a === answers[0])) { single++; names.push(course.title); }
+  }
+  assert.ok(single <= 2, `${single} of 24 topic courses are single answer (${names.join(", ")}), over the ceiling of 2`);
 });
 
 await test("build error strings speak plain product language, with no paper machinery", () => {
