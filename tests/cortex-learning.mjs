@@ -1482,6 +1482,59 @@ await test("no learning path string references papers, findings, citations, year
   assert.equal(deepens.length, 24, `expected 24 deepen cards under the ban, found ${deepens.length}`);
 });
 
+await test("every learning path quiz answer is taught before it is asked, apart from the named fair applications", () => {
+  // The topic course coverage standard, applied to the paths
+  // (seventh panel, 2026-10-14): a quiz's correct answer must reuse
+  // at least half its content words from earlier cards in the same
+  // course, with word families counted through a six letter stem
+  // and glue words carrying no topic. Wave eight audited every
+  // path quiz the method flags. Five quizzed facts no earlier card
+  // taught, and those are now taught in the lesson note before the
+  // quiz: hemoglobin and iron behind red blood, the spinal cord
+  // shortcut in a reflex, the word evaporated, colliding plates
+  // crumpling into mountain ranges, and satellites measuring the
+  // drift. The nine questions named below still score under half
+  // on vocabulary alone and are judged fair applications, not
+  // gaps: each asks the learner to use a taught idea on a fresh
+  // example, so the answer's words are the example's words, or the
+  // answer restates the teaching in other words the measure cannot
+  // see. The set is asserted exactly, so a future quiz on an
+  // untaught fact fails here until it is taught or added to this
+  // list with its judgment stated.
+  const FAIR_APPLICATIONS = [
+    "Which of these questions can science test directly?", // apply the observability test to four fresh example questions
+    "A claim is testable when...", // the opening note's checkable answer, stated from the side of being shown wrong
+    "Which of these is a hypothesis?", // apply the taught definition to a fresh example statement
+    "Which is the strongest evidence that a new medicine works?", // apply the rule that stories and opinions are not evidence
+    "Two friends disagree about whether it rained more this year than last year. What settles it?", // records are named as evidence in the lesson note
+    "A result that many teams have repeated is...", // the lesson's own thesis restated; the measure misses trusts versus trustworthy
+    "If the Sun's gravity suddenly vanished, Earth would...", // one step from the taught orbit model: no pull, no curve
+    "What powers a star's light?", // taught in the note just before, as fuse and fusion at the center; the answer says fusing and core
+    "Raindrops begin to fall when the droplets...", // one step from the note's droplets so small they float
+  ];
+  const GLUE = new Set("the a an of to in on and or is are it its that this with for from by as at be can not but so than then when which what who how why into over after before about their they them one two all any each more most some such own our your you yourself only also just even still every both against between while during without within across around among along upon onto makes make made gets get got goes going come comes came take takes took give gives gave keep keeps kept used using uses way ways thing things kind kinds part parts back away together alone almost nearly really quite rather instead indeed perhaps probably sometimes usually often always never ever yet already means much same fully several".split(" "));
+  const cwords = (s) => [...new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 4 && !GLUE.has(w)))];
+  const covered = (w, seen) => seen.includes(w) || (w.length >= 6 && seen.includes(w.slice(0, 6)));
+  const cov = (text, seen) => { const need = cwords(text); if (!need.length) return 1; return need.filter((w) => covered(w, seen)).length / need.length; };
+  const flagged = [];
+  let quizzes = 0;
+  for (const p of LEARNING_PATHS) {
+    let seen = "";
+    for (const lesson of flattenPathLessons(p)) {
+      for (const card of lesson.cards) {
+        if (card.kind === "quiz") {
+          quizzes++;
+          if (cov(card.options[card.correct], seen) < 0.5) flagged.push(String(card.question));
+        }
+        seen = (seen + " " + lpCardText(card).toLowerCase()).trim();
+      }
+    }
+  }
+  assert.equal(quizzes, 45, `expected 45 path quizzes under the coverage pin, found ${quizzes}`);
+  assert.deepEqual([...flagged].sort(), [...FAIR_APPLICATIONS].sort(),
+    `path quizzes under half coverage differ from the judged fair applications.\nflagged: ${flagged.join(" | ")}\nnamed fair: ${FAIR_APPLICATIONS.join(" | ")}`);
+});
+
 await test("topic quizzes are real quizzes: four fresh options, in band, none opening with a digit", () => {
   for (const { path, card } of topicCardsFlat) {
     if (!card.options || card.kind === "truefalse") continue;

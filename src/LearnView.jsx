@@ -1518,7 +1518,7 @@ export const LEARNING_PATHS = [
             id: "body-blood", title: "Blood Does the Carrying", subtitle: "What is actually in the red stuff",
             cards: [
               mkNote("The big idea", "A delivery service in your veins",
-                "Blood is mostly a pale liquid called plasma, with cells floating in it. Red cells carry oxygen. White cells fight germs. Tiny pieces called platelets help seal leaks when you are cut. Each part has one job and does it everywhere, all the time."),
+                "Blood is mostly a pale liquid called plasma, with cells floating in it. Red cells carry oxygen. Their color comes from a protein called hemoglobin, which holds iron and turns bright red when it carries oxygen. That is why blood looks red. White cells fight germs. Tiny pieces called platelets help seal leaks when you are cut. Each part has one job and does it everywhere, all the time."),
               mkQuiz("Which part of blood carries oxygen?",
                 ["Plasma", "Red blood cells", "Platelets", "White blood cells"],
                 1,
@@ -1545,7 +1545,7 @@ export const LEARNING_PATHS = [
             id: "body-nerves", title: "Messages at Lightning Speed", subtitle: "The wiring inside you",
             cards: [
               mkNote("The big idea", "Your wiring",
-                "Your nervous system is a network of long thin cells called neurons. They carry tiny electrical signals from your senses to your brain, and back out to your muscles. That round trip is how you can catch a ball you barely saw moving."),
+                "Your nervous system is a network of long thin cells called neurons. They carry tiny electrical signals from your senses to your brain, and back out to your muscles. That round trip is how you can catch a ball you barely saw moving. Not every signal makes that full trip. In a reflex, the signal takes a shortcut through the spinal cord and heads straight back to the muscle, which is why your hand leaves a hot pan so fast."),
               mkQuiz("What carries messages around your body?",
                 ["Bones", "Neurons", "Blood cells", "Hair strands"],
                 1,
@@ -1805,7 +1805,7 @@ export const LEARNING_PATHS = [
             id: "earth-water-cycle", title: "The Water Cycle", subtitle: "The same water, round and round",
             cards: [
               mkNote("The big idea", "The same water, round and round",
-                "The water in your glass is ancient. It has been in oceans, clouds, rain, rivers, and living things, over and over again. The Sun powers the whole loop by lifting water into the air as invisible vapor."),
+                "The water in your glass is ancient. It has been in oceans, clouds, rain, rivers, and living things, over and over again. The Sun powers the whole loop by lifting water into the air as invisible vapor. Water that turns into vapor and rises this way has evaporated."),
               mkOrder("Put the water cycle in order.",
                 ["Sunlight warms the ocean", "Water rises into the air as vapor", "The vapor cools and forms clouds", "Water falls as rain or snow", "Rivers carry it back to the ocean"],
                 "Warmth lifts the water, cooling gathers it into clouds, gravity brings it down, and rivers return it to the sea."),
@@ -1923,7 +1923,7 @@ export const LEARNING_PATHS = [
             id: "earth-plates", title: "Plates on the Move", subtitle: "The ground beneath you is drifting",
             cards: [
               mkNote("Key idea", "A cracked shell that drifts",
-                "Earth's hard outer shell is not one solid piece. It is cracked into huge slabs called plates, and the plates drift, very slowly, riding on hotter and softer rock below. They move only a few centimeters a year, about as fast as your fingernails grow, but over millions of years that crawl redraws the whole map of the world."),
+                "Earth's hard outer shell is not one solid piece. It is cracked into huge slabs called plates, and the plates drift, very slowly, riding on hotter and softer rock below. They move only a few centimeters a year, about as fast as your fingernails grow, but over millions of years that crawl redraws the whole map of the world. Where two plates push into each other, the land crumples upward into mountain ranges. Satellites measure the distances between continents changing year by year, so the drift is something we can watch happening, not just a guess."),
               mkQuiz("Where two plates push into each other, the land often...",
                 ["melts into ocean", "crumples upward into mountain ranges", "turns into desert", "stops moving forever after that"],
                 1,
@@ -5876,7 +5876,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             aria-label="Course topic"
             style={{
               flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: 14,
-              padding: "14px 16px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
+              padding: "14px 16px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 54, boxSizing: "border-box",
             }}
           />
           <button className="lv-btn lv-btn-primary" onClick={buildCourse} disabled={building || !topic.trim()}
@@ -5901,20 +5901,20 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={studio.title} onChange={(e) => setStudio({ ...studio, title: e.target.value })}
               placeholder="Course title" aria-label="Catalog course title"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <select value={studio.category} onChange={(e) => setStudio({ ...studio, category: e.target.value })}
               aria-label="Catalog category"
-              style={{ flex: "0 1 200px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }}>
+              style={{ flex: "0 1 200px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }}>
               {CATALOG.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
             <input value={studio.query} onChange={(e) => setStudio({ ...studio, query: e.target.value })}
               placeholder="Topic the course is built from, e.g. tardigrade desiccation" aria-label="Catalog course topic"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <input value={studio.blurb} onChange={(e) => setStudio({ ...studio, blurb: e.target.value })}
               placeholder="One line that sells it honestly" aria-label="Catalog course blurb"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14, flexWrap: "wrap" }}>
             <button className="lv-btn lv-btn-primary" onClick={publishEntry} disabled={!studio.title.trim() || !studio.query.trim()}
@@ -5950,7 +5950,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <input value={creatorEmail} onChange={(e) => setCreatorEmail(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") grantCreator(); }}
               placeholder="creator@example.com" aria-label="Creator email" type="email"
-              style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <button className="lv-btn lv-btn-primary" onClick={grantCreator} disabled={!creatorEmail.trim()}
               style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
               Allow creator
