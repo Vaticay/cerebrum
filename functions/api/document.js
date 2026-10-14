@@ -1225,31 +1225,110 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
 // more than EVIDENCE_MAX_ENTRIES rows when an answer quotes heavily;
 // the quote text is a substring of an answer the response already
 // carries, so the accounting costs no new exposure.
+//
+// ACCOUNTING (2026-10-14, seventh panel): two more silent holes closed.
+// A passage under EVIDENCE_MIN_QUOTE_CHARS is too short to locate
+// honestly (a handful of characters matches anywhere), so it used to be
+// filtered out of the trail entirely; it now ships as an entry with
+// note: "too-short", never checked, like the other exclusions. And a
+// quote whose marks cannot be paired at all (an opening mark with no
+// closing mark inside the capture span, an empty pair, a stray closing
+// mark) used to leave the trail empty even though the answer plainly
+// contains quote marks; the fragment now ships with note: "unpaired",
+// so a reader sees that something was quoted and never checked instead
+// of seeing no trail at all.
 const EVIDENCE_MAX_ENTRIES = 12;
 const EVIDENCE_MIN_QUOTE_CHARS = 12;
 const EVIDENCE_MAX_QUOTE_CHARS = 600;
 // Extraction must SEE over-long quotes to account for them: the old
 // 600-char capture bound made a longer quote invisible (and could pair
 // its closing quote mark with a later quote's opening, corrupting the
-// rest of the extraction). The capture bound is generous — an answer
+// rest of the extraction). This constant is now the pairing span bound:
+// the maximum characters allowed between an opening quote mark and its
+// closing mark in scanAnswerQuotes. The bound is generous — an answer
 // is token capped, so no real quote approaches it — and the 600-char
 // verification bound is enforced in verifyDocumentPassages instead,
 // where the exclusion can be recorded.
 const EVIDENCE_CAPTURE_MAX_CHARS = 10000;
 
-// Pull the double-quoted passages out of an answer. Curly quotes are
-// matched as well as straight ones; single quotes are not (apostrophes
-// would drown the trail in false positives). Exported for unit tests.
-export function extractAnswerQuotes(answerText) {
+// Scan the double-quoted passages out of an answer, sequentially.
+// Curly quotes are matched as well as straight ones; single quotes are
+// not (apostrophes would drown the trail in false positives).
+//
+// The scanner is a state machine, not a regex, because the regex it
+// replaces failed two ways the seventh panel proved live. It excluded
+// line breaks, so a passage the model reflowed across lines never
+// matched at all. Worse, the failed match left that passage's closing
+// mark in the stream, where the regex took it for an OPENING mark and
+// paired it with the next passage's opening mark — one multi line
+// quote silently destroyed every quote after it, and the trail
+// rendered nothing. The pairing rule here is the sane sequential one:
+// an opening mark (" or “) pairs with the NEXT closing mark (" or ”)
+// after it; the scan resumes after that closing mark, so text between
+// a closing mark and the next opening mark is never inside a quote,
+// and a stray closing mark (”) met outside a quote never opens one —
+// it is recorded as unpairable instead.
+//
+// A passage may span line breaks: its captured text keeps the breaks,
+// and locatePassage's whitespace normalized lookup maps it back to
+// offsets in the document's original text. The span is bounded by
+// EVIDENCE_CAPTURE_MAX_CHARS between the opening mark and its closing
+// mark: an answer is token capped, so no genuine quote approaches the
+// bound, and the bound keeps a stray opening mark from swallowing the
+// rest of the answer as one giant quote. An opening mark with no
+// closing mark inside the span is unpairable: its fragment (the text
+// up to the span limit) is returned in `unpaired`, as are an empty
+// pair (quote "") and a stray closing mark (quote ”), so the trail
+// can account for the mark instead of going silently empty.
+//
+// Returns { passages, unpaired }: passages are the paired passages in
+// answer order, trimmed, internal line breaks intact, INCLUDING short
+// ones (the minimum length is an accounting decision for
+// verifyDocumentPassages, which flags them "too-short"; filtering them
+// here is what made them vanish). unpaired entries are { quote } in
+// answer order.
+function scanAnswerQuotes(answerText) {
   const text = String(answerText || "");
-  const out = [];
-  const re = new RegExp('["“]([^"”\\n]{1,' + EVIDENCE_CAPTURE_MAX_CHARS + '})["”]', "g");
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const q = m[1].trim();
-    if (q.length >= EVIDENCE_MIN_QUOTE_CHARS) out.push(q);
+  const passages = [];
+  const unpaired = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === "”") {
+      // A closing curly mark outside any quote: it can never open, and
+      // pairing it forward is the old regex's corruption. Account it.
+      unpaired.push({ quote: "”" });
+      i++;
+      continue;
+    }
+    if (ch !== '"' && ch !== "“") { i++; continue; }
+    // Opening mark at i: find the NEXT closing mark, within the span.
+    const start = i + 1;
+    let close = -1;
+    for (let j = start; j < n && j - start <= EVIDENCE_CAPTURE_MAX_CHARS; j++) {
+      if (text[j] === '"' || text[j] === "”") { close = j; break; }
+    }
+    if (close === -1) {
+      const frag = text.slice(start, start + EVIDENCE_CAPTURE_MAX_CHARS).trim();
+      if (frag) unpaired.push({ quote: frag });
+      // Resume at the span limit: a closing mark beyond it is met as a
+      // stray (accounted above), and later quotes still pair normally.
+      i = start + EVIDENCE_CAPTURE_MAX_CHARS;
+      continue;
+    }
+    const content = text.slice(start, close).trim();
+    if (content) passages.push(content);
+    else unpaired.push({ quote: "" });
+    i = close + 1;
   }
-  return out;
+  return { passages, unpaired };
+}
+
+// Pull the double-quoted passages out of an answer, in answer order.
+// Exported for unit tests.
+export function extractAnswerQuotes(answerText) {
+  return scanAnswerQuotes(answerText).passages;
 }
 
 // Collapse every run of whitespace to a single space, remembering where
@@ -1305,7 +1384,11 @@ export function locatePassage(documentText, passage) {
 // passage is still returned, flagged as never checked (note: "over-cap"),
 // and a passage over the verification length bound is returned the same
 // way (note: "too-long") — the trail accounts for every quoted passage,
-// so an exclusion is a visible entry, never a silent drop. Exported for
+// so an exclusion is a visible entry, never a silent drop. A passage
+// under EVIDENCE_MIN_QUOTE_CHARS is likewise returned, flagged
+// note: "too-short": it is never located, because a few characters
+// would match almost anywhere and a "found" verdict on them would be
+// meaningless — but it is accounted, not dropped. Exported for
 // unit tests.
 export function verifyDocumentPassages(documentText, passages) {
   const seen = new Set();
@@ -1313,10 +1396,14 @@ export function verifyDocumentPassages(documentText, passages) {
   let checked = 0;
   for (const raw of passages || []) {
     const quote = String(raw || "").trim();
-    if (quote.length < EVIDENCE_MIN_QUOTE_CHARS) continue;
+    if (!quote) continue;
     const key = quote.replace(/\s+/g, " ").toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    if (quote.length < EVIDENCE_MIN_QUOTE_CHARS) {
+      out.push({ quote, start: -1, end: -1, verified: false, match: null, note: "too-short" });
+      continue;
+    }
     if (quote.length > EVIDENCE_MAX_QUOTE_CHARS) {
       out.push({ quote, start: -1, end: -1, verified: false, match: null, note: "too-long" });
       continue;
@@ -1335,9 +1422,32 @@ export function verifyDocumentPassages(documentText, passages) {
 // The trail for one answer: the passages it quotes, plus any verbatim
 // passages the caller supplies (the extractive fallback's sentences,
 // which are document text by construction and verify the same way).
-// Exported for unit tests.
+// Quote marks in the answer that could not be paired at all (an
+// opening mark with no closing mark inside the capture span, an empty
+// pair, a stray closing mark) join the trail in answer order as
+// never checked entries (note: "unpaired"), so an answer that plainly
+// quotes something never produces a silently empty trail. Exported
+// for unit tests.
 export function buildDocumentEvidence(documentText, answerText, verbatimPassages = []) {
-  return verifyDocumentPassages(documentText, [...extractAnswerQuotes(answerText), ...verbatimPassages]);
+  const { passages, unpaired } = scanAnswerQuotes(answerText);
+  const entries = verifyDocumentPassages(documentText, [...passages, ...verbatimPassages]);
+  if (!unpaired.length) return entries;
+  // The unpaired entries follow the checked ones. That placement is
+  // exact for the cases that occur: an unpairable quote is normally
+  // the answer's only quote or its last, and the verbatim passages
+  // (extractive fallback sentences) carry no quote marks, so nothing
+  // unpairable ever competes with them for position. Deduped against
+  // the trail and each other, like every other entry class.
+  const keyOf = (q) => String(q || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const seen = new Set(entries.map((e) => keyOf(e.quote)));
+  const out = [...entries];
+  for (const u of unpaired) {
+    const k = keyOf(u.quote);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ quote: u.quote, start: -1, end: -1, verified: false, match: null, note: "unpaired" });
+  }
+  return out;
 }
 
 // ── prompt fitting: the document absorbs the cut, never the question ────

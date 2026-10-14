@@ -623,8 +623,14 @@ await test("locatePassage finds exact, normalized, and missing passages", () => 
 });
 
 await test("extractAnswerQuotes pulls straight and curly quoted passages", () => {
+  // Pin updated 2026-10-14 (seventh panel) to the corrected contract:
+  // this fixture used to pin the short passage "no" as "ignored" by
+  // extraction, which was precisely the silent drop the panel scored —
+  // extraction now returns short passages too, and the trail accounts
+  // for them as never checked (note: "too-short") instead of dropping
+  // them. See the multi line / short quote group below.
   const quotes = document.extractAnswerQuotes('The paper says "mortality fell by 37 percent" and also “nap duration rose sharply”. Tiny "no" is ignored.');
-  assert.deepEqual(quotes, ["mortality fell by 37 percent", "nap duration rose sharply"]);
+  assert.deepEqual(quotes, ["mortality fell by 37 percent", "nap duration rose sharply", "no"]);
 });
 
 await test("an AI answer's real quote verifies with offsets into the document", async () => {
@@ -748,6 +754,93 @@ await test("excluded passages dedupe like checked ones and do not consume checke
   assert.equal(trail.length, 13, "the duplicated over-long quote must earn exactly one entry");
   assert.equal(trail[0].note, "too-long");
   assert.ok(trail.slice(1).every((e) => e.verified), "all 12 checked slots must still be used after an exclusion");
+});
+
+// ── evidence trail: multi line quotes, unpairable marks, short quotes ──
+// The seventh panel's main Document Reader defect: the extraction
+// regex captured quotes only within one line, and a single multi line
+// quote destroyed the whole trail — its unmatched closing mark paired
+// with the next quote's opening mark and consumed it, so an answer
+// with a multi line quote followed by a valid quote produced NO
+// evidence at all, silently. Short quotes vanished the same way, by
+// a minimum length filter in both extraction and verification.
+group("evidence trail — multi line quotes and short quote accounting");
+
+await test("a multi line quote no longer consumes the quote that follows it", () => {
+  const answer = 'The report states "first line of the passage\nsecond line of the passage" and later notes "nap duration rose sharply in spring" as well.';
+  const quotes = document.extractAnswerQuotes(answer);
+  assert.deepEqual(quotes, ["first line of the passage\nsecond line of the passage", "nap duration rose sharply in spring"]);
+});
+
+await test("a multi line quote verifies with offsets into the document, and the next quote survives", () => {
+  // The document holds the passage on one line; the answer reflowed
+  // it across a line break. The normalized lookup must still find it,
+  // with start/end indexing the document's original text.
+  const doc = "Field notes: first line of the passage second line of the passage, recorded in spring. Also: nap duration rose sharply in spring across all sites.";
+  const answer = 'The report states "first line of the passage\nsecond line of the passage" and later notes "nap duration rose sharply in spring" as well.';
+  const trail = document.buildDocumentEvidence(doc, answer);
+  assert.equal(trail.length, 2, "the multi line quote destroyed the trail: " + JSON.stringify(trail));
+  assert.equal(trail[0].verified, true);
+  assert.equal(trail[0].match, "normalized");
+  assert.equal(doc.slice(trail[0].start, trail[0].end), "first line of the passage second line of the passage");
+  assert.equal(trail[1].verified, true);
+  assert.equal(trail[1].match, "exact");
+  assert.equal(doc.slice(trail[1].start, trail[1].end), trail[1].quote);
+});
+
+await test("a quote spanning lines in both answer and document verifies exact", () => {
+  const doc = "Methods: the cohort was followed\nacross nine field seasons in total. Closing remarks follow.";
+  const answer = 'It says the cohort was "followed\nacross nine field seasons" in the methods.';
+  const trail = document.buildDocumentEvidence(doc, answer);
+  assert.equal(trail.length, 1);
+  assert.equal(trail[0].verified, true);
+  assert.equal(trail[0].match, "exact");
+  assert.equal(doc.slice(trail[0].start, trail[0].end), "followed\nacross nine field seasons");
+});
+
+await test("an unclosed quote yields a visible not checked entry, not an empty trail", async () => {
+  const doc = "The trial enrolled 40 quokkas and measured nap duration weekly.";
+  const answer = 'The document claims "mortality fell by 37 percent in the treatment arm';
+  assert.deepEqual(document.extractAnswerQuotes(answer), []);
+  const trail = document.buildDocumentEvidence(doc, answer);
+  assert.equal(trail.length, 1, "the unpairable quote left the trail silently empty");
+  assert.equal(trail[0].quote, "mortality fell by 37 percent in the treatment arm");
+  assert.equal(trail[0].verified, false);
+  assert.equal(trail[0].match, null);
+  assert.equal(trail[0].start, -1);
+  assert.equal(trail[0].end, -1);
+  assert.equal(trail[0].note, "unpaired");
+  // End to end: the same shape through runQA carries the accounting.
+  const gen = async () => ({ answer, model: "fake-model" });
+  const result = await document.runQA({}, doc, "What happened to mortality?", "", { generateFn: gen });
+  assert.equal(result.evidence.length, 1);
+  assert.equal(result.evidence[0].note, "unpaired");
+});
+
+await test("a short quoted passage is accounted as too-short, never located and never dropped", () => {
+  const doc = "The panel answered no to every question about nap duration.";
+  const answer = 'Asked directly, the paper says "no" and moves on.';
+  const trail = document.buildDocumentEvidence(doc, answer);
+  assert.equal(trail.length, 1, "the short quote vanished from the trail");
+  assert.equal(trail[0].quote, "no");
+  assert.equal(trail[0].verified, false);
+  assert.equal(trail[0].match, null);
+  assert.equal(trail[0].start, -1);
+  assert.equal(trail[0].end, -1);
+  assert.equal(trail[0].note, "too-short");
+  // The same accounting applies to passages handed to the verifier
+  // directly, and a short passage does not consume a checked slot.
+  const passages = ["tiny quote"];
+  const docParts = ["tiny quote"];
+  for (let i = 1; i <= 12; i++) {
+    const p = "Checked passage " + i + " with enough length to count.";
+    passages.push(p);
+    docParts.push(p);
+  }
+  const direct = document.verifyDocumentPassages(docParts.join(" "), passages);
+  assert.equal(direct.length, 13);
+  assert.equal(direct[0].note, "too-short");
+  assert.ok(direct.slice(1).every((e) => e.verified), "all 12 checked slots must still be used after a too-short exclusion");
 });
 
 // ── finish_reason: a cut off answer says so ─────────────────────────────
