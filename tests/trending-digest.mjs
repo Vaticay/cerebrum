@@ -190,8 +190,12 @@ await test("entity-mangled upstream titles render as plain text, never raw entit
   );
   assert.equal(cleanTrendingText("Fish &amp; chips: a &quot;study&quot;"), 'Fish & chips: a "study"',
     "named entities were not decoded");
-  assert.equal(cleanTrendingText("T&#8211;cell &#x3B1; response"), "T–cell α response",
-    "numeric entities were not decoded");
+  // Corrected contract (fifth panel, data hygiene): the decoded en
+  // dash no longer ships — a dash glued inside a word is a compound
+  // joint and normalizes to a space, the way deDash treats the
+  // answers' text. The old expectation pinned the dash surviving.
+  assert.equal(cleanTrendingText("T&#8211;cell &#x3B1; response"), "T cell α response",
+    "numeric entities were not decoded, or the decoded en dash shipped");
   assert.equal(cleanTrendingText("&bogus; stays"), "&bogus; stays",
     "unknown entities must pass through untouched");
   assert.equal(cleanTrendingText("  spaced   <b>bold</b>  text  "), "spaced bold text",
@@ -223,7 +227,7 @@ await test("fetchTrendingItems strips entities from upstream Europe PMC titles",
 // ══════════════════════════════════════════════════════════════════════════
 group("trending digest — species italics survive the pipeline");
 
-await test("italic spans become markdown pairs for titles, plain text everywhere else", async () => {
+await test("italic spans become markdown pairs for titles and summaries; the default clean stays plain", async () => {
   const { cleanTrendingText, buildTrendingItem } = await import(join(root, "functions/lib/trendingSource.js"));
   const raw = "Disseminated &lt;i&gt;Klebsiella pneumoniae&lt;/i&gt; Infection";
   assert.equal(cleanTrendingText(raw), "Disseminated Klebsiella pneumoniae Infection",
@@ -245,7 +249,13 @@ await test("italic spans become markdown pairs for titles, plain text everywhere
     "Biology & Medicine"
   );
   assert.equal(item.title, "Disseminated *Klebsiella pneumoniae* Infection", "the built title lost its italics marker");
-  assert.equal(item.summary, "About Klebsiella in the gut.", "the built summary gained a marker it would print literally");
+  // Corrected contract (fifth panel): summaries carry the same pairs
+  // titles do, because the digest now renders summaries through
+  // renderInlineMdLite exactly like titles — the marker renders as
+  // italics and never prints literally. The old pin held summaries
+  // plain, which left species names in a summary in roman while the
+  // same name in a title italicized.
+  assert.equal(item.summary, "About *Klebsiella* in the gut.", "the built summary lost its italics marker");
 });
 
 await test("markdown italics already in an upstream title pass through untouched", async () => {
@@ -259,6 +269,60 @@ await test("markdown italics already in an upstream title pass through untouched
   assert.equal(items.length, 1);
   assert.equal(items[0].title, "*Phytophthora infestans* spreads in wet soil",
     "a title's own markdown italics were altered by the pipeline");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("trending digest — data hygiene in the cleaning path");
+
+await test("an APOD shaped item comes out dash free", async () => {
+  // The live item 39 shape: an en dash in the title and an em dash
+  // summary, both arriving through upstream DATA where the authored
+  // string gate cannot see them.
+  const { buildTrendingItem } = await import(join(root, "functions/lib/trendingSource.js"));
+  const item = buildTrendingItem(
+    { title: "APOD: 2026 October 13 – Desert Stairway to Heaven",
+      summary: "NASA story — full text at the source link.",
+      url: "https://x.example/apod", source: "NASA" },
+    "Space"
+  );
+  assert.equal(item.title, "APOD: 2026 October 13, Desert Stairway to Heaven",
+    "the title's en dash was not normalized: " + item.title);
+  assert.ok(!/[–—]/.test(item.title + " " + item.summary), "a dash survived into the built item");
+  assert.equal(item.summary, "NASA story, full text at the source link.",
+    "the summary's em dash was not normalized: " + item.summary);
+});
+
+await test("a NASA tech shaped item is furniture free and TeX clean", async () => {
+  // The live item 11 and item 30 shapes combined: a contact block and
+  // a download prompt ahead of the real summary, TeX double hyphens
+  // and an escaped percent inside it.
+  const { buildTrendingItem } = await import(join(root, "functions/lib/trendingSource.js"));
+  const item = buildTrendingItem(
+    { title: "Complex Modes in Lightly Damped Structural Systems",
+      summary: "For more information, contact Joel W. Sills, Langley Research Center, joel.w.sills@nasa.gov Download the PDF version of this fact sheet. The CEA code follows the Curie--Weiss law from 10--41\\% of runs and calculates chemical equilibrium compositions.",
+      url: "https://x.example/tech", source: "NASA Tech" },
+    "Space"
+  );
+  assert.ok(item.summary.startsWith("The CEA code"), "leading furniture survived: " + item.summary);
+  assert.ok(!/contact|download|nasa\.gov/i.test(item.summary), "furniture text survived: " + item.summary);
+  assert.ok(!/--/.test(item.summary), "a TeX double hyphen survived: " + item.summary);
+  assert.ok(!/[\\–—]/.test(item.summary), "a backslash or dash survived: " + item.summary);
+  assert.ok(item.summary.includes("Curie Weiss law"), "the name compound was not opened: " + item.summary);
+  assert.ok(item.summary.includes("10 to 41% of runs"), "the numeric range was not written with 'to': " + item.summary);
+});
+
+await test("legitimate summaries are not eaten by the furniture strip", async () => {
+  const { cleanTrendingText } = await import(join(root, "functions/lib/trendingSource.js"));
+  assert.equal(
+    cleanTrendingText("Engineers tested the new thruster and it worked."),
+    "Engineers tested the new thruster and it worked.",
+    "an ordinary summary was altered"
+  );
+  assert.equal(
+    cleanTrendingText("Contact with the surface changed the material. The team measured the effect over 5–7 days."),
+    "Contact with the surface changed the material. The team measured the effect over 5 to 7 days.",
+    "a summary merely containing the word contact, or a numeric range, was mishandled"
+  );
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -285,6 +349,14 @@ await test("citation health is rendered, not just shipped in the payload", () =>
     "the citation completion leg can still land in the missing sections list");
   assert.match(appSrc, /Citation counts could not be completed this round/,
     "a failed citation completion leg is not rendered on screen");
+  // Partial failure gets its own disclosure (fifth panel): how many
+  // counts resolved of how many attempted, and the rate limit named.
+  assert.match(appSrc, /Citation counts are partial this round/,
+    "a partial citation completion is not disclosed on screen");
+  assert.match(appSrc, /\{citationHealth\.resolved\} of \{citationHealth\.attempted\} counts resolved/,
+    "the partial disclosure does not name the resolved and attempted counts");
+  assert.match(appSrc, /A provider was rate limited/,
+    "the partial disclosure does not name the rate limit");
 });
 
 await test("story titles render through the inline markdown path the answers use", () => {
@@ -293,6 +365,15 @@ await test("story titles render through the inline markdown path the answers use
   assert.match(appSrc, /renderInlineMdLite\(x\.title, P\)/, "rail titles do not render via renderInlineMdLite");
   assert.match(appSrc, /renderInlineMdLite\(nx\.title, P\)/, "up next titles do not render via renderInlineMdLite");
   assert.match(appSrc, /renderInlineMdLite\(c\.title, P\)/, "coverage titles do not render via renderInlineMdLite");
+});
+
+await test("story summaries render through the same path, so their italics markers restore", () => {
+  // Summaries carry *pairs* from the pipeline now (see the species
+  // italics group above); every surface that prints one must route
+  // it through the formatter, or the marker prints literally and
+  // the species name stays in roman.
+  const rendered = appSrc.split("renderInlineMdLite(item.summary, P)").length - 1;
+  assert.ok(rendered >= 3, `expected hero, digest and modal summaries via renderInlineMdLite, found ${rendered}`);
 });
 
 // ══════════════════════════════════════════════════════════════════════════

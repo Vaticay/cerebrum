@@ -28,6 +28,13 @@ export function trendingDoiOf(item) {
      figure still removes itself if the load fails.
    - image_url is kept for back-compat on trending payloads that predate
      the media object; precedence: media.image.url → image_url.
+   - "Verified" is stamped by the server only after BOTH checks pass:
+     the URL resolves to the media type it claims, and the asset's own
+     metadata (NASA title, Commons file title, or equivalent) shares
+     topical vocabulary with the story (functions/api/image.js,
+     mediaMatchesSubject — including the identifier veto that keeps a
+     CRS 17 photo off a CRS 35 story). A resolved URL about something
+     else is not verified; the item ships with no media instead.
    These resolvers are pure so tests can pin the contract. Anything that
    fails verification (unverified flag, unsafe URL) is not media — it is
    nothing, and the caller renders nothing.

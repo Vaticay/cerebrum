@@ -152,7 +152,9 @@ function cleanSpaceSummary(a) {
 // before decoding and stripping; a caller that renders through the
 // markdown path — titles do, via buildTrendingItem — gets them back as
 // *pairs*, and every other caller gets exactly the plain text it has
-// always had.
+// always had. buildTrendingItem asks for pairs on both title and
+// summary; the plain default remains for callers whose surface prints
+// raw text.
 const ITALIC_OPEN = "\u0001";
 const ITALIC_CLOSE = "\u0002";
 // Converts parked italic sentinels to markdown *pairs*. An unpaired
@@ -178,6 +180,84 @@ function italicSentinelsToMarkdown(t) {
 }
 
 const NAMED_ENTITIES = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'", nbsp: " " };
+
+// ── Data hygiene: dashes, TeX artifacts, page furniture ────────────
+// The dash gate scans the app's own authored strings; it cannot see
+// upstream DATA, and upstream data arrives with its own defects: em
+// and en dashes in titles and summaries (a live APOD title shipped
+// "2026 October 13 – Desert Stairway to Heaven", its summary "NASA
+// story — full text at the source link."), TeX double hyphens out of
+// arXiv style abstracts ("Curie--Weiss", "10--41\%"), and page
+// furniture scraped into summary starts ("For more information,
+// contact … Download the PDF version …"). Every title and summary
+// passes through cleanTrendingText, so the fixes live here, once.
+//
+// deDashTrendingText mirrors deDash (functions/api/search.js), the
+// rule the answers already ship under: a numeric range reads "to", a
+// paired dash is a parenthetical set off with commas, a single dash
+// before a clause becomes a period and otherwise a comma or a colon.
+// Two trending specific choices, made deliberately:
+//   · A dash glued inside a word (T–cell) is a compound joint, not
+//     punctuation: it becomes a space ("T cell"), a spelling the
+//     literature itself uses.
+//   · A TeX "--" is an author's range or compound, never emphasis:
+//     between numbers it reads "to" ("10--41%" → "10 to 41%"), and
+//     between words the compound opens to a space ("Curie--Weiss" →
+//     "Curie Weiss"). A plain hyphen is not an option: the no dashes
+//     rule covers hyphens in shipped text too.
+function deDashTrendingText(t) {
+  let out = String(t);
+  out = out.replace(/(\d)\s*[–—]\s*(\d)/g, "$1 to $2");
+  out = out.replace(/(\d)\s*--\s*(\d)/g, "$1 to $2");
+  out = out.replace(/([A-Za-z])--([A-Za-z])/g, "$1 $2");
+  out = out.replace(/\s+--\s+/g, ", ");
+  out = out.replace(/--/g, " ");
+  return out.split("\n").map((line) => {
+    if (!/[–—]/.test(line)) return line;
+    let o = line.replace(/([\p{L}\p{N}])[–—]([\p{L}\p{N}])/gu, "$1 $2");
+    o = o.replace(/\s*[–—]\s*([^–—]{1,120}?)\s*[–—]\s*/g, ", $1, ");
+    o = o.replace(/\s*[–—]\s*(.+)$/, (m, rest) => {
+      const tail = rest.trim();
+      if (!tail) return "";
+      const hasVerb = /\s(is|are|was|were|be|been|has|have|had|can|could|will|would|may|might|does|do|did|remains?|shows?|showed|suggests?|means?|makes?|made|gives?|gave|leaves?|left|becomes?|became|reduces?|increases?|supports?|appears?|seems?|tends?)\s/i.test(" " + tail);
+      const startsClause = /^(the|this|that|these|those|it|they|we|there|a|an|its|their|his|her|our|most|many|some|each|every|both|neither|either|[A-Z])\b/.test(tail);
+      if (hasVerb && startsClause && tail.length > 24) return ". " + tail.charAt(0).toUpperCase() + tail.slice(1);
+      if (!hasVerb && /,|\sand\s|\sor\s/.test(tail)) return ": " + tail;
+      return ", " + tail;
+    });
+    return o.replace(/\s+([,.;:!?])/g, "$1").replace(/,\s*,/g, ",").replace(/,\s*\./g, ".").replace(/\.\s*\./g, ".").replace(/,\s*$/, "").replace(/\s{2,}/g, " ");
+  }).join("\n");
+}
+
+// Leading page furniture: contact blocks, download prompts, and
+// "for more information" boilerplate that precede the real summary
+// text (a live NASA tech summary opened with the contact block and
+// download prompt and only then described its own subject, a code
+// its title never mentioned). The patterns are narrow and anchored
+// at the very start; each pattern removes at most one block, the set
+// runs until nothing matches, and if stripping would empty the text
+// the original is kept — a summary that is all furniture degrades to
+// itself rather than to a silent blank.
+// The contact block ends at its email when one is present: the names
+// inside it carry their own periods ("Joel W. Sills"), so a sentence
+// end cannot be trusted to close it.
+const LEADING_FURNITURE_RES = [
+  /^for more information,?\s+contact\b[\s\S]{0,320}?[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+\s*/i,
+  /^for more information,?\s+contact\b[^.!?…]*[.!?…]\s*/i,
+  /^download\s+(?:the\s+)?(?:pdf|document|fact\s*sheet|full\s*text)\b[^.!?…]*[.!?…]\s*/i,
+  /^for more information\b[^.!?…]*[.!?…]\s*/i,
+];
+function stripLeadingPageFurniture(t) {
+  let out = String(t || "");
+  for (let n = 0; n < 3; n++) {
+    const before = out;
+    for (const re of LEADING_FURNITURE_RES) out = out.replace(re, "");
+    out = out.replace(/^\s+/, "");
+    if (out === before) break;
+  }
+  return out.trim() ? out : t;
+}
+
 export function cleanTrendingText(s, opts) {
   let t = String(s || "");
   // Park italic spans first, in both spellings: the entity escaped form
@@ -192,6 +272,10 @@ export function cleanTrendingText(s, opts) {
     return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : m;
   });
   t = t.replace(/<[^>]*>/g, " ");
+  // Escaped literals first: "\%" and "\&" carry no command letters, so
+  // the unwrap below would leave their backslashes in the text (the
+  // live "10--41\%" artifact kept its slash). They mean the character.
+  t = t.replace(/\\%/g, "%").replace(/\\&/g, "&");
   // TeX remnants ride along in arXiv and bioRxiv abstracts
   // (\emph{...}, {Delta}, $...$). Unwrap commands, drop the braces and
   // math delimiters, keep the words.
@@ -204,7 +288,13 @@ export function cleanTrendingText(s, opts) {
   t = t.replace(/The post [\s\S]*? appeared first on [^.]*\./gi, " ");
   t = t.replace(/\s*\[…\]/g, "");
   t = t.replace(/\s*\[\.\.\.\]\s*$/g, "");
+  // Data hygiene (see the block above deDashTrendingText): dashes and
+  // TeX "--" sequences normalize here, in the one cleaning path every
+  // title and summary passes through, and leading page furniture
+  // comes off the front before the italics are restored.
+  t = deDashTrendingText(t);
   t = t.replace(/\s+/g, " ").trim();
+  t = stripLeadingPageFurniture(t);
   if (opts && opts.italics === "markdown") return italicSentinelsToMarkdown(t).replace(/\s+/g, " ").trim();
   return t.split(ITALIC_OPEN).join("").split(ITALIC_CLOSE).join("");
 }
@@ -338,6 +428,18 @@ async function getText(url, timeoutMs = 8000) {
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
+// The 3000 char slice in buildTrendingItem (and the sentence finish
+// after it) can cut an italic *pair* in half, leaving a lone marker
+// that would print literally. Markers in a cleaned summary exist only
+// as pairs, so an odd count means the last one is an orphan: drop the
+// marker, keep the words.
+function rebalanceTrendingItalics(s) {
+  const count = (s.match(/\*/g) || []).length;
+  if (count % 2 === 0) return s;
+  const i = s.lastIndexOf("*");
+  return s.slice(0, i) + s.slice(i + 1);
+}
+
 // Normalizes one upstream record into the feed's item shape. Pure and
 // exported for unit tests: the HTML cleanup here must decode/strip markup
 // in titles and summaries without ever touching the media URL — a cleanup
@@ -349,14 +451,17 @@ export function buildTrendingItem(a, category) {
     // nothing but markup is not a title. Titles keep their italic spans
     // as markdown *pairs* — the client renders titles through the same
     // inline markdown path the answers use, so a marked species name
-    // comes back italic instead of roman. Summaries stay plain: they
-    // render as raw text, where a marker would print literally.
+    // comes back italic instead of roman. Summaries carry the same
+    // pairs now: the digest renders summaries through that same path
+    // (renderInlineMdLite in CerebrumApp.jsx — hero, digest rows, and
+    // the story modal), so a binomial in a summary renders italic too
+    // instead of sitting in roman while the title's names italicize.
     title: cleanTrendingText(a.title, { italics: "markdown" }),
     // 3000 chars: the story modal promises the fullest summary the
     // source provided; the old 900 char cap cut abstracts mid sentence.
     // The finish pass below then makes sure what survives ends at a
     // sentence boundary, or admits with an ellipsis that it was cut.
-    summary: finishTrendingSummary(cleanTrendingText(a.summary).slice(0, 3000)),
+    summary: rebalanceTrendingItalics(finishTrendingSummary(cleanTrendingText(a.summary, { italics: "markdown" }).slice(0, 3000))),
     summaryMissing: !!a.summaryMissing,
     url: (a.url || "").trim(),
     image_url: a.image_url || "",
@@ -612,10 +717,19 @@ async function enrichCitationCounts(items) {
   health.count = health.resolved;
   const failed = health.legs.filter((l) => l.error);
   if (failed.length) health.error = failed.map((l) => l.provider + ": " + l.error).join("; ");
-  // The leg is healthy when at least one provider that ran answered;
-  // it is failed only when every provider that ran failed, and the
-  // failure classes above say why.
-  health.ok = health.legs.some((l) => !l.error);
+  // ok means the completion actually completed. It reads true only
+  // when every attempted item resolved, or when no leg errored at all
+  // (a provider that answered cleanly but does not know some works
+  // has given a complete answer, not a failure). A leg error WITH
+  // items still unresolved is a partial completion and reads ok
+  // false, with the counts and the error carried, so the UI can say
+  // how much of the picture is missing instead of hiding it. The old
+  // rule (healthy when any one leg answered) shipped ok true on the
+  // live edition of 2026-10-14 with OpenAlex rate limited at HTTP
+  // 429 and only 10 of 20 counts resolved, and the banner gated on
+  // not ok never showed.
+  const anyLegError = health.legs.some((l) => l.error);
+  health.ok = health.resolved >= health.attempted || !anyLegError;
   return health;
 }
 
@@ -756,8 +870,8 @@ export async function fetchTrendingFeed() {
   // this finished edition, and so do the counts on its items. The
   // completion leg reports itself as a health entry of its own,
   // appended after the per source entries: it is not a section of the
-  // edition, and its ok flag means a provider answered, not that a
-  // section is present.
+  // edition, and its ok flag means the completion finished whole
+  // (see enrichCitationCounts), not that a section is present.
   const citationHealth = await enrichCitationCounts(items);
   for (const h of sourceHealth) {
     h.count = items.filter((it) => it.category === h.source).length;

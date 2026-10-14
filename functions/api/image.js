@@ -145,10 +145,28 @@ async function fromEuropePMC(query) {
         creditUrl: r.doi ? "https://doi.org/" + r.doi : `https://europepmc.org/article/PMC/${r.pmcid}`,
         license: "Open access",
         source: "europepmc",
+        subject: mediaSubjectOf((r.title || "").replace(/<[^>]*>/g, "")),
       };
     }
   }
   return null;
+}
+
+// Every candidate carries a `subject`: the asset's OWN metadata text
+// (a NASA title, a Commons file name, a paper title for a figure).
+// resolveLeadMedia's topical verification reads it — see
+// mediaMatchesSubject below. A candidate with no subject can still be
+// URL verified, but it can never be verified as being about the story.
+const mediaSubjectOf = (...parts) =>
+  parts.filter((p) => typeof p === "string" && p.trim()).join(" ").replace(/\s+/g, " ").trim().slice(0, 300);
+// A Commons page title ("File:Gut_microbiota_composition.png") → the
+// file's own name as words ("Gut microbiota composition").
+function commonsFileSubject(pageTitle) {
+  return String(pageTitle || "")
+    .replace(/^File:/i, "")
+    .replace(/\.(jpg|jpeg|png|webp|gif|webm|ogv|mp4)$/i, "")
+    .replace(/_/g, " ")
+    .trim();
 }
 
 // ── 3. NASA image library (public domain) ───────────────────────────────
@@ -164,6 +182,7 @@ export function parseNasa(data) {
         creditUrl: "https://images.nasa.gov/",
         license: "Public domain",
         source: "nasa",
+        subject: mediaSubjectOf(meta.title, meta.description),
       };
     }
   }
@@ -197,6 +216,7 @@ export function parseCommons(data) {
       creditUrl: info.descriptionurl || "https://commons.wikimedia.org/",
       license: licence.slice(0, 40),
       source: "commons",
+      subject: commonsFileSubject(p.title),
     };
   }
   return null;
@@ -225,6 +245,7 @@ export function parseOpenverse(data) {
       creditUrl: r.foreign_landing_url || "https://openverse.org/",
       license: String(r.license).toUpperCase() + (r.license_version ? " " + r.license_version : ""),
       source: "openverse",
+      subject: mediaSubjectOf(r.title),
     };
   }
   return null;
@@ -249,6 +270,7 @@ export function parseUnsplash(data) {
     creditUrl: (r.links && r.links.html) || "https://unsplash.com/",
     license: "Unsplash License",
     source: "unsplash",
+    subject: mediaSubjectOf(r.alt_description, r.description),
   };
 }
 async function fromUnsplash(env, query) {
@@ -269,6 +291,7 @@ export function parsePexels(data) {
     creditUrl: r.url || "https://www.pexels.com/",
     license: "Pexels License",
     source: "pexels",
+    subject: mediaSubjectOf(r.alt),
   };
 }
 async function fromPexels(env, query) {
@@ -326,6 +349,7 @@ async function fromNasaVideo(query) {
         creditUrl: "https://images.nasa.gov/",
         license: "Public domain",
         source: "nasa-video",
+        subject: mediaSubjectOf(meta.title, meta.description),
       };
     }
   }
@@ -351,6 +375,7 @@ export function parseCommonsVideo(data) {
       creditUrl: info.descriptionurl || "https://commons.wikimedia.org/",
       license: licence.slice(0, 40),
       source: "commons-video",
+      subject: commonsFileSubject(p.title),
     };
   }
   return null;
@@ -440,7 +465,94 @@ export function isImageCacheFresh(row, now) {
 }
 
 export function mediaCacheKey(category, query) {
-  return ((category || "") + "|" + imageTerms(query, 4) + "|v3").toLowerCase();
+  // v4: the verification rule changed (topical match below, not URL
+  // alone). v3 rows were verified under the old rule and can carry a
+  // topically wrong asset for the whole 14 day hit TTL, so they are
+  // abandoned by namespace rather than rejudged.
+  return ((category || "") + "|" + imageTerms(query, 4) + "|v4").toLowerCase();
+}
+
+// ── Topical verification: the asset must be about the subject ──────
+// URL verification alone stamped "verified" on any live URL a provider
+// returned, and providers answer a four term search with whatever sits
+// nearest: the live Trending edition of 2026-10-14 carried a Mars
+// Exploration Rover photograph on a lunar lander story, a CRS 17
+// launch photo on the CRS 35 story, a crewed launch photo on a cargo
+// resupply story, and a German mountains video on a structural systems
+// story — five of its six verified slots topically wrong, every one
+// honestly "verified" under the old rule. So verified now has a second
+// half: the asset's OWN metadata (the `subject` the parsers above carry
+// out of the provider payload: a NASA title or description, a Commons
+// file title, an Openverse or stock title, a figure's paper title)
+// must share topical vocabulary with the story it will illustrate.
+//
+// THE RULE. Both sides are tokenized (lowercase, split on non
+// alphanumerics, stopwords and generic provider words dropped, light
+// stemming of the same kind trendingUtils uses for story clustering).
+// Digit bearing tokens of length two or more are IDENTIFIERS (H5N1,
+// CRS 35, PIA04834, years). Then:
+//   · Identifier veto: when both sides carry identifiers and share
+//     none, the asset is a different numbered thing — CRS 17 is not
+//     CRS 35, Crew 12 is not a cargo run — and it is rejected however
+//     many ordinary words overlap.
+//   · Otherwise the overlap is scored: a shared identifier counts 3,
+//     a shared token from the story's TITLE counts 2, a shared token
+//     that appears only in the story's summary counts 1. A score of
+//     2 or more verifies: one distinctive shared title word is enough
+//     (the H5N1 image for the H5N1 story, "gut" for the gut
+//     microbiome story), and identifier agreement is decisive alone.
+// An asset with no usable metadata cannot be verified topically and
+// is not verified at all: no evidence, no flag. When no candidate
+// passes both halves, the resolver returns the honest null and the
+// item ships with no media rather than a wrong picture.
+const MEDIA_GENERIC_TOKENS = new Set([
+  ...IMG_STOP,
+  "nasa", "esa", "jaxa", "space", "image", "images", "photo", "photograph",
+  "picture", "pictures", "video", "center", "centre", "file", "jpg", "jpeg",
+  "png", "webp", "webm", "mp4", "gif", "shows", "showing", "shown", "view",
+  "during", "about", "after", "before", "between", "through", "their",
+  "there", "been", "have", "will", "would", "should", "more", "most",
+  "other", "such", "like", "also", "only", "very",
+]);
+function mediaRawTokens(text) {
+  return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").split(/\s+/).filter(Boolean);
+}
+function stemMediaToken(w) {
+  if (w.endsWith("ies") && w.length > 4) return w.slice(0, -3) + "y";
+  if (w.endsWith("s") && !w.endsWith("ss") && w.length > 3) return w.slice(0, -1);
+  return w;
+}
+export function mediaSubjectTokens(text) {
+  const out = new Set();
+  for (const w of mediaRawTokens(text)) {
+    if (MEDIA_GENERIC_TOKENS.has(w)) continue;
+    if (w.length < 3 && !/\d/.test(w)) continue;
+    out.add(stemMediaToken(w));
+  }
+  return out;
+}
+export function mediaIdentifierTokens(text) {
+  const out = new Set();
+  for (const w of mediaRawTokens(text)) {
+    if (/\d/.test(w) && w.length >= 2) out.add(w);
+  }
+  return out;
+}
+export function mediaMatchesSubject(assetSubject, storyTitle, storySummary) {
+  const asset = mediaSubjectTokens(assetSubject);
+  if (!asset.size) return false;
+  const assetIds = mediaIdentifierTokens(assetSubject);
+  const storyIds = new Set([...mediaIdentifierTokens(storyTitle), ...mediaIdentifierTokens(storySummary)]);
+  const sharedId = [...assetIds].some((id) => storyIds.has(id));
+  if (assetIds.size && storyIds.size && !sharedId) return false;
+  let score = sharedId ? 3 : 0;
+  const titleToks = mediaSubjectTokens(storyTitle);
+  const summaryToks = mediaSubjectTokens(storySummary);
+  for (const tok of asset) {
+    if (titleToks.has(tok)) score += 2;
+    else if (summaryToks.has(tok)) score += 1;
+  }
+  return score >= 2;
 }
 
 // ── Shared lead-media resolver ──────────────────────────────────────────
@@ -453,8 +565,13 @@ export function mediaCacheKey(category, query) {
 // Returns { image, diag, cacheHit } where image is the verified winning
 // candidate ({ url, credit, creditUrl, license, source, [type, poster],
 // verified: true }) or null when no provider had anything usable — the
-// honest empty, cached briefly rather than denied.
-export async function resolveLeadMedia(env, query, category) {
+// honest empty, cached briefly rather than denied. Verified means both
+// halves of the check: the URL resolves to the media type it claims,
+// AND the asset's own metadata is topically about the subject (see
+// mediaMatchesSubject). `subject` optionally carries the fuller story
+// text ({ title, summary }) the topical check reads; the default is
+// the query itself, which is the subject on the other call paths.
+export async function resolveLeadMedia(env, query, category, subject) {
   const diag = [];
   const key = mediaCacheKey(category, query);
   if (!imageTerms(query, 4)) return { image: null, diag, cacheHit: false };
@@ -530,13 +647,25 @@ export async function resolveLeadMedia(env, query, category) {
   const verified = await Promise.all(settled.map((cand) =>
     cand ? verifyMediaUrl(cand.url, cand.type === "video" ? "video" : "image") : Promise.resolve(false)
   ));
+  // The winner walk now applies the second half of verification: a
+  // candidate whose own metadata is not about this subject is passed
+  // over for the next verified candidate, exactly the way a dead URL
+  // already was. The operator's own library is the one exemption: it
+  // carries no provider metadata to check because a human placed each
+  // file under its category by hand, and that placement is its check.
+  const subjectTitle = (subject && subject.title) || query;
+  const subjectSummary = (subject && subject.summary) || "";
   let winner = null;
   for (let i2 = 0; i2 < settled.length; i2++) {
-    if (settled[i2] && verified[i2]) { winner = settled[i2]; break; }
+    if (!settled[i2] || !verified[i2]) continue;
+    if (settled[i2].source !== "curated" && !mediaMatchesSubject(settled[i2].subject, subjectTitle, subjectSummary)) continue;
+    winner = settled[i2];
+    break;
   }
   // verified:true is the contract: downstream surfaces render this URL
   // directly, and the flag is what tells "checked and real" apart from
-  // "the provider said so".
+  // "the provider said so" — checked for existing AND for being about
+  // the subject it illustrates.
   const image = winner ? { ...winner, verified: true } : null;
 
   const payload = JSON.stringify({ ok: true, image });

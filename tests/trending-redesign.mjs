@@ -509,8 +509,37 @@ await test("citation completion: a malformed OpenAlex reply is named, and the fa
   const cites = sourceHealth.find((h) => h.source === "Citation counts");
   assert.equal(cites.legs[0].error, "malformed reply", "the malformed reply was not named as its class");
   assert.equal(cites.legs[1].error, null, "Crossref 404s for unknown works were treated as a leg failure");
-  assert.equal(cites.ok, true);
+  // Corrected contract (fifth panel): this scenario is a PARTIAL
+  // completion with an error present — one of three resolved, the
+  // primary leg errored — so ok reads false and the masthead can
+  // disclose it. The old pin asserted true here; it pinned the
+  // defective "healthy when any leg answered" rule that hid the live
+  // partial failure behind ok true. The counts themselves still land.
+  assert.equal(cites.ok, false, "a partial completion with an errored leg must read not ok");
   assert.equal(cites.resolved, 1);
+  assert.equal(cites.attempted, 3);
+});
+
+await test("citation completion: a rate limited primary with a partial fallback reads not ok, counts carried", async () => {
+  // The live shape from the 2026-10-14 edition: OpenAlex answered
+  // HTTP 429 and only part of the edition's counts ever resolved.
+  const { feed } = await buildScenario({
+    openAlex: () => new Response("rate limited", { status: 429 }),
+    crossref: crossrefStub({ "10.1101/2025.01.01.000001": 11 }),
+  });
+  const { items, sourceHealth } = feed;
+  const byTitle = Object.fromEntries(items.map((i) => [i.title, i]));
+  assert.equal(byTitle["Preprint with a citation history"].citedByCount, 11, "the resolved count did not land");
+  assert.equal(byTitle["An arXiv paper"].citedByCount, null, "an unresolved work gained an invented count");
+  assert.equal(byTitle["Fresh journal paper"].citedByCount, null, "an unresolved work gained an invented count");
+
+  const cites = sourceHealth.find((h) => h.source === "Citation counts");
+  assert.ok(cites, "no citation completion entry in source health");
+  assert.equal(cites.ok, false, "partial resolution with a rate limited leg shipped as ok");
+  assert.equal(cites.attempted, 3, "attempted count not carried");
+  assert.equal(cites.resolved, 1, "resolved count not carried");
+  assert.ok(cites.error && cites.error.includes("OpenAlex") && cites.error.includes("HTTP 429"),
+    "the entry error does not name the rate limited leg");
 });
 
 await test("summary finishing: boundaries, decimals, and the marker", async () => {

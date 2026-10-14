@@ -339,7 +339,14 @@ export async function enrichTrendingMedia(env, items, { concurrency = 4 } = {}) 
       const item = out[i];
       if (!item || (item.media && (item.media.image || item.media.video))) continue;
       try {
-        const { image } = await resolveLeadMedia(env, item.title || "", item.category || "");
+        // The story's title AND summary ride along as the subject:
+        // resolveLeadMedia verifies the winning asset's own metadata
+        // against them, so a resolved asset that is about something
+        // else entirely never reaches the item (see image.js).
+        const { image } = await resolveLeadMedia(env, item.title || "", item.category || "", {
+          title: item.title || "",
+          summary: item.summary || "",
+        });
         out[i] = attachMedia(item, image);
       } catch {
         out[i] = attachMedia(item, null);

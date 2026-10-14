@@ -106,6 +106,7 @@ const {
   resolveLeadMedia,
   isImageCacheFresh,
   mediaCacheKey,
+  mediaMatchesSubject,
 } = await import(join(root, "functions/api/image.js"));
 
 const { searchVideos } = await import(join(root, "functions/api/videos.js"));
@@ -333,7 +334,10 @@ await test("legacy rows without a hit flag are treated as misses", () => {
 });
 
 await test("cache key is namespaced so fixed resolvers never read stale rows", () => {
-  assert.ok(mediaCacheKey("Biology & Medicine", "gut microbiome").includes("|v3"));
+  // v4: the namespace moved when verification gained its topical half.
+  // v3 rows were verified on URL alone and can carry a topically wrong
+  // asset for the whole 14 day hit TTL; they are abandoned, not read.
+  assert.ok(mediaCacheKey("Biology & Medicine", "gut microbiome").includes("|v4"));
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -468,6 +472,170 @@ await test("items with media still satisfy the cache-usability rule", () => {
   assert.equal(isUsableCachePayload({ items: [item] }), true);
   const roundTripped = JSON.parse(JSON.stringify(item));
   assert.equal(roundTripped.media.image.verified, true, "media must survive the cache JSON round trip");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("topical verification — verified means about the story, not just alive");
+
+// The fifth panel's live evidence, replayed as fixtures: on the
+// 2026-10-14 edition, five of six verified slots were topically wrong
+// (a Mars rover photo on a lunar lander story, a CRS 17 photo on the
+// CRS 35 story, a crewed launch photo on a cargo story, a mountains
+// video on a structural systems story). URL resolution said all of
+// them were fine. The matching rule (documented at mediaMatchesSubject
+// in image.js): tokenize both sides with stopwords and generic
+// provider words dropped; digit bearing tokens are identifiers and a
+// mismatch on both sides vetoes; otherwise a shared identifier (3), a
+// shared title token (2), or a shared summary only token (1) must
+// reach a score of 2.
+
+await test("the matching rule rejects the panel's wrong assets", () => {
+  // Lunar lander story, Mars rover asset: no shared vocabulary at all.
+  assert.equal(mediaMatchesSubject(
+    "Mars Exploration Rover assembly at Kennedy Space Center",
+    "NASA JPL testing readies Voyager lander technologies for a Moon mission",
+    "A way to test new outer planet technologies on the Moon with a small lander."
+  ), false, "Mars rover asset verified for a lunar lander story");
+  // CRS 35 story, CRS 17 asset: the words overlap (SpaceX, CRS,
+  // launch) and the identifier veto is what rejects it.
+  assert.equal(mediaMatchesSubject(
+    "SpaceX CRS-17 launch from Cape Canaveral",
+    "SpaceX CRS-35 cargo resupply mission to the space station",
+    "The CRS-35 capsule carries cargo and science."
+  ), false, "CRS 17 asset verified for the CRS 35 story");
+  // CRS 35 story, Crew 12 asset: crewed is not cargo, and 12 is not 35.
+  assert.equal(mediaMatchesSubject(
+    "NASA SpaceX Crew-12 launch",
+    "SpaceX CRS-35 cargo resupply mission to the space station",
+    ""
+  ), false, "Crew 12 asset verified for the CRS 35 cargo story");
+  // Structural systems story, German mountains video: nothing shared.
+  assert.equal(mediaMatchesSubject(
+    "Visualisierung der Liste der Berge nach Dominanz",
+    "Complex Modes in Lightly Damped Structural Systems",
+    "A method for lightly damped structures."
+  ), false, "mountains video verified for a structural systems story");
+  // Mars moon lander story, Phobos eclipse asset: adjacent subject,
+  // still not this story (one summary only token is not enough).
+  assert.equal(mediaMatchesSubject(
+    "Phobos eclipses the Sun as seen by InSight",
+    "NASA selects Intuitive Machines for Mars moon lander demo",
+    "A lander for the Mars moon Phobos is planned as a demo."
+  ), false, "Phobos eclipse asset verified for the lander story");
+});
+
+await test("the matching rule accepts assets that are about the story", () => {
+  // The one correct slot on the panel's edition: H5N1 story, H5N1
+  // image — identifier agreement is decisive on its own.
+  assert.equal(mediaMatchesSubject(
+    "Colorized transmission electron micrograph of H5N1 virus particles",
+    "Bovine H5N1 influenza viruses from cattle",
+    "Samples of H5N1 were taken from herds."
+  ), true, "H5N1 asset rejected for the H5N1 story");
+  // One distinctive shared title word is enough.
+  assert.equal(mediaMatchesSubject(
+    "Gut microbiota composition",
+    "gut microbiome brain",
+    ""
+  ), true, "gut asset rejected for the gut microbiome story");
+  // No metadata at all: topicality cannot be verified, so it is not.
+  assert.equal(mediaMatchesSubject("", "gut microbiome brain", ""), false,
+    "a metadata free asset was verified on nothing");
+});
+
+// A NASA-shaped stub: the search returns one titled asset, every URL
+// under images-assets.nasa.gov verifies as a real image, and every
+// other provider is empty or down.
+function nasaOnlyStub(assetTitle) {
+  return async (url, opts) => {
+    const u = String(url);
+    const method = (opts && opts.method) || "GET";
+    if (method === "HEAD") {
+      const ok = u.startsWith("https://images-assets.nasa.gov/");
+      return new Response("", { status: ok ? 200 : 404, headers: { "Content-Type": ok ? "image/jpeg" : "text/html" } });
+    }
+    if (u.includes("images-api.nasa.gov")) {
+      if (u.includes("media_type=video")) return jsonRes({ collection: { items: [] } });
+      return jsonRes({
+        collection: {
+          items: [{
+            links: [{ href: "https://images-assets.nasa.gov/image/PIA04834/PIA04834~medium.jpg" }],
+            data: [{ title: assetTitle, center: "JPL" }],
+          }],
+        },
+      });
+    }
+    if (u.includes("europepmc")) return jsonRes({ resultList: { result: [] } });
+    return new Response("{}", { status: 404 });
+  };
+}
+
+await test("a resolved but off topic asset is not verified: the resolver returns the honest null", async () => {
+  const restore = stubFetch(nasaOnlyStub("Mars Exploration Rover on the ramp at Kennedy Space Center"));
+  try {
+    const { image } = await resolveLeadMedia({}, "Voyager lander moon mission", "Space", {
+      title: "NASA JPL testing readies Voyager lander technologies for a Moon mission",
+      summary: "A way to test new outer planet technologies on the Moon.",
+    });
+    assert.equal(image, null, "the Mars rover asset came back verified for a lunar lander story");
+  } finally { restore(); }
+});
+
+await test("an on topic asset still verifies end to end", async () => {
+  const restore = stubFetch(nasaOnlyStub("Colorized micrograph of H5N1 virus particles"));
+  try {
+    const { image } = await resolveLeadMedia({}, "H5N1 influenza viruses", "Biology & Medicine", {
+      title: "Bovine H5N1 influenza viruses from cattle",
+      summary: "Samples of H5N1 were taken from herds.",
+    });
+    assert.ok(image, "the H5N1 asset did not verify for the H5N1 story");
+    assert.equal(image.source, "nasa");
+    assert.equal(image.verified, true);
+  } finally { restore(); }
+});
+
+await test("enrichTrendingMedia ships a wrong asset's item media free and a right asset's item verified", async () => {
+  const restore = stubFetch(async (url, opts) => {
+    const u = String(url);
+    const method = (opts && opts.method) || "GET";
+    if (method === "HEAD") {
+      const ok = u.startsWith("https://images-assets.nasa.gov/");
+      return new Response("", { status: ok ? 200 : 404, headers: { "Content-Type": ok ? "image/jpeg" : "text/html" } });
+    }
+    if (u.includes("images-api.nasa.gov")) {
+      if (u.includes("media_type=video")) return jsonRes({ collection: { items: [] } });
+      // NASA answers each item's own search: the lander story's search
+      // surfaces the rover photo (the panel's exact failure), the
+      // H5N1 story's search surfaces the virus micrograph.
+      const title = u.includes("h5n1")
+        ? "Colorized micrograph of H5N1 virus particles"
+        : "Mars Exploration Rover on the ramp at Kennedy Space Center";
+      return jsonRes({
+        collection: {
+          items: [{
+            links: [{ href: "https://images-assets.nasa.gov/image/x/x~medium.jpg" }],
+            data: [{ title, center: "JPL" }],
+          }],
+        },
+      });
+    }
+    if (u.includes("europepmc")) return jsonRes({ resultList: { result: [] } });
+    return new Response("{}", { status: 404 });
+  });
+  try {
+    const out = await enrichTrendingMedia({}, [
+      { title: "NASA JPL testing readies Voyager lander technologies for a Moon mission", summary: "A way to test new outer planet technologies on the Moon.", url: "https://example.com/lander", category: "Space" },
+      { title: "Bovine H5N1 influenza viruses from cattle", summary: "Samples of H5N1 were taken from herds.", url: "https://example.com/h5n1", category: "Biology & Medicine" },
+    ], { concurrency: 2 });
+    assert.deepEqual(
+      { image: out[0].media.image, video: out[0].media.video },
+      { image: null, video: null },
+      "the lunar lander item shipped with the Mars rover photo attached"
+    );
+    assert.ok(out[1].media.image, "the H5N1 item shipped without its matching image");
+    assert.equal(out[1].media.image.verified, true);
+    assert.equal(out[1].media.image.source, "nasa");
+  } finally { restore(); }
 });
 
 // ══════════════════════════════════════════════════════════════════════════
