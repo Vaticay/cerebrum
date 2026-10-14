@@ -573,7 +573,12 @@ await test("the uncited winner is retried once, replaced by the extractive tier,
     assert.equal(data.factCheck.mode, "extractive");
     assert.equal(data.factCheck.checkKind, "provenance",
       "the shipped fact check is not labeled provenance");
-    const traced = data.factCheck.claims.filter((c) => c.status === "supported").length;
+    // The expected sentence is derived from the fact check's own
+    // claims, in the vocabulary the check ships (wave eight round
+    // two: a traced claim's status is "traced"; this derivation
+    // counted "supported" until the vocabulary changed, which is
+    // how the stale word survived in a test about the correction).
+    const traced = data.factCheck.claims.filter((c) => c.status === "traced").length;
     const checkedN = data.factCheck.claims.length;
     const sentence = "The wording of " + traced + " of " + checkedN +
       " cited claim" + (checkedN === 1 ? "" : "s") + " traces to the papers they cite. A wording trace is not a verification.";

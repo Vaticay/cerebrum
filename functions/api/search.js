@@ -10989,21 +10989,32 @@ export function detectSourceConflicts(papers, briefClaims = null) {
 // result therefore carries checkKind "provenance" in every shipped
 // shape, its summary speaks of traces rather than support, and
 // factCheckSupport returns null for it: its counts feed no support
-// total, no confidence clause, and no record as verification. The
-// per claim status words stay (the panel renders them, and "thin" /
-// "unsupported" traces are real warnings), but a "supported" status
-// here means only that the wording traced.
+// total, no confidence clause, and no record as verification.
+//
+// TRACED, NOT SUPPORTED (2026-10-14, seventh panel, wave eight
+// round two): the per claim status itself now says what the check
+// established. A claim whose wording traces carries status
+// "traced", never "supported", and a provenance only run's
+// overall is "traced" too. The sixth panel round left the status
+// words in place on the argument that the kind label carried the
+// distinction; the seventh panel measured the result — at claim
+// level the shipped object still read "supported" claim after
+// "supported" claim under an overall "supported", and no reader
+// (or downstream counter that does not ask the kind first) could
+// see which kind the mark belonged to. "thin" and "unsupported"
+// keep their words: a weak trace and a failed trace are real
+// warnings in either vocabulary.
 /* The extractive trace's summary, in provenance wording (Job 1):
  * shared by verifyExtractiveAlignment and dedupeFactCheckClaims,
  * which recounts after duplicate claims are folded. */
 function extractiveTraceSummary(claims) {
   if (!claims || claims.length === 0) return "No cited claims were found to trace.";
-  const nSup = claims.filter((c) => c.status === "supported").length;
+  const nTraced = claims.filter((c) => c.status === "traced").length;
   const nThin = claims.filter((c) => c.status === "thin").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
   return "Traced " + claims.length + " cited claim" + (claims.length === 1 ? "" : "s") +
     " against the wording of the papers they cite: " +
-    nSup + " traced to the cited paper's wording, " + nThin + " overlap only weakly, " + nUns + " do not trace. " +
+    nTraced + " traced to the cited paper's wording, " + nThin + " overlap only weakly, " + nUns + " do not trace. " +
     "A wording trace is not a verification of the claims.";
 }
 
@@ -11055,22 +11066,22 @@ export function verifyExtractiveAlignment(answer, papers) {
       let shared = 0;
       for (const w of words) if (srcWords.has(w)) shared++;
       const ratio = shared / words.size;
-      const status = ratio >= 0.3 ? "supported" : ratio >= 0.12 ? "thin" : "unsupported";
-      if (!best || status === "supported" || (best.status === "unsupported" && status === "thin")) {
+      const status = ratio >= 0.3 ? "traced" : ratio >= 0.12 ? "thin" : "unsupported";
+      if (!best || status === "traced" || (best.status === "unsupported" && status === "thin")) {
         best = { status, ratio };
       }
-      if (status === "supported") break;
+      if (status === "traced") break;
     }
     let note;
-    if (best.status === "supported") note = "The claim's wording traces to the cited paper's title/abstract.";
+    if (best.status === "traced") note = "The claim's wording traces to the cited paper's title/abstract.";
     else if (best.status === "thin") note = "Only weakly overlaps the cited paper's title/abstract. Open the source before relying on it.";
     else note = best.note || "Doesn't match the title or abstract of the paper it cites. Open the source before relying on it.";
     claims.push({ claim: clean.slice(0, 240), status: best.status, note });
   }
-  const nSup = claims.filter((c) => c.status === "supported").length;
+  const nTraced = claims.filter((c) => c.status === "traced").length;
   const nThin = claims.filter((c) => c.status === "thin").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
-  const overall = nUns === 0 ? "supported" : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+  const overall = nUns === 0 ? "traced" : (nTraced > 0 || nThin > 0) ? "partly" : "unsupported";
   const summary = extractiveTraceSummary(claims);
   return { overall, summary, claims, mode: "extractive", checkKind: "provenance", checked: claims.length > 0 };
 }
@@ -11555,17 +11566,41 @@ function solidityWordRank(word) {
   const w = String(word || "").toLowerCase();
   if (w === "conclusive" || w === "definitive" || w === "overwhelming") return 3;
   if (w === "highly solid" || w === "firmly established" || w === "very strong" ||
-      w === "strong" || w === "robust" || w === "solid" || w === "firm" ||
-      w === "high" || w === "great" || w === "considerable") return 2;
+      w === "very solid" || w === "well established" || w === "extremely strong" ||
+      w === "established" || w === "strong" || w === "robust" || w === "solid" ||
+      w === "firm" || w === "high" || w === "great" || w === "considerable") return 2;
   if (w === "moderate") return 1;
   return 0; // weak, thin, limited, sparse, scant, shaky, low
 }
 
+/* SEVENTH PANEL EXTENSION (2026-10-14, wave eight round two):
+ * the wave six family watched only evidence and data as subjects,
+ * so the panel's live specimens shipped unbound beside a thin
+ * level: "the consensus ... remains solid", "large scale clinical
+ * trials ... have established that", and the unlisted "very
+ * solid", "well established", "extremely strong", with strength
+ * predicated of findings, literature, research, and science. The
+ * subject set now covers the whole family a synthesis grades its
+ * answer with — findings, literature, research, science,
+ * consensus, trials, studies — and two establishedness shapes
+ * join the copula patterns: the verb form ("trials have
+ * established that ...", whose predicate is the assertion, no
+ * strength adjective needed) and the impersonal form ("it is well
+ * established that ..."). The guard is unchanged in kind: every
+ * pattern is anchored on an evidence family subject (or the
+ * it is ... that frame, whose complement is the claim itself),
+ * so a strong magnet, a well established colony, a robust
+ * method, a strong coffee, and a strong treatment effect still
+ * rank -1 and ship verbatim — the verb pattern demands
+ * "established that", so a study that established a cohort or a
+ * dose is not caught either. */
 const SOLIDITY_ASSERTION_RES = [
-  /\b(?:the\s+)?(?:evidence(?:\s+base)?|data)\b[^.!?\n]{0,50}?\b(?:is|was|are|were|remains?|appears|looks|seems|sits|stands)\b[^.!?\n]{0,30}?\b(highly solid|firmly established|conclusive|definitive|overwhelming|very strong|strong|robust|solid|moderate|weak|thin|limited|sparse|scant)\b/i,
-  /\bstrength\s+of\s+the\s+evidence\b[^.!?\n]{0,40}?\b(?:is|was|remains?)\b[^.!?\n]{0,20}?\b(high|great|considerable|moderate|low)\b/i,
+  /\b(?:the\s+)?(?:evidence(?:\s+base)?|data|findings|literature|research|science|consensus|(?:clinical\s+)?trials|studies)\b[^.!?\n]{0,50}?\b(?:is|was|are|were|remains?|appears|looks|seems|sits|stands)\b[^.!?\n]{0,30}?\b(highly solid|firmly established|well established|very solid|extremely strong|conclusive|definitive|overwhelming|very strong|strong|robust|solid|moderate|weak|thin|limited|sparse|scant)\b/i,
+  /\bstrength\s+of\s+the\s+(?:evidence|findings|literature|research|data|science)\b[^.!?\n]{0,40}?\b(?:is|was|remains?)\b[^.!?\n]{0,20}?\b(high|great|considerable|moderate|low)\b/i,
   /\b(?:rests?|stands?)\s+on\s+(solid|firm|strong|shaky|thin)\s+(ground|footing|evidence)\b/i,
   /\bbasis\s+for\s+this\b[^.!?\n]{0,40}?\b(?:is|was)\b[^.!?\n]{0,20}?\b(solid|robust|strong|firm|weak|thin|limited)\b/i,
+  /\b(?:the\s+)?(?:evidence|data|findings|literature|research|science|consensus|(?:clinical\s+)?trials|studies)\b[^.!?\n]{0,60}?\b(?:has|have|had)\s+(?:now\s+)?(?:firmly\s+|conclusively\s+|clearly\s+)?(established)\s+that\b/i,
+  /\bit\s+is\s+((?:well|firmly)\s+established)\s+that\b/i,
 ];
 
 /* The strongest confidence assertion a sentence makes, as a
@@ -13043,7 +13078,7 @@ export function factCheckProvenance(factCheck) {
   if (factCheckKind(factCheck) !== "provenance") return null;
   const claims = Array.isArray(factCheck.claims) ? factCheck.claims : null;
   if (!claims || claims.length === 0) return null;
-  const traced = claims.filter((c) => c && c.status === "supported").length;
+  const traced = claims.filter((c) => c && c.status === "traced").length;
   return { traced, checked: claims.length };
 }
 
@@ -13089,11 +13124,20 @@ export function dedupeFactCheckClaims(factCheck) {
   const recountsSummary = factCheck.mode === "extractive" ||
     (factCheck.mode === "claims" && /^Checked \d+ claims? against the cited sources:/.test(String(factCheck.summary || "")));
   if (recountsSummary) {
-    const nSup = claims.filter((c) => c && c.status === "supported").length;
+    // The counted tier's word follows the check's kind (seventh
+    // panel, wave eight round two): a verification recounts its
+    // "supported" claims, the provenance trace recounts its
+    // "traced" ones, and each kind's clean overall is its own
+    // word — a folded trace whose failures all folded away is
+    // "traced", never promoted to "supported" by the recount.
+    const isTrace = factCheck.mode === "extractive";
+    const nSup = claims.filter((c) => c && c.status === (isTrace ? "traced" : "supported")).length;
     const nThin = claims.filter((c) => c && c.status === "thin").length;
     const nUns = claims.filter((c) => c && c.status === "unsupported").length;
-    out.overall = nUns === 0 ? "supported" : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
-    if (factCheck.mode === "extractive") {
+    out.overall = nUns === 0
+      ? (isTrace ? "traced" : "supported")
+      : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+    if (isTrace) {
       out.summary = extractiveTraceSummary(claims);
       out.checked = claims.length > 0;
     } else {
@@ -14171,6 +14215,66 @@ export function buildCoverage(input) {
   }
 }
 
+/* packAnswerCachePayload(sources, trust) / unpackAnswerCachePayload(raw):
+ * the answer_cache row's sources column is the payload the cache
+ * serve rebuilds from, and since 2026-10-14 (seventh panel, wave
+ * eight round two) it carries more than the source list. The
+ * stored shape is a versioned envelope:
+ *
+ *   { v: 2, sources: [...], trust: { factCheck, synthesisMode,
+ *     disagreementVerdict } }
+ *
+ * The trust block is the ORIGINAL run's own signals, written at
+ * cache time from the same objects the fresh response ships: its
+ * fact check (a provenance kind check caps the cached serve's
+ * recomputed level at thin, exactly as on a fresh run), its
+ * recorded synthesis mode (which decides whether the cached body
+ * crosses the extractive baked line binding), and its disagreement
+ * verdict (the fresh path ships it beside the fact check; the
+ * cached returns now ship it at parity). Rows written before the
+ * envelope hold the bare source list JSON; unpack reads those as
+ * sources with NO trust signals, and the serves degrade to
+ * exactly the pre envelope behavior (factCheck null, verdict
+ * absent, mode unrecorded and resolved to the extractive wording)
+ * — older entries never gain signals nobody stored. Anything
+ * unparseable unpacks to no sources and no trust, the same
+ * failure shape the old JSON.parse catch produced. */
+export function packAnswerCachePayload(sources, trust) {
+  const t = trust && typeof trust === "object" ? trust : {};
+  return JSON.stringify({
+    v: 2,
+    sources: Array.isArray(sources) ? sources : [],
+    trust: {
+      factCheck: t.factCheck && typeof t.factCheck === "object" ? t.factCheck : null,
+      synthesisMode: typeof t.synthesisMode === "string" && t.synthesisMode ? t.synthesisMode : null,
+      disagreementVerdict: t.disagreementVerdict && typeof t.disagreementVerdict === "object"
+        ? t.disagreementVerdict : null,
+    },
+  });
+}
+
+export function unpackAnswerCachePayload(raw) {
+  const empty = { sources: [], trust: null };
+  if (typeof raw !== "string" || !raw) return empty;
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return empty; }
+  if (Array.isArray(parsed)) return { sources: parsed, trust: null };
+  if (parsed && typeof parsed === "object" && parsed.v === 2 && Array.isArray(parsed.sources)) {
+    const t = parsed.trust && typeof parsed.trust === "object" ? parsed.trust : null;
+    if (!t) return { sources: parsed.sources, trust: null };
+    return {
+      sources: parsed.sources,
+      trust: {
+        factCheck: t.factCheck && typeof t.factCheck === "object" ? t.factCheck : null,
+        synthesisMode: typeof t.synthesisMode === "string" && t.synthesisMode ? t.synthesisMode : null,
+        disagreementVerdict: t.disagreementVerdict && typeof t.disagreementVerdict === "object"
+          ? t.disagreementVerdict : null,
+      },
+    };
+  }
+  return empty;
+}
+
 /* buildCachedServeTrust(input): the trust artifacts for a CACHED
  * serve, recomputed on serve from what the cached payload actually
  * carries. The standing rule this implements: a cached answer is
@@ -14181,8 +14285,9 @@ export function buildCoverage(input) {
  * a fresh extractive shipment crosses at the ship gate — without
  * it the stored body could assert a level the recomputed object
  * disowns, the body versus fields disagreement the fresh path
- * forbids. Nothing else about the answer text changes. The cache stores only the
- * answer text and its source list, so the cited set is recovered
+ * forbids. Nothing else about the answer text changes. The cache stores the
+ * answer text, its source list, and (since the wave eight round
+ * two payload envelope) the original run's trust signals, so the cited set is recovered
  * from the answer's own citation markers against that stored list
  * (the same derivation the live path uses), the coverage and record
  * are rebuilt by the same builders the live path uses, and the
@@ -20261,8 +20366,15 @@ async function runSearchPipeline(pctx) {
         // answers deterministically (Wave 4) with the honest nudge. A served
         // cache hit IS an AI answer, so free callers are metered for it.
         if (earlyHit && earlyHit.answer && aiSynthesisAllowed) {
-          let cachedSources = [];
-          try { cachedSources = JSON.parse(earlyHit.sources || "[]"); } catch (cbErr) { console.error("[Cerebrum] search.js if: cachedSources = JSON.parse(earlyHit.sources || '[]'); }:", cbErr); }
+          // The stored payload is the versioned envelope (see
+          // unpackAnswerCachePayload): the source list plus the
+          // original run's trust signals when the row was written
+          // by a current build. Pre envelope rows unpack to the
+          // bare list with no signals, and this serve then behaves
+          // exactly as it did before the envelope existed.
+          const earlyPayload = unpackAnswerCachePayload(earlyHit.sources);
+          const cachedSources = earlyPayload.sources;
+          const earlyTrustSignals = earlyPayload.trust;
           await meterAiAnswer();
           // TRUST ON CACHE SERVES (2026-10-13, wave two part two):
           // this return used to ship the bare answer with none of the
@@ -20285,26 +20397,41 @@ async function runSearchPipeline(pctx) {
             askedAt: earlyHit.created_at != null ? earlyHit.created_at : undefined,
             degraded: false,
             answerLength,
+            // The stored payload's own signals (seventh panel,
+            // wave eight round two): without these the builder's
+            // provenance cap and baked line binding never fire on
+            // this path — the wave seven rider wired them into the
+            // builder and its fixtures, but neither live caller
+            // passed them, so the binding was inert in production.
+            factCheck: earlyTrustSignals ? earlyTrustSignals.factCheck : undefined,
+            synthesisMode: earlyTrustSignals ? earlyTrustSignals.synthesisMode : undefined,
           });
           return new Response(
             JSON.stringify({
               answer: italicizeScientificTerms(deDash(earlyTrust.answer), query),
               sources: earlyTrust.labeledSources,
               videos,
-              factCheck: null,
+              // Parity with the fresh path (wave eight round two):
+              // the stored run's fact check and disagreement
+              // verdict ship beside the recomputed artifacts. A
+              // pre envelope payload stored neither, and both are
+              // honestly null — never recomputed into existence.
+              factCheck: earlyTrustSignals ? earlyTrustSignals.factCheck : null,
+              disagreementVerdict: earlyTrustSignals ? earlyTrustSignals.disagreementVerdict : null,
               related: [],
               source: "Cached (verified)",
               aiQuota: aiQuotaPayload(),
               answerLength,
-              // The cache does not store which mode produced the
-              // answer (the record's synthesis model is honestly
-              // null), so the mode is unrecorded . and an unrecorded
-              // mode resolves to the extractive wording everywhere,
-              // never to AI. The header, the answer tag, and the
-              // record panel all read this one field and the
+              // When the payload records the mode that produced the
+              // answer, that mode ships (the record's synthesis
+              // model stays honestly null — the cache does not store
+              // which model wrote it). The header, the answer tag,
+              // and the record panel all read this one field and the
               // record's model, so they cannot contradict each other
-              // (2026-10-14 verdict correctness pass).
-              synthesisMode: "extractive",
+              // (2026-10-14 verdict correctness pass). Only an
+              // unrecorded mode (a pre envelope row) resolves to
+              // the extractive wording, never to AI.
+              synthesisMode: (earlyTrustSignals && earlyTrustSignals.synthesisMode) || "extractive",
               _cached: true,
               _funnel: earlyTrust.funnel,
               /* This request's own ledger at serve time (the rate
@@ -20322,7 +20449,7 @@ async function runSearchPipeline(pctx) {
             { status: 200, headers: cors }
           );
         }
-      } catch (cbErr) { console.error("[Cerebrum] search.js if: cachedSources = JSON.parse(earlyHit.sources || '[]'); } catch {}:", cbErr); } // Cache read failure just falls through to a live search . never blocks the request
+      } catch (cbErr) { console.error("[Cerebrum] search.js early cache serve:", cbErr); } // Cache read failure just falls through to a live search . never blocks the request
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -22535,6 +22662,13 @@ async function runSearchPipeline(pctx) {
       // stored answer's markers against this list, the derivation
       // the main assembly performs. Synthesis model is null . the
       // cache does not store which model wrote the answer.
+      // The stored payload's trust signals (wave eight round two)
+      // come from the envelope in the row's sources column — the
+      // served source list is this run's, but the fact check, the
+      // recorded mode, and the verdict are the ORIGINAL run's and
+      // ride its payload, exactly as on the early path above. A
+      // pre envelope row unpacks to no signals.
+      const laterTrustSignals = unpackAnswerCachePayload(cachedAnswer.sources).trust;
       const laterDiag = (gResult && gResult._diag) || {};
       const laterF = laterDiag.funnel;
       const laterNonEng = Array.isArray(laterDiag.nonEnglish) ? laterDiag.nonEnglish.length : 0;
@@ -22558,6 +22692,8 @@ async function runSearchPipeline(pctx) {
         } : null,
         degraded: stageHealthDegraded(stageHealth),
         answerLength,
+        factCheck: laterTrustSignals ? laterTrustSignals.factCheck : undefined,
+        synthesisMode: laterTrustSignals ? laterTrustSignals.synthesisMode : undefined,
       });
       return new Response(
         JSON.stringify({
@@ -22565,14 +22701,19 @@ async function runSearchPipeline(pctx) {
           sources: laterTrust.labeledSources,
           relevanceGatedOut,
           videos,
-          factCheck: null,
+          // Parity with the fresh path (wave eight round two): the
+          // stored run's fact check and verdict, or honest nulls
+          // for a pre envelope payload.
+          factCheck: laterTrustSignals ? laterTrustSignals.factCheck : null,
+          disagreementVerdict: laterTrustSignals ? laterTrustSignals.disagreementVerdict : null,
           related: [],
           source: "Cached (verified)",
           aiQuota: aiQuotaPayload(),
           answerLength,
-          // Unrecorded mode resolves to the extractive wording,
-          // never AI . see the early cache serve above.
-          synthesisMode: "extractive",
+          // The recorded mode ships when the payload carries one;
+          // unrecorded resolves to the extractive wording, never
+          // AI . see the early cache serve above.
+          synthesisMode: (laterTrustSignals && laterTrustSignals.synthesisMode) || "extractive",
           ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag }, ledger)),
           _cached: true,
           _funnel: laterTrust.funnel,
@@ -24789,7 +24930,11 @@ async function runSearchPipeline(pctx) {
           });
         }
         const nUns = factCheckResult.claims.filter((c) => c.status === "unsupported").length;
-        if (nUns > 0 && factCheckResult.overall === "supported") factCheckResult.overall = "partly";
+        // A clean overall — a verification's "supported" or a
+        // trace's "traced" (seventh panel, wave eight round two)
+        // — cannot stand once unsupported flags join the claims:
+        // either kind drops to "partly".
+        if (nUns > 0 && (factCheckResult.overall === "supported" || factCheckResult.overall === "traced")) factCheckResult.overall = "partly";
       }
       if (!factCheckResult) {
         // No fact-check ran at all (toggle off) but the post-check found
@@ -25112,50 +25257,15 @@ async function runSearchPipeline(pctx) {
     }
 
     // ---- CACHE THE ANSWER (D1) ----
-    // (Runs after the fact check since 2026-10-14, defect 9 . the
-    // cached text is the final answer either way; only the order moved.)
-    // Store this answer so future similar queries can skip the LLM entirely.
-    // Only cache answers that have real sources . unsourced general-knowledge
-    // answers are the ones most likely to contain errors.
+    // The write itself stands further down, after the disagreement
+    // verdict settles (see CACHE WRITE below): since 2026-10-14
+    // (seventh panel, wave eight round two) the stored payload is
+    // a versioned envelope carrying the run's trust signals (its
+    // fact check, its synthesis mode, its verdict) beside the
+    // answer and sources, and the verdict does not exist yet at
+    // this point in the pipeline. What stands here is the id the
+    // response ships and the row will carry.
     const answerId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    // `&& aiOK` guard added alongside the !aiOK fallback message above .
-    // that message is real prose over 50 characters, and without this guard
-    // it would otherwise satisfy every condition here and get cached as if
-    // it were a genuine answer, serving "AI synthesis didn't complete" to
-    // every future repeat of this query even after providers recover.
-    /* `privacy.cacheable` is the gate that keeps a private question out of
-     * shared storage. Note what is being withheld: not only the question, but
-     * the ANSWER to it, because an answer to "my son's rash and Kawasaki
-     * disease" is nearly as revealing as the question and would be served to
-     * the next person who asked something similar. */
-    if (env.DB && aiOK && cacheKey && privacy.cacheable && sourceList.length > 0 && answer.length > 50 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
-      // v37: this was a plain `await` . meaning every single non-cached
-      // response paid for a full D1 round-trip AFTER the answer was already
-      // computed, purely to help future requests, before the current one
-      // could return. `waitUntil` (available on every Pages Function's
-      // context, same as a Worker's) tells the runtime to keep the isolate
-      // alive to finish this write in the background instead, while the
-      // response goes out immediately. A write failure still can't take the
-      // response down (own try/catch), it just no longer taxes the person
-      // who's waiting on THIS answer for the benefit of a future one.
-      ledger.spendBinding("cache", 1);
-      const cacheWrite = env.DB.prepare(
-        "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
-      ).bind(
-        cacheKey,
-        answerId,
-        answer,
-        JSON.stringify(sourceList.slice(0, 10)),
-        // Bug: this wrote an ISO-8601 string into a column declared
-        // INTEGER (see schema.sql), while paper_cache's write a few lines
-        // away correctly uses Date.now(). SQLite's flexible typing stored
-        // it silently, so it worked by luck (ISO strings happen to sort
-        // correctly against each other) but would sort wrong the moment
-        // any row got a genuine numeric timestamp. Match paper_cache.
-        Date.now()
-      ).run().catch(() => {}); // Cache write failure is not critical . don't block the response
-      if (typeof waitUntil === "function") waitUntil(cacheWrite); else await cacheWrite;
-    }
 
     // NEXT-GEN disagreement intelligence: source-level conflict detection
     // (the papers' own claims compared against each other) FIRST . it is
@@ -25264,6 +25374,67 @@ async function runSearchPipeline(pctx) {
             : [];
         }
       } catch { /* the strip must never break the answer */ }
+    }
+
+    // ---- CACHE WRITE (D1) ----
+    // (Runs after the fact check since 2026-10-14, defect 9; moved
+    // below the disagreement verdict the same day, wave eight round
+    // two, because the payload now stores the verdict too — the
+    // cached text is the final answer either way; only the order
+    // moved.) Store this answer so future similar queries can skip
+    // the LLM entirely. Only cache answers that have real sources —
+    // unsourced general-knowledge answers are the ones most likely
+    // to contain errors.
+    // `&& aiOK` guard added alongside the !aiOK fallback message
+    // above: that message is real prose over 50 characters, and
+    // without this guard it would otherwise satisfy every condition
+    // here and get cached as if it were a genuine answer, serving
+    // "AI synthesis didn't complete" to every future repeat of this
+    // query even after providers recover.
+    /* `privacy.cacheable` is the gate that keeps a private question out of
+     * shared storage. Note what is being withheld: not only the question, but
+     * the ANSWER to it, because an answer to "my son's rash and Kawasaki
+     * disease" is nearly as revealing as the question and would be served to
+     * the next person who asked something similar. The payload's trust
+     * block travels under the same gate for the same reason. */
+    if (env.DB && aiOK && cacheKey && privacy.cacheable && sourceList.length > 0 && answer.length > 50 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+      // v37: this was a plain `await` — meaning every single non-cached
+      // response paid for a full D1 round-trip AFTER the answer was already
+      // computed, purely to help future requests, before the current one
+      // could return. `waitUntil` (available on every Pages Function's
+      // context, same as a Worker's) tells the runtime to keep the isolate
+      // alive to finish this write in the background instead, while the
+      // response goes out immediately. A write failure still can't take the
+      // response down (own try/catch), it just no longer taxes the person
+      // who's waiting on THIS answer for the benefit of a future one.
+      ledger.spendBinding("cache", 1);
+      const cacheWrite = env.DB.prepare(
+        "INSERT OR REPLACE INTO answer_cache (query_key, answer_id, answer, sources, score, created_at) VALUES (?, ?, ?, ?, 0, ?)"
+      ).bind(
+        cacheKey,
+        answerId,
+        answer,
+        // The payload envelope (packAnswerCachePayload): the source
+        // list plus this run's trust signals — the final fact check
+        // object, the mode this response ships, and the guarded
+        // disagreement verdict — so a later cache serve can pass
+        // them to buildCachedServeTrust and ship the fact check
+        // and verdict at parity with this fresh response instead
+        // of null and absent.
+        packAnswerCachePayload(sourceList.slice(0, 10), {
+          factCheck: factCheckResult,
+          synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
+          disagreementVerdict,
+        }),
+        // Bug: this wrote an ISO-8601 string into a column declared
+        // INTEGER (see schema.sql), while paper_cache's write a few lines
+        // away correctly uses Date.now(). SQLite's flexible typing stored
+        // it silently, so it worked by luck (ISO strings happen to sort
+        // correctly against each other) but would sort wrong the moment
+        // any row got a genuine numeric timestamp. Match paper_cache.
+        Date.now()
+      ).run().catch(() => {}); // Cache write failure is not critical — don't block the response
+      if (typeof waitUntil === "function") waitUntil(cacheWrite); else await cacheWrite;
     }
 
     // NEXT-GEN computed answer instruments: gaps, confidence, coverage.

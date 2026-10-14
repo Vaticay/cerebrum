@@ -339,7 +339,12 @@ await test("alignment checker still verifies the reframed limited answer end to 
   // the checker must verify, bibliography still excluded. The
   // contract — every quoted passage is checked — is unchanged.
   assert.equal(res.claims.length, 2, "lead plus the supporting passage must be checked, bibliography excluded");
-  assert.equal(res.overall, "supported");
+  // CORRECTED CONTRACT (2026-10-14, seventh panel, wave eight
+  // round two): this pin asserted overall "supported". The check
+  // is the provenance wording trace, and its clean overall is now
+  // the trace's own word — a copied answer's claims carry "traced",
+  // never "supported", at claim level and overall alike.
+  assert.equal(res.overall, "traced");
 });
 
 // ── EXTRACTIVE EVIDENCE STANDARD (2026-10-13) ────────────────────

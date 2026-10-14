@@ -462,6 +462,14 @@ await test("invented disagreement section and the unsupported claim both leave t
   const panel = (data.factCheck && data.factCheck.claims) || [];
   assert.ok(panel.some((c) => c.status === "unsupported" && /heart muscle/.test(c.claim || "")),
     "the fact check panel lost the unsupported entry: " + JSON.stringify(data.factCheck));
+  // A verification's own word is untouched by the provenance
+  // vocabulary (wave eight round two): this run's check is the
+  // deep claim check, and its verified claim still carries
+  // "supported" — only the extractive trace's marks changed.
+  assert.ok(panel.some((c) => c.status === "supported" && /hair shedding/.test(c.claim || "")),
+    "an AI serve's verified claim lost its supported status: " + JSON.stringify(data.factCheck));
+  assert.equal(data.factCheck.mode, "claims",
+    "control: this scenario's check is the deep verification, got: " + data.factCheck.mode);
 });
 
 await test("a check supporting none of its claims ships thin confidence that agrees with its line", async () => {
@@ -625,8 +633,18 @@ await test("an extractive only run over a junk pool: every trace marked, no supp
   const aligned = verifyExtractiveAlignment(md, junk);
   assert.ok(aligned && aligned.checked && aligned.claims.length > 0,
     "the trace found no claims to trace in a cited extractive answer");
-  assert.ok(aligned.claims.some((c) => c.status === "supported"),
+  // CORRECTED CONTRACT (2026-10-14, seventh panel, wave eight
+  // round two): this pin used to assert the copied claims carry
+  // status "supported" — the kind label was supposed to carry the
+  // distinction on its own, and at claim level it did not. A claim
+  // whose wording traces now carries "traced", no provenance claim
+  // carries "supported", and the run's overall is "traced".
+  assert.ok(aligned.claims.some((c) => c.status === "traced"),
     "fixture broken: copied claims should trace (that is the circularity)");
+  assert.ok(aligned.claims.every((c) => c.status !== "supported"),
+    "a provenance claim shipped as supported: " + JSON.stringify(aligned.claims));
+  assert.equal(aligned.overall, "traced",
+    "a provenance only run's overall is not the trace's own word: " + aligned.overall);
   // (a) Labeled provenance in the shipped object, and its summary
   // speaks of traces, never of supported claims.
   assert.equal(aligned.checkKind, "provenance");
@@ -685,18 +703,22 @@ await test("a duplicated claim counts once in the checked total (Job 1c)", () =>
     "Checked 2 claims against the cited sources: 1 supported, 1 thin, 0 unsupported.",
     "the summary was not recounted from the folded claims");
   // The extractive trace folds too, and its summary recounts in
-  // provenance wording.
+  // provenance wording. The folded object's claims carry the
+  // trace's own status word (wave eight round two): the recount
+  // counts "traced" claims and a clean fold's overall is "traced".
   const trace = {
-    mode: "extractive", checkKind: "provenance", overall: "supported", checked: true,
+    mode: "extractive", checkKind: "provenance", overall: "traced", checked: true,
     summary: "Traced 3 cited claims against the wording of the papers they cite: 2 traced to the cited paper's wording, 1 overlap only weakly, 0 do not trace. A wording trace is not a verification of the claims.",
     claims: [
-      { claim: "Beeswax candles burn with a warm glow in draught free rooms.", status: "supported", note: "The claim's wording traces to the cited paper's title/abstract." },
-      { claim: "Beeswax candles burn with a warm glow in draught free rooms.", status: "supported", note: "The claim's wording traces to the cited paper's title/abstract." },
+      { claim: "Beeswax candles burn with a warm glow in draught free rooms.", status: "traced", note: "The claim's wording traces to the cited paper's title/abstract." },
+      { claim: "Beeswax candles burn with a warm glow in draught free rooms.", status: "traced", note: "The claim's wording traces to the cited paper's title/abstract." },
       { claim: "Paraffin wax melts at lower temperatures.", status: "thin", note: "Shares some wording with the cited paper's title/abstract." },
     ],
   };
   const folded = dedupeFactCheckClaims(trace);
   assert.equal(folded.claims.length, 2);
+  assert.equal(folded.overall, "traced",
+    "the fold promoted a clean trace to a verification's overall: " + folded.overall);
   assert.equal(folded.summary,
     "Traced 2 cited claims against the wording of the papers they cite: 1 traced to the cited paper's wording, 1 overlap only weakly, 0 do not trace. A wording trace is not a verification of the claims.",
     "the trace summary was not recounted from the folded claims");
@@ -788,6 +810,66 @@ await test("a solidity assertion in free prose is replaced under a moderate ship
     "a high rank solidity assertion survived a moderate ship: " + out);
   assert.ok(out.includes("did not increase hair shedding"), "the factual sentence was harmed: " + out);
   assert.ok(out.includes(moderateLine), "the canonical line did not take the assertion's place: " + out);
+});
+
+await test("the seventh panel's specimens rank on the ladder and bind under thin", () => {
+  // Verbatim shapes from the seventh panel's Trust audit: every
+  // one shipped unbound beside a thin level because the wave six
+  // family watched only evidence and data as subjects and had
+  // none of these phrases. Each is an establishedness assertion
+  // about the answer's own evidence base, rank 2 on the ladder.
+  const specimens = [
+    "The consensus among reviewers remains solid.",
+    "Large scale clinical trials have established that the effect is real.",
+    "The evidence is very solid.",
+    "The literature is well established on this point.",
+    "It is well established that sleep loss impairs memory consolidation.",
+    "The findings are extremely strong.",
+    "The research is solid.",
+    "The science is firmly established.",
+    "The strength of the findings is considerable.",
+  ];
+  for (const s of specimens) {
+    assert.equal(confidenceAssertionRank(s), 2,
+      "a seventh panel specimen does not rank as a high assertion: " + s);
+  }
+  // And the binding itself: under a thin ship the specimen
+  // sentences are replaced by the shipped line, in place.
+  const shelf = Array.from({ length: 8 }, (_, i) => ({
+    title: "Textbook myth paper " + (i + 1), year: 2024, relevance: 80,
+    abstract: "A detailed abstract reports a measured result with enough supporting detail for the answer.",
+  }));
+  const thinLine = buildConfidenceLine(shelf.slice(0, 1), { status: "settled" }).line;
+  for (const s of [
+    "The consensus among reviewers remains solid.",
+    "Large scale clinical trials have established that the effect is real.",
+    "The findings are extremely strong.",
+  ]) {
+    const body = "## Summary\n\n" + s + " Creatine did not increase hair shedding in the trial [1].";
+    const out = bindProseConfidenceToLevel(body, "thin", thinLine);
+    assert.ok(!out.includes(s), "the specimen shipped unbound under thin: " + out);
+    assert.ok(out.includes(thinLine), "the shipped line did not take the specimen's place: " + out);
+    assert.ok(out.includes("did not increase hair shedding"), "the factual sentence was harmed: " + out);
+  }
+});
+
+await test("the extended family's spares still ship verbatim", () => {
+  // The subject extension must not swallow strength predicated of
+  // anything that is not the answer's evidence: a magnet's pull, a
+  // colony's establishment, and a method noun inside a studies
+  // sentence all predicate something else.
+  assert.equal(confidenceAssertionRank("A strong magnet held the sample against the pull of the centrifuge."), -1);
+  assert.equal(confidenceAssertionRank("The colony is well established and thriving after two winters."), -1);
+  assert.equal(confidenceAssertionRank("The studies used a strong magnet to separate the cells."), -1);
+  assert.equal(confidenceAssertionRank("The trial established a dosing schedule of five grams daily."), -1,
+    "the verb pattern caught a study establishing a protocol, not a claim");
+  const body =
+    "## What the research shows\n\n" +
+    "A strong magnet held the sample against the pull of the centrifuge. " +
+    "The colony is well established and thriving after two winters.";
+  const thinLine = buildConfidenceLine([{ title: "One paper", year: 2024, relevance: 80 }], { status: "settled" }).line;
+  const bound = bindProseConfidenceToLevel(body, "thin", thinLine);
+  assert.equal(bound, body, "a spare sentence was rewritten by the extended solidity gate");
 });
 
 // ═══════════════════════════════════════════════════════════════════

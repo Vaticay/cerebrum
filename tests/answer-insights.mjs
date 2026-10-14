@@ -244,6 +244,30 @@ await test("no supported claims means no convergence line", () => {
   assert.equal(describeConvergence(null, out.eras[1]), null);
 });
 
+await test("provenance traced claims never feed the convergence read", () => {
+  // The extractive wording trace's claims carry status "traced"
+  // (seventh panel, wave eight round two): the answer's wording
+  // was traced to those papers, which is not support. A run whose
+  // only check is the trace must produce no convergence read at
+  // all — counting traces as supported claims would state a
+  // recency share for a verification that never ran.
+  const srcs = arcSources([1999, 2000, 2020, 2021]);
+  const eras = groupSourcesIntoEras(srcs);
+  const factCheck = {
+    mode: "extractive",
+    checkKind: "provenance",
+    claims: [
+      { claim: "A [3]", status: "traced", note: "" },
+      { claim: "B [4]", status: "traced", note: "" },
+      { claim: "C [1]", status: "traced", note: "" },
+    ],
+  };
+  const out = annotateEras(eras, { factCheck, sources: srcs });
+  assert.equal(out.convergence, null,
+    "traced claims fed the supported claims convergence read");
+  assert.equal(out.claimsTotal, 3, "the trace's claims still count as checked claims");
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 group("OpenQuestions — gap extraction");
 
@@ -370,6 +394,23 @@ await test("turn carries the instrument payloads from the response", () => {
   assert.match(appSrc, /_funnel: data\._funnel \|\| null/, "_funnel not passed to the turn");
 });
 
+await test("the traced status renders as a trace everywhere the panel reads statuses", () => {
+  // Seventh panel, wave eight round two: a provenance claim's
+  // status is "traced", and every client surface that turns a
+  // status into words or a stamp must know the word — the fact
+  // check panel's row label, the calibration stamp, and the
+  // panel's own pass counting (a trace passes as "traced", never
+  // as "supported" and never as a failure).
+  assert.match(appSrc, /c\.status === "traced" \? "Traced to the cited paper's wording"/,
+    "the fact check panel has no honest label for a traced claim");
+  assert.match(appSrc, /ev\.status === "traced" \? "Traced to the cited paper's wording"/,
+    "the calibration stamp has no honest label for a traced paragraph");
+  assert.match(appSrc, /const passStatus = isExtractive \? "traced" : "supported";/,
+    "the fact check panel does not key its pass status on the check's kind");
+  assert.match(appSrc, /traced: 1, supported: 2/,
+    "the evidence map does not rank the traced status");
+});
+
 await test("query autopsy drawer is funnel-first with demoted sections", () => {
   assert.match(appSrc, /function QueryAutopsy/, "QueryAutopsy component missing");
   assert.match(appSrc, /How this was built/, "autopsy entry link missing");
@@ -421,6 +462,21 @@ await test("supported claims land in agree", () => {
   assert.deepEqual(r.agree, [1, 2]);
   assert.deepEqual(r.disagree, []);
   assert.deepEqual(r.middle, []);
+  assert.deepEqual(r.unclear, [3, 4, 5]);
+});
+
+await test("traced claims place their papers in agree, as placement only", () => {
+  // A provenance trace means the answer's wording comes from the
+  // paper, so the paper stands behind the answer the way any
+  // body cited paper does — placement, not a verdict. The status
+  // itself is never read as "supported" anywhere (the convergence
+  // read above is the counting surface, and it excludes traces).
+  const r = classifyVennPapers({
+    answer: "", sources: VENN_SOURCES,
+    factCheck: { mode: "extractive", claims: [{ claim: "X works [1][2]", status: "traced" }] },
+  });
+  assert.deepEqual(r.agree, [1, 2]);
+  assert.deepEqual(r.disagree, []);
   assert.deepEqual(r.unclear, [3, 4, 5]);
 });
 
@@ -685,7 +741,11 @@ await test("fact check alignment covers the limited fallback section and stops a
   );
   assert.equal(res.checked, true);
   assert.equal(res.claims.length, 1, "bibliography line was treated as a second claim");
-  assert.equal(res.claims[0].status, "supported");
+  // Corrected contract (2026-10-14, seventh panel, wave eight
+  // round two): the copied sentence's claim carries "traced" —
+  // the alignment check is the provenance wording trace, and its
+  // pass word is the trace's own, never "supported".
+  assert.equal(res.claims[0].status, "traced");
 });
 
 await test("fact check alignment covers Summary and reports zero checked claims honestly", () => {
@@ -798,11 +858,15 @@ await test("the numeric confidence score and its factors never ship", () => {
 });
 
 await test("cached serves resolve an unrecorded mode to extractive, never AI", () => {
-  // Both cache serve payloads name the mode explicitly, and the
-  // client's turn default agrees: a missing mode is extractive
-  // wording everywhere (header, answer tag, record panel).
-  assert.equal((searchSrc.match(/synthesisMode: "extractive",/g) || []).length, 2,
-    "both cached serve payloads must ship synthesisMode extractive");
+  // Corrected contract (2026-10-14, seventh panel, wave eight
+  // round two): the stored payload now records the mode that
+  // produced the answer, and both cache serves ship the recorded
+  // mode when the payload carries one. What this pin protects is
+  // unchanged — an UNRECORDED mode resolves to the extractive
+  // wording, never to AI — and it now lives in the fallback each
+  // serve applies to its stored signals.
+  assert.equal((searchSrc.match(/\(earlyTrustSignals && earlyTrustSignals\.synthesisMode\) \|\| "extractive"|\(laterTrustSignals && laterTrustSignals\.synthesisMode\) \|\| "extractive"/g) || []).length, 2,
+    "both cached serves must resolve an unrecorded mode to extractive");
   assert.match(appSrc, /synthesisMode: data\.synthesisMode \|\| "extractive"/,
     "the turn default for a missing mode must be extractive");
   assert.ok(!/synthesisMode: data\.synthesisMode \|\| "ai"/.test(appSrc),

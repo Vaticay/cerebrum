@@ -4140,7 +4140,7 @@ function renderFlashpointClaim(text, P) {
 function buildEvidenceMap(factCheck, disagreementVerdict) {
   const claims = (factCheck && factCheck.claims) || [];
   if (!claims.length && !disagreementVerdict) return null;
-  const statusRank = { unsupported: 0, thin: 1, partly: 1, supported: 2 };
+  const statusRank = { unsupported: 0, thin: 1, partly: 1, traced: 1, supported: 2 };
   return (paraText, paraCites) => {
     let best = null;
     let bestRank = -1;
@@ -4181,6 +4181,19 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
       // disagreement verdict renders separately with its full summary.
       return {
         weight: 500, cls: "cb-ev-established", status: "supported",
+        label: null,
+        labelTone: null,
+      };
+    }
+    if (best.status === "traced") {
+      // A provenance trace (the extractive wording check): the
+      // paragraph's wording was traced to the paper it cites, which
+      // is a statement about copying, not verification. It carries
+      // its own status through to the stamp — never the supported
+      // branch above, whose glyph and tone would present the trace
+      // as a verified claim.
+      return {
+        weight: 500, cls: "cb-ev-established", status: "traced",
         label: null,
         labelTone: null,
       };
@@ -4479,12 +4492,13 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
        which claims are traced and which need a closer look. Shape plus
        color, never color alone. */
     const stampGlyph = ev && ev.status === "supported" ? "verdictSupported"
-      : ev && (ev.status === "thin" || ev.status === "partly") ? "verdictMixed"
+      : ev && (ev.status === "thin" || ev.status === "partly" || ev.status === "traced") ? "verdictMixed"
       : ev && ev.status === "unsupported" ? "verdictContradicted" : null;
     const stampTone = ev && ev.status === "supported" ? statusGood(P)
-      : ev && (ev.status === "thin" || ev.status === "partly") ? statusWarn(P)
+      : ev && (ev.status === "thin" || ev.status === "partly" || ev.status === "traced") ? statusWarn(P)
       : ev && ev.status === "unsupported" ? statusBad(P) : null;
     const stampLabel = ev && ev.status === "supported" ? "traced to cited paper"
+      : ev && ev.status === "traced" ? "Traced to the cited paper's wording"
       : ev && (ev.status === "thin" || ev.status === "partly") ? "thin evidence"
       : ev && ev.status === "unsupported" ? "needs source" : null;
     return (
@@ -4611,7 +4625,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
    it buys them. The percentage is gone in both: 3 of 3 shown as "100%" is a
    word-match rate with a denominator of three dressed up as a verdict. */
 function FactCheck({ fc, P, accent }) {
-  const colors = { supported: statusGood(P), partly: statusWarn(P), unsupported: statusBad(P), thin: statusWarn(P) };
+  const colors = { supported: statusGood(P), partly: statusWarn(P), unsupported: statusBad(P), thin: statusWarn(P), traced: statusWarn(P) };
   const claims = fc.claims || [];
   const isTerms = fc.mode === "terms";
   // NEXT-GEN: the deterministic (no-AI) path ships a mechanical vocabulary-
@@ -4620,9 +4634,17 @@ function FactCheck({ fc, P, accent }) {
   const isExtractive = fc.mode === "extractive";
   const nThin = claims.filter((c) => c.status === "thin").length;
   const nUns = claims.filter((c) => c.status === "unsupported").length;
-  const nSup = claims.filter((c) => c.status === "supported").length;
+  // The pass status follows the check's kind (2026-10-14, seventh
+  // panel, wave eight round two): a verification passes a claim as
+  // "supported"; the extractive wording trace passes it as
+  // "traced", and its claims never carry "supported". Counting a
+  // traced claim as flagged would present every clean trace as a
+  // failure; counting it as supported would present a trace as
+  // verification. nPass counts whichever word this check passes by.
+  const passStatus = isExtractive ? "traced" : "supported";
+  const nPass = claims.filter((c) => c.status === passStatus).length;
   const total = claims.length;
-  const flagged = claims.filter((c) => c.status !== "supported");
+  const flagged = claims.filter((c) => c.status !== passStatus);
   const allClear = flagged.length === 0;
   const [open, setOpen] = useState(false);
 
@@ -4751,15 +4773,15 @@ function FactCheck({ fc, P, accent }) {
         <span style={{ fontSize: FONT_SIZES.small, fontWeight: 600, color: oc, fontFamily: "var(--cb-font)", lineHeight: 1.4, minWidth: 0, overflowWrap: "anywhere" }}>{headline}</span>
       </div>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginBottom: 4 }}>{why}</div>
-      {nSup > 0 && (
+      {nPass > 0 && (
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
           {/* "The other 1 claim" reads like a typo. English wants the bare
               noun when there is exactly one of it. */}
           {isExtractive
-            ? (nSup === 1 ? "The other claim matched its cited paper." : `The other ${nSup} claims matched their cited papers.`)
+            ? (nPass === 1 ? "The other claim matched its cited paper." : `The other ${nPass} claims matched their cited papers.`)
             : isTerms
-            ? (nSup === 1 ? "The other name checked out." : `The other ${nSup} names checked out.`)
-            : (nSup === 1 ? "The other claim traced to a source cleanly." : `The other ${nSup} claims traced to a source cleanly.`)}
+            ? (nPass === 1 ? "The other name checked out." : `The other ${nPass} names checked out.`)
+            : (nPass === 1 ? "The other claim traced to a source cleanly." : `The other ${nPass} claims traced to a source cleanly.`)}
         </div>
       )}
 
@@ -4774,7 +4796,7 @@ function FactCheck({ fc, P, accent }) {
             <span style={{ color: cc, flexShrink: 0, display: "flex", marginTop: 1 }}><Icon name={rowGlyph} size={20} /></span>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: cc, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
-                {c.status === "unsupported" ? "Unsupported" : c.status === "thin" ? "Thin evidence" : "Partly backed"}
+                {c.status === "unsupported" ? "Unsupported" : c.status === "thin" ? "Thin evidence" : c.status === "traced" ? "Traced to the cited paper's wording" : "Partly backed"}
               </div>
               <div style={{ fontSize: FONT_SIZES.small, color: P.ink, lineHeight: 1.5, fontFamily: "var(--cb-font)", fontWeight: 500, overflowWrap: "anywhere" }}>{c.claim}</div>
               {c.note && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 3, lineHeight: 1.55, overflowWrap: "anywhere" }}>{c.note}</div>}

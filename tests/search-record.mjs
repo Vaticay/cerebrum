@@ -685,14 +685,19 @@ const BAKED_STORED_ANSWER =
   "- 3 more papers were found but withheld: they didn't clear the relevance bar for this question.\n\n" +
   "## What would change this\n\n" +
   "- A direct replication in a second cohort.\n";
+// The stored fact check carries the vocabulary a payload stored
+// under current rules carries (wave eight round two): the trace's
+// claims are "traced" and its overall is "traced" — the builder
+// only asks the object's kind, so this fixture doubles as the
+// record of what the corrected producer writes.
 const STORED_PROVENANCE_CHECK = {
   mode: "extractive",
   checkKind: "provenance",
   checked: true,
-  overall: "supported",
+  overall: "traced",
   claims: Array.from({ length: 7 }, (_, i) => ({
     claim: "Stored claim " + (i + 1),
-    status: i < 6 ? "supported" : "thin",
+    status: i < 6 ? "traced" : "thin",
     note: "The claim's wording traces to the cited paper's title/abstract.",
   })),
 };

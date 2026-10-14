@@ -216,6 +216,11 @@ export function annotateEras(eras, opts = {}) {
         if (Number.isFinite(y) && (era.claimFirstYear === null || y < era.claimFirstYear)) era.claimFirstYear = y;
       }
     }
+    // Only a verification's "supported" counts toward the
+    // convergence read. A provenance claim's "traced" status (the
+    // extractive wording trace) is not support and never feeds
+    // this total — the era claimCount above counts claims of any
+    // status, but the share below is supported claims only.
     if (c.status === "supported" && erasHit.length > 0) {
       supportedTotal += 1;
       if (erasHit.includes(newest)) supportedRecent += 1;
@@ -415,7 +420,11 @@ export function extractOpenQuestions(answer, factCheck, sources, selfReasoning) 
    Deterministic, no invention: every paper lands in exactly one region
    from signals already on the turn.
 
-     agree    — cited by a fact-check claim with status "supported"
+     agree    — cited by a fact-check claim with status "supported",
+                or by a provenance trace claim with status "traced"
+                (the answer's wording comes from that paper; a trace
+                is not a verification, and no supported-claims count
+                anywhere includes it — placement only)
      disagree — cited inside the disagreement section, or by a claim
                 with status "contradicted", "thin", or "unsupported"
      middle   — cited by a "partly"/mixed claim, or cited on BOTH sides
@@ -450,7 +459,7 @@ export function classifyVennPapers({ answer, sources, factCheck, conflicts }) {
     const idx = extractCitedIndices(String(c.claim || "") + " " + String(c.note || ""), n);
     const st = String(c.status || "").toLowerCase();
     for (const i of idx) {
-      if (st === "supported") { agree.add(i); fcPlaced.add(i); }
+      if (st === "supported" || st === "traced") { agree.add(i); fcPlaced.add(i); }
       else if (st === "contradicted" || st === "thin" || st === "unsupported") { disagree.add(i); fcPlaced.add(i); }
       else if (st === "partly" || st === "mixed") { middle.add(i); fcPlaced.add(i); }
     }
