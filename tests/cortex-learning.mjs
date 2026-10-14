@@ -69,6 +69,7 @@ const WANTED = [
   "FLIP_WORDS", "flipDirection", "scaleNumberIn", "mutatedVariants", "nearestClaims",
   "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",
   "moveFrontClause", "rotateMidClause", "restateClaim", "withinOptionBand",
+  "shuffledOptionsForCard",
   "quizCard", "clozeCard",
   "VOCAB_STOP", "extractVocab", "vocabCard",
   "loadJSON", "saveJSON", "loadClaims", "saveClaims", "createCourseFromResults",
@@ -116,6 +117,7 @@ const {
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
   applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf, normKey,
   hasAttributionShape, createCourseFromResults, looksLikeFragment,
+  hashStr, seededShuffle, shuffledOptionsForCard,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -1215,6 +1217,61 @@ await test("a course built from a mixed answer carries no attribution anywhere",
   }
 });
 
+await test("the attribution screen also catches yearless shapes and pre 1900 years", () => {
+  // The fifth panel's second leak (2026-10-14): the screen only
+  // rejected year carrying shapes, so "Smith found that...",
+  // "According to Smith, ...", "Smith & Jones found that...", and
+  // "Darwin (1859) proposed..." (a pre 1900 year escapes both old
+  // year regexes) all flowed into built courses.
+  assert.equal(hasAttributionShape("Smith found that adults who slept under six hours caught colds far more often."), true);
+  assert.equal(hasAttributionShape("Smith & Jones found that short sleep raised next day sleepiness scores."), true);
+  assert.equal(hasAttributionShape("Smith and Jones reported that short sleep raised next day sleepiness scores."), true);
+  assert.equal(hasAttributionShape("According to Smith, adults who slept under six hours caught colds far more often."), true);
+  assert.equal(hasAttributionShape("Darwin (1859) proposed that species change over time as environments change."), true);
+  assert.equal(hasAttributionShape("Darwin proposed that species change over time as environments change."), true);
+  assert.equal(hasAttributionShape("Garcia discovered that a short nap improved memory scores in older adults."), true);
+  // The fragment guard alone admits the yearless shapes too; only
+  // the widened screen keeps them out of the claim pool.
+  assert.equal(looksLikeFragment("Smith found that adults who slept under six hours caught colds far more often over the following winter months."), false);
+  assert.equal(looksLikeFragment("Darwin (1859) proposed that species change slowly over generations as the world around them changes."), false);
+});
+
+await test("near miss statements with no attribution shape stay admitted", () => {
+  // The false positive bar: plain taught statements with
+  // capitalised sentence starts and common nouns must still pass.
+  // A name used as a topic word, with no speech or discovery verb,
+  // no year, and no According opener, is legitimate teaching text
+  // (a concept's namesake is a topic, not an attribution), and the
+  // screen admits it on purpose; that is the documented line.
+  assert.equal(hasAttributionShape("Sleep consolidates memories formed during the day."), false);
+  assert.equal(hasAttributionShape("Darwin's finches differ from island to island in the shape of their beaks."), false);
+  assert.equal(hasAttributionShape("Adults who slept under six hours showed a higher rate of infection."), false);
+  assert.equal(hasAttributionShape("Results showed higher infection rates after short sleep in the trial cohort."), false);
+  assert.equal(hasAttributionShape("Sleep loss raised next day sleepiness scores by 41% in a crossover trial of medical residents."), false);
+});
+
+const YEARLESS_LEAK_MD = `## Summary
+
+Smith found that adults who slept under six hours caught colds far more often over the following winter months. [1]
+According to Smith, short sleep doubles the chance of catching a cold over the following winter months. [1]
+Darwin (1859) proposed that species change slowly over generations as the world around them changes. [2]
+Adults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more. [1]
+Sleep loss raised next day sleepiness scores by 41% in a crossover trial of medical residents working overnight shifts in a teaching hospital. [2]
+Compared with a placebo group, volunteers taking the supplement showed reaction times that were 12% faster after eight weeks of daily use. [1]
+Dream reports gathered after awakenings from rapid eye movement sleep carried more emotional content than reports from deep sleep in the same night. [2]
+`;
+
+await test("a course built from a yearless attribution answer carries neither name anywhere", () => {
+  const claims = extractClaims(YEARLESS_LEAK_MD);
+  assert.deepEqual([...claims.map((c) => c.text)], CLEAN_CLAIMS,
+    "a yearless leaky sentence reached the claim pool, or a clean one was lost");
+  const course = createCourseFromResults("how sleep affects health", LEAK_SOURCES, YEARLESS_LEAK_MD);
+  assert.ok(course, "the clean claims should still build a course");
+  const blob = JSON.stringify({ title: course.title, lessons: course.lessons, vocab: course.vocab });
+  assert.ok(!/Smith|Darwin/.test(blob), "a yearless attribution name reached the built course");
+  assert.ok(!/1859/.test(blob), "a pre 1900 citation year reached the built course");
+});
+
 const LONE_CLAIM = { text: "Exposure to bright morning light helps older adults fall asleep quickly at night and wake refreshed, with steadier energy through the day and a body clock that keeps its rhythm across the seasons, while dim indoor light leaves sleep shallow and broken.", sourceIdx: 1 };
 
 await test("quizCard drops the card when no in band option set exists", () => {
@@ -1430,6 +1487,31 @@ await test("topic quizzes are real quizzes: four fresh options, in band, none op
   }
 });
 
+await test("learning path quizzes meet the same length band the topics are held to", () => {
+  // The topic standard, applied to the 45 authored path quizzes
+  // (2026-10-14 panel): 14 spread wider than max to min 3, and in
+  // 16 the correct option had no distractor within 0.6 to 1.67 of
+  // its length, so length alone named the answer there too.
+  const pathCards = [];
+  for (const p of LEARNING_PATHS) {
+    for (const lesson of flattenPathLessons(p)) {
+      for (const card of lesson.cards) if (card.kind === "quiz") pathCards.push({ path: p, card });
+    }
+  }
+  assert.equal(pathCards.length, 45, `expected 45 path quizzes, found ${pathCards.length}`);
+  for (const { path, card } of pathCards) {
+    assert.equal(card.options.length, 4, `${path.title}: "${String(card.question).slice(0, 40)}" has ${card.options.length} options`);
+    const keys = card.options.map(normKey);
+    assert.equal(new Set(keys).size, keys.length, `${path.title}: duplicate option text in "${String(card.question).slice(0, 40)}"`);
+    const lens = card.options.map((o) => o.length);
+    const ref = lens[card.correct];
+    assert.ok(Math.max(...lens) <= Math.min(...lens) * 3,
+      `${path.title}: option lengths spread too wide in "${String(card.question).slice(0, 40)}": ${lens.join(", ")}`);
+    assert.ok(card.options.some((o, i) => i !== card.correct && o.length >= ref * 0.6 && o.length <= ref * 1.67),
+      `${path.title}: the correct option stands alone by length in "${String(card.question).slice(0, 40)}"`);
+  }
+});
+
 await test("the learning flow carries no paper machinery at all", () => {
   assert.ok(!learnSrc.includes("THE FINDING"), "the feedback sheet still has a finding label");
   assert.ok(!learnSrc.includes("FROM THE LITERATURE"), "a reading card label survived");
@@ -1441,6 +1523,148 @@ await test("the learning flow carries no paper machinery at all", () => {
   assert.ok(!learnSrc.includes("function shortCite"), "the dead citation formatter survived");
   assert.ok(!learnSrc.includes("function formatYearValue"), "the dead year formatter survived");
   assert.ok(!learnSrc.includes("function citeCountOf"), "the dead citation counter survived");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Authored positions: the Player shuffle, not authored order");
+
+/* The fifth panel's severe Cortex finding (2026-10-14): authored
+   correct answers sit at index 1 in 37 of 45 path quizzes and 183
+   of 192 topic quizzes, and never at index 3, and authored options
+   rendered in authored order. The Player now shuffles per attempt
+   through shuffledOptionsForCard; these pins run that same helper
+   with the Player's own seed shape (the card's question hash, the
+   mount salt, and the attempt counter) over several salts and
+   attempts, and require the displayed positions to spread. */
+const playerSeedFor = (card, salt, attempt) =>
+  hashStr(card.question || card.statement || card.prompt || "") + 59 + salt + attempt * 131;
+const PLAYER_SALTS = [7, 12345, 99991];
+const PLAYER_ATTEMPTS = [0, 1, 2, 3, 4, 5, 6, 7];
+
+await test("shuffledOptionsForCard remaps the correct marker and keeps the option set", () => {
+  const sample = [
+    ...allCards.filter((c) => c.kind === "quiz"),
+    ...topicCardsFlat.map((x) => x.card).filter((c) => c.kind === "quiz" || c.kind === "truefalse"),
+  ];
+  assert.ok(sample.length > 200, `position sample too small: ${sample.length}`);
+  for (const card of sample) {
+    for (const salt of PLAYER_SALTS) {
+      for (const attempt of [0, 3]) {
+        const out = shuffledOptionsForCard(card, playerSeedFor(card, salt, attempt));
+        assert.ok(out, "a readable option card produced no shuffle");
+        assert.deepEqual([...out.options].sort(), [...card.options].sort(),
+          "the shuffle changed the option set itself");
+        assert.equal(out.options[out.correct], card.options[card.correct],
+          "the remapped correct marker no longer points at the correct option");
+      }
+    }
+  }
+  assert.equal(shuffledOptionsForCard({ kind: "quiz", options: ["only"], correct: 0 }, 5), null,
+    "a one option card should produce no shuffle");
+  assert.equal(shuffledOptionsForCard({ kind: "note", text: "x" }, 5), null,
+    "a card with no options should produce no shuffle");
+});
+
+await test("authored quiz positions spread under the Player shuffle, in both sets", () => {
+  // Stated share: no displayed index may hold more than 40 percent
+  // of positions (uniform would be 25), and every index must be
+  // used. Authored order itself sits at 82 to 95 percent on index
+  // 1 and never uses index 3, so this pin fails on the old render.
+  for (const [label, sets] of [["learning paths", LEARNING_PATHS], ["topic courses", TOPIC_COURSES]]) {
+    const quizzes = [];
+    for (const p of sets) {
+      for (const lesson of flattenPathLessons(p)) {
+        for (const card of lesson.cards) if (card.kind === "quiz") quizzes.push(card);
+      }
+    }
+    const dist = [0, 0, 0, 0];
+    let total = 0;
+    for (const card of quizzes) {
+      for (const salt of PLAYER_SALTS) {
+        for (const attempt of PLAYER_ATTEMPTS) {
+          dist[shuffledOptionsForCard(card, playerSeedFor(card, salt, attempt)).correct]++;
+          total++;
+        }
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      assert.ok(dist[i] > 0, `${label}: displayed index ${i} is never used`);
+      assert.ok(dist[i] / total <= 0.4,
+        `${label}: displayed index ${i} holds ${(dist[i] / total * 100).toFixed(1)} percent of ${total} positions`);
+    }
+  }
+});
+
+await test("authored true or false positions spread under the Player shuffle, in both sets", () => {
+  for (const [label, sets] of [["learning paths", LEARNING_PATHS], ["topic courses", TOPIC_COURSES]]) {
+    const cards = [];
+    for (const p of sets) {
+      for (const lesson of flattenPathLessons(p)) {
+        for (const card of lesson.cards) if (card.kind === "truefalse") cards.push(card);
+      }
+    }
+    const dist = [0, 0];
+    let total = 0;
+    for (const card of cards) {
+      for (const salt of PLAYER_SALTS) {
+        for (const attempt of PLAYER_ATTEMPTS) {
+          const out = shuffledOptionsForCard(card, playerSeedFor(card, salt, attempt));
+          assert.equal(out.options[out.correct], card.answer ? "True" : "False",
+            "the true or false remap lost the answer");
+          dist[out.correct]++;
+          total++;
+        }
+      }
+    }
+    for (let i = 0; i < 2; i++) {
+      assert.ok(dist[i] > 0, `${label}: true or false index ${i} is never used`);
+      assert.ok(dist[i] / total <= 0.65,
+        `${label}: true or false index ${i} holds ${(dist[i] / total * 100).toFixed(1)} percent of ${total} positions`);
+    }
+  }
+});
+
+await test("the Player renders option cards through the shuffle, not authored order", () => {
+  assert.ok(learnSrc.includes("shuffledOptionsForCard(card,"), "the Player does not compute its display order through shuffledOptionsForCard");
+  assert.ok(learnSrc.includes("picked === displayCorrect"), "the Player's verdict does not read the remapped correct marker");
+  assert.ok(learnSrc.includes("(displayOptions || []).map((opt, i)"), "quiz and cloze options do not render in display order");
+  assert.ok(learnSrc.includes('(displayOptions || ["True", "False"]).map((label, i)'), "true or false options do not render in display order");
+  assert.ok(learnSrc.includes("displayOptions[picked]"), "the feedback sheet does not name the option the learner actually picked");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("True or false balance and build error language");
+
+await test("topic true or false cards run within 40 to 60 percent true", () => {
+  // Before the rebalance (2026-10-14 panel): 13 true to 35 false,
+  // so guessing False scored about 73 percent.
+  const cards = topicCardsFlat.map((x) => x.card).filter((c) => c.kind === "truefalse");
+  assert.equal(cards.length, 48, `expected 48 topic true or false cards, found ${cards.length}`);
+  const trues = cards.filter((c) => c.answer === true).length;
+  const share = trues / cards.length;
+  assert.ok(share >= 0.4 && share <= 0.6,
+    `topic true or false runs ${trues} true of ${cards.length} (${(share * 100).toFixed(0)} percent), outside 40 to 60`);
+});
+
+await test("build error strings speak plain product language, with no paper machinery", () => {
+  // The learner facing build errors still named the removed paper
+  // machinery (2026-10-14 panel): "cited findings" for a short
+  // build and "literature databases" for a busy service. The scan
+  // covers every setBuildError string literal in the component,
+  // so the class is pinned, not just the two sentences.
+  const literals = [...learnSrc.matchAll(/setBuildError\("([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(literals.length >= 4, `expected at least 4 build error strings, found ${literals.length}`);
+  for (const lit of literals) {
+    assert.ok(!/\bpaper(s)?\b|\bfinding(s)?\b|\bliterature\b|\bcitation(s)?\b|\bcited\b|\bdatabase(s)?\b/i.test(lit),
+      `a build error still names the paper machinery: ${lit}`);
+    assert.ok(!lit.includes("-") && !lit.includes("—") && !lit.includes("–"), `a dash in a build error: ${lit}`);
+  }
+  assert.ok(learnSrc.includes('setBuildError("Not enough solid material on this topic yet to build a course. Try a broader topic.")'),
+    "the short build error is not the plain product sentence");
+  assert.ok(learnSrc.includes('setBuildError("The service is busy right now. Wait a minute and try again.")'),
+    "the busy service error is not the plain product sentence");
+  assert.ok(!learnSrc.includes("did not return enough cited findings"), "the old cited findings error survived");
+  assert.ok(!learnSrc.includes("literature databases are rate limiting"), "the old literature databases error survived");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

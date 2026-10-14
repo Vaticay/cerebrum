@@ -383,6 +383,30 @@ function seededShuffle(arr, seed) {
   }
   return out;
 }
+/* Authored quiz options used to render in authored order, and the
+   authored sets park the correct answer at index 1 almost every
+   time (37 of 45 path quizzes, 183 of 192 topic quizzes, never at
+   index 3), so position alone named the answer. The Player now
+   shuffles the options of every option card it renders (quiz,
+   cloze, and true or false, authored and generated alike) per
+   attempt, through this helper: the seeded shuffle above applied
+   to the option indices, with the correct marker remapped to the
+   correct option's new home. The authored data itself is never
+   rewritten; the display order is a Player concern, salted per
+   mount and per attempt like the match and order shuffles, so a
+   retry never repeats the layout just memorised. Returns null for
+   cards that carry no readable option set, so callers fall back
+   to the card as written. */
+export function shuffledOptionsForCard(card, seed) {
+  if (!card || !Array.isArray(card.options) || card.options.length < 2) return null;
+  if (!Number.isInteger(card.correct) || card.correct < 0 || card.correct >= card.options.length) return null;
+  const indices = seededShuffle(card.options.map((_, i) => i), seed);
+  return {
+    options: indices.map((i) => card.options[i]),
+    correct: indices.indexOf(card.correct),
+    indices,
+  };
+}
 /* The lesson Player is a modal layer, so Tab must cycle inside it
    instead of leaking to the page behind. Given how many focusable
    controls the shell holds, which one currently has focus (its index
@@ -438,7 +462,9 @@ function looksLikeFragment(text) {
 
 /* A sentence can be a clean, complete finding and still carry its
    citation on its face: "Smith et al. (2023) found...", "Jones and
-   Lee (2021) reported...", "(Garcia, 2020)". Taught text states
+   Lee (2021) reported...", "(Garcia, 2020)", and the yearless
+   shapes "Smith found that...", "According to Smith, ...", and
+   "Darwin (1859) proposed...". Taught text states
    ideas in plain words; it never names who reported them, so any
    sentence wearing an author citation shape is screened out of the
    claim pool entirely, not trimmed. Taught text also carries no
@@ -449,10 +475,46 @@ function looksLikeFragment(text) {
 function hasAttributionShape(text) {
   if (/\bet al\.?\b/i.test(text)) return true;
   // Name directly before a parenthesised year: "Smith (2023)",
-  // "Smith and Jones (2023)", "Smith, Jones (2023)".
-  if (/\b[A-Z][A-Za-z'’-]+(?:\s*(?:,|and|&)\s*[A-Z][A-Za-z'’-]+)*\s*\(\s*(?:19|20)\d{2}/.test(text)) return true;
-  // Parenthetical citation: "(Smith, 2023)", "(Smith et al., 2023)".
-  if (/\(\s*[A-Z][A-Za-z .&'’-]*,?\s*(?:19|20)\d{2}[a-z]?\s*\)/.test(text)) return true;
+  // "Smith and Jones (2023)", "Smith, Jones (2023)", and the same
+  // shape in any century a citation can carry, "Darwin (1859)".
+  if (/\b[A-Z][A-Za-z'’-]+(?:\s*(?:,|and|&)\s*[A-Z][A-Za-z'’-]+)*\s*\(\s*(?:15|16|17|18|19|20)\d{2}/.test(text)) return true;
+  // Parenthetical citation: "(Smith, 2023)", "(Smith et al., 2023)",
+  // "(Darwin, 1859)".
+  if (/\(\s*[A-Z][A-Za-z .&'’-]*,?\s*(?:15|16|17|18|19|20)\d{2}[a-z]?\s*\)/.test(text)) return true;
+  // "According to <Name>" openers, with or without a year anywhere:
+  // "According to Smith, short sleep doubles infection rates."
+  if (/\bAccording to\s+[A-Z][A-Za-z'’-]+(?:\s*(?:,|and|&)\s*[A-Z][A-Za-z'’-]+)*/.test(text)) return true;
+  // A name, or a name pair joined by &, "and", or a comma, directly
+  // governing a speech or discovery verb, with no year needed:
+  // "Smith found that...", "Smith & Jones found that...",
+  // "Darwin proposed that...". A single capitalised word that is a
+  // common sentence opening noun (Sleep, Results, Adults, and the
+  // like) governing the same verb is plain teaching, not a named
+  // attribution, and stays admitted; the guard list below is what
+  // holds that line. A bare name used as a topic word, with no
+  // such verb, no year, and no According opener, is also admitted:
+  // teaching may name a topic ("Darwin's finches live on islands")
+  // without attributing a finding to anyone.
+  const ATTRIBUTION_VERBS = "found|showed|reported|proposed|discovered|demonstrated|argued|concluded|observed|noted";
+  const NAME_SEQ = "[A-Z][A-Za-z'’-]+(?:\\s*(?:,|and|&)\\s*[A-Z][A-Za-z'’-]+)*";
+  const nameVerbRe = new RegExp("\\b(" + NAME_SEQ + ")\\s+(?:" + ATTRIBUTION_VERBS + ")\\b", "g");
+  const COMMON_SUBJECTS = new Set([
+    "the", "this", "that", "these", "those", "it", "they", "we", "he", "she", "there",
+    "sleep", "results", "result", "findings", "data", "studies", "study", "adults", "children",
+    "volunteers", "participants", "patients", "people", "research", "evidence", "treatment",
+    "exercise", "memory", "attention", "light", "water", "air", "blood", "pain", "dreams", "dream",
+    "smell", "taste", "gravity", "heat", "cold", "music", "reading", "practice", "training",
+    "fasting", "diet", "work", "play", "rest", "stress", "illness", "disease", "infection",
+    "temperature", "pressure", "weight", "growth", "time", "cells", "genes", "bacteria",
+    "plants", "animals", "students", "teachers", "doctors", "parents", "men", "women",
+    "group", "groups", "team", "teams", "analysis", "trial", "experiment", "review",
+  ]);
+  let nv;
+  while ((nv = nameVerbRe.exec(text)) !== null) {
+    const parts = nv[1].split(/\s*(?:,|&|\band\b)\s*/).filter(Boolean);
+    if (parts.length === 1 && COMMON_SUBJECTS.has(parts[0].toLowerCase())) continue;
+    return true;
+  }
   // Any remaining year token: taught text states no years.
   if (/\b(?:19|20)\d{2}\b/.test(text)) return true;
   return false;
@@ -1286,7 +1348,7 @@ export const LEARNING_PATHS = [
               mkNote("Key idea", "A hypothesis is a careful guess",
                 "A hypothesis is a possible answer stated clearly enough to be tested. It is more than a hunch. It says what you expect to happen, and what you expect not to happen, before the test begins."),
               mkQuiz("Which of these is a hypothesis?",
-                ["Plants are wonderful.", "Fertilizer will make these tomato plants grow taller than plants without it.", "Maybe something will happen.", "Science is hard."],
+                ["Plants are wonderful to look at in spring.", "Fertilizer will make these tomato plants grow taller than plants without it.", "Maybe something interesting will happen at some point soon.", "Science is hard for everyone at first."],
                 1,
                 "The fertilizer statement predicts a result that a test can confirm or rule out. The others are feelings or maybes, and a test cannot touch them."),
               mkOrder("Put the steps of a simple investigation in order.",
@@ -1296,7 +1358,7 @@ export const LEARNING_PATHS = [
                 false,
                 "A wrong hypothesis still teaches something real: that explanation is not the one. Ruling out wrong answers is progress, not failure."),
               mkQuiz("Why do scientists write the hypothesis down before the test?",
-                ["To make the report longer", "So the prediction cannot be quietly changed after the results arrive", "Because journals like long documents", "To impress other scientists"],
+                ["To make the report much longer", "So the prediction cannot be quietly changed after the results arrive", "Because journals like long and detailed documents", "To impress other scientists with careful work"],
                 1,
                 "Writing it first keeps everyone honest. A prediction invented after seeing the results is not a prediction at all."),
               mkDeepen("Go deeper: a strong hypothesis is written down before the test begins, in words sharp enough to be proven wrong. A guess that can survive every possible result predicts nothing at all. The sharper the prediction, the more a passing test actually teaches you."),
@@ -1316,7 +1378,7 @@ export const LEARNING_PATHS = [
                 [["Claim", "A statement that could be true or false"], ["Data", "Measurements and observations you collect"], ["Anecdote", "A single story about what happened once"], ["Conclusion", "What the evidence points to, in the end"]],
                 "Claims are cheap. Data is what you gather. A conclusion is what the data supports once you have it."),
               mkQuiz("Which is the strongest evidence that a new medicine works?",
-                ["A famous actor says it helped him", "One patient felt better after taking it", "A large study where similar patients took the medicine or a dummy pill, and more of the medicine group recovered", "The company that sells it says it works"],
+                ["A famous actor says it helped him feel much better", "One patient felt better after taking it for a week, and told all his friends about it", "A large study where similar patients took the medicine or a dummy pill, and more of the medicine group recovered", "The company that sells it says it works very well"],
                 2,
                 "Big groups and fair comparisons win. A single story can be luck, and a seller has a reason to praise the product."),
               mkTrueFalse("One personal story can be true and still be weak evidence.",
@@ -1335,7 +1397,7 @@ export const LEARNING_PATHS = [
               mkNote("Key idea", "Once is a hint, twice is a pattern",
                 "A single study can be a fluke, a mistake, or plain luck. When other scientists repeat the test and get the same result, confidence grows. Science trusts results that survive repetition, not results that happened once."),
               mkQuiz("A study finds a surprising result. What should happen next?",
-                ["It becomes fact forever", "Other scientists try to repeat it and check the result", "It is kept secret", "The scientists celebrate and stop"],
+                ["It becomes fact forever", "Other scientists try to repeat it and check the result", "It is kept secret from everyone", "The scientists celebrate and stop"],
                 1,
                 "Surprising results get the most checking, not the least. Repetition by other teams is how a result earns trust."),
               mkTrueFalse("Before a study is published in a good journal, other scientists usually read it and look for problems.",
@@ -1372,7 +1434,7 @@ export const LEARNING_PATHS = [
                 false,
                 "Usually you cannot. When two things change together, either one could explain the outcome, and the test cannot separate them. That is why scientists change one thing at a time."),
               mkQuiz("Why do scientists keep a control group in a test?",
-                ["To use up extra materials", "To see what happens when the one change is missing", "To make the test take longer", "To impress the reviewers"],
+                ["To use up extra materials", "To see what happens when the one change is missing", "To make the test take much longer", "To impress the reviewers"],
                 1,
                 "The control group is the comparison. Without it, there is nothing to measure the changed group against, and any result could have happened anyway."),
               mkDeepen("Go deeper: the control group is where fair tests are won or lost. Change one thing, keep everything else the same, and any difference in the outcome points at your one change. Let two things change at once and you will never know which one did the work."),
@@ -1419,7 +1481,7 @@ export const LEARNING_PATHS = [
               mkNote("The big idea", "A pump that never clocks out",
                 "Your heart is a muscle about the size of your fist. It squeezes about once a second, all day and all night, pushing blood around your body. Each squeeze sends blood out carrying oxygen and food, and welcomes back blood the body is done with."),
               mkQuiz("What does blood carry to the cells of your body?",
-                ["Only water", "Oxygen and nutrients", "Electricity", "Bones"],
+                ["Only water and salts", "Oxygen and nutrients", "Electric signals", "Solid bones"],
                 1,
                 "Blood is the delivery system. It brings oxygen and nutrients to every cell and carries waste products away."),
               mkMatch("Match each part to its job.",
@@ -1451,7 +1513,7 @@ export const LEARNING_PATHS = [
                 [["Plasma", "The liquid part of blood"], ["Red blood cells", "Carry oxygen around the body"], ["White blood cells", "Hunt and destroy germs"], ["Platelets", "Help blood clot when you are cut"]],
                 "One liquid, three crews: carriers, defenders, and repairers."),
               mkQuiz("Why does blood look red?",
-                ["Food dyes it red", "Red cells hold an iron rich protein that turns bright red when it carries oxygen", "It reflects the color of skin", "It is always hot"],
+                ["The food you eat dyes it red", "Red cells hold an iron rich protein that turns bright red when it carries oxygen", "It reflects the color of the skin and the light shining through it", "It stays hot from the beating heart"],
                 1,
                 "The protein is called hemoglobin. The iron at its center binds oxygen, and hemoglobin loaded with oxygen is bright red."),
               mkDeepen("Go deeper: blood looks like one red liquid, but it is a fleet of specialists. Some cells carry oxygen, some fight invaders, some patch leaks, and the watery part hauls food, warmth, and messages. One small tube of it can tell a doctor an astonishing amount about the whole body."),
@@ -1468,7 +1530,7 @@ export const LEARNING_PATHS = [
               mkNote("The big idea", "Your wiring",
                 "Your nervous system is a network of long thin cells called neurons. They carry tiny electrical signals from your senses to your brain, and back out to your muscles. That round trip is how you can catch a ball you barely saw moving."),
               mkQuiz("What carries messages around your body?",
-                ["Bones", "Neurons", "Only blood cells", "Hair"],
+                ["Bones", "Neurons", "Blood cells", "Hair strands"],
                 1,
                 "Neurons are the wiring. Signals travel along them as small pulses of electricity, then jump to the next cell as chemical messages."),
               mkOrder("Put the steps of catching a ball in order.",
@@ -1478,7 +1540,7 @@ export const LEARNING_PATHS = [
                 false,
                 "Brain tissue has no pain sensors of its own. Headaches come from the blood vessels and membranes around the brain, not from the brain itself."),
               mkQuiz("A reflex, like pulling your hand off a hot pan, is fast because...",
-                ["the signal takes a shortcut through the spinal cord", "your hand is brave", "hot things glow", "the brain works slowly on purpose"],
+                ["the signal takes a shortcut through the spinal cord", "your hand is brave", "hot things glow brightly", "the brain works slowly on purpose"],
                 0,
                 "Many reflex signals loop through the spinal cord and straight back to the muscle, without waiting for the brain to decide."),
               mkDeepen("Go deeper: reaction time is not one speed but a chain: sensing, deciding, and moving, and each link can be trained on its own. That is why a sprinter practices the start, a goalkeeper practices reading the kick, and you get faster at a game the more you play it."),
@@ -1490,7 +1552,7 @@ export const LEARNING_PATHS = [
               mkNote("The big idea", "Your senses report, your brain decides",
                 "Your eyes and ears gather raw signals, but your brain builds what you actually experience. That is why optical illusions work. The brain uses shortcuts to make sense of the signals, and shortcuts can be fooled."),
               mkQuiz("In an optical illusion, the mistake happens mostly in...",
-                ["the page", "the brain, as it interprets the signals", "the light", "your hands"],
+                ["the printed page you look at", "the brain, as it interprets the signals", "the light in the room", "your hands holding it"],
                 1,
                 "The eyes report honestly. The brain guesses what the signals mean, and an illusion is a case where the guess is wrong."),
               mkTrueFalse("Two people can taste the same food differently.",
@@ -1500,7 +1562,7 @@ export const LEARNING_PATHS = [
                 [["Sight", "Light entering the eyes"], ["Hearing", "Vibrations reaching the ears"], ["Smell", "Tiny particles landing in the nose"], ["Touch", "Pressure, heat, and cold felt by the skin"]],
                 "Five senses, five kinds of signal, one brain putting it all together."),
               mkQuiz("Most of what we call taste actually comes from...",
-                ["the tongue alone", "smell, working with the tongue", "the teeth", "memory"],
+                ["the tongue working alone", "smell, working with the tongue", "the teeth and gums", "memory of meals"],
                 1,
                 "Hold your nose and an apple and an onion start to taste alike. Smell does most of the work we credit to taste."),
               mkDeepen("Go deeper: taste and smell are really one system wearing two hats, all through our species, *Homo sapiens*. Most of what you call flavor is actually smell, which is why food turns dull when your nose is blocked. A lucky few people carry far more taste buds than average and taste bitterness the rest of us never notice."),
@@ -1517,7 +1579,7 @@ export const LEARNING_PATHS = [
               mkNote("The big idea", "Two sponges and a pump of muscle",
                 "Your lungs are like two soft sponges filled with millions of tiny air sacs. A sheet of muscle under them, the diaphragm, flattens when you breathe in and pulls air down into the sacs. There, oxygen slips through thin walls into the blood, and carbon dioxide, the waste gas your cells produce, slips the other way, ready to be breathed out."),
               mkQuiz("Which muscle does most of the work when you breathe in?",
-                ["The heart", "The diaphragm, the sheet of muscle under the lungs", "The stomach", "The tongue"],
+                ["The heart muscle itself", "The diaphragm, the sheet of muscle under the lungs", "The stomach muscles under the ribs", "The tongue at the back"],
                 1,
                 "The diaphragm flattens and pulls air in, then relaxes and lets it flow out. Your ribs help, but the diaphragm is the main engine of breathing."),
               mkMatch("Match each part to its job.",
@@ -1527,7 +1589,7 @@ export const LEARNING_PATHS = [
                 false,
                 "Your body keeps some of the oxygen and adds carbon dioxide and water vapor. Outgoing air is used air, changed by the trade in your lungs."),
               mkQuiz("When you run hard, you breathe faster mostly because...",
-                ["your lungs get bored", "your muscles need more oxygen and produce more carbon dioxide to clear", "the air gets thinner near the ground", "your heart asks the lungs for entertainment"],
+                ["your lungs get bored with resting", "your muscles need more oxygen and produce more carbon dioxide to clear", "the air gets thinner near the ground", "your heart asks the lungs for entertainment"],
                 1,
                 "Hard working muscles burn oxygen faster and make carbon dioxide faster. Faster breathing speeds up both sides of the trade to keep pace."),
               mkDeepen("Go deeper: lungs are not balloons you can stretch much bigger, yet trained swimmers and singers move air with remarkable control. The gains come from stronger breathing muscles and better technique, squeezing more from the same space. What changes most is how well the air you take in gets used."),
@@ -1549,7 +1611,7 @@ export const LEARNING_PATHS = [
                 false,
                 "The stomach is one station on the line. The mouth starts the work, the small intestine absorbs most nutrients, and the large intestine reclaims water."),
               mkQuiz("Chewing food into smaller pieces helps digestion because...",
-                ["it makes food quieter", "smaller pieces give digestive juices far more surface to work on", "it warms the food up", "it removes the calories"],
+                ["it makes food much quieter", "smaller pieces give digestive juices far more surface to work on", "it warms the food up a lot", "it removes most of the calories from every bite"],
                 1,
                 "Juices can only attack the surface they touch. Chopping food into small pieces multiplies that surface, so the chemistry runs faster and more completely."),
               mkDeepen("Go deeper: you are never digesting alone. Trillions of bacteria in your gut finish jobs your own enzymes cannot, breaking down tough plant fibers and even making some vitamins for you. Feed them varied plants and they return the favor."),
@@ -1681,7 +1743,7 @@ export const LEARNING_PATHS = [
                 true,
                 "The Moon's shadow falls on Earth, and for a few minutes day turns to dusk along a narrow path. The Moon is far smaller than the Sun, but it is also far closer, so it can just cover the face of the Sun."),
               mkQuiz("The phases of the Moon happen because...",
-                ["the Moon spins like a top", "we see different amounts of its sunlit half as it orbits Earth", "clouds cover parts of the Moon", "the Moon changes shape"],
+                ["the Moon spins like a top", "we see different amounts of its sunlit half as it orbits Earth", "clouds cover large parts of the Moon each night", "the Moon changes shape"],
                 1,
                 "The Moon itself never changes shape. Our viewing angle changes as it orbits, so the lit half turns toward us, then away, in a steady monthly rhythm."),
               mkDeepen("Go deeper: eclipses are clockwork you can set your watch by. People predicted them with careful tables long before telescopes, and the same patient timing now tracks the Moon's orbit so precisely that we know it drifts a few centimeters farther from Earth every year."),
@@ -1749,14 +1811,14 @@ export const LEARNING_PATHS = [
               mkNote("The big idea", "Clouds are water you can see",
                 "Air always holds some invisible water vapor. When air rises and cools, the vapor condenses onto tiny specks of dust, forming droplets so small they float. Billions of those droplets together make a cloud."),
               mkQuiz("A cloud forms when water vapor...",
-                ["disappears", "cools and condenses into tiny droplets", "boils", "turns into oxygen"],
+                ["disappears from the open sky", "cools and condenses into tiny droplets", "boils away into steam", "turns into oxygen gas"],
                 1,
                 "Cooling is the trigger. Cold air holds less vapor, so the extra vapor gathers into droplets around specks of dust."),
               mkTrueFalse("Fog is a cloud that forms at ground level.",
                 true,
                 "Same recipe, different height. When air at the surface cools until its vapor condenses, the cloud simply sits on the ground, and we call it fog."),
               mkQuiz("Raindrops begin to fall when the droplets...",
-                ["grow heavy enough that the air cannot hold them up", "turn blue", "freeze solid", "hear thunder"],
+                ["grow heavy enough that the air cannot hold them up", "turn a bright blue color in the sky", "freeze solid into ice", "hear thunder rolling past"],
                 0,
                 "Droplets grow by joining together. Once they are too heavy for the rising air inside the cloud to support, down they come."),
               mkMatch("Match each cloud to its description.",
@@ -1776,7 +1838,7 @@ export const LEARNING_PATHS = [
               mkNote("The big idea", "Weather is what is happening now",
                 "Weather is the state of the air right now and over the next few days: temperature, wind, rain, and storms. It changes fast because air is always moving, pushed along by the Sun heating some places more than others."),
               mkQuiz("Wind blows because...",
-                ["trees wave it into being", "air moves from where pressure is high to where it is low", "the Earth pauses its spin", "birds push the air along"],
+                ["trees wave it into being", "air moves from where pressure is high to where it is low", "the Earth pauses its spin for a moment", "birds push the air along"],
                 1,
                 "Uneven heating makes pressure differences, and air flows to even them out. That flow is the wind."),
               mkTrueFalse("A thermometer measures air pressure.",
@@ -1846,7 +1908,7 @@ export const LEARNING_PATHS = [
               mkNote("Key idea", "A cracked shell that drifts",
                 "Earth's hard outer shell is not one solid piece. It is cracked into huge slabs called plates, and the plates drift, very slowly, riding on hotter and softer rock below. They move only a few centimeters a year, about as fast as your fingernails grow, but over millions of years that crawl redraws the whole map of the world."),
               mkQuiz("Where two plates push into each other, the land often...",
-                ["melts into ocean", "crumples upward into mountain ranges", "turns into desert", "stops moving forever"],
+                ["melts into ocean", "crumples upward into mountain ranges", "turns into desert", "stops moving forever after that"],
                 1,
                 "Something has to give when two slabs collide, and the crust buckles and lifts. The Himalayas rose this way and are still rising as the pushing continues."),
               mkOrder("Put the life of a mountain range in order.",
@@ -1856,7 +1918,7 @@ export const LEARNING_PATHS = [
                 true,
                 "Plates do not slide smoothly. They lock, strain builds, and when the lock breaks the ground shakes loose all at once. That is an earthquake, and it happens along plate edges."),
               mkQuiz("How do scientists know the plates are really moving today?",
-                ["They can feel the ground drifting", "Satellites measure the distances between continents changing year by year", "Sailors reported it long ago", "Maps from different centuries disagree"],
+                ["They can feel the ground drifting", "Satellites measure the distances between continents changing year by year", "Sailors reported it long ago", "Maps drawn in different centuries disagree with each other"],
                 1,
                 "Modern instruments measure plate motion directly, a few centimeters a year. The drift the theory predicted is now a number anyone can watch changing."),
               mkDeepen("Go deeper: the drift of the continents was once laughed at, mostly because nobody could say what force could move whole continents. The idea won when the ocean floor itself turned out to be spreading, carrying the continents like luggage on a slow conveyor. Being right early is not enough. An idea also needs its mechanism."),
@@ -2013,8 +2075,8 @@ export const TOPIC_COURSES = [
             ["The fridge gets quieter over time", "The hum matches the model, so it is mostly ignored", "Attention deletes sounds permanently", "The ears stop sending the signal"],
             1,
             "Only mismatches carry news. A sound the model predicts stops producing errors, so it fades from notice."),
-          mkTrueFalse("An optical illusion means the eyes are broken.",
-            false,
+          mkTrueFalse("An optical illusion shows a rule of the brain model at work, not broken eyes.",
+            true,
             "The eyes are fine. An illusion exposes a rule of the model, applied in a case where the rule misleads."),
           mkQuiz("What does attention do, in the prediction picture?",
             ["It builds the model from nothing", "It amplifies the prediction errors of the thing you attend to", "It stops prediction errors from happening", "It chooses which dreams you have"],
@@ -2049,8 +2111,8 @@ export const TOPIC_COURSES = [
             "The event stayed outside the spotlight. Attention was spent on counting, so a striking event in plain view went unprocessed."),
           mkNote("One more piece", "Two kinds of pull",
             "The spotlight can be aimed on purpose, from the top down: you decide to read, and attention holds the page. It can also be grabbed from the bottom up: a sudden noise, a flash, a name spoken across the room. Good focus is mostly the top down aim winning, again and again, over a world full of things built to grab the spotlight from below."),
-          mkTrueFalse("Missing an obvious event while concentrating means you were careless.",
-            false,
+          mkTrueFalse("Missing an obvious event while concentrating can happen because the spotlight was fully occupied.",
+            true,
             "It means the spotlight was occupied. Blindness to the unattended is the normal price of selective attention, not a character flaw."),
         ],
       },
@@ -2123,8 +2185,8 @@ export const TOPIC_COURSES = [
             "Dreams recombine the recent and the old. The mix, and the loose logic applied to it, are the dream's signature."),
           mkNote("One more piece", "Everyone dreams, not everyone remembers",
             "People who say they never dream usually mean they never remember one. Wake someone during REM sleep and they will often report a dream in progress; let the stage finish and the dream usually evaporates. Remembering depends on waking at the right moment and paying attention quickly, which is why a dream can feel huge at waking and gone by breakfast."),
-          mkTrueFalse("The brain is quiet and inactive during dreaming sleep.",
-            false,
+          mkTrueFalse("The brain is nearly as active during dreaming sleep as it is while awake.",
+            true,
             "During REM sleep the brain is nearly as active as in waking. It is the body that is switched off, not the brain."),
         ],
       },
@@ -2235,8 +2297,8 @@ export const TOPIC_COURSES = [
             ["Effort where you cannot speak at all", "Effort where you can talk but not sing", "Effort where singing is easy", "Any movement done outdoors"],
             1,
             "Talk but not sing: that is the everyday measure of moderate effort."),
-          mkTrueFalse("A morning workout fully cancels the risks of sitting still for the rest of the day.",
-            false,
+          mkTrueFalse("Breaking up long sitting with brief movement helps in ways a morning workout alone does not.",
+            true,
             "Long stillness carries its own risks. Breaking it up with brief movement through the day partners with the workout; it is not replaced by it."),
           mkQuiz("Why does recovery matter as much as the workout?",
             ["It is when the body rebuilds itself a little stronger", "It burns more fuel than training", "It is the only time muscles release signals", "It does not matter; only workouts count"],
@@ -2309,8 +2371,8 @@ export const TOPIC_COURSES = [
             ["Sugar water", "Many different plant fibers", "Protein alone", "Nothing; microbes feed themselves"],
             1,
             "Fiber is microbe food, and different fibers feed different microbes. Variety in plants means variety in the community."),
-          mkTrueFalse("The gut lining is a passive wall that nothing crosses.",
-            false,
+          mkTrueFalse("The gut lining is a staffed checkpoint that lets the right things pass and holds the wrong things back.",
+            true,
             "It is a staffed checkpoint: mucus, tight joins between cells, and patrolling immune cells let the right things pass and hold the wrong things back."),
           mkQuiz("What can an undertrained or mistuned immune system do?",
             ["Nothing but its job, always and perfectly", "It can overreact to harmless things or attack the body's own tissues", "It turns into extra gut microbes instead", "It stops needing the gut entirely"],
@@ -2383,8 +2445,8 @@ export const TOPIC_COURSES = [
             ["The stomach switches off", "Hunger comes in waves tied to habit and ghrelin, and waves pass", "Waiting destroys the hunger hormone forever", "Hunger only exists at mealtimes by law"],
             1,
             "Hunger is scheduled and wave like. Miss the usual eating time and the wave often fades on its own."),
-          mkTrueFalse("A fast guarantees weight loss no matter how much is eaten in the eating window.",
-            false,
+          mkTrueFalse("Eating double in the eating window undoes the fast.",
+            true,
             "Total intake still rules. Eating double in the window undoes the fast; the window mainly works by making less easier."),
           mkQuiz("What does the body shift toward when fuel runs low?",
             ["Building new tissue at all costs", "Maintenance: recycling worn parts and clearing damage", "Growing new organs for later", "Stopping all repair work entirely"],
@@ -2457,8 +2519,8 @@ export const TOPIC_COURSES = [
             ["Feeling safe and calm", "Fear, poor sleep, and past bad injuries", "Understanding what pain means", "Gentle movement"],
             1,
             "Fear, poor sleep, and bad history amplify. Calm, understanding, and safety dampen."),
-          mkTrueFalse("Chronic pain after healing means the tissue must still be damaged.",
-            false,
+          mkTrueFalse("Chronic pain can continue after healing because the alarm system has become more sensitive.",
+            true,
             "A sensitized alarm produces real pain without fresh damage. The pain reports the system's sensitivity, not ongoing injury."),
           mkQuiz("Why can a frightening explanation of a scan make pain worse?",
             ["Words cannot affect pain in any way", "Expectation reaches the volume control and turns it up", "Scans themselves cause damage", "It cannot; only medicine changes pain"],
@@ -2531,9 +2593,9 @@ export const TOPIC_COURSES = [
             ["It becomes twice as strong", "It usually stops working", "It moves to another cell", "Nothing at all"],
             1,
             "A sloppy repair scrambles the instruction at the cut, so the gene is knocked out. A provided template is how a repair becomes a correction."),
-          mkTrueFalse("An off target cut happens at the exact DNA spot the guide was built for.",
-            false,
-            "Off target means the opposite: the cutter trimmed a lookalike spot. Choosing guides and checking results letter by letter is the craft of avoiding them."),
+          mkTrueFalse("An off target cut happens at a lookalike spot away from the DNA spot the guide was built for.",
+            true,
+            "Off target means exactly that: the cutter trimmed a lookalike spot. Choosing guides and checking results letter by letter is the craft of avoiding them."),
           mkQuiz("In sickle cell disease, what goes wrong?",
             ["The blood has too few cells of any kind", "One wrong letter in one gene makes red cells deform", "The cutting protein attacks the blood", "The liver stores too much iron instead"],
             1,
@@ -2641,8 +2703,8 @@ export const TOPIC_COURSES = [
             "The mark can only be located by using the reflection, so touching it means the animal treats the image as its own body."),
           mkNote("One more piece", "Absence of evidence is not evidence of absence",
             "This field lives by one warning: failing a test shows the test found nothing, not that nothing is there. Minds unlike ours are easy to underestimate, because our tests are built from our own senses and habits. The history of the field is a trail of animals surprising people who had designed fairer tests. For a dog, a fair memory test hides food and watches whether the dog returns to the right place: memory asked in the currency the dog actually spends."),
-          mkTrueFalse("If an animal fails a test, that proves it lacks the ability the test was for.",
-            false,
+          mkTrueFalse("If an animal fails a test, that failure alone does not prove the ability the test was for is missing.",
+            true,
             "It proves the test found nothing, which may be about the test. Fair design is the whole craft, precisely because failure is ambiguous."),
         ],
       },
@@ -2715,8 +2777,8 @@ export const TOPIC_COURSES = [
             "Building blocks, not life. The importance is that the first steps need no miracle: energy plus simple ingredients does them."),
           mkNote("One more piece", "Three things life needs",
             "However the story went, the first living thing needed three inventions working together. It needed a boundary, a membrane to hold it apart from the sea. It needed instructions that could be copied, so offspring resembled parents. And it needed a way to harvest energy from its surroundings to pay for the copying. Modern cells have all three in sophisticated forms; the puzzle is the order they arrived in."),
-          mkTrueFalse("The spark experiment created living cells from gases and water.",
-            false,
+          mkTrueFalse("The spark experiment created amino acids, the building blocks of proteins.",
+            true,
             "It created amino acids, the building blocks of proteins. That is step one of a long staircase, not the top of it."),
         ],
       },
@@ -2789,8 +2851,8 @@ export const TOPIC_COURSES = [
             "The bend comes from standing on a rotating planet: paths curve right in the north, left in the south."),
           mkNote("One more piece", "Currents are climate",
             "Western Europe is far warmer than other places at its latitude, and a warm Atlantic current flowing past its coasts is a major reason: the current delivers tropical heat, and the winds deliver the warmed air inland. When people ask why ocean currents matter, that is the shortest answer: they are a planetary heating system, moving warmth from where there is too much to where there is too little."),
-          mkTrueFalse("Two beaches at the same latitude always have water at the same temperature.",
-            false,
+          mkTrueFalse("Ocean currents can make two beaches at the same latitude have water at very different temperatures.",
+            true,
             "Currents decide much of it. A warm current on one coast and a cold current on another make the same latitude feel like different planets."),
         ],
       },
@@ -4017,10 +4079,24 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     : course.lessons[lessonIdx];
   const card = lesson ? lesson.cards[cardIdx] : null;
   const interactive = isInteractiveCard(card);
+  /* Option cards (quiz, cloze, true or false) render in a shuffled
+     display order, per attempt, through shuffledOptionsForCard:
+     authored order parks the answer at one index, so the Player,
+     never the data, decides where each option sits this attempt.
+     Every comparison against the learner's pick (isRight, check,
+     the option buttons, the feedback sheet) reads displayCorrect
+     and displayOptions, so the whole surface agrees on the order
+     actually shown. */
+  const quizDisplay = useMemo(() => {
+    if (!card || (card.kind !== "quiz" && card.kind !== "cloze" && card.kind !== "truefalse")) return null;
+    return shuffledOptionsForCard(card, hashStr(card.question || card.statement || card.prompt || "") + 59 + shuffleSalt.current + attempt * 131);
+  }, [card, attempt]);
+  const displayOptions = quizDisplay ? quizDisplay.options : (card ? card.options : null);
+  const displayCorrect = quizDisplay ? quizDisplay.correct : (card ? card.correct : null);
   const isRight = interactive && card.kind !== "battle" && (
     card.kind === "match" ? matchMistakes === 0
     : card.kind === "order" ? orderCorrect
-    : picked === card.correct
+    : picked === displayCorrect
   );
   const lessonPct = lesson ? Math.round(((cardIdx + (checked ? 1 : 0)) / lesson.cards.length) * 100) : 0;
 
@@ -4141,7 +4217,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       say("Both readings are on the table. Plus " + paid + " XP.");
       return;
     }
-    const correct = picked === card.correct;
+    const correct = picked === displayCorrect;
     if (correct) setRight((n) => n + 1);
     if (!correct) {
       const origin = course.lessons[lessonIdx];
@@ -4459,9 +4535,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           </p>
         ) : (
           <>
-            {!isRight && card.options && picked !== null && picked !== undefined && (
+            {!isRight && displayOptions && picked !== null && picked !== undefined && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
-                You picked: <span style={{ fontWeight: 600 }}><RichText text={card.options[picked]} /></span>
+                You picked: <span style={{ fontWeight: 600 }}><RichText text={displayOptions[picked]} /></span>
               </p>
             )}
             <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHY</p>
@@ -4583,13 +4659,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={card.vocab
                 ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }
                 : { display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
-                {card.options.map((opt, i) => {
+                {(displayOptions || []).map((opt, i) => {
                   let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                  if (checked && i === card.correct) { bg = goodWash; border = toneGood; color = P.ink; }
+                  if (checked && i === displayCorrect) { bg = goodWash; border = toneGood; color = P.ink; }
                   else if (checked && i === picked) { bg = badWash; border = toneBad; color = P.ink; }
                   else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
                   return (
-                    <button key={i} className={"lv-opt" + (checked && picked === i && i !== card.correct ? " lv-shake" : "")}
+                    <button key={i} className={"lv-opt" + (checked && picked === i && i !== displayCorrect ? " lv-shake" : "")}
                       onClick={() => pick(i)} disabled={checked}
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
@@ -4600,10 +4676,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       }}>
                       <span aria-hidden="true" style={{
                         flexShrink: 0, width: 26, height: 26, borderRadius: RADIUS.md, marginTop: 1,
-                        border: "1.5px solid " + (checked && i === card.correct ? toneGood : checked && i === picked ? toneBad : border),
+                        border: "1.5px solid " + (checked && i === displayCorrect ? toneGood : checked && i === picked ? toneBad : border),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: FONT_SIZES.label, fontWeight: 700, color: checked && i === card.correct ? goodInk : color, opacity: 0.9,
-                      }}>{checked && i === card.correct ? "✓" : "ABCD"[i] || ""}</span>
+                        fontSize: FONT_SIZES.label, fontWeight: 700, color: checked && i === displayCorrect ? goodInk : color, opacity: 0.9,
+                      }}>{checked && i === displayCorrect ? "✓" : "ABCD"[i] || ""}</span>
                       <span style={{ minWidth: 0, overflowWrap: "break-word" }}><RichText text={opt} /></span>
                     </button>
                   );
@@ -4652,13 +4728,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}><RichText text={card.statement} /></p>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                {["True", "False"].map((label, i) => {
+                {(displayOptions || ["True", "False"]).map((label, i) => {
                   let bg = P.dark ? "#242b24" : "#ffffff", border = P.line, color = P.ink;
-                  if (checked && i === card.correct) { bg = goodWash; border = toneGood; color = P.ink; }
+                  if (checked && i === displayCorrect) { bg = goodWash; border = toneGood; color = P.ink; }
                   else if (checked && i === picked) { bg = badWash; border = toneBad; color = P.ink; }
                   else if (!checked && picked === i) { bg = P.dark ? "#274b63" : "#DDF4FF"; border = "#84D8FF"; color = P.ink; }
                   return (
-                    <button key={label} className={"lv-opt" + (checked && picked === i && i !== card.correct ? " lv-shake" : "")}
+                    <button key={label} className={"lv-opt" + (checked && picked === i && i !== displayCorrect ? " lv-shake" : "")}
                       onClick={() => pick(i)} disabled={checked}
                       style={{
                         appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
@@ -5352,7 +5428,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       const data = await searchForCourse(q);
       const course = createCourseFromResults(q, data.sources || [], data.answer || "", data.literature_conflicts || []);
       if (!course) {
-        setBuildError("That search did not return enough cited findings to build an honest course. Try a broader topic.");
+        setBuildError("Not enough solid material on this topic yet to build a course. Try a broader topic.");
         return;
       }
       if (displayTitle) course.title = displayTitle;
@@ -5363,7 +5439,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       setTopic("");
       setScreen({ name: "path", courseId: course.id });
     } catch (e) {
-      if (e && e.status === 429) setBuildError("The literature databases are rate limiting right now. Wait a minute and try again.");
+      if (e && e.status === 429) setBuildError("The service is busy right now. Wait a minute and try again.");
       else if (e && e.status) setBuildError("The search hit a server error (status " + e.status + "). Try again in a moment.");
       else setBuildError("The search did not come back. Check your connection and try again.");
     } finally {
