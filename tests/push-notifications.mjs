@@ -2,6 +2,9 @@
 // Tests the Web Push last mile: validation, payload building, dispatch
 // no-ops, and the dead-subscription contract. Pure functions and fakes —
 // no network, no real push service.
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   validatePushSubscription,
   buildMessagePushPayload,
@@ -78,6 +81,9 @@ await test("buildMessagePushPayload never leaks content for encrypted threads", 
   assert(payload.body === "New message", "encrypted body is generic, got: " + payload.body);
   assert(payload.threadId === "t1", "thread id preserved");
   assert(payload.title === "Alice", "sender name preserved");
+  // The click through URL is a contract, not a courtesy: the app
+  // consumes exactly this parameter name on load (pinned below).
+  assert(payload.url === "/?inbox-thread=t1", "click-through url names the thread, got: " + payload.url);
 });
 
 await test("buildNewMessagePushPayload is content-free", () => {
@@ -85,6 +91,7 @@ await test("buildNewMessagePushPayload is content-free", () => {
   const payload = JSON.parse(Buffer.from(bytes).toString());
   assert(payload.body === "New message", "body is generic even for plaintext");
   assert(payload.kind === "message", "kind is message");
+  assert(payload.url === "/?inbox-thread=t2", "click-through url names the thread, got: " + payload.url);
 });
 
 await test("buildCallPushPayload has the call kind and a deep link", () => {
@@ -93,7 +100,13 @@ await test("buildCallPushPayload has the call kind and a deep link", () => {
   assert(payload.kind === "call", "kind is call");
   assert(payload.title === "Incoming call", "title correct");
   assert(/Carol/.test(payload.body), "caller named in body");
-  assert(typeof payload.url === "string" && payload.url.length > 0, "has a click-through url");
+  // This assertion used to read "payload.url is a non empty string",
+  // which passed for years while NOTHING in the app parsed the
+  // parameter: a push tap landed on the default view and the suite
+  // that should have caught it was asserting the shape of the hiding
+  // place. The URL is now pinned exactly, and its consumption is
+  // pinned by the group at the end of this suite.
+  assert(payload.url === "/?inbox-open=true", "call click-through url is the inbox-open deep link, got: " + payload.url);
 });
 
 await test("getPushDisplayName prefers name, then username, then email", async () => {
@@ -136,6 +149,45 @@ await test("sendPushToUsers no-ops with no user ids", async () => {
 await test("sendPushMessage reports vapid_not_configured without keys", async () => {
   const res = await sendPushMessage({}, { endpoint: "https://example.com/push", p256dh: "x", auth: "y" }, new Uint8Array([1]));
   assert(res.ok === false && res.error === "vapid_not_configured", "reports missing VAPID");
+});
+
+// ── The other half of the deep link contract: the app consumes it ──
+// The payload tests above pin what the server SENDS. This group pins
+// what the app DOES with it on arrival, because that half was missing
+// entirely until 2026-10-14: the service worker navigated the tab to
+// /?inbox-thread=... or /?inbox-open=true and no code in src parsed
+// either parameter, so a push tap landed on the default view while
+// sw.js's comment claimed the app consumed the link. A payload shape
+// pin alone cannot catch that class of defect again; the consumption
+// has to be asserted in the app source itself.
+console.log("\npush deep links — the app consumes what the payloads carry:");
+
+const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const appSrc = readFileSync(join(appRoot, "src/CerebrumApp.jsx"), "utf8");
+const swSrc = readFileSync(join(appRoot, "public/sw.js"), "utf8");
+
+await test("the service worker navigates the tab to the payload url on tap", () => {
+  assert(/c\.navigate\(url\)/.test(swSrc), "sw.js does not navigate an open tab to the payload url");
+  assert(/clients\.openWindow\(url\)/.test(swSrc), "sw.js does not open a window at the payload url");
+});
+
+await test("the app parses both push parameters on load", () => {
+  assert(/params\.get\("inbox-thread"\)/.test(appSrc), "app never reads the inbox-thread parameter");
+  assert(/params\.get\("inbox-open"\)/.test(appSrc), "app never reads the inbox-open parameter");
+});
+
+await test("a thread link selects the thread through the pending thread machinery", () => {
+  assert(/if \(threadId\) setPendingThreadId\(threadId\);/.test(appSrc), "thread link does not hand the thread id to pendingThreadId");
+  assert(/setView\("inbox"\)/.test(appSrc), "push link handling never opens the inbox view");
+  // The hand off target exists: InboxView receives the pending id and
+  // consumes it once the thread is selected.
+  assert(/initialThreadId=\{pendingThreadId\}/.test(appSrc), "InboxView is not wired to pendingThreadId");
+  assert(/onConsumeInitialThread=\{\(\) => setPendingThreadId\(null\)\}/.test(appSrc), "the pending thread id is never consumed");
+});
+
+await test("both parameters are stripped from the URL after consumption", () => {
+  assert(/url\.searchParams\.delete\("inbox-thread"\)/.test(appSrc), "inbox-thread is not stripped after consumption");
+  assert(/url\.searchParams\.delete\("inbox-open"\)/.test(appSrc), "inbox-open is not stripped after consumption");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

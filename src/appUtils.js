@@ -131,6 +131,39 @@ function accentInk(P, accent) {
   return mixHex(accent, "#101216", hi);
 }
 
+/* accentInk calibrated against a GROUND other than the plain palette
+   background. The composer's Ask label sits on a wash of the raw accent
+   over the field (14 percent at rest, 22 percent on hover), and the
+   wash pulls the real ground toward the accent, so an ink corrected
+   against P.bg alone lands short on the ground it actually renders
+   on: corrected Amber (#86672f) computed to 4.20 to 1 on the rest
+   ground and 3.99 to 1 on the hover ground in the Light palette, and
+   Sage on the Mid palette fell to 3.91 on hover. Same binary search
+   as accentInk, aimed at the supplied ground, moving the accent AWAY
+   from the ground: toward near black when the ground is the lighter
+   side, toward white when it is the darker side. Callers that must
+   serve two grounds with one ink pass the harder one (for the Ask
+   label, the 22 percent hover wash, which is always the lower
+   contrast of the two because it sits closer to the accent). The
+   search starts from accentInk's own correction rather than the raw
+   accent: the raw accent can sit on the wrong side of the ground
+   entirely (the Mono accent is white, and no walk toward white fixes
+   white on the Light ground), while accentInk's output is always on
+   the far side of the ground from the wash, so walking it further
+   toward its own extremum raises the contrast monotonically. */
+function accentInkOn(P, accent, ground) {
+  const base = accentInk(P, accent);
+  if (contrastRatio(base, ground) >= 4.6) return base;
+  const target = relLuminance(base) >= relLuminance(ground) ? "#ffffff" : "#101216";
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2;
+    if (contrastRatio(mixHex(base, target, mid), ground) >= 4.6) hi = mid;
+    else lo = mid;
+  }
+  return mixHex(base, target, hi);
+}
+
 function statusBad(P, pn) {
   return P.dark ? (pn === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31";
 }
@@ -341,4 +374,4 @@ function toast(message, opts = {}) {
     }));
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
-export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, tabListKeyDown, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, useWindowHeight, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
+export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, useWindowHeight, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };

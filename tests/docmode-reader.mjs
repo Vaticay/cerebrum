@@ -786,6 +786,61 @@ await test("the stage health component is honest: empty renders nothing, skips a
   // tests/ui-render.cjs.
 });
 
+// ── Evidence notes, parked legs, the comparison's cut short flag ───
+group("evidence notes, skipped legs, and the comparison's cut short flag");
+
+await test("note carrying evidence renders as not checked, never as not found", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const at = src.indexOf("function DocEvidenceTrail");
+  assert.ok(at > 0, "DocEvidenceTrail component missing");
+  const fn = src.slice(at, src.indexOf("\nfunction NotebookMode", at));
+  // The backend marks quotes it never checked with a note (document.js:
+  // "too-long" past the per quote checking limit, "over-cap" past the
+  // trail's checked slots). Until 2026-10-14 the trail never read the
+  // field and printed those entries as not found, the opposite of what
+  // the backend knew. The branch order is the contract: verified,
+  // then the note arm, then the not found arm.
+  assert.match(fn, /e\.note/, "trail never reads the backend's note field");
+  assert.match(fn, /This quote was not checked: it is longer than the checking limit\./, "too-long entries must render as not checked");
+  assert.match(fn, /This quote was not checked: there are more quotes than the trail can check\./, "over-cap entries must render as not checked");
+  const noteAt = fn.indexOf("e.note ? (");
+  const notFoundAt = fn.indexOf("Not found in the document");
+  assert.ok(noteAt > 0 && notFoundAt > noteAt, "the note arm must come before the not found arm, or noted entries fall through to not found");
+  // Owner rule: the new reader copy carries no dash characters. The
+  // check runs on the two rendered sentences themselves (extracted
+  // whole), not on a raw source slice: the code between them names
+  // the backend's own note values, which are data, not copy.
+  for (const sentence of fn.match(/This quote was not checked:[^"]*/g) || []) {
+    assert.ok(!/[-\u2010-\u2015]/.test(sentence), "not checked copy must contain no dash characters: " + sentence);
+  }
+});
+
+await test("the stage record renders parked legs with their reasons", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  const at = src.indexOf("function DocStageHealth");
+  assert.ok(at > 0, "DocStageHealth component missing");
+  const fn = src.slice(at, src.indexOf("\nfunction NotebookMode", at));
+  // Stage entries carry the legs the call never fired as skippedLegs:
+  // [{ model, reason }] (functions/api/document.js). The component
+  // used to drop the field, so a stage line said "ok" and nothing
+  // about the legs it won without racing.
+  assert.match(fn, /s\.skippedLegs/, "stage health drops the stage's skippedLegs");
+  assert.match(fn, /l\.model/, "parked legs must print their model");
+  assert.match(fn, /l\.reason/, "parked legs must print their reason");
+});
+
+await test("the comparison keeps answerTruncated and renders the cut short note", async () => {
+  const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
+  // The comparison's state shape is its own (see the Q&A test above),
+  // and until 2026-10-14 it dropped the backend's answerTruncated
+  // flag at setCompareResult, so a comparison cut short at the length
+  // limit read as complete. Pin the flag on the compare setter's own
+  // line, not just anywhere in the file.
+  assert.match(src, /setCompareResult\(\{ streaming: false,[^\n]*answerTruncated: !!\(result && result\.answerTruncated\)/, "setCompareResult drops answerTruncated");
+  // And the compare view renders the note, the way the summary view does.
+  assert.match(src, /answerTruncatedNote\(compareResult\.answerTruncated, "comparison"\)/, "compare view does not render the cut short note");
+});
+
 // ── Edited documents: reading state goes stale, never resurrects ────
 group("edited documents — analysis state is flagged stale and never saved under a new fingerprint");
 
@@ -856,7 +911,11 @@ await test("stale marks are not painted, and a new mark retires them", async () 
 
 await test("the comparison keeps the model and budget fields and labels degradation like Q&A does", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  assert.match(src, /setCompareResult\(\{ streaming: false, text: result && result\.answer \? result\.answer : "", model: \(result && result\.model\) \|\| null, budgetExhausted: !!\(result && result\.budgetExhausted\), promptTruncation: \(result && result\.promptTruncation\) \|\| null \}\);/, "compare result drops the model or budget fields");
+  // This pin names the setter's field list exactly, so it was updated
+  // when the answerTruncated field joined the shape (2026-10-14,
+  // fifth panel Document Reader remainder): the pin now covers the
+  // corrected contract, model, budget, and both truncation fields.
+  assert.match(src, /setCompareResult\(\{ streaming: false, text: result && result\.answer \? result\.answer : "", model: \(result && result\.model\) \|\| null, budgetExhausted: !!\(result && result\.budgetExhausted\), promptTruncation: \(result && result\.promptTruncation\) \|\| null, answerTruncated: !!\(result && result\.answerTruncated\) \}\);/, "compare result drops the model, budget, or truncation fields");
   assert.match(src, /setComparePair\(compareKeyOf\(a, b\)\);/, "a finished comparison does not record its text pair");
   assert.match(src, /compareResult\.model === "extractive"/, "compare view never checks for an extractive result");
 });

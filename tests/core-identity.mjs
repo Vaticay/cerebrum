@@ -17,6 +17,7 @@ import { strict as assert } from "node:assert";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile, readdir } from "node:fs/promises";
+import { PALETTES, ACCENTS } from "../src/palettes.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -512,6 +513,188 @@ await test("the autopsy, turn, and trending surfaces take their mode from the ho
     "TrendingView's narrow threshold moved; the swap must preserve it exactly");
   assert.ok(!appSrc.includes("setWinW"), "the hand rolled winW state survives somewhere in CerebrumApp.jsx");
 });
+
+group("Client wave six: solid text surfaces, the dialog variable, and calibrated inks");
+await test("the composer field is the solid palette background at full strength, both variants", () => {
+  // Fifth panel, Frontend high: .cb-ask-field composited the palette
+  // background at 82 percent (88 for the stage variant) over the home
+  // film. The standing rule is that text bearing surfaces are solid.
+  assert.ok(!appSrc.includes("var(--cb-bg) 82%"), "the 82 percent composer field background is still present");
+  assert.ok(!appSrc.includes("var(--cb-bg) 88%"), "the 88 percent stage field background is still present");
+  const fieldAt = appSrc.indexOf(".cb-ask-field {");
+  assert.ok(appSrc.slice(fieldAt, fieldAt + 700).includes("background: var(--cb-bg);"), "the composer field is not the solid palette background");
+  const stageAt = appSrc.indexOf(".cb-ask--stage .cb-ask-field {");
+  assert.ok(appSrc.slice(stageAt, stageAt + 300).includes("background: var(--cb-bg);"), "the stage field is not the solid palette background");
+});
+await test("source card hover and focus states are opaque palette steps, never fog values", () => {
+  // The cards carry paper titles; their hover and focus backgrounds
+  // were rgba scrims (0.72, 0.8, 0.64, 0.7 alpha) under a comment that
+  // said the fog stays. The state change now rides an opaque step.
+  const cardAt = appSrc.indexOf("const SourceCard = (s, i) =>");
+  assert.ok(cardAt > 0, "SourceCard not found");
+  const card = appSrc.slice(cardAt, cardAt + 2600);
+  for (const fog of ["rgba(22, 27, 34, 0.72)", "rgba(255, 255, 255, 0.8)", "rgba(18, 22, 29, 0.64)", "rgba(255, 255, 255, 0.7)"]) {
+    assert.ok(!card.includes(fog), `source card state still uses the fog value ${fog}`);
+  }
+  assert.ok(card.includes("color-mix(in srgb, ${P.raised}, ${P.ink} 12%)"), "dark hover state is not the opaque raised lift");
+  assert.ok(card.includes("focusedSourceIdx === i ? (P.dark ?"), "the focus state no longer takes the opaque step");
+});
+await test("the page flow alpha inputs and rows are solid palette values", () => {
+  // Fifth panel named the 0.4 and 0.5 alpha backgrounds beside the
+  // source list (filter input, sort tabs, action buttons, the z box
+  // and its input); the same class in the settings rows (soundBtn)
+  // went with them. None of the three literals may survive anywhere
+  // in the app file.
+  for (const lit of ["withAlpha(P.bg, 0.5)", "withAlpha(P.bg, 0.4)", "withAlpha(P.surface, 0.4)"]) {
+    assert.ok(!appSrc.includes(lit), `an alpha background survives: ${lit}`);
+  }
+  assert.match(appSrc, /srcFilterInput: \{[^}]*background: P\.bg,/, "the source filter input is not the solid background");
+  assert.match(appSrc, /zIn: \{[^}]*background: P\.surface,/, "the z input is not the solid surface");
+});
+await test("--cb-surface is set wherever --cb-solid-bg is set, and reaches the portals", () => {
+  // Fifth panel, Frontend medium: the Dialog primitive's default
+  // panel background reads var(--cb-surface, #141416) and the
+  // variable was defined nowhere, so dialogs without a panelStyle
+  // rendered near black under Light palettes' dark text.
+  assert.match(flowchartsSrc, /var\(--cb-surface, #141416\)/, "the Dialog default no longer reads --cb-surface");
+  // The app root sets it from the active palette alongside
+  // --cb-solid-bg, in the same style object.
+  assert.match(appSrc, /"--cb-solid-bg": P\.bg, "--cb-surface": P\.surface/, "the app root does not set --cb-surface alongside --cb-solid-bg");
+  // Dialogs portal to document.body, outside that root, so the same
+  // value is mirrored onto <html> in the palette effect; without the
+  // mirror the definition would never reach a portaled dialog.
+  assert.match(appSrc, /document\.documentElement\.style\.setProperty\("--cb-surface", P\.surface\)/, "the palette effect does not mirror --cb-surface onto the document element");
+});
+await test("the New Search FAB icon takes accentText(accent), a colour, not a function", () => {
+  assert.match(appSrc, /background: accent, color: accentText\(accent\),/, "the FAB span does not colour its icon with accentText(accent)");
+});
+await test("no style color property anywhere in the app is assigned a bare imported function", async () => {
+  // The FAB bug's class, pinned precisely: a style object's color
+  // property whose value is a bare identifier naming a FUNCTION the
+  // file imports is never a colour; the declaration is invalid and
+  // dropped at runtime. Calls (accentText(accent)) and plain string
+  // variables (at, accent, toneColor) are legitimate and spared,
+  // because the walk only flags bare identifiers that resolve to an
+  // imported function definition in appUtils.js or designSystem.jsx.
+  const { parse } = await import("@babel/parser");
+  const fnNamesIn = (src) => {
+    const names = new Set();
+    const ast = parse(src, { sourceType: "module", plugins: ["jsx"] });
+    for (const n of ast.program.body) {
+      const d = n.type === "ExportNamedDeclaration" ? n.declaration : n;
+      if (!d) continue;
+      if (d.type === "FunctionDeclaration" && d.id) names.add(d.id.name);
+      if (d.type === "VariableDeclaration") for (const v of d.declarations) {
+        if (v.id.type === "Identifier" && v.init && (v.init.type === "ArrowFunctionExpression" || v.init.type === "FunctionExpression")) names.add(v.id.name);
+      }
+    }
+    return names;
+  };
+  const moduleFns = new Set([...fnNamesIn(appUtilsSrc), ...fnNamesIn(designSrc)]);
+  const importedFns = new Set();
+  const appAst = parse(appSrc, { sourceType: "module", plugins: ["jsx"] });
+  for (const n of appAst.program.body) {
+    if (n.type !== "ImportDeclaration") continue;
+    if (!/\.\/(appUtils\.js|designSystem\.jsx)$/.test(n.source.value)) continue;
+    for (const s of n.specifiers) if (s.local && moduleFns.has(s.local.name)) importedFns.add(s.local.name);
+  }
+  assert.ok(importedFns.has("accentInk") && importedFns.has("accentText"), "the scan failed to resolve the imported helpers; it would be vacuous");
+  const scan = (ast) => {
+    const hits = [];
+    (function rec(node) {
+      if (!node || typeof node.type !== "string") return;
+      if (node.type === "ObjectProperty" && !node.computed && node.key && node.key.name === "color" &&
+          node.value && node.value.type === "Identifier" && importedFns.has(node.value.name)) {
+        hits.push(node.value.name);
+      }
+      for (const k of Object.keys(node)) {
+        if (k === "loc" || k === "range") continue;
+        const c = node[k];
+        if (Array.isArray(c)) c.forEach(rec); else if (c && typeof c.type === "string") rec(c);
+      }
+    })(ast.program);
+    return hits;
+  };
+  assert.deepEqual(scan(appAst), [], "a style color is assigned a bare imported function");
+  // The checker itself is not vacuous: it catches the planted bug and
+  // spares the call form and a plain string variable.
+  const planted = parse("const a = { color: accentInk }; const b = { color: accentText(accent) }; const c = { color: at };", { sourceType: "module", plugins: ["jsx"] });
+  assert.deepEqual(scan(planted), ["accentInk"], "the scan does not catch the planted function as color bug");
+});
+{
+  /* Item 6 arithmetic, shown. The Ask label sits on a wash of the raw
+     accent over the field: ground(t) = P.bg mixed toward the accent
+     by t, t = 0.14 at rest and 0.22 on hover (color-mix percentages
+     over the now solid field). accentInk corrects against P.bg only,
+     and on the tinted grounds it lands short in four combinations;
+     the worst is Light with Amber: ink #86672f, 4.20 to 1 at rest,
+     3.99 to 1 on hover. accentInkOn (appUtils.js) starts from that
+     correction and searches against the tinted ground itself; the
+     composer ships the ink calibrated on the hover ground, the
+     harder of the two, as --cb-ask-ink. The helpers below mirror
+     appUtils.js exactly (same mixHex rounding, same 12 step binary
+     search, same 4.6 target), and the wiring is source pinned, so
+     the numbers computed here are the numbers the app computes. */
+  const relLum = (hex) => {
+    const c = (v) => { const n = parseInt(v, 16) / 255; return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); };
+    return 0.2126 * c(hex.slice(1, 3)) + 0.7152 * c(hex.slice(3, 5)) + 0.0722 * c(hex.slice(5, 7));
+  };
+  const ratio = (a, b) => { const x = relLum(a), y = relLum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const mixHex = (h1, h2, t) => {
+    const c = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    const [a1, b1, d1] = c(h1), [a2, b2, d2] = c(h2);
+    const m = (x, y) => Math.round(x + (y - x) * t);
+    const to = (n2) => n2.toString(16).padStart(2, "0");
+    return `#${to(m(a1, a2))}${to(m(b1, b2))}${to(m(d1, d2))}`;
+  };
+  const accentInk = (P, accent) => {
+    if (P.dark || ratio(accent, P.bg) >= 4.5) return accent;
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 12; i++) { const mid = (lo + hi) / 2; if (ratio(mixHex(accent, "#101216", mid), P.bg) >= 4.6) hi = mid; else lo = mid; }
+    return mixHex(accent, "#101216", hi);
+  };
+  const accentInkOn = (P, accent, ground) => {
+    const base = accentInk(P, accent);
+    if (ratio(base, ground) >= 4.6) return base;
+    const target = relLum(base) >= relLum(ground) ? "#ffffff" : "#101216";
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 12; i++) { const mid = (lo + hi) / 2; if (ratio(mixHex(base, target, mid), ground) >= 4.6) hi = mid; else lo = mid; }
+    return mixHex(base, target, hi);
+  };
+  await test("the Ask ink is wired: helper exists, composer sets --cb-ask-ink, the label reads it", () => {
+    assert.match(appUtilsSrc, /function accentInkOn\(P, accent, ground\)/, "accentInkOn is missing from appUtils.js");
+    assert.match(appUtilsSrc, /export \{[^}]*accentInk, accentInkOn,[^}]*\}/, "accentInkOn is not exported");
+    assert.match(appSrc, /"--cb-ask-ink": accentInkOn\(P, accent, mixHex\(P\.bg, accent, 0\.22\)\)/, "the composer does not set --cb-ask-ink from the hover ground");
+    assert.match(appSrc, /color: var\(--cb-ask-ink, var\(--cb-accent-ink, var\(--cb-acc\)\)\);/, "the Ask label does not read --cb-ask-ink");
+  });
+  await test("the old correction provably fails on the tinted ground (the defect, pinned)", () => {
+    const L = PALETTES.Light, amber = ACCENTS.Amber;
+    const ink = accentInk(L, amber);
+    assert.equal(ink, "#86672f", "accentInk's Light Amber correction changed; recompute the pinned arithmetic");
+    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.14)).toFixed(2), "4.20", "the old ink no longer computes to 4.20 at rest");
+    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.22)).toFixed(2), "3.99", "the old ink no longer computes to 3.99 on hover");
+  });
+  await test("the calibrated Ask ink clears 4.5 to 1 on its real ground, rest and hover, every palette and accent", () => {
+    for (const [pn, P] of Object.entries(PALETTES)) {
+      for (const [an, acc] of Object.entries(ACCENTS)) {
+        const ink = accentInkOn(P, acc, mixHex(P.bg, acc, 0.22));
+        const rest = ratio(ink, mixHex(P.bg, acc, 0.14));
+        const hover = ratio(ink, mixHex(P.bg, acc, 0.22));
+        assert.ok(rest >= 4.5, `${pn} with ${an}: Ask ink ${ink} is ${rest.toFixed(2)} to 1 at rest`);
+        assert.ok(hover >= 4.5, `${pn} with ${an}: Ask ink ${ink} is ${hover.toFixed(2)} to 1 on hover`);
+      }
+    }
+    // The headline cases, exact: Light Amber ships #795e2c (4.87 rest,
+    // 4.62 hover); Mid Sage ships #9cb599 (5.38 rest, 4.60 hover).
+    const li = accentInkOn(PALETTES.Light, ACCENTS.Amber, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22));
+    assert.equal(li, "#795e2c");
+    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.14)).toFixed(2), "4.87");
+    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22)).toFixed(2), "4.62");
+    const ms = accentInkOn(PALETTES.Mid, ACCENTS.Sage, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22));
+    assert.equal(ms, "#9cb599");
+    assert.equal(ratio(ms, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22)).toFixed(2), "4.60");
+  });
+}
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

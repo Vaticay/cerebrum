@@ -93,7 +93,7 @@ import { createCourseFromResults, saveLearnCourse } from "./LearnView.jsx";
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
-import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, tabListKeyDown, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
+import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
 
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
@@ -2461,6 +2461,16 @@ function SignalComposer({
            4.8 to 1. The dark value already passes (about 5.2 to 1). */
         "--cb-ph": P.dark ? "rgba(242,244,242,0.52)" : "rgba(34,37,42,0.66)",
         "--cb-bg": P.bg,
+        /* The Ask label's ink, calibrated against the ground it really
+           sits on: the accent wash over the field, at the hover strength
+           (22 percent), which is always the lower contrast of the two
+           states because the wash sits closer to the accent than the
+           rest wash does. accentInk() alone corrects against the plain
+           background and landed at 4.20 to 1 (rest) and 3.99 to 1
+           (hover) for Amber on Light; accentInkOn searches against the
+           tinted ground itself, so the shipped ink clears 4.6 to 1 on
+           both. The arithmetic is pinned in tests/core-identity.mjs. */
+        "--cb-ask-ink": accentInkOn(P, accent, mixHex(P.bg, accent, 0.22)),
       }}
     >
       <div className="cb-ask-field">
@@ -11387,7 +11397,7 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
         </div>
         {item.summary ? (
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.65, marginTop: 12, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {item.summary}
+            {renderInlineMdLite(item.summary, P)}
           </div>
         ) : (
           <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.65, marginTop: 12, fontStyle: "italic" }}>
@@ -11505,7 +11515,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
           <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", marginTop: 10 }}>{renderInlineMdLite(item.title, P)}</div>
           {(publishedLabel || persistenceLabel || typeof item.citedByCount === "number") && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{[publishedLabel ? `Published ${publishedLabel}` : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : item.citedByCount === 0 ? "No citations yet" : null, persistenceLabel].filter(Boolean).join(" · ")}</div>}
           {item.summary
-            ? <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
+            ? <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{renderInlineMdLite(item.summary, P)}</div>
             : <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, marginTop: 18, fontStyle: "italic" }}>No summary was published with this record. The full text is at the source.</div>}
           {Array.isArray(item.coverage) && item.coverage.length > 1 && (
             <div style={{ marginTop: 22 }}>
@@ -12326,7 +12336,11 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           )}
           {status === "ready" && citationHealth && !citationHealth.ok && citationHealth.attempted > 0 && (
             <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
-              Citation counts could not be completed this round{citationHealth.error ? `: ${citationHealth.error}` : ""}. The counts on the stories below are the ones their own sources reported.
+              {citationHealth.resolved > 0 ? (
+                <>Citation counts are partial this round: {citationHealth.resolved} of {citationHealth.attempted} counts resolved{citationHealth.error ? ` (${citationHealth.error})` : ""}{/429/.test(citationHealth.error || "") ? ". A provider was rate limited, so the rest could not be checked" : ""}. Stories without a count below are ones their own sources did not report either.</>
+              ) : (
+                <>Citation counts could not be completed this round{citationHealth.error ? `: ${citationHealth.error}` : ""}. The counts on the stories below are the ones their own sources reported.</>
+              )}
             </div>
           )}
           {status === "ready" && (feedMeta.degraded || feedMeta.stale) && (
@@ -12493,7 +12507,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderInlineMdLite(item.title, P)}</span>
                     {item.summary ? (
-                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
+                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{renderInlineMdLite(item.summary, P)}</span>
                     ) : (
                       <span style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.6, marginTop: 6, display: "block", fontStyle: "italic" }}>No summary was published with this record.</span>
                     )}
@@ -13330,7 +13344,11 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-evenly" }}>
         {btn(withAlpha(STATUS.bad, 0.16), STATUS.bad, "Decline", "phoneOff", onDecline)}
-        {btn(accent, at, "Accept", "camera", onAccept)}
+        {/* The accept glyph names the call the person is actually
+            answering: a phone for an audio only call, a camera for a
+            video call. This always drew the camera, so an audio call
+            announced itself with the wrong medium. */}
+        {btn(accent, at, "Accept", call.audioOnly ? "phone" : "camera", onAccept)}
       </div>
     </div>
   );
@@ -13447,6 +13465,56 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
   // Refs don't re-render, and which slot each stream belongs in changes the
   // moment the remote track lands — so the arrival itself has to be state.
   const [hasRemote, setHasRemote] = useState(false);
+
+  /* Dialog semantics, in place (the IncomingCall pattern, ported
+     rather than routed through the Dialog primitive: the huddle is a
+     full screen call surface whose root element doubles as the
+     minimized bubble, and the primitive's centered sheet, scrim, and
+     stack bookkeeping do not fit a surface that stays mounted and
+     keeps streaming while it changes shape). In its expanded state
+     the root declares role dialog with aria-modal, so it carries the
+     contract itself, the way IncomingCall does: focus moves into the
+     surface when it opens (and again when it expands from the
+     bubble), Tab cycles inside it, Escape minimizes (this surface's
+     own non destructive dismissal; its destructive one is the End
+     call control), and focus returns to whatever held it when the
+     call surface unmounts. Until 2026-10-14 it had none of this: a
+     keyboard user tabbed through the page behind a dialog that
+     claimed to be modal, and Escape did nothing. The trap is only
+     armed while expanded: minimized, the root is a button and the
+     page behind it is legitimately interactive again. */
+  const huddleRef = useRef(null);
+  useEffect(() => {
+    const prevFocus = document.activeElement;
+    return () => {
+      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* the trigger may be gone */ }
+    };
+  }, []);
+  useEffect(() => {
+    if (minimized) return;
+    const panel = huddleRef.current;
+    if (panel) panel.focus();
+    const onKey = (e) => {
+      /* A dialog stacked over the call (the report sheet renders
+         through the Dialog primitive) owns its own keys while it is
+         up: a key whose target sits inside that dialog is not the
+         call surface's to answer, or Escape would minimize the call
+         at the same moment it closes the sheet. Keys from the page
+         body (a click on the video settles focus there) still count
+         as the surface's own. */
+      const t = e.target;
+      if (t && t.closest && t.closest('[role="dialog"]') && !(panel && panel.contains(t))) return;
+      if (e.key === "Escape") { e.preventDefault(); setMinimized(true); return; }
+      if (e.key !== "Tab" || !panel) return;
+      const f = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); };
+  }, [minimized]);
 
   // Which physical <video> slot shows which stream. The `!remote` clause is
   // what makes the outgoing-call screen feel like FaceTime instead of a
@@ -13962,7 +14030,8 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
 
   return (
     <div role={minimized ? "button" : "dialog"} aria-modal={!minimized} aria-label={minimized ? `Call with ${name} (minimized). Activate to restore.` : `Call with ${name}`}
-      tabIndex={minimized ? 0 : undefined}
+      ref={huddleRef}
+      tabIndex={minimized ? 0 : -1}
       onKeyDown={minimized ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMinimized(false); } } : undefined}
       style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
       {/* Main stage — a plain <video> now instead of a Jitsi iframe mount;
@@ -16513,7 +16582,7 @@ function answerTruncatedNote(flag, what) {
    (functions/api/document.js, buildDocumentEvidence): every passage
    the answer quotes, located in the document text or flagged
    unverified:
-     [{ quote, start, end, verified, match }]
+     [{ quote, start, end, verified, match, note? }]
    start and end are character offsets into the document text, end
    exclusive, the same basis the reader's highlights use. match is
    "exact" (the quote appears word for word), "normalized" (it
@@ -16521,8 +16590,16 @@ function answerTruncatedNote(flag, what) {
    index the original text), or null when verified is false, in
    which case start and end are -1 and no location may be shown.
    An unverified quote is labelled as not found, never dressed as
-   grounded. Renders nothing when the trail is empty or absent, so
-   an answer without quoted passages carries no empty section. */
+   grounded. One refinement the backend's note field carries: an
+   entry with a note was never checked at all (note "too-long": the
+   quote is longer than the checking limit; note "over-cap": the
+   answer quoted more passages than the trail has checked slots),
+   so it is labelled not checked, and the not found wording is
+   reserved for entries that were checked and failed. Until
+   2026-10-14 the trail never read the note, so never checked quotes
+   were printed as not found, the opposite of what the backend knew.
+   Renders nothing when the trail is empty or absent, so an answer
+   without quoted passages carries no empty section. */
 function DocEvidenceTrail({ evidence, P }) {
   if (!Array.isArray(evidence) || evidence.length === 0) return null;
   return (
@@ -16537,6 +16614,14 @@ function DocEvidenceTrail({ evidence, P }) {
           {e.verified ? (
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4 }}>
               Found in the document, characters {Number(e.start).toLocaleString()} to {Number(e.end).toLocaleString()}{e.match === "normalized" ? ", with spacing that differs from the document" : ""}.
+            </div>
+          ) : e.note ? (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4 }}>
+              {e.note === "too-long"
+                ? "This quote was not checked: it is longer than the checking limit."
+                : e.note === "over-cap"
+                  ? "This quote was not checked: there are more quotes than the trail can check."
+                  : "This quote was not checked."}
             </div>
           ) : (
             <div style={{ fontSize: FONT_SIZES.caption, color: P.warn || "#b98a2f", fontFamily: "var(--cb-font)", marginTop: 4 }}>
@@ -16572,10 +16657,24 @@ function DocStageHealth({ stageHealth, P }) {
         const reason = typeof s.skipReason === "string" && s.skipReason ? s.skipReason : null;
         const detail = typeof s.detail === "string" && s.detail ? s.detail : null;
         const stateWord = state === "passed" ? "ok" : state === "failed" ? "failed" : "skipped";
+        /* The legs this stage never fired, with the reason each was
+           parked (functions/api/document.js carries them on the stage
+           entry as skippedLegs: [{ model, reason }]). Until 2026-10-14
+           the component dropped the field entirely, so a stage that
+           "passed" hid the legs it won without racing. Each parked leg
+           gets its own quiet line in the same style, under its stage. */
+        const skippedLegs = Array.isArray(s.skippedLegs) ? s.skippedLegs.filter((l) => l && typeof l.model === "string" && l.model) : [];
         return (
-          <div key={i} style={{ fontSize: FONT_SIZES.caption, color: state === "failed" ? (P.warn || "#b98a2f") : P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-            {s.name} · {stateWord}{typeof s.ms === "number" && s.ms > 0 ? ` · ${(s.ms / 1000).toFixed(1)}s` : ""}{reason ? ` (${reason})` : ""}{detail ? `. ${detail}` : ""}
-          </div>
+          <React.Fragment key={i}>
+            <div style={{ fontSize: FONT_SIZES.caption, color: state === "failed" ? (P.warn || "#b98a2f") : P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+              {s.name} · {stateWord}{typeof s.ms === "number" && s.ms > 0 ? ` · ${(s.ms / 1000).toFixed(1)}s` : ""}{reason ? ` (${reason})` : ""}{detail ? `. ${detail}` : ""}
+            </div>
+            {skippedLegs.map((l, j) => (
+              <div key={j} style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+                {l.model} · skipped{typeof l.reason === "string" && l.reason ? ` (${l.reason})` : ""}
+              </div>
+            ))}
+          </React.Fragment>
         );
       })}
     </div>
@@ -16652,7 +16751,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [docB, setDocB] = useState(""); // second document, for comparison
   const [docBError, setDocBError] = useState("");
   const [showDocB, setShowDocB] = useState(false);
-  const [compareResult, setCompareResult] = useState(null); // {streaming, text, model, budgetExhausted, promptTruncation}
+  const [compareResult, setCompareResult] = useState(null); // {streaming, text, model, budgetExhausted, promptTruncation, answerTruncated}
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState("");
   /* Which text each piece of reading state belongs to. The summary,
@@ -17218,7 +17317,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       // The comparison keeps the same fields the Q&A answers keep
       // (model, budget state, truncation), so a degraded comparison
       // is labeled the same way a degraded answer is.
-      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "", model: (result && result.model) || null, budgetExhausted: !!(result && result.budgetExhausted), promptTruncation: (result && result.promptTruncation) || null });
+      setCompareResult({ streaming: false, text: result && result.answer ? result.answer : "", model: (result && result.model) || null, budgetExhausted: !!(result && result.budgetExhausted), promptTruncation: (result && result.promptTruncation) || null, answerTruncated: !!(result && result.answerTruncated) });
       setComparePair(compareKeyOf(a, b));
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
@@ -18221,6 +18320,15 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                       {!compareResult.streaming && compareResult.promptTruncation && compareResult.promptTruncation.documentShortened ? (
                         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{promptTruncationNote(compareResult.promptTruncation, "comparison")}</div>
                       ) : null}
+                      {/* The comparison's own writing can also be cut at
+                          the length limit; the backend flags it as
+                          answerTruncated on the payload, and the flag
+                          used to die at setCompareResult, so a cut short
+                          comparison read as complete. The same quiet
+                          note the summary and Q&A surfaces render. */}
+                      {!compareResult.streaming && compareResult.answerTruncated ? (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{answerTruncatedNote(compareResult.answerTruncated, "comparison")}</div>
+                      ) : null}
                       {!compareResult.streaming && (
                         <UIButton P={P} variant="ghost" onClick={runCompare}
                           style={{ minHeight: 44, marginTop: 14, padding: "12px 16px", borderRadius: RADIUS.viewport, border: `1px solid ${P.line}`, cursor: "pointer", background: "transparent", color: P.ink2, fontWeight: 600, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
@@ -19126,16 +19234,16 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
     srcCount: { fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: RADIUS.md, fontFamily: "var(--cb-font)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
-    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
-    sortTabs: { display: "flex", gap: 2, background: P.dark ? withAlpha(P.bg, 0.4) : P.bg, padding: 3, borderRadius: RADIUS.md, marginBottom: 14, border: `1px solid ${P.line}` },
+    srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.bg, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
+    sortTabs: { display: "flex", gap: 2, background: P.bg, padding: 3, borderRadius: RADIUS.md, marginBottom: 14, border: `1px solid ${P.line}` },
     sortTab: { flex: 1, padding: "6px", fontSize: FONT_SIZES.caption, background: "transparent", color: P.ink2, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, transition: "background-color 280ms ease, color 280ms ease" },
     sortTabActive: { background: P.line, color: P.ink, boxShadow: "none", fontWeight: 600 },
     srcGroupLabel: { fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: TRACKING.tight, color: accent, margin: "16px 0 8px", paddingBottom: 6, borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-font)" },
-    sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600 },
+    sBtn: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.bg, color: P.ink2, border: glassBorder, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600 },
     sBtnP: { flex: 1, fontSize: FONT_SIZES.caption, padding: "8px", background: P.ink, color: P.bg, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontWeight: 600, fontFamily: "var(--cb-font)" },
     savedNote: { fontSize: FONT_SIZES.caption, color: accent, marginBottom: 12, fontFamily: "var(--cb-font)" },
-    zBox: { background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, border: glassBorder, borderRadius: RADIUS.md, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
-    zIn: { padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.dark ? withAlpha(P.surface, 0.4) : P.surface, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)" },
+    zBox: { background: P.bg, border: glassBorder, borderRadius: RADIUS.md, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
+    zIn: { padding: "9px 12px", fontSize: FONT_SIZES.small, border: glassBorder, background: P.surface, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)" },
     zMsg: { fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)" },
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
     empty: { fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
@@ -19213,7 +19321,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        Dialog primitive; these style objects had zero call sites and are
        deleted rather than carried. */
     soundGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 },
-    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", fontSize: FONT_SIZES.small, background: P.dark ? withAlpha(P.bg, 0.5) : P.bg, color: P.ink2, border: glassBorder, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600 },
+    soundBtn: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", fontSize: FONT_SIZES.small, background: P.bg, color: P.ink2, border: glassBorder, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600 },
     soundBtnActive: { color: P.ink, borderColor: withAlpha(accent, 0.4), background: withAlpha(accent, 0.06) },
   };
 }
@@ -20604,6 +20712,42 @@ function App() {
     if (!legalOk) return;
     const t = setTimeout(() => { try { askRef.current?.(deepQ); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askRef.current?.(deepQ); }:", cbErr); } }, 60);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Push notification deep links. The payloads the server sends carry
+  // a click through URL (functions/lib/webpush.js for messages,
+  // functions/lib/pushNotify.js for calls) and the service worker
+  // navigates the tab to it on tap:
+  //   /?inbox-thread=<threadId>   a message arrived in that thread
+  //   /?inbox-open=true           an incoming call
+  // Until 2026-10-14 nothing in the app read either parameter, so a
+  // push tap landed on whatever view the app happened to open with
+  // and the sw.js comment claiming the app consumes the parameter was
+  // aspirational. Consume them here, on load: a thread link opens the
+  // Inbox with that thread selected through the same pendingThreadId
+  // hand off the Find People and profile surfaces use (InboxView
+  // takes initialThreadId and calls onConsumeInitialThread once it
+  // has selected it); a call link opens the Inbox surface, where the
+  // incoming call poll raises the call card itself. Both parameters
+  // are stripped from the URL once consumed, the way the magic link
+  // and ?q= handling above strip theirs, so a reload does not
+  // re-trigger the jump.
+  useEffect(() => {
+    let params;
+    try { params = new URLSearchParams(window.location.search); } catch { return; }
+    const threadId = params.get("inbox-thread");
+    const inboxOpen = params.get("inbox-open");
+    if (!threadId && !inboxOpen) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("inbox-thread");
+      url.searchParams.delete("inbox-open");
+      const rest = url.searchParams.toString();
+      window.history.replaceState({}, "", url.pathname + (rest ? "?" + rest : "") + url.hash);
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: push deep link consume:", cbErr); }
+    if (threadId) setPendingThreadId(threadId);
+    setView("inbox");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -22201,6 +22345,15 @@ function App() {
     const ground = P.dark ? "#0b0d10" : P.bg;
     document.body.style.background = ground;
     document.documentElement.style.background = ground;
+    /* The Dialog primitive's default panel background reads
+       var(--cb-surface) (src/flowcharts.jsx). Dialogs portal to
+       document.body, OUTSIDE the app root div that carries the palette
+       variables inline, so the variable is mirrored onto <html> here:
+       without this the default fell back to a hard coded near black
+       (#141416) in every palette, Light included, under dark text.
+       The app root sets the same variable alongside --cb-solid-bg for
+       in tree readers; this line is what reaches the portals. */
+    document.documentElement.style.setProperty("--cb-surface", P.surface);
     document.documentElement.style.overscrollBehaviorY = "none";
     document.body.style.overscrollBehaviorY = "none";
     return () => {
@@ -22927,12 +23080,20 @@ function App() {
     <div key={s.doi || s.url || s.title || i} className="cb-fade" style={{
       ...S.srcItem,
       borderLeft: `2px solid ${withAlpha(relColor(s.relevance ?? 0), 0.5)}`,
-      /* Hover/focus states keep the fog — they brighten the scrim rather
-         than replacing it with a near-clear tint, so the card never goes
-         back to raw film underneath the text. */
-      background: hover === "src" + i ? (P.dark ? "rgba(22, 27, 34, 0.72)" : "rgba(255, 255, 255, 0.8)")
-        : hoverCite === i + 1 ? (P.dark ? "rgba(22, 27, 34, 0.72)" : "rgba(255, 255, 255, 0.8)")
-        : focusedSourceIdx === i ? (P.dark ? "rgba(18, 22, 29, 0.64)" : "rgba(255, 255, 255, 0.7)")
+      /* Hover and focus states are full strength palette steps, never
+         translucency: the card carries paper titles, and the standing
+         rule is that text bearing surfaces are solid. Hover (and a
+         citation chip lighting its card) steps the resting surface up
+         one opaque step: surface to raised on Light, and on dark
+         palettes, whose resting card already IS the raised surface, a
+         color-mix of two opaque palette colours (raised lifted toward
+         ink), which computes to a solid colour, not a see through
+         one. Focus takes the same step and adds the inset accent ring
+         in boxShadow below. (The rgba scrim values this replaces were
+         the last translucent state left on the card.) */
+      background: hover === "src" + i ? (P.dark ? `color-mix(in srgb, ${P.raised}, ${P.ink} 12%)` : P.raised)
+        : hoverCite === i + 1 ? (P.dark ? `color-mix(in srgb, ${P.raised}, ${P.ink} 12%)` : P.raised)
+        : focusedSourceIdx === i ? (P.dark ? `color-mix(in srgb, ${P.raised}, ${P.ink} 12%)` : P.raised)
         : undefined,
       boxShadow: hover === "src" + i ? `0 6px 20px ${withAlpha(accent, 0.1)}` : focusedSourceIdx === i ? `inset 0 0 0 1px ${withAlpha(accent, 0.4)}` : "none",
       transform: hover === "src" + i ? "translate3d(2px, -1px, 0)" : "translate3d(0, 0, 0)",
@@ -23027,7 +23188,7 @@ function App() {
   ].filter(Boolean).join(" ");
 
   return (
-    <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent), "--cb-solid-bg": P.bg}} className={a11yClasses}>
+    <div style={{...S.page, "--cb-accent": accent, "--cb-accent-ink": accentInk(P, accent), "--cb-solid-bg": P.bg, "--cb-surface": P.surface}} className={a11yClasses}>
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
       {/* Screen-reader search announcer: announces "Searching..." when a
@@ -23298,7 +23459,14 @@ function App() {
                     {t.fab ? (
                       <span style={{
                         width: 48, height: 48, borderRadius: "50%", marginTop: -22,
-                        background: accent, color: accentInk,
+                        /* accentText(accent), the ink picked FOR the accent
+                           ground: this once read `color: accentInk`, the
+                           imported FUNCTION rather than a call, which is
+                           not a colour at all — the declaration was invalid,
+                           dropped, and the plus inherited P.faint on the
+                           accent ground (about 1.0 to 1.2 to 1). accentText
+                           computes about 7.9 to 1 on Amber, 6.9 on Sage. */
+                        background: accent, color: accentText(accent),
                         display: "flex", alignItems: "center", justifyContent: "center",
                         boxShadow: "0 4px 16px rgba(0,0,0,0.30)",
                       }}>
@@ -25380,7 +25548,11 @@ summary::-webkit-details-marker { display: none; }
   position: relative;
   display: flex; align-items: center;
   border: 1px solid var(--cb-line2); border-radius: 2px;
-  background: color-mix(in srgb, var(--cb-bg) 82%, transparent);
+  /* Solid palette background at full strength: this field carries the
+     question text and sits over the home film, and the standing rule is
+     that text bearing surfaces are opaque. The 82 percent color-mix it
+     replaces let the film show through the words. */
+  background: var(--cb-bg);
   box-shadow: 0 8px 28px -12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06);
   transition: border-color 280ms ease, box-shadow 280ms ease, transform 280ms var(--cb-ease);
 }
@@ -25446,9 +25618,13 @@ summary::-webkit-details-marker { display: none; }
   background: color-mix(in srgb, var(--cb-acc) 14%, transparent);
   border-radius: 12px; cursor: pointer;
   /* The label sits on a faint accent tint over the field, so it takes
-     the accent ink correction (accentInk() on the app shell), not the
-     raw accent: raw Amber on the Light palette computed to 1.97 to 1. */
-  color: var(--cb-accent-ink, var(--cb-acc));
+     an ink calibrated against that tinted ground (--cb-ask-ink, set on
+     the composer root via accentInkOn), not the raw accent and not
+     the plain background correction: raw Amber on the Light palette
+     computed to 1.97 to 1, and accentInk() against the plain field
+     still landed at 4.20 to 1 at rest and 3.99 to 1 on hover, because
+     the tint pulls the ground toward the accent. */
+  color: var(--cb-ask-ink, var(--cb-accent-ink, var(--cb-acc)));
   font-family: var(--cb-font); font-size: 15px; font-weight: 650;
   display: inline-flex; align-items: center; justify-content: center;
   transition: background 280ms ease, border-color 280ms ease, opacity 280ms ease;
@@ -25477,7 +25653,9 @@ summary::-webkit-details-marker { display: none; }
    of controls beside the words. */
 .cb-ask--stage { max-width: none; }
 .cb-ask--stage .cb-ask-field {
-  background: color-mix(in srgb, var(--cb-bg) 88%, transparent);
+  /* Same solid ground as the standard field (see .cb-ask-field): the
+     stage variant's 88 percent mix was the same translucency defect. */
+  background: var(--cb-bg);
 }
 .cb-ask--stage .cb-ask-field::before,
 .cb-ask--stage .cb-ask-field::after {

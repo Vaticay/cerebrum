@@ -11,7 +11,7 @@ const fcSource = fs.readFileSync('src/flowcharts.jsx','utf8');
 const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState'];
+const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -20,7 +20,7 @@ const dsFunctions = dsAst.program.body
 const fcFunctions = fcAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length,11);
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length,16);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c});
 /* Extra stubs for the dialog-semantics renders below: the real React
@@ -42,6 +42,12 @@ Object.assign(context,{
 });
 context.FONT_SIZES.body=15; context.FONT_SIZES.label=13; context.FONT_SIZES.title=18;
 context.RADIUS.md=8; context.RADIUS.sm=6; context.RADIUS.viewport=2; context.RADIUS.xl=16;
+/* TrendingHero stubs: no media (the resolver found nothing honest),
+   no persistence label, and the helpers its provenance line closes
+   over. Rendering is the real component; only these data seams are
+   stubbed, the same bargain the dialog renders above make. */
+context.SHADOW.sm=()=>'none'; context.TYPE.heading={letterSpacing:'0'};
+context.trendingMediaOf=()=>null; context.trendPersistenceLabel=()=>''; context.relativeTime=()=>'2 days ago';
 vm.runInContext(js,context);
 const P0={dark:true,ink:'#eee',ink2:'#bbb',line:'#444',line2:'#555'};
 // Markers render as inline text, not a badge wall: no pill containers,
@@ -154,6 +160,21 @@ console.log('Actual search-mode, shared-button and card components render in dar
  assert.equal(renderToStaticMarkup(React.createElement(context.DocEvidenceTrail,{P})),'');
  console.log('Evidence trail renders nothing when the trail is empty or absent.');
 
+ /* Note carrying entries were never CHECKED (the backend's note
+    field: "too-long" past the per quote checking limit, "over-cap"
+    past the trail's checked slots), so they render as not checked —
+    the not found wording is reserved for entries that were checked
+    and failed, like the unverified ones above. */
+ const noted=renderToStaticMarkup(React.createElement(context.DocEvidenceTrail,{P,evidence:[
+  {quote:'A passage longer than the checking limit allows anyone to verify.',start:-1,end:-1,verified:false,match:null,note:'too-long'},
+  {quote:'A passage past the number of quotes the trail can check.',start:-1,end:-1,verified:false,match:null,note:'over-cap'},
+ ]}));
+ assert.match(noted,/This quote was not checked: it is longer than the checking limit\./);
+ assert.match(noted,/This quote was not checked: there are more quotes than the trail can check\./);
+ assert.doesNotMatch(noted,/Not found in the document/);
+ assert.doesNotMatch(noted,/characters/);
+ console.log('Noted evidence renders as not checked, never as not found.');
+
  // The cut short note: null when the flag is off (the render sites
  // then show nothing), the plain sentence when it is on.
  assert.equal(context.answerTruncatedNote(false,'answer'),null);
@@ -183,4 +204,69 @@ console.log('Actual search-mode, shared-button and card components render in dar
  assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P,stageHealth:undefined})),'');
  assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P})),'');
  console.log('Stage health renders nothing when the record is empty or absent.');
+
+ /* Parked legs: a stage entry's skippedLegs ([{ model, reason }])
+    render as their own quiet lines under the stage, so a stage that
+    passed still shows the legs it never fired and why. A stage
+    without the field renders exactly as before. */
+ const parked=renderToStaticMarkup(React.createElement(context.DocStageHealth,{P,stageHealth:[
+  {name:'answer',ok:true,ms:900,skippedLegs:[{model:'model one',reason:'daily cap reached'},{model:'model two',reason:'parked for this run'}]},
+  {name:'digest',ok:true,ms:1200},
+ ]}));
+ assert.match(parked,/answer · ok · 0\.9s/);
+ assert.match(parked,/model one · skipped \(daily cap reached\)/);
+ assert.match(parked,/model two · skipped \(parked for this run\)/);
+ assert.match(parked,/digest · ok · 1\.2s/);
+ console.log('Stage health renders parked legs with their reasons.');
+}
+
+/* ── Call surfaces: the huddle's modal contract, pinned by reading ──
+   VideoHuddle is not extracted above: its body drives live WebRTC
+   machinery that a server render cannot exercise, and this repo has
+   no DOM harness to run its effects (see the dialog semantics note
+   at the top of this file). What CAN be pinned is that the contract
+   is present in the shipped source, in the IncomingCall shape: the
+   expanded huddle declares dialog + aria-modal, focus moves into
+   the surface, Tab cycles inside it, Escape minimizes, and focus is
+   restored on unmount. The IncomingCall accept glyph is likewise
+   source pinned: the harness Icon stub renders nothing, so the
+   rendered markup cannot show which icon was chosen. */
+{
+ const vhAt=source.indexOf('function VideoHuddle');
+ assert.ok(vhAt>0,'VideoHuddle missing');
+ const vh=source.slice(vhAt,source.indexOf('\nfunction InboxView',vhAt));
+ assert.match(vh,/role=\{minimized \? "button" : "dialog"\} aria-modal=\{!minimized\}/,'the huddle no longer declares its modal state');
+ assert.match(vh,/const huddleRef = useRef\(null\);/,'the huddle has no root ref for the focus contract');
+ assert.match(vh,/ref=\{huddleRef\}/,'the huddle root does not carry the ref');
+ assert.match(vh,/tabIndex=\{minimized \? 0 : -1\}/,'the expanded huddle root is not a focus target');
+ assert.match(vh,/if \(panel\) panel\.focus\(\);/,'focus does not move into the huddle on open or expand');
+ assert.match(vh,/if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); setMinimized\(true\); return; \}/,'Escape does not minimize the huddle');
+ assert.match(vh,/e\.key !== "Tab"/,'the huddle has no Tab containment');
+ assert.match(vh,/prevFocus && prevFocus\.focus/,'focus is not restored when the huddle unmounts');
+ // The trap stands down while a dialog is stacked over the call.
+ assert.match(vh,/t\.closest\('\[role="dialog"\]'\)/,'the huddle key handler does not yield to a stacked dialog');
+ const icAt=source.indexOf('function IncomingCall');
+ const ic=source.slice(icAt,source.indexOf('\nlet __cbHuddleClientSeq',icAt));
+ assert.match(ic,/call\.audioOnly \? "phone" : "camera"/,'the accept button does not pick its icon from the call kind');
+ console.log('VideoHuddle carries the modal focus contract and the accept icon follows the call kind.');
+}
+
+/* ── Trending hero: species italics in summaries ───────────────────
+   The pipeline now puts the same *pairs* in summaries that titles
+   have always carried (buildTrendingItem), and the hero renders its
+   summary through the same formatter as its title. The REAL
+   TrendingHero renders a summary carrying a marked binomial: the
+   name must come out inside an <em> and the raw marker must never
+   print literally. */
+{
+ const hero=renderToStaticMarkup(React.createElement(context.TrendingHero,{P:P0,accent:'#A3B899',at:'#111',item:{
+  title:'Gut study finds a pattern',
+  summary:'Eradicating *Helicobacter pylori* reduced recurrence in the trial group.',
+  url:'https://example.com/gut',category:'Biology & Medicine',source:'J Test',type:'Paper',citedByCount:null,
+  media:{image:null,video:null,resolvedAt:1},
+ },onExpand:()=>{},generatedAt:Date.now(),isMobile:false}));
+ assert.match(hero,/<em style="font-style:italic"><span>Helicobacter pylori<\/span><\/em>/,'the summary binomial did not render in italics');
+ assert.doesNotMatch(hero,/\*Helicobacter/,'the raw italics marker printed literally in the summary');
+ assert.match(hero,/Gut study finds a pattern/);
+ console.log('Trending hero renders a summary binomial in italics; the marker never prints.');
 }
