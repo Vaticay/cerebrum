@@ -10891,7 +10891,7 @@ function EvidenceTableInline({ sources, P, accent, onOpenPaper }) {
   const [sortKey, setSortKey] = useState("cited");
   const rows = useMemo(() => buildEvidenceRows(sources), [sources]);
   const sorted = useMemo(() => sortEvidenceRows(rows, sortKey), [rows, sortKey]);
-  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.panel, zIndex: Z.content, whiteSpace: "nowrap" };
+  const th = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, textAlign: "left", padding: "12px 12px", borderBottom: `1px solid ${P.line}`, position: "sticky", top: 0, background: P.surface, zIndex: Z.content, whiteSpace: "nowrap" };
   const td = { padding: "12px", borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.small, color: P.ink, verticalAlign: "top" };
   return (
     <div className="cb-fade">
