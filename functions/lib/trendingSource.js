@@ -142,11 +142,48 @@ function cleanSpaceSummary(a) {
 // JSX escapes the ampersands a SECOND time, so the raw entities land on
 // the card as visible text. Decode once, strip tags, collapse whitespace —
 // provenance is kept, markup is not. Applied to every source at merge
-// time so no parser has to remember to do it. Never emits markup: tags
-// are removed as plain text, never trusted.
+// time so no parser has to remember to do it. Never emits HTML: tags are
+// removed as plain text, never trusted.
+//
+// One exception, and it is meaning rather than markup: an italic span is
+// how a source marks a species name, and stripping it silently rendered
+// *Phytophthora* in roman on the card, indistinguishable from an ordinary
+// word. Italic spans (literal or entity escaped) are parked in sentinels
+// before decoding and stripping; a caller that renders through the
+// markdown path — titles do, via buildTrendingItem — gets them back as
+// *pairs*, and every other caller gets exactly the plain text it has
+// always had.
+const ITALIC_OPEN = "\u0001";
+const ITALIC_CLOSE = "\u0002";
+// Converts parked italic sentinels to markdown *pairs*. An unpaired
+// sentinel is dropped rather than left as a broken marker: a close with
+// no open, a second open inside a span, an empty span, and a span left
+// open at the end of the string all lose their markers, keeping the words.
+function italicSentinelsToMarkdown(t) {
+  let out = "";
+  let openAt = -1;
+  for (const ch of t) {
+    if (ch === ITALIC_OPEN) {
+      if (openAt === -1) { openAt = out.length; out += "*"; }
+    } else if (ch === ITALIC_CLOSE) {
+      if (openAt !== -1) {
+        if (out.length === openAt + 1) out = out.slice(0, openAt);
+        else out += "*";
+        openAt = -1;
+      }
+    } else out += ch;
+  }
+  if (openAt !== -1) out = out.slice(0, openAt) + out.slice(openAt + 1);
+  return out;
+}
+
 const NAMED_ENTITIES = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'", nbsp: " " };
-export function cleanTrendingText(s) {
+export function cleanTrendingText(s, opts) {
   let t = String(s || "");
+  // Park italic spans first, in both spellings: the entity escaped form
+  // Europe PMC actually ships, and the literal tag form.
+  t = t.replace(/&lt;\s*(\/?)\s*(?:i|em)\s*&gt;/gi, (m, close) => (close ? ITALIC_CLOSE : ITALIC_OPEN));
+  t = t.replace(/<\s*(\/?)\s*(?:i|em)\s*>/gi, (m, close) => (close ? ITALIC_CLOSE : ITALIC_OPEN));
   t = t.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]+);/g, (m, body) => {
     if (body[0] === "#") {
       const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
@@ -167,7 +204,9 @@ export function cleanTrendingText(s) {
   t = t.replace(/The post [\s\S]*? appeared first on [^.]*\./gi, " ");
   t = t.replace(/\s*\[…\]/g, "");
   t = t.replace(/\s*\[\.\.\.\]\s*$/g, "");
-  return t.replace(/\s+/g, " ").trim();
+  t = t.replace(/\s+/g, " ").trim();
+  if (opts && opts.italics === "markdown") return italicSentinelsToMarkdown(t).replace(/\s+/g, " ").trim();
+  return t.split(ITALIC_OPEN).join("").split(ITALIC_CLOSE).join("");
 }
 
 const SOURCES = [
@@ -307,8 +346,12 @@ async function getText(url, timeoutMs = 8000) {
 export function buildTrendingItem(a, category) {
   return {
     // Decode entities/strip tags BEFORE anything else: a title that is
-    // nothing but markup is not a title.
-    title: cleanTrendingText(a.title),
+    // nothing but markup is not a title. Titles keep their italic spans
+    // as markdown *pairs* — the client renders titles through the same
+    // inline markdown path the answers use, so a marked species name
+    // comes back italic instead of roman. Summaries stay plain: they
+    // render as raw text, where a marker would print literally.
+    title: cleanTrendingText(a.title, { italics: "markdown" }),
     // 3000 chars: the story modal promises the fullest summary the
     // source provided; the old 900 char cap cut abstracts mid sentence.
     // The finish pass below then makes sure what survives ends at a

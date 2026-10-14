@@ -484,7 +484,11 @@ await test("buildTrendingItem cleans markup but preserves image_url byte-for-byt
     citedByCount: "3",
   };
   const item = buildTrendingItem(raw, "Biology & Medicine");
-  assert.equal(item.title, "Disseminated Klebsiella pneumoniae Infection");
+  // Corrected contract (third rescore fix): the title keeps the
+  // species name's italics as a markdown pair — the old expectation
+  // pinned the defect, the name stripped of its italics and rendered
+  // in roman. The summary assertion below still pins plain text.
+  assert.equal(item.title, "Disseminated *Klebsiella pneumoniae* Infection");
   assert.equal(item.summary, "A real abstract.");
   assert.equal(item.url, "https://doi.org/10.1/example");
   assert.equal(

@@ -140,6 +140,23 @@ function scheduleRefresh(env, waitUntil) {
   else p.catch(() => {});
 }
 
+// Same dedup shape as scheduleRefresh, for the media backfill: a cache
+// row can outlive the code that wrote it, and a row whose items carry
+// no `media` key at all (written before enrichment existed, or by a
+// first serve whose background backfill died with its isolate) would
+// otherwise serve media-less stories until the row happened to go
+// stale. Serving such a row schedules the backfill the live path runs.
+let _mediaBackfillInFlight = false;
+function scheduleMediaBackfill(env, waitUntil) {
+  if (_mediaBackfillInFlight) return;
+  _mediaBackfillInFlight = true;
+  const done = () => { _mediaBackfillInFlight = false; };
+  const safety = setTimeout(done, 120000);
+  const p = backfillTrendingMedia(env).finally(() => { clearTimeout(safety); done(); });
+  if (typeof waitUntil === "function") waitUntil(p);
+  else p.catch(() => {});
+}
+
 // ── Edition archive ─────────────────────────────────────────────────
 // An edition is one day of the feed, keyed by the UTC date of its
 // generatedAt. Every refresh upserts that day's snapshot (the latest
@@ -300,6 +317,13 @@ export function attachMedia(item, candidate) {
   return { ...item, media };
 }
 
+// How many items the live fallback path in onRequest resolves media
+// for inline before responding: the visible first screen of an edition.
+// The background refresh and the manual refresh resolve every item;
+// only a first serve trades the tail for latency, and the backfill
+// completes it into the same row.
+export const FIRST_SERVE_MEDIA_SLICE = 10;
+
 // Resolves lead media for every item through the shared /api/image
 // pipeline (resolveLeadMedia), which carries its own per-subject cache —
 // so the steady-state cost of this pass is one D1 read per item, not nine
@@ -427,6 +451,10 @@ export async function onRequest(context) {
       if (parsed && isUsableCachePayload(parsed)) {
         const { state, ageMs } = classifyCacheAge(parsed.fetchedAt, Date.now());
         const cached = { ...parsed, ageMs };
+        // A row whose items never got media keys is repaired in the
+        // background, once per isolate, instead of serving bare rows
+        // for the row's whole fresh window.
+        if (parsed.items.some((it) => it && !it.media)) scheduleMediaBackfill(env, waitUntil);
         editionsList = await listEditions(env);
         // Make sure today's edition exists in the archive even when the
         // row was written by the manual refresh endpoint, which does
@@ -463,15 +491,30 @@ export async function onRequest(context) {
     // same way. Fails soft inside withEditionTrend when the archive
     // cannot be read.
     if (env.DB) items = await withEditionTrend(env, items, generatedAt);
+    // First serve of an edition: resolve lead media for the visible
+    // slice BEFORE the payload is stored or sent. The old shape sent
+    // the whole edition out with no `media` key on any item and let a
+    // background backfill race the first reader — the first serve of
+    // every cold edition was bare, and if the backfill's isolate died
+    // the row stayed bare. Ten items is what a first screen shows
+    // (hero, rails, top of the digest); resolving all forty inline
+    // would make a cold visitor wait for the whole enrichment, which
+    // is the latency this endpoint exists to avoid. The remainder is
+    // still completed by the background backfill below, into the same
+    // cache row, and the archived edition carries the slice too.
+    if (items.length) {
+      const head = await enrichTrendingMedia(env, items.slice(0, FIRST_SERVE_MEDIA_SLICE));
+      items = [...head, ...items.slice(FIRST_SERVE_MEDIA_SLICE)];
+    }
     const body = JSON.stringify({ items, generatedAt, sourceHealth: feed.sourceHealth });
     // Opportunistically warm the cache with this live result too, so the
     // next visitor — and the next hourly refresh, whenever it lands —
-    // isn't starting from nothing either. Media enrichment happens in the
-    // background right after: the response goes out immediately with the
-    // items as fetched (no `media` key yet), and backfillTrendingMedia
-    // rewrites the cached row with verified lead media attached, so the
-    // following request serves it. Consumers: a missing `media` key means
-    // "not resolved yet" — treat it as no media.
+    // isn't starting from nothing either. Media enrichment for the
+    // items past the first serve slice happens in the background right
+    // after: backfillTrendingMedia rewrites the cached row with
+    // verified lead media attached to every item, so the following
+    // request serves the completed edition. Consumers: a missing
+    // `media` key means "not resolved yet" — treat it as no media.
     if (env.DB) {
       const write = env.DB.prepare(
         "INSERT INTO trending_cache (id, payload, fetched_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at"

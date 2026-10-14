@@ -148,20 +148,26 @@ function stubFetch(handler) {
   return () => { globalThis.fetch = saved; };
 }
 
+// Fixture dates are relative to the run's own clock: the edition
+// window in fetchTrendingItems is judged on the real Date.now, so the
+// hard coded 2026-09-01..04 dates these used to carry would have
+// fallen out of the 90 day window around 2026-11-30 and emptied the
+// fixture feed with no code change at all.
+const fixtureDay = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const canned = {
   europepmc: {
     resultList: { result: [{ title: "EPMC paper.", abstractText: "An abstract.", doi: "10.1/x",
-      journalTitle: "J Test", authorString: "A Uthor", firstPublicationDate: "2026-09-01" }] },
+      journalTitle: "J Test", authorString: "A Uthor", firstPublicationDate: fixtureDay(4) }] },
   },
   biorxiv: {
     collection: [{ title: "Biorxiv preprint", abstract: "Preprint abstract.", doi: "10.2/y",
-      category: "neuroscience", authors: "B Uthor", date: "2026-09-02" }],
+      category: "neuroscience", authors: "B Uthor", date: fixtureDay(3) }],
   },
   arxiv: `<feed><entry><title>Arxiv paper</title><summary>Arxiv abstract.</summary>` +
-    `<id>https://arxiv.org/abs/2609.00001</id><published>2026-09-03</published></entry></feed>`,
+    `<id>https://arxiv.org/abs/2609.00001</id><published>${fixtureDay(2)}</published></entry></feed>`,
   spaceflight: {
     results: [{ title: "Space story", summary: "A summary.", url: "https://example.com/space",
-      image_url: "", news_site: "NASA", published_at: "2026-09-04" }],
+      image_url: "", news_site: "NASA", published_at: fixtureDay(1) }],
   },
 };
 

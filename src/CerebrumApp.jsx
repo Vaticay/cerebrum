@@ -11197,6 +11197,10 @@ function trendProvenance(item, generatedAt) {
   if (item.indexedAt) parts.push(`Indexed ${relativeTime(new Date(item.indexedAt).getTime())}`);
   if (kind === "Press item") parts.push("not synthesized");
   if (item.citedByCount > 0) parts.push(`Cited by ${item.citedByCount}`);
+  // A reported zero is a state of its own — the count was checked and
+  // nobody has cited the work yet — so it is named, while a missing
+  // count (null) stays silent: no data must never read as a verdict.
+  else if (item.citedByCount === 0) parts.push("No citations yet");
   // Persistence rides the same quiet line: a story in the edition
   // several days running says so; a first day story says nothing,
   // because on a young archive every story would read the same.
@@ -11334,7 +11338,7 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
           <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)" }}>{trendKind(item)}{item.category ? ` · ${item.category}` : ""}</span>
         </div>
         <div style={{ fontSize: "clamp(24px, 3.2vw, 36px)", fontWeight: 650, color: P.ink, lineHeight: 1.16, letterSpacing: "-0.02em" }}>
-          {item.title}
+          {renderInlineMdLite(item.title, P)}
         </div>
         {item.summary ? (
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.65, marginTop: 12, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
@@ -11361,7 +11365,7 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
         <div style={{ minWidth: 0 }}>
           {/* Inside a button: still mode (poster + play badge for video)
               and an unlinked credit, since nested interactives would be invalid. */}
-          <MediaFigure P={P} media={media} title={item.title} still linkCredit={false} aspect="4/3" />
+          <MediaFigure P={P} media={media} title={(item.title || "").replace(/\*/g, "")} still linkCredit={false} aspect="4/3" />
         </div>
       )}
     </button>
@@ -11381,7 +11385,7 @@ function TrendRailList({ P, title, items, onExpand, generatedAt, mode }) {
         <button key={x.url || x.title || i} type="button" onClick={() => onExpand(x)} className="cb-row"
           style={{ display: "flex", gap: 10, width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: i === items.length - 1 ? "none" : `1px solid ${P.line}`, padding: "10px 2px", cursor: "pointer", fontFamily: "var(--cb-font)", alignItems: "baseline" }}>
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{x.title}</span>
+            <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderInlineMdLite(x.title, P)}</span>
             <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>
               {mode === "cited" ? `Cited by ${x.citedByCount}` : trendProvenance(x, generatedAt)}
             </span>
@@ -11430,7 +11434,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
     : "";
   const persistenceLabel = trendPersistenceLabel(item);
   return (
-    <Dialog label={item.title || "Article"} onClose={close} zIndex={217} width={640}
+    <Dialog label={(item.title || "Article").replace(/\*/g, "")} onClose={close} zIndex={217} width={640}
       panelStyle={{
         background: P.dark ? "rgba(15, 17, 26, 0.96)" : "rgba(255, 255, 255, 0.98)",
         border: `1px solid ${P.line}`,
@@ -11441,7 +11445,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
         <div style={{ position: "relative", flexShrink: 0 }}>
           {leadMedia && (
             <div style={{ padding: "16px 16px 0" }}>
-              <MediaFigure P={P} media={leadMedia} title={item.title} />
+              <MediaFigure P={P} media={leadMedia} title={(item.title || "").replace(/\*/g, "")} />
             </div>
           )}
           <button onClick={close} aria-label="Close" style={{ minWidth: 44, minHeight: 44, position: "absolute", top: 8, right: 8, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
@@ -11453,8 +11457,8 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               {item.source}
             </span>
           )}
-          <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", marginTop: 10 }}>{item.title}</div>
-          {(publishedLabel || persistenceLabel) && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{[publishedLabel ? `Published ${publishedLabel}` : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : null, persistenceLabel].filter(Boolean).join(" · ")}</div>}
+          <div style={{ fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, lineHeight: 1.25, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", marginTop: 10 }}>{renderInlineMdLite(item.title, P)}</div>
+          {(publishedLabel || persistenceLabel || typeof item.citedByCount === "number") && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{[publishedLabel ? `Published ${publishedLabel}` : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : item.citedByCount === 0 ? "No citations yet" : null, persistenceLabel].filter(Boolean).join(" · ")}</div>}
           {item.summary
             ? <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{item.summary}</div>
             : <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, marginTop: 18, fontStyle: "italic" }}>No summary was published with this record. The full text is at the source.</div>}
@@ -11463,7 +11467,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>More coverage of this story · {item.coverage.length} reports</div>
               {item.coverage.filter((c) => c.url !== item.url).map((c, i) => (
                 <a key={c.url || i} href={safeHref(c.url)} target="_blank" rel="noreferrer" style={{ display: "block", padding: "9px 0", borderBottom: `1px solid ${P.line}`, textDecoration: "none" }}>
-                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{c.title}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{renderInlineMdLite(c.title, P)}</span>
                   <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{c.source || c.category}</span>
                 </a>
               ))}
@@ -11539,7 +11543,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
                     background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
                     cursor: "pointer", fontFamily: "var(--cb-font)",
                   }}>
-                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{nx.title}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.ink, lineHeight: 1.4 }}>{renderInlineMdLite(nx.title, P)}</span>
                   <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{[nx.category, nx.source, trendPersistenceLabel(nx)].filter(Boolean).join(" · ")}</span>
                 </button>
               ))}
@@ -12017,6 +12021,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   const viewingEditionRef = useRef(null);
   const [newEdition, setNewEdition] = useState(false);
   const [missingSources, setMissingSources] = useState([]);
+  // The citation completion leg reports itself in sourceHealth under
+  // its own name ("Citation counts"). It is not a section of the
+  // edition, so it never joins missingSources — a failed completion
+  // leg is citation health, rendered as such below, not a missing
+  // section that "did not answer".
+  const [citationHealth, setCitationHealth] = useState(null);
   const [trendQuery, setTrendQuery] = useState("");
   const [trendSort, setTrendSort] = useState("edition");
   /* Viewport width from the shared hook: this view used to keep its
@@ -12057,7 +12067,10 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
               window.localStorage.setItem("cb_trending_last_edition_v1", data.edition);
             } catch { /* private mode: the marker is a nicety */ }
           }
-          if (Array.isArray(data.sourceHealth)) setMissingSources(data.sourceHealth.filter((s) => s && !s.ok).map((s) => s.source));
+          if (Array.isArray(data.sourceHealth)) {
+            setMissingSources(data.sourceHealth.filter((s) => s && s.source !== "Citation counts" && !s.ok).map((s) => s.source));
+            setCitationHealth(data.sourceHealth.find((s) => s && s.source === "Citation counts") || null);
+          }
           setStatus("ready");
         })
         .catch(() => {
@@ -12086,7 +12099,10 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         setGeneratedAt(data.generatedAt || 0);
         setFeedMeta({ stale: false, degraded: false });
         if (Array.isArray(data.editions)) setEditions(data.editions);
-        if (Array.isArray(data.sourceHealth)) setMissingSources(data.sourceHealth.filter((s) => s && !s.ok).map((s) => s.source));
+        if (Array.isArray(data.sourceHealth)) {
+          setMissingSources(data.sourceHealth.filter((s) => s && s.source !== "Citation counts" && !s.ok).map((s) => s.source));
+          setCitationHealth(data.sourceHealth.find((s) => s && s.source === "Citation counts") || null);
+        }
         setExpanded(null);
         setStatus("ready");
       })
@@ -12110,6 +12126,11 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
   // two stories carry a real positive count.
   const citedOf = (x) => (typeof x.citedByCount === "number" ? x.citedByCount : -1);
   const hasCitedData = stories.filter((x) => citedOf(x) > 0).length >= 2;
+  // Citation health from the stories themselves: how many carry any
+  // reported count at all (a reported zero counts as known). The
+  // masthead states it, so the health the API computes is on screen,
+  // not only in the payload.
+  const citedKnownCount = stories.filter((x) => typeof x.citedByCount === "number").length;
   const effectiveSort = trendSort === "cited" && !hasCitedData ? "edition" : trendSort;
   // The category filter is applied once, here, so every view below is fed
   // the same already-narrowed list and no future view can forget it.
@@ -12120,6 +12141,11 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
     const hay = [x, ...((x && x.coverage) || [])].map((c) => `${c.title || ""} ${c.summary || ""} ${c.source || ""} ${c.category || ""}`).join(" ").toLowerCase();
     return hay.includes(query);
   });
+  // The Most cited ordering ranks only the positive subset of the
+  // view on screen; the disclosure under the sort states this count
+  // against the view's size, so a two story ranking over a forty
+  // story edition can never present itself as a ranking of forty.
+  const citedRankedCount = filteredItems.filter((x) => citedOf(x) > 0).length;
   const visibleItems = effectiveSort === "edition"
     ? filteredItems
     : [...filteredItems].sort((a, b) => effectiveSort === "cited"
@@ -12218,6 +12244,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
               <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{stories.length}</strong> stories in this edition</span>
               <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{paperCount}</strong> papers and preprints</span>
               <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{pressCount}</strong> press reports</span>
+              <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{citedKnownCount}</strong> of {stories.length} stories carry a citation count</span>
               {pubRange && <span>{pubRange}</span>}
               {generatedAt > 0 && <span>Updated {relativeTime(generatedAt)}</span>}
             </div>
@@ -12250,6 +12277,11 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
           {status === "ready" && missingSources.length > 0 && (
             <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
               Missing this round: {missingSources.join(", ")}. That section is absent because its source did not answer, not because nothing was published.
+            </div>
+          )}
+          {status === "ready" && citationHealth && !citationHealth.ok && citationHealth.attempted > 0 && (
+            <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
+              Citation counts could not be completed this round{citationHealth.error ? `: ${citationHealth.error}` : ""}. The counts on the stories below are the ones their own sources reported.
             </div>
           )}
           {status === "ready" && (feedMeta.degraded || feedMeta.stale) && (
@@ -12373,6 +12405,15 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   >Show the whole edition</UIButton>
                 )} />
             )}
+            {/* The Most cited ordering discloses its own basis: it ranks
+                only the stories with a positive count, and the rest are
+                not ranked at all. Without this line a two story ranking
+                over a forty story edition reads as a ranking of forty. */}
+            {effectiveSort === "cited" && visibleItems.length > 0 && (
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.55, marginBottom: 18 }}>
+                Ranked by citation count, most cited first. {citedRankedCount} of {filteredItems.length} stories in this view have a count above zero. Stories without a reported count are not ranked; they follow in edition order.
+              </div>
+            )}
             {/* The lead story, full width. The digest below is the index;
                 this is the front-page feature. */}
             {hero && <div style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} heroLabel={heroLabel} /></div>}
@@ -12405,7 +12446,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                 >
                   {!narrow && <span style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)", width: 32, flexShrink: 0, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>}
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{item.title}</span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, lineHeight: 1.45 }}>{renderInlineMdLite(item.title, P)}</span>
                     {item.summary ? (
                       <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.summary}</span>
                     ) : (
@@ -12428,7 +12469,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
                   {/* Verified lead media as a small thumb. On narrow
                       phones the row goes full width text instead, so a
                       headline never gets squeezed beside a thumbnail. */}
-                  {!narrow && <TrendThumb P={P} media={trendingMediaOf(item)} title={item.title} />}
+                  {!narrow && <TrendThumb P={P} media={trendingMediaOf(item)} title={(item.title || "").replace(/\*/g, "")} />}
                 </button>
               ))}
             </div>)}
