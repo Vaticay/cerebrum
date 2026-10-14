@@ -35,11 +35,11 @@
 - Features: saved sources and collections, side by side comparison of
   investigations, views of how sources relate to each other, diagram studio,
   bibliography export (Excel, BibTeX, APA, MLA, Chicago, Vancouver).
-- Wick: a learning companion that builds courses from real papers on a
-  topic, with practice activities drawn from the papers and daily practice.
-  Progress is stored in the visitor's own browser and can be exported and
-  imported as a file the visitor keeps. There is no account sync and no
-  cloud copy.
+- Nova: a learning companion that teaches short lessons on a topic in
+  plain language, with quizzes on what each lesson taught and daily
+  practice with spaced review. Progress is stored in the visitor's own
+  browser and can be exported and imported as a file the visitor keeps.
+  There is no account sync and no cloud copy.
 - MCP: AI assistants can call Cerebrum through the endpoint at
   https://askcerebrum.org/mcp. Search results carry their Search record
   with them, permanent link included.

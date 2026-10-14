@@ -535,7 +535,7 @@ export const SHADOW = {
 export const BADGE_DISPLAY = {
   founder: { label: "Founder & Owner", icon: "award", tint: "#c9a227" },
   verified: { label: "Verified", icon: "check", tint: PRO.emerald },
-  cortex_contributor: { label: "Wick Contributor", icon: "cortex", tint: "#A3B899" },
+  cortex_contributor: { label: "Nova Contributor", icon: "cortex", tint: "#A3B899" },
   early_adopter: { label: "Early adopter", icon: "zap", tint: "#b45309" },
   first_question: { label: "First question", icon: "history", tint: "#7ea6c9" },
   ten_questions: { label: "Ten investigations", icon: "history", tint: "#7ea6c9" },

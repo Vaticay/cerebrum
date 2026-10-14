@@ -46,7 +46,110 @@ function saveJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ }
 }
 
-export function loadLearnCourses() { return loadJSON(COURSES_KEY, []); }
+export function decodeHtmlEntities(text) {
+  const NAMED = {
+    amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: "\u00a0",
+    eacute: "é", egrave: "è", agrave: "à", aacute: "á", iacute: "í", oacute: "ó", uacute: "ú",
+    ccedil: "ç", ntilde: "ñ", auml: "ä", ouml: "ö", uuml: "ü", euml: "ë", szlig: "ß",
+  };
+  return String(text == null ? "" : text).replace(/&(#(?:[xX][0-9a-fA-F]+|\d+)|[A-Za-z][A-Za-z0-9]+);/g, (whole, body) => {
+    if (body.charAt(0) === "#") {
+      const isHex = body.charAt(1) === "x" || body.charAt(1) === "X";
+      const code = isHex ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return whole;
+      if (code >= 0xD800 && code <= 0xDFFF) return whole;
+      try { return String.fromCodePoint(code); } catch { return whole; }
+    }
+    return Object.prototype.hasOwnProperty.call(NAMED, body) ? NAMED[body] : whole;
+  });
+}
+
+function decodeStringsDeep(value, depth) {
+  const level = depth == null ? 0 : depth;
+  if (level > 8) return value;
+  if (typeof value === "string") return decodeHtmlEntities(value);
+  if (Array.isArray(value)) return value.map((item) => decodeStringsDeep(item, level + 1));
+  if (value && typeof value === "object") {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return value;
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = decodeStringsDeep(value[key], level + 1);
+    return out;
+  }
+  return value;
+}
+
+export function cardIsPaperBacked(card) {
+  if (!card || typeof card !== "object") return false;
+  if (card.kind === "paper") return true;
+  if (card.cite != null) return true;
+  if (card.paperTitle != null) return true;
+  const question = typeof card.question === "string" ? card.question : "";
+  if (/\bet al\.?\b/i.test(question)) return true;
+  if (/^what did .+ report\??$/i.test(question.trim())) return true;
+  if (question.trim() && hasAttributionShape(question)) return true;
+  const badRe = /search for other works by this author|https?:\/\/|doi\.org|\bdoi:|\bet al\.?\b/i;
+  const candidates = [];
+  if (typeof card.prompt === "string") candidates.push(card.prompt);
+  if (typeof card.why === "string") candidates.push(card.why);
+  if (Array.isArray(card.options)) {
+    for (const opt of card.options) if (typeof opt === "string") candidates.push(opt);
+  }
+  if (Array.isArray(card.pairs)) {
+    for (const pair of card.pairs) {
+      if (!pair || typeof pair !== "object") continue;
+      if (typeof pair.left === "string") candidates.push(pair.left);
+      if (typeof pair.right === "string") candidates.push(pair.right);
+    }
+  }
+  for (const text of candidates) if (badRe.test(text)) return true;
+  return false;
+}
+
+export function courseIsPaperBacked(course) {
+  if (!course || typeof course !== "object" || !Array.isArray(course.lessons)) return false;
+  return course.lessons.some((lesson) => !!lesson && typeof lesson === "object" && Array.isArray(lesson.cards)
+    && lesson.cards.some((card) => cardIsPaperBacked(card)));
+}
+
+/* Paper backed learning, retired on 2026-10-14.
+   The owner ordered every paper backed question removed. Courses
+   stored before the pivot could still hold paper cards, and quiz
+   and cloze cards carrying citation text, and the stored review
+   claims held copies of those same cards. This is the storage
+   boundary rule: a course with any paper backed card in any lesson
+   is retired whole, and a review claim is retired when it belongs
+   to a retired course or its own card is paper backed. Kept courses
+   and kept claims stay exactly as they were, apart from HTML
+   entities in their strings being decoded to the characters they
+   stand for. This function is pure and touches nothing else: no
+   profile, no path progress, no XP, no streaks, and no Sparks. */
+export function retirePaperBackedLearning(courses, claims) {
+  const list = Array.isArray(courses) ? courses : [];
+  const claimMap = cortexIsPlainObject(claims) ? claims : {};
+  const retiredCourseIds = [];
+  const keptCourses = [];
+  for (const course of list) {
+    if (courseIsPaperBacked(course)) {
+      if (course && typeof course === "object" && course.id != null) retiredCourseIds.push(course.id);
+      continue;
+    }
+    keptCourses.push(decodeStringsDeep(course));
+  }
+  const retiredSet = new Set(retiredCourseIds);
+  const keptClaims = {};
+  let retiredClaims = 0;
+  for (const key of Object.keys(claimMap)) {
+    const claim = claimMap[key];
+    const dropByCourse = !!claim && typeof claim === "object" && claim.courseId != null && retiredSet.has(claim.courseId);
+    const dropByCard = !!claim && typeof claim === "object" && cardIsPaperBacked(claim.card);
+    if (dropByCourse || dropByCard) { retiredClaims += 1; continue; }
+    keptClaims[key] = decodeStringsDeep(claim);
+  }
+  return { courses: keptCourses, claims: keptClaims, retiredCourseIds, retiredClaims };
+}
+
+export function loadLearnCourses() { return retirePaperBackedLearning(loadJSON(COURSES_KEY, []), {}).courses; }
 export function saveLearnCourse(course) {
   const all = loadLearnCourses();
   const i = all.findIndex((c) => c.id === course.id);
@@ -54,7 +157,7 @@ export function saveLearnCourse(course) {
   saveJSON(COURSES_KEY, all);
   return all;
 }
-function loadClaims() { return loadJSON(CLAIMS_KEY, {}); }
+function loadClaims() { return retirePaperBackedLearning(loadJSON(COURSES_KEY, []), loadJSON(CLAIMS_KEY, {})).claims; }
 function saveClaims(claims) { saveJSON(CLAIMS_KEY, claims); }
 
 function loadProfile() {
@@ -78,11 +181,12 @@ function saveProfile(p) { saveJSON(PROFILE_KEY, p); }
 export const CORTEX_EXPORT_FORMAT = "cerebrum-cortex-progress";
 export const CORTEX_EXPORT_VERSION = 1;
 
-/* The Wick tagline (rename, 2026-10-14). The owner ordered the
-   learning product renamed from Cortex to Wick the same day, and
-   its line set to the new promise: one idea a day. The constant
-   name stays CORTEX_TAGLINE because it is internal only. */
-export const CORTEX_TAGLINE = "One idea a day.";
+/* The Nova tagline (renames, 2026-10-14). The owner ordered the
+   learning product renamed from Cortex to Wick and then, the same
+   day, rejected Wick and picked Nova himself, with Asta's line:
+   science, one spark at a time. The constant name stays
+   CORTEX_TAGLINE because it is internal only. */
+export const CORTEX_TAGLINE = "Science, one spark at a time.";
 
 function cortexIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 function cortexIsFiniteNumber(v) { return typeof v === "number" && Number.isFinite(v); }
@@ -94,12 +198,16 @@ function cortexImportFailure(error) { return { ok: false, error }; }
 export function buildCortexExport(state, now = new Date()) {
   const s = cortexIsPlainObject(state) ? state : {};
   const when = now instanceof Date ? now : new Date(now);
+  const clean = retirePaperBackedLearning(
+    Array.isArray(s.courses) ? s.courses : [],
+    cortexIsPlainObject(s.claims) ? s.claims : {}
+  );
   return {
     format: CORTEX_EXPORT_FORMAT,
     version: CORTEX_EXPORT_VERSION,
     exportedAt: when.toISOString(),
-    courses: Array.isArray(s.courses) ? s.courses : [],
-    claims: cortexIsPlainObject(s.claims) ? s.claims : {},
+    courses: clean.courses,
+    claims: clean.claims,
     profile: cortexIsPlainObject(s.profile) ? s.profile : cortexEmptyProfile(),
     builtinProgress: cortexIsPlainObject(s.builtinProgress) && cortexIsPlainObject(s.builtinProgress.lessons)
       ? s.builtinProgress : cortexEmptyBuiltinProgress(),
@@ -212,13 +320,13 @@ export function parseCortexImport(text) {
   try { data = JSON.parse(String(text == null ? "" : text)); }
   catch { return cortexImportFailure("That file could not be read. It is not valid JSON."); }
   if (!cortexIsPlainObject(data) || data.format !== CORTEX_EXPORT_FORMAT) {
-    return cortexImportFailure("That file is not a Wick progress file. Nothing was imported.");
+    return cortexImportFailure("That file is not a Nova progress file. Nothing was imported.");
   }
   if (typeof data.version !== "number" || data.version < 1) {
-    return cortexImportFailure("That Wick progress file has no readable version. Nothing was imported.");
+    return cortexImportFailure("That Nova progress file has no readable version. Nothing was imported.");
   }
   if (data.version > CORTEX_EXPORT_VERSION) {
-    return cortexImportFailure("That file was made by a newer version of Wick. Update Cerebrum, then import it again.");
+    return cortexImportFailure("That file was made by a newer version of Nova. Update Cerebrum, then import it again.");
   }
   if (!Array.isArray(data.courses)) {
     return cortexImportFailure("That file is missing its courses section. Nothing was imported.");
@@ -246,13 +354,13 @@ export function parseCortexImport(text) {
     || (data.profile.bridged != null && !cortexIsStringArray(data.profile.bridged))
     || (data.profile.freezes != null && !cortexIsFiniteNumber(data.profile.freezes))
     || (data.profile.freezeMilestone != null && !cortexIsFiniteNumber(data.profile.freezeMilestone))) {
-    return cortexImportFailure("That file's profile section is not shaped like a Wick profile. Nothing was imported.");
+    return cortexImportFailure("That file's profile section is not shaped like a Nova profile. Nothing was imported.");
   }
   if ((data.profile.sparks != null && (!cortexIsFiniteNumber(data.profile.sparks) || data.profile.sparks < 0))
     || (data.profile.loopDay != null && typeof data.profile.loopDay !== "string")
     || (data.profile.reminderHour != null && (!Number.isInteger(data.profile.reminderHour) || data.profile.reminderHour < 0 || data.profile.reminderHour > 23))
     || (data.profile.leaguesOptIn != null && typeof data.profile.leaguesOptIn !== "boolean")) {
-    return cortexImportFailure("That file's profile section is not shaped like a Wick profile. Nothing was imported.");
+    return cortexImportFailure("That file's profile section is not shaped like a Nova profile. Nothing was imported.");
   }
   if (data.profile.loop != null) {
     const loopProblem = cortexLoopProblem(data.profile.loop);
@@ -272,15 +380,17 @@ export function parseCortexImport(text) {
   if (data.sound != null && typeof data.sound !== "boolean") {
     return cortexImportFailure("That file's sound setting is not readable. Nothing was imported.");
   }
+  const clean = retirePaperBackedLearning(data.courses, data.claims);
   return {
     ok: true,
     state: {
-      courses: data.courses,
-      claims: data.claims,
+      courses: clean.courses,
+      claims: clean.claims,
       profile: data.profile,
       builtinProgress: data.builtinProgress,
       sound: data.sound === true,
     },
+    retired: { courses: clean.retiredCourseIds.length, claims: clean.retiredClaims },
   };
 }
 
@@ -408,7 +518,7 @@ function cleanText(s) {
      finding to plain text, species names included. Logic that
      compares claim text (normKey, hashes, dedupe) is unaffected:
      it already ignores punctuation. */
-  return String(s || "")
+  return decodeHtmlEntities(String(s || ""))
     .replace(/\[(\d+)\]/g, "")
     .replace(/\s+/g, " ")
     .replace(/\s+([.,!?;:])/g, "$1")
@@ -928,25 +1038,6 @@ function withAlphaSafe(hex, a) {
   return "rgba(" + ((n >> 16) & 255) + ", " + ((n >> 8) & 255) + ", " + (n & 255) + ", " + a + ")";
 }
 
-/* Finding text with its numbers lifted out in the accent colour:
-   the values are what the learner will be asked to recall, so the
-   eye should land on them while reading. The words between the
-   numbers go through parseRichText, so a finding keeps the
-   formatting it had in the answer: species names in italics, key
-   terms in bold. */
-function emphasizeFinding(text, accent) {
-  const parts = String(text || "").split(NUMBER_RE);
-  return parts.map((part, i) => {
-    if (i % 2 === 1) return <strong key={i} style={{ color: accent, fontWeight: 800 }}>{part}</strong>;
-    return parseRichText(part).map((seg, j) => {
-      if (seg.bold && seg.italic) return <strong key={j}><em>{seg.text}</em></strong>;
-      if (seg.bold) return <strong key={j}>{seg.text}</strong>;
-      if (seg.italic) return <em key={j}>{seg.text}</em>;
-      return seg.text;
-    });
-  });
-}
-
 /* Minimal rich text for every card surface. The conventions mirror
    renderInlineMdLite in CerebrumApp.jsx, the helper the answers
    themselves render with: **pairs** are bold (the answer's key
@@ -1256,14 +1347,26 @@ function CardVisual({ src, P, accent, height = 190 }) {
   );
 }
 
+/* Nova the axolotl (rename, 2026-10-14). The flame set retired
+   with the Wick name the same day it shipped; the owner picked
+   Nova and ordered a real mascot with a personality. Pose keys
+   keep their names so every call site and pin holds; the files
+   behind them are the eight Nova expressions. Cheer and celebrate
+   land on pleased because completion in Nova's register is quiet
+   satisfaction, not a party. Deadpan is the wrong answer face,
+   asleep serves night and empty states. */
 const CHARACTER_POSES = {
-  wave: "/cortex/character/wick-greeting.webp",
-  cheer: "/cortex/character/wick-celebrating.webp",
-  think: "/cortex/character/wick-thinking.webp",
-  celebrate: "/cortex/character/wick-celebrating.webp",
-  worried: "/cortex/character/wick-worried.webp",
-  fading: "/cortex/character/wick-fading.webp",
-  explain: "/cortex/character/wick-explaining.webp",
+  wave: "/cortex/character/nova-greeting.webp",
+  greeting: "/cortex/character/nova-greeting.webp",
+  cheer: "/cortex/character/nova-pleased.webp",
+  think: "/cortex/character/nova-thinking.webp",
+  celebrate: "/cortex/character/nova-pleased.webp",
+  pleased: "/cortex/character/nova-pleased.webp",
+  worried: "/cortex/character/nova-worried.webp",
+  fading: "/cortex/character/nova-fading.webp",
+  explain: "/cortex/character/nova-explaining.webp",
+  deadpan: "/cortex/character/nova-deadpan.webp",
+  asleep: "/cortex/character/nova-asleep.webp",
 };
 
 function CharacterPose({ pose, size = 54 }) {
@@ -5604,7 +5707,7 @@ export function validateCurriculum(paths = LEARNING_PATHS) {
       if (!card.title || !card.text) problems.push(where + ": note needs a title and text");
     } else if (card.kind === "deepen") {
       if (!card.text || card.text.length < 20) problems.push(where + ": deepen line is missing or too short");
-    } else if (card.kind === "summary" || card.kind === "paper") {
+    } else if (card.kind === "summary") {
       if (!card.title) problems.push(where + ": " + card.kind + " has no title");
     } else {
       problems.push(where + ": unknown card kind " + card.kind);
@@ -5666,7 +5769,7 @@ function courseFromPath(path, progress) {
    used to earn 4, and reading a card earned 2, so the total mostly
    counted activity). Battle cards have no wrong answer to give, so
    engaging one earns its flat 6. Finishing a lesson earns 20.
-   Reading cards (notes, papers, deepen, summaries) earn nothing:
+   Reading cards (notes, deepen pieces, and summaries) earn nothing:
    advancing past a card is not an achievement.
    Replays are capped per lesson: the first completion of a lesson
    pays in full, the second pays half, and later completions pay
@@ -6043,8 +6146,8 @@ export function reminderFor({ profile, quests, loop, now } = {}) {
   if (hour >= 22) {
     return {
       kind: "atrisk",
-      title: "Your streak needs you tonight",
-      body: "Your streak is " + streak + (streak === 1 ? " day" : " days") + ". Finish today's session before midnight to keep it going.",
+      title: "Your streak goes dark tonight",
+      body: "Your streak is " + streak + (streak === 1 ? " day" : " days") + ". Ten minutes of today's session fixes it, any time before midnight.",
     };
   }
   const list = quests || [];
@@ -6057,7 +6160,7 @@ export function reminderFor({ profile, quests, loop, now } = {}) {
   }) || list[0] || null;
   return {
     kind: "daily",
-    title: "Time for Wick",
+    title: "Time for Nova",
     body: "Your streak is " + streak + (streak === 1 ? " day" : " days") + "." + (open ? " Still open today: " + open.title + "." : " Finish today's session to keep it going."),
   };
 }
@@ -6161,7 +6264,7 @@ function ShareCardButton({ model, P, accent }) {
       ctx.textAlign = "center";
       ctx.fillStyle = accent;
       ctx.font = "700 30px Georgia, serif";
-      ctx.fillText("Wick", 540, 110);
+      ctx.fillText("Nova", 540, 110);
       ctx.fillStyle = (P && P.ink2) || "#d4d4d8";
       ctx.font = "400 26px Georgia, serif";
       ctx.fillText(CORTEX_TAGLINE, 540, 150);
@@ -6184,17 +6287,17 @@ function ShareCardButton({ model, P, accent }) {
       (model.lines || []).slice(0, 5).forEach((ln, i) => ctx.fillText(String(ln), 540, 790 + i * 52));
       ctx.fillStyle = (P && P.faint) || "#a1a1aa";
       ctx.font = "400 26px Georgia, serif";
-      ctx.fillText("Wick · askcerebrum.org", 540, 1010);
+      ctx.fillText("Nova · askcerebrum.org", 540, 1010);
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) return;
-      const file = typeof File !== "undefined" ? new File([blob], "wickshare.png", { type: "image/png" }) : null;
+      const file = typeof File !== "undefined" ? new File([blob], "novashare.png", { type: "image/png" }) : null;
       if (file && typeof navigator !== "undefined" && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: "Wick" }); } catch { /* the download still follows */ }
+        try { await navigator.share({ files: [file], title: "Nova" }); } catch { /* the download still follows */ }
       }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "wickshare.png";
+      a.download = "novashare.png";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -6451,7 +6554,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }
     const paid = pay(correct ? XP_CORRECT : XP_WRONG);
     playSound(correct ? "correct" : "wrong", soundOn);
-    say(correct ? "Right. Plus " + paid + " XP." : "Not quite. Plus " + paid + " XP.");
+    say(correct ? "Right. Plus " + paid + " XP." : "Not yet. Plus " + paid + " XP.");
     if (card.claimId && claimsRef.current[card.claimId]) {
       gradeClaim(claimsRef.current, card.claimId, correct);
       saveClaims(claimsRef.current);
@@ -6486,7 +6589,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const advance = () => {
     if (interactive && !checked) return;
-    /* Reading cards (notes, papers, deepen pieces, summaries) earn
+    /* Reading cards (notes, deepen pieces, and summaries) earn
        no XP for being advanced past. Points pay for answers and
        finishes, not for turning pages. */
     resetCardState();
@@ -6679,7 +6782,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>ABOUT THESE LESSONS</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
-                Written for Wick from standard textbook material. The checks explain the ideas in plain words and quote no single paper. Courses built from a search on the Wick home teach the same way: plain statements first, then quizzes on the ideas.
+                Written for Nova from standard textbook material. The checks explain the ideas in plain words and quote no single paper. Courses built from a search on the Nova home teach the same way: plain statements first, then quizzes on the ideas.
               </p>
             </div>
           )}
@@ -6725,7 +6828,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>SET YOUR DAILY GOAL</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>
-                One win in. How many minutes a day should Wick ask of you? Small and daily beats big and rare.
+                One win in. How many minutes a day should Nova ask of you? Small and daily beats big and rare.
               </p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {[5, 10, 15, 20].map((m) => (
@@ -6781,7 +6884,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     );
   }
 
-  const cardKindLabel = (c) => c.kind === "paper" ? "Read" : c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "build" ? "Build" : c.kind === "visualq" ? "Look" : c.kind === "spoterror" ? "Spot the error" : c.kind === "predict" ? "Predict" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
+  const cardKindLabel = (c) => c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "build" ? "Build" : c.kind === "visualq" ? "Look" : c.kind === "spoterror" ? "Spot the error" : c.kind === "predict" ? "Predict" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
 
   /* Feedback tones are Cerebrum's own, from the design system's
      STATUS palette: the strong hue for borders and the sheet button,
@@ -6811,7 +6914,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <CharacterPose pose={sheetGood ? "cheer" : "think"} size={48} />
+          <CharacterPose pose={sheetGood ? "cheer" : "deadpan"} size={48} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Two readings, honestly held. That is the point."
@@ -6820,7 +6923,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               : orderResult && orderResult.correctPositions > 0 ? orderResult.correctPositions + " of " + orderResult.total + " steps in the right place."
               : "Not the right order.")
             : card.kind === "spoterror" ? (isRight ? "You found the wrong piece." : "That piece is fine.")
-            : isRight ? "Right." : "Not quite."}
+            : isRight ? "Right." : "Not yet."}
           <span style={{ float: "right", fontSize: FONT_SIZES.label, fontWeight: 700, color: sheetGood ? goodInk : badInk }}>
             {"+" + lastAward + " XP"}
           </span>
@@ -6945,22 +7048,6 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   ))}
                 </div>
               </div>
-            </div>
-          )}
-
-          {card.kind === "paper" && (
-            <div>
-              {/* Reading cards from courses stored before the pivot:
-                 the passage is kept, but it renders as plain teaching
-                 text now. No title of any paper, no meta line, no
-                 citation furniture: the flow does not display them. */}
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>READ</div>
-              {card.text && (
-                <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "19px 21px" }}>
-                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.62, margin: 0 }}>{emphasizeFinding(card.text, accent)}</p>
-                </div>
-              )}
-              <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "24px 0 0" }}>Read it once, slowly. The next card asks you to recall it.</p>
             </div>
           )}
 
@@ -7225,7 +7312,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 <p style={{ fontSize: FONT_SIZES.title, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               </div>
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "16px 0 0" }}>
-                This lesson stands on its own. The catalog on the Wick home teaches more subjects in this same style.
+                This lesson stands on its own. The catalog on the Nova home teaches more subjects in this same style.
               </p>
             </div>
           )}
@@ -7394,7 +7481,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
       <style>{CSS}</style>
       <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
-        ← Wick home
+        ← Nova home
       </button>
       <div className="lv-rise">
         <Cover title={path.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === path.category) || null} />
@@ -7404,7 +7491,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
           {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · taught directly, no papers needed
         </p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "6px 0 0" }}>
-          Written for Wick from standard textbook material. These lessons teach the ideas directly and quote no single paper. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas.
+          Written for Nova from standard textbook material. These lessons teach the ideas directly and quote no single paper. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas.
         </p>
         <div style={{ margin: "16px 0 6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>
@@ -7415,7 +7502,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
           </div>
         </div>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.55, margin: "10px 0 0" }}>
-          Filled stops are ground you own. A stop marked fading is a finished lesson whose review has come due: it is still yours, and a short review session from the Wick home brings it back to full strength.
+          Filled stops are ground you own. A stop marked fading is a finished lesson whose review has come due: it is still yours, and a short review session from the Nova home brings it back to full strength.
         </p>
       </div>
 
@@ -7565,7 +7652,7 @@ const TOUR_STEPS = [
   },
   {
     title: "The catalog is twenty four taught topics",
-    body: "The catalog courses are written for Wick from standard textbook material, the same plain teaching as the paths. A course built from a search works the same way: its lessons state the ideas plainly and quiz the ideas, never the reading.",
+    body: "The catalog courses are written for Nova from standard textbook material, the same plain teaching as the paths. A course built from a search works the same way: its lessons state the ideas plainly and quiz the ideas, never the reading.",
   },
   {
     title: "Review makes it stick",
@@ -7674,7 +7761,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           </span>
           <span style={{ marginLeft: 2 }}><CharacterPose pose="wave" size={40} /></span>
         </div>
-        <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 8px", lineHeight: 1.2 }}>Wick</h1>
+        <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
         {step === 0 ? (
           <>
@@ -7722,9 +7809,9 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           </>
         ) : (
           <>
-            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Wick remind you?</h2>
+            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Nova remind you?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Pick a time and Wick will have your streak and your open quest waiting when you come back. You can change this later on the home page.
+              Pick a time and Nova will have your streak and your open quest waiting when you come back. You can change this later on the home page.
             </p>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
               {[{ label: "No reminder", value: null }, { label: "Morning 8 AM", value: 8 }, { label: "Midday 1 PM", value: 13 }, { label: "Evening 7 PM", value: 19 }].map((opt) => (
@@ -7784,9 +7871,19 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [questCheer, setQuestCheer] = useState([]);
   const [sparksMsg, setSparksMsg] = useState("");
 
+  const migrateStoredLearning = () => {
+    const rawCourses = loadJSON(COURSES_KEY, []);
+    const rawClaims = loadJSON(CLAIMS_KEY, {});
+    const clean = retirePaperBackedLearning(rawCourses, rawClaims);
+    if (JSON.stringify(clean.courses) !== JSON.stringify(rawCourses)) saveJSON(COURSES_KEY, clean.courses);
+    if (JSON.stringify(clean.claims) !== JSON.stringify(rawClaims)) saveJSON(CLAIMS_KEY, clean.claims);
+    return { courses: clean.courses, claims: clean.claims };
+  };
+
   const refresh = () => {
-    setCourses(loadLearnCourses());
-    setClaims(loadClaims());
+    const migrated = migrateStoredLearning();
+    setCourses(migrated.courses);
+    setClaims(migrated.claims);
   };
 
   /* Progress export and import. The learning record lives in this
@@ -7816,7 +7913,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     reader.onload = () => {
       const parsed = parseCortexImport(String(reader.result || ""));
       if (!parsed.ok) { setProgressMsg(parsed.error); return; }
-      if (!window.confirm("Replace the Wick progress in this browser with the progress in this file? This can't be undone.")) return;
+      if (!window.confirm("Replace the Nova progress in this browser with the progress in this file? This can't be undone.")) return;
       /* The write itself is transactional: success is announced
          only after all five sections are stored and read back, and
          any failure leaves the previous record exactly as it was. */
@@ -7828,7 +7925,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       setProfile(touchStreak(loadProfile()));
       setBuiltinProgress(loadBuiltinProgress());
       setSoundOn(s.sound);
-      setProgressMsg("Imported. Your progress from the file is showing now.");
+      let progressMessage = "Imported. Your progress from the file is showing now.";
+      if (parsed.retired && (parsed.retired.courses > 0 || parsed.retired.claims > 0)) {
+        const retiredParts = [];
+        if (parsed.retired.courses > 0) retiredParts.push(parsed.retired.courses + " old paper based course" + (parsed.retired.courses === 1 ? "" : "s"));
+        if (parsed.retired.claims > 0) retiredParts.push(parsed.retired.claims + " old paper based review claim" + (parsed.retired.claims === 1 ? "" : "s"));
+        const retiredVerb = retiredParts.length === 1 && (parsed.retired.courses === 1 || parsed.retired.claims === 1) && !(parsed.retired.courses > 0 && parsed.retired.claims > 0) ? " was" : " were";
+        progressMessage += " " + retiredParts.join(" and ") + retiredVerb + " retired and not restored.";
+      }
+      setProgressMsg(progressMessage);
     };
     reader.readAsText(file);
   };
@@ -7856,7 +7961,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
   const grantCreator = async () => {
     const d = await cortexApi("grant-creator", { email: creatorEmail });
-    if (d && d.ok) { setCreators(d.creators || []); setCreatorEmail(""); setOwnerMsg(d.email + " can now create for Wick."); }
+    if (d && d.ok) { setCreators(d.creators || []); setCreatorEmail(""); setOwnerMsg(d.email + " can now create for Nova."); }
     else setOwnerMsg("That did not go through. Check the email and try again.");
   };
   const revokeCreator = async (email) => {
@@ -8304,7 +8409,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </div>
           <button className="lv-btn lv-btn-primary" onClick={() => setScreen({ name: "home" })}
             style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
-            Back to Wick home
+            Back to Nova home
           </button>
         </div>
       </div>
@@ -8329,7 +8434,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ color: accent, display: "inline-flex", flexShrink: 0 }}><Icon name="cortex" size={36} /></span>
-            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Wick</h1>
+            <h1 className="lv-h1" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, color: P.ink, margin: "0 0 8px" }}>Nova</h1>
           </div>
           <p className="lv-tagline" style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: FONT_SIZES.title, color: P.ink, margin: "0 0 8px" }}>{CORTEX_TAGLINE}</p>
           <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: 0, maxWidth: 520 }}>
@@ -8337,7 +8442,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </p>
           <button onClick={() => setTourOpen(true)}
             style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "8px 0 0", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            How Wick works <Icon name="arrowRight" size={13} />
+            How Nova works <Icon name="arrowRight" size={13} />
           </button>
         </div>
         <button onClick={() => { const v = !soundOn; setSoundOn(v); saveJSON(SOUND_KEY, v); }}
@@ -8442,7 +8547,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>REMINDERS</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-          Reminders live here for now: pick an hour and Wick will have your streak and your open quest waiting at the top of this page when you come back.
+          Reminders live here for now: pick an hour and Nova will have your streak and your open quest waiting at the top of this page when you come back.
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {[{ label: "None", value: null }, { label: "7 AM", value: 7 }, { label: "9 AM", value: 9 }, { label: "1 PM", value: 13 }, { label: "6 PM", value: 18 }, { label: "9 PM", value: 21 }].map((opt) => {
@@ -8868,7 +8973,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          Ask about anything in Search, or name a topic below, and Wick turns it into taught lessons with checks. The courses you build live here, under the journey, where they belong.
+          Ask about anything in Search, or name a topic below, and Nova turns it into taught lessons with checks. The courses you build live here, under the journey, where they belong.
         </p>
       </div>
 
@@ -8953,7 +9058,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Wick builds the course on the spot, same as every course here.
+            You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Nova builds the course on the spot, same as every course here.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={studio.title} onChange={(e) => setStudio({ ...studio, title: e.target.value })}
@@ -9001,7 +9106,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 20, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 8 }}>CREATORS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            Type an email and that account can create for Wick: publishing catalog courses from the studio above. Creators also receive the Wick Contributor badge on their profile.
+            Type an email and that account can create for Nova: publishing catalog courses from the studio above. Creators also receive the Nova Contributor badge on their profile.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={creatorEmail} onChange={(e) => setCreatorEmail(e.target.value)}

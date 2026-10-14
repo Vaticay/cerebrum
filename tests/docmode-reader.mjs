@@ -619,7 +619,7 @@ await test("sidebar carries a labeled New search action row", async () => {
   assert.ok(navAt > 0, "Investigations nav item missing");
   const navBlock = src.slice(src.indexOf("const NAV_ITEMS"), src.indexOf("const NAV_ITEMS") + 900);
   assert.ok(navBlock.includes('["new", "New search", "plus"]'), "flat nav must carry the New search row");
-  for (const item of ['["search", "Search"', '["document", "Document Reader"', '["library", "Library"', '["learn", "Wick"']) {
+  for (const item of ['["search", "Search"', '["document", "Document Reader"', '["library", "Library"', '["learn", "Nova"']) {
     assert.ok(navBlock.includes(item), `flat nav missing ${item}`);
   }
   // All nav rows get 44px targets via S.sidebarItem (no per-row override needed).

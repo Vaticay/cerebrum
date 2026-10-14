@@ -523,16 +523,17 @@ t("public copy sells the Search record as it actually ships", () => {
   assert.ok(llmsTxt.includes("?format=json"), "llms.txt never mentions the record JSON form");
 });
 
-t("Wick is present on the public pages, described honestly", () => {
+t("Nova is present on the public pages, described honestly", () => {
   // Rename pin (2026-10-14): the owner ordered the learning product
-  // renamed from Cortex to Wick, so public copy names Wick now.
+  // renamed from Cortex to Wick and rejected Wick the same day,
+  // picking Nova, so public copy names Nova now.
   const aboutJson = JSON.stringify(LEGAL_PAGES.about);
-  assert.ok(featuresJson.includes("Wick"), "features copy never mentions Wick");
-  assert.ok(pricingJson.includes("Wick"), "pricing copy never mentions Wick");
-  assert.ok(aboutJson.includes("Wick"), "about copy never mentions Wick");
-  assert.ok(featuresJson.includes("no cloud copy"), "features Wick copy must deny cloud storage plainly");
-  assert.ok(aboutJson.includes("not synced to an account"), "about Wick copy must deny account sync plainly");
-  assert.ok(llmsTxt.includes("Wick"), "llms.txt never mentions Wick");
+  assert.ok(featuresJson.includes("Nova"), "features copy never mentions Nova");
+  assert.ok(pricingJson.includes("Nova"), "pricing copy never mentions Nova");
+  assert.ok(aboutJson.includes("Nova"), "about copy never mentions Nova");
+  assert.ok(featuresJson.includes("no cloud copy"), "features Nova copy must deny cloud storage plainly");
+  assert.ok(aboutJson.includes("not synced to an account"), "about Nova copy must deny account sync plainly");
+  assert.ok(llmsTxt.includes("Nova"), "llms.txt never mentions Nova");
 });
 
 t("account claims match the code: documents need an account, search does not", () => {

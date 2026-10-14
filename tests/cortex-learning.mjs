@@ -50,6 +50,8 @@ const ast = parse(learnSrc, { sourceType: "module", plugins: ["jsx"] });
 
 const WANTED = [
   "hashStr", "seededShuffle", "cleanText",
+  "decodeHtmlEntities", "decodeStringsDeep", "cardIsPaperBacked", "courseIsPaperBacked",
+  "retirePaperBackedLearning", "loadLearnCourses", "dueClaims", "retrievability",
   "mkNote", "mkQuiz", "mkTrueFalse", "mkMatch", "mkOrder", "mkDeepen",
   "mkVisualQ", "mkSpotError", "mkPredict", "mkBuild",
   "CORTEX_TAGLINE", "RANK_LADDER", "rankForXp", "topicMasteryLevel",
@@ -124,6 +126,8 @@ const {
   pathProgress, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
   MASTERY_MIN_PCT, isLessonMastered, orderScore, parseRichText, TOUR_STEPS,
   focusTrapStep, cleanText,
+  decodeHtmlEntities, decodeStringsDeep, cardIsPaperBacked, courseIsPaperBacked,
+  retirePaperBackedLearning, loadLearnCourses, loadClaims, dueClaims, retrievability,
   XP_CORRECT, XP_WRONG, XP_BATTLE, XP_LESSON_FINISH,
   matchScore, lessonXpScale, scaleXp,
   COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, SOUND_KEY, BUILTIN_PROGRESS_KEY,
@@ -859,7 +863,7 @@ await test("export and import controls render in the home progress surface", () 
   assert.ok(learnSrc.includes("buildCortexExport({ courses, claims, profile, builtinProgress, sound: soundOn }"), "export button does not build from the live state");
   assert.ok(learnSrc.includes("parseCortexImport(String(reader.result"), "import does not validate through the parser");
   assert.ok(learnSrc.includes('accept=".json"'), "import file input does not limit itself to json files");
-  assert.ok(learnSrc.includes("Replace the Wick progress in this browser"), "import replaces without asking first");
+  assert.ok(learnSrc.includes("Replace the Nova progress in this browser"), "import replaces without asking first");
   assert.ok(learnSrc.includes("not a cloud copy"), "the copy does not say plainly that the export is a kept file");
   assert.ok(learnSrc.includes('a.download = "cerebrum-cortex-progress-" + todayKey() + ".json"'), "export file is not named with the date");
 });
@@ -1000,6 +1004,200 @@ await test("the import handler applies through the transactional writer", () => 
 });
 
 // ─═════════════════════════════════════════════════════════════════
+group("Paper backed retirement: legacy courses and claims are dropped");
+
+/* Dusty ordered the paper backed questions removed from the learning
+   flow: people are not going to know what a paper reported, and the
+   scraped citation text that shipped as options is not a quiz. These
+   fixtures pin the retirement: a course stored before the pivot,
+   carrying a paper card and a quiz dressed in citation boilerplate,
+   is dropped whole with its review claims, while a taught course
+   built after the pivot is kept, with HTML entities in its strings
+   decoded and nothing else about it changed. Imports cannot bring
+   the legacy record back, and exports do not carry it forward. */
+const legacyPaperCard = {
+  kind: "paper", title: "Interactions between time and space",
+  meta: "Topi&#x107; V · The Philosophical Quarterly · 1975",
+  year: 1975, citations: 12, text: "A passage.",
+};
+const legacyQuizCard = {
+  kind: "quiz", claimId: "cl-legacy-1",
+  question: "What did John North et al. (1975) report?",
+  options: [
+    "In a go/no-go task, participants pressed a button when they found the target.",
+    "North Search for other works by this author on: Oxford Academic Google Scholar The Philosophical Quarterly, Volume 25, Issue 101, October 1975, Pages 374-376, https://doi.",
+    "The results revealed faster responses to shorter durations.",
+    "Abstract interactions between time and space in children anchor an active debate.",
+  ],
+  correct: 1,
+  why: "North Search for other works by this author on: Oxford Academic.",
+  cite: "North et al. (1975)", paperTitle: "Search for other works",
+};
+const legacyCourse = {
+  id: "course-legacy-1", title: "Attention and time", sourceCount: 3,
+  doneLessons: ["basics"], xpEarned: 40,
+  lessons: [{ id: "basics", title: "The papers", cards: [legacyPaperCard, legacyQuizCard] }],
+};
+const taughtNoteCard = {
+  kind: "note", kicker: "Teach", title: "How sleep stores the day",
+  text: "Memory caf&eacute; talk aside, sleep stores the day.",
+};
+const taughtQuizCard = {
+  kind: "quiz", claimId: "cl-taught-1",
+  question: "Which of these statements is correct?",
+  options: [
+    "Sleep helps the brain store new memories from the day.",
+    "Staying awake all night makes memory stronger the next day.",
+    "Memories are stored only while a person is awake and alert.",
+    "Dreams erase every memory that was formed during the day.",
+  ],
+  correct: 0,
+  why: "Sleep replays the day's events so they can be stored.",
+};
+const taughtCourse = {
+  id: "course-taught-1", title: "How memory works", sourceCount: 2,
+  doneLessons: [], xpEarned: 0,
+  lessons: [{ id: "memory-basics", title: "Memory basics", cards: [taughtNoteCard, taughtQuizCard] }],
+};
+const legacyClaim = {
+  id: "cl-legacy-1", courseId: "course-legacy-1", courseTitle: "Attention and time",
+  card: legacyQuizCard, stability: 2, due: 1, reps: 1, lapses: 0, last: 1,
+};
+const taughtClaim = {
+  id: "cl-taught-1", courseId: "course-taught-1", courseTitle: "How memory works",
+  card: taughtQuizCard, stability: 2, due: 1, reps: 1, lapses: 0, last: 1,
+};
+const profileFixture = {
+  xp: 500, days: ["2026-10-13", "2026-10-14"], bridged: [], freezes: 2,
+  freezeMilestone: 0, sparks: 35, loopDay: "", loop: null, reminderHour: null, leaguesOptIn: false,
+};
+const cloneRetireFixture = (v) => JSON.parse(JSON.stringify(v));
+const bothRetireClaims = () => ({ "cl-legacy-1": cloneRetireFixture(legacyClaim), "cl-taught-1": cloneRetireFixture(taughtClaim) });
+// A localStorage shaped stub over the same memStore the VM context
+// was built with, so an apply through it is what the loaders read.
+const memStorage = {
+  getItem: (k) => (memStore.has(k) ? memStore.get(k) : null),
+  setItem: (k, v) => { memStore.set(k, String(v)); },
+  removeItem: (k) => { memStore.delete(k); },
+};
+
+await test("cardIsPaperBacked flags paper cards and citation dressed quizzes, and passes taught cards", () => {
+  assert.equal(cardIsPaperBacked(legacyPaperCard), true, "the paper card was not flagged");
+  assert.equal(cardIsPaperBacked(legacyQuizCard), true, "the legacy quiz card was not flagged");
+  assert.equal(cardIsPaperBacked({ kind: "quiz", question: "What did Q et al. (2026) report?", options: [], correct: 0 }), true,
+    "a bare report question was not flagged");
+  assert.equal(cardIsPaperBacked(taughtQuizCard), false, "the taught quiz card was flagged");
+  assert.equal(cardIsPaperBacked(taughtNoteCard), false, "the note card was flagged");
+  assert.equal(cardIsPaperBacked(null), false, "a missing card was flagged");
+});
+
+await test("courseIsPaperBacked reads a whole course by its cards", () => {
+  assert.equal(courseIsPaperBacked(legacyCourse), true, "the legacy course was not flagged");
+  assert.equal(courseIsPaperBacked(taughtCourse), false, "the taught course was flagged");
+});
+
+await test("retirePaperBackedLearning drops the legacy course and its claims, and decodes what it keeps", () => {
+  // In the browser the entries handed to this helper come from
+  // JSON.parse in the same realm, so build same realm copies here
+  // the same way (a test realm object would trip the deep
+  // decoder's plain object guard that storage objects never meet).
+  const vmRealm = (v) => vm.runInContext("JSON.parse(" + JSON.stringify(JSON.stringify(v)) + ")", context);
+  const out = retirePaperBackedLearning(
+    vmRealm([legacyCourse, taughtCourse]),
+    vmRealm(bothRetireClaims()));
+  assert.equal(out.courses.length, 1, `expected only the taught course to survive, kept ${out.courses.length}`);
+  assert.equal(out.courses[0].id, "course-taught-1", "the surviving course is not the taught one");
+  assert.deepEqual([...out.retiredCourseIds], ["course-legacy-1"], "the retired course ids do not name the legacy course");
+  assert.deepEqual(Object.keys(out.claims), ["cl-taught-1"], "the retired claims view still holds a legacy claim");
+  assert.equal(out.retiredClaims, 1, `expected 1 retired claim, got ${out.retiredClaims}`);
+  const keptNote = out.courses[0].lessons[0].cards[0];
+  assert.ok(keptNote.text.includes("café"), `the kept note text was not decoded: ${keptNote.text}`);
+  assert.ok(!JSON.stringify(out.courses[0]).includes("&#"), "an HTML entity survived in the kept course");
+  assert.deepEqual([...out.courses[0].doneLessons], [...taughtCourse.doneLessons], "the kept course lost its finished lessons");
+  assert.equal(out.courses[0].xpEarned, taughtCourse.xpEarned, "the kept course lost its earned XP");
+  assert.equal(out.courses[0].sourceCount, taughtCourse.sourceCount, "the kept course lost its source count");
+});
+
+await test("decodeHtmlEntities decodes hex, decimal, and named entities, and cleanText uses it", () => {
+  assert.equal(decodeHtmlEntities("Topi&#x107;"), "Topić", "the hex entity was not decoded");
+  assert.equal(decodeHtmlEntities("caf&eacute;"), "café", "the named entity was not decoded");
+  assert.equal(decodeHtmlEntities("a &amp; b"), "a & b", "the ampersand entity was not decoded");
+  assert.equal(decodeHtmlEntities("&#263;"), "ć", "the decimal entity was not decoded");
+  assert.equal(decodeHtmlEntities("&nosuchentity;"), "&nosuchentity;", "an unknown entity was changed");
+  assert.equal(cleanText("Topi&#x107; V [1]"), "Topić V", "cleanText did not decode entities");
+});
+
+await test("the storage loaders return the retired view, so review never surfaces a paper backed card", () => {
+  memStore.set(COURSES_KEY, JSON.stringify([legacyCourse, taughtCourse]));
+  memStore.set(CLAIMS_KEY, JSON.stringify(bothRetireClaims()));
+  const courses = loadLearnCourses();
+  assert.equal(courses.length, 1, `the stored legacy course survived loading, kept ${courses.length}`);
+  assert.equal(courses[0].id, "course-taught-1", "the loaded course is not the taught one");
+  assert.ok(courses[0].lessons[0].cards[0].text.includes("café"), "the loaded course was not decoded");
+  assert.ok(!JSON.stringify(courses[0]).includes("&#"), "an HTML entity survived in the loaded course");
+  const claims = loadClaims();
+  assert.deepEqual(Object.keys(claims), ["cl-taught-1"], "the loaded claims still hold a legacy claim");
+  const due = [...dueClaims(claims)];
+  assert.equal(due.length, 1, `expected exactly the taught claim to be due, got ${due.length}`);
+  assert.equal(due[0].id, "cl-taught-1", "the due claim is not the taught one");
+  for (const claim of due) {
+    assert.equal(cardIsPaperBacked(claim.card), false, "a paper backed card would be handed to the Player");
+  }
+});
+
+await test("an import cannot resurrect a paper backed course, and applying it keeps storage clean", () => {
+  const doc = {
+    format: CORTEX_EXPORT_FORMAT, version: CORTEX_EXPORT_VERSION,
+    exportedAt: "2026-10-14T12:00:00.000Z",
+    courses: [cloneRetireFixture(legacyCourse), cloneRetireFixture(taughtCourse)],
+    claims: bothRetireClaims(),
+    profile: cloneRetireFixture(profileFixture),
+    builtinProgress: { lessons: {}, lastPathId: "", lastLessonId: "" },
+    sound: false,
+  };
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, true, parsed.error || "the import was refused");
+  assert.equal(parsed.state.courses.length, 1, `the import kept ${parsed.state.courses.length} courses`);
+  assert.equal(parsed.state.courses[0].id, "course-taught-1", "the imported course is not the taught one");
+  assert.deepEqual(Object.keys(parsed.state.claims), ["cl-taught-1"], "the imported claims still hold a legacy claim");
+  assert.equal(parsed.state.profile.xp, 500, "the imported profile lost its XP");
+  assert.equal(parsed.state.profile.sparks, 35, "the imported profile lost its Sparks");
+  assert.deepEqual([...parsed.state.profile.days], [...profileFixture.days], "the imported profile lost its days");
+  assert.equal(parsed.retired.courses, 1, `expected 1 retired course on the import, got ${parsed.retired && parsed.retired.courses}`);
+  assert.equal(parsed.retired.claims, 1, `expected 1 retired claim on the import, got ${parsed.retired && parsed.retired.claims}`);
+  const applied = applyCortexImport(parsed.state, memStorage);
+  assert.equal(applied.ok, true, applied.error || "the clean import would not apply");
+  const courses = loadLearnCourses();
+  assert.equal(courses.length, 1, "the applied import brought the legacy course back");
+  assert.equal(courses[0].id, "course-taught-1", "the stored course after import is not the taught one");
+  assert.deepEqual(Object.keys(loadClaims()), ["cl-taught-1"], "the stored claims after import still hold a legacy claim");
+  const rawCourses = memStore.get(COURSES_KEY);
+  assert.equal(typeof rawCourses, "string", "no courses were stored by the import");
+  assert.ok(!rawCourses.includes("\"paper\""), "a paper card kind is still in the stored courses");
+  assert.ok(!rawCourses.includes("et al"), "an et al is still in the stored courses");
+  for (const key of [COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, BUILTIN_PROGRESS_KEY, SOUND_KEY]) memStore.delete(key);
+});
+
+await test("an export does not carry a paper backed course or claim forward", () => {
+  const exported = buildCortexExport({
+    courses: [cloneRetireFixture(legacyCourse), cloneRetireFixture(taughtCourse)],
+    claims: bothRetireClaims(),
+    profile: cloneRetireFixture(profileFixture),
+    builtinProgress: { lessons: {}, lastPathId: "", lastLessonId: "" },
+    sound: false,
+  });
+  assert.equal(exported.courses.length, 1, `the export kept ${exported.courses.length} courses`);
+  assert.equal(exported.courses[0].id, "course-taught-1", "the exported course is not the taught one");
+  assert.deepEqual(Object.keys(exported.claims), ["cl-taught-1"], "the exported claims still hold a legacy claim");
+  assert.deepEqual(asJSON(exported.profile), profileFixture, "the export changed the profile");
+});
+
+await test("the Player source carries no paper card branch or kind label", () => {
+  assert.ok(!learnSrc.includes("courses stored before the pivot"), "the removed Player paper branch comment survived");
+  assert.ok(!learnSrc.includes('c.kind === "paper" ? "Read"'), "the removed paper kind label survived");
+});
+
+// ─═════════════════════════════════════════════════════════════════
 group("XP economy: points follow learning, not activity");
 
 await test("the award values are the rebalanced ones", () => {
@@ -1096,7 +1294,7 @@ await test("the tour describes taught lessons and real quizzes, with no paper ta
 });
 
 await test("builtin lessons carry an honest source note, with no invented citation", () => {
-  const hits = learnSrc.match(/for Wick from standard textbook material/g) || [];
+  const hits = learnSrc.match(/for Nova from standard textbook material/g) || [];
   assert.ok(hits.length >= 3, `the textbook source note should appear in the tour, the path view, and the lesson intro; found ${hits.length}`);
   assert.ok(learnSrc.includes("quote no single paper"), "the source note does not say plainly that no paper is quoted");
 });
@@ -1897,13 +2095,16 @@ await test("build error strings speak plain product language, with no paper mach
 // ─═════════════════════════════════════════════════════════════════
 group("Redesign wave two: tagline, new card kinds, ranks, the map, onboarding");
 
-await test("the tagline is the Wick line, and the old ones are nowhere", () => {
+await test("the tagline is the Nova line, and the old ones are nowhere", () => {
   // Rename pin (2026-10-14): the owner ordered the learning product
-  // renamed from Cortex to Wick, with the tagline "One idea a day."
-  // Both earlier taglines must stay absent from the source.
-  assert.equal(CORTEX_TAGLINE, "One idea a day.");
-  assert.ok(learnSrc.includes("One idea a day."), "the Wick tagline is not in the source");
+  // renamed from Cortex to Wick in the morning and rejected Wick the
+  // same day, picking Nova with Asta's tagline "Science, one spark
+  // at a time." The Wick line "One idea a day." and both earlier
+  // taglines must stay absent from the source.
+  assert.equal(CORTEX_TAGLINE, "Science, one spark at a time.");
+  assert.ok(learnSrc.includes("Science, one spark at a time."), "the Nova tagline is not in the source");
   assert.ok(learnSrc.includes("{CORTEX_TAGLINE}"), "the home does not render the tagline constant");
+  assert.ok(!learnSrc.includes("One idea a day."), "the Wick tagline survived the Nova rename");
   assert.ok(!learnSrc.includes("Where papers become memory"), "the oldest tagline survived somewhere");
   assert.ok(!learnSrc.includes("Science you will actually remember"), "the pre rename tagline survived somewhere");
 });
@@ -2165,13 +2366,18 @@ await test("the Player renders every second version kind and the character slot"
   // point at the art wave's real files, and this pin names them so a
   // future rename on either side fails loudly instead of rendering air.
   // Rename pin (2026-10-14): the owner ordered the product renamed
-  // to Wick and the character is now Wick the flame, so the poses
-  // point at the wick files under the same character asset root,
-  // including the worried and fading poses the loop surfaces use.
-  assert.ok(learnSrc.includes("/cortex/character/wick-celebrating.webp") && learnSrc.includes("/cortex/character/wick-greeting.webp"),
+  // to Nova and the character is now Nova the axolotl, so the poses
+  // point at the nova files under the same character asset root.
+  // Completion lands on the pleased expression, and the Nova set
+  // adds deadpan (the wrong answer face) and asleep (night and
+  // empty states) to the six expressions the loop surfaces use.
+  assert.ok(learnSrc.includes("/cortex/character/nova-pleased.webp") && learnSrc.includes("/cortex/character/nova-greeting.webp"),
     "the character poses are not declared under the character asset root");
-  assert.ok(learnSrc.includes("/cortex/character/wick-thinking.webp") && learnSrc.includes("/cortex/character/wick-worried.webp") && learnSrc.includes("/cortex/character/wick-fading.webp") && learnSrc.includes("/cortex/character/wick-explaining.webp"),
-    "the thinking, worried, fading, or explaining Wick poses are not declared");
+  assert.ok(learnSrc.includes("/cortex/character/nova-thinking.webp") && learnSrc.includes("/cortex/character/nova-worried.webp") && learnSrc.includes("/cortex/character/nova-fading.webp") && learnSrc.includes("/cortex/character/nova-explaining.webp"),
+    "the thinking, worried, fading, or explaining Nova poses are not declared");
+  assert.ok(learnSrc.includes("/cortex/character/nova-deadpan.webp") && learnSrc.includes("/cortex/character/nova-asleep.webp"),
+    "the deadpan or asleep Nova expressions are not declared");
+  assert.ok(!learnSrc.includes("wick-"), "a live Wick pose path survived the Nova rename");
   assert.ok(!learnSrc.includes("pip-"), "a live Pip pose path survived the rename");
   assert.ok(learnSrc.includes("<DiagramArt"), "the diagram renderer is not used");
 });
@@ -2454,7 +2660,7 @@ await test("the home carries quests, the Sparks shop, reminders, leagues, share 
     "REMINDERS", "Reminders live here for now", "LEAGUES", "Leagues are not open yet",
     "You are in for opening day. Your place is saved.",
     "function ShareCardButton", "Share card", "shareCardModel(",
-    "When should Wick remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
+    "When should Nova remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
     "Tomorrow, one quest is still open: ",
   ]) {
     assert.ok(learnSrc.includes(needle), `the loop surface is missing: ${needle}`);
