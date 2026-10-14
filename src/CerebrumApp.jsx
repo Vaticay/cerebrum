@@ -78,7 +78,7 @@ import {
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 import { trendingDoiOf, cleanMediaUrl, cleanMediaText, verifiedMediaOf, trendingMediaOf, normalizeTrendingUrl, normalizeTrendingTitle, dedupeTrendingItems, clusterTrendingItems, trendStoryKey, trendTitleTokens, trendPersistenceLabel, compareByTrend } from "./trendingUtils.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
-import {FONT_SIZES, STATUS, PRO, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
+import {FONT_SIZES, STATUS, PRO, COLOR, LAYOUT, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography, extractQueryTerms, highlightKeywords } from "./textUtils.js";
@@ -2471,6 +2471,7 @@ function SignalComposer({
            tinted ground itself, so the shipped ink clears 4.6 to 1 on
            both. The arithmetic is pinned in tests/core-identity.mjs. */
         "--cb-ask-ink": accentInkOn(P, accent, mixHex(P.bg, accent, 0.22)),
+        "--cb-ask-stage-ink": accentText(accent),
       }}
     >
       <div className="cb-ask-field">
@@ -4341,7 +4342,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       && boldHeaderText.length <= 60
       && !boldHeaderText.includes("\n")
       && !/[.!?;,]$/.test(boldHeaderText);
-    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
+    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
 
     /* Commit 79 — a section heading that arrived on the same line-break as
        its body.
@@ -4378,7 +4379,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       if (isHeadingLine) {
         return (
           <div key={pi}>
-            <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 700, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
+            <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
             {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}
           </div>
         );
@@ -4399,7 +4400,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       return (
         <ul key={pi} style={{ margin: "0 0 24px", paddingLeft: 8, listStyle: "none" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.7, color: P.ink, marginBottom: 14, position: "relative", paddingLeft: 20, fontFamily: "var(--cb-font)", fontWeight: 500, borderLeft: `2px solid ${P.line}`, paddingTop: 2, paddingBottom: 2 }}>
+            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink, marginBottom: 14, position: "relative", paddingLeft: 20, fontFamily: "var(--cb-serif)", fontWeight: 400, borderLeft: `2px solid ${P.line}`, paddingTop: 2, paddingBottom: 2 }}>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, queryTerms)}
             </li>
           ))}
@@ -4415,8 +4416,8 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       return (
         <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
-            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-font)", fontWeight: 500, counterIncrement: "cb-list" }}>
-              <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 700, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{ii + 1}.</span>
+            <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-serif)", fontWeight: 400, counterIncrement: "cb-list" }}>
+              <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.small, fontWeight: 500, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{ii + 1}.</span>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, queryTerms)}
             </li>
           ))}
@@ -4465,10 +4466,10 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
          title role instead: 18px, 1.55 leading. No negative tracking on
          reading text. Hierarchy comes from measure and rhythm, not a
          second size. Evidence weight overrides the default 500. */
-      fontSize: isLede ? FONT_SIZES.title : FONT_SIZES.body,
-      lineHeight: isLede ? 1.55 : 1.6,
+      fontSize: isLede ? FONT_SIZES.subhead : FONT_SIZES.body,
+      lineHeight: 1.55,
       margin: 0, color: P.ink,
-      letterSpacing: "0", fontFamily: "var(--cb-font)", fontWeight: ev ? ev.weight : 500,
+      letterSpacing: "0", fontFamily: "var(--cb-serif)", fontWeight: ev ? ev.weight : 400,
       fontOpticalSizing: "auto",
       /* Long unbreakable tokens (DOIs, URLs, chemical names) otherwise
          force horizontal overflow at phone widths. Normal prose still
@@ -4521,7 +4522,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
 function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate = null, queryTerms = null) {
   return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
     const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 700 }}>{renderInlineSegments(b[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</strong>;
+    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 600 }}>{renderInlineSegments(b[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</strong>;
     const it = seg.match(/^\*([^*\n]+)\*$/);
     if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{renderInlineSegments(it[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</em>;
     const ul = seg.match(/^_([^_\n]+)_$/);
@@ -4838,8 +4839,8 @@ function KeyFigures({ t, P }) {
   const nameSearch = !!(t && t.queryAnalysis && t.queryAnalysis.isNameSearch);
   if (weak || nameSearch) {
     return (
-      <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
-        <div style={{ fontSize: 14, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.5 }}>
+      <div style={{ maxWidth: "none", margin: "0 0 16px", padding: 0 }}>
+        <div style={{ fontSize: 13, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.55 }}>
           <span>{total} paper{total === 1 ? "" : "s"} found</span>
           {sep}
           <span>no clear direction</span>
@@ -4858,8 +4859,8 @@ function KeyFigures({ t, P }) {
   const nMention = Math.max(0, total - nSupport - nDispute);
   const clay = "#B0472B";
   return (
-    <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }}>
-      <div style={{ fontSize: 14, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.5 }}>
+    <div style={{ maxWidth: "none", margin: "0 0 16px", padding: 0 }}>
+      <div style={{ fontSize: 13, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.55 }}>
         <span>{total} paper{total === 1 ? "" : "s"}</span>
         {sep}
         <span>{nSupport} support the direction</span>
@@ -4948,9 +4949,9 @@ function ConsensusMeter({ t, P }) {
   const gray = "#7A756A";
   const label = { fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" };
   return (
-    <div style={{ maxWidth: "72ch", margin: "0 auto 24px", padding: "0 4px" }} aria-label="How the studies lean">
+    <div style={{ maxWidth: 720, margin: "0 0 24px 0", padding: 0 }} aria-label="How the studies lean">
       <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginBottom: 8 }}>How the studies lean</div>
-      <div style={{ display: "flex", height: 8, borderRadius: RADIUS.viewport, overflow: "hidden", background: P.line }} role="img"
+      <div style={{ display: "flex", height: 4, borderRadius: RADIUS.viewport, overflow: "hidden", background: P.line }} role="img"
         aria-label={`${yesN} studies lean yes, ${mixedN} are mixed, ${noN} lean no`}>
         {yesPct > 0 && <div style={{ width: `${yesPct}%`, background: green }} />}
         {mixedPct > 0 && <div style={{ width: `${mixedPct}%`, background: gray, opacity: 0.55 }} />}
@@ -8817,8 +8818,8 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         animation: "cbSheetIn .3s cubic-bezier(0.16, 1, 0.3, 1) both",
       } : {
         position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: Z.drawer,
-        background: P.surface, borderLeft: `1px solid ${P.line}`,
-        boxShadow: "-24px 0 64px rgba(0,0,0,0.35)",
+        background: P.surface, borderLeft: `1px solid ${P.line}`, borderRadius: 2,
+        boxShadow: "none",
         display: "flex", flexDirection: "column",
         animation: "cbDrawerIn .28s cubic-bezier(0.16, 1, 0.3, 1) both",
       }}>
@@ -9042,8 +9043,8 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
   return (
     <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${P.line}` }} className="cb-fade">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
-          Sources · {sources.length}
+        <div style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, textTransform: "none", color: P.ink, fontFamily: "var(--cb-font)" }}>
+          Sources <span style={{ color: P.faint, fontWeight: 400 }}>{sources.length}</span>
         </div>
         <button type="button" onClick={onVerify}
           style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 600, background: "transparent", color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -9056,9 +9057,9 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
           const venue = [s.journal, s.year].filter(Boolean).join(" · ");
           return (
             <li key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: FONT_SIZES.small, lineHeight: 1.5, minWidth: 0 }}>
-              <span style={{ color: accent, fontFamily: "var(--cb-font)", fontWeight: 700, flexShrink: 0 }}>[{i + 1}]</span>
+              <span style={{ color: accent, fontFamily: "var(--cb-font)", fontWeight: 500, flexShrink: 0 }}>[{i + 1}]</span>
               <span style={{ minWidth: 0, color: P.ink2 }}>
-                <span style={{ color: P.ink, fontWeight: 600 }}>{s.title || "Untitled paper"}</span>
+                <span style={{ color: P.ink, fontWeight: 500 }}>{s.title || "Untitled paper"}</span>
                 {venue && <span style={{ color: P.faint }}> · {venue}</span>}
                 {href && <span> · <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: "none", borderBottom: `1px dotted ${withAlpha(accent, 0.6)}` }}>DOI</a></span>}
               </span>
@@ -9432,9 +9433,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           metadata line. No film, no gradient, no rounded card — the
           instrument is still and precise. */}
       <div className="cb-query">
-        <div className="cb-query-label">Query</div>
         <h2 className="cb-query-text" style={{ color: P.ink }}>{t.hasImage && <Icon name="image" size={20} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
-        <div className="cb-mono cb-query-meta" style={{ color: P.faint }}>
+        <div className="cb-query-meta" style={{ color: P.faint }}>
           <span>{new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
           <span>{citedCount} cited paper{citedCount === 1 ? "" : "s"}{furtherCount > 0 ? ` · ${furtherCount} further reading` : ""}</span>
@@ -9462,13 +9462,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           main focus, not one of two skinny columns. The evidence index
           lives in a drawer (below), secondary and closed by default. */}
       <div className="cb-answer-wrap">
-        {/* TickFrame: the answer is an instrument viewport — hairline
-            border plus corner registration ticks in the accent, near-sharp
-            corners instead of the generic rounded card. The entrance
-            animation rides on the frame so the ticks arrive with it. */}
-        <TickFrame P={P} accent={accent} className="cb-answer-enter" style={{ maxWidth: "1440px", marginLeft: "auto", marginRight: "auto" }}>
-        <article style={{ ...S.answerCard, border: "none", borderRadius: RADIUS.viewport }} className="cb-article">
-        <div style={S.answerCardEdge} aria-hidden="true" />
+        {done && t.confidence && t.confidence.line && (
+          <div style={{ fontSize: 13, lineHeight: 1.55, color: P.ink2, fontFamily: "var(--cb-font)", borderLeft: `2px solid ${COLOR.caution}`, paddingLeft: 12, margin: "0 0 16px" }}>{t.confidence.line}</div>
+        )}
+        <div className="cb-answer-enter">
+        <article style={{ ...S.answerCard, border: "none", borderRadius: 2 }} className="cb-article">
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -9492,7 +9490,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     and pipeline honesty now live in the Answer diagnostics
                     disclosure below the toolbar; they are no longer a badge
                     row. */}
-                <span className="cb-readout-label">{t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}{minRead > 0 ? ` · ${minRead} min read` : ""}</span>
+                <span className="cb-readout-label" style={{ color: P.faint }}>{t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}{minRead > 0 ? ` · ${minRead} min read` : ""}</span>
               </div>
             ) : <span />}
             {/* Pass 2: the toolbar is a quiet strip of text actions — Copy
@@ -9749,7 +9747,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         ) : null}
         {showReport && <ReportModal query={t.q} P={P} accent={accent} at={at} onClose={() => setShowReport(false)} answer={t.answer} sources={t.sources} />}
         </article>
-        </TickFrame>
+        </div>
       </div>
       {/* The evidence index drawer: secondary, portaled, closed by default.
           Citation taps, the toolbar, and the jump rail open it. */}
@@ -19191,7 +19189,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // itself (rather than the FAB or some wrapper) guarantees real content
     // never lands in that reserved strip regardless of how long the answer
     // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? "calc(152px + env(safe-area-inset-bottom, 0px))" : 48, flex: 1, maxWidth: 1240, margin: "0 auto", width: "100%" },
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? "calc(152px + env(safe-area-inset-bottom, 0px))" : 48, flex: 1, maxWidth: LAYOUT.answer, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -19199,8 +19197,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // one drawer pattern doing double duty. Widening the row and giving the
     // sidebar its own fixed column turns "tap to see your sources" into
     // "they're just there," which is the whole point of a research tool.
-    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 44, maxWidth: 1680 },
-    sidebarCol: { width: 340, flexShrink: 0 },
+    workspaceWithSidebar: { flexDirection: "row", alignItems: "flex-start", gap: 24, maxWidth: LAYOUT.answer },
+    sidebarCol: { width: LAYOUT.sources, flexShrink: 0 },
 
     /* ── Turn: clean editorial brief ── */
     /* Mobile: the hamburger is fixed at top:14 and 38px tall, so it owns
@@ -19235,22 +19233,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        field without any translucency. */
     answerCard: {
       position: "relative",
-      /* Solid in every palette (2026-10-14). This card carried a whisper
-         of translucency (0.94 in dark mode) from 2026-10-05 so the
-         cinematic backdrop could breathe through it. Dusty's standing
-         rule overrides that: any surface carrying text sits on a solid
-         opaque background, so the answer card is the surface token. */
-      background: P.surface,
-      border: `1px solid ${P.line}`,
-      borderRadius: RADIUS.xl,
-      /* Premium depth: layered soft shadow lifts the answer off the page,
-         inset hairline gives the top edge a lit feel. Theme-aware. */
-      boxShadow: P.dark
-        ? "0 24px 64px -16px rgba(0,0,0,0.55), 0 4px 16px -4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)"
-        : "0 24px 64px -24px rgba(15,23,42,0.22), 0 4px 16px -6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.7)",
-      padding: isCompact ? (isMobile ? "20px 18px" : "28px 36px") : (isMobile ? "26px 20px" : "32px 40px"),
-      lineHeight: 1.7,
-      fontSize: isMobile ? FONT_SIZES.subhead : FONT_SIZES.heading,
+      background: "transparent",
+      border: "none",
+      borderRadius: 2,
+      boxShadow: "none",
+      padding: 0,
+      lineHeight: 1.55,
+      fontSize: FONT_SIZES.body,
       overflow: "hidden",
     },
     /* Accent edge: a 3px solid hairline across the top of the answer
@@ -19306,17 +19295,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        chase, not another compositor-hint removal. */
     panel: {
       position: "sticky", top: 24,
-      /* Opaque, never frosted: a 0.9 alpha let bright footage ghost
-         through behind source rows. Solid theme surface, no backdrop blur. */
-      background: P.surface,
-      border: `1px solid ${P.line}`,
-      borderRadius: RADIUS.md,
-      padding: "24px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
+      background: "transparent",
+      border: "none", borderLeft: `1px solid ${P.line}`,
+      borderRadius: 0,
+      padding: "0 0 0 24px", boxShadow: "none",
       maxHeight: "calc(100dvh - 110px)", overflowY: "auto",
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: Z.dropdown, boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" },
-    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, marginBottom: 16, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
-    srcCount: { fontSize: FONT_SIZES.micro, fontWeight: 700, color: accent, background: withAlpha(accent, 0.1), padding: "3px 8px", borderRadius: RADIUS.md, fontFamily: "var(--cb-font)" },
+    srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, fontWeight: 500, color: P.ink, marginBottom: 16, letterSpacing: 0, fontFamily: "var(--cb-font)" },
+    srcCount: { fontSize: 12, fontWeight: 400, color: P.faint, background: "transparent", padding: 0, borderRadius: 0, fontFamily: "var(--cb-font)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: 16, border: glassBorder, background: P.bg, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.bg, padding: 3, borderRadius: RADIUS.md, marginBottom: 14, border: `1px solid ${P.line}` },
@@ -19332,20 +19319,17 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     srcList: { display: "flex", flexDirection: "column", gap: 2 },
     empty: { fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.5, padding: "12px 0" },
     srcItem: {
-      padding: isCompact ? "10px 14px" : "16px 14px", margin: "0 -14px", borderRadius: RADIUS.md,
-      transition: "background 280ms ease, transform 280ms ease", borderBottom: `1px solid ${P.line}`,
-      /* Pass 5: opaque flat card. The frosted scrim only existed to sit over
-         the background film — the film is gone from product surfaces, so
-         every source card is a flat matte row now (mobile already was). */
-      background: P.dark ? P.raised : P.surface,
+      padding: "12px 0", margin: 0, borderRadius: 0,
+      transition: "background-color 150ms ease-out", borderBottom: `1px solid ${P.line}`,
+      background: "transparent",
     },
     // v31: srcTitle was already inheriting the page's body font (`font`,
     // set on `page:` at the root) — never mono to begin with, so nothing to
     // change there. srcMeta was the one actually set to mono; switched to
     // body, since long author lists/journal names in a monospace face read
     // cramped and harder to scan than the same text in the body sans-serif.
-    srcTitle: { fontSize: FONT_SIZES.small, textDecoration: "none", lineHeight: 1.45, fontWeight: 600, display: "block", marginBottom: 6, transition: "color 280ms ease", letterSpacing: TYPE.heading.letterSpacing, overflowWrap: "anywhere", wordBreak: "break-word" },
-    srcMeta: { fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" },
+    srcTitle: { fontSize: 13, textDecoration: "none", lineHeight: 1.45, fontWeight: 500, display: "block", marginBottom: 6, transition: "color 150ms ease-out", letterSpacing: 0, overflowWrap: "anywhere", wordBreak: "break-word" },
+    srcMeta: { fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5, fontFamily: "var(--cb-font)" },
     srcRow: { display: "flex", gap: 6, marginTop: 10 },
     chipMini: { fontSize: FONT_SIZES.caption, padding: "4px 12px", border: "1px solid", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", fontWeight: 600, background: "transparent", transition: "background-color 280ms ease, color 280ms ease, border-color 280ms ease" },
     // v28: the old row (icon+text-label buttons, `flexWrap: "wrap"`) read as
@@ -23179,7 +23163,6 @@ function App() {
        different papers. */
     <div key={s.doi || s.url || s.title || i} className="cb-fade" style={{
       ...S.srcItem,
-      borderLeft: `2px solid ${withAlpha(relColor(s.relevance ?? 0), 0.5)}`,
       /* Hover and focus states are full strength palette steps, never
          translucency: the card carries paper titles, and the standing
          rule is that text bearing surfaces are solid. Hover (and a
@@ -23195,8 +23178,8 @@ function App() {
         : hoverCite === i + 1 ? (P.dark ? `color-mix(in srgb, ${P.raised}, ${P.ink} 12%)` : P.raised)
         : focusedSourceIdx === i ? (P.dark ? `color-mix(in srgb, ${P.raised}, ${P.ink} 12%)` : P.raised)
         : undefined,
-      boxShadow: hover === "src" + i ? `0 6px 20px ${withAlpha(accent, 0.1)}` : focusedSourceIdx === i ? `inset 0 0 0 1px ${withAlpha(accent, 0.4)}` : "none",
-      transform: hover === "src" + i ? "translate3d(2px, -1px, 0)" : "translate3d(0, 0, 0)",
+      boxShadow: "none",
+      transform: "none",
       cursor: "pointer",
     }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")} onClick={() => setDrawerSource(s)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrawerSource(s); } }}>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
@@ -23205,13 +23188,8 @@ function App() {
         {/* The entry's citation number, matching the [n] chips in the
             answer. The rail used to show only a relevance score, so a
             reader had no way to map a chip to the panel entry it meant. */}
-        <span className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint }}>{i + 1}</span>
-        {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: typeColor(s.type) }}>{s.type}</span>}
-        {/* v5: the "strong/partial/weak" word already existed (relLabel)
-            but only ever reached a `title` tooltip — invisible to touch,
-            keyboard, and screen-reader users, who only ever saw a bare
-            color-coded percentage. Now it's always on screen. */}
-        {typeof s.relevance === "number" && <span className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, color: relColor(s.relevance) }}>Ref {s.relevance}% · {relLabel(s.relevance)}</span>}
+        <span className="cb-mono" style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint }}>{i + 1}</span>
+        {s.type && <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: typeColor(s.type) }}>{s.type}</span>}
         {s.year && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{s.year}</span>}
       </div>
       {/* v34 had simplified this to stripping <sub>/<sup>/<i>/<b> outright —
@@ -23227,9 +23205,9 @@ function App() {
       <div style={{ ...S.srcRow, gap: 2 }}>
         {/* Pass 5: pill toolbars become text actions — same handlers, no
             pill shells. cb-textbtn already carries the 44px touch target. */}
-        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", textDecoration: "none", color: isSaved(s) ? accent : undefined }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={12} />{isSaved(s) ? "Saved" : "Save"}</button>
-        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", textDecoration: "none", color: isPinned(s) ? accent : undefined }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={12} />{isPinned(s) ? "Pinned" : "Pin"}</button>
-        {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px" }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isSaved(s) ? accent : undefined }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={12} />{isSaved(s) ? "Saved" : "Save"}</button>
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isPinned(s) ? accent : undefined }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={12} />{isPinned(s) ? "Pinned" : "Pin"}</button>
+        {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
       </div>
     </div>
   );
@@ -23646,11 +23624,11 @@ function App() {
                     sidebar alone, so this is a name, not a nav. */}
                 <header className="cb-stage-masthead" style={{
                   display: "flex", alignItems: "center", gap: 11,
-                  paddingBottom: 16, borderBottom: `1px solid ${P.line}`,
+                  background: "transparent", border: "none",
                 }}>
-                  <Mark size={22} accent={accent} glow={P.dark} />
+                  <Mark size={22} accent={accent} glow={false} />
                   <span className="cb-stage-wordmark" style={{
-                    fontFamily: "var(--cb-font)", fontWeight: 700,
+                    fontFamily: "var(--cb-font)", fontWeight: 500,
                     fontSize: FONT_SIZES.display, color: P.ink, lineHeight: 1,
                   }}>Cerebrum</span>
                 </header>
@@ -23709,15 +23687,15 @@ function App() {
                       manufactured by cutting words out of it. */}
                   {stageLastQ && (
                     <div style={{ marginTop: 30, borderTop: `1px solid ${P.line}`, paddingTop: 16 }}>
-                      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.faint }}>Continue</div>
+                      <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Continue</div>
                       <div style={{
-                        fontFamily: "var(--cb-font)", fontWeight: 600, fontSize: FONT_SIZES.title,
+                        fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: 15,
                         lineHeight: 1.4, color: P.ink, marginTop: 8,
                         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
                       }}>{stageLastQ}</div>
                       <div style={{ display: "flex", gap: 20, marginTop: 8 }}>
-                        <button type="button" onClick={() => ask(stageLastQ)} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 650 }}>Keep going</button>
-                        <button type="button" onClick={() => setView("investigations")} className="cb-stage-textbtn">History</button>
+                        <button type="button" onClick={() => ask(stageLastQ)} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 500, fontSize: 13 }}>Keep going</button>
+                        <button type="button" onClick={() => setView("investigations")} className="cb-stage-textbtn" style={{ fontSize: 13, fontWeight: 500 }}>History</button>
                       </div>
                     </div>
                   )}
@@ -23730,7 +23708,7 @@ function App() {
                       while typing. */}
                   {!input.trim() && stageInquiries.length > 0 && (
                     <div style={{ marginTop: 34 }}>
-                      <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 600, color: P.faint }}>Try asking</div>
+                      <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Try asking</div>
                       <div style={{ marginTop: 6 }}>
                         {stageInquiries.map((ex) => (
                           <button key={ex.q} type="button" className="cb-stage-inq"
@@ -23748,9 +23726,9 @@ function App() {
                           >
                             <span className="cb-stage-inq-q" style={{
                               fontFamily: "var(--cb-font)", flex: 1,
-                              fontSize: isMobile ? 16.5 : FONT_SIZES.title, lineHeight: 1.4, color: P.ink2,
+                              fontSize: 13, lineHeight: 1.55, color: P.ink2,
                             }}>{ex.q}</span>
-                            <span className="cb-stage-inq-arrow" aria-hidden="true" style={{ color: accent, fontSize: 16 }}>&#8594;</span>
+                            <span className="cb-stage-inq-arrow" aria-hidden="true" style={{ color: accent, fontSize: 14 }}>&#8594;</span>
                           </button>
                         ))}
                       </div>
@@ -25758,43 +25736,53 @@ summary::-webkit-details-marker { display: none; }
   /* Same solid ground as the standard field (see .cb-ask-field): the
      stage variant's 88 percent mix was the same translucency defect. */
   background: var(--cb-bg);
+  min-height: 48px;
+  box-shadow: none;
+  transition: border-color 150ms ease-out;
 }
-.cb-ask--stage .cb-ask-field::before,
-.cb-ask--stage .cb-ask-field::after {
-  content: "+"; position: absolute; z-index: 2;
-  font-family: var(--cb-mono); font-size: 13px; line-height: 1;
-  color: var(--cb-acc); opacity: 0; transition: opacity 240ms ease;
-  pointer-events: none;
-}
-.cb-ask--stage .cb-ask-field::before { top: 5px; left: 7px; }
-.cb-ask--stage .cb-ask-field::after { bottom: 5px; right: 7px; }
 .cb-ask--stage .cb-ask-field:focus-within {
+  border-color: var(--cb-acc);
+  box-shadow: none;
   transform: none;
-  box-shadow: 0 12px 36px -12px rgba(0,0,0,0.35),
-              inset 0 1px 0 rgba(255,255,255,0.08);
 }
-.cb-ask--stage .cb-ask-field:focus-within::before,
-.cb-ask--stage .cb-ask-field:focus-within::after { opacity: 0.9; }
-.cb-ask--stage .cb-ask-input { font-size: 17.5px; }
+.cb-ask--stage .cb-ask-input {
+  font-size: 17.5px; min-height: 46px;
+  padding: 10px 4px 10px 16px; line-height: 1.4;
+}
+.cb-ask--stage .cb-ask-tools { padding: 0 6px 0 0; }
+.cb-ask--stage .cb-ask-tool { color: var(--cb-faint); }
+.cb-ask--stage .cb-ask-tool svg { width: 15px; height: 15px; }
+.cb-ask--stage .cb-ask-mic svg { width: 15px; height: 15px; }
 .cb-ask-go--round {
   width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 6px;
   border-radius: 50%; flex-shrink: 0;
+}
+.cb-ask--stage .cb-ask-go--round {
+  width: 36px; height: 36px; min-height: 36px; padding: 0; margin-left: 6px;
+  border-radius: 2px; flex-shrink: 0;
+  background: var(--cb-acc); border: 1px solid transparent;
+  color: var(--cb-ask-stage-ink, #121110);
+  box-shadow: none;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+.cb-ask--stage .cb-ask-go--round:hover:not(:disabled) {
+  background: var(--cb-acc); border-color: transparent; box-shadow: none;
 }
 
 /* ── Plate II chrome: text actions and inquiries (the stage top bar
    and its link styles went with the bar when the sidebar returned) ── */
 .cb-stage-textbtn {
   background: none; border: none; cursor: pointer; padding: 8px 0;
-  font-family: var(--cb-font); font-size: 13.5px; font-weight: 550;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   color: var(--cb-ink2); min-height: 44px;
 }
 .cb-stage-textbtn:hover { text-decoration: underline; text-underline-offset: 4px; }
 .cb-stage-inq .cb-stage-inq-arrow {
-  opacity: 0; transform: translateX(-4px);
-  transition: opacity 200ms ease, transform 200ms ease;
+  opacity: 1;
+  transition: color 150ms ease-out;
 }
 .cb-stage-inq:hover .cb-stage-inq-arrow,
-.cb-stage-inq:focus-visible .cb-stage-inq-arrow { opacity: 1; transform: translateX(0); }
+.cb-stage-inq:focus-visible .cb-stage-inq-arrow { opacity: 1; }
 .cb-stage-inq:hover .cb-stage-inq-q,
 .cb-stage-inq:focus-visible .cb-stage-inq-q { color: var(--cb-ink); }
 
@@ -26942,8 +26930,8 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
    paragraph sets in the title role via renderAnswer's lede flag (inline —
    a stylesheet :first-child rule can never beat the paragraph's own
    inline fontSize). The measure below keeps sustained prose at 45–75ch. */
-.cb-answer-body { max-width: 1320px; }
-.cb-answer-enter strong { font-weight: 650; }
+.cb-answer-body { max-width: 100%; }
+.cb-answer-enter strong { font-weight: 600; }
 .cb-answer-enter em { font-style: italic; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 {
   font-family: var(--cb-font);
@@ -27392,7 +27380,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 /* Reading and control rhythm across research views. */
 .cb-answer-enter { overflow-wrap: anywhere; }
-.cb-answer-enter p, .cb-answer-enter li { line-height: 1.8; }
+.cb-answer-enter p, .cb-answer-enter li { line-height: 1.55; }
 .cb-answer-enter h1, .cb-answer-enter h2, .cb-answer-enter h3 { text-wrap: balance; }
 .cb-intro-go:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 4px 16px rgba(0,0,0,0.18); }
 @media (pointer: coarse) {
@@ -27681,20 +27669,20 @@ button.cb-cite { min-height: 0; min-width: 0; }
    metadata line. Still and precise. */
 .cb-query {
   border-top: 1px solid var(--cb-line, rgba(128,128,128,0.22));
-  padding: 18px 4px 0; margin: 0 auto 4px; max-width: 72ch;
+  padding: 18px 0 0; margin: 0 auto 4px 0; max-width: 1080px; margin-right: auto;
 }
 .cb-query-label {
   font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
   opacity: 0.85; margin-bottom: 10px;
 }
 .cb-query-text {
-  font-family: var(--cb-font); font-size: 21px; font-weight: 650;
-  line-height: 1.35; letter-spacing: -0.01em; margin: 0 0 12px;
+  font-family: var(--cb-font); font-size: 22px; font-weight: 500;
+  line-height: 1.3; letter-spacing: 0; margin: 0 0 12px;
   overflow-wrap: anywhere;
 }
 .cb-query-meta {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 12px;
+  font-size: 12px; font-family: var(--cb-font);
 }
 @media (max-width: 720px) {
   .cb-query-text { font-size: 18px; }
@@ -27703,34 +27691,39 @@ button.cb-cite { min-height: 0; min-width: 0; }
 /* ── Instrument section plates: the answer's own headings ────────────────
    h2/h3 inside the answer set as mono uppercase plates with a hairline
    rule, not magazine subheads. */
-.cb-sect { display: flex; align-items: baseline; gap: 14px; margin: 48px 0 20px; }
+.cb-sect { display: flex; align-items: baseline; gap: 14px; margin: 32px 0 20px; }
 .cb-sect::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--cb-line, rgba(128,128,128,0.22)); }
 .cb-sect-label {
-  font-size: 20px; font-weight: 650; letter-spacing: -0.01em;
+  font-family: var(--cb-font);
+  font-size: 17px; font-weight: 500; letter-spacing: 0;
   text-transform: none; white-space: normal; margin-bottom: 16px;
   color: var(--cb-ink);
 }
 .cb-sect-sub {
-  margin: 36px 0 14px; font-size: 16px; font-weight: 650;
-  letter-spacing: -0.01em; text-transform: none;
+  font-family: var(--cb-font);
+  margin: 36px 0 14px; font-size: 15px; font-weight: 500;
+  letter-spacing: 0; text-transform: none;
 }
 
 /* ── Control strip: the answer toolbar as instrument controls ────────────
    Compact mono buttons with hairline borders instead of underlined text.
    The More menu trigger keeps its own styling. */
-.cb-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cb-controls { display: flex; align-items: center; gap: 0; flex-wrap: wrap; }
 .cb-ctlbtn {
-  font-family: var(--cb-font); font-size: 14px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   letter-spacing: 0; text-transform: none;
-  padding: 0 16px; min-height: 44px;
-  border: 1px solid var(--cb-line, rgba(128,128,128,0.3)); border-radius: 2px;
+  padding: 0 12px; min-height: 44px;
+  border: none; border-right: 1px solid var(--cb-line, rgba(128,128,128,0.3)); border-radius: 0;
   background: transparent; color: var(--cb-ink2, #ccc); cursor: pointer;
   white-space: nowrap;
+  transition: color 150ms ease-out, background-color 150ms ease-out;
 }
-.cb-ctlbtn:hover { border-color: var(--cb-acc, #9fbd9f); color: var(--cb-ink, #fff); }
+.cb-ctlbtn:first-child { padding-left: 0; }
+.cb-ctlbtn:last-child { border-right: none; }
+.cb-ctlbtn:hover { border-color: var(--cb-line, rgba(128,128,128,0.3)); color: var(--cb-ink, #fff); }
 .cb-readout-label {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12px; font-weight: 400; letter-spacing: 0;
+  text-transform: none;
 }
 
 /* ── Citation chips as calibrated data tags ──────────────────────────────
@@ -27815,7 +27808,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
    index lives in a drawer now (EvidenceRail): portaled, secondary, and
    closed by default. One layout at every width — the column is the column
    everywhere, drawer or not. */
-.cb-answer-wrap { width: 100%; max-width: 1480px; margin: 0 auto; padding-left: max(24px, 3vw); padding-right: max(24px, 3vw); }
+.cb-answer-wrap { width: 100%; max-width: 1080px; margin: 0 auto 0 0; padding-left: 0; padding-right: 0; }
 .cb-answer-wrap .cb-article { max-width: 100%; min-width: 0; margin-left: 0; margin-right: auto; }
 /* Mobile readability (2026-10-08): Dusty reported the answer view is hard
    to read on phones. Larger type, looser leading, more air between
@@ -27831,8 +27824,8 @@ button.cb-cite { min-height: 0; min-width: 0; }
   /* Mobile glyph is 18×16, so the hit pseudo-element extends further to
      hold the same 44×44 target (16 + 2×14 tall, 18 + 2×13 wide). */
   .cb-cite::after { inset: -14px -13px; }
-  .cb-controls { flex-direction: column; align-items: stretch; gap: 10px; }
-  .cb-ctlbtn { width: 100%; min-height: 48px; font-size: 13px; text-align: center; }
+  .cb-controls { flex-direction: column; align-items: stretch; gap: 0; }
+  .cb-ctlbtn { width: 100%; min-height: 48px; font-size: 13px; text-align: center; border: none; border-bottom: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding: 0 12px; }
   .cb-claim { gap: 10px; }
   .cb-verdict { padding: 20px 18px !important; }
 }

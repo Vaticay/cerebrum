@@ -253,9 +253,29 @@ await test("state cards use matte paper, not frosted glass", () => {
   // matte anyway — opaque flat card, squared buttons, quiet kicker.
   // Legibility over footage comes from opacity, never from backdrop blur.
   // The fog must not come back here.
+  // Design overhaul wave 2 (2026-10-14, owner's redesign order): the
+  // state "card" is no longer a filled card at all. AnswerStateCard is
+  // now a ruled strip — a hairline rule on top, kicker, title, body,
+  // actions, with NO fill, NO enclosing border, NO radius, and no
+  // backdrop treatment of any kind; the text sits on the page's own
+  // solid background. Verified against the shipped component before
+  // repinning: flat and glass free, so the pin moves to the strip
+  // contract. The global fog bans above stay, and the scoped asserts
+  // below forbid a filled or glassy card from coming back.
   assert.ok(!appSrc.includes("Frosted shell"), "Frosted shell comment must not return to AnswerStateCard");
   assert.ok(!appSrc.includes("saturate(135%)"), "state-card backdrop blur must not return");
-  assert.ok(appSrc.includes("opaque flat card"), "AnswerStateCard matte comment missing");
+  const scStart = appSrc.indexOf("function AnswerStateCard(");
+  assert.ok(scStart > 0, "AnswerStateCard missing");
+  const scBlock = appSrc.slice(scStart, appSrc.indexOf("\n}\n", scStart));
+  assert.ok(scBlock.includes("ruled strip, not a box"), "AnswerStateCard flat strip contract missing");
+  assert.match(scBlock, /borderTop: `1px solid/, "state card lost its hairline top rule");
+  assert.ok(!/backdrop/i.test(scBlock), "state card regained a backdrop treatment");
+  // Scope to the root strip's own style object (the action buttons
+  // below it legitimately carry their own radius and ghost borders).
+  const scRoot = scBlock.slice(scBlock.indexOf("<div style={{"), scBlock.indexOf('className="cb-fade"'));
+  assert.ok(scRoot.length > 0, "AnswerStateCard root strip not found");
+  assert.ok(!/background:/.test(scRoot), "state card root regained a fill");
+  assert.ok(!/borderRadius/.test(scRoot), "state card root regained a radius");
 });
 
 await test("bibliography uses matte paper, not frosted rows", () => {

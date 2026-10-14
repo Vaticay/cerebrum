@@ -329,13 +329,22 @@ await test("answer surface is one wide article column; evidence is a drawer", ()
   assert.match(appSrc, /function EvidenceRail/, "EvidenceRail missing");
   assert.match(appSrc, /\.cb-answer-wrap/, "answer wrap CSS missing");
   assert.ok(!/cb-answer-grid/.test(appSrc), "old two-column answer grid still referenced");
-  assert.match(appSrc, /<TickFrame P=\{P\} accent=\{accent\} className="cb-answer-enter"/, "answer not framed by TickFrame on the answer-enter contract");
-  assert.match(appSrc, /<article style=\{\{[^}]*\.\.\.S\.answerCard[^}]*border: "none"[^}]*borderRadius: RADIUS\.viewport/, "article not on the tick-viewport contract");
-  // Widened surface (cb99ac5): the article fills its wrap rather than
-  // sitting in a 65–75ch column; the wrap caps at 1480px inside the
-  // 1760px search-view container.
+  // Design overhaul wave 2 (2026-10-14, owner's redesign order): the
+  // TickFrame framing around the answer was removed on purpose. The
+  // answer now renders in a plain cb-answer-enter div as a flat,
+  // borderless article (radius 2, no frame) directly over the page
+  // background. These pins assert that new contract positively and
+  // forbid the frame and the tick-viewport radius from coming back.
+  assert.match(appSrc, /<div className="cb-answer-enter">\s*<article style=\{\{ \.\.\.S\.answerCard, border: "none", borderRadius: 2 \}\} className="cb-article">/, "answer article not on the flat borderless contract");
+  assert.ok(!/<TickFrame[^>]*className="cb-answer-enter"/.test(appSrc), "TickFrame framing returned around the answer");
+  assert.ok(!/<article style=\{\{[^}]*borderRadius: RADIUS\.viewport/.test(appSrc), "article regained the tick-viewport radius");
+  // Wrap measure (2026-10-14, wave 2): the wrap caps at 1080px (the
+  // LAYOUT.answer token), superseding the cb99ac5 widening to 1480px
+  // inside the 1760px search-view container. The article still fills
+  // its wrap. The 1480px measure must not come back.
   const wrapRule = appSrc.slice(appSrc.indexOf(".cb-answer-wrap {"));
-  assert.match(wrapRule.slice(0, 160), /max-width: 1480px/, "answer wrap not on the widened measure");
+  assert.match(wrapRule.slice(0, 160), /max-width: 1080px/, "answer wrap not on the 1080px measure");
+  assert.ok(!/max-width: 1480px/.test(wrapRule.slice(0, 160)), "answer wrap regained the 1480px measure");
   const articleRule = appSrc.slice(appSrc.indexOf(".cb-answer-wrap .cb-article"));
   assert.match(articleRule.slice(0, 160), /max-width: 100%/, "article not filling the widened wrap");
   assert.match(appSrc, /maxWidth: 1760/, "search view container not widened to 1760");
@@ -396,7 +405,20 @@ await test("answer card is solid in every palette", () => {
   // mode translucency Dusty asked for on 2026-10-05. His standing rule
   // now overrides it: any surface carrying text sits on a solid opaque
   // background, so the card is the plain surface token in both modes.
-  assert.ok(/background: P\.surface,/.test(block), "answer card is not the solid surface token");
+  // Superseded the same day by design overhaul wave 2 (2026-10-14,
+  // owner's redesign order): the answerCard material was removed
+  // entirely. The article is now a flat, borderless, transparent
+  // reading surface (background transparent, border none, radius 2,
+  // no shadow, no padding) and the text reads directly on the page's
+  // own solid background. What this pin now forbids is any filled,
+  // frosted, or translucent card material returning under the text:
+  // no surface-token fill and no alpha-blended surface in the block.
+  assert.ok(/background: "transparent",/.test(block), "answer card is not the flat transparent reading surface");
+  assert.ok(/border: "none",/.test(block), "answer card regained a border");
+  assert.ok(/borderRadius: 2,/.test(block), "answer card not on the flat radius 2 contract");
+  assert.ok(/boxShadow: "none",/.test(block), "answer card regained a shadow");
+  assert.ok(/padding: 0,/.test(block), "answer card regained padding");
+  assert.ok(!/background: P\.surface,/.test(block), "answer card regained a filled surface");
   assert.ok(!/withAlpha\(P\.surface/.test(block), "answer card still translucent");
 });
 
