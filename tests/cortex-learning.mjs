@@ -49,16 +49,21 @@ const learnSrc = readFileSync(join(root, "src/LearnView.jsx"), "utf8");
 const ast = parse(learnSrc, { sourceType: "module", plugins: ["jsx"] });
 
 const WANTED = [
-  "hashStr", "seededShuffle",
+  "hashStr", "seededShuffle", "cleanText",
   "mkNote", "mkQuiz", "mkTrueFalse", "mkMatch", "mkOrder", "mkDeepen",
-  "LEARNING_PATHS", "INTERACTIVE_KINDS", "isInteractiveCard",
+  "LEARNING_PATHS", "CATALOG", "INTERACTIVE_KINDS", "isInteractiveCard",
   "flattenPathLessons", "isLessonUnlocked", "pathProgress",
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
   "MASTERY_MIN_PCT", "isLessonMastered", "orderScore", "parseRichText",
+  "XP_CORRECT", "XP_WRONG", "XP_BATTLE", "XP_LESSON_FINISH",
+  "matchScore", "lessonXpScale", "scaleXp",
   "TOUR_STEPS", "focusTrapStep",
   "CORTEX_EXPORT_FORMAT", "CORTEX_EXPORT_VERSION",
-  "cortexIsPlainObject", "cortexEmptyProfile", "cortexEmptyBuiltinProgress", "cortexImportFailure",
-  "buildCortexExport", "parseCortexImport",
+  "COURSES_KEY", "CLAIMS_KEY", "PROFILE_KEY", "SOUND_KEY", "BUILTIN_PROGRESS_KEY",
+  "cortexIsPlainObject", "cortexIsFiniteNumber", "cortexIsStringArray",
+  "cortexEmptyProfile", "cortexEmptyBuiltinProgress", "cortexImportFailure",
+  "cortexCourseProblem", "cortexClaimProblem", "cortexProgressRecordProblem",
+  "buildCortexExport", "parseCortexImport", "applyCortexImport",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -83,11 +88,15 @@ const js = transformSync(chunks.join("\n") + epilogue, { loader: "jsx" }).code;
 const context = vm.createContext({});
 vm.runInContext(js, context);
 const {
-  LEARNING_PATHS, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
+  LEARNING_PATHS, CATALOG, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
   pathProgress, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
   MASTERY_MIN_PCT, isLessonMastered, orderScore, parseRichText, TOUR_STEPS,
-  focusTrapStep,
+  focusTrapStep, cleanText,
+  XP_CORRECT, XP_WRONG, XP_BATTLE, XP_LESSON_FINISH,
+  matchScore, lessonXpScale, scaleXp,
+  COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, SOUND_KEY, BUILTIN_PROGRESS_KEY,
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
+  applyCortexImport,
 } = context.__x;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
@@ -480,10 +489,13 @@ await test("each step in its right place earns its share", () => {
   assert.equal(three.xp, 8);
 });
 
-await test("a checked attempt with nothing in place keeps the house floor", () => {
+await test("a checked attempt with nothing in place earns the token point", () => {
+  // Corrected contract (third rescore): wrong answers used to earn
+  // a 4 XP house floor on every card kind, so the XP total mostly
+  // measured activity. A wrong answer now earns the token 1 XP.
   const res = orderScore(["d", "c", "b", "a"], ["a", "b", "c", "d"]);
   assert.equal(res.correctPositions, 0);
-  assert.equal(res.xp, 4, "wrong answers earn 4 XP on every other card kind");
+  assert.equal(res.xp, 1, "a wrong answer earns the token point, not the old floor of 4");
   const empty = orderScore([], []);
   assert.equal(empty.correctPositions, 0);
   assert.equal(empty.total, 0);
@@ -534,9 +546,14 @@ await test("the Player renders the new card kinds", () => {
 await test("the Player announces feedback through one live region", () => {
   assert.ok(learnSrc.includes('aria-live="polite"'), "no polite live region in the Player");
   assert.ok(learnSrc.includes('role="status"'), "live region needs the status role");
-  assert.ok(learnSrc.includes("Right. Plus 10 XP."), "right answers are not announced");
+  // Announcements report the amount actually paid (10 for a right
+  // answer at full scale), so the string is built from the payment.
+  assert.ok(learnSrc.includes('"Right. Plus " + paid + " XP."'), "right answers are not announced with the amount paid");
   assert.ok(learnSrc.includes("Matched ") && learnSrc.includes("does not match."), "match progress is not announced");
-  assert.ok(learnSrc.includes("Lesson complete. Plus 20 XP for finishing."), "lesson completion is not announced");
+  // The completion announcement reports the bonus actually paid,
+  // which the replay scale can reduce, so it is built from the paid
+  // amount rather than a fixed 20.
+  assert.ok(learnSrc.includes('"Lesson complete. Plus " + bonus + " XP for finishing."'), "lesson completion is not announced with the bonus actually paid");
 });
 
 await test("the Player manages focus and Escape", () => {
@@ -745,6 +762,253 @@ await test("export and import controls render in the home progress surface", () 
   assert.ok(learnSrc.includes("Replace the Cortex progress in this browser"), "import replaces without asking first");
   assert.ok(learnSrc.includes("not a cloud copy"), "the copy does not say plainly that the export is a kept file");
   assert.ok(learnSrc.includes('a.download = "cerebrum-cortex-progress-" + todayKey() + ".json"'), "export file is not named with the date");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Import validation: deep shapes, not top level types");
+
+const deepDoc = () => buildCortexExport({
+  courses: [{
+    id: "course-9", title: "Gut science", sourceCount: 2, doneLessons: [], xpEarned: 0,
+    lessons: [{ id: "l1", title: "Start", subtitle: "s", cards: [
+      { kind: "quiz", question: "Q?", options: ["a", "b"], correct: 1, why: "w" },
+      { kind: "match", prompt: "m", pairs: [{ left: "a", right: "1" }] },
+      { kind: "note", kicker: "k", title: "t", text: "x" },
+    ] }],
+  }],
+  claims: { c1: { id: "c1", reps: 1, lapses: 0, stability: 1, due: 5, last: 4, card: { kind: "quiz", options: ["a", "b"], correct: 0 } } },
+  profile: { xp: 10, days: ["2026-10-13"], bridged: [], freezes: 2, freezeMilestone: 0 },
+  builtinProgress: { lessons: { l1: { done: true, best: 80, completions: 1 } }, lastPathId: "p", lastLessonId: "l1" },
+  sound: false,
+}, new Date());
+
+await test("a deeply shaped file parses whole", () => {
+  const parsed = parseCortexImport(JSON.stringify(deepDoc()));
+  assert.equal(parsed.ok, true, parsed.error || "deep file refused");
+});
+
+await test("a course with no lessons list is rejected, naming courses", () => {
+  const doc = deepDoc();
+  doc.courses = [{ id: "c", title: "t" }];
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.state, undefined);
+  assert.ok(parsed.error.includes("courses"), `reason does not name the section: ${parsed.error}`);
+});
+
+await test("a lesson with no cards list is rejected", () => {
+  const doc = deepDoc();
+  doc.courses[0].lessons = [{ id: "l1", title: "Start" }];
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, false);
+  assert.ok(parsed.error.includes("courses"), `reason does not name the section: ${parsed.error}`);
+});
+
+await test("a card with no kind, and a question card with unreachable answers, are rejected", () => {
+  const doc = deepDoc();
+  doc.courses[0].lessons[0].cards = [{ question: "Q?" }];
+  assert.equal(parseCortexImport(JSON.stringify(doc)).ok, false, "kindless card accepted");
+  const doc2 = deepDoc();
+  doc2.courses[0].lessons[0].cards = [{ kind: "quiz", options: ["a", "b"], correct: 5 }];
+  assert.equal(parseCortexImport(JSON.stringify(doc2)).ok, false, "out of range correct index accepted");
+  const doc3 = deepDoc();
+  doc3.courses[0].lessons[0].cards = [{ kind: "match", prompt: "m" }];
+  assert.equal(parseCortexImport(JSON.stringify(doc3)).ok, false, "match card without pairs accepted");
+});
+
+await test("claims are validated entry by entry, naming review claims", () => {
+  const doc = deepDoc();
+  doc.claims = { c1: "not a claim" };
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, false);
+  assert.ok(parsed.error.includes("review claims"), `reason does not name the section: ${parsed.error}`);
+  const doc2 = deepDoc();
+  doc2.claims = { c1: { id: "c1", reps: 1 } };
+  assert.equal(parseCortexImport(JSON.stringify(doc2)).ok, false, "a claim with no review card was accepted");
+  const doc3 = deepDoc();
+  doc3.claims = { c1: { id: "c1", reps: "three", card: { kind: "quiz" } } };
+  assert.equal(parseCortexImport(JSON.stringify(doc3)).ok, false, "a claim with a word for a schedule was accepted");
+});
+
+await test("an empty profile no longer passes", () => {
+  const doc = deepDoc();
+  doc.profile = {};
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, false);
+  assert.ok(parsed.error.includes("profile"), `reason does not name the section: ${parsed.error}`);
+  const doc2 = deepDoc();
+  doc2.profile = { xp: 10, days: "2026-10-13", bridged: [], freezes: 2, freezeMilestone: 0 };
+  assert.equal(parseCortexImport(JSON.stringify(doc2)).ok, false, "profile days as one string accepted");
+});
+
+await test("path progress records are validated, naming path progress", () => {
+  const doc = deepDoc();
+  doc.builtinProgress = { lessons: { l1: "done" }, lastPathId: "", lastLessonId: "" };
+  const parsed = parseCortexImport(JSON.stringify(doc));
+  assert.equal(parsed.ok, false);
+  assert.ok(parsed.error.includes("path progress"), `reason does not name the section: ${parsed.error}`);
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Import apply: all five sections stored, or none of them");
+
+const fakeStorage = (initial = {}, failOn = null) => {
+  const map = new Map(Object.entries(initial));
+  return {
+    map,
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => { if (failOn === k) throw new Error("storage is full"); map.set(k, String(v)); },
+    removeItem: (k) => { map.delete(k); },
+  };
+};
+
+await test("a clean apply stores every section and reports success", () => {
+  const store = fakeStorage();
+  const res = applyCortexImport(cortexFixtureState, store);
+  assert.equal(res.ok, true, res.error || "clean apply refused");
+  assert.deepEqual(JSON.parse(store.map.get(COURSES_KEY)), asJSON(cortexFixtureState.courses));
+  assert.deepEqual(JSON.parse(store.map.get(CLAIMS_KEY)), asJSON(cortexFixtureState.claims));
+  assert.deepEqual(JSON.parse(store.map.get(PROFILE_KEY)), asJSON(cortexFixtureState.profile));
+  assert.deepEqual(JSON.parse(store.map.get(BUILTIN_PROGRESS_KEY)), asJSON(cortexFixtureState.builtinProgress));
+  assert.equal(store.map.get(SOUND_KEY), "true");
+});
+
+await test("a mid write failure rolls every key back and reports failure", () => {
+  const store = fakeStorage({ [COURSES_KEY]: "\"the old courses\"", [PROFILE_KEY]: "\"the old profile\"" }, PROFILE_KEY);
+  const res = applyCortexImport(cortexFixtureState, store);
+  assert.equal(res.ok, false, "a failed write was reported as imported");
+  assert.ok(res.error.includes("nothing was changed"), `failure does not say the record is untouched: ${res.error}`);
+  assert.equal(store.map.get(COURSES_KEY), "\"the old courses\"", "courses key was left half written");
+  assert.equal(store.map.has(CLAIMS_KEY), false, "claims key was left behind by the failed import");
+  assert.equal(store.map.get(PROFILE_KEY), "\"the old profile\"", "profile key was touched by the failed import");
+  assert.equal(store.map.has(SOUND_KEY), false, "sound key was left behind by the failed import");
+});
+
+await test("a write that does not read back counts as a failure", () => {
+  const base = fakeStorage();
+  const tampering = {
+    getItem: (k) => { const v = base.getItem(k); return v == null ? v : v + "x"; },
+    setItem: (k, v) => base.setItem(k, v),
+    removeItem: (k) => base.removeItem(k),
+  };
+  const res = applyCortexImport(cortexFixtureState, tampering);
+  assert.equal(res.ok, false, "an unverifiable write was reported as imported");
+});
+
+await test("the import handler applies through the transactional writer", () => {
+  assert.ok(learnSrc.includes("applyCortexImport(parsed.state, localStorage)"), "the import handler does not use applyCortexImport");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("XP economy: points follow learning, not activity");
+
+await test("the award values are the rebalanced ones", () => {
+  assert.equal(XP_CORRECT, 10);
+  assert.equal(XP_WRONG, 1, "a wrong answer earns the token point, not 4");
+  assert.equal(XP_BATTLE, 6);
+  assert.equal(XP_LESSON_FINISH, 20);
+});
+
+await test("match runs pay for clean work and decay with misses", () => {
+  assert.equal(matchScore(0), 10);
+  assert.equal(matchScore(1), 8);
+  assert.equal(matchScore(2), 6);
+  assert.equal(matchScore(4), 2);
+  assert.equal(matchScore(5), 1, "a messy finish still earns the token point");
+  assert.equal(matchScore(12), 1, "the token point is the floor");
+});
+
+await test("the replay scale pays full, then half, then nothing", () => {
+  assert.equal(lessonXpScale(0), 1);
+  assert.equal(lessonXpScale(1), 0.5);
+  assert.equal(lessonXpScale(2), 0);
+  assert.equal(lessonXpScale(9), 0);
+  assert.equal(scaleXp(10, lessonXpScale(0)), 10);
+  assert.equal(scaleXp(10, lessonXpScale(1)), 5);
+  assert.equal(scaleXp(20, lessonXpScale(1)), 10);
+  assert.equal(scaleXp(10, lessonXpScale(2)), 0);
+});
+
+await test("lesson results count completions for the replay scale", () => {
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 90);
+  assert.equal(prog.lessons[flat0[0].id].completions, 1);
+  prog = applyLessonResult(prog, path0, flat0[0].id, 90);
+  assert.equal(prog.lessons[flat0[0].id].completions, 2);
+  const legacy = { lessons: { [flat0[1].id]: { done: true, best: 50 } }, lastPathId: "", lastLessonId: "" };
+  const after = applyLessonResult(legacy, path0, flat0[1].id, 60);
+  assert.equal(after.lessons[flat0[1].id].completions, 2, "a record written before the counter counts its done state as the first completion");
+});
+
+await test("the Player pays through the scale, and reading cards pay nothing", () => {
+  assert.ok(learnSrc.includes("pay(correct ? XP_CORRECT : XP_WRONG)"), "quiz checks do not pay the rebalanced values");
+  assert.ok(learnSrc.includes("pay(matchScore(matchMistakes))"), "match completion does not score through matchScore");
+  assert.ok(learnSrc.includes("pay(res.xp)"), "order checks do not pay the scored value");
+  assert.ok(!learnSrc.includes("award(2)"), "advancing past a card still pays 2 XP");
+  assert.ok(!learnSrc.includes("onProgress(2, course)"), "advancing past a card still reports 2 XP");
+  assert.ok(learnSrc.includes("scaleXp(XP_LESSON_FINISH, xpScaleNow())"), "the finish bonus is not scaled by replays");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Formatting: findings keep the emphasis they had in the answer");
+
+await test("cleanText keeps emphasis marks and drops citation markers", () => {
+  const out = cleanText("**Memory consolidation** improved in _Rattus norvegicus_ after sleep [3].");
+  assert.ok(out.includes("**Memory consolidation**"), `bold marks were stripped: ${out}`);
+  assert.ok(out.includes("_Rattus norvegicus_"), `species marks were stripped: ${out}`);
+  assert.ok(!out.includes("[3]"), "the citation marker survived cleaning");
+});
+
+await test("double asterisks parse as bold, underscores as italics", () => {
+  const bold = parseRichText("**memory consolidation** matters");
+  assert.equal(JSON.stringify(bold), JSON.stringify([
+    { text: "memory consolidation", italic: false, bold: true },
+    { text: " matters", italic: false },
+  ]));
+  const species = parseRichText("seen in _Rattus norvegicus_ colonies");
+  assert.ok(species.some((s) => s.italic && s.text === "Rattus norvegicus"), "underscore species name is not an italic segment");
+  const mixed = parseRichText("a *Homo sapiens* fossil and a **bold** claim");
+  assert.ok(mixed.some((s) => s.italic && s.text === "Homo sapiens"), "asterisk species name lost its italics");
+  assert.ok(mixed.some((s) => s.bold && s.text === "bold"), "bold term lost its bold");
+});
+
+await test("generated card text renders through RichText on the card surfaces", () => {
+  for (const needle of ["<RichText text={card.why} />", "<RichText text={opt} />", "<RichText text={side.claim} />", "<RichText text={card.prompt} />", "<RichText text={card.statement} />"]) {
+    assert.ok(learnSrc.includes(needle), `a card surface does not render through RichText: ${needle}`);
+  }
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Tour honesty, the builtin source note, and catalog blurbs");
+
+await test("the tour scopes its claims to the learners they describe", () => {
+  assert.ok(TOUR_STEPS[1].body.includes("enough findings"), "the pretest step does not name its condition");
+  assert.ok(!TOUR_STEPS[2].body.includes("Cortex grades you against the paper itself"),
+    "the check step still promises paper grading to every learner");
+  assert.ok(TOUR_STEPS[2].body.includes("built from a search"), "the check step does not scope paper quoting to search courses");
+  assert.ok(TOUR_STEPS[2].body.includes("standard textbook material"), "the check step does not say what path checks do instead");
+  assert.ok(TOUR_STEPS[3].body.includes("built from papers"), "the review step does not scope claims to search courses");
+  assert.ok(TOUR_STEPS[3].body.includes("daily practice"), "the review step does not say how path lessons stay fresh");
+});
+
+await test("builtin lessons carry an honest source note, with no invented citation", () => {
+  const hits = learnSrc.match(/for Cortex from standard textbook material/g) || [];
+  assert.ok(hits.length >= 3, `the textbook source note should appear in the tour, the path view, and the lesson intro; found ${hits.length}`);
+  assert.ok(learnSrc.includes("quote no single paper"), "the source note does not say plainly that no paper is quoted");
+});
+
+await test("catalog blurbs describe coverage instead of asserting facts", () => {
+  assert.equal(CATALOG.length, 6, "the catalog should hold six shelves");
+  const topics = CATALOG.flatMap((c) => c.topics);
+  assert.equal(topics.length, 24, "the catalog should hold 24 topics");
+  for (const t of topics) {
+    assert.ok(typeof t.b === "string" && t.b.length > 10, `${t.t} has no real blurb`);
+    assert.ok(!t.b.includes("-"), `blurb carries a dash: ${t.b}`);
+  }
+  const all = topics.map((t) => t.b).join(" ");
+  for (const flat of ["Half your oxygen comes from these", "Pain is an opinion the brain can revise", "Gravity is geometry", "A teaspoon of soil holds a civilization"]) {
+    assert.ok(!all.includes(flat), `a flat factual assertion is still on the home surface: ${flat}`);
+  }
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

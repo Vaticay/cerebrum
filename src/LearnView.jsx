@@ -23,7 +23,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Icon, STATUS, FONT_SIZES, withAlpha, accentText } from "./designSystem.jsx";
+import { Icon, STATUS, FONT_SIZES, RADIUS, withAlpha, accentText } from "./designSystem.jsx";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -74,6 +74,8 @@ export const CORTEX_EXPORT_FORMAT = "cerebrum-cortex-progress";
 export const CORTEX_EXPORT_VERSION = 1;
 
 function cortexIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+function cortexIsFiniteNumber(v) { return typeof v === "number" && Number.isFinite(v); }
+function cortexIsStringArray(v) { return Array.isArray(v) && v.every((x) => typeof x === "string"); }
 function cortexEmptyProfile() { return { xp: 0, days: [], bridged: [], freezes: 2, freezeMilestone: 0 }; }
 function cortexEmptyBuiltinProgress() { return { lessons: {}, lastPathId: "", lastLessonId: "" }; }
 function cortexImportFailure(error) { return { ok: false, error }; }
@@ -92,6 +94,72 @@ export function buildCortexExport(state, now = new Date()) {
       ? s.builtinProgress : cortexEmptyBuiltinProgress(),
     sound: typeof s.sound === "boolean" ? s.sound : false,
   };
+}
+
+/* Deep shape checks, one per section, against the fields the
+   loaders and the Player actually read. Top level types alone are
+   not enough: the home library reads course.lessons.length and the
+   Player reads lesson.cards on sight, so a course whose lessons
+   are missing or a lesson whose cards are missing would corrupt
+   the library the moment it rendered. Every check names its
+   section in plain words. A field a real export always writes is
+   required; a field the readers only touch when present is type
+   checked when present. */
+function cortexCourseProblem(course) {
+  if (!cortexIsPlainObject(course)) return "That file's courses section holds an entry that is not a course. Nothing was imported.";
+  if (course.id != null && typeof course.id !== "string") return "That file's courses section holds a course whose id is not readable. Nothing was imported.";
+  if (course.title != null && typeof course.title !== "string") return "That file's courses section holds a course whose title is not readable. Nothing was imported.";
+  if (!Array.isArray(course.lessons)) return "That file's courses section holds a course with no lessons list. Nothing was imported.";
+  for (const lesson of course.lessons) {
+    if (!cortexIsPlainObject(lesson)) return "That file's courses section holds a lesson that is not readable. Nothing was imported.";
+    if (lesson.id != null && typeof lesson.id !== "string") return "That file's courses section holds a lesson whose id is not readable. Nothing was imported.";
+    if (lesson.title != null && typeof lesson.title !== "string") return "That file's courses section holds a lesson whose title is not readable. Nothing was imported.";
+    if (lesson.subtitle != null && typeof lesson.subtitle !== "string") return "That file's courses section holds a lesson whose subtitle is not readable. Nothing was imported.";
+    if (!Array.isArray(lesson.cards)) return "That file's courses section holds a lesson with no cards list. Nothing was imported.";
+    for (const card of lesson.cards) {
+      if (!cortexIsPlainObject(card) || typeof card.kind !== "string") return "That file's courses section holds a card with no kind. Nothing was imported.";
+      if ((card.kind === "quiz" || card.kind === "cloze")
+        && (!Array.isArray(card.options) || card.options.length < 2
+          || !Number.isInteger(card.correct) || card.correct < 0 || card.correct >= card.options.length)) {
+        return "That file's courses section holds a question card whose answers are not readable. Nothing was imported.";
+      }
+      if (card.kind === "match" && !Array.isArray(card.pairs)) return "That file's courses section holds a matching card with no pairs list. Nothing was imported.";
+      if (card.kind === "order" && !Array.isArray(card.items)) return "That file's courses section holds an ordering card with no items list. Nothing was imported.";
+      if (card.kind === "truefalse" && typeof card.answer !== "boolean") return "That file's courses section holds a true or false card with no answer. Nothing was imported.";
+    }
+  }
+  if (course.doneLessons != null && !cortexIsStringArray(course.doneLessons)) return "That file's courses section holds a course whose finished lessons list is not readable. Nothing was imported.";
+  if (course.xpEarned != null && !cortexIsFiniteNumber(course.xpEarned)) return "That file's courses section holds a course whose earned XP is not a number. Nothing was imported.";
+  if (course.vocab != null && !Array.isArray(course.vocab)) return "That file's courses section holds a course whose word list is not readable. Nothing was imported.";
+  return null;
+}
+
+function cortexClaimProblem(claim) {
+  if (!cortexIsPlainObject(claim)) return "That file's review claims section holds an entry that is not a claim. Nothing was imported.";
+  for (const field of ["reps", "lapses", "stability", "due", "last"]) {
+    if (claim[field] != null && !cortexIsFiniteNumber(claim[field])) {
+      return "That file's review claims section holds a claim whose schedule is not readable. Nothing was imported.";
+    }
+  }
+  /* The review Player plays the stored card, so a claim without a
+     readable card is a claim that cannot be reviewed. */
+  if (!cortexIsPlainObject(claim.card)) return "That file's review claims section holds a claim with no review card. Nothing was imported.";
+  if (claim.card.options != null && !Array.isArray(claim.card.options)) return "That file's review claims section holds a review card whose answers are not readable. Nothing was imported.";
+  if (claim.card.correct != null && !cortexIsFiniteNumber(claim.card.correct)) return "That file's review claims section holds a review card whose answer is not readable. Nothing was imported.";
+  return null;
+}
+
+function cortexProgressRecordProblem(rec) {
+  if (!cortexIsPlainObject(rec)) return "That file's path progress section holds a lesson record that is not readable. Nothing was imported.";
+  if (rec.done != null && typeof rec.done !== "boolean") return "That file's path progress section holds a lesson record whose done mark is not readable. Nothing was imported.";
+  if (rec.best != null && !cortexIsFiniteNumber(rec.best)) return "That file's path progress section holds a lesson record whose best score is not a number. Nothing was imported.";
+  if (rec.completions != null && !cortexIsFiniteNumber(rec.completions)) return "That file's path progress section holds a lesson record whose completion count is not a number. Nothing was imported.";
+  if ((rec.mastered != null && typeof rec.mastered !== "boolean")
+    || (rec.reviewMastered != null && typeof rec.reviewMastered !== "boolean")) {
+    return "That file's path progress section holds a lesson record whose mastery marks are not readable. Nothing was imported.";
+  }
+  if (rec.completedAt != null && typeof rec.completedAt !== "string") return "That file's path progress section holds a lesson record whose date is not readable. Nothing was imported.";
+  return null;
 }
 
 /* Validate a whole export file before anything is restored. Any
@@ -114,18 +182,41 @@ export function parseCortexImport(text) {
   if (!Array.isArray(data.courses)) {
     return cortexImportFailure("That file is missing its courses section. Nothing was imported.");
   }
+  for (const course of data.courses) {
+    const problem = cortexCourseProblem(course);
+    if (problem) return cortexImportFailure(problem);
+  }
   if (!cortexIsPlainObject(data.claims)) {
     return cortexImportFailure("That file is missing its review claims section. Nothing was imported.");
+  }
+  for (const claim of Object.values(data.claims)) {
+    const problem = cortexClaimProblem(claim);
+    if (problem) return cortexImportFailure(problem);
   }
   if (!cortexIsPlainObject(data.profile)) {
     return cortexImportFailure("That file is missing its profile section. Nothing was imported.");
   }
-  if ((data.profile.xp != null && typeof data.profile.xp !== "number")
-    || (data.profile.days != null && !Array.isArray(data.profile.days))) {
+  /* The profile is small and every real export writes all of it,
+     so an empty or partial profile is a corrupt one: touchStreak
+     iterates profile.days on the next load and the XP total is
+     read as a number everywhere it shows. */
+  if (!cortexIsFiniteNumber(data.profile.xp) || data.profile.xp < 0
+    || !cortexIsStringArray(data.profile.days)
+    || (data.profile.bridged != null && !cortexIsStringArray(data.profile.bridged))
+    || (data.profile.freezes != null && !cortexIsFiniteNumber(data.profile.freezes))
+    || (data.profile.freezeMilestone != null && !cortexIsFiniteNumber(data.profile.freezeMilestone))) {
     return cortexImportFailure("That file's profile section is not shaped like a Cortex profile. Nothing was imported.");
   }
   if (!cortexIsPlainObject(data.builtinProgress) || !cortexIsPlainObject(data.builtinProgress.lessons)) {
     return cortexImportFailure("That file is missing its path progress section. Nothing was imported.");
+  }
+  for (const rec of Object.values(data.builtinProgress.lessons)) {
+    const problem = cortexProgressRecordProblem(rec);
+    if (problem) return cortexImportFailure(problem);
+  }
+  if ((data.builtinProgress.lastPathId != null && typeof data.builtinProgress.lastPathId !== "string")
+    || (data.builtinProgress.lastLessonId != null && typeof data.builtinProgress.lastLessonId !== "string")) {
+    return cortexImportFailure("That file's path progress section has a continue pointer that is not readable. Nothing was imported.");
   }
   if (data.sound != null && typeof data.sound !== "boolean") {
     return cortexImportFailure("That file's sound setting is not readable. Nothing was imported.");
@@ -140,6 +231,52 @@ export function parseCortexImport(text) {
       sound: data.sound === true,
     },
   };
+}
+
+/* Write a validated import, all five keys or none of them. The
+   save helpers used elsewhere swallow storage errors on purpose
+   (a failed routine save must never break a lesson), but an import
+   announces success out loud, so it may only do so after every
+   section is verifiably stored. The pre import value of every key
+   is snapshotted first; any write or read back failure restores
+   all five, so a half written record is never reported as
+   imported. Storage is any localStorage shaped object, which
+   keeps the whole transaction testable without a DOM. */
+export function applyCortexImport(state, storage) {
+  const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
+  if (!store || typeof store.getItem !== "function" || typeof store.setItem !== "function") {
+    return cortexImportFailure("This browser would not store the import. Nothing was imported.");
+  }
+  const s = cortexIsPlainObject(state) ? state : {};
+  const entries = [
+    [COURSES_KEY, Array.isArray(s.courses) ? s.courses : []],
+    [CLAIMS_KEY, cortexIsPlainObject(s.claims) ? s.claims : {}],
+    [PROFILE_KEY, cortexIsPlainObject(s.profile) ? s.profile : cortexEmptyProfile()],
+    [BUILTIN_PROGRESS_KEY, cortexIsPlainObject(s.builtinProgress) ? s.builtinProgress : cortexEmptyBuiltinProgress()],
+    [SOUND_KEY, s.sound === true],
+  ];
+  let prior;
+  try { prior = entries.map(([key]) => [key, store.getItem(key)]); }
+  catch { return cortexImportFailure("This browser would not store the import. Nothing was imported."); }
+  const rollback = () => {
+    for (const [key, raw] of prior) {
+      try {
+        if (raw == null) { if (typeof store.removeItem === "function") store.removeItem(key); }
+        else store.setItem(key, raw);
+      } catch { /* rollback is best effort; the failure is reported either way */ }
+    }
+  };
+  for (const [key, value] of entries) {
+    const raw = JSON.stringify(value);
+    try {
+      store.setItem(key, raw);
+      if (store.getItem(key) !== raw) throw new Error("stored value did not read back");
+    } catch {
+      rollback();
+      return cortexImportFailure("The import could not be fully saved in this browser, so nothing was changed. Your existing progress is untouched.");
+    }
+  }
+  return { ok: true };
 }
 
 function todayKey(d = new Date()) {
@@ -212,14 +349,15 @@ function dueClaims(claims) {
 
 /* ── text helpers ────────────────────────────────────────────────── */
 function cleanText(s) {
+  /* Citation markers and stray whitespace go; emphasis stays. The
+     answers mark key terms with **pairs** and species names with
+     *pairs* or _pairs_, and the card renderers format those marks
+     through parseRichText, the same conventions the answer itself
+     renders with. Stripping the marks here used to flatten every
+     finding to plain text, species names included. Logic that
+     compares claim text (normKey, hashes, dedupe) is unaffected:
+     it already ignores punctuation. */
   return String(s || "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    // Cortex claims inherit the answer's markdown, where species names
-    // are underscore wrapped. This cleaner predates that convention, so
-    // the underscore marks survived literally on cards.
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/_([^_]+)_/g, "$1")
     .replace(/\[(\d+)\]/g, "")
     .replace(/\s+/g, " ")
     .replace(/\s+([.,!?;:])/g, "$1")
@@ -594,30 +732,47 @@ function withAlphaSafe(hex, a) {
 
 /* Finding text with its numbers lifted out in the accent colour:
    the values are what the learner will be asked to recall, so the
-   eye should land on them while reading. */
+   eye should land on them while reading. The words between the
+   numbers go through parseRichText, so a finding keeps the
+   formatting it had in the answer: species names in italics, key
+   terms in bold. */
 function emphasizeFinding(text, accent) {
   const parts = String(text || "").split(NUMBER_RE);
   return parts.map((part, i) => {
     if (i % 2 === 1) return <strong key={i} style={{ color: accent, fontWeight: 800 }}>{part}</strong>;
-    return part;
+    return parseRichText(part).map((seg, j) => {
+      if (seg.bold && seg.italic) return <strong key={j}><em>{seg.text}</em></strong>;
+      if (seg.bold) return <strong key={j}>{seg.text}</strong>;
+      if (seg.italic) return <em key={j}>{seg.text}</em>;
+      return seg.text;
+    });
   });
 }
 
-/* Minimal rich text for note, deepen, and summary cards. The one
-   markup convention: a pair of single asterisks wraps an italic span,
-   which is how authored copy marks species names (*Homo sapiens*).
-   Everything else is plain text, a lone asterisk stays literal, and
-   the segments render as React text, so nothing authored can inject
-   markup. Returns segments of { text, italic } for the renderers. */
+/* Minimal rich text for every card surface. The conventions mirror
+   renderInlineMdLite in CerebrumApp.jsx, the helper the answers
+   themselves render with: **pairs** are bold (the answer's key
+   terms), *pairs* and _pairs_ are italic (authored copy marks
+   species names with asterisks, the answers wrap them in
+   underscores). That helper is not exported from the app module,
+   so the rules are reimplemented here and must be kept in step
+   with it. Everything else is plain text, a lone asterisk glued
+   to a word stays the main app's dangling asterisk case and is
+   dropped the same way it drops it, and the segments render as
+   React text, so nothing authored can inject markup. Returns
+   segments of { text, italic } with bold segments carrying
+   bold: true for the renderers. */
 export function parseRichText(text) {
-  const s = String(text || "");
+  const s = String(text || "").replace(/\*\*[^*\n]+\*\*|\*[^*\n]+\*|(\w)\*(?![\w*])/g,
+    (m, dangling) => (dangling ? dangling : m));
   const out = [];
-  const re = /\*([^*]+)\*/g;
+  const re = /\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_/g;
   let last = 0;
   let m;
   while ((m = re.exec(s)) !== null) {
     if (m.index > last) out.push({ text: s.slice(last, m.index), italic: false });
-    out.push({ text: m[1], italic: true });
+    if (m[1] != null) out.push({ text: m[1], italic: false, bold: true });
+    else out.push({ text: m[2] != null ? m[2] : m[3], italic: true });
     last = m.index + m[0].length;
   }
   if (last < s.length) out.push({ text: s.slice(last), italic: false });
@@ -625,7 +780,12 @@ export function parseRichText(text) {
 }
 
 function RichText({ text }) {
-  return parseRichText(text).map((seg, i) => (seg.italic ? <em key={i}>{seg.text}</em> : seg.text));
+  return parseRichText(text).map((seg, i) => {
+    if (seg.bold && seg.italic) return <strong key={i}><em>{seg.text}</em></strong>;
+    if (seg.bold) return <strong key={i}>{seg.text}</strong>;
+    if (seg.italic) return <em key={i}>{seg.text}</em>;
+    return seg.text;
+  });
 }
 
 function paperCard(source, claim) {
@@ -888,7 +1048,7 @@ function Cover({ title, height, radius = 16, fontSize, cat, img }) {
         background: "linear-gradient(rgba(255,255,255,.07), rgba(255,255,255,0))",
       }} />
       <div style={{
-        position: "absolute", left: 16, bottom: 12, width: 34, height: 3, borderRadius: 999,
+        position: "absolute", left: 16, bottom: 12, width: 34, height: 3, borderRadius: RADIUS.pill,
         background: "rgba(255,255,255,.55)",
       }} />
     </div>
@@ -903,40 +1063,40 @@ function Cover({ title, height, radius = 16, fontSize, cat, img }) {
    motif per shelf, in the shelf's own deep tones. */
 const CATALOG = [
   { name: "Mind and Brain", motif: "brain", pair: ["#27354d", "#131e30"], topics: [
-    { t: "Sleep and Memory", q: "sleep memory consolidation", b: "Why a night of sleep decides what you keep.", img: "/assets/cortex/sleep-memory.jpg" },
-    { t: "The Predicting Brain", q: "predictive processing brain perception", b: "Your brain guesses the world first, then checks.", img: "/assets/cortex/predicting-brain.jpg" },
-    { t: "Attention Under Siege", q: "attention focus distraction cognition", b: "What focus actually is, and what steals it.", img: "/assets/cortex/attention.jpg" },
-    { t: "Why We Dream", q: "dreaming REM sleep function", b: "The oldest open question in sleep science.", img: "/assets/cortex/dreams.jpg" },
+    { t: "Sleep and Memory", q: "sleep memory consolidation", b: "What sleep does to the memories you formed that day, and how the studies measure it.", img: "/assets/cortex/sleep-memory.jpg" },
+    { t: "The Predicting Brain", q: "predictive processing brain perception", b: "How the brain predicts what it is about to sense, and how it corrects itself.", img: "/assets/cortex/predicting-brain.jpg" },
+    { t: "Attention Under Siege", q: "attention focus distraction cognition", b: "What focus is, and what pulls it away.", img: "/assets/cortex/attention.jpg" },
+    { t: "Why We Dream", q: "dreaming REM sleep function", b: "Why we dream at all, and the explanations researchers are still testing.", img: "/assets/cortex/dreams.jpg" },
   ]},
   { name: "Body and Health", motif: "pulse", pair: ["#42252b", "#281116"], topics: [
-    { t: "Exercise and Longevity", q: "exercise longevity mortality", b: "How much movement buys how much life, per the data.", img: "/assets/cortex/exercise-longevity.jpg" },
-    { t: "The Gut Immune Alliance", q: "gut microbiome immune system", b: "Your microbes are negotiating with your immune system.", img: "/assets/cortex/gut-immune.jpg" },
+    { t: "Exercise and Longevity", q: "exercise longevity mortality", b: "What the research measures about movement, aging, and how much is enough.", img: "/assets/cortex/exercise-longevity.jpg" },
+    { t: "The Gut Immune Alliance", q: "gut microbiome immune system", b: "How gut microbes and the immune system shape each other, study by study.", img: "/assets/cortex/gut-immune.jpg" },
     { t: "Fasting and Metabolism", q: "intermittent fasting metabolism", b: "What skipping meals does, and what it does not.", img: "/assets/cortex/fasting.jpg" },
-    { t: "Pain, Explained", q: "pain perception neuroscience", b: "Pain is an opinion the brain can revise.", img: "/assets/cortex/pain.jpg" },
+    { t: "Pain, Explained", q: "pain perception neuroscience", b: "How the brain builds pain, and why the same injury can hurt more or less.", img: "/assets/cortex/pain.jpg" },
   ]},
   { name: "Life and Evolution", motif: "helix", pair: ["#1d3b2a", "#0e2417"], topics: [
     { t: "Editing the Code of Life", q: "CRISPR gene editing", b: "Gene editing, from the first papers to the fights.", img: "/assets/cortex/crispr.jpg" },
-    { t: "Why We Age", q: "cellular aging senescence", b: "Cells keep time. Here is what the clocks look like.", img: "/assets/cortex/aging.jpg" },
+    { t: "Why We Age", q: "cellular aging senescence", b: "How cells age, and the clocks researchers use to measure it.", img: "/assets/cortex/aging.jpg" },
     { t: "Minds of Other Animals", q: "animal cognition consciousness", b: "Which animals know what, and how we can tell.", img: "/assets/cortex/animal-minds.jpg" },
-    { t: "The First Life", q: "origin of life abiogenesis", b: "Chemistry that learned to copy itself.", img: "/assets/cortex/first-life.jpg" },
+    { t: "The First Life", q: "origin of life abiogenesis", b: "The experiments and arguments about how life first started copying itself.", img: "/assets/cortex/first-life.jpg" },
   ]},
   { name: "Earth and Climate", motif: "earth", pair: ["#173d3a", "#0a2422"], topics: [
-    { t: "Oceans in Motion", q: "ocean currents climate", b: "The conveyor that sets the weather.", img: "/assets/cortex/oceans.jpg" },
-    { t: "The Soil Beneath Us", q: "soil microbiome carbon", b: "A teaspoon of soil holds a civilization.", img: "/assets/cortex/soil.jpg" },
-    { t: "Forests and Carbon", q: "forests carbon sequestration", b: "What trees actually do with carbon, measured.", img: "/assets/cortex/forests.jpg" },
+    { t: "Oceans in Motion", q: "ocean currents climate", b: "How ocean currents move heat around the planet, and what researchers watch for as they change.", img: "/assets/cortex/oceans.jpg" },
+    { t: "The Soil Beneath Us", q: "soil microbiome carbon", b: "The living world inside soil, and the carbon it holds or releases.", img: "/assets/cortex/soil.jpg" },
+    { t: "Forests and Carbon", q: "forests carbon sequestration", b: "What forests do with carbon, and how it is measured.", img: "/assets/cortex/forests.jpg" },
     { t: "Extreme Weather", q: "extreme weather attribution climate change", b: "How scientists pin a storm to a warming world.", img: "/assets/cortex/extreme-weather.jpg" },
   ]},
   { name: "Space and Physics", motif: "orbit", pair: ["#33233f", "#1c1226"], topics: [
-    { t: "Black Holes", q: "black hole event horizon", b: "The edge where physics files its complaints.", img: "/assets/cortex/black-holes.jpg" },
-    { t: "The Shape of Spacetime", q: "space time general relativity", b: "Gravity is geometry. The papers that proved it.", img: "/assets/cortex/spacetime.jpg" },
-    { t: "Quantum Machines", q: "quantum computing error correction", b: "Computers that borrow probability itself.", img: "/assets/cortex/quantum.jpg" },
+    { t: "Black Holes", q: "black hole event horizon", b: "Black holes and the edge where the known rules stop working.", img: "/assets/cortex/black-holes.jpg" },
+    { t: "The Shape of Spacetime", q: "space time general relativity", b: "Gravity as geometry, and the papers that tested it.", img: "/assets/cortex/spacetime.jpg" },
+    { t: "Quantum Machines", q: "quantum computing error correction", b: "How quantum computers work, and the errors they have to outrun.", img: "/assets/cortex/quantum.jpg" },
     { t: "Worlds Around Other Stars", q: "exoplanet atmospheres habitability", b: "Reading the air of planets we will never touch.", img: "/assets/cortex/exoplanets.jpg" },
   ]},
   { name: "The Living World", motif: "microbe", pair: ["#2c3a1c", "#18230c"], topics: [
-    { t: "The Insect Gut", q: "insect gut microbiome", b: "Tiny stomachs running serious chemistry.", img: "/assets/cortex/insect-gut.jpg" },
-    { t: "Fermentation", q: "fermentation microbes food", b: "The oldest food technology is alive.", img: "/assets/cortex/fermentation.jpg" },
-    { t: "Microbes and Crops", q: "plant microbiome agriculture", b: "Farms are ecosystems, roots first.", img: "/assets/cortex/crops.jpg" },
-    { t: "The Ocean's Smallest", q: "marine microbes phytoplankton", b: "Half your oxygen comes from these.", img: "/assets/cortex/ocean-smallest.jpg" },
+    { t: "The Insect Gut", q: "insect gut microbiome", b: "The microbes inside insect guts, and the chemistry they do there.", img: "/assets/cortex/insect-gut.jpg" },
+    { t: "Fermentation", q: "fermentation microbes food", b: "Fermentation, the food technology that stays alive in the jar.", img: "/assets/cortex/fermentation.jpg" },
+    { t: "Microbes and Crops", q: "plant microbiome agriculture", b: "How the microbes around roots and the crops above them affect each other.", img: "/assets/cortex/crops.jpg" },
+    { t: "The Ocean's Smallest", q: "marine microbes phytoplankton", b: "Marine microbes and phytoplankton, the smallest life in the sea.", img: "/assets/cortex/ocean-smallest.jpg" },
   ]},
 ];
 
@@ -1006,7 +1166,7 @@ function CategoryArt({ motif, pair, height, radius = 16 }) {
       background: "radial-gradient(120% 150% at 18% 0%, " + pair[0] + " 0%, " + pair[1] + " 74%)",
     }}>
       <svg viewBox="0 0 400 240" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ display: "block" }}>{art}</svg>
-      <div style={{ position: "absolute", left: 16, bottom: 12, width: 34, height: 3, borderRadius: 999, background: "rgba(255,255,255,.55)" }} />
+      <div style={{ position: "absolute", left: 16, bottom: 12, width: 34, height: 3, borderRadius: RADIUS.pill, background: "rgba(255,255,255,.55)" }} />
     </div>
   );
 }
@@ -1736,6 +1896,11 @@ export function applyLessonResult(progress, path, lessonId, pct, opts) {
   next.lessons[lessonId] = {
     done: true,
     best,
+    /* A running count of completions, so the Player can scale a
+       replay's XP down (full, half, then none) while progress and
+       mastery stay uncapped. Records written before this field
+       existed count their done state as the first completion. */
+    completions: (prev.completions || (prev.done ? 1 : 0)) + 1,
     completedAt: prev.completedAt || new Date().toISOString(),
     reviewMastered,
     mastered: isLessonMastered({ done: true, best, reviewMastered }),
@@ -1852,21 +2017,64 @@ function courseFromPath(path, progress) {
     sourceCount: 0,
     lessons: flat,
     doneLessons: flat.filter((l) => store[l.id] && store[l.id].done).map((l) => l.id),
+    xpCompletions: Object.fromEntries(flat
+      .filter((l) => store[l.id] && store[l.id].done)
+      .map((l) => [l.id, store[l.id].completions || 1])),
     xpEarned: 0,
     vocab: [],
   };
 }
 
+/* ── the XP economy ────────────────────────────────────────────────
+   XP is meant to measure learning, so it pays for being right and
+   for finishing, and almost nothing for anything else. A correct
+   answer earns 10. A checked wrong answer earns a token 1: the
+   attempt happened, the learning is in the feedback, and the point
+   says so without pretending it was half a success (wrong answers
+   used to earn 4, and reading a card earned 2, so the total mostly
+   counted activity). Battle cards have no wrong answer to give, so
+   engaging one earns its flat 6. Finishing a lesson earns 20.
+   Reading cards (notes, papers, deepen, summaries) earn nothing:
+   advancing past a card is not an achievement.
+   Replays are capped per lesson: the first completion of a lesson
+   pays in full, the second pays half, and later completions pay
+   nothing. Progress, mastery, and practice are never capped, only
+   the points stop. */
+export const XP_CORRECT = 10;
+export const XP_WRONG = 1;
+export const XP_BATTLE = 6;
+export const XP_LESSON_FINISH = 20;
+
+/* Match cards: a clean run earns full marks; every miss knocks 2
+   off, down to the token point for a card that took real work to
+   finish at all. */
+export function matchScore(mistakes) {
+  const m = Math.max(0, mistakes || 0);
+  return m === 0 ? XP_CORRECT : Math.max(XP_WRONG, XP_CORRECT - 2 * m);
+}
+
+/* The replay scale for a lesson, from how many times it has
+   already been completed: full, half, then nothing. */
+export function lessonXpScale(priorCompletions) {
+  const n = Math.max(0, priorCompletions || 0);
+  return n === 0 ? 1 : n === 1 ? 0.5 : 0;
+}
+export function scaleXp(xp, scale) {
+  return Math.round((xp || 0) * (scale == null ? 1 : scale));
+}
+
 /* Per position credit for order cards. Every step sitting in its
-   correct slot earns its share of the card's 10 XP, a clean full
-   sequence always earns the full 10, and any checked attempt keeps
-   the house floor of 4 XP that wrong answers earn on other cards. */
+   correct slot earns its share of the card's 10 XP and a clean full
+   sequence earns the full 10. A checked attempt with nothing in
+   place earns the token point a wrong answer earns everywhere. */
 export function orderScore(placed, items) {
   const total = (items || []).length;
   if (!total) return { correctPositions: 0, total: 0, xp: 0, perfect: false };
   const correctPositions = (placed || []).reduce((n, v, i) => n + (v === items[i] ? 1 : 0), 0);
   const perfect = correctPositions === total;
-  const xp = perfect ? 10 : Math.max(4, Math.round((correctPositions / total) * 10));
+  const xp = perfect ? XP_CORRECT
+    : correctPositions > 0 ? Math.round((correctPositions / total) * XP_CORRECT)
+    : XP_WRONG;
   return { correctPositions, total, xp, perfect };
 }
 
@@ -1898,6 +2106,23 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const xpAtLessonStart = useRef(0);
   const claimsRef = useRef(null);
   if (!claimsRef.current) claimsRef.current = loadClaims();
+
+  /* Per lesson completion counts, seeded from the course record
+     (a lesson in doneLessons has completed at least once, and
+     courses that track xpCompletions carry the real count) and
+     bumped each time a finish bonus is paid in this sitting. The
+     count drives lessonXpScale, so a replay pays half and later
+     runs pay nothing, while progress is never capped. */
+  const xpCompletionsRef = useRef(null);
+  if (!xpCompletionsRef.current) {
+    const init = {};
+    for (const l of course.lessons || []) {
+      const n = (course.xpCompletions && course.xpCompletions[l.id])
+        || ((course.doneLessons || []).includes(l.id) ? 1 : 0);
+      if (n) init[l.id] = n;
+    }
+    xpCompletionsRef.current = init;
+  }
 
   /* Shuffles are salted per mount and per attempt, so a retried
      card never shows the layout the learner just memorized. */
@@ -1971,6 +2196,18 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const award = (xp) => { setSessionXp((x) => x + xp); setLastAward(xp); };
 
+  const activeLessonId = reviewCards ? (reviewForId || "missed-review") : (lesson ? lesson.id : null);
+  const xpScaleNow = () => lessonXpScale(activeLessonId ? (xpCompletionsRef.current[activeLessonId] || 0) : 0);
+  /* Every card award flows through here, so the replay scale
+     applies the same way on every card kind, and the announced
+     amount is the amount actually paid. */
+  const pay = (xp) => {
+    const paid = scaleXp(xp, xpScaleNow());
+    award(paid);
+    onProgress && onProgress(paid, course);
+    return paid;
+  };
+
   const noteMiss = () => {
     const origin = course.lessons[lessonIdx];
     setMisses((ms) => (ms.some((m) => m.card === card) ? ms : [...ms, { card, lessonTitle: origin ? origin.title : "" }]));
@@ -2003,9 +2240,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         setChecked(true);
         setAnswered((n) => n + 1);
         if (clean) setRight((n) => n + 1); else noteMiss();
-        award(clean ? 10 : 4);
-        onProgress && onProgress(clean ? 10 : 4, course);
-        say(clean ? "All pairs matched, first try. Plus 10 XP." : "All pairs matched. Plus 4 XP.");
+        const paid = pay(matchScore(matchMistakes));
+        say(clean ? "All pairs matched, first try. Plus " + paid + " XP." : "All pairs matched. Plus " + paid + " XP.");
       } else {
         say("Matched " + doneNow.length + " of " + card.pairs.length + ".");
       }
@@ -2036,14 +2272,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     setChecked(true);
     setAnswered((n) => n + 1);
     if (res.perfect) setRight((n) => n + 1); else noteMiss();
-    award(res.xp);
+    const paid = pay(res.xp);
     playSound(res.perfect ? "correct" : "wrong", soundOn);
-    onProgress && onProgress(res.xp, course);
     say(res.perfect
-      ? "In the right order. Plus 10 XP."
+      ? "In the right order. Plus " + paid + " XP."
       : res.correctPositions > 0
-        ? res.correctPositions + " of " + res.total + " steps in the right place. Plus " + res.xp + " XP."
-        : "Not the right order. Plus " + res.xp + " XP.");
+        ? res.correctPositions + " of " + res.total + " steps in the right place. Plus " + paid + " XP."
+        : "Not the right order. Plus " + paid + " XP.");
   };
 
   const check = () => {
@@ -2052,10 +2287,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     setChecked(true);
     setAnswered((n) => n + 1);
     if (card.kind === "battle") {
-      award(6);
+      const paid = pay(XP_BATTLE);
       playSound("tick", soundOn);
-      onProgress && onProgress(6, course);
-      say("Both sides are real published findings. Plus 6 XP.");
+      say("Both sides are real published findings. Plus " + paid + " XP.");
       return;
     }
     const correct = picked === card.correct;
@@ -2064,21 +2298,28 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       const origin = course.lessons[lessonIdx];
       setMisses((ms) => (ms.some((m) => m.card === card) ? ms : [...ms, { card, lessonTitle: origin ? origin.title : "" }]));
     }
-    award(correct ? 10 : 4);
+    const paid = pay(correct ? XP_CORRECT : XP_WRONG);
     playSound(correct ? "correct" : "wrong", soundOn);
-    say(correct ? "Right. Plus 10 XP." : "Not quite. Plus 4 XP.");
+    say(correct ? "Right. Plus " + paid + " XP." : "Not quite. Plus " + paid + " XP.");
     if (card.claimId && claimsRef.current[card.claimId]) {
       gradeClaim(claimsRef.current, card.claimId, correct);
       saveClaims(claimsRef.current);
     }
-    onProgress && onProgress(correct ? 10 : 4, course);
   };
 
   const finishLesson = (markDone) => {
     if (markDone) {
       const done = [...new Set([...(course.doneLessons || []), lesson.id])];
-      onProgress && onProgress(20, course, done);
-      say("Lesson complete. Plus 20 XP for finishing.");
+      /* The finish bonus is paid at this lesson's replay scale,
+         then the completion is counted, so the next run of the
+         lesson pays less. Progress itself is never scaled. */
+      const bonus = scaleXp(XP_LESSON_FINISH, xpScaleNow());
+      award(bonus);
+      onProgress && onProgress(bonus, course, done);
+      if (activeLessonId) {
+        xpCompletionsRef.current[activeLessonId] = (xpCompletionsRef.current[activeLessonId] || 0) + 1;
+      }
+      say("Lesson complete. Plus " + bonus + " XP for finishing.");
       if (onLessonDone) {
         onLessonDone(lesson, answered ? Math.round((right / answered) * 100) : 100);
       }
@@ -2088,7 +2329,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const advance = () => {
     if (interactive && !checked) return;
-    if (!interactive) { award(2); onProgress && onProgress(2, course); }
+    /* Reading cards (notes, papers, deepen pieces, summaries) earn
+       no XP for being advanced past. Points pay for answers and
+       finishes, not for turning pages. */
     resetCardState();
     if (cardIdx < lesson.cards.length - 1) { setCardIdx(cardIdx + 1); return; }
     if (reviewCards) {
@@ -2167,11 +2410,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               : "Every finding you answered is on your review schedule now. It comes back when it starts to fade, not before."}
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
-            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 26px" }}>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
               <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700, color: accent }}>+{sessionXp}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.muted }}>XP this session</div>
             </div>
-            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 26px" }}>
+            <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
               <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.muted }}>First try accuracy</div>
             </div>
@@ -2180,10 +2423,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
               {misses.map((m, i) => (
-                <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "16px 18px", marginBottom: 10 }}>
+                <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 18px", marginBottom: 10 }}>
                   <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement}</div>
                   <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.muted }}>
-                    {m.card.cite || m.card.paperTitle ? "The finding: " : "The idea: "}<span style={{ color: P.ink }}>{m.card.why}</span>
+                    {m.card.cite || m.card.paperTitle ? "The finding: " : "The idea: "}<span style={{ color: P.ink }}><RichText text={m.card.why} /></span>
                   </div>
                   {m.card.paperTitle && (
                     <div style={{ fontSize: FONT_SIZES.caption, color: P.muted, marginTop: 6 }}>{m.card.cite} · {m.card.paperTitle}</div>
@@ -2203,9 +2446,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORDS FROM THIS COURSE</div>
               {course.vocab.map((v, i) => (
-                <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "14px 18px", marginBottom: 10 }}>
+                <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "14px 18px", marginBottom: 10 }}>
                   <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 700 }}>{v.term}</span>
-                  <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.muted, marginTop: 4 }}>{v.text}</div>
+                  <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.muted, marginTop: 4 }}><RichText text={v.text} /></div>
                   {v.cite && <div style={{ fontSize: FONT_SIZES.caption, color: P.muted, marginTop: 5 }}>{v.cite}</div>}
                 </div>
               ))}
@@ -2258,6 +2501,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
             );
           })()}
+          {course.builtin && (
+            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 8 }}>ABOUT THESE LESSONS</div>
+              <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
+                Written for Cortex from standard textbook material. The checks explain the ideas in plain words and quote no single paper. When you want the evidence itself, build a course from a search on the Cortex home: its checks quote the findings with their citations.
+              </p>
+            </div>
+          )}
           <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, width: "100%", maxWidth: 340 }}
             onClick={() => { xpAtLessonStart.current = sessionXp; setShowIntro(false); }}>
             Start lesson
@@ -2269,7 +2520,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   /* Lesson complete interstitial. */
   if (showLessonDone) {
-    const lessonXp = sessionXp - xpAtLessonStart.current + 20;
+    const lessonXp = sessionXp - xpAtLessonStart.current;
     return shell(
       <div style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
         <div className="lv-rise">
@@ -2363,11 +2614,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <>
             {!isRight && card.options && picked !== null && picked !== undefined && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
-                You picked: <span style={{ fontWeight: 600 }}>{card.options[picked]}</span>
+                You picked: <span style={{ fontWeight: 600 }}><RichText text={card.options[picked]} /></span>
               </p>
             )}
             <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>{card.cite || card.paperTitle ? "THE FINDING" : "WHY"}</p>
-            <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}>{card.why}</p>
+            <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}><RichText text={card.why} /></p>
             {(card.cite || card.paperTitle) && (
               <p style={{ fontSize: FONT_SIZES.caption, color: P.faint, margin: "10px 0 0" }}>{card.cite}{card.paperTitle ? " · " + card.paperTitle : ""}</p>
             )}
@@ -2393,9 +2644,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.muted, cursor: "pointer", fontSize: 21, lineHeight: 1, padding: 4, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
           <div style={{ display: "flex", gap: 5, flex: 1 }}>
             {course.lessons.map((l, li) => (
-              <div key={l.id} style={{ flex: 1, height: 10, borderRadius: 999, background: P.line, overflow: "hidden" }}>
+              <div key={l.id} style={{ flex: 1, height: 10, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
                 <div className="lv-fill" style={{
-                  height: "100%", borderRadius: 999,
+                  height: "100%", borderRadius: RADIUS.pill,
                   width: (li < lessonIdx || (li === lessonIdx && showLessonDone) ? 100 : li === lessonIdx ? lessonPct : 0) + "%",
                   background: "linear-gradient(rgba(255,255,255,.38), rgba(255,255,255,0) 48%), " + accent,
                 }} />
@@ -2432,7 +2683,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 </div>
               </div>
               {card.cite ? (
-                <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "18px 20px" }}>
+                <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "18px 20px" }}>
                   <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}><RichText text={card.text} /></p>
                   <p style={{ fontSize: FONT_SIZES.label, color: P.muted, margin: "12px 0 0" }}>{card.cite}</p>
                 </div>
@@ -2443,7 +2694,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 <div style={{ marginTop: 28 }}>
                   <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>COMING UP IN THIS CHAPTER</div>
                   {followingPapers.slice(0, 3).map((p, i) => (
-                    <div key={i} style={{ display: "flex", gap: 13, alignItems: "flex-start", background: P.raised, border: "1px solid " + P.line, borderRadius: 16, padding: "14px 16px", marginBottom: 9 }}>
+                    <div key={i} style={{ display: "flex", gap: 13, alignItems: "flex-start", background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "14px 16px", marginBottom: 9 }}>
                       <span style={{ flexShrink: 0, width: 27, height: 27, borderRadius: 9, background: withAlphaSafe(accent, 0.16), color: accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 800 }}>{i + 1}</span>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: "block", fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.4 }}>{p.title}</span>
@@ -2461,7 +2712,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.muted, marginBottom: 12 }}>THE WORDS AHEAD</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {course.vocab.map((v, i) => (
-                      <span key={i} style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "7px 14px" }}>{v.term}</span>
+                      <span key={i} style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "7px 14px" }}>{v.term}</span>
                     ))}
                   </div>
                 </div>
@@ -2471,7 +2722,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" }}>
                   {lesson.cards.map((c, i) => (
                     <span key={i} style={{
-                      fontSize: FONT_SIZES.label, fontWeight: i === cardIdx ? 800 : 600, borderRadius: 999, padding: "6px 12px",
+                      fontSize: FONT_SIZES.label, fontWeight: i === cardIdx ? 800 : 600, borderRadius: RADIUS.pill, padding: "6px 12px",
                       color: i === cardIdx ? "#14240a" : P.muted,
                       background: i === cardIdx ? accent : "transparent",
                       border: "1.5px solid " + (i === cardIdx ? accent : P.line),
@@ -2487,12 +2738,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
                 <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent }}>FROM THE LITERATURE</span>
                 {lessonPapers.length > 1 && (
-                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "4px 11px" }}>
                     Paper {lessonPapers.indexOf(card) + 1} of {lessonPapers.length} in this lesson
                   </span>
                 )}
                 {paperYearOf(card) != null && (
-                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "4px 11px" }}>{paperYearOf(card)}</span>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.muted, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "4px 11px" }}>{paperYearOf(card)}</span>
                 )}
               </div>
               <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.35, margin: "0 0 10px" }}>{card.title}</h2>
@@ -2510,8 +2761,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                     <span>Cited {card.citations} times</span>
                     <span>{card.citations >= maxCites && maxCites > 1 ? "The most cited paper in this lesson" : "Relative to this lesson"}</span>
                   </div>
-                  <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
-                    <div className="lv-fill" style={{ height: "100%", width: (card.citations === 0 ? 0 : Math.max(5, Math.round((card.citations / maxCites) * 100))) + "%", background: accent, borderRadius: 999 }} />
+                  <div style={{ height: 8, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
+                    <div className="lv-fill" style={{ height: "100%", width: (card.citations === 0 ? 0 : Math.max(5, Math.round((card.citations / maxCites) * 100))) + "%", background: accent, borderRadius: RADIUS.pill }} />
                   </div>
                 </div>
               )}
@@ -2525,7 +2776,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                     <span>Where this paper sits in the lesson</span>
                     <span>{Math.max(...lessonYears)}</span>
                   </div>
-                  <div style={{ position: "relative", height: 4, borderRadius: 999, background: P.line, margin: "0 5px" }}>
+                  <div style={{ position: "relative", height: 4, borderRadius: RADIUS.pill, background: P.line, margin: "0 5px" }}>
                     <span style={{
                       position: "absolute", top: "50%", left: ((paperYearOf(card) - Math.min(...lessonYears)) / (Math.max(...lessonYears) - Math.min(...lessonYears))) * 100 + "%",
                       transform: "translate(-50%, -50%)", width: 15, height: 15, borderRadius: "50%",
@@ -2545,8 +2796,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
               <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
               {card.prompt && (
-                <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "17px 19px", margin: "4px 0 10px" }}>
-                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}>{card.prompt}</p>
+                <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "17px 19px", margin: "4px 0 10px" }}>
+                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}><RichText text={card.prompt} /></p>
                 </div>
               )}
               {card.pretest && !checked && (
@@ -2565,18 +2816,18 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       onClick={() => pick(i)} disabled={checked}
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
-                        background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: 16,
+                        background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: RADIUS.xl,
                         padding: "15px 18px", fontSize: card.kind === "cloze" ? FONT_SIZES.title : FONT_SIZES.body, lineHeight: 1.5,
                         color, cursor: checked ? "default" : "pointer", textAlign: "left",
                         fontFamily: "var(--cb-font)", minHeight: 54, display: "flex", gap: 12, alignItems: "flex-start",
                       }}>
                       <span aria-hidden="true" style={{
-                        flexShrink: 0, width: 26, height: 26, borderRadius: 8, marginTop: 1,
+                        flexShrink: 0, width: 26, height: 26, borderRadius: RADIUS.md, marginTop: 1,
                         border: "1.5px solid " + (checked && i === card.correct ? toneGood : checked && i === picked ? toneBad : border),
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: FONT_SIZES.label, fontWeight: 700, color: checked && i === card.correct ? goodInk : color, opacity: 0.9,
                       }}>{checked && i === card.correct ? "✓" : "ABCD"[i] || ""}</span>
-                      <span style={{ minWidth: 0, overflowWrap: "break-word" }}>{opt}</span>
+                      <span style={{ minWidth: 0, overflowWrap: "break-word" }}><RichText text={opt} /></span>
                     </button>
                   );
                 })}
@@ -2599,7 +2850,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         padding: "18px 20px", cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)",
                       }}>
                       <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 9 }}>{side.tag}</div>
-                      <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}>{side.claim}</p>
+                      <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}><RichText text={side.claim} /></p>
                       <p style={{ fontSize: FONT_SIZES.caption, color: P.muted, margin: "10px 0 0" }}>{side.src}</p>
                     </button>
                   );
@@ -2621,8 +2872,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           {card.kind === "truefalse" && (
             <div>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>TRUE OR FALSE</div>
-              <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "19px 21px", marginBottom: 20 }}>
-                <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}>{card.statement}</p>
+              <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "19px 21px", marginBottom: 20 }}>
+                <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}><RichText text={card.statement} /></p>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {["True", "False"].map((label, i) => {
@@ -2635,7 +2886,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       onClick={() => pick(i)} disabled={checked}
                       style={{
                         appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
-                        border: "2px solid " + border, borderRadius: 16, padding: "18px 12px",
+                        border: "2px solid " + border, borderRadius: RADIUS.xl, padding: "18px 12px",
                         fontSize: FONT_SIZES.title, fontWeight: 700, color, cursor: checked ? "default" : "pointer",
                         fontFamily: "var(--cb-font)", minHeight: 62,
                       }}>
@@ -2668,7 +2919,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                           color: P.ink, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
-                        {pair.left}{donePair ? " ✓" : ""}
+                        <RichText text={pair.left} />{donePair ? " ✓" : ""}
                       </button>
                     );
                   })}
@@ -2688,7 +2939,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                           color: P.ink, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
-                        {card.pairs[pairIdx].right}
+                        <RichText text={card.pairs[pairIdx].right} />
                       </button>
                     );
                   })}
@@ -2729,7 +2980,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         background: rightHere ? toneGood : wrongHere ? toneBad : accent, color: rightHere ? accentText(toneGood) : "#fff",
                         display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 800,
                       }}>{i + 1}</span>
-                      <span style={{ minWidth: 0 }}>{item}</span>
+                      <span style={{ minWidth: 0 }}><RichText text={item} /></span>
                     </button>
                   );
                 })}
@@ -2743,11 +2994,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         className="lv-opt"
                         style={{
                           appearance: "none", WebkitAppearance: "none", boxSizing: "border-box",
-                          background: P.dark ? "#242b24" : "#ffffff", border: "2px solid " + P.line, borderRadius: 999,
+                          background: P.dark ? "#242b24" : "#ffffff", border: "2px solid " + P.line, borderRadius: RADIUS.pill,
                           padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.4,
                           color: P.ink, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 46,
                         }}>
-                        {item}
+                        <RichText text={item} />
                       </button>
                     ))}
                   </div>
@@ -2764,7 +3015,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           {card.kind === "deepen" && (
             <div>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
-              <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: 16, padding: "20px 22px" }}>
+              <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "20px 22px" }}>
                 <p style={{ fontSize: FONT_SIZES.title, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               </div>
               <p style={{ fontSize: FONT_SIZES.body, color: P.muted, lineHeight: 1.55, margin: "16px 0 0" }}>
@@ -2779,10 +3030,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
               <p style={{ fontSize: FONT_SIZES.title, color: P.ink2 || P.muted, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}>
-                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.sourceCount} papers in this course</span>
-                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.sourceCount} papers in this course</span>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
                 {course.vocab && course.vocab.length > 0 && (
-                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 15px" }}>{course.vocab.length} terms met</span>
+                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.vocab.length} terms met</span>
                 )}
               </div>
             </div>
@@ -2859,8 +3110,8 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.muted, marginBottom: 6 }}>
             <span>Memory strength</span><span>{mem.label}</span>
           </div>
-          <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
-            <div className="lv-fill" style={{ width: mem.pct + "%", height: "100%", background: accent, borderRadius: 999 }} />
+          <div style={{ height: 8, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
+            <div className="lv-fill" style={{ width: mem.pct + "%", height: "100%", background: accent, borderRadius: RADIUS.pill }} />
           </div>
         </div>
       </div>
@@ -2943,12 +3194,15 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
         <p style={{ color: P.muted, fontSize: FONT_SIZES.body, margin: 0 }}>
           {pp.total} lessons · {path.units.length} units · taught directly, no papers needed
         </p>
+        <p style={{ color: P.muted, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "6px 0 0" }}>
+          Written for Cortex from standard textbook material. These lessons teach the ideas directly and quote no single paper. Courses built from your searches are the ones that quote the papers themselves.
+        </p>
         <div style={{ margin: "16px 0 6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.muted, marginBottom: 6 }}>
             <span>Path progress</span><span>{pp.done} of {pp.total} done · {pp.mastered} mastered</span>
           </div>
-          <div style={{ height: 8, borderRadius: 999, background: P.line, overflow: "hidden" }}>
-            <div className="lv-fill" style={{ width: pp.pct + "%", height: "100%", background: accent, borderRadius: 999 }} />
+          <div style={{ height: 8, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
+            <div className="lv-fill" style={{ width: pp.pct + "%", height: "100%", background: accent, borderRadius: RADIUS.pill }} />
           </div>
         </div>
       </div>
@@ -3093,17 +3347,17 @@ const TOUR_STEPS = [
   {
     icon: "zap",
     title: "Questions come first",
-    body: "Every course opens by asking before it teaches. A wrong guess here is not a failure. It is the thing that makes the right answer stick when it arrives seconds later.",
+    body: "Asking comes before teaching wherever Cortex honestly can. A course built from papers opens with a short pretest when the search found enough findings to ask about, and every path lesson puts questions early. A wrong guess here is not a failure. It is the thing that makes the right answer stick when it arrives seconds later.",
   },
   {
     icon: "check",
     title: "Check, then read why",
-    body: "Pick an answer, press Check, and Cortex grades you against the paper itself, quoting the finding with its citation. The debates are real disagreements between published papers, never staged for drama.",
+    body: "Pick an answer, press Check, and read why. In a course built from a search, the check grades you against the paper itself and the feedback quotes the finding with its citation. On a learning path there is no paper to quote: the lessons were written for Cortex from standard textbook material, so the check explains the idea in plain words instead. Where a course has debates, they are real disagreements between published papers, never staged for drama.",
   },
   {
     icon: "history",
     title: "Reviews find you",
-    body: "Every finding you answer becomes a memory claim. It comes back right as it starts to fade, and two minutes clears the pile. Streaks forgive here: you get freezes, not guilt.",
+    body: "Findings you answer in a course built from papers become memory claims. They come back right as they start to fade, and two minutes clears the pile. Path lessons stay fresh another way: daily practice pulls activities from the lessons you have finished. Streaks forgive here: you get freezes, not guilt.",
   },
 ];
 function CortexTour({ P, accent, at, onClose }) {
@@ -3136,7 +3390,7 @@ function CortexTour({ P, accent, at, onClose }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
           {TOUR_STEPS.map((_, i) => (
             <span key={i} style={{
-              width: i === step ? 22 : 8, height: 8, borderRadius: 999,
+              width: i === step ? 22 : 8, height: 8, borderRadius: RADIUS.pill,
               background: i === step ? accent : P.line, transition: "all .25s",
             }} />
           ))}
@@ -3144,12 +3398,12 @@ function CortexTour({ P, accent, at, onClose }) {
         <div style={{ display: "flex", gap: 10 }}>
           {step > 0 && (
             <button className="lv-btn" onClick={() => setStep(step - 1)}
-              style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: 12, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
+              style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: RADIUS.lg, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
               Back
             </button>
           )}
           <button className="lv-btn lv-btn-primary" onClick={() => (last ? onClose() : setStep(step + 1))}
-            style={{ flex: 1, background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
+            style={{ flex: 1, background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
             {last ? "Start learning" : "Next"}
           </button>
         </div>
@@ -3224,12 +3478,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       const parsed = parseCortexImport(String(reader.result || ""));
       if (!parsed.ok) { setProgressMsg(parsed.error); return; }
       if (!window.confirm("Replace the Cortex progress in this browser with the progress in this file? This can't be undone.")) return;
+      /* The write itself is transactional: success is announced
+         only after all five sections are stored and read back, and
+         any failure leaves the previous record exactly as it was. */
+      const applied = applyCortexImport(parsed.state, localStorage);
+      if (!applied.ok) { setProgressMsg(applied.error); return; }
       const s = parsed.state;
-      saveJSON(COURSES_KEY, s.courses);
-      saveClaims(s.claims);
-      saveProfile(s.profile);
-      saveBuiltinProgress(s.builtinProgress);
-      saveJSON(SOUND_KEY, s.sound);
       setCourses(loadLearnCourses());
       setClaims(loadClaims());
       setProfile(touchStreak(loadProfile()));
@@ -3296,7 +3550,17 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       const found = all.find((c) => c.id === course.id);
       if (found) {
         found.xpEarned = (found.xpEarned || 0) + xpGain;
-        if (doneLessons) found.doneLessons = doneLessons;
+        if (doneLessons) {
+          /* Lessons finished for the first time in this call bump
+             their completion count, which is what scales the XP a
+             replay of the lesson can earn. */
+          const before = new Set(found.doneLessons || []);
+          found.xpCompletions = { ...(found.xpCompletions || {}) };
+          for (const id of doneLessons) {
+            if (!before.has(id)) found.xpCompletions[id] = (found.xpCompletions[id] || 0) + 1;
+          }
+          found.doneLessons = doneLessons;
+        }
         saveJSON(COURSES_KEY, all);
         setCourses(all);
       }
@@ -3449,7 +3713,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   const pill = (icon, value, label) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: P.raised, border: "1px solid " + P.line, borderRadius: 999, padding: "8px 14px", fontSize: FONT_SIZES.label, color: P.ink }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 14px", fontSize: FONT_SIZES.label, color: P.ink }}>
       {icon}
       <strong style={{ fontWeight: 700 }}>{value}</strong>
       <span style={{ color: P.muted, fontSize: FONT_SIZES.label }}>{label}</span>
@@ -3494,7 +3758,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
         <button onClick={() => { const v = !soundOn; setSoundOn(v); saveJSON(SOUND_KEY, v); }}
           aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"}
-          style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+          style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
           Sound {soundOn ? "on" : "off"}
         </button>
       </div>
@@ -3514,11 +3778,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             Your progress is stored in this browser only.
           </span>
           <button onClick={exportProgress}
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
             Export progress
           </button>
           <label
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.muted, cursor: "pointer", padding: "8px 14px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
             Import progress
             <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importProgressFile(f); }} />
           </label>
@@ -3580,8 +3844,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               <span className="lv-hero-title" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.28, display: "block" }}>{hero.title}</span>
               {hero.sub && <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.muted, marginTop: 5 }}>{hero.sub}</span>}
               <span style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 13 }}>
-                <span style={{ flex: 1, height: 8, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
-                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: hero.pct + "%" }} />
+                <span style={{ flex: 1, height: 8, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
+                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: hero.pct + "%" }} />
                 </span>
                 <span style={{ fontSize: FONT_SIZES.label, color: P.muted }}>{hero.count}</span>
               </span>
@@ -3603,7 +3867,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </p>
         <button className="lv-btn lv-btn-primary" onClick={startDaily} disabled={!dailyReady}
           style={{
-            background: accent, color: at || "#101408", border: "none", borderRadius: 12,
+            background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
             padding: "13px 24px", fontSize: FONT_SIZES.body, fontWeight: 700,
             cursor: dailyReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
             opacity: dailyReady ? 1 : 0.5,
@@ -3634,8 +3898,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{path.title}</span>
                   <span style={{ fontSize: FONT_SIZES.label, color: P.muted, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{path.blurb}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-                    <span style={{ flex: 1, height: 7, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
-                      <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: pp.pct + "%" }} />
+                    <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
+                      <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pp.pct + "%" }} />
                     </span>
                     <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent }}>
                       {pp.complete ? "Complete" : pp.done > 0 ? pp.done + " of " + pp.total : pp.total + " lessons"}
@@ -3666,7 +3930,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           {["All", ...CATALOG.map((c) => c.name), ...(published.length ? ["From contributors"] : [])].map((name) => (
             <button key={name} className="lv-chip" onClick={() => setCatFilter(name)}
               style={{
-                borderRadius: 999, padding: "9px 15px", fontSize: FONT_SIZES.label, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)",
+                borderRadius: RADIUS.pill, padding: "9px 15px", fontSize: FONT_SIZES.label, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)",
                 background: catFilter === name ? accent : "transparent",
                 color: catFilter === name ? (at || "#101408") : P.ink,
                 border: "1px solid " + (catFilter === name ? accent : P.line),
@@ -3773,24 +4037,24 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={studio.title} onChange={(e) => setStudio({ ...studio, title: e.target.value })}
               placeholder="Course title" aria-label="Catalog course title"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <select value={studio.category} onChange={(e) => setStudio({ ...studio, category: e.target.value })}
               aria-label="Catalog category"
-              style={{ flex: "0 1 200px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }}>
+              style={{ flex: "0 1 200px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }}>
               {CATALOG.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
             <input value={studio.query} onChange={(e) => setStudio({ ...studio, query: e.target.value })}
               placeholder="Topic the course is built from, e.g. tardigrade desiccation" aria-label="Catalog course topic"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <input value={studio.blurb} onChange={(e) => setStudio({ ...studio, blurb: e.target.value })}
               placeholder="One line that sells it honestly" aria-label="Catalog course blurb"
-              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14, flexWrap: "wrap" }}>
             <button className="lv-btn lv-btn-primary" onClick={publishEntry} disabled={!studio.title.trim() || !studio.query.trim()}
-              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !studio.title.trim() || !studio.query.trim() ? 0.55 : 1 }}>
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !studio.title.trim() || !studio.query.trim() ? 0.55 : 1 }}>
               Publish to catalog
             </button>
             {studioMsg && <span style={{ fontSize: FONT_SIZES.label, color: P.muted }}>{studioMsg}</span>}
@@ -3801,7 +4065,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.body, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title} <span style={{ color: P.muted }}>· {e.category}</span></span>
                   <button onClick={() => deleteEntry(e.id)}
-                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
+                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
                     Remove
                   </button>
                 </div>
@@ -3822,9 +4086,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <input value={creatorEmail} onChange={(e) => setCreatorEmail(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") grantCreator(); }}
               placeholder="creator@example.com" aria-label="Creator email" type="email"
-              style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: 12, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
+              style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: FONT_SIZES.body, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <button className="lv-btn lv-btn-primary" onClick={grantCreator} disabled={!creatorEmail.trim()}
-              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 12, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
               Allow creator
             </button>
           </div>
@@ -3836,7 +4100,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   <span style={{ color: accent, display: "inline-flex" }}><Icon name="cortex" size={15} /></span>
                   <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.body, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</span>
                   <button onClick={() => revokeCreator(c.email)}
-                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 999, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
+                    style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.muted, cursor: "pointer", padding: "6px 12px", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
                     Revoke
                   </button>
                 </div>
@@ -3854,7 +4118,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             Build one above, or open any answer in Search and choose Turn into course. Either way, the course is made from the papers that search found.
           </p>
           <button onClick={() => onNavigate && onNavigate("search")}
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: 12, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 22px", color: P.ink, fontSize: FONT_SIZES.body, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
             Go to Search
           </button>
         </div>
@@ -3879,8 +4143,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                       {course.lessons.length} lessons · {course.sourceCount || 0} papers
                     </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
-                      <span style={{ flex: 1, height: 7, borderRadius: 999, background: P.line, overflow: "hidden", display: "block" }}>
-                        <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: 999, width: (course.lessons.length ? Math.round((doneCount / course.lessons.length) * 100) : 0) + "%" }} />
+                      <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
+                        <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: (course.lessons.length ? Math.round((doneCount / course.lessons.length) * 100) : 0) + "%" }} />
                       </span>
                       <span style={{ fontSize: FONT_SIZES.caption, color: mem.pct > 0 || doneCount > 0 ? accent : P.muted, fontWeight: 600 }}>{mem.label}</span>
                     </span>
