@@ -179,6 +179,61 @@ async function ensureMessageClientKey(env) {
   }
 }
 
+/* Per participant conversation preferences: thread_participants.pinned_at
+ * and thread_participants.muted.
+ *
+ * Pin and mute are the reader's own state about a conversation, not
+ * the conversation's state, so they live on the participant row next
+ * to last_read_at — one row per (thread, user), which is exactly the
+ * granularity "pin this for me" and "stop notifying me about this"
+ * mean. pinned_at is a timestamp rather than a boolean so pinned
+ * conversations order by when they were pinned; NULL means unpinned.
+ * muted is 1 while the reader has muted the conversation: the inbox
+ * list still shows it and its unread count, but nothing notifies —
+ * no web push (send-message filters muted recipients out) and no
+ * in app notification from the client's list poll.
+ *
+ * Self-healing, the same pattern as ensureMessageClientKey above and
+ * the rating column in this file: each ALTER is attempted once per
+ * isolate and the duplicate column failure swallowed, so this
+ * deploys with no manual D1 work. */
+let _threadPrefColumnsEnsured = false;
+async function ensureThreadPrefColumns(env) {
+  if (_threadPrefColumnsEnsured) return;
+  _threadPrefColumnsEnsured = true;
+  for (const ddl of [
+    "ALTER TABLE thread_participants ADD COLUMN pinned_at INTEGER",
+    "ALTER TABLE thread_participants ADD COLUMN muted INTEGER",
+  ]) {
+    try {
+      await env.DB.exec(ddl);
+    } catch (e) {
+      if (!/duplicate column/i.test(String(e && e.message || e))) throw e;
+    }
+  }
+}
+
+/* Presence: users.last_active_at.
+ *
+ * There is no realtime channel in this architecture — clients poll
+ * (the inbox list every 15s, an open thread every 5s) — so presence
+ * is a heartbeat, not a socket: the client posts presence-ping while
+ * the inbox is open, and readers see the peer's last heartbeat as
+ * "Active now" or "Active 12m ago". It can be minutes stale and the
+ * copy says "Active", never "online", because a heartbeat cannot
+ * prove anyone is looking at the screen. Same self-healing ALTER
+ * pattern as the columns above. */
+let _presenceColumnEnsured = false;
+async function ensurePresenceColumn(env) {
+  if (_presenceColumnEnsured) return;
+  _presenceColumnEnsured = true;
+  try {
+    await env.DB.exec("ALTER TABLE users ADD COLUMN last_active_at INTEGER");
+  } catch (e) {
+    if (!/duplicate column/i.test(String(e && e.message || e))) throw e;
+  }
+}
+
 /* The send-message success body, built from a stored row's shape so
  * a fresh insert, an idempotency dedupe hit, and the thread GET all
  * describe a message identically — including the canonical id and
@@ -773,8 +828,13 @@ export async function onRequest(context) {
         // the badge used to fall back to — see the ALTER TABLE self-heal in
         // authHelpers.js's ensureSocialTables for where this column comes
         // from on a pre-existing live table.
+        // Pin, mute, and presence columns ride along the same way; the
+        // self-heals run first so the SELECTs below can name them on a
+        // database nobody has pinned or pinged from since this deployed.
+        await ensureThreadPrefColumns(env);
+        await ensurePresenceColumn(env);
         const threadRows = await env.DB.prepare(
-          `SELECT t.id, t.kind, t.name, tp.last_read_at FROM threads t
+          `SELECT t.id, t.kind, t.name, tp.last_read_at, tp.pinned_at, tp.muted FROM threads t
            JOIN thread_participants tp ON tp.thread_id = t.id
            WHERE tp.user_id = ?`
         ).bind(user.id).all();
@@ -802,6 +862,7 @@ export async function onRequest(context) {
           let otherId = null;
           let otherUsername = null;
           let otherAffiliation = null;
+          let otherLastActiveAt = null;
           if (t.kind === "dm") {
             const other = await env.DB.prepare(
               // Commit 100 — `u.email` selected here too, as the last fallback
@@ -810,12 +871,18 @@ export async function onRequest(context) {
               // email address. The username always exists (auth.js assigns
               // one at signup), so the fallback was unreachable in practice
               // and only a leak in waiting.
-              `SELECT u.id, u.name, u.username, u.affiliation, u.show_affiliation FROM thread_participants tp
+              `SELECT u.id, u.name, u.username, u.affiliation, u.show_affiliation, u.last_active_at FROM thread_participants tp
                JOIN users u ON u.id = tp.user_id
                WHERE tp.thread_id = ? AND tp.user_id != ?`
             ).bind(t.id, user.id).first();
             otherId = other ? other.id : null;
             otherUsername = other ? (other.username || null) : null;
+            // Presence rides along for DMs: the peer's last heartbeat,
+            // or null when they have never sent one (an older client,
+            // or someone who has not opened the inbox since presence
+            // shipped). Null renders as no claim at all, never as
+            // "offline" — the server cannot know that.
+            otherLastActiveAt = other && other.last_active_at ? toEpochMs(other.last_active_at) : null;
             // Same privacy rule as the thread payload: affiliation only
             // rides along when that person chose to show it.
             otherAffiliation = other && other.show_affiliation !== 0 ? (other.affiliation || null) : null;
@@ -860,9 +927,13 @@ export async function onRequest(context) {
             otherId,
             otherUsername,
             otherAffiliation,
+            otherLastActiveAt,
             blocked,
             unread,
             unreadCount,
+            pinned: !!t.pinned_at,
+            pinnedAt: t.pinned_at ? toEpochMs(t.pinned_at) : null,
+            muted: !!t.muted,
             encrypted: isEncrypted,
             lastMessage: last ? (isEncrypted ? {
               id: last.id,
@@ -882,7 +953,14 @@ export async function onRequest(context) {
             }) : null,
           });
         }
-        items.sort((a, b) => (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0));
+        // Pinned conversations sit at the top of the list (most
+        // recently pinned first); everything else keeps the recency
+        // order the list has always used.
+        items.sort((a, b) => {
+          if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+          if (a.pinned && b.pinned) return (b.pinnedAt || 0) - (a.pinnedAt || 0);
+          return (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0);
+        });
         return okRes({ items }, 200, cors);
       }
       // Commit 54 — "is anyone calling me right now?", polled app-wide by
@@ -969,6 +1047,10 @@ export async function onRequest(context) {
         // so a database nobody has sent into since this deployed
         // still opens its threads. Memoized per isolate.
         await ensureMessageClientKey(env);
+        // Same reasoning for the caller's pin and mute state and the
+        // peer's presence column, both read further down.
+        await ensureThreadPrefColumns(env);
+        await ensurePresenceColumn(env);
         // The read cursor as it stands when this fetch begins. The
         // client anchors its "New messages" divider to it: without the
         // pre-visit value, opening a conversation erases the one signal
@@ -976,10 +1058,17 @@ export async function onRequest(context) {
         // a NULL cursor, which toEpochMs reports as 0 — a real anchor
         // meaning "everything here is unread", not a missing one.)
         let readBefore = null;
+        // The caller's own pin and mute state for this conversation,
+        // read from the same participant row as the cursor so the
+        // open thread's options menu can label its toggles truthfully.
+        let myPinned = false;
+        let myMuted = false;
         try {
-          const rr = await env.DB.prepare("SELECT last_read_at FROM thread_participants WHERE thread_id = ? AND user_id = ?")
+          const rr = await env.DB.prepare("SELECT last_read_at, pinned_at, muted FROM thread_participants WHERE thread_id = ? AND user_id = ?")
             .bind(threadId, user.id).first();
           readBefore = rr ? toEpochMs(rr.last_read_at) : null;
+          myPinned = !!(rr && rr.pinned_at);
+          myMuted = !!(rr && rr.muted);
         } catch (e) { console.error("Couldn't read thread cursor:", e); }
         // This fetch deliberately does NOT mark the thread read. It
         // used to (Commit 47), as part of this same GET — which meant
@@ -1018,7 +1107,7 @@ export async function onRequest(context) {
            this person, and it is what disambiguates two people with the
            same display name. */
         const participantRows = await env.DB.prepare(
-          `SELECT u.id, u.name, u.username, u.affiliation, u.show_affiliation, tp.last_read_at FROM thread_participants tp
+          `SELECT u.id, u.name, u.username, u.affiliation, u.show_affiliation, u.last_active_at, tp.last_read_at FROM thread_participants tp
            JOIN users u ON u.id = tp.user_id
            WHERE tp.thread_id = ?`
         ).bind(threadId).all();
@@ -1030,6 +1119,15 @@ export async function onRequest(context) {
         let otherUsername = null;
         let otherAffiliation = null;
         let otherLastReadAt = null;
+        let otherLastActiveAt = null;
+        if (threadRow.kind === "dm") {
+          const other = participants.find((p) => p.id !== user.id);
+          // Presence is read for every DM, named or not: a group
+          // renamed into a DM-shaped title is impossible, but an
+          // unnamed DM is the common case and it needs the heartbeat
+          // exactly as much as a named one does.
+          otherLastActiveAt = other && other.last_active_at ? toEpochMs(other.last_active_at) : null;
+        }
         if (!name && threadRow.kind === "dm") {
           const other = participants.find((p) => p.id !== user.id);
           name = other ? displayNameFor(other) : "Conversation";
@@ -1134,6 +1232,9 @@ export async function onRequest(context) {
           otherUsername,
           otherAffiliation,
           otherLastReadAt,
+          otherLastActiveAt,
+          pinned: myPinned,
+          muted: myMuted,
           blocked,
           encrypted: !!e2eeRow,
           e2eeProtocol: e2eeRow ? e2eeRow.protocol : null,
@@ -1143,6 +1244,116 @@ export async function onRequest(context) {
           readBefore,
           sharedCounts,
         }), { status: 200, headers: cors });
+      }
+      // Message content search across the caller's own conversations.
+      //
+      // The conversation list search matched names only, so a reader
+      // who remembered a sentence (or a line of a voice note
+      // transcript) had no way back to it. This searches message text,
+      // attachment titles, and attachment metadata — the transcript
+      // of a voice note lives in attachment_meta, which is what makes
+      // voice notes findable here.
+      //
+      // The encryption boundary is absolute. A thread in e2ee_threads
+      // is excluded outright: the rows the server holds for it are
+      // ciphertext, so a text match would be meaningless, and running
+      // the query over ciphertext at all would pretend otherwise.
+      // Cipher rows are excluded a second time by msg_kind, in case a
+      // cipher row ever sits in a thread the e2ee_threads row does
+      // not cover. Encrypted conversations are counted and reported
+      // as `encryptedExcluded` so the client can say plainly that
+      // they are searched only on the device, while open — never that
+      // they were searched here. Only the caller's own threads are
+      // ever in scope: membership comes from thread_participants.
+      if (resource === "search-messages") {
+        const q = (url.searchParams.get("q") || "").trim().slice(0, 80);
+        if (q.length < 2) return okRes({ results: [], encryptedExcluded: 0 }, 200, cors);
+        const myRows = await env.DB.prepare(
+          `SELECT t.id, t.kind, t.name FROM threads t
+           JOIN thread_participants tp ON tp.thread_id = t.id
+           WHERE tp.user_id = ?`
+        ).bind(user.id).all();
+        const myThreads = myRows.results || [];
+        if (myThreads.length === 0) return okRes({ results: [], encryptedExcluded: 0 }, 200, cors);
+        const myIds = myThreads.map((t) => t.id);
+        const idPlaceholders = myIds.map(() => "?").join(",");
+        const encRows = await env.DB.prepare(
+          `SELECT thread_id FROM e2ee_threads WHERE thread_id IN (${idPlaceholders})`
+        ).bind(...myIds).all();
+        const encryptedSet = new Set((encRows.results || []).map((r) => r.thread_id));
+        const searchableIds = myIds.filter((id) => !encryptedSet.has(id));
+        let found = [];
+        if (searchableIds.length > 0) {
+          // The needle is escaped so a reader searching for "100%"
+          // finds the literal text, not every message ever written.
+          const like = "%" + q.toLowerCase().replace(/[\\%_]/g, (c) => "\\" + c) + "%";
+          const searchPlaceholders = searchableIds.map(() => "?").join(",");
+          const mRows = await env.DB.prepare(
+            `SELECT id, thread_id, sender_id, text, attachment_title, attachment_meta, created_at FROM messages
+             WHERE thread_id IN (${searchPlaceholders}) AND COALESCE(msg_kind, '') != 'cipher'
+             AND (LOWER(COALESCE(text, '')) LIKE ? ESCAPE '\\'
+               OR LOWER(COALESCE(attachment_title, '')) LIKE ? ESCAPE '\\'
+               OR LOWER(COALESCE(attachment_meta, '')) LIKE ? ESCAPE '\\')
+             ORDER BY created_at DESC LIMIT 60`
+          ).bind(...searchableIds, like, like, like).all();
+          found = mRows.results || [];
+        }
+        // Display names: a named thread names itself; a DM takes the
+        // other participant's name, the same rule the inbox list
+        // uses. Names are identity, not content — resolving them here
+        // reveals nothing about any message.
+        const nameByThread = new Map(myThreads.map((t) => [t.id, t.name || null]));
+        const dmIds = [...new Set(found.filter((m) => !nameByThread.get(m.thread_id)).map((m) => m.thread_id))];
+        if (dmIds.length > 0) {
+          const dmPlaceholders = dmIds.map(() => "?").join(",");
+          const otherRows = await env.DB.prepare(
+            `SELECT tp.thread_id, u.name, u.username FROM thread_participants tp
+             JOIN users u ON u.id = tp.user_id
+             WHERE tp.thread_id IN (${dmPlaceholders}) AND tp.user_id != ?`
+          ).bind(...dmIds, user.id).all();
+          for (const r of otherRows.results || []) {
+            if (!nameByThread.get(r.thread_id)) nameByThread.set(r.thread_id, r.name || r.username || null);
+          }
+        }
+        const kindByThread = new Map(myThreads.map((t) => [t.id, t.kind]));
+        const needle = q.toLowerCase();
+        const snippetFor = (m) => {
+          // Say where the match lived and show the words around it:
+          // a hit inside a voice note transcript is labeled as one,
+          // so the reader knows what they are looking at.
+          const candidates = [{ in: "text", body: m.text || "" }];
+          let transcript = null;
+          try {
+            const meta = m.attachment_meta ? JSON.parse(m.attachment_meta) : null;
+            transcript = meta && typeof meta.transcript === "string" ? meta.transcript : null;
+          } catch { transcript = null; }
+          if (transcript) candidates.push({ in: "transcript", body: transcript });
+          if (m.attachment_title) candidates.push({ in: "attachment", body: m.attachment_title });
+          for (const c of candidates) {
+            const idx = c.body.toLowerCase().indexOf(needle);
+            if (idx === -1) continue;
+            const start = Math.max(0, idx - 50);
+            const slice = c.body.slice(start, start + 150).replace(/\s+/g, " ").trim();
+            return { matchedIn: c.in, snippet: (start > 0 ? "…" : "") + slice + (start + 150 < c.body.length ? "…" : "") };
+          }
+          const first = candidates[0];
+          return { matchedIn: first.in, snippet: first.body.slice(0, 150).replace(/\s+/g, " ").trim() };
+        };
+        const results = found.map((m) => {
+          const s = snippetFor(m);
+          return {
+            threadId: m.thread_id,
+            threadName: nameByThread.get(m.thread_id) || "Conversation",
+            kind: kindByThread.get(m.thread_id) || "dm",
+            messageId: m.id,
+            senderId: m.sender_id,
+            mine: m.sender_id === user.id,
+            snippet: s.snippet,
+            matchedIn: s.matchedIn,
+            createdAt: toEpochMs(m.created_at),
+          };
+        });
+        return okRes({ results, encryptedExcluded: encryptedSet.size }, 200, cors);
       }
       // Find People / the network directory. This used to be a hardcoded
       // MOCK_RESEARCHERS array in the frontend labeled "Preview — sample
@@ -1986,6 +2197,9 @@ export async function onRequest(context) {
       // Durable sends: the column the INSERT below writes exists
       // before anything reads or writes it (memoized per isolate).
       await ensureMessageClientKey(env);
+      // The push fan-out below reads each recipient's muted flag;
+      // that column exists before the fan-out runs, same reasoning.
+      await ensureThreadPrefColumns(env);
       // A retry of a send whose response was lost arrives with the
       // same idempotency key as the send that already landed. The
       // row it created is the answer: return it verbatim (canonical
@@ -2100,8 +2314,13 @@ export async function onRequest(context) {
         const isEncrypted = msgKind === "cipher";
         const pushWork = (async () => {
           try {
+            // A recipient who muted this conversation gets no push:
+            // mute would be a lie if the server kept waking their
+            // closed tabs for it. The flag is read per recipient from
+            // their own participant row, so one person's mute never
+            // silences anyone else's.
             const others = await env.DB.prepare(
-              "SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ?"
+              "SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ? AND COALESCE(muted, 0) = 0"
             ).bind(threadId, senderId).all();
             const otherIds = (others.results || []).map((r) => r.user_id).filter(Boolean);
             if (!otherIds.length) return;
@@ -2985,6 +3204,67 @@ export async function onRequest(context) {
         unread,
         unread_count: countRow ? (countRow.n || 0) : 0,
       }, 200, cors);
+    }
+
+    // Pin a conversation to the top of the caller's own list. The
+    // state lives on the caller's participant row (see
+    // ensureThreadPrefColumns): pinning is personal, so the other
+    // participants' lists never move, and there is nothing to keep
+    // in sync beyond this one row. pinned_at is a timestamp so the
+    // list can order pinned conversations by when they were pinned;
+    // unpinning writes NULL.
+    if (action === "set-thread-pinned") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      await ensureThreadPrefColumns(env);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      const pinned = !!body.pinned;
+      const pinnedAt = pinned ? Date.now() : null;
+      await env.DB.prepare(
+        "UPDATE thread_participants SET pinned_at = ? WHERE thread_id = ? AND user_id = ?"
+      ).bind(pinnedAt, threadId, user.id).run();
+      return okRes({ thread_id: threadId, pinned, pinned_at: pinnedAt }, 200, cors);
+    }
+
+    // Mute a conversation for the caller: the thread stays in the
+    // list with its unread count, but nothing notifies — send-message
+    // filters muted recipients out of its web push, and the client's
+    // list poll skips muted threads when it raises notifications.
+    // Same participant-row storage and membership guard as pinning.
+    if (action === "set-thread-muted") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      await ensureThreadPrefColumns(env);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      const muted = !!body.muted;
+      await env.DB.prepare(
+        "UPDATE thread_participants SET muted = ? WHERE thread_id = ? AND user_id = ?"
+      ).bind(muted ? 1 : 0, threadId, user.id).run();
+      return okRes({ thread_id: threadId, muted }, 200, cors);
+    }
+
+    // Presence heartbeat. The client posts this while the inbox is
+    // open (on mount, on a slow timer, and when the tab becomes
+    // visible again); readers see it as the peer's last_active_at on
+    // the inbox list and the open thread. Throttled at the write: a
+    // heartbeat inside the freshness window moves nothing, so a
+    // client pinging eagerly costs one no-op UPDATE at most. This is
+    // the whole presence system — there is no socket to upgrade it
+    // with in this architecture, and the client copy ("Active", never
+    // "online") is written to match what a heartbeat can prove.
+    if (action === "presence-ping") {
+      await ensurePresenceColumn(env);
+      const now = Date.now();
+      await env.DB.prepare(
+        "UPDATE users SET last_active_at = ? WHERE id = ? AND (last_active_at IS NULL OR last_active_at < ?)"
+      ).bind(now, user.id, now - 20000).run();
+      return okRes({ last_active_at: now }, 200, cors);
     }
 
     // Commit 48: block/unblock the other person in a DM. Storage is

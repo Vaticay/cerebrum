@@ -216,8 +216,25 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [outboxByThread, setOutboxByThread] = useState(() => {
     try { return JSON.parse(localStorage.getItem("cb_inbox_outbox_v1") || "{}") || {}; } catch { return {}; }
   });
+  /* Whether the durable write behind the outbox has failed. The
+     outbox's whole promise is "a failed send survives a reload"; if
+     the browser refuses the write (storage full, a quota, a private
+     window), that promise is void and the reader must be told at the
+     composer, not discover it after closing the tab. The send path
+     checks the write synchronously before it relies on the queue
+     (see sendMessage), and this effect keeps the flag honest for
+     every later patch and drop as well. */
+  const [outboxSaveFailed, setOutboxSaveFailed] = useState(false);
   useEffect(() => {
-    try { localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify(outboxByThread)); } catch { /* storage full or unavailable: the outbox stays in memory, the same allowance drafts make */ }
+    try {
+      localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify(outboxByThread));
+      setOutboxSaveFailed(false);
+    } catch {
+      // Storage full or unavailable: the outbox stays in memory for
+      // this session, and the composer warning (outboxSaveFailed)
+      // says plainly that it is not saved for retry across a close.
+      setOutboxSaveFailed(true);
+    }
   }, [outboxByThread]);
   const outboxPut = (threadId, entry) => setOutboxByThread((prev) => {
     const list = (prev[threadId] || []).filter((e) => e.clientMsgId !== entry.clientMsgId);
@@ -309,6 +326,76 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // person at most (same reasoning as the inbox N+1 query comment below),
   // so filtering client-side is both simpler and instant.
   const [threadQuery, setThreadQuery] = useState("");
+  // Pin and mute writes in flight: "" | "pin" | "mute". The two
+  // toggles share one busy flag because they write the same
+  // participant row on the server; one at a time keeps the mirrored
+  // state from racing itself.
+  const [prefBusy, setPrefBusy] = useState("");
+  // Message content search: results for the current list query from
+  // the search-messages resource (server visible threads only), plus
+  // the count of encrypted conversations the server could not
+  // search, so the panel can say so instead of implying full cover.
+  const [msgResults, setMsgResults] = useState([]);
+  const [msgSearchState, setMsgSearchState] = useState("idle");
+  const [encryptedExcluded, setEncryptedExcluded] = useState(0);
+
+  /* The open encrypted thread, searched on this device over the
+     messages this client has already decrypted: the only place its
+     plaintext exists. Ciphertext is never searched, here or anywhere
+     else. Closed encrypted threads cannot be searched at all, and
+     the results panel says so in plain words. */
+  const localMsgResults = useMemo(() => {
+    const q = threadQuery.trim().toLowerCase();
+    if (q.length < 2 || !activeThread || !activeThread.encrypted || activeThread.id !== activeId) return [];
+    const out = [];
+    for (const m of activeThread.messages || []) {
+      if (!m) continue;
+      const body = (m.e2ee && m.e2ee.ok ? m.e2ee.text : "") || "";
+      const idx = body.toLowerCase().indexOf(q);
+      if (idx === -1) continue;
+      const start = Math.max(0, idx - 50);
+      out.push({
+        threadId: activeThread.id, threadName: activeThread.name, kind: activeThread.kind,
+        messageId: m.id, mine: !!m.mine, matchedIn: "text", createdAt: m.createdAt || 0,
+        snippet: (start > 0 ? "…" : "") + body.slice(start, start + 150).replace(/\s+/g, " ").trim(),
+        onDevice: true,
+      });
+      if (out.length >= 20) break;
+    }
+    return out.reverse();
+  }, [threadQuery, activeThread, activeId]);
+
+  /* Message content search. The list filter only ever matched
+     names; this asks the server to search the words inside
+     conversations too: message text, attachment titles, and voice
+     note transcripts (which live in attachment metadata, and which
+     is what makes a transcript findable at all). Encrypted threads
+     are excluded on the server by construction, because the server
+     holds only their ciphertext, and the response counts them so
+     the panel can state exactly what was not searched. One request
+     per pause in typing, never per keystroke. (Placed after the
+     threadQuery declaration above: both hooks read it.) */
+  useEffect(() => {
+    const q = threadQuery.trim();
+    if (q.length < 2) { setMsgResults([]); setMsgSearchState("idle"); setEncryptedExcluded(0); return; }
+    setMsgSearchState("searching");
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      apiDataGet("search-messages", { q }).then((data) => {
+        if (cancelled) return;
+        if (data && Array.isArray(data.results)) {
+          setMsgResults(data.results);
+          setEncryptedExcluded(data.encryptedExcluded || 0);
+          setMsgSearchState("done");
+        } else {
+          setMsgResults([]);
+          setMsgSearchState("failed");
+        }
+      }).catch(() => { if (!cancelled) { setMsgResults([]); setMsgSearchState("failed"); } });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [threadQuery]);
+
   // Commit 48: block/report — a small overflow menu on the open thread's
   // header (Block/Unblock, Report this person), plus per-message hover
   // report actions. The same menu now also carries "Mark as unread",
@@ -557,7 +644,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             const lm = t.lastMessage;
             const lid = lm && (lm.id || (lm.senderId + ":" + lm.createdAt));
             if (!lid || lm.mine) { if (lid) lastSeenIds.set(t.id, lid); continue; }
-            if (lastSeenIds.get(t.id) && lastSeenIds.get(t.id) !== lid && !notifiedMsgIds.current.has(lid)) {
+            // A muted thread updates its row and its unread count in
+            // silence: no notification here, and none from the
+            // server's web push either (send-message leaves muted
+            // recipients out). Muting must mean the same thing on
+            // every surface or it means nothing.
+            if (lastSeenIds.get(t.id) && lastSeenIds.get(t.id) !== lid && !t.muted && !notifiedMsgIds.current.has(lid)) {
               notifiedMsgIds.current.add(lid);
               cbNotify(t.name || "Cerebrum", "New message.", "cb-inbox-" + t.id, "message");
             }
@@ -578,6 +670,24 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     refresh();
     return () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* Presence heartbeat. There is no realtime channel to ride, so
+     presence is this: while the inbox is open, this client tells the
+     server "I am here" on mount, every 45 seconds, and whenever the
+     tab becomes visible again, and the server keeps the latest time
+     as last_active_at. Readers see it as "Active now" or "Active
+     12m ago" in a conversation's subtitle and as a dot in the list.
+     It proves the app was open recently, nothing more, and the copy
+     never claims "online". The ping is fire and forget: a failed
+     heartbeat degrades presence to stale, never to an error. */
+  useEffect(() => {
+    const ping = () => { apiDataAction("presence-ping", {}).catch(() => {}); };
+    ping();
+    const timer = setInterval(() => { if (!document.hidden) ping(); }, 45000);
+    const onVisible = () => { if (!document.hidden) ping(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   // Group creation — debounced people search, reusing the same
@@ -1263,6 +1373,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
     const threadId = activeId;
     const payload = { text, attachment: attachment || null, encrypted: isEncrypted, otherId: activeThread.otherId, clientMsgId: newClientMsgId() };
+    // Durability is checked, not assumed. Before the queue below is
+    // relied on, write the outbox exactly as it will stand with this
+    // entry in it, synchronously. If the browser refuses the write,
+    // the send still goes out (delivering the message is the first
+    // job) but it is treated as not queued: the restore on open reads
+    // storage only, so a refused write restores nothing, the failed
+    // row lives only as long as this tab does, and the composer
+    // warning (outboxSaveFailed) tells the reader that plainly
+    // instead of letting them trust a queue that is not there.
+    try {
+      const probeEntry = {
+        clientMsgId: payload.clientMsgId, text: payload.text, attachment: payload.attachment,
+        encrypted: payload.encrypted, otherId: payload.otherId, createdAt: Date.now(), state: "sending",
+      };
+      const nextThreadEntries = [...(outboxByThread[threadId] || []).filter((e) => e.clientMsgId !== payload.clientMsgId), probeEntry];
+      localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify({ ...outboxByThread, [threadId]: nextThreadEntries }));
+      setOutboxSaveFailed(false);
+    } catch {
+      setOutboxSaveFailed(true);
+    }
     // The outbox entry is written BEFORE the send is attempted:
     // from this moment the send exists durably, so a crash, a
     // reload, or a closed tab mid-send leaves a restorable row
@@ -1357,6 +1487,60 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
   };
 
+  // The list order the server sends: pinned conversations first
+  // (most recently pinned first), then by latest message. A pin
+  // write re-sorts with the same rule so the row moves immediately
+  // instead of waiting for the next list poll to reorder it.
+  const sortThreadList = (list) => [...list].sort((a, b) => {
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+    if (a.pinned && b.pinned) return (b.pinnedAt || 0) - (a.pinnedAt || 0);
+    return ((b.lastMessage && b.lastMessage.createdAt) || 0) - ((a.lastMessage && a.lastMessage.createdAt) || 0);
+  });
+
+  // Pin and unpin: the server stores the choice on my participant
+  // row and answers with the state it stored; the mirrors below show
+  // that answer, not the client's guess. Pinning is personal — the
+  // other participants' lists never move.
+  const toggleThreadPinned = async () => {
+    if (!activeId || prefBusy) return;
+    const row = threads.find((t) => t.id === activeId);
+    const next = !(row ? !!row.pinned : !!(activeThread && activeThread.pinned));
+    setPrefBusy("pin");
+    setMenuOpen(false);
+    try {
+      const res = await apiDataAction("set-thread-pinned", { thread_id: activeId, pinned: next });
+      setThreads((prev) => sortThreadList(prev.map((t) => (t.id === activeId ? { ...t, pinned: !!res.pinned, pinnedAt: res.pinned_at || null } : t))));
+      setActiveThread((t) => (t && t.id === activeId ? { ...t, pinned: !!res.pinned } : t));
+      toast(res.pinned ? "Pinned to the top of your list." : "Unpinned.");
+    } catch (e) {
+      toast(e.message || "Couldn't pin that conversation.", { tone: "error" });
+    } finally {
+      setPrefBusy("");
+    }
+  };
+
+  // Mute and unmute: the conversation stays in the list with its
+  // unread count, but nothing notifies — the server leaves muted
+  // recipients out of its web push, and this client's list poll
+  // leaves muted threads out of its notifications.
+  const toggleThreadMuted = async () => {
+    if (!activeId || prefBusy) return;
+    const row = threads.find((t) => t.id === activeId);
+    const next = !(row ? !!row.muted : !!(activeThread && activeThread.muted));
+    setPrefBusy("mute");
+    setMenuOpen(false);
+    try {
+      const res = await apiDataAction("set-thread-muted", { thread_id: activeId, muted: next });
+      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, muted: !!res.muted } : t)));
+      setActiveThread((t) => (t && t.id === activeId ? { ...t, muted: !!res.muted } : t));
+      toast(res.muted ? "Notifications muted for this conversation." : "Notifications unmuted for this conversation.");
+    } catch (e) {
+      toast(e.message || "Couldn't mute that conversation.", { tone: "error" });
+    } finally {
+      setPrefBusy("");
+    }
+  };
+
   // Commit 48: flips the block for activeThread.otherId and mirrors the
   // result into both activeThread (so the composer/Huddle gate below reacts
   // immediately) and the thread list (so re-opening this conversation from
@@ -1377,6 +1561,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
   };
 
+  // Presence, from the peer's heartbeat (see the presence-ping
+  // effect): fresh within three minutes reads "Active now"; older
+  // reads "Active 12m ago" in relativeTime's own words; no heartbeat
+  // on record reads as nothing at all, because "we do not know" must
+  // never render as "offline".
+  const presenceText = activeThread && activeThread.kind === "dm" && activeThread.otherLastActiveAt
+    ? (Date.now() - activeThread.otherLastActiveAt < 180000
+      ? "Active now"
+      : "Active " + relativeTime(activeThread.otherLastActiveAt))
+    : null;
+
   const subtitle = activeThread
     ? (activeThread.kind === "group"
       // Group subtitle: member names, truncated. The full roster is one
@@ -1388,7 +1583,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       // already filtered by that person's show_affiliation setting. The
       // handle is what belongs here: public, stable, and the thing that
       // tells two people with the same name apart.
-      [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · ")))
+      [presenceText, activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · ")))
     : "";
 
   // Scroll keeper: the pane opens on the newest message, stays glued
@@ -1562,17 +1757,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         single clipped pixel, because the bubble is the visual
         version of the same news. */}
     <div aria-live="polite" role="status" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap", border: 0, padding: 0, margin: -1 }}>{liveAnnouncement}</div>
-    {/* Commit 56 — was height:"100%". Its parent chain (S.pageView inside
-        S.appMain) only ever sets minHeight, and a percentage height
-        resolves against a parent's *height*, not its min-height — so this
-        collapsed to the height of its own content. On screen that meant the
-        conversation stopped a few hundred pixels down with the composer
-        floating mid-page and the bottom half of the window empty, which is
-        the single thing that made this screen look unfinished next to
-        everything else. A viewport-relative height is resolvable no matter
-        what the ancestors declare; dvh (not vh) so mobile browser chrome
-        collapsing doesn't leave the composer under the address bar. */}
-    <div style={{ height: "100dvh", maxHeight: "100dvh", display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? "calc(72px + env(safe-area-inset-bottom, 0px))" : 16, paddingLeft: isMobile ? 0 : 16 }}>
+    {/* Height: fill the parent, never the viewport. Commit 56 set
+        100dvh because the parent chain then only declared minHeight,
+        against which a percentage height collapsed to the content.
+        The parent is now a stretched flex item (S.pageView is flex:1
+        of the column flex appMain), which gives it a definite height
+        a percentage resolves against — so this root fills its
+        container, and if the shell ever gives the inbox less than
+        the full window (a banner above main, a split layout), the
+        inbox follows the container instead of overflowing it by
+        exactly the difference. The mobile paddings stay: they clear
+        the app's own fixed chrome, which overlays the parent too. */}
+    <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? "calc(72px + env(safe-area-inset-bottom, 0px))" : 16, paddingLeft: isMobile ? 0 : 16 }}>
       {showList && (
         <div style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
@@ -1594,8 +1790,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               <input
                 value={threadQuery}
                 onChange={(e) => setThreadQuery(e.target.value)}
-                placeholder="Search conversations"
-                aria-label="Search conversations"
+                placeholder="Search conversations and messages"
+                aria-label="Search conversations and messages"
                 style={{ width: "100%", padding: "10px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.03)" : "#fff", color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, boxSizing: "border-box" }}
               />
             </div>
@@ -1620,8 +1816,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <div key={n} style={{ display: "flex", gap: 10, alignItems: "center", padding: "12px 8px", borderBottom: `1px solid ${P.line}` }}>
                     <span style={{ width: 42, height: 42, borderRadius: "50%", background: P.line, flexShrink: 0 }} />
                     <span style={{ flex: 1 }}>
-                      <span style={{ display: "block", height: 10, borderRadius: 5, background: P.line, width: n % 2 ? "52%" : "68%", marginBottom: 7 }} />
-                      <span style={{ display: "block", height: 9, borderRadius: 5, background: P.line, width: "84%", opacity: 0.7 }} />
+                      <span style={{ display: "block", height: 10, borderRadius: RADIUS.sm, background: P.line, width: n % 2 ? "52%" : "68%", marginBottom: 7 }} />
+                      <span style={{ display: "block", height: 9, borderRadius: RADIUS.sm, background: P.line, width: "84%", opacity: 0.7 }} />
                     </span>
                   </div>
                 ))}
@@ -1685,6 +1881,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                             says encrypted. Same promise as the header badge. */}
                         {t.encrypted && <Icon name="lock" size={11} style={{ color: statusGood(P), flexShrink: 0 }} title="Encrypted" />}
                         {t.kind === "group" && <Icon name="network" size={12} style={{ color: P.faint, flexShrink: 0 }} title="Group" />}
+                        {t.pinned && <Icon name="pinFilled" size={11} style={{ color: accent, flexShrink: 0 }} title="Pinned" />}
+                        {t.muted && <Icon name="volumeOff" size={11} style={{ color: P.faint, flexShrink: 0 }} title="Muted" />}
+                        {/* Presence: a dot only while the peer's
+                            heartbeat is fresh. No dot is no claim —
+                            the list never prints "offline", because a
+                            heartbeat cannot prove that. */}
+                        {t.kind === "dm" && t.otherLastActiveAt && (Date.now() - t.otherLastActiveAt < 180000) && <span aria-label="Active now" title="Active now" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, flexShrink: 0 }} />}
                       </span>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                         {t.unreadCount > 0 && (
@@ -1698,6 +1901,42 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 </button>
               );
             })}
+            {/* Message content results: the words inside
+                conversations, under the name matches. Server results
+                cover the conversations the server can read; the open
+                encrypted conversation's results are found on this
+                device (localMsgResults) and merged in. Tapping one
+                opens its conversation. */}
+            {threadQuery.trim().length >= 2 && (
+              <div style={{ padding: "14px 8px 4px" }}>
+                <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: TRACKING.labelTight, color: P.faint, fontFamily: "var(--cb-font)", textTransform: "uppercase", marginBottom: 4 }}>Messages</div>
+                {msgSearchState === "searching" && msgResults.length === 0 && localMsgResults.length === 0 && (
+                  <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Searching messages…</div>
+                )}
+                {msgSearchState === "failed" && (
+                  <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>Message search did not answer. Names above still match as you type.</div>
+                )}
+                {[...localMsgResults, ...msgResults].map((r) => (
+                  <button key={(r.onDevice ? "local-" : "srv-") + r.messageId} onClick={() => setActiveId(r.threadId)} className="cb-row" style={{ minHeight: 44, width: "100%", textAlign: "left", padding: "9px 10px", borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: "transparent", display: "block", fontFamily: "var(--cb-font)" }}>
+                    <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "baseline" }}>
+                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.threadName}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{relativeTime(r.createdAt)}</span>
+                    </span>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, lineHeight: 1.5, overflow: "hidden" }}>
+                      {r.matchedIn === "transcript" ? "Voice note: " : ""}{r.snippet}
+                    </span>
+                  </button>
+                ))}
+                {msgSearchState === "done" && msgResults.length === 0 && localMsgResults.length === 0 && (
+                  <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>No messages match "{threadQuery}".</div>
+                )}
+                {(encryptedExcluded > 0 || threads.some((t) => t.encrypted)) && (
+                  <div style={{ padding: "8px 4px 2px", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                    Encrypted conversations are not searched on the server. Open one to search it on this device.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1724,7 +1963,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       <button onClick={openGroupInfo} aria-label={`Group info for ${activeThread.name}`} style={{ background: "none", border: "none", padding: 0, margin: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0, fontFamily: "var(--cb-font)", color: P.ink, textAlign: "left" }}>
                         <span style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</span>
                         {activeThread.memberCount ? (
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: 2, flexShrink: 0, fontFamily: "var(--cb-font)" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)" }}>
                             <Icon name="network" size={11} /> {activeThread.memberCount}
                           </span>
                         ) : null}
@@ -1736,7 +1975,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         says this thread is encrypted. No badge on plaintext
                         threads, ever: a badge is a promise. */}
                     {activeThread.encrypted && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: 2, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
                         <Icon name="lock" size={11} /> Encrypted
                       </span>
                     )}
@@ -1813,6 +2052,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         <UIButton P={P} variant="ghost" onClick={markThreadUnread} disabled={markUnreadBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: markUnreadBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="mail" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Mark as unread
                         </UIButton>
+                        {/* Pin and Mute apply to every thread kind, like
+                            Mark as unread above them: they are the
+                            reader's own list state, stored on their
+                            participant row, so they sit outside the DM
+                            only block and report gate below. */}
+                        <UIButton P={P} variant="ghost" onClick={toggleThreadPinned} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                          <Icon name={activeThread.pinned ? "pinFilled" : "pin"} size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.pinned ? "Unpin" : "Pin"}
+                        </UIButton>
+                        <UIButton P={P} variant="ghost" onClick={toggleThreadMuted} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                          <Icon name="volumeOff" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.muted ? "Unmute" : "Mute"}
+                        </UIButton>
                         {activeThread.kind === "dm" && activeThread.otherId && (<>
                         <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ minHeight: 44, color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
@@ -1858,7 +2108,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
                   The security numbers changed: {activeThread.name}'s devices changed. Make sure this was them before continuing.
                 </span>
-                <button onClick={openSafetyModal} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(STATUS.bad, 0.14), color: STATUS.bad, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+                <button onClick={openSafetyModal} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(STATUS.bad, 0.14), color: statusBad(P), border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
                   Check numbers
                 </button>
               </div>
@@ -1873,7 +2123,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
                     Turn on encrypted messaging for this conversation: only you and {activeThread.name} will be able to read new messages.
                   </span>
-                  <button onClick={doUpgradeThread} disabled={upgrading} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: 2, cursor: upgrading ? "default" : "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", opacity: upgrading ? 0.6 : 1 }}>
+                  <button onClick={doUpgradeThread} disabled={upgrading} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 700, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport, cursor: upgrading ? "default" : "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", opacity: upgrading ? 0.6 : 1 }}>
                     {upgrading ? "Turning on…" : "Turn on"}
                   </button>
                 </>) : (
@@ -1952,12 +2202,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showUnreadDivider && (
                   <div role="separator" aria-label="New messages" style={{ display: "flex", alignItems: "center", gap: 10, margin: "8px 0 2px" }}>
                     <span style={{ flex: 1, height: 1, background: withAlpha(STATUS.bad, 0.45) }} />
-                    <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: STATUS.bad, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>New messages</span>
+                    <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 700, color: statusBad(P), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>New messages</span>
                     <span style={{ flex: 1, height: 1, background: withAlpha(STATUS.bad, 0.45) }} />
                   </div>
                 )}
                 {showLegacyDivider && (
-                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: 2, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.micro, fontWeight: 600, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: RADIUS.viewport, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
                     Messages before encryption: these were readable by the server
                   </div>
@@ -2137,6 +2387,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               </div>
             )}
             <div style={{ padding: "13px 18px", borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: P.surface }}>
+              {/* The durable outbox could not be written (storage full
+                  or unavailable): failed sends are NOT saved for retry
+                  in this browser right now, and pretending otherwise
+                  would cost the reader a message the first time a send
+                  fails and the tab closes. Plain words, at the
+                  composer, for as long as the failure lasts. */}
+              {outboxSaveFailed && (
+                <div role="alert" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, background: withAlpha(STATUS.bad, 0.07), fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>
+                  <Icon name="warning" size={14} style={{ color: statusBad(P), flexShrink: 0 }} />
+                  <span>This browser could not save messages for retry. If a send fails and you close this tab, that message will be lost.</span>
+                </div>
+              )}
               {activeThread.blocked ? (
                 <div style={{ textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, padding: "8px 0" }}>
                   You've blocked {activeThread.name}. Unblock above to send a message.
@@ -2150,7 +2412,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       nobody is going to use mid-sentence. */}
                   {recording ? (
                     <div style={{
-                      flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderRadius: 2,
+                      flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderRadius: RADIUS.viewport,
                       background: withAlpha(STATUS.bad, 0.1), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
                     }}>
                       <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%", background: STATUS.bad, animation: "cbMicPulse 1.4s ease-in-out infinite" }} />
@@ -2336,14 +2598,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               {safetyModal.verified ? (<>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "7px 16px", borderRadius: 2, fontFamily: "var(--cb-font)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "7px 16px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" }}>
                   <Icon name="check" size={14} /> Verified
                 </span>
-                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 600, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                   {safetyBusy === "forget" ? "Clearing…" : "Forget verification"}
                 </button>
               </>) : (
-                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 2, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 700, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                   {safetyBusy === "verify" ? "Saving…" : safetyModal.changed ? "I checked, it's them" : "The numbers match"}
                 </button>
               )}
@@ -2382,9 +2644,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {groupMembers.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                 {groupMembers.map((m) => (
-                  <span key={m.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 6px 6px 12px", borderRadius: 2, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>
+                  <span key={m.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 6px 6px 12px", borderRadius: RADIUS.viewport, background: withAlpha(accent, 0.12), border: `1px solid ${withAlpha(accent, 0.3)}`, fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)" }}>
                     {m.name || m.username}
-                    <button onClick={() => setGroupMembers((prev) => prev.filter((x) => x.id !== m.id))} aria-label={`Remove ${m.name || m.username}`} style={{ width: 24, height: 24, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.15)", color: P.ink, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                    {/* The visual circle stays 24px so the chip keeps its
+                        size; the hit area is a full 44px via an invisible
+                        overflow span (the .cb-cite pattern), never a
+                        24px target. */}
+                    <button onClick={() => setGroupMembers((prev) => prev.filter((x) => x.id !== m.id))} aria-label={`Remove ${m.name || m.username}`} style={{ position: "relative", width: 24, height: 24, minWidth: 24, minHeight: 24, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.15)", color: P.ink, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                      <span aria-hidden="true" style={{ position: "absolute", inset: -10, borderRadius: "50%" }} />
                       <Icon name="close" size={12} />
                     </button>
                   </span>

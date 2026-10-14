@@ -344,5 +344,222 @@ await test("failed and partial rows can be discarded, row and outbox entry toget
   assert.ok((inboxSrc.match(/>Discard<\/button>/g) || []).length === 2, "discard is not offered on both the failed and the partial state");
 });
 
+// ── Pin, mute, content search, presence, outbox honesty (fourth round) ──
+// The third rescore's Inbox findings: no pin or mute anywhere, message
+// search matching names only while the voice note copy called the
+// transcript searchable, and an outbox whose localStorage write could
+// fail silently so a "durable" send vanished with the tab. These pins
+// hold the fixes: per participant pin and mute columns healed in the
+// repo's self-healing pattern, a content search endpoint with an
+// absolute encryption boundary, a heartbeat presence, and an outbox
+// write that is checked synchronously and surfaced at the composer
+// when it fails. The functional block at the end drives the real
+// handler against a real SQLite database, so the SQL itself is under
+// test, not just its spelling.
+
+await test("pin and mute columns self heal onto thread_participants", () => {
+  assert.ok(dataSrc.includes("ALTER TABLE thread_participants ADD COLUMN pinned_at INTEGER"), "pinned_at column is not self healed in");
+  assert.ok(dataSrc.includes("ALTER TABLE thread_participants ADD COLUMN muted INTEGER"), "muted column is not self healed in");
+  assert.ok(dataSrc.includes("ensureThreadPrefColumns"), "no ensure helper for the preference columns");
+});
+
+await test("pin and mute are actions on the caller's own participant row", () => {
+  for (const [action, column] of [["set-thread-pinned", "pinned_at"], ["set-thread-muted", "muted"]]) {
+    const idx = dataSrc.indexOf(`action === "${action}"`);
+    assert.ok(idx > -1, `${action} action missing`);
+    const block = dataSrc.slice(idx, idx + 1600);
+    assert.ok(block.includes("UPDATE thread_participants SET " + column), `${action} does not write ${column}`);
+    assert.ok(block.includes("You're not part of that conversation."), `${action} has no membership guard`);
+  }
+  assert.ok(inboxSrc.includes('apiDataAction("set-thread-pinned"'), "the client never calls set-thread-pinned");
+  assert.ok(inboxSrc.includes('apiDataAction("set-thread-muted"'), "the client never calls set-thread-muted");
+  assert.ok(inboxSrc.includes(">Pin<") || inboxSrc.includes('"Pin"') || inboxSrc.includes("? \"Unpin\" : \"Pin\""), "no Pin label in the conversation actions");
+  assert.ok(inboxSrc.includes("? \"Unmute\" : \"Mute\""), "no Mute label in the conversation actions");
+});
+
+await test("the inbox list carries pin, mute, and presence, and sorts pinned first", () => {
+  assert.ok(dataSrc.includes("tp.pinned_at, tp.muted"), "inbox query does not read the preference columns");
+  assert.ok(dataSrc.includes("pinnedAt: t.pinned_at"), "inbox items carry no pinnedAt");
+  assert.ok(dataSrc.includes("muted: !!t.muted"), "inbox items carry no muted flag");
+  assert.ok(dataSrc.includes("otherLastActiveAt"), "inbox and thread payloads carry no presence");
+  assert.ok(dataSrc.includes("a.pinned ? -1 : 1"), "the list sort does not put pinned conversations first");
+  assert.ok(inboxSrc.includes("t.pinned"), "list rows never show the pinned state");
+  assert.ok(inboxSrc.includes("t.muted"), "list rows never show the muted state");
+});
+
+await test("a muted recipient is left out of the web push fan-out", () => {
+  const idx = dataSrc.indexOf("const pushWork");
+  assert.ok(idx > -1, "push fan-out not found");
+  const block = dataSrc.slice(idx, idx + 1200);
+  assert.ok(block.includes("COALESCE(muted, 0) = 0"), "the push query does not exclude muted recipients");
+  assert.ok(inboxSrc.includes("!t.muted"), "the client list poll still notifies for muted threads");
+});
+
+await test("message content search exists and its encryption boundary is absolute", () => {
+  const idx = dataSrc.indexOf('resource === "search-messages"');
+  assert.ok(idx > -1, "search-messages resource missing");
+  const block = dataSrc.slice(idx, idx + 6000);
+  assert.ok(block.includes("e2ee_threads"), "search does not exclude encrypted threads");
+  assert.ok(block.includes("!= 'cipher'"), "search does not exclude cipher rows");
+  assert.ok(block.includes("attachment_meta"), "search never looks in attachment metadata, where transcripts live");
+  assert.ok(block.includes("encryptedExcluded"), "search does not report how many encrypted threads it skipped");
+  assert.ok(block.includes("matchedIn"), "search results do not say where the match lived");
+  assert.ok(inboxSrc.includes('apiDataGet("search-messages"'), "the client never calls message search");
+  assert.ok(inboxSrc.includes("Encrypted conversations are not searched on the server"), "the client never states the search boundary");
+  assert.ok(inboxSrc.includes("localMsgResults"), "the open encrypted thread is not searched on device");
+});
+
+await test("presence is a heartbeat: ping action, column, and honest copy", () => {
+  assert.ok(dataSrc.includes('action === "presence-ping"'), "presence-ping action missing");
+  assert.ok(dataSrc.includes("ALTER TABLE users ADD COLUMN last_active_at INTEGER"), "last_active_at column is not self healed in");
+  assert.ok(inboxSrc.includes('apiDataAction("presence-ping"'), "the client never heartbeats");
+  assert.ok(inboxSrc.includes('"Active now"'), "no Active now copy");
+  assert.ok(inboxSrc.includes('"Active " + relativeTime'), "no last active copy");
+  assert.ok(!inboxSrc.includes('"Online"') && !inboxSrc.includes(">Online<"), "presence copy must never claim online");
+});
+
+await test("a failed outbox write is surfaced at the composer and checked at send time", () => {
+  assert.ok(inboxSrc.includes("outboxSaveFailed"), "no state tracks the failed durable write");
+  assert.ok(inboxSrc.includes("This browser could not save messages for retry"), "the composer shows no warning when the write fails");
+  assert.ok(inboxSrc.includes("setOutboxSaveFailed(true)"), "a failed write never raises the flag");
+  const sendIdx = inboxSrc.indexOf("const sendMessage = async");
+  const block = inboxSrc.slice(sendIdx, sendIdx + 3200);
+  assert.ok(block.includes("probeEntry"), "sendMessage never probes the durable write before relying on the queue");
+  assert.ok(block.indexOf("probeEntry") < block.indexOf("outboxPut(threadId, {"), "the durability probe runs after the queue write it is meant to check");
+});
+
+await test("the inbox root fills its parent instead of hardcoding the viewport", () => {
+  assert.ok(!inboxSrc.includes('height: "100dvh"'), "the inbox root still hardcodes the viewport height");
+  assert.ok(inboxSrc.includes('height: "100%", maxHeight: "100%"'), "the inbox root does not fill its parent");
+});
+
+// Functional: the real handler against a real SQLite database.
+{
+  const { DatabaseSync } = await import("node:sqlite");
+  const { createHash } = await import("node:crypto");
+  const { onRequest } = await import(join(root, "functions/api/data.js"));
+
+  const sqlite = new DatabaseSync(":memory:");
+  const wrapStmt = (sql) => {
+    let vals = [];
+    const stmt = {
+      bind: (...v) => { vals = v; return stmt; },
+      first: async () => { const r = sqlite.prepare(sql).get(...vals); return r === undefined ? null : r; },
+      all: async () => ({ results: sqlite.prepare(sql).all(...vals) }),
+      run: async () => { const info = sqlite.prepare(sql).run(...vals); return { success: true, meta: { changes: Number(info.changes || 0) } }; },
+    };
+    return stmt;
+  };
+  const db = {
+    prepare: (sql) => wrapStmt(sql),
+    exec: async (sql) => { sqlite.exec(sql); return { results: [] }; },
+    batch: async (stmts) => { const out = []; for (const s of stmts) out.push(await s.run()); return out; },
+  };
+  const env = { DB: db };
+  const tokenFor = { usr_a: "token-alpha", usr_b: "token-bravo" };
+  const call = async (userId, method, path, body) => {
+    const headers = { Cookie: "cb_sess=" + tokenFor[userId] };
+    if (method === "POST") { headers["Content-Type"] = "application/json"; headers.Origin = "https://askcerebrum.org"; }
+    const req = new Request("https://askcerebrum.org/api/data" + path, {
+      method, headers, body: body ? JSON.stringify(body) : undefined,
+    });
+    const res = await onRequest({ request: req, env, waitUntil: () => {} });
+    return { status: res.status, json: await res.json() };
+  };
+
+  // Seed: users and sessions are the two tables nothing self-creates.
+  sqlite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, email_lower TEXT, username TEXT, name TEXT, affiliation TEXT, show_affiliation INTEGER, discoverable INTEGER, plan TEXT, created_at INTEGER)");
+  sqlite.exec("CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT, created_at INTEGER, expires_at INTEGER)");
+  const hash = (s) => createHash("sha256").update(s).digest("hex");
+  const now = Date.now();
+  for (const [id, email, username, name] of [
+    ["usr_a", "alice@example.com", "alice", "Alice"],
+    ["usr_b", "bob@example.com", "bob", "Bob"],
+    ["usr_c", "carol@example.com", "carol", "Carol"],
+  ]) {
+    sqlite.prepare("INSERT INTO users (id, email, email_lower, username, name, show_affiliation) VALUES (?, ?, ?, ?, ?, 1)").run(id, email, email, username, name);
+  }
+  for (const [uid, tok] of Object.entries(tokenFor)) {
+    sqlite.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").run(hash(tok), uid, now, now + 3600000);
+  }
+  // Warm-up: the first call self-creates the social tables.
+  await call("usr_a", "GET", "?resource=inbox");
+  const ins = (sql, ...v) => sqlite.prepare(sql).run(...v);
+  ins("INSERT INTO threads (id, kind, name, created_at) VALUES ('th_dm_b', 'dm', NULL, ?)", now);
+  ins("INSERT INTO threads (id, kind, name, created_at) VALUES ('th_dm_c', 'dm', NULL, ?)", now);
+  ins("INSERT INTO threads (id, kind, name, created_at) VALUES ('th_enc', 'dm', NULL, ?)", now);
+  for (const [t, u] of [["th_dm_b", "usr_a"], ["th_dm_b", "usr_b"], ["th_dm_c", "usr_a"], ["th_dm_c", "usr_c"], ["th_enc", "usr_a"], ["th_enc", "usr_b"]]) {
+    ins("INSERT INTO thread_participants (thread_id, user_id) VALUES (?, ?)", t, u);
+  }
+  ins("INSERT INTO e2ee_threads (thread_id, protocol, encrypted_since, upgraded_by) VALUES ('th_enc', 'olm-v1', ?, 'usr_a')", now);
+  ins("INSERT INTO messages (id, thread_id, sender_id, text, created_at) VALUES ('m1', 'th_dm_b', 'usr_b', 'the mitochondria paper was great', 1000)");
+  ins("INSERT INTO messages (id, thread_id, sender_id, attachment_title, attachment_kind, attachment_meta, created_at) VALUES ('m2', 'th_dm_b', 'usr_a', 'Voice note', 'audio', ?, 2000)",
+    JSON.stringify({ durationMs: 4000, transcript: "let us check the gel bands tomorrow" }));
+  ins("INSERT INTO messages (id, thread_id, sender_id, text, msg_kind, created_at) VALUES ('m3', 'th_enc', 'usr_b', 'ciphertext gel blob', 'cipher', 3000)");
+  ins("INSERT INTO messages (id, thread_id, sender_id, text, created_at) VALUES ('m4', 'th_dm_c', 'usr_c', 'unrelated lunch plans', 1500)");
+
+  await test("functional: pinning moves a conversation to the top of the list", async () => {
+    const pin = await call("usr_a", "POST", "", { action: "set-thread-pinned", thread_id: "th_dm_c", pinned: true });
+    assert.equal(pin.status, 200);
+    assert.equal(pin.json.pinned, true);
+    const inbox = await call("usr_a", "GET", "?resource=inbox");
+    assert.equal(inbox.json.items[0].id, "th_dm_c", "the pinned conversation is not first");
+    assert.equal(inbox.json.items[0].pinned, true);
+    const dmB = inbox.json.items.find((t) => t.id === "th_dm_b");
+    assert.equal(dmB.pinned, false);
+    const unpin = await call("usr_a", "POST", "", { action: "set-thread-pinned", thread_id: "th_dm_c", pinned: false });
+    assert.equal(unpin.json.pinned, false);
+    const after = await call("usr_a", "GET", "?resource=inbox");
+    assert.equal(after.json.items[0].id, "th_enc", "unpinning does not restore recency order");
+  });
+
+  await test("functional: a non member cannot pin or mute someone else's conversation", async () => {
+    const pin = await call("usr_b", "POST", "", { action: "set-thread-pinned", thread_id: "th_dm_c", pinned: true });
+    assert.equal(pin.status, 403);
+    const mute = await call("usr_b", "POST", "", { action: "set-thread-muted", thread_id: "th_dm_c", muted: true });
+    assert.equal(mute.status, 403);
+  });
+
+  await test("functional: muting persists and the push fan-out query leaves the muter out", async () => {
+    const mute = await call("usr_a", "POST", "", { action: "set-thread-muted", thread_id: "th_dm_b", muted: true });
+    assert.equal(mute.status, 200);
+    assert.equal(mute.json.muted, true);
+    const inbox = await call("usr_a", "GET", "?resource=inbox");
+    assert.equal(inbox.json.items.find((t) => t.id === "th_dm_b").muted, true);
+    assert.equal(inbox.json.items.find((t) => t.id === "th_dm_c").muted, false);
+    // The exact fan-out predicate send-message uses, run as SQL.
+    const fanout = sqlite.prepare("SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ? AND COALESCE(muted, 0) = 0").all("th_dm_b", "usr_b").map((r) => r.user_id);
+    assert.deepEqual(fanout, [], "a muted recipient is still in the push fan-out");
+    const fanoutC = sqlite.prepare("SELECT user_id FROM thread_participants WHERE thread_id = ? AND user_id != ? AND COALESCE(muted, 0) = 0").all("th_dm_c", "usr_c").map((r) => r.user_id);
+    assert.deepEqual(fanoutC, ["usr_a"], "an unmuted recipient dropped out of the push fan-out");
+  });
+
+  await test("functional: a presence ping shows up as the peer's last active time", async () => {
+    const before = await call("usr_a", "GET", "?resource=inbox");
+    assert.equal(before.json.items.find((t) => t.id === "th_dm_b").otherLastActiveAt, null, "presence claimed before any heartbeat");
+    const ping = await call("usr_b", "POST", "", { action: "presence-ping" });
+    assert.equal(ping.status, 200);
+    const after = await call("usr_a", "GET", "?resource=inbox");
+    const seen = after.json.items.find((t) => t.id === "th_dm_b").otherLastActiveAt;
+    assert.ok(typeof seen === "number" && Math.abs(Date.now() - seen) < 60000, "the peer's heartbeat did not arrive in the inbox payload");
+  });
+
+  await test("functional: content search finds text and transcripts, and never the encrypted thread", async () => {
+    const gel = await call("usr_a", "GET", "?resource=search-messages&q=gel");
+    assert.equal(gel.json.results.length, 1, "the transcript hit is missing (or the cipher row leaked in)");
+    assert.equal(gel.json.results[0].messageId, "m2");
+    assert.equal(gel.json.results[0].matchedIn, "transcript");
+    assert.equal(gel.json.results[0].threadName, "Bob");
+    assert.equal(gel.json.encryptedExcluded, 1, "the encrypted thread is not reported as excluded");
+    const mito = await call("usr_a", "GET", "?resource=search-messages&q=mitochondria");
+    assert.equal(mito.json.results.length, 1);
+    assert.equal(mito.json.results[0].matchedIn, "text");
+    const cipher = await call("usr_a", "GET", "?resource=search-messages&q=ciphertext");
+    assert.equal(cipher.json.results.length, 0, "a cipher row matched a content search");
+    const other = await call("usr_b", "GET", "?resource=search-messages&q=lunch");
+    assert.equal(other.json.results.length, 0, "search reached a conversation the caller is not part of");
+  });
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
