@@ -676,18 +676,27 @@ await test("fact check alignment covers the limited fallback section and stops a
   assert.equal(res.claims[0].status, "supported");
 });
 
-await test("fact check alignment covers Executive Summary and reports zero checked claims honestly", () => {
+await test("fact check alignment covers Summary and reports zero checked claims honestly", () => {
   const paper = {
     title: "Desiccation cracking in clay soils",
     abstract: "Desiccation cracking was observed in clay soil samples under controlled drying conditions.",
     year: 2023,
   };
   const checked = backendVerifyAlignment(
-    "## Executive Summary\n\nDesiccation cracking was observed in clay soil samples under controlled drying conditions [1].",
+    "## Summary\n\nDesiccation cracking was observed in clay soil samples under controlled drying conditions [1].",
     [paper]
   );
   assert.equal(checked.checked, true);
   assert.equal(checked.claims.length, 1);
+  // Answers stored before the 2026-10-14 rename carry the old
+  // "## Executive Summary" lede; the checker still covers that
+  // section name so a stored answer's lede claims stay checked.
+  const legacy = backendVerifyAlignment(
+    "## Executive Summary\n\nDesiccation cracking was observed in clay soil samples under controlled drying conditions [1].",
+    [paper]
+  );
+  assert.equal(legacy.checked, true);
+  assert.equal(legacy.claims.length, 1);
   const empty = backendVerifyAlignment(
     "## What the sources say\n\nA short paragraph with no citation marker at all.",
     [paper]

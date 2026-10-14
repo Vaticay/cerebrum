@@ -54,7 +54,7 @@ const dataSrc = stripComments(await readFile(join(root, "functions/api/data.js")
 group("document.js — pure helpers");
 
 await test("cleanAIResponse strips thinking blocks and fences", () => {
-  const raw = "<think>private reasoning</think>\n```markdown\n## Executive Summary\nReal text.\n```";
+  const raw = "<think>private reasoning</think>\n```markdown\n## Summary\nReal text.\n```";
   const out = document.cleanAIResponse(raw);
   assert.ok(!out.includes("private reasoning"), "thinking block leaked");
   assert.ok(!out.includes("```"), "fence leaked");
@@ -67,6 +67,18 @@ await test("cleanAIResponse returns empty string for falsy input", () => {
 });
 
 await test("splitSummarySections splits the four known sections", () => {
+  const text = "## Summary\nAAA\n## Methodology\nBBB\n## Key Findings\nCCC\n## Limitations\nDDD";
+  const s = document.splitSummarySections(text);
+  assert.equal(s.executiveSummary, "AAA");
+  assert.equal(s.methodology, "BBB");
+  assert.equal(s.keyFindings, "CCC");
+  assert.equal(s.limitations, "DDD");
+});
+
+await test("splitSummarySections still splits summaries stored under the old heading", () => {
+  // The first section was titled "Executive Summary" until the
+  // 2026-10-14 rename; stored summaries keep that text, and the
+  // splitter accepts both spellings into the same field.
   const text = "## Executive Summary\nAAA\n## Methodology\nBBB\n## Key Findings\nCCC\n## Limitations\nDDD";
   const s = document.splitSummarySections(text);
   assert.equal(s.executiveSummary, "AAA");

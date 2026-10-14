@@ -120,7 +120,7 @@ const SUMMARY_SYSTEM_PROMPT =
   "'the document' or 'the authors' framing for what only makes sense as provenance, meaning methods, stated limitations, and claims the " +
   "text itself hedges or contests. " +
   "Respond with EXACTLY these four sections, in this order, each starting with a '## ' markdown header using this exact title text:\n\n" +
-  "## Executive Summary\nThree to four paragraphs: what the document is and who/what it studies or covers, the specific question or problem " +
+  "## Summary\nThree to four paragraphs: what the document is and who/what it studies or covers, the specific question or problem " +
   "it set out to address and why that matters, and its central conclusion stated precisely (not just 'the study found an effect': state the " +
   "effect).\n\n" +
   "## Methodology\nTwo to three paragraphs on how the work was actually done, as described in the text: study design, data sources and " +
@@ -943,7 +943,7 @@ export function extractiveSummary(text) {
   const section = (title, lines, emptyLine) =>
     "## " + title + "\n" + (lines.length ? lines.join(" ") : emptyLine);
   return [
-    section("Executive Summary", exec, "The document's opening could not be isolated in this extract."),
+    section("Summary", exec, "The document's opening could not be isolated in this extract."),
     section("Methodology", method, "The document's methods could not be isolated in this extract."),
     section("Key Findings", findings, "No clearly quantitative findings were isolated in this extract."),
     section("Limitations", limits, "The document does not state its limitations explicitly in a way this extract could isolate."),
@@ -1438,7 +1438,12 @@ export async function runQA(env, documentText, query, historyBlock, { onToken = 
 export function splitSummarySections(text) {
   const sections = { executiveSummary: "", methodology: "", keyFindings: "", limitations: "" };
   const map = [
-    ["executiveSummary", /##\s*Executive Summary/i],
+    // The heading was renamed "Executive Summary" to "Summary" on
+    // 2026-10-14 (the payload field name stays executiveSummary:
+    // stored job results and the client both key on it). The
+    // pattern accepts both spellings so summaries stored under the
+    // old heading still split into their fields.
+    ["executiveSummary", /##\s*(?:Executive\s+)?Summary/i],
     ["methodology", /##\s*Methodology/i],
     ["keyFindings", /##\s*Key Findings/i],
     ["limitations", /##\s*Limitations/i],

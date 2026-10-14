@@ -3270,6 +3270,19 @@ function normalizeSectionHeaders(text) {
     .trim();
 }
 
+/* The extractive lede and the document summary's first section were
+   titled "Executive Summary" until 2026-10-14, when the heading was
+   renamed to "Summary" (Dusty: the old name did not make sense).
+   Answers stored before the rename still carry the old title in
+   their text. This display time rewrite shows them under the new
+   heading without touching stored text: only a markdown heading at
+   a line start is rewritten, so prose that merely mentions the
+   phrase is left alone. It runs after normalizeSectionHeaders,
+   which has already forced glued headings to line starts. */
+function renameLegacySummaryHeading(text) {
+  return String(text || "").replace(/^([ \t]*#{2,3}[ \t]+)Executive Summary\b/gm, "$1Summary");
+}
+
 /* Commit 85 — every place a stray markdown hash could reach the page.
    The renderer promoted "## X" and "### X" only when the marker line was
    its own paragraph. Models very often emit the marker glued to the body
@@ -3314,7 +3327,7 @@ function stripStrayHashes(s) {
    body", which is a safer failure than inventing a heading by cutting a
    sentence at an arbitrary word. */
 const SECTION_LABELS = [
-  "The short answer", "What the research shows", "Where researchers disagree",
+  "Summary", "The short answer", "What the research shows", "Where researchers disagree",
   "Where the studies disagree", "How solid is this", "What this does not establish",
   "What would change this", "Core synthesis", "Evidence and mechanisms", "Divergent findings and gaps",
   "Methodological confidence", "Key evidence", "What we know", "Bottom line",
@@ -4169,7 +4182,7 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
   };
 }
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null, queryTerms = null) {
-  let clean = stripDanglingAsterisks(normalizeSectionHeaders(decodeHtmlEntities(text || "")))
+  let clean = stripDanglingAsterisks(renameLegacySummaryHeading(normalizeSectionHeaders(decodeHtmlEntities(text || ""))))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
     // unconditionally, before the code a few dozen lines down ever got a
     // chance to look for "^##\s" / "^###\s" and render them as real
@@ -16344,7 +16357,7 @@ async function extractPdfText(file) {
 // throw away content the model actually generated. One extra tab keeps all
 // four sections reachable without inventing a fifth.
 const NOTEBOOK_TABS = [
-  ["summary", "Executive Summary", "executiveSummary"],
+  ["summary", "Summary", "executiveSummary"],
   ["methodology", "Methodology", "methodology"],
   ["findings", "Findings & Limitations", null],
   ["qa", "Follow up Q&A", null],
@@ -18095,7 +18108,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 const field = tabDef && tabDef[2];
                 const content = field && summary[field] && summary[field].trim();
                 if (!content) {
-                  return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? allTabOptions.find((o) => o.id === rightTab)?.label : "section"}. See Executive Summary for the full analysis.</div>;
+                  return <div style={{ fontSize: FONT_SIZES.small, color: P.faint }}>This response didn't break out a distinct {tabDef ? allTabOptions.find((o) => o.id === rightTab)?.label : "section"}. See Summary for the full analysis.</div>;
                 }
                 return renderAnswer(content, [], P, accent, hoverCite, setHoverCite);
               })() : null}

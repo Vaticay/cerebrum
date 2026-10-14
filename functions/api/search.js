@@ -1057,7 +1057,19 @@ export function isNonLiterature(p) {
 // of those changes which papers are gathered and in what order,
 // so payloads cached under v29 must not be served as though
 // produced under them.
-const CACHE_SCHEMA_VERSION = "v30";
+// v31 (2026-10-14, answer depth is real): the answer cache key
+// carries the requested depth (Brief, Standard, Detailed) because
+// the depths no longer share one answer. Before this, the key was
+// the question alone, so a verified Standard answer served
+// verbatim against a Detailed request, the exact failure Dusty
+// photographed (Detailed selected, a two sentence answer served).
+// The answer cache key version advances v8 → v9 with the depth
+// folded in, retiring every pre depth row (its depth is unknown,
+// so it must never serve again rather than guess). The Detailed
+// synthesis budget and prompt also grew, and the extractive
+// builder assembles at the requested depth, so even rows of known
+// depth would misdescribe the depth that produced them.
+const CACHE_SCHEMA_VERSION = "v31";
 
 // Standard headers every outbound request should carry. Several free scholarly
 // APIs (Crossref, OpenAlex, Europe PMC) route "polite" traffic . identifiable
@@ -7777,9 +7789,17 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
       .sort((a, b) => b.score - a.score);
     const picked = [];
     const perPaper = {};
+    // Depth scales this tier too (v31): the same ranked, deduplicated
+    // candidates, just more of them at Detailed and fewer at Brief.
+    // Absent the setting the historical caps (5 total, 2 per paper)
+    // apply unchanged.
+    const tierDepth = ctx && (ctx.answerLength === "long" || ctx.answerLength === "short")
+      ? ctx.answerLength : "medium";
+    const pickedCap = tierDepth === "long" ? 8 : tierDepth === "short" ? 3 : 5;
+    const perPaperCap = tierDepth === "long" ? 3 : tierDepth === "short" ? 1 : 2;
     for (const c of ranked) {
-      if (picked.length >= 5) break;
-      if ((perPaper[c.idx] || 0) >= 2) continue;
+      if (picked.length >= pickedCap) break;
+      if ((perPaper[c.idx] || 0) >= perPaperCap) continue;
       const t = tidy(c.s);
       if (!t || !isWellFormedClaim(t)) continue;
       const ws = wordSet(t);
@@ -7994,6 +8014,25 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       const judgingLookup = gateDynLookup(String(ctx.query || ""), ctx.dynLookup);
       if (judgingLookup !== ctx.dynLookup) ctx = { ...ctx, dynLookup: judgingLookup };
     }
+    // The reader's depth setting shapes this builder too (v31): the
+    // extractive path is the floor every gated or fleet down request
+    // lands on, and before this it assembled the same thin answer at
+    // every depth. The short answer in Dusty's Detailed photo was
+    // this builder's output, assembled without ever seeing his
+    // setting. Depth widens the assembly from the SAME gated
+    // evidence: more papers into the cited pool, more findings per
+    // paper, more lede claims, more theme clusters, more conflicts
+    // shown. It never loosens a gate, so a deeper answer is more of
+    // the verified evidence worked, never new claims. An absent or
+    // unrecognized value assembles exactly as the builder always
+    // has (the medium column).
+    const depth = ctx && (ctx.answerLength === "long" || ctx.answerLength === "short")
+      ? ctx.answerLength : "medium";
+    const poolCap = depth === "long" ? 12 : depth === "short" ? 6 : 8;
+    const findingsPerPaper = depth === "long" ? 3 : depth === "short" ? 1 : 2;
+    const ledeClaimCap = depth === "long" ? 3 : depth === "short" ? 1 : 2;
+    const themeCap = depth === "long" ? 6 : depth === "short" ? 3 : 4;
+    const conflictCap = depth === "long" ? 5 : depth === "short" ? 2 : 3;
     // When the speculative evidence-brief extraction succeeded before the
     // providers failed, its LLM-extracted atomic claims outrank regex-picked
     // sentences. Map them by 1-based paper index.
@@ -8070,14 +8109,15 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       }
       if (offTopic.length > 0 && onTopic.length > 0) pool = [...onTopic, ...offTopic];
     }
-    const items = pool.slice(0, 8);
+    const items = pool.slice(0, poolCap);
     // Every count below derives from the CITED pool . the papers whose
     // claims were actually examined . never from the pre-cap papers array.
     // The real incident: "Where researchers disagree" said "8 sources"
     // while "How solid is this?" said "12 sources" for the same answer.
     const citedPapers = items.map((it) => it.p);
 
-    // Per paper: the two most finding-dense abstract sentences, else the title.
+    // Per paper: the most finding-dense abstract sentences (the count is
+    // set by depth above), else the title.
     // A sentence that directly engages the question (two or more of
     // its terms, judged by concept and stem like the other
     // extractive instruments) is excerpt worthy even when it uses
@@ -8098,7 +8138,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
         .filter(({ s, score }) => score > 0 ||
           findingsQTerms.filter((t) => extractiveTermHit(s, t, (ctx && ctx.dynLookup) || null)).length >= 2)
         .sort((a, b) => b.score - a.score);
-      const top = ranked.slice(0, 2);
+      const top = ranked.slice(0, findingsPerPaper);
       // Extraction tags ("[Results] …") are stripped here so they can never
       // reach a citation or the printed summary. The integrity gate runs on
       // the tidied sentence: a damaged extraction (unbalanced parens from a
@@ -8117,7 +8157,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       const fromBrief = (briefByIdx[it.idx] || [])
         .map((t) => stripClaimTags(String(t || "")).trim())
         .filter((t) => t && isWellFormedClaim(t))
-        .slice(0, 2);
+        .slice(0, findingsPerPaper);
       if (fromBrief.length) {
         it.findings = fromBrief.map((t) => boldExtractQuantities(t));
         it.findingScores = fromBrief.map((t) => scoreFindingSentence(t));
@@ -8196,7 +8236,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     candidates.sort((a, b) => b.score - a.score || a.idx - b.idx);
 
     const unitWord = pool.length === 1 ? "source" : "sources";
-    let md = "## Executive Summary\n\n";
+    let md = "## Summary\n\n";
     if (isExistenceQuestion(ctx && ctx.query)) {
       const support = findExistenceSupport(items, ctx.query, ctx.queryAnalysis);
       md += existenceAnswerLine(support, "papers") + "\n\n";
@@ -8206,8 +8246,9 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     // findings are:"), no citation soup, no extraction tags. The old lede
     // read as a robot narrating its own output; this reads as the answer.
     // Each lede claim comes from a different paper so the opening reads as
-    // a synthesis, not one paper's summary. Capped at two: the theme
-    // sections below must keep each paper's remaining findings visible.
+    // a synthesis, not one paper's summary. Capped by depth (Brief
+    // one, Standard two, Detailed three): the theme sections below
+    // must keep each paper's remaining findings visible.
     const leads = [];
     const usedIdx = new Set();
     const claimWords = (s) => String(s || "").split(/\s+/).filter(Boolean).length;
@@ -8252,7 +8293,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
       if (!t) continue;
       usedIdx.add(c.idx);
       leads.push({ text: t, idx: c.idx });
-      if (leads.length >= 2) break;
+      if (leads.length >= ledeClaimCap) break;
     }
     if (leads.length) {
       const tldr = leads.map((c) => {
@@ -8301,8 +8342,9 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
           clusters.push({ items: [it], termSet: new Set(termSets[itemIdx.get(it)]) });
         }
       }
-      // Cap at 4 themes: fold the smallest cluster into the largest.
-      while (clusters.length > 4) {
+      // Cap themes by depth (4 at Standard): fold the smallest
+      // cluster into the largest.
+      while (clusters.length > themeCap) {
         let smallest = 0, largest = 0;
         for (let c = 0; c < clusters.length; c++) {
           if (clusters[c].items.length < clusters[smallest].items.length) smallest = c;
@@ -8389,7 +8431,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
 
     md += "\n## Where researchers disagree\n\n";
     if (conflicts.length > 0) {
-      for (const c of conflicts.slice(0, 3)) {
+      for (const c of conflicts.slice(0, conflictCap)) {
         md += "- [" + c.idxA + "] reports: " + c.claimA.replace(/\*\*/g, "") + "\n";
         md += "  [" + c.idxB + "] reports the opposite: " + c.claimB.replace(/\*\*/g, "") + "\n";
       }
@@ -8404,7 +8446,7 @@ export function buildExtractiveSynthesis(papers, briefClaims, ctx = {}) {
     });
     const conf = buildConfidenceLine(citedPapers, dVerdict, { extractive: true, tier: "research", factCheckChecked: false });
     md += "\n## How solid is this?\n\n" + conf.line + "\n";
-    // The 8-cite cap means relevant papers can go uncited: say so plainly,
+    // The cite cap means relevant papers can go uncited: say so plainly,
     // with the exact counts, so "withheld" (relevance bar) is never confused
     // with "retrieved but not cited" (the cap). The frontend labels uncited
     // bibliography entries as further reading.
@@ -8904,15 +8946,18 @@ export function verifyExtractiveAlignment(answer, papers) {
   const text = String(answer || "");
   const n = (papers || []).length;
   // Check the sections each deterministic tier actually emits. The
-  // research tier leads with Executive Summary, the limited tier leads
-  // with The short answer and quotes its passages under Supporting
-  // evidence, and the background tier uses Background. "What the
-  // sources say" stays in the set for answers cached under the limited
-  // tier's pre 2026-10-13 frame, which the checker may still meet.
+  // research tier leads with Summary (renamed from Executive Summary
+  // on 2026-10-14; the old name stays in the set for answers stored
+  // before the rename, which the checker may still meet), the limited
+  // tier leads with The short answer and quotes its passages under
+  // Supporting evidence, and the background tier uses Background.
+  // "What the sources say" stays in the set for answers cached under
+  // the limited tier's pre 2026-10-13 frame.
   // Any later heading, including the appended Sources list, closes the
   // checked section so bibliography lines are never treated as claims.
   const CHECKED_SECTIONS = new Set([
     "the short answer",
+    "summary",
     "executive summary",
     "what the research shows",
     "what the sources say",
@@ -10258,6 +10303,18 @@ export function buildSearchRecord(input) {
     const modelRaw = input.synthesisModel != null ? input.synthesisModel : input.modelUsed;
     const synthesisModel = typeof modelRaw === "string" && modelRaw ? modelRaw : null;
 
+    // The depth the answer was produced at (v31): the record states
+    // it so a served answer can be checked against the setting that
+    // produced it, the check Dusty's photo made impossible, since
+    // nothing anywhere said which depth a served answer came from.
+    // Only the three real values pass; anything else is null
+    // (unknown), the same treatment an unrecorded model gets. A
+    // cache serve passes the requesting depth: since the key is
+    // depth aware, the row it served was written at that depth by
+    // construction.
+    const answerLength = input.answerLength === "short" || input.answerLength === "medium" || input.answerLength === "long"
+      ? input.answerLength : null;
+
     const flags = recordCitedFlags(sources || [], input.answer);
     // One definition of cited everywhere: when a source list exists,
     // the funnel count is the number of entries whose cited flag is
@@ -10309,6 +10366,7 @@ export function buildSearchRecord(input) {
       databases,
       funnel: recordFunnel,
       synthesisModel,
+      answerLength,
       sources: recordSources,
     };
   } catch {
@@ -10389,7 +10447,7 @@ export function buildCoverage(input) {
  * either (nothing would be stored under it, so the link would 404).
  * The client panel says as much where the link would sit.
  * Input: { answer, sources, question, askedAt, diag, databases,
- * funnel, degraded }. `degraded` is the serve's own degraded basis
+ * funnel, degraded, answerLength }. `degraded` is the serve's own degraded basis
  * (the later path passes its stage list's verdict; the early path
  * false), fed to the confidence builder exactly the way the live
  * path feeds it. factCheckChecked is false on every cache serve .
@@ -10427,6 +10485,9 @@ export function buildCachedServeTrust(input) {
     funnel: input && input.funnel ? input.funnel : null,
     databases: (input && input.databases) || null,
     synthesisModel: null,
+    // The requesting depth (v31): the cache key is depth aware, so
+    // the row this serve came from was written at this depth.
+    answerLength: input && input.answerLength,
     sources: labeledSources,
     answer,
     cachedServe: true,
@@ -15611,6 +15672,15 @@ async function runSearchPipeline(pctx) {
 
     const settings = body.settings || {};
     const answerLength = settings.answerLength || "medium";
+    // The answer cache key carries the depth (CACHE_SCHEMA_VERSION
+    // v31): an answer is a product of the depth that produced it,
+    // and the three depths must never serve each other's rows.
+    // The key version advances v8 to v9 for the answer cache only,
+    // retiring every pre depth row rather than guessing its depth.
+    // Query intelligence ("qi1") and the paper learning key keep
+    // their versions: neither stores answers, so neither depends
+    // on depth.
+    const answerKeyVersion = "v9-" + answerLength;
     // Commit 83 . the instrument's operations. See MODE_STRUCTURES.
     // Anything unrecognized falls back to the default synthesis, so an old
     // client or a hand-rolled request behaves exactly as before.
@@ -15631,23 +15701,41 @@ async function runSearchPipeline(pctx) {
     // maxTokens bumped alongside it (3200→4200) so an honest 800+-word,
     // four-section answer has real headroom instead of getting cut off
     // approaching its own target length.
+    // v37 (2026-10-14): Detailed STILL came back short in Dusty's
+    // photo: a two sentence summary and a thin body. The v36 hint
+    // asked for words; this one asks for STRUCTURE, section by
+    // section, because a model can count passages even when it
+    // cannot judge "comprehensive." The length target is stated as
+    // a range with the work that fills it (one passage per major
+    // finding, boundary conditions, evidence limits), and the token
+    // budget rises 4200 to 6400 so a 900 to 1300 word answer with
+    // citations has room to finish instead of truncating at its own
+    // target. The wave timeouts rise with it (see the wave 1 and
+    // wave 2 timeout choices below): a bigger budget on the same
+    // 10 second runway would just time out more.
     const maxTokens =
       answerLength === "short"
         ? 1200
         : answerLength === "long"
-        ? 4200
+        ? 6400
         : 1800;
     const lengthHint =
       answerLength === "short"
         ? "Two to three focused paragraphs. Hit the key mechanism and the strongest evidence, then stop."
         : answerLength === "long"
-        ? "You must write a comprehensive, highly detailed academic synthesis EXCEEDING 800 WORDS. This is the user's preferred " +
-          "mode . do not write a superficial summary. Use **bold** for key terms. You MUST dive into deep molecular mechanisms, " +
-          "genetic pathways, effector genes, and granular data: name the specific genes, proteins, enzymes, receptors, or " +
-          "pathways involved rather than gesturing at 'a genetic mechanism' or 'cellular signaling.' Name specific compounds/" +
-          "genes/species, include quantitative findings from the sources (sample sizes, effect sizes, concentrations, p-values " +
-          "where reported), address conflicting evidence, and end with what's still unknown or debated. " +
-          "Five to eight substantive paragraphs minimum. Think review article, not abstract summary."
+        ? "DEPTH REQUIREMENT. The reader chose the Detailed setting, the deepest one. Target 900 to 1300 words when the " +
+          "evidence supports it. Work the structure like this: keep the opening summary section tight, three to four " +
+          "sentences that answer the question directly. In the main evidence section, give EACH major finding or mechanism " +
+          "its own passage, opened by a **bold lead phrase** naming the finding, and carry the numbers the papers actually " +
+          "report (sample sizes, effect sizes, doses, concentrations, percentages, p-values where reported) instead of " +
+          "summarizing them away. Work through every major finding the sources support, not only the strongest two, and " +
+          "name the specific genes, proteins, enzymes, receptors, compounds, and pathways involved rather than gesturing " +
+          "at 'a genetic mechanism' or 'cellular signaling.' The disagreement section must include boundary conditions: " +
+          "where each finding stops holding (species, dose, population, setting, study design). The confidence section " +
+          "names the concrete limits of this evidence base. Depth comes from covering the evidence, never from padding: " +
+          "do not restate the same finding in new words, add filler transitions, or stretch a point the sources make " +
+          "briefly. If the evidence genuinely supports less than the target, write less: an honest shorter answer beats " +
+          "a padded one."
         : "Four to five clear paragraphs. Cover the core mechanism, key evidence with numbers, and any nuance. " +
           "Bold key terms. Don't summarize . explain.";
 
@@ -15719,7 +15807,7 @@ async function runSearchPipeline(pctx) {
      * whether a given question has been asked before. */
     if (env.DB && privacy.cacheable) {
       try {
-        const earlyCacheKey = await derivedCacheKey(query, env);
+        const earlyCacheKey = await derivedCacheKey(query, env, answerKeyVersion);
         ledger.spendBinding("cache", 1);
         const earlyHit = await env.DB.prepare(
           "SELECT answer, sources, created_at FROM answer_cache WHERE query_key = ? AND score >= 2 AND created_at > ? ORDER BY score DESC, created_at DESC LIMIT 1"
@@ -15757,6 +15845,7 @@ async function runSearchPipeline(pctx) {
             question: query,
             askedAt: earlyHit.created_at != null ? earlyHit.created_at : undefined,
             degraded: false,
+            answerLength,
           });
           return new Response(
             JSON.stringify({
@@ -15767,6 +15856,7 @@ async function runSearchPipeline(pctx) {
               related: [],
               source: "Cached (verified)",
               aiQuota: aiQuotaPayload(),
+              answerLength,
               _cached: true,
               _funnel: earlyTrust.funnel,
               _coverage: earlyTrust.coverage,
@@ -17816,7 +17906,7 @@ async function runSearchPipeline(pctx) {
     // Before calling any LLM, check if we have a cached answer for a similar
     // query that was previously upvoted or verified. This is free, instant,
     // and gets better as more people use the tool.
-    const cacheKey = privacy.cacheable ? await derivedCacheKey(query, env) : null;
+    const cacheKey = privacy.cacheable ? await derivedCacheKey(query, env, answerKeyVersion) : null;
     let cachedAnswer = null;
     if (env.DB && cacheKey && sourceList.length > 0) {
       try {
@@ -17874,6 +17964,7 @@ async function runSearchPipeline(pctx) {
           excludedRetracted: typeof laterF.excludedRetracted === "number" ? laterF.excludedRetracted : null,
         } : null,
         degraded: stageHealthDegraded(stageHealth),
+        answerLength,
       });
       return new Response(
         JSON.stringify({
@@ -17885,6 +17976,7 @@ async function runSearchPipeline(pctx) {
           related: [],
           source: "Cached (verified)",
           aiQuota: aiQuotaPayload(),
+          answerLength,
           ...(await operatorDiagnostics(request, env, { diag: gResult && gResult._diag }, ledger)),
           _cached: true,
           _funnel: laterTrust.funnel,
@@ -18815,8 +18907,10 @@ async function runSearchPipeline(pctx) {
       const w1Abort = new AbortController();
       // Pro depth: longer runway so the strongest (slower) models can finish
       // instead of timing out . the 550B primary has won production waves
-      // well past the free 10s budget.
-      const wave1Timeout = clampLegTimeout(isProSearch ? 14000 : 10000);
+      // well past the free 10s budget. A Detailed request gets the same
+      // runway on the free fleet: its 6400 token budget cannot land inside
+      // the standard 10s, so the budget would be theatre without it.
+      const wave1Timeout = clampLegTimeout(isProSearch || answerLength === "long" ? 14000 : 10000);
       // Nuance #33 cheap-first: when the router judged this request
       // low-complexity, the fastpath leg leads with the cheap model instead
       // of the domain favorite . the wave race still lets a better answer
@@ -18925,8 +19019,9 @@ async function runSearchPipeline(pctx) {
       // 2026-09-12: legs clamped to the remaining budget (8s wanted) and
       // the wave raced against the synthesis deadline . same backstop as
       // wave 1.
-      // Pro depth: same longer-runway treatment as wave 1.
-      const wave2Timeout = clampLegTimeout(isProSearch ? 12000 : 8000);
+      // Pro depth: same longer-runway treatment as wave 1. Detailed
+      // requests ride along for the same reason.
+      const wave2Timeout = clampLegTimeout(isProSearch || answerLength === "long" ? 12000 : 8000);
       const wave2Calls = fireWaveLegs([
         ...(token ? OR_WAVE2.map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 2, fire: () => callOR(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
         // 2026-10-13: the firstOnly trim is gone. It only ever trimmed
@@ -19419,6 +19514,10 @@ async function runSearchPipeline(pctx) {
         const ext = buildExtractiveSynthesis(extPool, extBriefClaims, {
           query: searchQuery,
           queryAnalysis,
+          // The depth setting reaches the extractive assembly too
+          // (v31): a Detailed request that lands on this path gets
+          // the deep assembly, not the same thin answer as Brief.
+          answerLength,
           dynLookup: extGateDyn,
           isNameSearch,
           isFollowupMode,
@@ -20288,6 +20387,9 @@ async function runSearchPipeline(pctx) {
       diag: gResult && gResult._diag,
       funnel: publicFunnel,
       synthesisModel: synthWinner ? String(synthWinner.model) : null,
+      // The depth this answer was produced at (v31), so the record
+      // can be checked against the reader's setting.
+      answerLength,
       sources: labeledSources,
       answer,
       recordId: searchRecordId,
@@ -20397,6 +20499,11 @@ async function runSearchPipeline(pctx) {
         // the footer can label it honestly ("Drafted from sources" vs
         // "AI-synthesized") instead of the UI having to guess.
         synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
+        // The depth this answer was produced at (v31): "short" |
+        // "medium" | "long", the reader's Brief | Standard |
+        // Detailed setting, so any served answer can be checked
+        // against the setting behind it.
+        answerLength,
         /* IMPACT (2026-10-12, restored at Dusty's ask): what this search
          * cost in electricity and water. Providers do not report actual
          * usage, so this is an ESTIMATE built from the real work this

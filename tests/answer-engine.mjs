@@ -346,8 +346,9 @@ test("weak extraction is honest about the gate reason", () => {
 test("strong on-topic papers still get the five-section synthesis", () => {
   const md = buildExtractiveSynthesis([soilPaper()], [], { query: "desiccation cracking in clay soils" });
   assert.ok(md, "expected a synthesis");
-  // The five-section lede heading is "## Executive Summary" (1b3ec3a).
-  assert.match(md, /## Executive Summary/, "good extraction lost the full synthesis");
+  // The five-section lede heading is "## Summary" (renamed from
+  // "## Executive Summary" on 2026-10-14 at Dusty's order).
+  assert.match(md, /## Summary/, "good extraction lost the full synthesis");
 });
 
 test("name search is exempt from the topicality gate", () => {
@@ -360,13 +361,13 @@ test("name search is exempt from the topicality gate", () => {
   }];
   const md = buildExtractiveSynthesis(papers, [], { query: "Jane Smith", isNameSearch: true });
   assert.ok(md, "expected a synthesis");
-  assert.match(md, /## Executive Summary/, "name search wrongly gated");
+  assert.match(md, /## Summary/, "name search wrongly gated");
 });
 
 test("follow-up mode is exempt from the query-addressing check", () => {
   const md = buildExtractiveSynthesis([soilPaper()], [], { query: "tell me more", isFollowupMode: true });
   assert.ok(md, "expected a synthesis");
-  assert.match(md, /## Executive Summary/, "follow-up wrongly gated on phrasing");
+  assert.match(md, /## Summary/, "follow-up wrongly gated on phrasing");
 });
 
 test("title-only papers cannot support a short answer", () => {
@@ -865,7 +866,7 @@ test("extractive synthesis emits the shared five-section structure", () => {
     relevanceGatedOut: 2,
     ambiguity: { ambiguous: false, interpretations: [] },
   });
-  for (const h of ["## Executive Summary", "## What the research shows", "## Where researchers disagree", "## How solid is this?", "## What would change this"]) {
+  for (const h of ["## Summary", "## What the research shows", "## Where researchers disagree", "## How solid is this?", "## What would change this"]) {
     assert.ok(md.includes(h), "missing section: " + h);
   }
   assert.match(md, /Drafted directly from the sources/);

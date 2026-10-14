@@ -211,7 +211,7 @@ await test("all providers failing on a long doc still returns a best-effort summ
   assert.equal(result.partial, true);
   assert.ok(result.answer.includes("quokka"), "extractive summary lost document content");
   assert.ok(result.answer.includes("37%"), "extractive summary lost the key number");
-  assert.ok(result.answer.includes("## Executive Summary"), "missing section header");
+  assert.ok(result.answer.includes("## Summary"), "missing section header");
   assert.ok(result.answer.includes("## Key Findings"), "missing section header");
   assert.ok(result.answer.includes("## Limitations"), "missing section header");
   assert.equal(result.model, "extractive", "fallback not labeled honestly in its model field");
@@ -238,7 +238,7 @@ await test("one failed chunk + working synthesis = honest partial summary", asyn
   const generateFn = async (env, messages) => {
     const userMsg = messages.find((m) => m.role === "user").content;
     assert.ok(userMsg.includes("[This section could not be read.]"), "synthesis not told about the unread section");
-    return { answer: "## Executive Summary\nSynthesized.\n\n## Methodology\nSynthesized.\n\n## Key Findings\nSynthesized.\n\n## Limitations\nSynthesized.", model: "test-model" };
+    return { answer: "## Summary\nSynthesized.\n\n## Methodology\nSynthesized.\n\n## Key Findings\nSynthesized.\n\n## Limitations\nSynthesized.", model: "test-model" };
   };
   const result = await document.runSummary({}, paper, { digest, generateFn });
   assert.equal(result.path, "mapreduce");
@@ -262,7 +262,7 @@ await test("synthesis failing with good digests extracts from the digests", asyn
 await test("happy path still returns the model answer untouched", async () => {
   const paper = makePaper(60);
   const digest = async (env, chunkText, i) => ({ answer: "Digest " + (i + 1) + ". " + "u".repeat(80) });
-  const generateFn = async () => ({ answer: "## Executive Summary\nFull AI summary.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fast-model" });
+  const generateFn = async () => ({ answer: "## Summary\nFull AI summary.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fast-model" });
   const result = await document.runSummary({}, paper, { digest, generateFn });
   assert.equal(result.path, "mapreduce");
   assert.equal(result.partial, false);
@@ -444,7 +444,7 @@ await test("the summary system prompt fences the document as data, never instruc
   const seen = {};
   const generateFn = async (env, messages) => {
     seen.messages = messages;
-    return { answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" };
+    return { answer: "## Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" };
   };
   await document.runSummary({}, "A short document about mitochondria and cellular energy production pathways in cells.", { generateFn });
   const sys = seen.messages[0].content;
@@ -472,7 +472,7 @@ await test("extractiveSummary carries numbers and names the honest limits", () =
   const out = document.extractiveSummary(doc);
   assert.ok(out.includes("37%"), "key number dropped");
   assert.ok(out.includes("1,240"), "sample size dropped");
-  for (const h of ["## Executive Summary", "## Methodology", "## Key Findings", "## Limitations"]) {
+  for (const h of ["## Summary", "## Methodology", "## Key Findings", "## Limitations"]) {
     assert.ok(out.includes(h), `missing ${h}`);
   }
   assert.ok(!out.includes("[Best-effort"), "operator note leaked into the extract");
@@ -514,7 +514,7 @@ await test("start event seeds onProgress(0, total, phase)", async () => {
     sseResponse([
       'data: {"type":"start","mode":"summary","chunks":7,"phase":"map"}\n\n',
       'data: {"type":"progress","phase":"map","done":3,"total":7}\n\n',
-      'data: {"type":"done","mode":"summary","raw":"## Executive Summary\\nHi"}\n\n',
+      'data: {"type":"done","mode":"summary","raw":"## Summary\\nHi"}\n\n',
     ]);
   try {
     const progress = [];
@@ -689,7 +689,7 @@ await test("a Q&A call ending at its token cap sets answerTruncated", async () =
 
 await test("summary paths report answerTruncated from the winning call", async () => {
   const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
-  const genLen = async () => ({ answer: "## Executive Summary\nCut off mid way through a very long summary that hit the cap", model: "fake-model", finishReason: "length" });
+  const genLen = async () => ({ answer: "## Summary\nCut off mid way through a very long summary that hit the cap", model: "fake-model", finishReason: "length" });
   const single = await document.runSummary({}, short, { generateFn: genLen });
   assert.equal(single.answerTruncated, true);
   const paper = makePaper(60);
@@ -707,7 +707,7 @@ group("runSummary prompt fitting — a clamped summary is disclosed");
 await test("a clamped single call reports promptTruncation in the Q&A shape", async () => {
   const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
   const gen = async () => ({
-    answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.",
+    answer: "## Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.",
     model: "fake-model",
     promptClamp: { truncated: true, originalChars: 120000, promptChars: 100000 },
   });
@@ -720,7 +720,7 @@ await test("a clamped single call reports promptTruncation in the Q&A shape", as
 
 await test("an unclamped summary reports no promptTruncation", async () => {
   const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
-  const gen = async () => ({ answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" });
+  const gen = async () => ({ answer: "## Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" });
   const result = await document.runSummary({}, short, { generateFn: gen });
   assert.equal(result.promptTruncation, undefined, "nothing was cut, so nothing may be reported");
 });
@@ -750,7 +750,7 @@ await test("Q&A stage health: success, failure, and budget skip", async () => {
 
 await test("summary stage health: digest and synthesis stages named separately", async () => {
   const short = "A short paper about quokka metabolism. The trial enrolled 200 quokkas and found a 12% increase in nap duration (p < 0.01).";
-  const gen = async () => ({ answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" });
+  const gen = async () => ({ answer: "## Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" });
   const single = await document.runSummary({}, short, { generateFn: gen });
   assert.deepEqual(single.stageHealth.map((s) => [s.name, s.ok]), [["summary", true]]);
   const paper = makePaper(60);
@@ -877,7 +877,7 @@ await test("the summary prompt instructs the formatting bars", async () => {
   const seen = {};
   const generateFn = async (env, messages) => {
     seen.messages = messages;
-    return { answer: "## Executive Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" };
+    return { answer: "## Summary\nS.\n\n## Methodology\nM.\n\n## Key Findings\nK.\n\n## Limitations\nL.", model: "fake-model" };
   };
   await document.runSummary({}, "A short document about mitochondria and cellular energy production pathways in cells.", { generateFn });
   const sys = seen.messages[0].content;
