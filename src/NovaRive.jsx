@@ -349,7 +349,7 @@ function QuipBubble({ line, onDismiss }) {
 function NovaFallback(props) {
   const {
     state = "greeting", size = 48, framing = "bust", scanning = false,
-    pushN = 0, flutterN = 0, noticeN = 0, pointer = null, anchorRef = null,
+    pushN = 0, flutterN = 0, noticeN = 0, waveN = 0, pointer = null, anchorRef = null,
   } = props;
   const quips = useNovaQuips({
     quizState: props.quizState || 0,
@@ -366,7 +366,7 @@ function NovaFallback(props) {
     : null;
   return (
     <span ref={anchorRef} style={{ position: "relative", display: "inline-flex", ...(vars || {}) }}>
-      <NovaAvatar state={state} size={size} framing={framing} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} />
+      <NovaAvatar state={state} size={size} framing={framing} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />
       {quips.quip && <QuipBubble line={quips.quip.line} onDismiss={quips.dismissQuip} />}
     </span>
   );
@@ -380,8 +380,9 @@ function NovaFallback(props) {
    count fires the trigger once), and Rive events route into
    the quip engine. */
 function NovaCanvas(props) {
+  // waveN is accepted here and left unused: the Rive contract has no wave trigger.
   const {
-    size = 48, quizState = 0, appState = 0, pointer = null,
+    size = 48, quizState = 0, appState = 0, pointer = null, waveN = 0,
     sleepStage = 0, pokeN = 0, celebrateN = 0, reducedMotion = false, anchorRef = null,
   } = props;
   const quips = useNovaQuips({

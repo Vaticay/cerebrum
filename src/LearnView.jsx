@@ -1408,6 +1408,16 @@ const CSS = `
   78% { transform: rotate(-3.2deg); }
   100% { transform: rotate(0deg); }
 }
+.nv-rig-wave { animation: nvRigWave 1.1s ease-in-out; }
+@keyframes nvRigWave {
+  0% { transform: rotate(0deg); }
+  20% { transform: rotate(-21deg); }
+  40% { transform: rotate(-7deg); }
+  55% { transform: rotate(-21deg); }
+  70% { transform: rotate(-7deg); }
+  85% { transform: rotate(-17deg); }
+  100% { transform: rotate(0deg); }
+}
 /* The home section navigation (home restructure wave): a flat
    segmented row, gold underline for the current screen, nothing
    rounded beyond the foundation tokens. */
@@ -1433,7 +1443,7 @@ const CSS = `
      posture, head tip) are not animations and stay, so she
      holds the current expression. */
   .nv-rig-breath, .nv-rig-tail, .nv-rig-fil, .nv-rig-lid, .nv-rig-glance, .nv-rig-head, .nv-rig-react { animation: none !important; }
-  .nv-rig-push, .nv-rig-headdip, .nv-rig-noticehead, .nv-rig-flutter, .nv-rig-notice-glance, .nv-rig-fanlift { animation: none !important; }
+  .nv-rig-push, .nv-rig-headdip, .nv-rig-noticehead, .nv-rig-flutter, .nv-rig-notice-glance, .nv-rig-fanlift, .nv-rig-wave { animation: none !important; }
   .nv-rig .nv-rig-t { transition: none !important; }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
@@ -1940,7 +1950,7 @@ let novaRigSeq = 0;
    land at a constant few screen pixels at any render size.
    The reaction squash runs when the state changes to a
    reaction face: a squash, a settle, a stretch, never a loop. */
-export function NovaRig({ state = "greeting", size = 120, halo = false, bust = false, mode = "idle", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 }) {
+export function NovaRig({ state = "greeting", size = 120, halo = false, bust = false, mode = "idle", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 }) {
   const known = state === "greeting" || state === "explaining" || state === "pleased" || state === "thinking" || state === "worried" || state === "fading" || state === "deadpan" || state === "asleep";
   const st = known ? NOVA_RIG_STATES[state] : NOVA_RIG_STATES.greeting;
   const mouth = known ? NOVA_RIG_MOUTHS[state] : NOVA_RIG_MOUTHS.greeting;
@@ -2074,11 +2084,19 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
             <g fill="none" strokeLinecap="round">
               <path d={NOVA_RIG_D.armL} stroke={NOVA_RIG_INK} strokeWidth={54} />
               <path d={NOVA_RIG_D.armL} stroke={NOVA_RIG_FILL} strokeWidth={30} />
-              <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_INK} strokeWidth={54} />
-              <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_FILL} strokeWidth={30} />
+            </g>
+            {/* The wave cue (2026-10-15): the right arm and its
+                fist sit in one group so the cue can rotate the
+                whole arm around its shoulder root. Resting
+                geometry is unchanged; only the grouping moved. */}
+            <g key={"wv" + waveN} className={"nv-rig-anim" + (waveN ? " nv-rig-wave" : "")} style={{ transformOrigin: "1012px 700px" }}>
+              <g fill="none" strokeLinecap="round">
+                <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_INK} strokeWidth={54} />
+                <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_FILL} strokeWidth={30} />
+              </g>
+              <circle cx={1180} cy={642} r={26} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={12} />
             </g>
             {[[838, 918], [856, 916], [870, 906]].map(([x, y]) => <circle key={x} cx={x} cy={y} r={7} fill={NOVA_RIG_INK} />)}
-            <circle cx={1180} cy={642} r={26} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={12} />
             <g key={"fl" + flutterKey} className={"nv-rig-anim" + (flutterKey ? " nv-rig-flutter" : "")} style={{ transformOrigin: "950px 470px" }}>
               <g className="nv-rig-t nv-rig-anim" style={{ transform: "rotate(" + st.gill + "deg)", transformOrigin: "640px 470px" }}>
                 {NOVA_RIG_FILAMENTS.slice(0, 3).map(fil)}
@@ -2147,15 +2165,15 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
    she stands free on the page at the exact size, the full
    figure. The signature is the one the raster avatar had, so
    every call site is unchanged. */
-export function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 }) {
+export function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 }) {
   if (framing === "panel") {
     return (
       <span className="nv-rig-panel">
-        <NovaRig state={state} size={size} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} />
+        <NovaRig state={state} size={size} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />
       </span>
     );
   }
-  return <NovaRig state={state} size={Math.round(size * 1.85)} bust halo scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} />;
+  return <NovaRig state={state} size={Math.round(size * 1.85)} bust halo scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />;
 }
 
 /* The feedback sheet's Nova (home restructure wave, reaction
@@ -2829,6 +2847,17 @@ const NOVA_OPINION_PERFECT_LINE = "Every card right. I counted twice. Does not h
 
 export function loadNovaQuirks() { return loadJSON(QUIRKS_KEY, {}); }
 export function saveNovaQuirks(q) { saveJSON(QUIRKS_KEY, q && typeof q === "object" ? q : {}); }
+
+/* LearnView mounting IS a Nova tab visit (2026-10-15), and
+   recording it here is what retires the sidebar discovery
+   pop (src/NovaSidebarPop.jsx reads hasVisitedNova from the
+   same quirks store). Pure: an already recorded visit returns
+   the same object, so the caller can skip the save. */
+export function recordNovaVisit(q) {
+  const s = q && typeof q === "object" ? q : {};
+  if (s.hasVisitedNova) return s;
+  return { ...s, hasVisitedNova: true };
+}
 
 export function pickNovaLine(lines, seed) {
   if (!Array.isArray(lines) || !lines.length) return null;
@@ -12718,6 +12747,14 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   useEffect(() => {
     refresh();
     setProfile(touchStreak(loadProfile()));
+  }, []);
+
+  /* Mounting this view is a Nova tab visit (2026-10-15):
+     recording it retires the sidebar discovery pop. */
+  useEffect(() => {
+    const q = loadNovaQuirks();
+    const next = recordNovaVisit(q);
+    if (next !== q) saveNovaQuirks(next);
   }, []);
 
   /* The return greeting (wave 3): read the last visit stamp,

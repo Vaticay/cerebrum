@@ -103,7 +103,7 @@ const WANTED = [
   "NOVA_OPINION_HARD_LINE", "NOVA_OPINION_FAST_LINE", "NOVA_OPINION_BROW_LINE", "NOVA_OPINION_PERFECT_LINE",
   "loadNovaQuirks", "saveNovaQuirks", "pickNovaLine", "hourLineSet",
   "computeNovaMemory", "memoryLineFor", "loadNovaMemoryFacts",
-  "opinionForEvent", "pokeStep", "gagDue", "recordGag", "shelfCommentFor", "pickEggLine",
+  "opinionForEvent", "pokeStep", "gagDue", "recordGag", "recordNovaVisit", "shelfCommentFor", "pickEggLine",
 ];
 function declFor(name) {
   for (const node of ast.program.body) {
@@ -177,7 +177,7 @@ const {
   NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE, NOVA_OPINION_BROW_LINE, NOVA_OPINION_PERFECT_LINE,
   loadNovaQuirks, saveNovaQuirks, pickNovaLine, hourLineSet,
   computeNovaMemory, memoryLineFor, loadNovaMemoryFacts,
-  opinionForEvent, pokeStep, gagDue, recordGag, shelfCommentFor, pickEggLine,
+  opinionForEvent, pokeStep, gagDue, recordGag, recordNovaVisit, shelfCommentFor, pickEggLine,
   cortexEmptyProfile, cortexEmptyBuiltinProgress,
 } = context.__x;
 
@@ -3075,7 +3075,9 @@ await test("Nova is a traced, articulated rig at the avatar spots (2026-10-15)",
   // avatar also takes the scanning flag for a thinking rig.
   // Pin moved 2026-10-15 (the brain): the avatar also forwards
   // the signature cue counters, push, flutter, and notice.
-  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 })'),
+  // Pin moved 2026-10-15 (the sidebar pop): the avatar also
+  // forwards the wave counter, the pop's greeting cue.
+  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 })'),
     "NovaAvatar keeps its signature; the rig lives inside it");
   assert.ok(learnSrc.includes("export function NovaRig("), "NovaRig is exported for the Easter egg");
   // The traced parts exist as path data: body and tail with
@@ -4445,6 +4447,158 @@ await test("one Nova per screen: the header is the home's only resident figure",
   const gate = play.indexOf("{!checked && (");
   const headerNova = play.indexOf('<NovaRive state="thinking" size={40}');
   assert.ok(gate !== -1 && headerNova !== -1 && gate < headerNova, "the lesson header Nova is not gated on the sheet being closed");
+});
+
+/* ── Extract the sidebar pop's pure helpers from NovaSidebarPop.jsx
+   the same way (2026-10-15): the budget arithmetic, the line
+   rotation, and the store records are pure, so they pin without
+   mounting the component; the component's wiring pins by source
+   in the group below. */
+const popSrc = readFileSync(join(root, "src/NovaSidebarPop.jsx"), "utf8");
+const popAst = parse(popSrc, { sourceType: "module", plugins: ["jsx"] });
+function popDeclFor(name) {
+  for (const node of popAst.program.body) {
+    const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
+    if (!decl) continue;
+    const isVar = decl.type === "VariableDeclaration" && decl.declarations.some((d) => d.id.name === name);
+    const isFn = decl.type === "FunctionDeclaration" && decl.id && decl.id.name === name;
+    if (isVar || isFn) return { start: node.start, end: node.end };
+  }
+  return null;
+}
+const POP_WANTED = [
+  "POP_FIRST_LINE", "POP_LINES", "POP_MIN_SESSION_MS", "POP_GAP_MS", "POP_LONG_GAP_MS",
+  "POP_DISMISSAL_STRETCH", "POP_CHECK_MS", "POP_TIMELINE",
+  "popGapMs", "popBlocked", "popEligible", "popLineFor", "recordPop", "recordPopDismissal",
+];
+const popChunks = [];
+for (const name of POP_WANTED) {
+  const decl = popDeclFor(name);
+  assert.ok(decl, `${name} must be declared in src/NovaSidebarPop.jsx`);
+  popChunks.push(popSrc.slice(decl.start, decl.end).replace(/^export\s+/, ""));
+}
+const popJs = transformSync(popChunks.join("\n") + `\n;globalThis.__pop = { ${POP_WANTED.join(", ")} };`, { loader: "jsx" }).code;
+const popContext = vm.createContext({});
+vm.runInContext(popJs, popContext);
+const {
+  POP_FIRST_LINE, POP_LINES, POP_MIN_SESSION_MS, POP_GAP_MS, POP_LONG_GAP_MS,
+  POP_DISMISSAL_STRETCH, POP_CHECK_MS, POP_TIMELINE,
+  popGapMs, popBlocked, popEligible, popLineFor, recordPop, recordPopDismissal,
+} = popContext.__pop;
+
+// ══════════════════════════════════════════════════════════════════
+group("Nova's sidebar pop: the discovery invitation, its budget, and the wave");
+
+await test("the pop numbers are the chosen ones: the owner's line, the gaps, the five second visit", () => {
+  assert.equal(POP_FIRST_LINE, "Hi, I'm Nova, come check me out.", "the first pop speaks the owner's line word for word");
+  assert.deepEqual([...POP_LINES], [
+    "Nova. The lessons are in the other tab.",
+    "Still here. The other tab has lessons.",
+    "I teach the science in there. Worth a look.",
+  ], "the later pops rotate the dry reminders");
+  for (const line of [POP_FIRST_LINE, ...POP_LINES])
+    assert.ok(!/[-–—]/.test(line), `a pop line carries a dash: ${line}`);
+  assert.equal(POP_MIN_SESSION_MS, 20000, "no pop inside the first twenty seconds of a session");
+  assert.equal(POP_GAP_MS, 24 * 3600 * 1000, "a day between pops");
+  assert.equal(POP_LONG_GAP_MS, 7 * 24 * 3600 * 1000, "a week once she has been dismissed twice");
+  assert.equal(POP_DISMISSAL_STRETCH, 2);
+  assert.equal(POP_CHECK_MS, 15000, "the budget is re checked every fifteen seconds");
+  assert.deepEqual([...POP_TIMELINE].map((s) => [s.at, s.phase || null, !!s.wave, !!s.end]), [
+    [0, "enter", true, false],
+    [2600, "hold", true, false],
+    [4400, "exit", false, false],
+    [5000, null, false, true],
+  ], "she enters waving, waves again in the hold, leaves at 4.4 seconds, and is gone at five");
+});
+
+await test("popGapMs stretches to a week at two dismissals, and recordPopDismissal counts them", () => {
+  assert.equal(popGapMs({}), POP_GAP_MS);
+  assert.equal(popGapMs(null), POP_GAP_MS, "a missing store reads as a fresh one");
+  assert.equal(popGapMs({ popDismissals: 1 }), POP_GAP_MS, "one dismissal does not stretch the gap");
+  assert.equal(popGapMs({ popDismissals: 2 }), POP_LONG_GAP_MS, "two dismissals stretch the gap to a week");
+  const twice = recordPopDismissal(recordPopDismissal({}));
+  assert.equal(twice.popDismissals, 2);
+  assert.equal(popGapMs(twice), POP_LONG_GAP_MS);
+});
+
+await test("popEligible enforces the visited flag, the session rules, the gap, and every blocked context", () => {
+  const now = 30 * 24 * 3600 * 1000;
+  const sess = { startedAt: now - 60000, popped: false };
+  assert.equal(popEligible({}, {}, sess, now), true, "a clear page, a rested store, a session of a minute: eligible");
+  assert.equal(popEligible({ hasVisitedNova: true }, {}, sess, now), false, "one Nova tab visit retires the pop for good");
+  assert.equal(popEligible({}, {}, { startedAt: now - 60000, popped: true }, now), false, "one pop per session");
+  assert.equal(popEligible({}, {}, { startedAt: now - 10000, popped: false }, now), false, "never inside the first twenty seconds of a session");
+  assert.equal(popEligible({}, {}, { startedAt: now - POP_MIN_SESSION_MS, popped: false }, now), true, "at twenty seconds the session is old enough");
+  assert.equal(popEligible({ lastPopAt: now - 3600 * 1000 }, {}, sess, now), false, "inside the day she rests");
+  assert.equal(popEligible({ lastPopAt: now - POP_GAP_MS }, {}, sess, now), true, "a full day later she may pop again");
+  assert.equal(popEligible({ lastPopAt: now - 2 * POP_GAP_MS, popDismissals: 2 }, {}, sess, now), false,
+    "twice dismissed, she rests a week, not a day");
+  assert.equal(popEligible({ lastPopAt: now - POP_LONG_GAP_MS, popDismissals: 2 }, {}, sess, now), true);
+  for (const ctx of [{ hidden: true }, { typing: true }, { inLesson: true }, { inCall: true }, { inCheckout: true }, { searchRunning: true }, { onNova: true }])
+    assert.equal(popEligible({}, ctx, sess, now), false, `a pop should never land in ${JSON.stringify(ctx)}`);
+  assert.equal(popBlocked({ typing: true }), true);
+  assert.equal(popBlocked({}), false);
+  assert.equal(popEligible(null, null, null, now), true, "empty inputs read as a fresh, clear page");
+});
+
+await test("popLineFor introduces her once, then rotates the dry reminders", () => {
+  assert.equal(popLineFor(0), POP_FIRST_LINE);
+  assert.equal(popLineFor(undefined), POP_FIRST_LINE, "no recorded pops is the first pop");
+  assert.equal(popLineFor(1), POP_LINES[0]);
+  assert.equal(popLineFor(2), POP_LINES[1]);
+  assert.equal(popLineFor(3), POP_LINES[2]);
+  assert.equal(popLineFor(4), POP_LINES[0], "the rotation wraps");
+});
+
+await test("recordPop counts the appearance without mutating the store it was handed", () => {
+  const before = { popCount: 1, lastPopAt: 5, other: "kept" };
+  const after = recordPop(before, 999);
+  assert.notEqual(after, before);
+  assert.equal(before.popCount, 1, "the input store is untouched");
+  assert.equal(after.popCount, 2);
+  assert.equal(after.lastPopAt, 999);
+  assert.equal(after.other, "kept", "unrelated quirks survive the record");
+  assert.equal(recordPop({}, 7).popCount, 1, "the first pop counts one");
+});
+
+await test("recordNovaVisit marks the visit once and returns the same object after", () => {
+  const fresh = recordNovaVisit({});
+  assert.equal(fresh.hasVisitedNova, true);
+  assert.equal(recordNovaVisit(fresh), fresh, "an already recorded visit returns the store itself, so the mount effect can skip the save");
+  assert.equal(recordNovaVisit(null).hasVisitedNova, true);
+});
+
+await test("the pop is mounted once in the shell and is silent, storeless, and quip free by construction", () => {
+  assert.ok(appSrc.includes('import NovaSidebarPop from "./NovaSidebarPop.jsx";'), "the shell does not import the pop");
+  assert.ok(appSrc.includes("<NovaSidebarPop"), "the pop is not mounted in the shell");
+  assert.ok(appSrc.includes('onOpenNova={() => handleSidebarNavigateRef.current("learn")}'), "clicking her does not open the Nova tab");
+  assert.ok(popSrc.includes('from "./LearnView.jsx"'), "the pop does not read the quirks store from LearnView");
+  assert.ok(popSrc.includes("loadNovaQuirks") && popSrc.includes("saveNovaQuirks"), "the pop does not use the quirks store");
+  assert.ok(!/localStorage|sessionStorage/.test(popSrc), "the pop invented a storage key; her state belongs in the quirks store");
+  assert.ok(popSrc.includes('from "./NovaRive.jsx"'), "the pop does not render through NovaRive");
+  assert.ok(popSrc.includes("quips={false}"), "the pop figure can still double bubble through the quip engine");
+  assert.ok(popSrc.includes("cbMotionOff"), "the pop does not read the app's motion setting");
+  assert.ok(popSrc.includes('".lv-sheet"'), "the lesson exclusion does not probe the lesson sheet");
+  assert.ok(popSrc.includes('aria-label="Dismiss Nova"'), "the bubble has no close affordance");
+  assert.ok(popSrc.includes("if (!pop) return null;"), "the pop does not unmount to zero cost when idle");
+  assert.ok(!/Audio|playSound|speak\(/.test(popSrc), "the pop makes noise; it should be silent by construction");
+});
+
+await test("the wave cue runs from NovaRive through NovaAvatar into a grouped right arm in the rig", () => {
+  assert.ok(riveSrc.includes("waveN={waveN}"), "NovaRive's fallback does not hand the wave counter to the avatar");
+  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 })'),
+    "NovaAvatar does not take the wave counter");
+  assert.ok(learnSrc.includes("noticeN = 0, waveN = 0 })"), "NovaRig does not take the wave counter");
+  assert.ok(learnSrc.includes('key={"wv" + waveN}'), "the right arm is not keyed by the wave counter");
+  assert.ok(learnSrc.includes('transformOrigin: "1012px 700px"'), "the arm group does not rotate around its shoulder root");
+  assert.ok(learnSrc.includes(".nv-rig-wave"), "the wave class is missing");
+  assert.ok(learnSrc.includes("@keyframes nvRigWave"), "the wave keyframes are missing");
+  // The wave group carries the arm's own parts: the two armR
+  // strokes and the fist at 1180, 642, wrapped together.
+  const start = learnSrc.indexOf('key={"wv" + waveN}');
+  const waveGroup = learnSrc.slice(start, start + 500);
+  assert.ok(waveGroup.includes("NOVA_RIG_D.armR"), "the wave group lost the right arm strokes");
+  assert.ok(waveGroup.includes("cx={1180} cy={642}"), "the wave group lost the fist");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

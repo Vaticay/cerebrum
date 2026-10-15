@@ -89,6 +89,7 @@ import { InboxView, ReportConductModal } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
 import NovaEgg from "./NovaEgg.jsx";
+import NovaSidebarPop from "./NovaSidebarPop.jsx";
 import { createCourseFromResults, saveLearnCourse, emitNovaActivity } from "./LearnView.jsx";
 import { NovaRive } from "./NovaRive.jsx";
 
@@ -23546,6 +23547,10 @@ function App() {
       {/* Nova's app wide Easter egg: mounted once, renders nothing
           unless she is visiting (src/NovaEgg.jsx). */}
       <NovaEgg />
+      {/* Nova's sidebar discovery pop: for anyone who has never
+          opened the Nova tab, she slides out from behind the
+          sidebar now and then and invites them in (src/NovaSidebarPop.jsx). */}
+      <NovaSidebarPop searchRunning={busy} inCall={!!activeHuddle || !!incomingCall} novaOpen={view === "learn"} railCollapsed={railCollapsed} isMobile={isMobile} onOpenNova={() => handleSidebarNavigateRef.current("learn")} />
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
       {/* Screen-reader search announcer: announces "Searching..." when a
