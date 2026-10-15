@@ -10,9 +10,12 @@
  *     is public/favicon.svg's own path geometry stroked in the
  *     flat foundation gold #C4A35A.
  *   - Nova stands at the right in her current shipped form: the
- *     NovaRig greeting state (lab coat, glasses) server side
- *     rendered from src/LearnView.jsx with react-dom/server, the
- *     same extraction the rig harness uses. No raster poses, no
+ *     owner's v3 design (clay rose axolotl, parchment lab coat,
+ *     gold glasses, CEREBRUM ID badge), embedded as vectors from
+ *     the canonical sheet at
+ *     ~/workspace/nova-rive/model-sheet/nova-model-sheet.svg, the
+ *     same art rigged in public/nova/nova.riv. Vector in, vector
+ *     scaled, so she stays crisp at card size. No raster poses, no
  *     hand drawing. The halo behind her is a faint radial
  *     (#F7E9C9 falling to transparent), never a hard disc.
  *   - Type is drawn with PIL because resvg's fontdb will not load
@@ -25,8 +28,9 @@
  *     canonical source count from functions/lib/product.js
  *     (SOURCE_COUNT = 14). No dashes anywhere in new copy.
  *
- * Usage: node scripts/build-og-image.mjs [LearnView.jsx path] [out.png]
- * Defaults: src/LearnView.jsx -> public/og-image.png
+ * Usage: node scripts/build-og-image.mjs [nova v3 svg path] [out.png]
+ * Defaults: ~/workspace/nova-rive/model-sheet/nova-model-sheet.svg
+ * -> public/og-image.png
  * After redrawing, bump the ?v= cache buster in index.html and
  * scripts/prerender.mjs or edges keep serving the old art.
  */
@@ -35,11 +39,9 @@ import { execFileSync } from "child_process";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const ROOT = process.env.HOME + "/workspace/cerebrum";
-const { parse } = require(ROOT + "/node_modules/@babel/parser");
-const { transformSync } = require(ROOT + "/node_modules/esbuild");
 const { Resvg } = require(process.env.HOME + "/workspace/nova-avatar-harness/node_modules/@resvg/resvg-js");
 
-const learnViewPath = process.argv[2] || ROOT + "/src/LearnView.jsx";
+const novaSvgPath = process.argv[2] || process.env.HOME + "/workspace/nova-rive/model-sheet/nova-model-sheet.svg";
 const outPath = process.argv[3] || ROOT + "/public/og-image.png";
 
 /* 1. Inter Tight static instances from the site's variable font. */
@@ -52,36 +54,28 @@ for (const w of [400, 500, 600]) {
   }
 }
 
-/* 2. Server side render the shipped NovaRig, greeting, full figure. */
-const WANT = ["NOVA_RIG_INK", "NOVA_RIG_FILL", "NOVA_RIG_GOLD", "NOVA_RIG_WASH", "NOVA_RIG_COAT", "NOVA_RIG_COAT_SHADE",
-  "NOVA_RIG_D", "NOVA_RIG_FILAMENTS", "NOVA_RIG_MOUTHS", "NOVA_RIG_STATES", "novaRigSeq", "NovaRig", "NovaAvatar"];
-const src = readFileSync(learnViewPath, "utf8");
-const ast = parse(src, { sourceType: "module", plugins: ["jsx"] });
-const chunks = [];
-for (const node of ast.program.body) {
-  const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
-  if (!decl) continue;
-  const names = decl.type === "FunctionDeclaration" ? [decl.id.name]
-    : decl.type === "VariableDeclaration" ? decl.declarations.map((d) => d.id.name) : [];
-  if (names.some((n) => WANT.includes(n))) chunks.push(src.slice(decl.start, decl.end));
-}
-const body = `
-import React, { useState, useEffect, useRef } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-${chunks.join("\n")}
-console.log(renderToStaticMarkup(React.createElement(NovaAvatar, { state: "greeting", size: 560, framing: "panel" })));
-`;
-const js = transformSync(body, { loader: "jsx" }).code;
-writeFileSync("/tmp/og-nova-ssr.mjs", js
-  .replace('from "react"', 'from "' + ROOT + '/node_modules/react/index.js"')
-  .replace('from "react-dom/server"', 'from "' + ROOT + '/node_modules/react-dom/server.js"'));
-const html = execFileSync("node", ["/tmp/og-nova-ssr.mjs"], { maxBuffer: 64 * 1024 * 1024 }).toString();
-const svgMatch = html.match(/<svg[\s\S]*<\/svg>/);
-if (!svgMatch) throw new Error("NovaRig SSR produced no svg");
-const novaInner = svgMatch[0]
+/* 2. Nova's v3 art, straight from the canonical sheet. The sheet
+      is a full 1024 square with the character centred; take its
+      inner markup (dropping the root tag and the c2pa metadata
+      block) and re-emit it inside the scene at card scale. Her
+      badge lettering is live text in the sheet; resvg sets it
+      with the system sans, the same as the sheet's own renders. */
+const novaSvg = readFileSync(novaSvgPath, "utf8");
+const vbMatch = novaSvg.match(/viewBox="([^"]+)"/);
+if (!vbMatch) throw new Error("nova v3 svg has no viewBox: " + novaSvgPath);
+const NOVA_VB = vbMatch[1]; // "0 0 1024 1024"
+let groundStrips = 0;
+const novaInner = novaSvg
+  .replace(/<metadata>[\s\S]*?<\/metadata>/, "")
   .replace(/<svg[^>]*>/, "")
-  .replace(/<\/svg>\s*$/, "");
-const NOVA_VB = svgMatch[0].match(/viewBox="([^"]+)"/)[1]; // "120 230 1370 1230"
+  .replace(/<\/svg>\s*$/, "")
+  /* The sheet's own ground rect (full canvas, #2E2A26) is sheet
+     furniture, not character: drop it so she stands on the card's
+     halo like the previous card. The badge's dark photo panel is
+     a different, smaller rect and stays. */
+  .replace(/<rect[^>]*width="1024"[^>]*height="1024"[^>]*>/, () => { groundStrips++; return ""; });
+if (groundStrips !== 1) throw new Error("expected exactly one sheet ground rect to strip, stripped " + groundStrips);
+if (!novaInner.includes('id="Keycard"')) throw new Error("nova v3 svg does not look like the v3 sheet (no Keycard group)");
 
 /* 3. The scene: ground, halo, mark, footer rule, Nova.
       Text geometry (measured on the instantiated 600 weight):
@@ -101,8 +95,8 @@ const scene = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"
   </radialGradient>
 </defs>
 <rect width="1200" height="630" fill="url(#bg)"/>
-<circle cx="930" cy="295" r="330" fill="url(#halo)"/>
-<svg x="700" y="118" width="460" height="413" viewBox="${NOVA_VB}">${novaInner}</svg>
+<circle cx="930" cy="315" r="330" fill="url(#halo)"/>
+<svg x="695" y="80" width="470" height="470" viewBox="${NOVA_VB}">${novaInner}</svg>
 <g fill="none" stroke="${GOLD}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(49 41) scale(4.41)">
   <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/>
   <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/>
