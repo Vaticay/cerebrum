@@ -73,7 +73,19 @@ RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
    EmitSearchQuip.
    Canvas box: the character renders at size * 1.85 wide with a
    height ratio of 0.62, matching the fallback rig's bust box,
-   so the editor artboard should be authored wide. */
+   so the editor artboard should be authored wide.
+   Framing update (2026-10-15, the owner's verdict on the first
+   live build: "She's blurry and too small"): the shipped asset
+   is a full body character on a square 1024 artboard, and she
+   fills about 80 percent of it each way (measured on the rest
+   frame: x 0.102 to 0.898, y 0.104 to 0.886). The bust box
+   letterboxed her into about 59 CSS px of figure in the old
+   66px header. NovaCanvas now takes a framing prop: "bust"
+   (the default, the box above, unchanged for the small spots)
+   or "full" (a box hugging the figure's own aspect, width
+   size * 1.02 by height size), and "panel" means full too,
+   matching NovaAvatar's panel semantics. Her stage on the
+   learning home passes framing "full" at a large size. */
 export const NOVA_RIVE_STATE_MACHINE = "Nova_Controller";
 export const NOVA_RIVE_SRC = "/nova/nova.riv";
 export const NOVA_RIVE_ASSET = "/nova/nova.riv";
@@ -386,7 +398,9 @@ function NovaFallback(props) {
     : null;
   return (
     <span ref={anchorRef} style={{ position: "relative", display: "inline-flex", ...(vars || {}) }}>
-      <NovaAvatar state={state} size={size} framing={framing} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />
+      {/* The canvas surface's "full" is the avatar's "panel":
+          both mean the whole figure standing at size. */}
+      <NovaAvatar state={state} size={size} framing={framing === "full" ? "panel" : framing} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />
       {quips.quip && <QuipBubble line={quips.quip.line} onDismiss={quips.dismissQuip} />}
     </span>
   );
@@ -402,7 +416,7 @@ function NovaFallback(props) {
 function NovaCanvas(props) {
   // waveN is accepted here and left unused: the Rive contract has no wave trigger.
   const {
-    size = 48, quizState = 0, appState = 0, pointer = null, waveN = 0,
+    size = 48, framing = "bust", quizState = 0, appState = 0, pointer = null, waveN = 0,
     sleepStage = 0, pokeN = 0, celebrateN = 0, reducedMotion = false, anchorRef = null,
   } = props;
   const quips = useNovaQuips({
@@ -412,14 +426,52 @@ function NovaCanvas(props) {
     lineBusy: !!props.lineBusy,
     idleMs: props.idleMs || 0,
   });
+  /* The options ride as useRive's second argument, pinned in
+     code rather than inherited: the canvas resizes to its
+     container, and its backing store is sized in device
+     pixels. The wrapper's resize hook does that multiplication
+     for the canvas attributes, but it never tells the runtime
+     instance, whose devicePixelRatioUsed stays at 1 (it is
+     only synced for the Layout fit) while alignRenderer folds
+     that value into the render transform. The sync effect
+     below closes that gap with the runtime's own consumer
+     method, resizeDrawingSurfaceToCanvas, which rederives the
+     backing store from the canvas's CSS box at the real ratio
+     and records the ratio the transform expects. */
   const riveState = useRive({
     src: NOVA_RIVE_ASSET,
     stateMachines: NOVA_RIVE_STATE_MACHINE,
     autoplay: true,
     layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
-  });
+  }, { useDevicePixelRatio: true, shouldResizeCanvasToContainer: true });
   const rive = riveState.rive;
   const RiveComponent = riveState.RiveComponent;
+  const canvasEl = riveState.canvas;
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    if (!rive || !canvasEl) return undefined;
+    const syncSurface = () => {
+      try {
+        const rect = canvasEl.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), 3);
+        if (rive.devicePixelRatioUsed === dpr) return;
+        rive.resizeDrawingSurfaceToCanvas(dpr);
+      } catch { /* the wrapper's own resize still applies; the sync only sharpens */ }
+    };
+    syncSurface();
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined" && boxRef.current) {
+      observer = new ResizeObserver(syncSurface);
+      observer.observe(boxRef.current);
+    }
+    window.addEventListener("resize", syncSurface);
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener("resize", syncSurface);
+    };
+  }, [rive, canvasEl]);
   const quizIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "quizState", 0);
   const appIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "appState", 0);
   const mouseXIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "mouseX", 0);
@@ -478,11 +530,22 @@ function NovaCanvas(props) {
     };
   }, [rive, onRiveEvent]);
 
-  const w = Math.round(size * 1.85);
-  const h = Math.round(w * 0.62);
+  /* Framing (2026-10-15): "bust" is the original box, size *
+     1.85 by 0.62, kept byte for byte for the small spots (the
+     lesson sheet, the sidebar pop, the tab headers). "full"
+     and "panel" give the square asset a box in its own
+     proportions: the figure fills about 0.80 of the artboard's
+     width and 0.78 of its height, so a box of size * 1.02 by
+     size holds her whole figure with almost no letterbox, and
+     size reads as the height she stands at (times 0.78 of
+     figure). maxWidth keeps the stage box inside a narrow
+     panel; the runtime resizes to whatever box results. */
+  const fullBody = framing === "full" || framing === "panel";
+  const w = fullBody ? Math.round(size * 1.02) : Math.round(size * 1.85);
+  const h = fullBody ? Math.round(size) : Math.round(w * 0.62);
   return (
     <span ref={anchorRef} style={{ position: "relative", display: "inline-flex" }}>
-      <span style={{ width: w, height: h, display: "block" }}>
+      <span ref={boxRef} style={fullBody ? { width: w, height: h, maxWidth: "100%", display: "block" } : { width: w, height: h, display: "block" }}>
         <RiveComponent />
       </span>
       {quips.quip && <QuipBubble line={quips.quip.line} onDismiss={quips.dismissQuip} />}

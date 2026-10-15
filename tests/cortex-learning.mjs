@@ -4217,6 +4217,31 @@ await test("the Rive runtime wasm is self hosted, never fetched from a CDN", () 
   }
 });
 
+/* The stage contract (2026-10-15, the owner's verdicts on the
+   first live Rive build: "She's blurry and too small" and
+   "Make her a better home"). The shipped asset is a full body
+   figure on a square artboard; the old bust box (size * 1.85
+   by 0.62, cut for the traced bust rig) letterboxed her into
+   about 59 CSS px in the 66px header, and at that size her
+   detail reads soft on a retina phone no matter the backing
+   store. She now stands on a stage at the top of Today at
+   full body size, the canvas has a full framing beside the
+   bust, and the runtime's drawing surface is synced to the
+   device pixel ratio (the React wrapper multiplies the
+   canvas attributes but never sets the instance's
+   devicePixelRatioUsed for non Layout fits; the runtime's own
+   consumer method, resizeDrawingSurfaceToCanvas, is what
+   records it). These pins hold all three parts. */
+await test("her stage: full body framing on Today, a DPR synced canvas, the shelf on the stage", () => {
+  assert.ok(learnSrc.includes('<NovaLive state={novaMood} size={288} framing="full" />'), "the Today stage does not mount her large and full body");
+  assert.ok(learnSrc.indexOf("NOVA'S SHELF") < learnSrc.indexOf("Due for review"), "the shelf is not on the stage above the review bench");
+  assert.ok(riveSrc.includes('framing === "full" || framing === "panel"'), "the canvas has no full body framing");
+  assert.ok(riveSrc.includes("Math.round(size * 1.85)"), "the bust box changed under the small spots");
+  assert.ok(riveSrc.includes("useDevicePixelRatio: true"), "the canvas does not pin the device pixel ratio option");
+  assert.ok(riveSrc.includes("resizeDrawingSurfaceToCanvas"), "the canvas never syncs its drawing surface to the device pixel ratio");
+  assert.ok(riveSrc.includes('framing === "full" ? "panel" : framing'), "the fallback does not map full to its panel framing");
+});
+
 await test("the quip bank holds all nine categories, voiced dry and free of dashes", () => {
   const cats = ["idle", "fourthWall", "searching", "preprintWarning", "highConfidence",
     "quizThinking", "quizCorrect", "quizStreak", "quizWrong"];
@@ -4446,14 +4471,22 @@ await test("the leagues closed state reads intentional, with the meantime named"
   assert.ok(!leagues.includes("Leagues are not open yet"), "the dead tab wording is still there");
 });
 
-await test("one Nova per screen: the header is the home's only resident figure", () => {
+await test("one Nova per screen: exactly one resident figure on every home screen", () => {
   // The owner's ruling (2026-10-15, with a photo of Today):
   // "There's too many Novas on this one page." He counted four
   // on Today alone: the header, the bench, the tip companion,
   // and the shelf. Every figure but the header's is gone now.
+  // Pin updated 2026-10-15 (the stage move, the owner's
+  // verdicts "She's blurry and too small" and "Make her a
+  // better home"): the header mount now renders only when the
+  // Today tab is not showing, and a third mount, the stage,
+  // renders only on Today. The source count is 3; at runtime
+  // every home screen still carries exactly one resident
+  // figure, which is what this test exists to hold.
   const mounts = learnSrc.match(/<NovaLive/g) || [];
-  assert.equal(mounts.length, 2, "NovaLive mounts beyond NovaSpeech's internals and the header");
+  assert.equal(mounts.length, 3, "NovaLive mounts beyond NovaSpeech's internals, the header, and the Today stage");
   assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header resident is gone");
+  assert.ok(learnSrc.includes('homeTab !== "today"'), "the header resident no longer steps aside on Today");
   for (const gone of [
     'state="fading" size={54}',            // the review bench greeter
     'state="asleep" size={72}',            // the shelf's standing figure

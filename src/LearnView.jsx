@@ -1431,6 +1431,12 @@ const CSS = `
 .lv-cols { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start; }
 .lv-nodes { display: flex; align-items: flex-start; overflow-x: auto; padding: 6px 2px 10px; scrollbar-width: none; }
 .lv-nodes::-webkit-scrollbar { display: none; }
+/* Her stage wordmark (2026-10-15): the wordmark at hero size
+   on the stage panel, a step down on small screens. */
+.lv-stage-word { font-size: 44px; }
+@media (max-width: 680px) {
+  .lv-stage-word { font-size: 34px; }
+}
 @media (max-width: 900px) {
   .lv-band { grid-template-columns: 1fr; }
   .lv-cols { grid-template-columns: 1fr; }
@@ -13449,18 +13455,27 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           mark beside the serif wordmark, the tagline in gold sans
           under it, and the quiet controls on the right. The sound
           control is an icon only and reflects the muted default;
-          it never turns sound on by itself. */}
+          it never turns sound on by itself.
+          Stage move (2026-10-15): on Today the thumbnail and the
+          wordmark step aside. Her stage below the nav is her one
+          residence on that screen, standing large, and it
+          carries the wordmark and tagline itself. The other home
+          screens keep this strip exactly as it was. */}
       <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, minHeight: 56 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
-          {/* No circle behind her (2026-10-14, the owner's
-              ruling): the bust stands on the page itself. */}
-          <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <NovaLive state={novaMood} size={66} />
-          </span>
-          <div style={{ minWidth: 0 }}>
-            <h1 className="lv-wordmark" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
-            <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
-          </div>
+          {homeTab !== "today" && (
+            <>
+              {/* No circle behind her (2026-10-14, the owner's
+                  ruling): the bust stands on the page itself. */}
+              <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <NovaLive state={novaMood} size={66} />
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <h1 className="lv-wordmark" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
+                <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
+              </div>
+            </>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <button onClick={() => setTourOpen(true)}
@@ -13504,6 +13519,66 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {homeTab === "today" && (
         <>
+      {/* Her stage (2026-10-15, the owner's verdict on the
+          first live Rive build: "She's blurry and too small"
+          and "Make her a better home"): a hero panel at the top
+          of Today where she stands at full body size, the
+          wordmark and tagline beside her, the day's path
+          progress under them, and her shelf in a strip along
+          the panel's bottom (it lived in the Zone 4 rail until
+          today). The header strip above keeps its thumbnail
+          and wordmark on the other home screens only, so this
+          screen still carries exactly one Nova, standing large.
+          Her line bubble anchors to her wrapper as it always
+          has; the wrapper now stands on this stage. The brain
+          wiring is the same NovaLive, so her mood, stage, and
+          doing still read on the container, and a tap on her
+          still pokes her. */}
+      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
+        <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "100%" }}>
+            <NovaLive state={novaMood} size={288} framing="full" />
+          </span>
+          <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+            <h2 className="lv-stage-word" style={{ fontFamily: SERIF, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>
+            <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "10px 0 0" }}>{CORTEX_TAGLINE}</p>
+            <div style={{ marginTop: 24 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TODAY'S PATH</div>
+              <div style={{ fontFamily: SERIF, fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, lineHeight: 1.3 }}>{bandTitle}</div>
+              <span style={{ display: "block", height: 4, background: P.line, overflow: "hidden", marginTop: 10, maxWidth: 340 }}>
+                <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: (totalPathLessons > 0 ? Math.round((totalPathDone / totalPathLessons) * 100) : 0) + "%" }} />
+              </span>
+              <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
+                {totalPathDone} of {totalPathLessons} path lessons done. Today's session and the full path are in the band below.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
+          {shelf.length === 0 ? (
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
+              Nothing on the shelf yet. Finish a path and its object lands here, and stays.
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+              {shelf.map((o) => (
+                <div key={o.pathId} style={{ width: 64, textAlign: "center" }}>
+                  <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 64, height: 64, background: CREAM, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl }}>
+                    <ShelfObjectMark glyph={o.glyph} />
+                  </span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.35, marginTop: 6 }}>{o.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {shelfLine && (
+            <NovaTip id="shelf" bare state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}>
+              {shelfLine}
+            </NovaTip>
+          )}
+        </div>
+      </div>
       <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "14px 0 0", maxWidth: 620 }}>
         Each lesson teaches one part of a subject, then quizzes you on it. Paths, the catalog, and a question of your own all start from the tabs above. Finished lessons come back for review later, before they fade.
       </p>
@@ -13635,10 +13710,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
       </div>
 
-      {/* Zone 4, the two column body: review and quests in the
-          main column, Nova's shelf and the loop panels in the
-          rail. On mobile the rail simply follows the column. */}
-      <div className="lv-cols" style={{ marginBottom: 8 }}>
+      {/* Zone 4, the body: review and quests in one column.
+          It was a two column body until the stage move
+          (2026-10-15): the rail held her shelf, and the shelf
+          lives on her stage now, so the rail is gone and the
+          bench and quests take the full width. */}
+      <div style={{ marginBottom: 8 }}>
         <div style={{ minWidth: 0 }}>
           {/* the review bench: review as a place, with its due
               count on the door. Due items are cream rows; each row
@@ -13738,41 +13815,6 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </div>
         </div>
 
-        <div style={{ minWidth: 0 }}>
-          {/* Nova's shelf: one object per finished path, and the
-              objects stay. It is the learner's history at a
-              glance, kept where Nova sits. */}
-          <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, marginBottom: 16, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
-            {shelf.length === 0 ? (
-              <div>
-                {/* No figure in the shelf (one Nova per screen,
-                    2026-10-15): she stood in the empty shelf until
-                    today. The shelf is its objects, or this line;
-                    the header Nova is the screen's resident. */}
-                <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
-                  Nothing on the shelf yet. Finish a path and its object lands here, and stays.
-                </p>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
-                {shelf.map((o) => (
-                  <div key={o.pathId} style={{ width: 64, textAlign: "center" }}>
-                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 64, height: 64, background: CREAM, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl }}>
-                      <ShelfObjectMark glyph={o.glyph} />
-                    </span>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.35, marginTop: 6 }}>{o.title}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {shelfLine && (
-              <NovaTip id="shelf" bare state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}>
-                {shelfLine}
-              </NovaTip>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Zone 5, the footer line (wave 3): one quiet line, and the
